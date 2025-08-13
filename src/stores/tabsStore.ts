@@ -33,8 +33,9 @@ export const useTabsStore = create<TabsStore>((set) => ({
   removeTab: (id) => {
     set((state) => {
       const filteredTabs = state.tabs.filter((tab) => tab.id !== id);
-      const newActiveTab = state.activeTab === id && filteredTabs.length > 0
-        ? filteredTabs[filteredTabs.length - 1].id
+      const lastTab = filteredTabs[filteredTabs.length - 1];
+      const newActiveTab = state.activeTab === id && filteredTabs.length > 0 && lastTab
+        ? lastTab.id
         : state.activeTab;
       
       return {

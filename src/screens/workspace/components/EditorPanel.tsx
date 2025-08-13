@@ -97,6 +97,7 @@ export function EditorPanel() {
       // First, try to fit as many tabs as possible
       for (let i = 0; i < tabs.length; i++) {
         const tab = tabs[i];
+        if (!tab) continue;
         const tabWidth = getTabWidth(tab);
 
         if (currentWidth + tabWidth <= availableWidth) {
@@ -170,17 +171,15 @@ export function EditorPanel() {
               >
                 {getIcon(tab.type)}
                 <span>{tab.name}</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-4 w-4 p-0 ml-1.5 hover:bg-transparent opacity-60 hover:opacity-100"
+                <div
+                  className="h-4 w-4 p-0 ml-1.5 hover:bg-transparent opacity-60 hover:opacity-100 cursor-pointer flex items-center justify-center"
                   onClick={(e) => {
                     e.stopPropagation();
                     removeTab(tab.id);
                   }}
                 >
                   <X className="h-3 w-3" />
-                </Button>
+                </div>
               </TabsTrigger>
             ))}
           </TabsList>

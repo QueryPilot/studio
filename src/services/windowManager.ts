@@ -2,8 +2,13 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 export const windowManager = {
-  async openWorkspace(workspaceId: string) {
-    console.log("Opening workspace:", workspaceId);
+  async openWorkspace(workspaceId: string, connectionId?: string) {
+    console.log("Opening workspace:", workspaceId, "with connection:", connectionId);
+    
+    if (!workspaceId) {
+      throw new Error("Workspace ID is required");
+    }
+    
     try {
       const label = `workspace-${workspaceId}`;
       
@@ -23,7 +28,7 @@ export const windowManager = {
       // Create new workspace window
       console.log("Creating new workspace window with label:", label);
       const workspaceWindow = new WebviewWindow(label, {
-        url: `index.html#/workspace/${workspaceId}`,
+        url: connectionId ? `/workspace/${workspaceId}?connection=${connectionId}` : `/workspace/${workspaceId}`,
         title: "DevDB Studio - Workspace",
         width: 1200,
         height: 800,
@@ -34,20 +39,25 @@ export const windowManager = {
         decorations: true,
         titleBarStyle: "overlay",
         hiddenTitle: true,
+        visible: false,
       });
       
       // Listen for window creation
       workspaceWindow.once("tauri://created", async () => {
         console.log("Workspace window created successfully");
-        // Close main window after workspace is created
         try {
+          // Show the window after it's fully created
+          await workspaceWindow.show();
+          console.log("Workspace window shown");
+          
+          // Close main window after workspace is created and shown
           const currentWindow = getCurrentWebviewWindow();
           if (currentWindow.label === "main") {
             console.log("Closing main window");
             await currentWindow.close();
           }
         } catch (e) {
-          console.error("Error closing main window:", e);
+          console.error("Error showing/closing windows:", e);
         }
       });
       
@@ -58,7 +68,10 @@ export const windowManager = {
       
     } catch (error) {
       console.error("Failed to open workspace window:", error);
-      alert(`Failed to open workspace: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("Error details:", errorMessage);
+      alert(`Failed to open workspace: ${errorMessage}`);
+      throw error;
     }
   },
 
@@ -91,7 +104,7 @@ export const windowManager = {
       
       // Create main window
       const newMainWindow = new WebviewWindow("main", {
-        url: "index.html#/",
+        url: "/",
         title: "DevDB Studio",
         width: 800,
         height: 600,

@@ -1,4 +1,7 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
+import { databaseService } from "@/services/database";
+import { encryptCredentials, decryptCredentials } from "@/lib/encryption";
 
 interface ConnectionConfig {
   id: string;
@@ -8,9 +11,10 @@ interface ConnectionConfig {
   port?: number;
   database: string;
   username?: string;
-  password?: string;
+  password?: string; // This will be encrypted when stored
   ssl?: boolean;
   filePath?: string; // For SQLite
+  workspaceId?: string; // Which workspace this connection belongs to
 }
 
 interface Connection {
@@ -32,22 +36,31 @@ interface ConnectionState {
   isExecuting: boolean;
   queryProgress: number;
   
-  addConnection: (config: ConnectionConfig) => void;
+  addConnection: (config: ConnectionConfig) => Promise<void>;
+  updateConnection: (connectionId: string, config: ConnectionConfig) => Promise<void>;
   removeConnection: (connectionId: string) => void;
   connect: (connectionId: string) => Promise<void>;
-  disconnect: (connectionId: string) => void;
+  disconnect: (connectionId: string) => Promise<void>;
   setActiveConnection: (connectionId: string) => void;
   executeQuery: (query: string) => Promise<QueryResult>;
   setQueryProgress: (progress: number) => void;
+  testConnection: (config: ConnectionConfig) => Promise<boolean>;
 }
 
-export const useConnectionStore = create<ConnectionState>((set) => ({
+export const useConnectionStore = create<ConnectionState>()(
+  persist(
+    (set, get) => ({
   connections: new Map(),
   activeConnectionId: null,
   isExecuting: false,
   queryProgress: 0,
   
-  addConnection: (config) =>
+  addConnection: async (config) => {
+    // Encrypt password if present
+    if (config.password) {
+      config.password = await encryptCredentials(config.password);
+    }
+    
     set((state) => {
       const newConnections = new Map(state.connections);
       newConnections.set(config.id, {
@@ -55,7 +68,28 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
         status: "disconnected",
       });
       return { connections: newConnections };
-    }),
+    });
+  },
+  
+  updateConnection: async (connectionId, config) => {
+    // Encrypt password if present
+    if (config.password) {
+      config.password = await encryptCredentials(config.password);
+    }
+    
+    set((state) => {
+      const newConnections = new Map(state.connections);
+      const existingConnection = newConnections.get(connectionId);
+      if (existingConnection) {
+        newConnections.set(connectionId, {
+          ...existingConnection,
+          config,
+          status: "disconnected", // Reset status when config changes
+        });
+      }
+      return { connections: newConnections };
+    });
+  },
     
   removeConnection: (connectionId) =>
     set((state) => {
@@ -71,79 +105,144 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
     }),
     
   connect: async (connectionId) => {
+    const connection = get().connections.get(connectionId);
+    if (!connection) return;
+
     set((state) => {
       const newConnections = new Map(state.connections);
-      const connection = newConnections.get(connectionId);
-      if (connection) {
-        connection.status = "connecting";
-        connection.error = undefined;
+      const conn = newConnections.get(connectionId);
+      if (conn) {
+        conn.status = "connecting";
+        conn.error = undefined;
       }
       return { connections: newConnections };
     });
     
-    // Simulate connection (replace with actual Tauri command)
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    
-    set((state) => {
-      const newConnections = new Map(state.connections);
-      const connection = newConnections.get(connectionId);
-      if (connection) {
-        connection.status = "connected";
+    try {
+      // Decrypt password before connecting
+      const config = { ...connection.config };
+      if (config.password) {
+        config.password = await decryptCredentials(config.password);
       }
-      return { connections: newConnections };
-    });
+      
+      // Use the database service to connect
+      await databaseService.connect(config);
+      
+      set((state) => {
+        const newConnections = new Map(state.connections);
+        const conn = newConnections.get(connectionId);
+        if (conn) {
+          conn.status = "connected";
+        }
+        return { 
+          connections: newConnections,
+          activeConnectionId: connectionId 
+        };
+      });
+    } catch (error) {
+      set((state) => {
+        const newConnections = new Map(state.connections);
+        const conn = newConnections.get(connectionId);
+        if (conn) {
+          conn.status = "error";
+          conn.error = error instanceof Error ? error.message : "Connection failed";
+        }
+        return { connections: newConnections };
+      });
+    }
   },
   
-  disconnect: (connectionId) =>
+  disconnect: async (connectionId) => {
+    try {
+      // Use the database service to disconnect
+      await databaseService.disconnect(connectionId);
+    } catch (error) {
+      console.error("Error disconnecting:", error);
+    }
+    
     set((state) => {
       const newConnections = new Map(state.connections);
       const connection = newConnections.get(connectionId);
       if (connection) {
         connection.status = "disconnected";
       }
-      return { connections: newConnections };
-    }),
+      return { 
+        connections: newConnections,
+        activeConnectionId: state.activeConnectionId === connectionId ? null : state.activeConnectionId
+      };
+    });
+  },
     
   setActiveConnection: (connectionId) =>
     set({ activeConnectionId: connectionId }),
     
-  executeQuery: async (_query) => {
+  executeQuery: async (query) => {
+    const activeConnectionId = get().activeConnectionId;
+    if (!activeConnectionId) {
+      throw new Error("No active connection");
+    }
+    
+    const connection = get().connections.get(activeConnectionId);
+    if (!connection || connection.status !== "connected") {
+      throw new Error("Connection not available");
+    }
+    
     set({ isExecuting: true, queryProgress: 0 });
     
-    // Simulate query execution with progress
-    const progressInterval = setInterval(() => {
-      set((state) => ({
-        queryProgress: Math.min(state.queryProgress + 10, 90),
-      }));
-    }, 100);
-    
-    // Simulate query execution (replace with actual Tauri command)
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    
-    clearInterval(progressInterval);
-    set({ isExecuting: false, queryProgress: 100 });
-    
-    // Mock result
-    return {
-      columns: ["id", "name", "email", "created_at"],
-      rows: [
-        {
-          id: 1,
-          name: "John Doe",
-          email: "john@example.com",
-          created_at: "2024-01-15",
-        },
-        {
-          id: 2,
-          name: "Jane Smith",
-          email: "jane@example.com",
-          created_at: "2024-01-16",
-        },
-      ],
-      rowCount: 2,
-      executionTime: 234,
-    };
+    try {
+      // Use the database service to execute query
+      const result = await databaseService.executeQuery(
+        connection.config,
+        connection.config.database,
+        query
+      );
+      
+      set({ isExecuting: false, queryProgress: 100 });
+      return result;
+    } catch (error) {
+      set({ isExecuting: false, queryProgress: 0 });
+      throw error;
+    }
   },
   
   setQueryProgress: (progress) => set({ queryProgress: progress }),
-}));
+  
+  testConnection: async (config) => {
+    try {
+      return await databaseService.testConnection(config);
+    } catch (error) {
+      console.error("Error testing connection:", error);
+      return false;
+    }
+  },
+    }),
+    {
+      name: "connection-storage",
+      // Custom serialization to handle Map
+      storage: {
+        getItem: (name) => {
+          const str = localStorage.getItem(name);
+          if (!str) return null;
+          const { state } = JSON.parse(str);
+          return {
+            state: {
+              ...state,
+              connections: new Map(state.connections),
+            },
+          };
+        },
+        setItem: (name, value) => {
+          const { state } = value as { state: ConnectionState };
+          const serialized = {
+            state: {
+              ...state,
+              connections: Array.from(state.connections.entries()),
+            },
+          };
+          localStorage.setItem(name, JSON.stringify(serialized));
+        },
+        removeItem: (name) => localStorage.removeItem(name),
+      },
+    },
+  ),
+);

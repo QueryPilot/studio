@@ -1,91 +1,199 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
-interface EditorTab {
+export interface Workspace {
   id: string;
-  title: string;
-  type: "query" | "table" | "view";
-  content: string;
-  isDirty: boolean;
+  name: string;
+  path: string;
+  lastOpened: string;
+  connectionIds: string[]; // Array of connection IDs
+  createdAt: string;
+  updatedAt: string;
 }
 
-interface Query {
-  id: string;
-  sql: string;
-  timestamp: Date;
-  executionTime: number;
-  rowCount: number;
-}
-
-interface WorkspaceState {
+interface WorkspaceStore {
+  workspaces: Map<string, Workspace>;
   activeWorkspaceId: string | null;
-  openTabs: EditorTab[];
-  activeTabId: string | null;
-  selectedTable: string | null;
-  queryHistory: Query[];
   
-  setActiveWorkspace: (workspaceId: string) => void;
-  addTab: (tab: Omit<EditorTab, "id">) => void;
-  updateTab: (tabId: string, updates: Partial<EditorTab>) => void;
-  closeTab: (tabId: string) => void;
-  setActiveTab: (tabId: string) => void;
-  selectTable: (tableName: string | null) => void;
-  addQueryToHistory: (query: Omit<Query, "id">) => void;
-  clearQueryHistory: () => void;
+  addWorkspace: (workspace: Omit<Workspace, "id" | "createdAt" | "updatedAt">) => string;
+  removeWorkspace: (id: string) => void;
+  updateWorkspace: (id: string, updates: Partial<Workspace>) => void;
+  setActiveWorkspace: (id: string | null) => void;
+  addConnectionToWorkspace: (workspaceId: string, connectionId: string) => void;
+  removeConnectionFromWorkspace: (workspaceId: string, connectionId: string) => void;
+  updateLastOpened: (id: string) => void;
+  getWorkspaceByConnectionId: (connectionId: string) => Workspace | undefined;
+  ensureUncategorizedWorkspace: () => void;
 }
 
-export const useWorkspaceStore = create<WorkspaceState>((set) => ({
-  activeWorkspaceId: null,
-  openTabs: [],
-  activeTabId: null,
-  selectedTable: null,
-  queryHistory: [],
-  
-  setActiveWorkspace: (workspaceId) =>
-    set({ activeWorkspaceId: workspaceId }),
-    
-  addTab: (tab) =>
-    set((state) => {
-      const newTab = {
-        ...tab,
-        id: `tab-${Date.now()}`,
-      };
-      return {
-        openTabs: [...state.openTabs, newTab],
-        activeTabId: newTab.id,
-      };
+export const useWorkspaceStore = create<WorkspaceStore>()(
+  persist(
+    (set, get) => ({
+      workspaces: new Map(),
+      activeWorkspaceId: null,
+
+      addWorkspace: (workspace) => {
+        const id = crypto.randomUUID();
+        const now = new Date().toISOString();
+        const newWorkspace: Workspace = {
+          ...workspace,
+          id,
+          createdAt: now,
+          updatedAt: now,
+          connectionIds: workspace.connectionIds || [],
+        };
+        
+        set((state) => {
+          const newWorkspaces = new Map(state.workspaces);
+          newWorkspaces.set(id, newWorkspace);
+          return { workspaces: newWorkspaces };
+        });
+        
+        return id;
+      },
+
+      removeWorkspace: (id) => {
+        // Don't allow removing the Uncategorized workspace
+        if (id === "uncategorized") return;
+        
+        set((state) => {
+          const newWorkspaces = new Map(state.workspaces);
+          newWorkspaces.delete(id);
+          return {
+            workspaces: newWorkspaces,
+            activeWorkspaceId: state.activeWorkspaceId === id ? null : state.activeWorkspaceId,
+          };
+        });
+      },
+
+      updateWorkspace: (id, updates) => {
+        set((state) => {
+          const newWorkspaces = new Map(state.workspaces);
+          const workspace = newWorkspaces.get(id);
+          if (workspace) {
+            newWorkspaces.set(id, {
+              ...workspace,
+              ...updates,
+              updatedAt: new Date().toISOString(),
+            });
+          }
+          return { workspaces: newWorkspaces };
+        });
+      },
+
+      setActiveWorkspace: (id) => {
+        set({ activeWorkspaceId: id });
+        if (id) {
+          get().updateLastOpened(id);
+        }
+      },
+
+      addConnectionToWorkspace: (workspaceId, connectionId) => {
+        set((state) => {
+          const newWorkspaces = new Map(state.workspaces);
+          const workspace = newWorkspaces.get(workspaceId);
+          if (workspace && !workspace.connectionIds.includes(connectionId)) {
+            newWorkspaces.set(workspaceId, {
+              ...workspace,
+              connectionIds: [...workspace.connectionIds, connectionId],
+              updatedAt: new Date().toISOString(),
+            });
+          }
+          return { workspaces: newWorkspaces };
+        });
+      },
+
+      removeConnectionFromWorkspace: (workspaceId, connectionId) => {
+        set((state) => {
+          const newWorkspaces = new Map(state.workspaces);
+          const workspace = newWorkspaces.get(workspaceId);
+          if (workspace) {
+            newWorkspaces.set(workspaceId, {
+              ...workspace,
+              connectionIds: workspace.connectionIds.filter(id => id !== connectionId),
+              updatedAt: new Date().toISOString(),
+            });
+          }
+          return { workspaces: newWorkspaces };
+        });
+      },
+
+      updateLastOpened: (id) => {
+        set((state) => {
+          const newWorkspaces = new Map(state.workspaces);
+          const workspace = newWorkspaces.get(id);
+          if (workspace) {
+            newWorkspaces.set(id, {
+              ...workspace,
+              lastOpened: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            });
+          }
+          return { workspaces: newWorkspaces };
+        });
+      },
+
+      getWorkspaceByConnectionId: (connectionId) => {
+        const workspaces = get().workspaces;
+        for (const workspace of workspaces.values()) {
+          if (workspace.connectionIds.includes(connectionId)) {
+            return workspace;
+          }
+        }
+        return undefined;
+      },
+
+      ensureUncategorizedWorkspace: () => {
+        const workspaces = get().workspaces;
+        if (!workspaces.has("uncategorized")) {
+          const now = new Date().toISOString();
+          set((state) => {
+            const newWorkspaces = new Map(state.workspaces);
+            newWorkspaces.set("uncategorized", {
+              id: "uncategorized",
+              name: "Uncategorized",
+              path: "~/",
+              lastOpened: now,
+              connectionIds: [],
+              createdAt: now,
+              updatedAt: now,
+            });
+            return { workspaces: newWorkspaces };
+          });
+        }
+      },
     }),
-    
-  updateTab: (tabId, updates) =>
-    set((state) => ({
-      openTabs: state.openTabs.map((tab) =>
-        tab.id === tabId ? { ...tab, ...updates } : tab
-      ),
-    })),
-    
-  closeTab: (tabId) =>
-    set((state) => {
-      const filteredTabs = state.openTabs.filter((tab) => tab.id !== tabId);
-      const newActiveTabId =
-        state.activeTabId === tabId
-          ? filteredTabs[filteredTabs.length - 1]?.id || null
-          : state.activeTabId;
-      return {
-        openTabs: filteredTabs,
-        activeTabId: newActiveTabId,
-      };
-    }),
-    
-  setActiveTab: (tabId) => set({ activeTabId: tabId }),
-  
-  selectTable: (tableName) => set({ selectedTable: tableName }),
-  
-  addQueryToHistory: (query) =>
-    set((state) => ({
-      queryHistory: [
-        { ...query, id: `query-${Date.now()}` },
-        ...state.queryHistory,
-      ].slice(0, 100), // Keep last 100 queries
-    })),
-    
-  clearQueryHistory: () => set({ queryHistory: [] }),
-}));
+    {
+      name: "workspace-storage",
+      // Custom serialization to handle Map
+      storage: {
+        getItem: (name) => {
+          const str = localStorage.getItem(name);
+          if (!str) return null;
+          const { state } = JSON.parse(str);
+          return {
+            state: {
+              ...state,
+              workspaces: new Map(state.workspaces),
+            },
+          };
+        },
+        setItem: (name, value) => {
+          const { state } = value as { state: WorkspaceStore };
+          const serialized = {
+            state: {
+              ...state,
+              workspaces: Array.from(state.workspaces.entries()),
+            },
+          };
+          localStorage.setItem(name, JSON.stringify(serialized));
+        },
+        removeItem: (name) => localStorage.removeItem(name),
+      },
+      onRehydrateStorage: () => (state) => {
+        // Ensure Uncategorized workspace exists after rehydration
+        state?.ensureUncategorizedWorkspace();
+      },
+    },
+  ),
+);
