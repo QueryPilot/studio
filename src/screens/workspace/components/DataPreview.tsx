@@ -3,19 +3,20 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Copy, Download, FileJson, Table, FileText } from "lucide-react";
 
-export function DataPreview() {
-  const mockData = {
-    id: 1,
-    name: "John Doe",
-    email: "john@example.com",
-    created_at: "2024-01-15T10:30:00Z",
-    status: "active",
-    metadata: {
-      last_login: "2024-01-20T14:23:00Z",
-      ip_address: "192.168.1.1",
-      user_agent: "Mozilla/5.0...",
-    },
-  };
+interface DataPreviewProps {
+  data?: any;
+}
+
+export function DataPreview({ data }: DataPreviewProps) {
+  // If no data provided, show empty state
+  if (!data) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center text-muted-foreground p-4">
+        <Table className="h-8 w-8 mb-2" />
+        <p className="text-sm">Select a row to preview</p>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full flex flex-col bg-muted/30">
@@ -50,7 +51,7 @@ export function DataPreview() {
         <TabsContent value="json" className="flex-1 m-0">
           <ScrollArea className="h-full">
             <pre className="p-4 text-xs font-mono">
-              {JSON.stringify(mockData, null, 2)}
+              {JSON.stringify(data, null, 2)}
             </pre>
           </ScrollArea>
         </TabsContent>
@@ -60,7 +61,7 @@ export function DataPreview() {
             <div className="p-4">
               <table className="w-full text-sm">
                 <tbody>
-                  {Object.entries(mockData).map(([key, value]) => (
+                  {Object.entries(data).map(([key, value]) => (
                     <tr key={key} className="border-b">
                       <td className="py-2 font-medium text-muted-foreground">
                         {key}
@@ -81,7 +82,7 @@ export function DataPreview() {
         <TabsContent value="raw" className="flex-1 m-0">
           <ScrollArea className="h-full">
             <div className="p-4 font-mono text-xs">
-              {JSON.stringify(mockData)}
+              {JSON.stringify(data)}
             </div>
           </ScrollArea>
         </TabsContent>

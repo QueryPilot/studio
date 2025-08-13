@@ -17,10 +17,10 @@
         "resizable": false,
         "fullscreen": false,
         "center": true,
-        "width": 800,
-        "height": 600,
-        "minWidth": 800,
-        "minHeight": 600,
+        "width": 900,
+        "height": 700,
+        "minWidth": 900,
+        "minHeight": 700,
         "decorations": true,
         "transparent": true,
         "titleBarStyle": "Overlay",
@@ -28,7 +28,8 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "capabilities": ["default", "clipboard-capability"]
     }
   },
   "bundle": {

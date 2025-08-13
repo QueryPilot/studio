@@ -8,11 +8,18 @@ import { DatabaseSidebar } from "./components/DatabaseSidebar";
 import { EditorPanel } from "./components/EditorPanel";
 import { DataPreview } from "./components/DataPreview";
 import { StatusBar } from "./components/StatusBar";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { ImperativePanelHandle } from "react-resizable-panels";
 import { Settings } from "lucide-react";
+import { useParams, useSearchParams } from "react-router-dom";
+import { useConnectionStore } from "@/stores/connectionStore";
 
 export function WorkspaceScreen() {
+  const { id: workspaceId } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const priorityConnectionId = searchParams.get('connection');
+  const { connections, setActiveConnection, connect } = useConnectionStore();
+  
   const [leftPanelVisible, setLeftPanelVisible] = useState(true);
   const [rightPanelVisible, setRightPanelVisible] = useState(false);
   const [bottomPanelVisible, setBottomPanelVisible] = useState(true);
@@ -48,6 +55,19 @@ export function WorkspaceScreen() {
     setBottomPanelVisible(!bottomPanelVisible);
   };
   
+  // Handle priority connection on workspace open
+  useEffect(() => {
+    if (priorityConnectionId && connections.has(priorityConnectionId)) {
+      // Set as active connection
+      setActiveConnection(priorityConnectionId);
+      // Auto-connect if not already connected
+      const connection = connections.get(priorityConnectionId);
+      if (connection && connection.status !== 'connected' && connection.status !== 'connecting') {
+        connect(priorityConnectionId);
+      }
+    }
+  }, [priorityConnectionId, connections, setActiveConnection, connect]);
+  
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-background">
       <WorkspaceTitleBar
@@ -71,7 +91,7 @@ export function WorkspaceScreen() {
             onCollapse={() => setLeftPanelVisible(false)}
             onExpand={() => setLeftPanelVisible(true)}
           >
-            <DatabaseSidebar />
+            <DatabaseSidebar workspaceId={workspaceId} priorityConnectionId={priorityConnectionId} />
           </ResizablePanel>
 
           {leftPanelVisible && <ResizableHandle />}
