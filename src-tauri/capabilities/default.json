@@ -2,16 +2,23 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": ["main"],
+  "windows": ["*"],
+  "macosprivateapi": true,
   "permissions": [
     "core:default",
     "core:window:default",
     "core:window:allow-close",
-    "core:window:allow-minimize", 
+    "core:window:allow-minimize",
     "core:window:allow-maximize",
     "core:window:allow-toggle-maximize",
     "core:window:allow-is-maximized",
     "core:window:allow-start-dragging",
-    "opener:default"
+    "opener:default",
+    "core:webview:default",
+    "core:webview:allow-create-webview-window",
+    "core:webview:allow-create-webview",
+    "core:webview:allow-set-webview-size",
+    "core:webview:allow-set-webview-position",
+    "core:webview:allow-webview-close"
   ]
 }
