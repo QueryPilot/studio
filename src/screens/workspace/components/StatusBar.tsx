@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Clock, Database, Rows, Plus, ChevronDown } from "lucide-react";
+import { Clock, Database, Rows, Plus, RefreshCw } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -8,23 +8,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useState } from "react";
-import { useConnectionStore } from "@/stores/connectionStore";
+import { useState, useEffect } from "react";
+import { useConnectionStore } from "@/stores";
 import { ConnectionDialog } from "@/components/ConnectionDialog";
-import { useParams } from "react-router-dom";
 
 export function StatusBar() {
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
   const { connections, activeConnectionId, setActiveConnection, connect } =
     useConnectionStore();
-  const { id: workspaceId } = useParams<{ id: string }>();
+  console.log(">>>", "connections", connections);
+  // Get unique connections - filter out any duplicates by connection ID
+  const uniqueConnections = new Map<
+    string,
+    typeof connections extends Map<any, infer V> ? V : never
+  >();
+  connections.forEach((connection) => {
+    if (connection.config.id && !uniqueConnections.has(connection.config.id)) {
+      uniqueConnections.set(connection.config.id, connection);
+    }
+  });
 
-  // Filter connections for current workspace
-  const workspaceConnections = Array.from(connections.values()).filter(
-    (conn) =>
-      conn.config.workspaceId === workspaceId ||
-      (!conn.config.workspaceId && workspaceId === "uncategorized"),
-  );
+  const workspaceConnections = Array.from(uniqueConnections.values());
 
   const activeConnection = activeConnectionId
     ? connections.get(activeConnectionId)
@@ -32,12 +36,38 @@ export function StatusBar() {
 
   const connectionStatus = activeConnection?.status || "disconnected";
 
-  const handleConnectionChange = (connectionId: string) => {
-    setActiveConnection(connectionId);
-    const connection = connections.get(connectionId);
-    if (connection && connection.status === "disconnected") {
-      connect(connectionId);
+  // Debug logging
+  useEffect(() => {
+    console.log(
+      `[StatusBar] Active connection status: ${connectionStatus}, ID: ${activeConnectionId}`,
+    );
+  }, [connectionStatus, activeConnectionId]);
+
+  // Auto-connect when activeConnectionId changes
+  useEffect(() => {
+    if (activeConnectionId && activeConnection) {
+      console.log(
+        `[StatusBar] Checking connection for ${activeConnectionId}, status: ${activeConnection.status}`,
+      );
+      // Only connect if not already connected or connecting
+      if (
+        activeConnection.status !== "connected" &&
+        activeConnection.status !== "connecting"
+      ) {
+        console.log(
+          `[StatusBar] Initiating connection for ${activeConnectionId}`,
+        );
+        connect(activeConnectionId).catch((error) => {
+          console.error(`[StatusBar] Failed to connect:`, error);
+        });
+      }
     }
+  }, [activeConnectionId]);
+
+  const handleConnectionChange = (connectionId: string) => {
+    // Set the new connection as active
+    // The useEffect hook will handle connecting if needed
+    setActiveConnection(connectionId);
   };
 
   return (
@@ -51,7 +81,9 @@ export function StatusBar() {
                 ? "bg-green-500"
                 : connectionStatus === "connecting"
                 ? "bg-yellow-500 animate-pulse"
-                : "bg-red-500"
+                : connectionStatus === "error"
+                ? "bg-red-500"
+                : "bg-gray-500"
             }`}
           />
           <span className="text-muted-foreground">
@@ -59,8 +91,27 @@ export function StatusBar() {
               ? "Connected"
               : connectionStatus === "connecting"
               ? "Connecting..."
+              : connectionStatus === "error"
+              ? activeConnection?.error || "Connection Error"
               : "Disconnected"}
           </span>
+          {/* Reconnect button for failed connections */}
+          {(connectionStatus === "error" || connectionStatus === "disconnected") && activeConnectionId && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-5 px-1 py-0"
+              onClick={() => {
+                console.log(`[StatusBar] Manual reconnect for ${activeConnectionId}`);
+                connect(activeConnectionId).catch((error) => {
+                  console.error(`[StatusBar] Reconnect failed:`, error);
+                });
+              }}
+              title="Retry connection"
+            >
+              <RefreshCw className="h-3 w-3" />
+            </Button>
+          )}
         </div>
 
         {/* Connection Switcher */}
@@ -71,7 +122,7 @@ export function StatusBar() {
               value={activeConnectionId || ""}
               onValueChange={handleConnectionChange}
             >
-              <SelectTrigger className="h-5 text-xs border-0 bg-transparent hover:bg-muted px-2 py-0 gap-1 min-w-[120px]">
+              <SelectTrigger className="!h-5 text-xs border-0 bg-transparent hover:bg-muted px-2 py-0 gap-1 min-w-[120px]">
                 <SelectValue placeholder="Select connection">
                   {activeConnection
                     ? activeConnection.config.name
@@ -115,16 +166,6 @@ export function StatusBar() {
             </Button>
           )}
         </div>
-
-        {/* Current Database */}
-        {activeConnection && (
-          <div className="flex items-center gap-1.5">
-            <span className="text-muted-foreground">DB:</span>
-            <span className="text-foreground font-mono text-xs">
-              {activeConnection.config.database}
-            </span>
-          </div>
-        )}
       </div>
 
       <div className="flex items-center gap-4">

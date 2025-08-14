@@ -6,27 +6,24 @@ import {
 import { WorkspaceTitleBar } from "./components/WorkspaceTitleBar";
 import { DatabaseSidebar } from "./components/DatabaseSidebar";
 import { EditorPanel } from "./components/EditorPanel";
-import { DataPreview } from "./components/DataPreview";
 import { StatusBar } from "./components/StatusBar";
 import { useState, useRef, useEffect } from "react";
 import { ImperativePanelHandle } from "react-resizable-panels";
 import { Settings } from "lucide-react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { useConnectionStore } from "@/stores/connectionStore";
+import { useConnectionStore } from "@/stores";
 
 export function WorkspaceScreen() {
-  const { id: workspaceId } = useParams<{ id: string }>();
+  const { id: _workspaceId } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const priorityConnectionId = searchParams.get('connection');
   const { connections, setActiveConnection, connect } = useConnectionStore();
   
   const [leftPanelVisible, setLeftPanelVisible] = useState(true);
   const [rightPanelVisible, setRightPanelVisible] = useState(false);
-  const [bottomPanelVisible, setBottomPanelVisible] = useState(true);
   
   const leftPanelRef = useRef<ImperativePanelHandle>(null);
   const rightPanelRef = useRef<ImperativePanelHandle>(null);
-  const bottomPanelRef = useRef<ImperativePanelHandle>(null);
   
   const toggleLeftPanel = () => {
     if (leftPanelVisible) {
@@ -46,15 +43,6 @@ export function WorkspaceScreen() {
     setRightPanelVisible(!rightPanelVisible);
   };
   
-  const toggleBottomPanel = () => {
-    if (bottomPanelVisible) {
-      bottomPanelRef.current?.collapse();
-    } else {
-      bottomPanelRef.current?.expand(30); // Set to 30% when expanding
-    }
-    setBottomPanelVisible(!bottomPanelVisible);
-  };
-  
   // Handle priority connection on workspace open
   useEffect(() => {
     if (priorityConnectionId && connections.has(priorityConnectionId)) {
@@ -63,20 +51,51 @@ export function WorkspaceScreen() {
       // Auto-connect if not already connected
       const connection = connections.get(priorityConnectionId);
       if (connection && connection.status !== 'connected' && connection.status !== 'connecting') {
-        connect(priorityConnectionId);
+        console.log(`[WorkspaceScreen] Auto-connecting to ${priorityConnectionId}`);
+        connect(priorityConnectionId).catch(err => {
+          console.error(`[WorkspaceScreen] Failed to auto-connect:`, err);
+        });
       }
     }
   }, [priorityConnectionId, connections, setActiveConnection, connect]);
+
+  // Prevent Cmd+A from selecting all text in the entire app
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      // Check if Cmd+A (Mac) or Ctrl+A (Windows/Linux) is pressed
+      if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
+        // Check if the active element is an input, textarea, or contenteditable
+        const activeElement = document.activeElement;
+        const isEditableElement = 
+          activeElement?.tagName === 'INPUT' ||
+          activeElement?.tagName === 'TEXTAREA' ||
+          activeElement?.getAttribute('contenteditable') === 'true' ||
+          activeElement?.classList.contains('monaco-editor');
+        
+        // If not in an editable element, prevent default
+        if (!isEditableElement) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }
+    };
+
+    // Add event listener with capture to intercept early
+    document.addEventListener('keydown', handleKeyDown, true);
+
+    // Cleanup
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, []);
   
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-background">
+    <div className="workspace-screen h-screen flex flex-col overflow-hidden bg-background">
       <WorkspaceTitleBar
         onToggleLeftPanel={toggleLeftPanel}
         onToggleRightPanel={toggleRightPanel}
-        onToggleBottomPanel={toggleBottomPanel}
         leftPanelVisible={leftPanelVisible}
         rightPanelVisible={rightPanelVisible}
-        bottomPanelVisible={bottomPanelVisible}
       />
 
       <div className="flex-1 overflow-hidden">
@@ -91,32 +110,13 @@ export function WorkspaceScreen() {
             onCollapse={() => setLeftPanelVisible(false)}
             onExpand={() => setLeftPanelVisible(true)}
           >
-            <DatabaseSidebar workspaceId={workspaceId} priorityConnectionId={priorityConnectionId} />
+            <DatabaseSidebar />
           </ResizablePanel>
 
           {leftPanelVisible && <ResizableHandle />}
 
           <ResizablePanel defaultSize={50} minSize={30}>
-            <ResizablePanelGroup direction="vertical">
-              <ResizablePanel defaultSize={70} minSize={30}>
-                <EditorPanel />
-              </ResizablePanel>
-              
-              {bottomPanelVisible && <ResizableHandle />}
-              
-              <ResizablePanel
-                ref={bottomPanelRef}
-                defaultSize={30}
-                minSize={20}
-                maxSize={70}
-                collapsible={true}
-                collapsedSize={0}
-                onCollapse={() => setBottomPanelVisible(false)}
-                onExpand={() => setBottomPanelVisible(true)}
-              >
-                <DataPreview />
-              </ResizablePanel>
-            </ResizablePanelGroup>
+            <EditorPanel />
           </ResizablePanel>
 
           {rightPanelVisible && <ResizableHandle />}

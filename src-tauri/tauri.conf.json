@@ -14,13 +14,13 @@
       {
         "label": "main",
         "title": "DevDB Studio",
-        "resizable": false,
+        "resizable": true,
         "fullscreen": false,
         "center": true,
         "width": 900,
-        "height": 700,
+        "height": 650,
         "minWidth": 900,
-        "minHeight": 700,
+        "minHeight": 650,
         "decorations": true,
         "transparent": true,
         "titleBarStyle": "Overlay",
@@ -30,7 +30,8 @@
     "security": {
       "csp": null,
       "capabilities": ["default", "clipboard-capability"]
-    }
+    },
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,
@@ -41,6 +42,9 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    }
   }
 }

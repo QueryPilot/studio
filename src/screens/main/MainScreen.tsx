@@ -37,8 +37,11 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { windowManager } from "@/services/windowManager";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
-import { useConnectionStore } from "@/stores/connectionStore";
+import { useConnectionStore } from "@/stores";
 import { ConnectionDialog } from "@/components/ConnectionDialog";
+import { StorageCleaner, getStorageStats } from "@/utils/clearStorage";
+import { emergencyClearAllConnections } from "@/utils/clearConnections";
+import { toast } from "sonner";
 import logo from "@/assets/logo.png";
 
 
@@ -66,6 +69,9 @@ export function MainScreen() {
   const [editingWorkspaceName, setEditingWorkspaceName] = useState("");
   const [deleteConfirmWorkspaceId, setDeleteConfirmWorkspaceId] = useState<string | null>(null);
   const [deleteConfirmConnectionId, setDeleteConfirmConnectionId] = useState<string | null>(null);
+  const [clearStorageDialogOpen, setClearStorageDialogOpen] = useState(false);
+  const [emergencyClearDialogOpen, setEmergencyClearDialogOpen] = useState(false);
+  const [storageStats, setStorageStats] = useState<any>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const { workspaces, ensureUncategorizedWorkspace, addWorkspace, updateWorkspace, removeWorkspace } = useWorkspaceStore();
   const { connections, removeConnection } = useConnectionStore();
@@ -74,22 +80,39 @@ export function MainScreen() {
     // Ensure uncategorized workspace exists
     ensureUncategorizedWorkspace();
     
+    // Note: Connections are loaded by useSecureStorageMigration hook in App.tsx
+    // No need to load them here to avoid duplicates
+  }, []); // Empty dependency array - run only once on mount
+  
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd/Ctrl + F for search
       if ((e.metaKey || e.ctrlKey) && e.key === "f") {
         e.preventDefault();
         searchInputRef.current?.focus();
+      }
+      
+      // Cmd/Ctrl + Shift + Delete for clearing storage
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "Delete" || e.key === "Backspace")) {
+        e.preventDefault();
+        getStorageStats().then(stats => {
+          setStorageStats(stats);
+          setClearStorageDialogOpen(true);
+        });
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [ensureUncategorizedWorkspace]);
+  }, []);
 
   const getWorkspaceConnections = (workspaceId: string) => {
-    return Array.from(connections.values()).filter(
-      conn => conn.config.workspaceId === workspaceId || 
-        (!conn.config.workspaceId && workspaceId === 'uncategorized')
-    );
+    const workspace = workspaces.get(workspaceId);
+    if (!workspace) return [];
+    
+    return workspace.connectionIds
+      .map(id => connections.get(id))
+      .filter(conn => conn !== undefined);
   };
   
   const formatLastOpened = (dateString: string) => {
@@ -111,8 +134,10 @@ export function MainScreen() {
       const matchesName = workspace.name.toLowerCase().includes(searchQuery.toLowerCase());
       const workspaceConnections = getWorkspaceConnections(workspace.id);
       const matchesConnection = workspaceConnections.some(conn =>
-        conn.config.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        conn.config.database.toLowerCase().includes(searchQuery.toLowerCase())
+        conn && (
+          conn.config.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (conn.config.database && conn.config.database.toLowerCase().includes(searchQuery.toLowerCase()))
+        )
       );
       return matchesName || matchesConnection;
     }
@@ -187,42 +212,56 @@ export function MainScreen() {
               </Button>
               
               <Button
-                variant="outline"
+                variant="destructive"
                 className="w-full justify-start"
-                size="sm"
-                onClick={() => {
-                  console.log('Test workspace open clicked');
-                  windowManager.openWorkspace('test-workspace').catch(err => {
-                    console.error('Test failed:', err);
-                    alert(`Test failed: ${err.message || err}`);
-                  });
-                }}
+                size="default"
+                onClick={() => setEmergencyClearDialogOpen(true)}
               >
-                <Settings className="mr-2 h-4 w-4" />
-                Test Open Workspace
+                <Trash2 className="mr-2 h-4 w-4" />
+                Emergency Clear All
               </Button>
+              
             </div>
           </div>
 
           {/* Bottom Actions */}
           <div className="p-4 space-y-1">
-            {/* <Button variant="ghost" className="w-full justify-start" size="sm">
-              <BookOpen className="mr-2 h-4 w-4" />
-              Documentation
-            </Button>
-            <Button variant="ghost" className="w-full justify-start" size="sm">
-              <GitBranch className="mr-2 h-4 w-4" />
-              GitHub
-            </Button> */}
             <div className="flex items-center justify-between">
-              <Button
-                variant="ghost"
-                className="flex-1 justify-start"
-                size="sm"
-              >
-                <Settings className="mr-2 h-4 w-4" />
-                Preferences
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className="flex-1 justify-start"
+                    size="sm"
+                  >
+                    <Settings className="mr-2 h-4 w-4" />
+                    Settings
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  <DropdownMenuItem
+                    onClick={async () => {
+                      const stats = await getStorageStats();
+                      setStorageStats(stats);
+                      setClearStorageDialogOpen(true);
+                    }}
+                    className="text-destructive"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    <div className="flex items-center justify-between w-full">
+                      <span>Clear All Data</span>
+                      <span className="text-xs text-muted-foreground ml-2">⌘⇧⌫</span>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setEmergencyClearDialogOpen(true)}
+                    className="text-red-600"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Emergency Clear Connections
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <ThemeToggle />
             </div>
           </div>
@@ -539,6 +578,116 @@ export function MainScreen() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
+      {/* Clear Storage Confirmation */}
+      <AlertDialog open={clearStorageDialogOpen} onOpenChange={setClearStorageDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear All Application Data</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-4">
+              <div>
+                This will permanently delete ALL application data including:
+                <ul className="list-disc list-inside mt-2 space-y-1">
+                  <li>All database connections and credentials</li>
+                  <li>All workspaces and configurations</li>
+                  <li>Query history and saved queries</li>
+                  <li>Application settings and preferences</li>
+                </ul>
+              </div>
+              
+              {storageStats && (
+                <div className="bg-muted rounded-md p-3 space-y-1 text-sm">
+                  <div>Storage Usage:</div>
+                  <div className="text-muted-foreground">
+                    • localStorage: {storageStats.localStorage.items} items ({(storageStats.localStorage.size / 1024).toFixed(2)} KB)
+                  </div>
+                  <div className="text-muted-foreground">
+                    • sessionStorage: {storageStats.sessionStorage.items} items ({(storageStats.sessionStorage.size / 1024).toFixed(2)} KB)
+                  </div>
+                  <div className="text-muted-foreground">
+                    • Total: {(storageStats.total / 1024).toFixed(2)} KB
+                  </div>
+                </div>
+              )}
+              
+              <div className="font-semibold text-destructive">
+                ⚠️ This action cannot be undone. The application will reload after clearing.
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                try {
+                  // Clear all storage
+                  await StorageCleaner.clearAll();
+                  console.log('✅ All storage cleared successfully');
+                  
+                  // Close dialog
+                  setClearStorageDialogOpen(false);
+                  
+                  // Reload the application after a brief delay
+                  setTimeout(() => {
+                    window.location.reload();
+                  }, 500);
+                } catch (error) {
+                  console.error('Failed to clear storage:', error);
+                  alert('Failed to clear storage. Please try again.');
+                }
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Clear All Data & Reload
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
+      {/* Emergency Clear Connections Dialog */}
+      <AlertDialog open={emergencyClearDialogOpen} onOpenChange={setEmergencyClearDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-destructive">⚠️ Emergency Clear All Connections</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-4">
+              <div>
+                This will <strong>FORCEFULLY DELETE</strong> all database connections and completely reset the application.
+              </div>
+              
+              <div className="bg-destructive/10 border border-destructive/20 rounded-md p-3 space-y-2">
+                <div className="font-semibold">This action will:</div>
+                <ul className="list-disc list-inside space-y-1 text-sm">
+                  <li>Delete ALL connections from secure storage</li>
+                  <li>Clear all local storage data</li>
+                  <li>Reset all application state</li>
+                  <li>Automatically reload the application</li>
+                </ul>
+              </div>
+              
+              <div className="font-semibold text-destructive">
+                ⚠️ This action cannot be undone. The application will reload immediately after clearing.
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                try {
+                  toast.info("Emergency clearing all connections...");
+                  await emergencyClearAllConnections();
+                } catch (error) {
+                  console.error("Failed to emergency clear connections:", error);
+                  toast.error("Failed to clear connections - manual reload may be needed");
+                }
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Force Clear & Reload
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

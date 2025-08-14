@@ -18,7 +18,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-opener = "2"
 tauri-plugin-sql = { version = "2", features = ["sqlite", "postgres", "mysql"] }
 tauri-plugin-clipboard-manager = "2"
@@ -26,6 +26,25 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 sqlx = { version = "0.8", features = ["runtime-tokio-native-tls", "postgres", "mysql", "sqlite"] }
+# Secure storage dependencies
+keyring = { version = "3.0", features = ["apple-native", "windows-native", "sync-secret-service"] }
+argon2 = "0.5"
+aes-gcm = "0.10"
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+constant_time_eq = "0.3"
+base64 = "0.22"
+rand = "0.8"
+zeroize = { version = "1.7", features = ["derive"] }
+uuid = { version = "1.7", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5.0"
+pbkdf2 = "0.12"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+# Performance optimization
+rayon = "1.10"
 
 [features]
 default = ["postgres", "mysql", "sqlite"]
