@@ -1,5 +1,5 @@
 export interface ParsedDatabaseUri {
-  type: "postgresql" | "mysql" | "sqlite" | "mongodb";
+  type: "postgresql" | "mysql" | "sqlite";
   host?: string;
   port?: number;
   database?: string;
@@ -54,23 +54,7 @@ export function parseDatabaseUri(uri: string): ParsedDatabaseUri | null {
       };
     }
     
-    // MongoDB
-    if (uri.startsWith("mongodb://") || uri.startsWith("mongodb+srv://")) {
-      const isSrv = uri.startsWith("mongodb+srv://");
-      const url = new URL(uri);
-      const database = url.pathname.slice(1) || "test";
-      
-      return {
-        type: "mongodb",
-        host: url.hostname || "localhost",
-        port: !isSrv && url.port ? parseInt(url.port) : 27017,
-        database,
-        username: url.username || undefined,
-        password: url.password || undefined,
-        ssl: isSrv || url.searchParams.get("ssl") === "true",
-        options: Object.fromEntries(url.searchParams),
-      };
-    }
+    // MongoDB support removed - using secure backend architecture
     
     // Try to detect by common patterns
     if (uri.includes("@") && uri.includes(":")) {
@@ -90,12 +74,12 @@ export function parseDatabaseUri(uri: string): ParsedDatabaseUri | null {
         
         if (portNum === 3306) type = "mysql";
         else if (portNum === 5432) type = "postgresql";
-        else if (portNum === 27017) type = "mongodb";
+        // MongoDB removed - only PostgreSQL and MySQL supported
         
         return {
           type,
           host: host || "localhost",
-          port: portNum || (type === "mysql" ? 3306 : type === "postgresql" ? 5432 : 27017),
+          port: portNum || (type === "mysql" ? 3306 : 5432),
           database: database || undefined,
           username: username || undefined,
           password: password || undefined,
@@ -111,7 +95,7 @@ export function parseDatabaseUri(uri: string): ParsedDatabaseUri | null {
 }
 
 export function buildDatabaseUri(config: ParsedDatabaseUri): string {
-  const { type, host, port, database, username, password, ssl, filePath, options } = config;
+  const { type, host, port, database, username, password, filePath, options } = config;
   
   if (type === "sqlite" && filePath) {
     return `sqlite:${filePath}`;
@@ -129,10 +113,7 @@ export function buildDatabaseUri(config: ParsedDatabaseUri): string {
       protocol = "mysql://";
       defaultPort = 3306;
       break;
-    case "mongodb":
-      protocol = ssl ? "mongodb+srv://" : "mongodb://";
-      defaultPort = 27017;
-      break;
+    // MongoDB removed - using secure backend architecture
   }
   
   let uri = protocol;

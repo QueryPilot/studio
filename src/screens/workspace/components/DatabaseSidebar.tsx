@@ -13,9 +13,9 @@ import {
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useTabsStore } from "@/stores/tabsStore";
-import { useConnectionStore } from "@/stores/connectionStore";
-import { databaseService } from "@/services/database";
-import type { TableInfo, ViewInfo, FunctionInfo } from "@/services/database";
+import { useConnectionStore } from "@/stores";
+import { secureDatabaseService } from "@/services/secureDatabaseService";
+import type { TableInfo, ViewInfo, FunctionInfo } from "@/types/database";
 
 interface TreeItem {
   name: string;
@@ -23,12 +23,7 @@ interface TreeItem {
   children?: TreeItem[];
 }
 
-interface DatabaseSidebarProps {
-  workspaceId?: string;
-  priorityConnectionId?: string | null;
-}
-
-export function DatabaseSidebar({ workspaceId, priorityConnectionId }: DatabaseSidebarProps) {
+export function DatabaseSidebar() {
   const [expanded, setExpanded] = useState<string[]>(["Tables"]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoadingSchema, setIsLoadingSchema] = useState(false);
@@ -51,23 +46,15 @@ export function DatabaseSidebar({ workspaceId, priorityConnectionId }: DatabaseS
   };
   
   const loadDatabaseSchema = async () => {
-    if (!activeConnection || activeConnection.status !== "connected") return;
+    if (!activeConnection || activeConnection.status !== "connected" || !activeConnectionId) return;
     
     setIsLoadingSchema(true);
     try {
+      // Fetch schema information from secure backend
       const [tablesData, viewsData, functionsData] = await Promise.all([
-        databaseService.getTables(
-          activeConnection.config,
-          activeConnection.config.database
-        ),
-        databaseService.getViews(
-          activeConnection.config,
-          activeConnection.config.database
-        ),
-        databaseService.getFunctions(
-          activeConnection.config,
-          activeConnection.config.database
-        ),
+        secureDatabaseService.getTables(activeConnectionId),
+        secureDatabaseService.getViews(activeConnectionId),
+        secureDatabaseService.getFunctions(activeConnectionId),
       ]);
       
       setTables(tablesData);

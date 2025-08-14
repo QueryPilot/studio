@@ -1,5 +1,6 @@
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { LogicalSize } from "@tauri-apps/api/dpi";
+import { navigationTransition } from "./navigationTransition";
 
 export const windowManager = {
   async openWorkspace(workspaceId: string, connectionId?: string) {
@@ -10,124 +11,121 @@ export const windowManager = {
     }
     
     try {
-      const label = `workspace-${workspaceId}`;
+      // Navigate to workspace URL
+      const url = connectionId 
+        ? `/workspace/${workspaceId}?connection=${connectionId}` 
+        : `/workspace/${workspaceId}`;
       
-      // Check if window already exists
-      try {
-        const existingWindow = await WebviewWindow.getByLabel(label);
-        if (existingWindow) {
-          console.log("Found existing window, focusing...");
-          await existingWindow.setFocus();
-          await existingWindow.show();
-          return;
-        }
-      } catch (e) {
-        console.log("No existing window found, creating new...");
-      }
+      // Add smooth transition
+      await navigationTransition.fadeOut();
       
-      // Create new workspace window
-      console.log("Creating new workspace window with label:", label);
-      const workspaceWindow = new WebviewWindow(label, {
-        url: connectionId ? `/workspace/${workspaceId}?connection=${connectionId}` : `/workspace/${workspaceId}`,
-        title: "DevDB Studio - Workspace",
-        width: 1200,
-        height: 800,
-        minWidth: 1000,
-        minHeight: 600,
-        center: true,
-        resizable: true,
-        decorations: true,
-        titleBarStyle: "overlay",
-        hiddenTitle: true,
-        visible: false,
-      });
+      // Change window properties for workspace view
+      await this.configureForWorkspace();
       
-      // Listen for window creation
-      workspaceWindow.once("tauri://created", async () => {
-        console.log("Workspace window created successfully");
-        try {
-          // Show the window after it's fully created
-          await workspaceWindow.show();
-          console.log("Workspace window shown");
-          
-          // Close main window after workspace is created and shown
-          const currentWindow = getCurrentWebviewWindow();
-          if (currentWindow.label === "main") {
-            console.log("Closing main window");
-            await currentWindow.close();
-          }
-        } catch (e) {
-          console.error("Error showing/closing windows:", e);
-        }
-      });
-      
-      // Listen for error
-      workspaceWindow.once("tauri://error", (e) => {
-        console.error("Error creating workspace window:", e);
-      });
+      // Navigate using location.href
+      window.location.href = url;
       
     } catch (error) {
-      console.error("Failed to open workspace window:", error);
+      console.error("Failed to open workspace:", error);
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error("Error details:", errorMessage);
-      alert(`Failed to open workspace: ${errorMessage}`);
       throw error;
     }
   },
 
-  async closeWorkspace(workspaceId: string) {
+  async closeWorkspace() {
     try {
-      // Close current workspace window
-      const currentWindow = getCurrentWebviewWindow();
-      if (currentWindow.label === `workspace-${workspaceId}`) {
-        // Open main window first
-        await this.openMain();
-        // Then close workspace window
-        setTimeout(() => {
-          currentWindow.close();
-        }, 100);
-      }
+      // Add smooth transition
+      await navigationTransition.fadeOut();
+      
+      // Change window properties back to main screen settings
+      await this.configureForMain();
+      
+      // Navigate back to main screen
+      window.location.href = "/";
+      
     } catch (error) {
-      console.error("Failed to close workspace window:", error);
+      console.error("Failed to close workspace:", error);
     }
   },
 
   async openMain() {
     try {
-      // Check if main window already exists
-      const mainWindow = await WebviewWindow.getByLabel("main");
-      if (mainWindow) {
-        await mainWindow.setFocus();
-        await mainWindow.show();
-        return;
-      }
+      // Add smooth transition
+      await navigationTransition.fadeOut();
       
-      // Create main window
-      const newMainWindow = new WebviewWindow("main", {
-        url: "/",
-        title: "DevDB Studio",
-        width: 800,
-        height: 600,
-        minWidth: 800,
-        minHeight: 600,
-        center: true,
-        resizable: false,
-        decorations: true,
-        transparent: true,
-        titleBarStyle: "overlay",
-        hiddenTitle: true,
-      });
+      // Configure window for main screen
+      await this.configureForMain();
       
-      newMainWindow.once("tauri://created", () => {
-        console.log("Main window created");
-      });
-      
-      newMainWindow.once("tauri://error", (e) => {
-        console.error("Error creating main window:", e);
-      });
+      // Navigate to main screen
+      window.location.href = "/";
       
     } catch (error) {
-      console.error("Failed to open main window:", error);
+      console.error("Failed to return to main screen:", error);
     }
   },
+  
+  async configureForMain() {
+    try {
+      const window = getCurrentWindow();
+      
+      // Main screen: smaller, centered window
+      console.log("Configuring window for main screen...");
+      
+      // Set window properties
+      await window.setResizable(true);
+      await window.setSize(new LogicalSize(900, 650));
+      await window.setMinSize(new LogicalSize(900, 650));
+      await window.setTitle("DevDB Studio");
+      await window.center();
+      
+      console.log("Window configured for main screen");
+    } catch (error) {
+      console.error("Failed to configure window for main:", error);
+    }
+  },
+  
+  async configureForWorkspace() {
+    try {
+      const window = getCurrentWindow();
+      
+      // Workspace screen: larger, resizable window
+      console.log("Configuring window for workspace...");
+      
+      // Set window properties
+      await window.setResizable(true);
+      await window.setSize(new LogicalSize(1400, 900));
+      await window.setMinSize(new LogicalSize(1200, 700));
+      await window.setTitle("DevDB Studio - Workspace");
+      await window.center();
+      
+      console.log("Window configured for workspace");
+    } catch (error) {
+      console.error("Failed to configure window for workspace:", error);
+    }
+  },
+  
+  async getCurrentWindowSize() {
+    try {
+      const window = getCurrentWindow();
+      const size = await window.innerSize();
+      return {
+        width: size.width,
+        height: size.height
+      };
+    } catch (error) {
+      console.error("Failed to get window size:", error);
+      return null;
+    }
+  },
+  
+  async setWindowSize(width: number, height: number) {
+    try {
+      const window = getCurrentWindow();
+      await window.setSize(new LogicalSize(width, height));
+      await window.center();
+    } catch (error) {
+      console.error("Failed to set window size:", error);
+    }
+  }
 };

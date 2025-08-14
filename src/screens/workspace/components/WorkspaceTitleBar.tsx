@@ -3,35 +3,28 @@ import {
   Home,
   PanelLeft,
   PanelRight,
-  PanelBottom,
   Settings,
   Moon,
   Sun,
 } from "lucide-react";
 import { windowManager } from "@/services/windowManager";
-import { useParams } from "react-router-dom";
 import { useTheme } from "@/components/theme-provider";
 
 interface WorkspaceTitleBarProps {
   queryProgress?: number;
   onToggleLeftPanel?: () => void;
   onToggleRightPanel?: () => void;
-  onToggleBottomPanel?: () => void;
   leftPanelVisible?: boolean;
   rightPanelVisible?: boolean;
-  bottomPanelVisible?: boolean;
 }
 
 export function WorkspaceTitleBar({
   queryProgress,
   onToggleLeftPanel,
   onToggleRightPanel,
-  onToggleBottomPanel,
   leftPanelVisible = true,
   rightPanelVisible = true,
-  bottomPanelVisible = true,
 }: WorkspaceTitleBarProps) {
-  const { id } = useParams<{ id: string }>();
   const { theme, setTheme } = useTheme();
 
   return (
@@ -45,7 +38,6 @@ export function WorkspaceTitleBar({
           size="sm"
           className="h-6 w-6 p-0"
           onClick={async () => {
-            await windowManager.closeWorkspace(id || "");
             await windowManager.openMain();
           }}
           title="Back to Home"
@@ -80,19 +72,6 @@ export function WorkspaceTitleBar({
           <PanelLeft
             className={`h-3 w-3 ${
               leftPanelVisible ? "text-primary" : "text-muted-foreground"
-            }`}
-          />
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 w-6 p-0 rounded-sm !bg-transparent"
-          onClick={onToggleBottomPanel}
-          title="Toggle Result Panel"
-        >
-          <PanelBottom
-            className={`h-3 w-3 ${
-              bottomPanelVisible ? "text-primary" : "text-muted-foreground"
             }`}
           />
         </Button>

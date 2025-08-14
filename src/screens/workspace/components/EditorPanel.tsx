@@ -16,9 +16,9 @@ import {
   Code,
   ChevronDown,
 } from "lucide-react";
-import { Textarea } from "@/components/ui/textarea";
 import { useTabsStore } from "@/stores/tabsStore";
 import { useEffect, useRef, useState } from "react";
+import { QueryWorkspace } from "@/components/QueryWorkspace";
 
 export function EditorPanel() {
   const { tabs, activeTab, setActiveTab, removeTab, addTab } = useTabsStore();
@@ -224,55 +224,37 @@ export function EditorPanel() {
           </Button>
         </div>
 
-        {tabs.map((tab) => (
-          <TabsContent
-            key={tab.id}
-            value={tab.id}
-            className="flex-1 m-0 flex flex-col"
-          >
-            {tab.type === "query" ? (
-              <>
-                <div className="flex-1 p-4">
-                  <Textarea
-                    className="h-full min-h-[200px] font-mono text-sm resize-none"
-                    placeholder="-- Write your SQL query here...
-SELECT * FROM users
-WHERE created_at > '2024-01-01'
-ORDER BY created_at DESC
-LIMIT 100;"
-                    defaultValue={tab.content}
-                  />
-                </div>
+        {tabs.map((tab) => {
+          // saving render performance
+          if (tab.id !== activeTab) {
+            return null;
+          }
 
-                <div className="border-t">
-                  <div className="p-2 text-sm text-muted-foreground">
-                    Results
-                  </div>
-                  <ScrollArea className="h-[300px]">
-                    <div className="p-4">
-                      <div className="text-center text-muted-foreground">
-                        Run a query to see results
-                      </div>
+          return (
+            <TabsContent
+              key={tab.id}
+              value={tab.id}
+              className="flex-1 m-0 flex flex-col overflow-hidden"
+            >
+              {tab.type === "query" ? (
+                <QueryWorkspace />
+              ) : (
+                <ScrollArea className="h-full">
+                  <div className="p-4">
+                    <div className="text-muted-foreground">
+                      {tab.type === "table" &&
+                        `Table structure and data for '${tab.name}' will be displayed here`}
+                      {tab.type === "view" &&
+                        `View definition and data for '${tab.name}' will be displayed here`}
+                      {tab.type === "function" &&
+                        `Function definition for '${tab.name}' will be displayed here`}
                     </div>
-                  </ScrollArea>
-                </div>
-              </>
-            ) : (
-              <ScrollArea className="h-full">
-                <div className="p-4">
-                  <div className="text-muted-foreground">
-                    {tab.type === "table" &&
-                      `Table structure and data for '${tab.name}' will be displayed here`}
-                    {tab.type === "view" &&
-                      `View definition and data for '${tab.name}' will be displayed here`}
-                    {tab.type === "function" &&
-                      `Function definition for '${tab.name}' will be displayed here`}
                   </div>
-                </div>
-              </ScrollArea>
-            )}
-          </TabsContent>
-        ))}
+                </ScrollArea>
+              )}
+            </TabsContent>
+          );
+        })}
       </Tabs>
     </div>
   );

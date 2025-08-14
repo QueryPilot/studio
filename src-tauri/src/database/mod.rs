@@ -1,0 +1,244 @@
+pub mod connection_manager;
+
+use serde::{Deserialize, Serialize};
+use crate::database::connection_manager::{ConnectionManager, ConnectionConfig, DatabaseType, QueryResult, ConnectionStatus};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+// Keep existing structs for compatibility
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DatabaseInfo {
+    pub name: String,
+    pub size: Option<String>,
+    pub encoding: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TableInfo {
+    pub name: String,
+    pub schema: String,
+    pub table_type: String,
+    pub row_count: Option<i64>,
+    pub size: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ColumnInfo {
+    pub name: String,
+    pub data_type: String,
+    pub is_nullable: bool,
+    pub is_primary_key: bool,
+    pub default_value: Option<String>,
+    pub foreign_key: Option<ForeignKeyInfo>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ForeignKeyInfo {
+    pub table: String,
+    pub column: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexInfo {
+    pub name: String,
+    pub columns: Vec<String>,
+    pub is_unique: bool,
+    pub is_primary: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ViewInfo {
+    pub name: String,
+    pub schema: String,
+    pub definition: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FunctionInfo {
+    pub name: String,
+    pub schema: String,
+    pub return_type: String,
+    pub arguments: Vec<String>,
+}
+
+// New secure database commands that use connection manager
+#[tauri::command]
+pub async fn create_db_connection(
+    state: tauri::State<'_, Arc<RwLock<ConnectionManager>>>,
+    connection_id: String,
+    name: String,
+    db_type: String,
+    host: String,
+    port: u16,
+    database: String,
+    username: String,
+) -> Result<String, String> {
+    let db_type = match db_type.as_str() {
+        "postgresql" => DatabaseType::PostgreSQL,
+        "mysql" => DatabaseType::MySQL,
+        "sqlite" => DatabaseType::SQLite,
+        _ => return Err(format!("Unsupported database type: {}", db_type)),
+    };
+    
+    let config = ConnectionConfig {
+        id: connection_id.clone(),
+        name,
+        db_type,
+        host,
+        port,
+        database,
+        username,
+        password: None, // Will be fetched from secure storage
+        max_connections: 10,
+        min_connections: 2,
+        connection_timeout: 30,
+        idle_timeout: 600,
+        max_lifetime: 1800,
+    };
+    
+    let manager = state.read().await;
+    manager.create_connection(config).await
+}
+
+#[tauri::command]
+pub async fn test_db_connection(
+    state: tauri::State<'_, Arc<RwLock<ConnectionManager>>>,
+    connection_id: String,
+) -> Result<bool, String> {
+    let manager = state.read().await;
+    manager.test_connection(&connection_id).await
+}
+
+#[tauri::command]
+pub async fn execute_db_query(
+    state: tauri::State<'_, Arc<RwLock<ConnectionManager>>>,
+    connection_id: String,
+    query: String,
+) -> Result<QueryResult, String> {
+    let manager = state.read().await;
+    manager.execute_query(&connection_id, &query).await
+}
+
+#[tauri::command]
+pub async fn close_db_connection(
+    state: tauri::State<'_, Arc<RwLock<ConnectionManager>>>,
+    connection_id: String,
+) -> Result<(), String> {
+    let manager = state.read().await;
+    manager.close_connection(&connection_id).await
+}
+
+#[tauri::command]
+pub async fn get_db_connection_status(
+    state: tauri::State<'_, Arc<RwLock<ConnectionManager>>>,
+    connection_id: String,
+) -> Result<ConnectionStatus, String> {
+    let manager = state.read().await;
+    manager.get_connection_status(&connection_id).await
+}
+
+// Schema metadata commands
+#[tauri::command]
+pub async fn get_db_tables(
+    state: tauri::State<'_, Arc<RwLock<ConnectionManager>>>,
+    connection_id: String,
+) -> Result<Vec<TableInfo>, String> {
+    let manager = state.read().await;
+    
+    // Query to get tables based on database type
+    let query = r#"
+        SELECT 
+            table_name as name,
+            table_schema as schema,
+            table_type as table_type
+        FROM information_schema.tables
+        WHERE table_schema NOT IN ('information_schema', 'pg_catalog', 'mysql', 'performance_schema', 'sys')
+        ORDER BY table_schema, table_name
+    "#;
+    
+    let result = manager.execute_query(&connection_id, query).await?;
+    
+    let tables: Vec<TableInfo> = result.rows.iter().map(|row| {
+        TableInfo {
+            name: row.get(0).and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            schema: row.get(1).and_then(|v| v.as_str()).unwrap_or("public").to_string(),
+            table_type: row.get(2).and_then(|v| v.as_str()).unwrap_or("BASE TABLE").to_string(),
+            row_count: None,
+            size: None,
+        }
+    }).collect();
+    
+    Ok(tables)
+}
+
+#[tauri::command]
+pub async fn get_db_views(
+    state: tauri::State<'_, Arc<RwLock<ConnectionManager>>>,
+    connection_id: String,
+) -> Result<Vec<ViewInfo>, String> {
+    let manager = state.read().await;
+    
+    let query = r#"
+        SELECT 
+            table_name as name,
+            table_schema as schema
+        FROM information_schema.views
+        WHERE table_schema NOT IN ('information_schema', 'pg_catalog', 'mysql', 'performance_schema', 'sys')
+        ORDER BY table_schema, table_name
+    "#;
+    
+    let result = manager.execute_query(&connection_id, query).await?;
+    
+    let views: Vec<ViewInfo> = result.rows.iter().map(|row| {
+        ViewInfo {
+            name: row.get(0).and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            schema: row.get(1).and_then(|v| v.as_str()).unwrap_or("public").to_string(),
+            definition: None,
+        }
+    }).collect();
+    
+    Ok(views)
+}
+
+#[tauri::command]
+pub async fn get_db_functions(
+    state: tauri::State<'_, Arc<RwLock<ConnectionManager>>>,
+    connection_id: String,
+) -> Result<Vec<FunctionInfo>, String> {
+    let manager = state.read().await;
+    
+    // PostgreSQL specific query for functions
+    let query = r#"
+        SELECT 
+            routine_name as name,
+            routine_schema as schema,
+            data_type as return_type
+        FROM information_schema.routines
+        WHERE routine_schema NOT IN ('information_schema', 'pg_catalog', 'mysql', 'performance_schema', 'sys')
+        ORDER BY routine_schema, routine_name
+    "#;
+    
+    let result = manager.execute_query(&connection_id, query).await?;
+    
+    let functions: Vec<FunctionInfo> = result.rows.iter().map(|row| {
+        FunctionInfo {
+            name: row.get(0).and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            schema: row.get(1).and_then(|v| v.as_str()).unwrap_or("public").to_string(),
+            return_type: row.get(2).and_then(|v| v.as_str()).unwrap_or("void").to_string(),
+            arguments: vec![],
+        }
+    }).collect();
+    
+    Ok(functions)
+}
+
+// All legacy commands have been removed.
+// Use the new secure database commands instead:
+// - create_db_connection
+// - test_db_connection
+// - execute_db_query
+// - close_db_connection
+// - get_db_connection_status
+// - get_db_tables
+// - get_db_views
+// - get_db_functions
