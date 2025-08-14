@@ -43,31 +43,25 @@ export function StatusBar() {
     );
   }, [connectionStatus, activeConnectionId]);
 
-  // Auto-connect when activeConnectionId changes
-  useEffect(() => {
-    if (activeConnectionId && activeConnection) {
-      console.log(
-        `[StatusBar] Checking connection for ${activeConnectionId}, status: ${activeConnection.status}`,
-      );
-      // Only connect if not already connected or connecting
-      if (
-        activeConnection.status !== "connected" &&
-        activeConnection.status !== "connecting"
-      ) {
-        console.log(
-          `[StatusBar] Initiating connection for ${activeConnectionId}`,
-        );
-        connect(activeConnectionId).catch((error) => {
-          console.error(`[StatusBar] Failed to connect:`, error);
-        });
+
+  const handleConnectionChange = async (connectionId: string) => {
+    // Optimistically set the new connection as active immediately
+    setActiveConnection(connectionId);
+    
+    // Get the selected connection
+    const selectedConnection = connections.get(connectionId);
+    
+    // If the connection is not connected, initiate connection
+    if (selectedConnection && 
+        selectedConnection.status !== "connected" && 
+        selectedConnection.status !== "connecting") {
+      console.log(`[StatusBar] Initiating connection for ${connectionId} on selection`);
+      try {
+        await connect(connectionId);
+      } catch (error) {
+        console.error(`[StatusBar] Failed to connect:`, error);
       }
     }
-  }, [activeConnectionId]);
-
-  const handleConnectionChange = (connectionId: string) => {
-    // Set the new connection as active
-    // The useEffect hook will handle connecting if needed
-    setActiveConnection(connectionId);
   };
 
   return (

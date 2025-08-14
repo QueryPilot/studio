@@ -273,9 +273,11 @@ export const useSecureConnectionStore = create<ConnectionState>((set, get) => ({
         if (conn) {
           conn.status = "connected";
         }
+        // Only update activeConnectionId if it's not already set to this connection
+        // This preserves optimistic updates from the UI
         return { 
           connections: newConnections,
-          activeConnectionId: connectionId 
+          ...(state.activeConnectionId !== connectionId && { activeConnectionId: connectionId })
         };
       });
     } catch (error) {

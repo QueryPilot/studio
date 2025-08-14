@@ -62,6 +62,10 @@ pub fn run() {
             database::execute_db_query,
             database::close_db_connection,
             database::get_db_connection_status,
+            // Database schema commands
+            database::get_db_tables,
+            database::get_db_views,
+            database::get_db_functions,
             // Secure storage commands
             commands::secure_storage::store_connection,
             commands::secure_storage::get_connection,
