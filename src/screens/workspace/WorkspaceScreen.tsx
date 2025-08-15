@@ -12,12 +12,14 @@ import { ImperativePanelHandle } from "react-resizable-panels";
 import { Settings } from "lucide-react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useConnectionStore } from "@/stores";
+import { useWorkspaceStateStore } from "@/stores/workspaceStateStore";
 
 export function WorkspaceScreen() {
-  const { id: _workspaceId } = useParams<{ id: string }>();
+  const { id: workspaceId } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const priorityConnectionId = searchParams.get('connection');
   const { connections, setActiveConnection, connect } = useConnectionStore();
+  const { setCurrentWorkspace, loadWorkspaceState, saveWorkspaceState } = useWorkspaceStateStore();
   
   const [leftPanelVisible, setLeftPanelVisible] = useState(true);
   const [rightPanelVisible, setRightPanelVisible] = useState(false);
@@ -29,7 +31,7 @@ export function WorkspaceScreen() {
     if (leftPanelVisible) {
       leftPanelRef.current?.collapse();
     } else {
-      leftPanelRef.current?.expand(20); // Set to 20% when expanding
+      leftPanelRef.current?.expand(15); // Set to 15% when expanding
     }
     setLeftPanelVisible(!leftPanelVisible);
   };
@@ -42,6 +44,27 @@ export function WorkspaceScreen() {
     }
     setRightPanelVisible(!rightPanelVisible);
   };
+  
+  // Handle workspace initialization and state restoration
+  useEffect(() => {
+    if (workspaceId) {
+      // Set current workspace and load its state
+      const initWorkspace = async () => {
+        setCurrentWorkspace(workspaceId);
+        await loadWorkspaceState(workspaceId);
+        console.log(`[WorkspaceScreen] Initialized workspace ${workspaceId}`);
+      };
+      initWorkspace();
+      
+      // Save state when leaving workspace
+      return () => {
+        saveWorkspaceState(workspaceId).catch(err => {
+          console.error(`[WorkspaceScreen] Failed to save workspace state:`, err);
+        });
+      };
+    }
+    return undefined;
+  }, [workspaceId, setCurrentWorkspace, loadWorkspaceState, saveWorkspaceState]);
   
   // Handle priority connection on workspace open
   useEffect(() => {
@@ -89,6 +112,19 @@ export function WorkspaceScreen() {
     };
   }, []);
   
+  // Auto-save workspace state periodically
+  useEffect(() => {
+    if (!workspaceId) return;
+    
+    const saveInterval = setInterval(() => {
+      saveWorkspaceState(workspaceId).catch(err => {
+        console.error(`[WorkspaceScreen] Failed to auto-save workspace state:`, err);
+      });
+    }, 30000); // Save every 30 seconds
+    
+    return () => clearInterval(saveInterval);
+  }, [workspaceId, saveWorkspaceState]);
+  
   return (
     <div className="workspace-screen h-screen flex flex-col overflow-hidden bg-background">
       <WorkspaceTitleBar
@@ -102,8 +138,8 @@ export function WorkspaceScreen() {
         <ResizablePanelGroup direction="horizontal" className="h-full">
           <ResizablePanel
             ref={leftPanelRef}
-            defaultSize={20}
-            minSize={15}
+            defaultSize={15}
+            minSize={10}
             maxSize={30}
             collapsible={true}
             collapsedSize={0}

@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Clock, Database, Rows, Plus, RefreshCw } from "lucide-react";
+import { Database, Rows, Plus, RefreshCw, Loader2, Table } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -11,15 +11,19 @@ import {
 import { useState, useEffect } from "react";
 import { useConnectionStore } from "@/stores";
 import { ConnectionDialog } from "@/components/ConnectionDialog";
-import { useTabsStore } from "@/stores/tabsStore";
 import { useUIStore } from "@/stores/uiStore";
 
 export function StatusBar() {
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
   const { connections, activeConnectionId, setActiveConnection, connect } =
     useConnectionStore();
-  const { tabs, activeTab } = useTabsStore();
-  const { selectedRowCount } = useUIStore();
+  const { 
+    selectedRowCount, 
+    totalRowCount, 
+    estimatedRowCount, 
+    isLoadingData,
+    currentTableName 
+  } = useUIStore();
   console.log(">>>", "connections", connections);
   // Get unique connections - filter out any duplicates by connection ID
   const uniqueConnections = new Map<
@@ -164,21 +168,44 @@ export function StatusBar() {
             </Button>
           )}
         </div>
-      </div>
-
-      <div className="flex items-center gap-4">
-        {selectedRowCount > 0 && (
-          <div className="flex items-center gap-1.5">
-            <Rows className="h-3 w-3 text-primary" />
-            <span className="text-primary font-medium">{selectedRowCount} selected</span>
-          </div>
-        )}
-
+        
+        {/* Database Type Badge */}
         <Badge variant="outline" className="h-5 text-[10px]">
           {activeConnection
             ? `${activeConnection.config.type.toUpperCase()}`
             : "No Connection"}
         </Badge>
+      </div>
+
+      {/* Right side - Row counts and selection info */}
+      <div className="flex items-center gap-2">
+        {/* Loading indicator */}
+        {isLoadingData && (
+          <div className="flex items-center gap-1.5">
+            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Loading...</span>
+          </div>
+        )}
+        
+        {/* Combined selection and row count */}
+        {currentTableName && !isLoadingData && (
+          <div className="flex items-center gap-1.5 text-xs">
+            {selectedRowCount > 0 && (
+              <>
+                <Rows className="h-3 w-3 text-primary" />
+                <span className="text-primary font-medium">{selectedRowCount} selected</span>
+                <span className="text-muted-foreground">|</span>
+              </>
+            )}
+            <Table className="h-3 w-3 text-muted-foreground" />
+            <span className="text-muted-foreground">
+              {totalRowCount.toLocaleString()} rows
+              {estimatedRowCount && estimatedRowCount > totalRowCount && 
+                ` (~${estimatedRowCount.toLocaleString()} total)`
+              }
+            </span>
+          </div>
+        )}
       </div>
 
       <ConnectionDialog

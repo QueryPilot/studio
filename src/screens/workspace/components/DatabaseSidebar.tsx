@@ -24,6 +24,7 @@ import { useState, useEffect, useRef } from "react";
 import { useTabsStore } from "@/stores/tabsStore";
 import { useConnectionStore } from "@/stores";
 import { secureDatabaseService } from "@/services/secureDatabaseService";
+import { cacheService } from "@/services/cacheService";
 import type { TableInfo, ViewInfo, FunctionInfo } from "@/types/database";
 
 interface TreeItem {
@@ -93,12 +94,48 @@ export function DatabaseSidebar() {
     );
     setIsLoadingSchema(true);
     try {
-      // Fetch schema information from secure backend
-      const [tablesData, viewsData, functionsData] = await Promise.all([
-        secureDatabaseService.getTables(activeConnectionId),
-        secureDatabaseService.getViews(activeConnectionId),
-        secureDatabaseService.getFunctions(activeConnectionId),
-      ]);
+      let tablesData: TableInfo[];
+      let viewsData: ViewInfo[];
+      let functionsData: FunctionInfo[];
+      
+      // Check cache first unless force refresh
+      if (!forceResetSchema) {
+        const cachedSchema = await cacheService.getSchema(activeConnectionId);
+        if (cachedSchema) {
+          console.log("[DatabaseSidebar] Using cached schema data");
+          tablesData = cachedSchema.tables;
+          viewsData = cachedSchema.views;
+          functionsData = cachedSchema.functions;
+        } else {
+          console.log("[DatabaseSidebar] Cache miss, fetching fresh schema");
+          // Fetch schema information from secure backend
+          const results = await Promise.all([
+            secureDatabaseService.getTables(activeConnectionId),
+            secureDatabaseService.getViews(activeConnectionId),
+            secureDatabaseService.getFunctions(activeConnectionId),
+          ]);
+          tablesData = results[0];
+          viewsData = results[1];
+          functionsData = results[2];
+          
+          // Cache the schema
+          await cacheService.setSchema(activeConnectionId, tablesData, viewsData, functionsData);
+        }
+      } else {
+        console.log("[DatabaseSidebar] Force refresh, bypassing cache");
+        // Force refresh - bypass cache
+        const results = await Promise.all([
+          secureDatabaseService.getTables(activeConnectionId),
+          secureDatabaseService.getViews(activeConnectionId),
+          secureDatabaseService.getFunctions(activeConnectionId),
+        ]);
+        tablesData = results[0];
+        viewsData = results[1];
+        functionsData = results[2];
+        
+        // Update cache
+        await cacheService.setSchema(activeConnectionId, tablesData, viewsData, functionsData);
+      }
 
       setTables(tablesData);
       setViews(viewsData);
@@ -294,7 +331,12 @@ export function DatabaseSidebar() {
             variant="ghost"
             size="sm"
             className="h-6 w-6 p-0"
-            onClick={() => loadDatabaseSchema(true)}
+            onClick={() => {
+              // Invalidate cache and force refresh
+              cacheService.invalidateConnection(activeConnectionId!);
+              loadDatabaseSchema(true);
+            }}
+            title="Refresh schema"
           >
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>

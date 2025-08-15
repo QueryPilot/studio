@@ -163,12 +163,12 @@ export function EditorPanel() {
           className="flex items-center h-10 bg-muted/50"
           ref={tabsContainerRef}
         >
-          <TabsList className="h-10 flex-1 inline-flex items-center justify-start rounded-none bg-muted p-0.5 gap-0 overflow-hidden">
+          <TabsList className="h-10 flex-1 inline-flex items-center justify-start rounded-none bg-muted p-0.5 gap-1 overflow-hidden">
             {visibleTabs.map((tab) => (
               <TabsTrigger
                 key={tab.id}
                 value={tab.id}
-                className="text-sm data-[state=active]:shadow-sm h-8 px-3 py-1.5 gap-0"
+                className="text-sm h-8 px-3 py-1.5 gap-0"
               >
                 {getIcon(tab.type)}
                 <span>{tab.name}</span>
@@ -218,10 +218,11 @@ export function EditorPanel() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-10 w-10 p-0 ml-0.5 flex-none"
+            className="h-8 px-2 ml-0.5 flex-none hover:bg-muted/50 rounded-md"
             onClick={handleNewQuery}
+            title="New Query"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-3.5 w-3.5" />
           </Button>
         </div>
 
