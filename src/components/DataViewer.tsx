@@ -47,10 +47,10 @@ import { ToggleButton } from "@/components/ui/toggle-button";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   DropdownMenuCheckboxItem,
+  DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import {
   ResizableHandle,
@@ -72,6 +72,8 @@ import {
   TableProperties,
   ChevronUp,
   ChevronDown,
+  MoreVertical,
+  RotateCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConnectionStore } from "@/stores";
@@ -302,7 +304,7 @@ const StructureTable = memo(({ tableStructure }: { tableStructure: any[] }) => {
             );
           })}
         </colgroup>
-        <thead className="sticky top-0 bg-background">
+        <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
           {structureTable.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id} className="border-b">
               {headerGroup.headers.map((header) => (
@@ -385,9 +387,11 @@ const PreviewTable = memo(({ data }: { data: Record<string, any> }) => {
         minSize: 50,
         maxSize: 200,
         cell: ({ getValue }) => (
-          <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
-            {getValue() as string}
-          </span>
+          <div className="px-1.5 py-0.5">
+            <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+              {getValue() as string}
+            </span>
+          </div>
         ),
       },
       {
@@ -400,7 +404,7 @@ const PreviewTable = memo(({ data }: { data: Record<string, any> }) => {
           const value = getValue();
           const isMultiple = value === "(multiple values)";
           return (
-            <div className="text-xs px-2 py-1">
+            <div className="text-xs px-1.5 py-0.5">
               {isMultiple ? (
                 <span className="text-muted-foreground italic">{value}</span>
               ) : value === null ? (
@@ -448,13 +452,13 @@ const PreviewTable = memo(({ data }: { data: Record<string, any> }) => {
             <col key={column.id} style={{ width: column.getSize() }} />
           ))}
         </colgroup>
-        <thead>
+        <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
           {previewTable.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id} className="border-b">
               {headerGroup.headers.map((header) => (
                 <th
                   key={header.id}
-                  className="text-left text-xs font-medium px-2 py-1 bg-muted/30 relative border-r border-border/50"
+                  className="text-left text-xs font-medium px-1.5 py-0.5 bg-muted/30 relative border-r border-border/50"
                 >
                   {header.isPlaceholder
                     ? null
@@ -556,13 +560,13 @@ const DetailsPanel = memo(
             ) : (
               <pre className="text-xs font-mono bg-background rounded p-2 overflow-auto">
                 {(() => {
-                  const selectedIndices = Object.keys(rowSelection)
-                    .filter((k) => rowSelection[k])
-                    .map(Number);
-                  if (selectedIndices.length > 1) {
+                  const selectedIds = Object.keys(rowSelection).filter(
+                    (k) => rowSelection[k],
+                  );
+                  if (selectedIds.length > 1) {
                     // Show array of selected rows for JSON view
-                    const selectedRows = selectedIndices
-                      .map((idx) => rows[idx]?.original)
+                    const selectedRows = selectedIds
+                      .map((id) => rows.find((r) => r.id === id)?.original)
                       .filter(Boolean)
                       .map((row) => {
                         const cleanRow = { ...row };
@@ -694,6 +698,7 @@ export function DataViewer({
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [isColumnsDropdownOpen, setIsColumnsDropdownOpen] = useState(false);
   const [globalFilter, setGlobalFilter] = useState("");
   const [estimatedRowCount, setEstimatedRowCount] = useState<number | null>(
     null,
@@ -1344,8 +1349,12 @@ export function DataViewer({
 
   // Handle row selection with click-drag - memoized callbacks
   const handleRowMouseDown = useCallback(
-    (rowIndex: number, event: React.MouseEvent) => {
+    (rowId: string, event: React.MouseEvent) => {
       event.preventDefault();
+
+      // Find the actual row index for range selection
+      const rowIndex = rows.findIndex((r) => r.id === rowId);
+      if (rowIndex === -1) return;
 
       // If shift is held and we have a last selected index, select range
       if (event.shiftKey && lastSelectedIndex !== null) {
@@ -1359,41 +1368,57 @@ export function DataViewer({
         }
 
         for (let i = start; i <= end; i++) {
-          newSelection[i] = true;
+          const row = rows[i];
+          if (row) {
+            newSelection[row.id] = true;
+          }
         }
         setRowSelection(newSelection);
       } else if (event.metaKey || event.ctrlKey) {
         // Toggle single row with Cmd/Ctrl
         setRowSelection((prev) => ({
           ...prev,
-          [rowIndex]: !prev[rowIndex],
+          [rowId]: !prev[rowId],
         }));
         setLastSelectedIndex(rowIndex);
       } else {
         // Start new selection
         setIsSelecting(true);
         setSelectionStart(rowIndex);
-        setRowSelection({ [rowIndex]: true });
+        setRowSelection({ [rowId]: true });
         setLastSelectedIndex(rowIndex);
       }
     },
-    [lastSelectedIndex, rowSelection, setRowSelection, setLastSelectedIndex],
+    [
+      lastSelectedIndex,
+      rowSelection,
+      setRowSelection,
+      setLastSelectedIndex,
+      rows,
+    ],
   );
 
   const handleRowMouseEnter = useCallback(
-    (rowIndex: number) => {
+    (rowId: string) => {
       if (isSelecting && selectionStart !== null) {
+        // Find the actual row index for range selection
+        const rowIndex = rows.findIndex((r) => r.id === rowId);
+        if (rowIndex === -1) return;
+
         const start = Math.min(selectionStart, rowIndex);
         const end = Math.max(selectionStart, rowIndex);
         const newSelection: RowSelectionState = {};
 
         for (let i = start; i <= end; i++) {
-          newSelection[i] = true;
+          const row = rows[i];
+          if (row) {
+            newSelection[row.id] = true;
+          }
         }
         setRowSelection(newSelection);
       }
     },
-    [isSelecting, selectionStart],
+    [isSelecting, selectionStart, rows],
   );
 
   const handleMouseUp = useCallback(() => {
@@ -1483,22 +1508,21 @@ export function DataViewer({
   const getSelectionDetails = useMemo(() => {
     // Use deferred selection during drag operations to prevent expensive recalculations
     const selectionToUse = isSelecting ? deferredRowSelection : rowSelection;
-    const selectedIndices = Object.keys(selectionToUse)
-      .filter((key) => selectionToUse[key])
-      .map(Number);
-    if (selectedIndices.length === 0) return null;
+    const selectedIds = Object.keys(selectionToUse).filter(
+      (key) => selectionToUse[key],
+    );
+    if (selectedIds.length === 0) return null;
 
-    if (selectedIndices.length === 1) {
+    if (selectedIds.length === 1) {
       // Single row selected - show that row
-      const firstIndex = selectedIndices[0];
-      return firstIndex !== undefined
-        ? rows[firstIndex]?.original || selectedRow
-        : selectedRow;
+      const firstId = selectedIds[0];
+      const row = rows.find((r) => r.id === firstId);
+      return row?.original || selectedRow;
     }
 
     // Multiple rows selected - calculate shared values
-    const selectedRows = selectedIndices
-      .map((idx) => rows[idx]?.original)
+    const selectedRows = selectedIds
+      .map((id) => rows.find((r) => r.id === id)?.original)
       .filter(Boolean);
     if (selectedRows.length === 0) return null;
 
@@ -1554,10 +1578,10 @@ export function DataViewer({
   const tableContent = (
     <>
       {/* Toolbar */}
-      <div className="flex-shrink-0 flex items-center justify-between px-2 py-1 border-b bg-muted/30">
+      <div className="flex-shrink-0 flex items-center justify-between px-2 py-0.5 border-b bg-muted/30">
         <div className="flex items-center gap-1">
           {/* View Mode Toggle */}
-          <div className="flex items-center bg-muted/50 border rounded-md p-0.5">
+          <div className="flex items-center bg-muted/50 border rounded-md p-0.5 h-6">
             <ToggleButton
               isActive={viewMode === "data"}
               onClick={() => setViewMode("data")}
@@ -1577,87 +1601,120 @@ export function DataViewer({
           {viewMode === "data" && (
             <>
               {/* Global search */}
-              <div className="relative">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+              <div className="relative flex-1 flex items-center bg-muted/50 border rounded-md px-1.5 h-6 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-0">
+                <Search className="h-3 w-3 text-muted-foreground mr-1" />
                 <Input
                   placeholder="Search..."
                   value={globalFilter ?? ""}
                   onChange={(e) => setGlobalFilter(e.target.value)}
-                  className="h-6 w-40 pl-7 text-xs"
+                  className="h-4 border-0 !bg-transparent !outline-none px-0 text-xs focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 w-full"
                 />
               </div>
+            </>
+          )}
+        </div>
 
+        <div className="flex items-center gap-1">
+          {viewMode === "data" && (
+            <>
               {/* Column visibility */}
-              <DropdownMenu>
+              <DropdownMenu
+                open={isColumnsDropdownOpen}
+                onOpenChange={setIsColumnsDropdownOpen}
+              >
                 <DropdownMenuTrigger asChild>
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
-                    className="h-6 px-2 text-xs"
+                    className="h-6 px-2 text-xs bg-muted/50 border rounded-md hover:bg-muted/70"
                   >
                     <Eye className="h-3 w-3 mr-1" />
                     Columns
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-40">
-                  <DropdownMenuLabel className="text-xs">
-                    Toggle columns
-                  </DropdownMenuLabel>
+                <DropdownMenuContent
+                  align="start"
+                  className="w-56"
+                  onInteractOutside={() => setIsColumnsDropdownOpen(false)}
+                >
+                  <div className="flex items-center justify-between px-2 py-1.5">
+                    <span className="text-xs font-medium">Visible Columns</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={() => {
+                        table.getAllColumns().forEach((column) => {
+                          column.toggleVisibility(true);
+                        });
+                      }}
+                    >
+                      <RotateCcw className="h-3 w-3 mr-1" />
+                      Reset
+                    </Button>
+                  </div>
                   <DropdownMenuSeparator />
                   <ScrollArea className="h-64">
-                    {table.getAllColumns().map((column) => {
-                      return (
-                        <DropdownMenuCheckboxItem
-                          key={column.id}
-                          className="text-xs"
-                          checked={column.getIsVisible()}
-                          onCheckedChange={(value) =>
-                            column.toggleVisibility(!!value)
-                          }
-                        >
-                          {column.id}
-                        </DropdownMenuCheckboxItem>
-                      );
-                    })}
+                    <div className="px-1">
+                      {table.getAllColumns().map((column) => {
+                        return (
+                          <DropdownMenuCheckboxItem
+                            key={column.id}
+                            className="text-xs py-1.5 cursor-pointer"
+                            checked={column.getIsVisible()}
+                            onCheckedChange={(value) =>
+                              column.toggleVisibility(!!value)
+                            }
+                            onSelect={(e) => e.preventDefault()}
+                          >
+                            <span className="truncate" title={column.id}>
+                              {column.id}
+                            </span>
+                          </DropdownMenuCheckboxItem>
+                        );
+                      })}
+                    </div>
                   </ScrollArea>
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              {/* Export */}
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 px-2 text-xs"
-                onClick={exportAsCSV}
-              >
-                <Download className="h-3 w-3 mr-1" />
-                Export
-              </Button>
-
-              {/* Row Details Toggle */}
-              {selectedRow && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-6 px-2 text-xs"
-                  onClick={() => setShowDetails(!showDetails)}
-                >
-                  {showDetails ? (
-                    <ChevronDown className="h-3 w-3 mr-1" />
-                  ) : (
-                    <ChevronUp className="h-3 w-3 mr-1" />
+              {/* More Actions Menu */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs bg-muted/50 border rounded-md hover:bg-muted/70"
+                  >
+                    <MoreVertical className="h-3 w-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem className="text-xs" onClick={exportAsCSV}>
+                    <Download className="h-3 w-3 mr-2" />
+                    Export as CSV
+                  </DropdownMenuItem>
+                  {selectedRow && (
+                    <DropdownMenuItem
+                      className="text-xs"
+                      onClick={() => setShowDetails(!showDetails)}
+                    >
+                      {showDetails ? (
+                        <ChevronDown className="h-3 w-3 mr-2" />
+                      ) : (
+                        <ChevronUp className="h-3 w-3 mr-2" />
+                      )}
+                      Row Details
+                    </DropdownMenuItem>
                   )}
-                  Row Details
-                </Button>
-              )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           )}
-        </div>
-
-        {/* Structure view column count only */}
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
           {viewMode === "structure" && (
-            <span>{tableStructure.length} columns</span>
+            <span className="text-xs text-muted-foreground">
+              {tableStructure.length} columns
+            </span>
           )}
         </div>
       </div>
@@ -1669,7 +1726,7 @@ export function DataViewer({
           <div
             ref={tableContainerRef}
             className={cn(
-              "h-full overflow-auto scroll-smooth",
+              "h-full overflow-auto",
               isSelecting && "no-select",
             )}
             style={{
@@ -1686,11 +1743,19 @@ export function DataViewer({
                 onDragEnd={handleDragEnd}
                 modifiers={[restrictToHorizontalAxis]}
               >
-                <div className="sticky top-0 z-10 bg-background">
+                <div 
+                  className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"
+                  style={{
+                    width: `${table.getAllColumns().reduce((sum, col) => sum + col.getSize(), 0)}px`
+                  }}
+                >
                   {table.getHeaderGroups().map((headerGroup) => (
                     <div
                       key={headerGroup.id}
                       className="flex h-7 border-b border-border/50"
+                      style={{
+                        width: `${table.getAllColumns().reduce((sum, col) => sum + col.getSize(), 0)}px`
+                      }}
                     >
                       <SortableContext
                         items={columnOrder}
@@ -1713,6 +1778,7 @@ export function DataViewer({
               <div
                 style={{
                   height: `${rowVirtualizer.getTotalSize()}px`,
+                  width: `${table.getAllColumns().reduce((sum, col) => sum + col.getSize(), 0)}px`,
                   position: "relative",
                 }}
               >
@@ -1749,12 +1815,8 @@ export function DataViewer({
                         isHighlighted={
                           selectedRow?._rowIndex === row.original._rowIndex
                         }
-                        onMouseDown={(e) =>
-                          handleRowMouseDown(virtualRow.index, e)
-                        }
-                        onMouseEnter={() =>
-                          handleRowMouseEnter(virtualRow.index)
-                        }
+                        onMouseDown={(e) => handleRowMouseDown(row.id, e)}
+                        onMouseEnter={() => handleRowMouseEnter(row.id)}
                         onDoubleClick={() => handleRowClick(row.original)}
                       />
                     );
@@ -1783,33 +1845,36 @@ export function DataViewer({
 
   return (
     <div className="h-full flex flex-col bg-background">
-      {showDetails && (selectedCount > 0 || selectedRow) ? (
-        <ResizablePanelGroup direction="vertical" className="h-full">
-          <ResizablePanel defaultSize={100 - detailsPanelSize} minSize={30}>
-            <div className="h-full flex flex-col">{tableContent}</div>
-          </ResizablePanel>
-          <ResizableHandle />
-          <ResizablePanel
-            defaultSize={detailsPanelSize}
-            minSize={15}
-            maxSize={70}
-            onResize={(size) => setDetailsPanelSize(size)}
-          >
-            <DetailsPanel
-              showDetails={showDetails}
-              getSelectionDetails={getSelectionDetails}
-              selectedRow={selectedRow}
-              rowSelection={rowSelection}
-              detailViewMode={detailViewMode}
-              setDetailViewMode={setDetailViewMode}
-              setShowDetails={setShowDetails}
-              rows={rows}
-            />
-          </ResizablePanel>
-        </ResizablePanelGroup>
-      ) : (
-        <div className="h-full flex flex-col">{tableContent}</div>
-      )}
+      <ResizablePanelGroup direction="vertical" className="h-full">
+        <ResizablePanel 
+          defaultSize={showDetails ? (100 - detailsPanelSize) : 100} 
+          minSize={30}
+        >
+          <div className="h-full flex flex-col">{tableContent}</div>
+        </ResizablePanel>
+        {showDetails && (selectedCount > 0 || selectedRow) && (
+          <>
+            <ResizableHandle />
+            <ResizablePanel
+              defaultSize={showDetails ? detailsPanelSize : 0}
+              minSize={15}
+              maxSize={70}
+              onResize={(size) => setDetailsPanelSize(size)}
+            >
+              <DetailsPanel
+                showDetails={showDetails}
+                getSelectionDetails={getSelectionDetails}
+                selectedRow={selectedRow}
+                rowSelection={rowSelection}
+                detailViewMode={detailViewMode}
+                setDetailViewMode={setDetailViewMode}
+                setShowDetails={setShowDetails}
+                rows={rows}
+              />
+            </ResizablePanel>
+          </>
+        )}
+      </ResizablePanelGroup>
     </div>
   );
 }

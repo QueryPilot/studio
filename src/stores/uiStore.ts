@@ -11,6 +11,10 @@ interface UIState {
   setIsLoadingData: (loading: boolean) => void;
   currentTableName: string | null;
   setCurrentTableName: (name: string | null) => void;
+  selectedSchema: string;
+  setSelectedSchema: (schema: string) => void;
+  availableSchemas: string[];
+  setAvailableSchemas: (schemas: string[]) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -24,4 +28,8 @@ export const useUIStore = create<UIState>((set) => ({
   setIsLoadingData: (loading) => set({ isLoadingData: loading }),
   currentTableName: null,
   setCurrentTableName: (name) => set({ currentTableName: name }),
+  selectedSchema: "public",
+  setSelectedSchema: (schema) => set({ selectedSchema: schema }),
+  availableSchemas: [],
+  setAvailableSchemas: (schemas) => set({ availableSchemas: schemas }),
 }));
