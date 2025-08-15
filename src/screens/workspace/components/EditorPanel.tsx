@@ -19,6 +19,7 @@ import {
 import { useTabsStore } from "@/stores/tabsStore";
 import { useEffect, useRef, useState } from "react";
 import { QueryWorkspace } from "@/components/QueryWorkspace";
+import { DataViewer } from "@/components/DataViewer";
 
 export function EditorPanel() {
   const { tabs, activeTab, setActiveTab, removeTab, addTab } = useTabsStore();
@@ -29,13 +30,13 @@ export function EditorPanel() {
   const getIcon = (type: string) => {
     switch (type) {
       case "query":
-        return <FileText className="h-3 w-3 mr-1 flex-shrink-0" />;
+        return <FileText className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />;
       case "table":
-        return <TableIcon className="h-3 w-3 mr-1 flex-shrink-0" />;
+        return <TableIcon className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />;
       case "view":
-        return <Eye className="h-3 w-3 mr-1 flex-shrink-0" />;
+        return <Eye className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />;
       case "function":
-        return <Code className="h-3 w-3 mr-1 flex-shrink-0" />;
+        return <Code className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />;
       default:
         return null;
     }
@@ -156,29 +157,29 @@ export function EditorPanel() {
       <Tabs
         value={activeTab}
         onValueChange={setActiveTab}
-        className="flex-1 flex flex-col"
+        className="h-full flex flex-col"
       >
         <div
-          className="flex items-center h-9 bg-muted/50"
+          className="flex items-center h-10 bg-muted/50"
           ref={tabsContainerRef}
         >
-          <TabsList className="h-9 flex-1 inline-flex items-center justify-start rounded-none bg-muted p-0.5 gap-0 overflow-hidden">
+          <TabsList className="h-10 flex-1 inline-flex items-center justify-start rounded-none bg-muted p-0.5 gap-0 overflow-hidden">
             {visibleTabs.map((tab) => (
               <TabsTrigger
                 key={tab.id}
                 value={tab.id}
-                className="text-xs data-[state=active]:shadow-sm h-7 px-2 py-1 gap-0"
+                className="text-sm data-[state=active]:shadow-sm h-8 px-3 py-1.5 gap-0"
               >
                 {getIcon(tab.type)}
                 <span>{tab.name}</span>
                 <div
-                  className="h-4 w-4 p-0 ml-1.5 hover:bg-transparent opacity-60 hover:opacity-100 cursor-pointer flex items-center justify-center"
+                  className="h-4 w-4 p-0 ml-2 hover:bg-transparent opacity-60 hover:opacity-100 cursor-pointer flex items-center justify-center"
                   onClick={(e) => {
                     e.stopPropagation();
                     removeTab(tab.id);
                   }}
                 >
-                  <X className="h-3 w-3" />
+                  <X className="h-3.5 w-3.5" />
                 </div>
               </TabsTrigger>
             ))}
@@ -190,10 +191,10 @@ export function EditorPanel() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-7 px-1.5 ml-0.5 flex-none"
+                  className="h-8 px-2 ml-0.5 flex-none"
                 >
-                  <ChevronDown className="h-3.5 w-3.5" />
-                  <span className="ml-0.5 text-xs">{overflowTabs.length}</span>
+                  <ChevronDown className="h-4 w-4" />
+                  <span className="ml-0.5 text-sm">{overflowTabs.length}</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -201,12 +202,12 @@ export function EditorPanel() {
                   <DropdownMenuItem
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className="text-xs"
+                    className="text-sm"
                   >
                     {getIcon(tab.type)}
                     <span>{tab.name}</span>
                     {tab.id === activeTab && (
-                      <span className="ml-auto text-xs">●</span>
+                      <span className="ml-auto text-sm">●</span>
                     )}
                   </DropdownMenuItem>
                 ))}
@@ -217,10 +218,10 @@ export function EditorPanel() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 w-7 p-0 ml-0.5 flex-none"
+            className="h-10 w-10 p-0 ml-0.5 flex-none"
             onClick={handleNewQuery}
           >
-            <Plus className="h-3.5 w-3.5" />
+            <Plus className="h-4 w-4" />
           </Button>
         </div>
 
@@ -234,18 +235,18 @@ export function EditorPanel() {
             <TabsContent
               key={tab.id}
               value={tab.id}
-              className="flex-1 m-0 flex flex-col overflow-hidden"
+              className="flex-1 m-0 mt-0 h-full overflow-hidden"
             >
               {tab.type === "query" ? (
                 <QueryWorkspace />
+              ) : tab.type === "table" ? (
+                <DataViewer tableName={tab.name} schema={tab.schema} />
+              ) : tab.type === "view" ? (
+                <DataViewer tableName={tab.name} schema={tab.schema} />
               ) : (
                 <ScrollArea className="h-full">
                   <div className="p-4">
                     <div className="text-muted-foreground">
-                      {tab.type === "table" &&
-                        `Table structure and data for '${tab.name}' will be displayed here`}
-                      {tab.type === "view" &&
-                        `View definition and data for '${tab.name}' will be displayed here`}
                       {tab.type === "function" &&
                         `Function definition for '${tab.name}' will be displayed here`}
                     </div>

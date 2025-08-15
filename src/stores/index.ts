@@ -12,5 +12,8 @@ export { useSecureQueryStore as useQueryStore } from './secureQueryStore';
 export { useSecureConnectionStore } from './secureConnectionStore';
 export { useSecureQueryStore } from './secureQueryStore';
 
+// Export UI store
+export { useUIStore } from './uiStore';
+
 // Export types
 export type { QueryHistoryItem, SavedQuery } from './secureQueryStore';

@@ -1,6 +1,7 @@
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -19,7 +20,7 @@ import {
   RefreshCw,
   Database,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useTabsStore } from "@/stores/tabsStore";
 import { useConnectionStore } from "@/stores";
 import { secureDatabaseService } from "@/services/secureDatabaseService";
@@ -38,9 +39,9 @@ export function DatabaseSidebar() {
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [views, setViews] = useState<ViewInfo[]>([]);
   const [functions, setFunctions] = useState<FunctionInfo[]>([]);
-  const [selectedSchema, setSelectedSchema] = useState<string>("all");
+  const [selectedSchema, setSelectedSchema] = useState<string>("public");
   const [availableSchemas, setAvailableSchemas] = useState<string[]>([]);
-  const { addTab, tabs } = useTabsStore();
+  const { addTab, tabs, activeTab } = useTabsStore();
   const { connections, activeConnectionId } = useConnectionStore();
 
   const activeConnection = activeConnectionId
@@ -55,14 +56,41 @@ export function DatabaseSidebar() {
     );
   };
 
-  const loadDatabaseSchema = async () => {
+  const loadDatabaseSchema = async (forceResetSchema = false) => {
+    console.log(
+      "[DatabaseSidebar] loadDatabaseSchema called, checking conditions:",
+      {
+        hasActiveConnection: !!activeConnection,
+        status: activeConnection?.status,
+        activeConnectionId,
+        forceResetSchema,
+        isLoadingSchema,
+      },
+    );
+
     if (
       !activeConnection ||
       activeConnection.status !== "connected" ||
       !activeConnectionId
-    )
+    ) {
+      console.log(
+        "[DatabaseSidebar] Skipping schema load - conditions not met",
+      );
       return;
+    }
 
+    // Prevent concurrent schema loads to avoid race conditions
+    if (isLoadingSchema) {
+      console.log(
+        "[DatabaseSidebar] Schema already loading, skipping concurrent request",
+      );
+      return;
+    }
+
+    console.log(
+      "[DatabaseSidebar] Starting to load schema for:",
+      activeConnectionId,
+    );
     setIsLoadingSchema(true);
     try {
       // Fetch schema information from secure backend
@@ -78,10 +106,42 @@ export function DatabaseSidebar() {
 
       // Extract unique schemas from all objects
       const schemas = new Set<string>();
-      tablesData.forEach((t) => schemas.add(t.schema));
-      viewsData.forEach((v) => schemas.add(v.schema));
-      functionsData.forEach((f) => schemas.add(f.schema));
-      setAvailableSchemas(Array.from(schemas).sort());
+      tablesData.forEach((t) => {
+        if (t.schema) schemas.add(t.schema);
+      });
+      viewsData.forEach((v) => {
+        if (v.schema) schemas.add(v.schema);
+      });
+      functionsData.forEach((f) => {
+        if (f.schema) schemas.add(f.schema);
+      });
+      const sortedSchemas = Array.from(schemas).sort();
+      setAvailableSchemas(sortedSchemas);
+
+      // Schema selection logic
+      if (forceResetSchema || selectedSchema === "public") {
+        // Always prefer "public" schema, especially when switching databases
+        if (sortedSchemas.includes("public")) {
+          setSelectedSchema("public");
+        } else {
+          // Fall back to first available schema or "all"
+          setSelectedSchema(
+            sortedSchemas.length > 0 ? sortedSchemas[0]! : "all",
+          );
+        }
+      } else if (
+        !sortedSchemas.includes(selectedSchema) &&
+        selectedSchema !== "all"
+      ) {
+        // Current selection is invalid for this database
+        if (sortedSchemas.includes("public")) {
+          setSelectedSchema("public");
+        } else {
+          setSelectedSchema(
+            sortedSchemas.length > 0 ? sortedSchemas[0]! : "all",
+          );
+        }
+      }
     } catch (error) {
       console.error("Error loading schema:", error);
     } finally {
@@ -89,28 +149,93 @@ export function DatabaseSidebar() {
     }
   };
 
+  // Track previous connection to detect switches
+  const previousConnectionIdRef = useRef<string | null>(null);
+  const loadedForConnectionRef = useRef<string | null>(null);
+
   useEffect(() => {
+    console.log("[DatabaseSidebar] useEffect triggered:", {
+      activeConnectionId,
+      status: activeConnection?.status,
+      previousConnectionId: previousConnectionIdRef.current,
+      loadedFor: loadedForConnectionRef.current,
+    });
+
     if (activeConnectionId && activeConnection?.status === "connected") {
-      loadDatabaseSchema();
+      // Check if we switched to a different database
+      const isSwitch =
+        previousConnectionIdRef.current !== null &&
+        previousConnectionIdRef.current !== activeConnectionId;
+
+      // Check if we already loaded data for this connection
+      const alreadyLoaded =
+        loadedForConnectionRef.current === activeConnectionId;
+
+      console.log(
+        "[DatabaseSidebar] Connected state detected, isSwitch:",
+        isSwitch,
+        "alreadyLoaded:",
+        alreadyLoaded,
+      );
+
+      if (isSwitch) {
+        // Reset everything when switching databases
+        console.log("[DatabaseSidebar] Switching databases, resetting state");
+        setSelectedSchema("public");
+        setTables([]);
+        setViews([]);
+        setFunctions([]);
+        setAvailableSchemas([]);
+        loadedForConnectionRef.current = null; // Reset loaded tracker
+      }
+
+      // Load schema data if not already loaded for this connection
+      if (!alreadyLoaded) {
+        console.log(
+          "[DatabaseSidebar] Loading database schema for:",
+          activeConnectionId,
+        );
+        loadDatabaseSchema(isSwitch); // Pass isSwitch to force reset on database switch
+        loadedForConnectionRef.current = activeConnectionId;
+      }
+
+      previousConnectionIdRef.current = activeConnectionId;
     } else if (!activeConnectionId) {
+      // Clear all data when no connection
+      console.log("[DatabaseSidebar] No active connection, clearing data");
       setTables([]);
       setViews([]);
       setFunctions([]);
       setAvailableSchemas([]);
+      setSelectedSchema("public");
+      previousConnectionIdRef.current = null;
+      loadedForConnectionRef.current = null;
+    } else {
+      console.log(
+        "[DatabaseSidebar] Connection not ready yet, status:",
+        activeConnection?.status,
+      );
     }
   }, [activeConnectionId, activeConnection?.status]);
 
-  const handleItemClick = (item: TreeItem) => {
+  const handleItemClick = (item: TreeItem & { schema?: string }) => {
     // Check if tab already exists
     const existingTab = tabs.find(
-      (tab) => tab.name === item.name && tab.type === item.type,
+      (tab) => tab.name === item.name && tab.type === item.type && tab.schema === item.schema,
     );
     if (!existingTab) {
-      addTab({ name: item.name, type: item.type });
+      addTab({ name: item.name, type: item.type, schema: item.schema || selectedSchema });
     } else {
       // If tab exists, just set it as active
       useTabsStore.getState().setActiveTab(existingTab.id);
     }
+  };
+
+  const isItemActive = (item: { name: string; type: string; schema?: string }) => {
+    const currentTab = tabs.find(tab => tab.id === activeTab);
+    return currentTab?.name === item.name && 
+           currentTab?.type === item.type && 
+           currentTab?.schema === (item.schema || selectedSchema);
   };
 
   const getIcon = (type: string) => {
@@ -146,46 +271,42 @@ export function DatabaseSidebar() {
     <div className="h-full flex flex-col bg-muted/30">
       {/* Fixed Header Section */}
       <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="p-2 space-y-2">
-          {/* Schema Selector */}
-          {activeConnectionId && activeConnection?.status === "connected" && (
-            <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                  <Database className="h-3 w-3" />
-                  Schema
-                </label>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-5 w-5 p-0"
-                  onClick={loadDatabaseSchema}
-                >
-                  <RefreshCw className="h-3 w-3" />
-                </Button>
-              </div>
-              <Select value={selectedSchema} onValueChange={setSelectedSchema}>
-                <SelectTrigger className="h-8">
-                  <SelectValue placeholder="Select schema" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Schemas</SelectItem>
-                  {availableSchemas.map((schema) => (
-                    <SelectItem key={schema} value={schema}>
-                      {schema}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
+        {/* Schema Selector - aligned with tabs */}
 
-          {/* Search */}
+        <div className="h-10 flex items-center justify-between px-2 py-0.5 border-b">
+          <Select value={selectedSchema} onValueChange={setSelectedSchema}>
+            <SelectTrigger className="h-8 border-0 bg-transparent px-2 !py-0 text-sm font-medium text-foreground focus:ring-0 hover:bg-transparent">
+              <div className="flex items-center gap-1.5">
+                <Database className="h-3.5 w-3.5 text-muted-foreground" />
+                <SelectValue placeholder="Schema" />
+              </div>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Schemas</SelectItem>
+              {availableSchemas.map((schema) => (
+                <SelectItem key={schema} value={schema}>
+                  {schema}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0"
+            onClick={() => loadDatabaseSchema(true)}
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+
+        {/* Search */}
+        <div className="p-2">
           <div className="relative">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
             <Input
               placeholder="Search objects..."
-              className="pl-8 h-8"
+              className="pl-7 h-7 text-xs"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -238,13 +359,17 @@ export function DatabaseSidebar() {
                         .map((item) => (
                           <Button
                             key={`${item.schema}.${item.name}`}
-                            variant="ghost"
+                            variant={isItemActive({ name: item.name, type: "table", schema: item.schema }) ? "secondary" : "ghost"}
                             size="sm"
-                            className="w-full justify-start h-7 px-2 mb-0.5 text-sm group"
+                            className={cn(
+                              "w-full justify-start h-7 px-2 mb-0.5 text-sm group",
+                              isItemActive({ name: item.name, type: "table", schema: item.schema }) && "font-medium"
+                            )}
                             onClick={() =>
                               handleItemClick({
                                 name: item.name,
                                 type: "table",
+                                schema: item.schema,
                               })
                             }
                           >
@@ -293,11 +418,18 @@ export function DatabaseSidebar() {
                         .map((item) => (
                           <Button
                             key={`${item.schema}.${item.name}`}
-                            variant="ghost"
+                            variant={isItemActive({ name: item.name, type: "view", schema: item.schema }) ? "secondary" : "ghost"}
                             size="sm"
-                            className="w-full justify-start h-7 px-2 mb-0.5 text-sm group"
+                            className={cn(
+                              "w-full justify-start h-7 px-2 mb-0.5 text-sm group",
+                              isItemActive({ name: item.name, type: "view", schema: item.schema }) && "font-medium"
+                            )}
                             onClick={() =>
-                              handleItemClick({ name: item.name, type: "view" })
+                              handleItemClick({ 
+                                name: item.name, 
+                                type: "view",
+                                schema: item.schema,
+                              })
                             }
                           >
                             {getIcon("view")}
@@ -345,13 +477,17 @@ export function DatabaseSidebar() {
                         .map((item) => (
                           <Button
                             key={`${item.schema}.${item.name}`}
-                            variant="ghost"
+                            variant={isItemActive({ name: item.name, type: "function", schema: item.schema }) ? "secondary" : "ghost"}
                             size="sm"
-                            className="w-full justify-start h-7 px-2 mb-0.5 text-sm group"
+                            className={cn(
+                              "w-full justify-start h-7 px-2 mb-0.5 text-sm group",
+                              isItemActive({ name: item.name, type: "function", schema: item.schema }) && "font-medium"
+                            )}
                             onClick={() =>
                               handleItemClick({
                                 name: item.name,
                                 type: "function",
+                                schema: item.schema,
                               })
                             }
                           >

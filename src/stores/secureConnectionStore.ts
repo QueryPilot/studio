@@ -255,15 +255,26 @@ export const useSecureConnectionStore = create<ConnectionState>((set, get) => ({
     });
     
     try {
-      // Create connection in backend (password is fetched from secure storage in Rust)
-      await secureDatabaseService.createConnection(connectionId, connection.config);
-      
-      // Test the connection
-      const isConnected = await secureDatabaseService.testConnection(connectionId);
-      
-      if (!isConnected) {
-        throw new Error("Connection test failed");
-      }
+      // Create connection with 30-second timeout
+      const connectionPromise = (async () => {
+        // Create connection in backend (password is fetched from secure storage in Rust)
+        await secureDatabaseService.createConnection(connectionId, connection.config);
+        
+        // Test the connection
+        const isConnected = await secureDatabaseService.testConnection(connectionId);
+        
+        if (!isConnected) {
+          throw new Error("Connection test failed");
+        }
+      })();
+
+      // Apply 30-second timeout to the connection process
+      await Promise.race([
+        connectionPromise,
+        new Promise<void>((_, reject) => 
+          setTimeout(() => reject(new Error("Connection timeout after 30 seconds")), 30000)
+        )
+      ]);
       
       console.log(`[SecureConnectionStore] Successfully connected ${connectionId}`);
       
@@ -401,16 +412,27 @@ export const useSecureConnectionStore = create<ConnectionState>((set, get) => ({
       console.log(`[TestConnection] Stored test connection in secure storage`);
       
       try {
-        // Create connection in backend (password will be fetched from secure storage)
-        await secureDatabaseService.createConnection(tempId, config);
-        connectionCreated = true;
-        console.log(`[TestConnection] Created connection pool`);
-        
-        // Test the connection
-        const result = await secureDatabaseService.testConnection(tempId);
-        console.log(`[TestConnection] Test result: ${result}`);
-        
-        return result;
+        // Create connection with 30-second timeout for test connections
+        const testPromise = (async () => {
+          // Create connection in backend (password will be fetched from secure storage)
+          await secureDatabaseService.createConnection(tempId, config);
+          connectionCreated = true;
+          console.log(`[TestConnection] Created connection pool`);
+          
+          // Test the connection
+          const result = await secureDatabaseService.testConnection(tempId);
+          console.log(`[TestConnection] Test result: ${result}`);
+          
+          return result;
+        })();
+
+        // Apply 30-second timeout to the test connection process
+        return await Promise.race([
+          testPromise,
+          new Promise<boolean>((_, reject) => 
+            setTimeout(() => reject(new Error("Connection test timeout after 30 seconds")), 30000)
+          )
+        ]);
       } catch (error) {
         console.error(`[TestConnection] Test failed:`, error);
         throw error;

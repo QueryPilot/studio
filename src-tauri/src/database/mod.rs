@@ -145,15 +145,24 @@ pub async fn get_db_tables(
 ) -> Result<Vec<TableInfo>, String> {
     let manager = state.read().await;
     
-    // Query to get tables based on database type
+    // Fast query using PostgreSQL system catalogs instead of slow information_schema
     let query = r#"
         SELECT 
-            table_name as name,
-            table_schema as schema,
-            table_type as table_type
-        FROM information_schema.tables
-        WHERE table_schema NOT IN ('information_schema', 'pg_catalog', 'mysql', 'performance_schema', 'sys')
-        ORDER BY table_schema, table_name
+            c.relname as name,
+            n.nspname as schema,
+            CASE c.relkind 
+                WHEN 'r' THEN 'BASE TABLE'
+                WHEN 'p' THEN 'PARTITIONED TABLE'
+                WHEN 'f' THEN 'FOREIGN TABLE'
+                ELSE 'TABLE'
+            END as table_type
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relkind IN ('r', 'p', 'f')  -- regular tables, partitioned tables, foreign tables
+          AND n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+          AND n.nspname NOT LIKE 'pg_temp_%'
+          AND n.nspname NOT LIKE 'pg_toast_%'
+        ORDER BY n.nspname, c.relname
     "#;
     
     let result = manager.execute_query(&connection_id, query).await?;
@@ -178,13 +187,18 @@ pub async fn get_db_views(
 ) -> Result<Vec<ViewInfo>, String> {
     let manager = state.read().await;
     
+    // Fast query using PostgreSQL system catalogs for views
     let query = r#"
         SELECT 
-            table_name as name,
-            table_schema as schema
-        FROM information_schema.views
-        WHERE table_schema NOT IN ('information_schema', 'pg_catalog', 'mysql', 'performance_schema', 'sys')
-        ORDER BY table_schema, table_name
+            c.relname as name,
+            n.nspname as schema
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relkind = 'v'  -- views only
+          AND n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+          AND n.nspname NOT LIKE 'pg_temp_%'
+          AND n.nspname NOT LIKE 'pg_toast_%'
+        ORDER BY n.nspname, c.relname
     "#;
     
     let result = manager.execute_query(&connection_id, query).await?;
@@ -207,15 +221,24 @@ pub async fn get_db_functions(
 ) -> Result<Vec<FunctionInfo>, String> {
     let manager = state.read().await;
     
-    // PostgreSQL specific query for functions
+    // Fast query using PostgreSQL system catalogs for functions
     let query = r#"
         SELECT 
-            routine_name as name,
-            routine_schema as schema,
-            data_type as return_type
-        FROM information_schema.routines
-        WHERE routine_schema NOT IN ('information_schema', 'pg_catalog', 'mysql', 'performance_schema', 'sys')
-        ORDER BY routine_schema, routine_name
+            p.proname as name,
+            n.nspname as schema,
+            CASE 
+                WHEN p.prokind = 'f' THEN 'FUNCTION'
+                WHEN p.prokind = 'p' THEN 'PROCEDURE'
+                WHEN p.prokind = 'a' THEN 'AGGREGATE'
+                WHEN p.prokind = 'w' THEN 'WINDOW'
+                ELSE 'FUNCTION'
+            END as return_type
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+          AND n.nspname NOT LIKE 'pg_temp_%'
+          AND n.nspname NOT LIKE 'pg_toast_%'
+        ORDER BY n.nspname, p.proname
     "#;
     
     let result = manager.execute_query(&connection_id, query).await?;
