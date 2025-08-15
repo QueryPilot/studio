@@ -3,13 +3,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   ChevronRight,
   ChevronDown,
   Table,
@@ -18,11 +11,11 @@ import {
   Search,
   Loader2,
   RefreshCw,
-  Database,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useTabsStore } from "@/stores/tabsStore";
 import { useConnectionStore } from "@/stores";
+import { useUIStore } from "@/stores/uiStore";
 import { secureDatabaseService } from "@/services/secureDatabaseService";
 import { cacheService } from "@/services/cacheService";
 import type { TableInfo, ViewInfo, FunctionInfo } from "@/types/database";
@@ -40,10 +33,10 @@ export function DatabaseSidebar() {
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [views, setViews] = useState<ViewInfo[]>([]);
   const [functions, setFunctions] = useState<FunctionInfo[]>([]);
-  const [selectedSchema, setSelectedSchema] = useState<string>("public");
-  const [availableSchemas, setAvailableSchemas] = useState<string[]>([]);
   const { addTab, tabs, activeTab } = useTabsStore();
   const { connections, activeConnectionId } = useConnectionStore();
+  const { selectedSchema, setSelectedSchema, setAvailableSchemas } =
+    useUIStore();
 
   const activeConnection = activeConnectionId
     ? connections.get(activeConnectionId)
@@ -97,7 +90,7 @@ export function DatabaseSidebar() {
       let tablesData: TableInfo[];
       let viewsData: ViewInfo[];
       let functionsData: FunctionInfo[];
-      
+
       // Check cache first unless force refresh
       if (!forceResetSchema) {
         const cachedSchema = await cacheService.getSchema(activeConnectionId);
@@ -117,9 +110,14 @@ export function DatabaseSidebar() {
           tablesData = results[0];
           viewsData = results[1];
           functionsData = results[2];
-          
+
           // Cache the schema
-          await cacheService.setSchema(activeConnectionId, tablesData, viewsData, functionsData);
+          await cacheService.setSchema(
+            activeConnectionId,
+            tablesData,
+            viewsData,
+            functionsData,
+          );
         }
       } else {
         console.log("[DatabaseSidebar] Force refresh, bypassing cache");
@@ -132,9 +130,14 @@ export function DatabaseSidebar() {
         tablesData = results[0];
         viewsData = results[1];
         functionsData = results[2];
-        
+
         // Update cache
-        await cacheService.setSchema(activeConnectionId, tablesData, viewsData, functionsData);
+        await cacheService.setSchema(
+          activeConnectionId,
+          tablesData,
+          viewsData,
+          functionsData,
+        );
       }
 
       setTables(tablesData);
@@ -258,21 +261,34 @@ export function DatabaseSidebar() {
   const handleItemClick = (item: TreeItem & { schema?: string }) => {
     // Check if tab already exists
     const existingTab = tabs.find(
-      (tab) => tab.name === item.name && tab.type === item.type && tab.schema === item.schema,
+      (tab) =>
+        tab.name === item.name &&
+        tab.type === item.type &&
+        tab.schema === item.schema,
     );
     if (!existingTab) {
-      addTab({ name: item.name, type: item.type, schema: item.schema || selectedSchema });
+      addTab({
+        name: item.name,
+        type: item.type,
+        schema: item.schema || selectedSchema,
+      });
     } else {
       // If tab exists, just set it as active
       useTabsStore.getState().setActiveTab(existingTab.id);
     }
   };
 
-  const isItemActive = (item: { name: string; type: string; schema?: string }) => {
-    const currentTab = tabs.find(tab => tab.id === activeTab);
-    return currentTab?.name === item.name && 
-           currentTab?.type === item.type && 
-           currentTab?.schema === (item.schema || selectedSchema);
+  const isItemActive = (item: {
+    name: string;
+    type: string;
+    schema?: string;
+  }) => {
+    const currentTab = tabs.find((tab) => tab.id === activeTab);
+    return (
+      currentTab?.name === item.name &&
+      currentTab?.type === item.type &&
+      currentTab?.schema === (item.schema || selectedSchema)
+    );
   };
 
   const getIcon = (type: string) => {
@@ -307,51 +323,30 @@ export function DatabaseSidebar() {
   return (
     <div className="h-full flex flex-col bg-muted/30">
       {/* Fixed Header Section */}
-      <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        {/* Schema Selector - aligned with tabs */}
-
-        <div className="h-10 flex items-center justify-between px-2 py-0.5 border-b">
-          <Select value={selectedSchema} onValueChange={setSelectedSchema}>
-            <SelectTrigger className="h-8 border-0 bg-transparent px-2 !py-0 text-sm font-medium text-foreground focus:ring-0 hover:bg-transparent">
-              <div className="flex items-center gap-1.5">
-                <Database className="h-3.5 w-3.5 text-muted-foreground" />
-                <SelectValue placeholder="Schema" />
-              </div>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Schemas</SelectItem>
-              {availableSchemas.map((schema) => (
-                <SelectItem key={schema} value={schema}>
-                  {schema}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0"
-            onClick={() => {
-              // Invalidate cache and force refresh
-              cacheService.invalidateConnection(activeConnectionId!);
-              loadDatabaseSchema(true);
-            }}
-            title="Refresh schema"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-
-        {/* Search */}
-        <div className="p-2">
-          <div className="relative">
+      <div className="bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        {/* Search with Refresh */}
+        <div className="h-8 px-2 flex items-center bg-muted/50">
+          <div className="relative flex items-center gap-2 flex-1">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
             <Input
               placeholder="Search objects..."
-              className="pl-7 h-7 text-xs"
+              className="pl-7 h-6 text-xs border-0 bg-background/60"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0 absolute right-1 top-1/2 -translate-y-1/2"
+              onClick={() => {
+                // Invalidate cache and force refresh
+                cacheService.invalidateConnection(activeConnectionId!);
+                loadDatabaseSchema(true);
+              }}
+              title="Refresh schema"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </Button>
           </div>
         </div>
       </div>
@@ -401,11 +396,23 @@ export function DatabaseSidebar() {
                         .map((item) => (
                           <Button
                             key={`${item.schema}.${item.name}`}
-                            variant={isItemActive({ name: item.name, type: "table", schema: item.schema }) ? "secondary" : "ghost"}
+                            variant={
+                              isItemActive({
+                                name: item.name,
+                                type: "table",
+                                schema: item.schema,
+                              })
+                                ? "secondary"
+                                : "ghost"
+                            }
                             size="sm"
                             className={cn(
                               "w-full justify-start h-7 px-2 mb-0.5 text-sm group",
-                              isItemActive({ name: item.name, type: "table", schema: item.schema }) && "font-medium"
+                              isItemActive({
+                                name: item.name,
+                                type: "table",
+                                schema: item.schema,
+                              }) && "font-medium",
                             )}
                             onClick={() =>
                               handleItemClick({
@@ -460,15 +467,27 @@ export function DatabaseSidebar() {
                         .map((item) => (
                           <Button
                             key={`${item.schema}.${item.name}`}
-                            variant={isItemActive({ name: item.name, type: "view", schema: item.schema }) ? "secondary" : "ghost"}
+                            variant={
+                              isItemActive({
+                                name: item.name,
+                                type: "view",
+                                schema: item.schema,
+                              })
+                                ? "secondary"
+                                : "ghost"
+                            }
                             size="sm"
                             className={cn(
                               "w-full justify-start h-7 px-2 mb-0.5 text-sm group",
-                              isItemActive({ name: item.name, type: "view", schema: item.schema }) && "font-medium"
+                              isItemActive({
+                                name: item.name,
+                                type: "view",
+                                schema: item.schema,
+                              }) && "font-medium",
                             )}
                             onClick={() =>
-                              handleItemClick({ 
-                                name: item.name, 
+                              handleItemClick({
+                                name: item.name,
                                 type: "view",
                                 schema: item.schema,
                               })
@@ -519,11 +538,23 @@ export function DatabaseSidebar() {
                         .map((item) => (
                           <Button
                             key={`${item.schema}.${item.name}`}
-                            variant={isItemActive({ name: item.name, type: "function", schema: item.schema }) ? "secondary" : "ghost"}
+                            variant={
+                              isItemActive({
+                                name: item.name,
+                                type: "function",
+                                schema: item.schema,
+                              })
+                                ? "secondary"
+                                : "ghost"
+                            }
                             size="sm"
                             className={cn(
                               "w-full justify-start h-7 px-2 mb-0.5 text-sm group",
-                              isItemActive({ name: item.name, type: "function", schema: item.schema }) && "font-medium"
+                              isItemActive({
+                                name: item.name,
+                                type: "function",
+                                schema: item.schema,
+                              }) && "font-medium",
                             )}
                             onClick={() =>
                               handleItemClick({

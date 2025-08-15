@@ -1,6 +1,5 @@
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Database, Rows, Plus, RefreshCw, Loader2, Table } from "lucide-react";
+import { Database, Rows, Plus, RefreshCw, Loader2, Table, Layers } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -22,7 +21,10 @@ export function StatusBar() {
     totalRowCount, 
     estimatedRowCount, 
     isLoadingData,
-    currentTableName 
+    currentTableName,
+    selectedSchema,
+    setSelectedSchema,
+    availableSchemas
   } = useUIStore();
   console.log(">>>", "connections", connections);
   // Get unique connections - filter out any duplicates by connection ID
@@ -124,7 +126,7 @@ export function StatusBar() {
               value={activeConnectionId || ""}
               onValueChange={handleConnectionChange}
             >
-              <SelectTrigger className="!h-5 text-xs border-0 bg-transparent hover:bg-muted px-2 py-0 gap-1 min-w-[120px]">
+              <SelectTrigger className="!h-5 text-xs border-0 bg-transparent hover:bg-primary/10 px-2 py-0 gap-1 min-w-[120px]">
                 <SelectValue placeholder="Select connection">
                   {activeConnection
                     ? activeConnection.config.name
@@ -169,12 +171,30 @@ export function StatusBar() {
           )}
         </div>
         
-        {/* Database Type Badge */}
-        <Badge variant="outline" className="h-5 text-[10px]">
-          {activeConnection
-            ? `${activeConnection.config.type.toUpperCase()}`
-            : "No Connection"}
-        </Badge>
+        {/* Schema Selector */}
+        {activeConnection && connectionStatus === "connected" && availableSchemas.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            <Layers className="h-3 w-3 text-muted-foreground" />
+            <Select
+              value={selectedSchema}
+              onValueChange={setSelectedSchema}
+            >
+              <SelectTrigger className="!h-5 text-xs border-0 bg-transparent hover:bg-primary/10 px-2 py-0 gap-1 min-w-[80px]">
+                <SelectValue placeholder="Schema">
+                  {selectedSchema === "all" ? "All Schemas" : selectedSchema}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Schemas</SelectItem>
+                {availableSchemas.map((schema) => (
+                  <SelectItem key={schema} value={schema}>
+                    {schema}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
 
       {/* Right side - Row counts and selection info */}

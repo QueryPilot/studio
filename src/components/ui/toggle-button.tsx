@@ -17,7 +17,7 @@ export const ToggleButton = React.forwardRef<
     variant={isActive ? "default" : "ghost"}
     size="sm"
     className={cn(
-      "h-6 px-2 text-xs rounded-sm transition-colors duration-200 ease-in-out",
+      "h-5 px-1.5 text-xs rounded-sm transition-colors duration-200 ease-in-out",
       className,
     )}
     {...props}

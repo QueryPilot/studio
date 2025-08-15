@@ -30,13 +30,13 @@ export function EditorPanel() {
   const getIcon = (type: string) => {
     switch (type) {
       case "query":
-        return <FileText className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />;
+        return <FileText className="h-3 w-3 mr-1 flex-shrink-0" />;
       case "table":
-        return <TableIcon className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />;
+        return <TableIcon className="h-3 w-3 mr-1 flex-shrink-0" />;
       case "view":
-        return <Eye className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />;
+        return <Eye className="h-3 w-3 mr-1 flex-shrink-0" />;
       case "function":
-        return <Code className="h-3.5 w-3.5 mr-1.5 flex-shrink-0" />;
+        return <Code className="h-3 w-3 mr-1 flex-shrink-0" />;
       default:
         return null;
     }
@@ -160,26 +160,26 @@ export function EditorPanel() {
         className="h-full flex flex-col"
       >
         <div
-          className="flex items-center h-10 bg-muted/50"
+          className="flex items-center h-8 bg-muted/50"
           ref={tabsContainerRef}
         >
-          <TabsList className="h-10 flex-1 inline-flex items-center justify-start rounded-none bg-muted p-0.5 gap-1 overflow-hidden">
+          <TabsList className="h-8 flex-1 inline-flex items-center justify-start rounded-none bg-muted p-0.5 gap-0.5 overflow-hidden">
             {visibleTabs.map((tab) => (
               <TabsTrigger
                 key={tab.id}
                 value={tab.id}
-                className="text-sm h-8 px-3 py-1.5 gap-0"
+                className="text-xs h-6 px-2 py-1 gap-0"
               >
                 {getIcon(tab.type)}
                 <span>{tab.name}</span>
                 <div
-                  className="h-4 w-4 p-0 ml-2 hover:bg-transparent opacity-60 hover:opacity-100 cursor-pointer flex items-center justify-center"
+                  className="h-3.5 w-3.5 p-0 ml-1.5 hover:bg-transparent opacity-60 hover:opacity-100 cursor-pointer flex items-center justify-center"
                   onClick={(e) => {
                     e.stopPropagation();
                     removeTab(tab.id);
                   }}
                 >
-                  <X className="h-3.5 w-3.5" />
+                  <X className="h-3 w-3" />
                 </div>
               </TabsTrigger>
             ))}
@@ -191,7 +191,7 @@ export function EditorPanel() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-8 px-2 ml-0.5 flex-none"
+                  className="h-6 px-1.5 ml-0.5 flex-none"
                 >
                   <ChevronDown className="h-4 w-4" />
                   <span className="ml-0.5 text-sm">{overflowTabs.length}</span>
@@ -218,11 +218,11 @@ export function EditorPanel() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 px-2 ml-0.5 flex-none hover:bg-muted/50 rounded-md"
+            className="h-6 px-1.5 ml-0.5 flex-none hover:bg-muted/50 rounded-md"
             onClick={handleNewQuery}
             title="New Query"
           >
-            <Plus className="h-3.5 w-3.5" />
+            <Plus className="h-3 w-3" />
           </Button>
         </div>
 
