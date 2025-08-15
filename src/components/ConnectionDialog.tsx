@@ -412,6 +412,7 @@ export function ConnectionDialog({
       document.addEventListener('keydown', handleKeyDown, true);
       return () => document.removeEventListener('keydown', handleKeyDown, true);
     }
+    return undefined;
   }, [open]);
 
   return (

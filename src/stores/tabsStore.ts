@@ -5,6 +5,7 @@ export interface Tab {
   name: string;
   type: 'query' | 'table' | 'view' | 'function';
   content?: string;
+  schema?: string;
 }
 
 interface TabsStore {
@@ -18,7 +19,6 @@ interface TabsStore {
 export const useTabsStore = create<TabsStore>((set) => ({
   tabs: [
     { id: 'query1', name: 'Query 1', type: 'query' },
-    { id: 'users', name: 'users', type: 'table' },
   ],
   activeTab: 'query1',
   

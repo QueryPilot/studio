@@ -1,12 +1,5 @@
 import { Button } from "@/components/ui/button";
-import {
-  Home,
-  PanelLeft,
-  PanelRight,
-  Settings,
-  Moon,
-  Sun,
-} from "lucide-react";
+import { Home, PanelLeft, PanelRight, Settings, Moon, Sun } from "lucide-react";
 import { windowManager } from "@/services/windowManager";
 import { useTheme } from "@/components/theme-provider";
 
@@ -36,13 +29,13 @@ export function WorkspaceTitleBar({
         <Button
           variant="ghost"
           size="sm"
-          className="h-6 w-6 p-0"
+          className="h-7 w-7 !p-0"
           onClick={async () => {
             await windowManager.openMain();
           }}
           title="Back to Home"
         >
-          <Home className="h-3 w-3" />
+          <Home className="h-7 w-7" />
         </Button>
       </div>
 
@@ -65,12 +58,12 @@ export function WorkspaceTitleBar({
         <Button
           variant="ghost"
           size="sm"
-          className="h-6 w-6 p-0 rounded-sm !bg-transparent"
+          className="h-7 w-7 !p-0 rounded-sm"
           onClick={onToggleLeftPanel}
           title="Toggle Sidebar"
         >
           <PanelLeft
-            className={`h-3 w-3 ${
+            className={`h-7 w-7 ${
               leftPanelVisible ? "text-primary" : "text-muted-foreground"
             }`}
           />
@@ -78,12 +71,12 @@ export function WorkspaceTitleBar({
         <Button
           variant="ghost"
           size="sm"
-          className="h-6 w-6 p-0 rounded-sm !bg-transparent"
+          className="h-7 w-7 !p-0 rounded-sm"
           onClick={onToggleRightPanel}
           title="Toggle Right Panel"
         >
           <PanelRight
-            className={`h-3 w-3 ${
+            className={`h-7 w-7 ${
               rightPanelVisible ? "text-primary" : "text-muted-foreground"
             }`}
           />
@@ -92,24 +85,24 @@ export function WorkspaceTitleBar({
         <Button
           variant="ghost"
           size="sm"
-          className="h-6 w-6 p-0 rounded-sm !bg-transparent"
+          className="h-7 w-7 !p-0 rounded-sm"
           onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
           title="Toggle theme"
         >
           {theme === "dark" ? (
-            <Sun className="h-3 w-3 text-muted-foreground" />
+            <Sun className="h-7 w-7 text-muted-foreground" />
           ) : (
-            <Moon className="h-3 w-3 text-muted-foreground" />
+            <Moon className="h-7 w-7 text-muted-foreground" />
           )}
         </Button>
 
         <Button
           variant="ghost"
           size="sm"
-          className="h-6 w-6 p-0 rounded-sm !bg-transparent"
+          className="h-7 w-7 !p-0 rounded-sm"
           title="Settings"
         >
-          <Settings className="h-3 w-3 text-muted-foreground" />
+          <Settings className="h-7 w-7 text-muted-foreground" />
         </Button>
       </div>
     </div>

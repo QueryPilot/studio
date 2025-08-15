@@ -214,8 +214,8 @@ impl ConnectionManager {
         // Check if it's a SELECT query
         let trimmed = query.trim().to_uppercase();
         if trimmed.starts_with("SELECT") || trimmed.starts_with("WITH") {
-            // Execute as a query and fetch results
-            let rows = sqlx::query(query)
+            // Execute as a raw query to avoid prepared statement conflicts
+            let rows = sqlx::raw_sql(query)
                 .fetch_all(pool)
                 .await
                 .map_err(|e| format!("Query execution failed: {}", e))?;
@@ -237,6 +237,11 @@ impl ConnectionManager {
                 for row in rows {
                     let mut row_values = Vec::new();
                     for i in 0..columns.len() {
+                        // Safety check: ensure column index exists in this row
+                        if i >= row.len() {
+                            row_values.push(serde_json::Value::Null);
+                            continue;
+                        }
                         // Try to get value as different types
                         let value = if let Ok(v) = row.try_get::<String, _>(i) {
                             serde_json::Value::String(v)
@@ -267,8 +272,8 @@ impl ConnectionManager {
                 execution_time,
             })
         } else {
-            // Execute as a command (INSERT, UPDATE, DELETE, etc.)
-            let result = sqlx::query(query)
+            // Execute as a raw command (INSERT, UPDATE, DELETE, etc.)
+            let result = sqlx::raw_sql(query)
                 .execute(pool)
                 .await
                 .map_err(|e| format!("Query execution failed: {}", e))?;
@@ -290,8 +295,8 @@ impl ConnectionManager {
         // Check if it's a SELECT query
         let trimmed = query.trim().to_uppercase();
         if trimmed.starts_with("SELECT") || trimmed.starts_with("WITH") {
-            // Execute as a query and fetch results
-            let rows = sqlx::query(query)
+            // Execute as a raw query to avoid prepared statement conflicts
+            let rows = sqlx::raw_sql(query)
                 .fetch_all(pool)
                 .await
                 .map_err(|e| format!("Query execution failed: {}", e))?;
@@ -313,6 +318,11 @@ impl ConnectionManager {
                 for row in rows {
                     let mut row_values = Vec::new();
                     for i in 0..columns.len() {
+                        // Safety check: ensure column index exists in this row
+                        if i >= row.len() {
+                            row_values.push(serde_json::Value::Null);
+                            continue;
+                        }
                         // Try to get value as different types
                         let value = if let Ok(v) = row.try_get::<String, _>(i) {
                             serde_json::Value::String(v)
@@ -343,8 +353,8 @@ impl ConnectionManager {
                 execution_time,
             })
         } else {
-            // Execute as a command (INSERT, UPDATE, DELETE, etc.)
-            let result = sqlx::query(query)
+            // Execute as a raw command (INSERT, UPDATE, DELETE, etc.)
+            let result = sqlx::raw_sql(query)
                 .execute(pool)
                 .await
                 .map_err(|e| format!("Query execution failed: {}", e))?;
@@ -366,8 +376,8 @@ impl ConnectionManager {
         // Check if it's a SELECT query
         let trimmed = query.trim().to_uppercase();
         if trimmed.starts_with("SELECT") || trimmed.starts_with("WITH") {
-            // Execute as a query and fetch results
-            let rows = sqlx::query(query)
+            // Execute as a raw query to avoid prepared statement conflicts
+            let rows = sqlx::raw_sql(query)
                 .fetch_all(pool)
                 .await
                 .map_err(|e| format!("Query execution failed: {}", e))?;
@@ -389,6 +399,11 @@ impl ConnectionManager {
                 for row in rows {
                     let mut row_values = Vec::new();
                     for i in 0..columns.len() {
+                        // Safety check: ensure column index exists in this row
+                        if i >= row.len() {
+                            row_values.push(serde_json::Value::Null);
+                            continue;
+                        }
                         // Try to get value as different types
                         let value = if let Ok(v) = row.try_get::<String, _>(i) {
                             serde_json::Value::String(v)
@@ -419,8 +434,8 @@ impl ConnectionManager {
                 execution_time,
             })
         } else {
-            // Execute as a command (INSERT, UPDATE, DELETE, etc.)
-            let result = sqlx::query(query)
+            // Execute as a raw command (INSERT, UPDATE, DELETE, etc.)
+            let result = sqlx::raw_sql(query)
                 .execute(pool)
                 .await
                 .map_err(|e| format!("Query execution failed: {}", e))?;

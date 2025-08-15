@@ -11,11 +11,15 @@ import {
 import { useState, useEffect } from "react";
 import { useConnectionStore } from "@/stores";
 import { ConnectionDialog } from "@/components/ConnectionDialog";
+import { useTabsStore } from "@/stores/tabsStore";
+import { useUIStore } from "@/stores/uiStore";
 
 export function StatusBar() {
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
   const { connections, activeConnectionId, setActiveConnection, connect } =
     useConnectionStore();
+  const { tabs, activeTab } = useTabsStore();
+  const { selectedRowCount } = useUIStore();
   console.log(">>>", "connections", connections);
   // Get unique connections - filter out any duplicates by connection ID
   const uniqueConnections = new Map<
@@ -163,15 +167,12 @@ export function StatusBar() {
       </div>
 
       <div className="flex items-center gap-4">
-        <div className="flex items-center gap-1.5">
-          <Clock className="h-3 w-3 text-muted-foreground" />
-          <span className="text-muted-foreground">Query: 0.234s</span>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          <Rows className="h-3 w-3 text-muted-foreground" />
-          <span className="text-muted-foreground">Rows: 1,234</span>
-        </div>
+        {selectedRowCount > 0 && (
+          <div className="flex items-center gap-1.5">
+            <Rows className="h-3 w-3 text-primary" />
+            <span className="text-primary font-medium">{selectedRowCount} selected</span>
+          </div>
+        )}
 
         <Badge variant="outline" className="h-5 text-[10px]">
           {activeConnection

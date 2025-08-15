@@ -105,4 +105,12 @@
   .scroll-container {
     -webkit-overflow-scrolling: touch;
   }
+  
+  /* Prevent text selection during row drag selection */
+  .no-select {
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+  }
 }
