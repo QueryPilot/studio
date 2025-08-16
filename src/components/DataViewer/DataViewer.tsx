@@ -42,19 +42,19 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import {
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
-  Loader2,
-} from "lucide-react";
+import { ArrowUpDown, ArrowUp, ArrowDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConnectionStore } from "@/stores";
 import { secureDatabaseService } from "@/services/secureDatabaseService";
 import { cacheService } from "@/services/cacheService";
 import { useUIStore } from "@/stores/uiStore";
 
-import { DataViewerProps, ViewMode, DetailViewMode, TableColumn } from "./types";
+import {
+  DataViewerProps,
+  ViewMode,
+  DetailViewMode,
+  TableColumn,
+} from "./types";
 import { WINDOW_SIZE, FETCH_SIZE, OVERSCAN } from "./constants";
 import { getInitialColumnSize } from "./utils";
 import {
@@ -64,8 +64,14 @@ import {
   SkeletonRow,
   VirtualRow,
   Toolbar,
-} from "./components"
-
+  RowContextMenu,
+} from "./components";
+import {
+  copyAsCSV,
+  copyAsJSON,
+  copyAsSQLValues,
+  copyAsInsertStatement,
+} from "./utils/copyUtils";
 
 export function DataViewer({
   tableName,
@@ -104,8 +110,6 @@ export function DataViewer({
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(
     null,
   );
-
-
 
   // Infinite scroll state
   const [offset, setOffset] = useState(0);
@@ -360,7 +364,6 @@ export function DataViewer({
         }
 
         if (!append && result.rows.length > 0) {
-
           // Generate columns without checkbox
           const tableColumns: ColumnDef<any>[] = [
             ...result.columns.map((col: string) => {
@@ -382,7 +385,7 @@ export function DataViewer({
                   return (
                     <Button
                       variant="ghost"
-                      className="h-6 px-1 font-semibold text-sm w-full justify-between hover:bg-transparent"
+                      className="h-6 px-1 font-semibold text-xs w-full justify-between hover:bg-transparent"
                       onClick={handleSort}
                     >
                       <span className="truncate">{col}</span>
@@ -402,7 +405,7 @@ export function DataViewer({
                   const value = getValue();
                   if (value === null) {
                     return (
-                      <span className="text-muted-foreground italic text-sm">
+                      <span className="text-muted-foreground italic text-xs">
                         NULL
                       </span>
                     );
@@ -411,7 +414,7 @@ export function DataViewer({
                     return (
                       <span
                         className={cn(
-                          "font-mono text-sm",
+                          "font-mono text-xs",
                           value ? "text-green-600" : "text-red-600",
                         )}
                       >
@@ -422,7 +425,7 @@ export function DataViewer({
                   if (typeof value === "object") {
                     return (
                       <span
-                        className="font-mono text-sm"
+                        className="font-mono text-xs"
                         title={JSON.stringify(value)}
                       >
                         {JSON.stringify(value).substring(0, 50)}...
@@ -431,7 +434,7 @@ export function DataViewer({
                   }
                   return (
                     <span
-                      className="block truncate text-sm"
+                      className="block truncate text-xs"
                       title={String(value)}
                     >
                       {String(value)}
@@ -522,12 +525,14 @@ export function DataViewer({
 
   // Memoize columns using stable key instead of JSON.stringify
   const columnKey = useMemo(() => {
-    return columns.map(col => {
-      const key = typeof col === 'object' && col.id ? col.id : String(col);
-      return key;
-    }).join(',');
+    return columns
+      .map((col) => {
+        const key = typeof col === "object" && col.id ? col.id : String(col);
+        return key;
+      })
+      .join(",");
   }, [columns]);
-  
+
   const memoizedColumns = useMemo(() => columns, [columnKey]);
 
   // Memoize table state object to prevent unnecessary recalculations
@@ -541,7 +546,15 @@ export function DataViewer({
       columnOrder,
       selectedRowIds,
     }),
-    [sorting, columnFilters, columnVisibility, globalFilter, columnSizing, columnOrder, selectedRowIds]
+    [
+      sorting,
+      columnFilters,
+      columnVisibility,
+      globalFilter,
+      columnSizing,
+      columnOrder,
+      selectedRowIds,
+    ],
   );
 
   // Table instance with memoized options
@@ -557,16 +570,20 @@ export function DataViewer({
     onColumnOrderChange: setColumnOrder,
     onRowSelectionChange: (updater) => {
       // Convert TanStack Table's RowSelectionState updates to Set updates
-      if (typeof updater === 'function') {
+      if (typeof updater === "function") {
         const currentState = Array.from(selectedRowIds).reduce((acc, id) => {
           acc[id] = true;
           return acc;
         }, {} as Record<string, boolean>);
         const newState = updater(currentState);
-        const newSet = new Set(Object.keys(newState).filter(id => newState[id]));
+        const newSet = new Set(
+          Object.keys(newState).filter((id) => newState[id]),
+        );
         setSelectedRowIds(newSet);
       } else {
-        const newSet = new Set(Object.keys(updater).filter(id => updater[id]));
+        const newSet = new Set(
+          Object.keys(updater).filter((id) => updater[id]),
+        );
         setSelectedRowIds(newSet);
       }
     },
@@ -589,15 +606,22 @@ export function DataViewer({
 
   // Memoize total table width calculation to prevent recalculation on every render
   const totalTableWidth = useMemo(() => {
-    const width = table.getAllColumns().reduce((sum, col) => sum + col.getSize(), 0);
+    const width = table
+      .getAllColumns()
+      .reduce((sum, col) => sum + col.getSize(), 0);
     return `${width}px`;
-  }, [table.getAllColumns().map(c => c.getSize()).join(',')]); // Only recalculate when column sizes change
+  }, [
+    table
+      .getAllColumns()
+      .map((c) => c.getSize())
+      .join(","),
+  ]); // Only recalculate when column sizes change
 
   // Virtualizer for rows with improved performance
   const rowVirtualizer = useVirtualizer({
     count: rows.length + (isFetchingMore ? 10 : 0), // Add skeleton rows when loading
     getScrollElement: () => tableContainerRef.current,
-    estimateSize: useCallback(() => 32, []), // Row height for text-sm
+    estimateSize: useCallback(() => 28, []), // Row height for text-xs
     overscan: OVERSCAN, // Use constant from constants.ts
     scrollMargin: 0,
     getItemKey: useCallback((index: number) => index, []),
@@ -710,6 +734,20 @@ export function DataViewer({
       const rowIndex = rows.findIndex((r) => r.id === rowId);
       if (rowIndex === -1) return;
 
+      // Check if it's a right-click
+      if (event.button === 2) {
+        // Right-click behavior:
+        // - If clicking on already selected row, preserve selection
+        // - If clicking on unselected row, select only that row
+        if (!selectedRowIds.has(rowId)) {
+          setSelectedRowIds(new Set([rowId]));
+          setLastSelectedIndex(rowIndex);
+        }
+        // Don't start drag selection on right-click
+        return;
+      }
+
+      // Left-click behavior (button === 0)
       // If shift is held and we have a last selected index, select range
       if (event.shiftKey && lastSelectedIndex !== null) {
         const start = Math.min(lastSelectedIndex, rowIndex);
@@ -756,7 +794,7 @@ export function DataViewer({
         setLastSelectedIndex(rowIndex);
       }
     },
-    [lastSelectedIndex, rows],
+    [lastSelectedIndex, rows, selectedRowIds],
   );
 
   const handleRowMouseEnter = useCallback(
@@ -784,7 +822,7 @@ export function DataViewer({
 
   // Auto-scroll during drag selection
   const autoScrollRef = useRef<number | null>(null);
-  
+
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
       if (!isSelecting || !tableContainerRef.current) return;
@@ -816,15 +854,15 @@ export function DataViewer({
       if (shouldScroll) {
         const scroll = () => {
           if (!isSelecting || !tableContainerRef.current) return;
-          
+
           const newScrollTop = Math.max(
             0,
             Math.min(
               container.scrollHeight - container.clientHeight,
-              container.scrollTop + scrollDirection
-            )
+              container.scrollTop + scrollDirection,
+            ),
           );
-          
+
           if (newScrollTop !== container.scrollTop) {
             container.scrollTop = newScrollTop;
             autoScrollRef.current = requestAnimationFrame(scroll);
@@ -836,11 +874,10 @@ export function DataViewer({
     [isSelecting],
   );
 
-
   const handleMouseUp = useCallback(() => {
     setIsSelecting(false);
     setSelectionStart(null);
-    
+
     // Clean up auto-scroll
     if (autoScrollRef.current) {
       cancelAnimationFrame(autoScrollRef.current);
@@ -875,6 +912,52 @@ export function DataViewer({
     },
     [onRowClick],
   );
+
+  // Context menu handlers
+  const getSelectedRows = useCallback(() => {
+    const selectedIds = Array.from(selectedRowIds);
+    return rows
+      .filter((row) => selectedIds.includes(row.id))
+      .map((row) => row.original);
+  }, [selectedRowIds, rows]);
+
+  const handleCopyAsCSV = useCallback(() => {
+    const selectedRows = getSelectedRows();
+    if (selectedRows.length === 0) return;
+    const cols = Object.keys(selectedRows[0]);
+    copyAsCSV(selectedRows, cols);
+  }, [getSelectedRows]);
+
+  const handleCopyAsJSON = useCallback(() => {
+    const selectedRows = getSelectedRows();
+    if (selectedRows.length === 0) return;
+    copyAsJSON(selectedRows);
+  }, [getSelectedRows]);
+
+  const handleCopyAsSQLValues = useCallback(() => {
+    const selectedRows = getSelectedRows();
+    if (selectedRows.length === 0) return;
+    const cols = Object.keys(selectedRows[0]);
+    copyAsSQLValues(selectedRows, cols);
+  }, [getSelectedRows]);
+
+  const handleCopyAsInsert = useCallback(() => {
+    const selectedRows = getSelectedRows();
+    if (selectedRows.length === 0) return;
+    const cols = Object.keys(selectedRows[0]);
+    copyAsInsertStatement(selectedRows, cols, tableName, schema);
+  }, [getSelectedRows, tableName, schema]);
+
+  const handleViewDetails = useCallback(() => {
+    const selectedRows = getSelectedRows();
+    if (selectedRows.length === 1) {
+      setSelectedRow(selectedRows[0]);
+    } else if (selectedRows.length > 1) {
+      // For multiple rows, the preview panel will show shared values
+      setSelectedRow(null); // Clear single row selection
+    }
+    setShowDetails(true);
+  }, [getSelectedRows]);
 
   // Get selected count
   const selectedCount = selectedRowIds.size;
@@ -934,10 +1017,10 @@ export function DataViewer({
 
   // Use deferred selection for preview panel to prevent re-renders during drag
   const previewSelectedRowIds = useDeferredValue(selectedRowIds);
-  
+
   // Add a flag to track if we should update the preview
   const [shouldUpdatePreview, setShouldUpdatePreview] = useState(true);
-  
+
   // Debounce preview updates during selection
   useEffect(() => {
     if (isSelecting) {
@@ -950,15 +1033,15 @@ export function DataViewer({
       setShouldUpdatePreview(true);
     }
     return undefined; // Explicit return for else branch
-  }, [isSelecting, selectedRowIds.size]);
-  
+  }, [isSelecting]);
+
   // Calculate details for multiple selected rows - use heavily deferred values
   const getSelectionDetails = useMemo(() => {
     // Don't calculate during active selection unless debounced
     if (isSelecting && !shouldUpdatePreview) {
       return null; // Return null during active drag to prevent calculation
     }
-    
+
     // Use deferred selection for all calculations
     const selectionToUse = previewSelectedRowIds;
     const selectedIds = Array.from(selectionToUse);
@@ -1002,7 +1085,13 @@ export function DataViewer({
     });
 
     return sharedValues;
-  }, [previewSelectedRowIds, rows, selectedRow, isSelecting, shouldUpdatePreview]);
+  }, [
+    previewSelectedRowIds,
+    rows,
+    selectedRow,
+    isSelecting,
+    shouldUpdatePreview,
+  ]);
 
   // Only show loading on initial load, not when switching views
   if (!dataLoaded && !structureLoaded && isLoading) {
@@ -1010,7 +1099,7 @@ export function DataViewer({
       <div className="flex items-center justify-center h-full">
         <div className="flex flex-col items-center gap-2">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Loading table...</p>
+          <p className="text-xs text-muted-foreground">Loading table...</p>
         </div>
       </div>
     );
@@ -1020,7 +1109,7 @@ export function DataViewer({
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
-          <p className="text-sm text-destructive">{error}</p>
+          <p className="text-xs text-destructive">{error}</p>
         </div>
       </div>
     );
@@ -1059,17 +1148,17 @@ export function DataViewer({
             onMouseMove={handleMouseMove}
           >
             {/* HTML Table with CSS Grid for virtualization */}
-            <table 
-              style={{ 
-                display: 'grid',
+            <table
+              style={{
+                display: "grid",
                 width: totalTableWidth,
               }}
             >
               {/* Table Header with Drag and Drop */}
               <thead
                 style={{
-                  display: 'grid',
-                  position: 'sticky',
+                  display: "grid",
+                  position: "sticky",
                   top: 0,
                   zIndex: 10,
                 }}
@@ -1085,10 +1174,10 @@ export function DataViewer({
                   {table.getHeaderGroups().map((headerGroup) => (
                     <tr
                       key={headerGroup.id}
-                      className="h-9 border-b border-border/50"
+                      className="h-7 border-b border-border/50"
                       style={{
-                        display: 'flex',
-                        width: '100%',
+                        display: "flex",
+                        width: "100%",
                       }}
                     >
                       <SortableContext
@@ -1111,18 +1200,18 @@ export function DataViewer({
               {/* Virtual Table Body */}
               <tbody
                 style={{
-                  display: 'grid',
+                  display: "grid",
                   height: `${rowVirtualizer.getTotalSize()}px`,
-                  position: 'relative',
+                  position: "relative",
                 }}
               >
                 {rows.length === 0 ? (
                   <tr>
-                    <td 
+                    <td
                       colSpan={table.getAllColumns().length}
                       className="flex items-center justify-center h-32"
                     >
-                      <p className="text-muted-foreground text-sm">
+                      <p className="text-muted-foreground text-xs">
                         No data available
                       </p>
                     </td>
@@ -1146,22 +1235,93 @@ export function DataViewer({
                     if (!row) return null;
 
                     return (
-                      <VirtualRow
+                      <RowContextMenu
                         key={row.id}
-                        row={row}
-                        virtualRow={virtualRow}
-                        isSelected={selectedRowIds.has(row.id)}
-                        isHighlighted={
-                          selectedRow?._rowIndex === row.original._rowIndex
+                        selectedRows={
+                          selectedRowIds.has(row.id) 
+                            ? getSelectedRows() 
+                            : [row.original] // If this row isn't selected, it will be the only selection
                         }
-                        isSelecting={isSelecting}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          handleRowMouseDown(row.id, e);
+                        onCopyAsCSV={() => {
+                          // Ensure selection is updated before copying
+                          if (!selectedRowIds.has(row.id)) {
+                            const newSelection = new Set([row.id]);
+                            setSelectedRowIds(newSelection);
+                            // Copy just this row
+                            const cols = Object.keys(row.original);
+                            copyAsCSV([row.original], cols);
+                          } else {
+                            handleCopyAsCSV();
+                          }
                         }}
-                        onMouseEnter={() => handleRowMouseEnter(row.id)}
-                        onDoubleClick={() => handleRowClick(row.original)}
-                      />
+                        onCopyAsJSON={() => {
+                          if (!selectedRowIds.has(row.id)) {
+                            const newSelection = new Set([row.id]);
+                            setSelectedRowIds(newSelection);
+                            copyAsJSON([row.original]);
+                          } else {
+                            handleCopyAsJSON();
+                          }
+                        }}
+                        onCopyAsSQL={() => {
+                          if (!selectedRowIds.has(row.id)) {
+                            const newSelection = new Set([row.id]);
+                            setSelectedRowIds(newSelection);
+                            const cols = Object.keys(row.original);
+                            copyAsSQLValues([row.original], cols);
+                          } else {
+                            handleCopyAsSQLValues();
+                          }
+                        }}
+                        onCopyAsInsert={() => {
+                          if (!selectedRowIds.has(row.id)) {
+                            const newSelection = new Set([row.id]);
+                            setSelectedRowIds(newSelection);
+                            const cols = Object.keys(row.original);
+                            copyAsInsertStatement([row.original], cols, tableName, schema);
+                          } else {
+                            handleCopyAsInsert();
+                          }
+                        }}
+                        onViewDetails={() => {
+                          if (!selectedRowIds.has(row.id)) {
+                            // Single unselected row - select it and show details
+                            setSelectedRowIds(new Set([row.id]));
+                            setSelectedRow(row.original);
+                          } else if (selectedRowIds.size === 1) {
+                            // Single selected row
+                            setSelectedRow(row.original);
+                          } else {
+                            // Multiple selected rows - preview will show shared values
+                            setSelectedRow(null);
+                          }
+                          setShowDetails(true);
+                        }}
+                        tableName={tableName}
+                        schema={schema}
+                        onOpenChange={(open) => {
+                          // When context menu opens, handle selection
+                          if (open && !selectedRowIds.has(row.id)) {
+                            // If right-clicking on unselected row, select only that row
+                            setSelectedRowIds(new Set([row.id]));
+                          }
+                          // If row is already selected, keep current selection
+                        }}
+                      >
+                        <VirtualRow
+                          row={row}
+                          virtualRow={virtualRow}
+                          isSelected={selectedRowIds.has(row.id)}
+                          isHighlighted={false} // Only true when editing, not for selection/preview
+                          isSelecting={isSelecting}
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            handleRowMouseDown(row.id, e);
+                          }}
+                          onMouseEnter={() => handleRowMouseEnter(row.id)}
+                          onDoubleClick={() => handleRowClick(row.original)}
+                        />
+                      </RowContextMenu>
                     );
                   })
                 )}
@@ -1172,7 +1332,7 @@ export function DataViewer({
             {isFetchingMore && (
               <div className="flex items-center justify-center py-2">
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mr-2" />
-                <span className="text-sm text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   Loading more...
                 </span>
               </div>
@@ -1197,7 +1357,7 @@ export function DataViewer({
         >
           <div className="h-full flex flex-col">{tableContent}</div>
         </ResizablePanel>
-        {showDetails && (selectedCount > 0 || selectedRow) && (
+        {showDetails && (
           <>
             <ResizableHandle />
             <ResizablePanel

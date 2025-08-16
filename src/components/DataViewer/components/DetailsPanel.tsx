@@ -32,7 +32,9 @@ export const DetailsPanel = memo(
     setSelectedRow,
     rows,
   }: DetailsPanelProps) => {
-    if (!showDetails || (!getSelectionDetails && !selectedRow)) return null;
+    if (!showDetails) return null;
+
+    const hasSelection = getSelectionDetails || selectedRow;
 
     return (
       <div className="flex flex-col h-full bg-muted/10 border-t">
@@ -68,21 +70,29 @@ export const DetailsPanel = memo(
             <X className="h-3 w-3" />
           </Button>
         </div>
-        {detailViewMode === "table" ? (
-          <div className="flex-1 overflow-auto">
-            <PreviewTable data={getSelectionDetails || selectedRow || {}} />
-          </div>
-        ) : (
-          <ScrollArea className="flex-1 overflow-auto">
-            <div className="p-2">
-              <DetailsPanelJSON
-                selectedRowIds={selectedRowIds}
-                getSelectionDetails={getSelectionDetails}
-                selectedRow={selectedRow}
-                rows={rows}
-              />
+        {hasSelection ? (
+          detailViewMode === "table" ? (
+            <div className="flex-1 overflow-auto">
+              <PreviewTable data={getSelectionDetails || selectedRow || {}} />
             </div>
-          </ScrollArea>
+          ) : (
+            <ScrollArea className="flex-1 overflow-auto">
+              <div className="p-2">
+                <DetailsPanelJSON
+                  selectedRowIds={selectedRowIds}
+                  getSelectionDetails={getSelectionDetails}
+                  selectedRow={selectedRow}
+                  rows={rows}
+                />
+              </div>
+            </ScrollArea>
+          )
+        ) : (
+          <div className="flex-1 flex items-center justify-center">
+            <p className="text-muted-foreground text-xs">
+              Select a row to preview
+            </p>
+          </div>
         )}
       </div>
     );
@@ -131,7 +141,7 @@ const DetailsPanelJSON = memo(
     }, [deferredSelectedRowIds, getSelectionDetails, selectedRow, rows]);
 
     return (
-      <pre className="text-sm font-mono bg-background rounded p-2 overflow-auto whitespace-pre-wrap break-words">
+      <pre className="text-xs font-mono bg-background rounded p-2 overflow-auto whitespace-pre-wrap break-words">
         {jsonContent}
       </pre>
     );

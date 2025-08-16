@@ -77,11 +77,11 @@ export const PreviewTable = memo(({ data }: PreviewTableProps) => {
 
           return (
             <div
-              className="group relative h-8 px-2 select-text flex items-center"
+              className="group relative h-7 px-2 select-text flex items-center"
               onMouseEnter={() => handleCellMouseEnter(cellId)}
               onMouseLeave={handleCellMouseLeave}
             >
-              <span className="text-sm font-medium text-muted-foreground whitespace-nowrap truncate select-text">
+              <span className="text-xs font-medium text-muted-foreground whitespace-nowrap truncate select-text">
                 {fieldName}
               </span>
               {hoveredCell === cellId && (
@@ -131,7 +131,7 @@ export const PreviewTable = memo(({ data }: PreviewTableProps) => {
 
           return (
             <div
-              className="group relative min-h-[32px] px-2 py-0.5 select-text"
+              className="group relative min-h-[26px] px-2 py-0.5 select-text"
               onMouseEnter={() =>
                 value !== null && !isMultiple && handleCellMouseEnter(cellId)
               }
@@ -139,33 +139,33 @@ export const PreviewTable = memo(({ data }: PreviewTableProps) => {
             >
               <div className="pr-6">
                 {isMultiple ? (
-                  <span className="text-sm text-muted-foreground italic select-text">
+                  <span className="text-xs text-muted-foreground italic select-text">
                     {value}
                   </span>
                 ) : value === null ? (
-                  <span className="text-sm text-muted-foreground italic select-text">
+                  <span className="text-xs text-muted-foreground italic select-text">
                     NULL
                   </span>
                 ) : typeof value === "object" ? (
-                  <pre className="text-sm whitespace-pre-wrap break-words font-mono select-text">
+                  <pre className="text-xs whitespace-pre-wrap break-words font-mono select-text">
                     {JSON.stringify(value, null, 2)}
                   </pre>
                 ) : typeof value === "boolean" ? (
                   <span
                     className={cn(
-                      "text-sm font-mono select-text",
+                      "text-xs font-mono select-text",
                       value ? "text-green-600" : "text-red-600",
                     )}
                   >
                     {String(value)}
                   </span>
                 ) : typeof value === "string" && value.length > 100 ? (
-                  <span className="text-sm break-words select-text">
+                  <span className="text-xs break-words select-text">
                     {value}
                   </span>
                 ) : (
                   <span
-                    className="text-sm truncate select-text"
+                    className="text-xs truncate select-text"
                     title={String(value)}
                   >
                     {String(value)}
@@ -230,7 +230,7 @@ export const PreviewTable = memo(({ data }: PreviewTableProps) => {
             {headerGroup.headers.map((header) => (
               <th
                 key={header.id}
-                className="text-left text-sm font-medium h-9 px-2 bg-muted/30 relative border-r border-border/50 last:border-r-0 select-text"
+                className="text-left text-xs font-medium h-7 px-2 bg-muted/30 relative border-r border-border/50 last:border-r-0 select-text"
               >
                 {header.isPlaceholder
                   ? null

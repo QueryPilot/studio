@@ -12,6 +12,7 @@ interface VirtualRowProps {
   onMouseDown: (e: React.MouseEvent) => void;
   onMouseEnter: () => void;
   onDoubleClick: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
 }
 
 export const VirtualRow = memo(
@@ -24,6 +25,7 @@ export const VirtualRow = memo(
     onMouseDown,
     onMouseEnter,
     onDoubleClick,
+    onContextMenu,
   }: VirtualRowProps) => {
     const [copiedCell, setCopiedCell] = useState<string | null>(null);
     const [hoveredCellId, setHoveredCellId] = useState<string | null>(null);
@@ -71,7 +73,7 @@ export const VirtualRow = memo(
         className={cn(
           "absolute w-full hover:bg-muted/30 cursor-pointer select-none border-l-2 border-transparent flex",
           isSelected && "bg-primary/10 border-l-primary/60 hover:bg-primary/5",
-          isHighlighted && "bg-accent/50",
+          isHighlighted && "bg-primary/20",
         )}
         style={{
           height: `${virtualRow.size}px`,
@@ -81,13 +83,14 @@ export const VirtualRow = memo(
         onMouseDown={onMouseDown}
         onMouseEnter={onMouseEnter}
         onDoubleClick={onDoubleClick}
+        onContextMenu={onContextMenu}
       >
         {row.getVisibleCells().map((cell: any, index: number) => {
           const isLastColumn = index === row.getVisibleCells().length - 1;
           return (
             <td
               key={cell.id}
-              className="relative flex items-center px-2 py-1 text-sm border-b border-r border-border/50 box-border"
+              className="relative flex items-center px-2 py-1 text-xs border-b border-r border-border/50 box-border"
               style={{
                 display: "flex",
                 width: cell.column.getSize(),

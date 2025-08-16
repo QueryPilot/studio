@@ -358,14 +358,15 @@ export function DatabaseSidebar() {
             isLoadingSchema ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                <span className="text-sm text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   Loading schema...
                 </span>
               </div>
             ) : (
               <>
-                {/* Tables */}
-                <div className="mb-2">
+                {/* Tables - Only show if there are tables */}
+                {filteredTables.length > 0 && (
+                  <div className="mb-2">
                   <div className="sticky top-0 z-30 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
                     <Button
                       variant="ghost"
@@ -378,7 +379,7 @@ export function DatabaseSidebar() {
                       ) : (
                         <ChevronRight className="h-4 w-4 mr-1" />
                       )}
-                      <span className="font-medium">Tables</span>
+                      <span className="font-medium text-xs">Tables</span>
                       <span className="ml-auto text-xs text-muted-foreground">
                         {filteredTables.length}
                       </span>
@@ -407,7 +408,7 @@ export function DatabaseSidebar() {
                             }
                             size="sm"
                             className={cn(
-                              "w-full justify-start h-7 px-2 mb-0.5 text-sm group",
+                              "w-full justify-start h-7 px-2 mb-0.5 text-xs group",
                               isItemActive({
                                 name: item.name,
                                 type: "table",
@@ -433,10 +434,12 @@ export function DatabaseSidebar() {
                         ))}
                     </div>
                   )}
-                </div>
+                  </div>
+                )}
 
-                {/* Views */}
-                <div className="mb-2">
+                {/* Views - Only show if there are views */}
+                {filteredViews.length > 0 && (
+                  <div className="mb-2">
                   <div className="sticky top-0 z-20 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 -mx-2 px-2 py-1">
                     <Button
                       variant="ghost"
@@ -449,7 +452,7 @@ export function DatabaseSidebar() {
                       ) : (
                         <ChevronRight className="h-4 w-4 mr-1" />
                       )}
-                      <span className="font-medium">Views</span>
+                      <span className="font-medium text-xs">Views</span>
                       <span className="ml-auto text-xs text-muted-foreground">
                         {filteredViews.length}
                       </span>
@@ -478,7 +481,7 @@ export function DatabaseSidebar() {
                             }
                             size="sm"
                             className={cn(
-                              "w-full justify-start h-7 px-2 mb-0.5 text-sm group",
+                              "w-full justify-start h-7 px-2 mb-0.5 text-xs group",
                               isItemActive({
                                 name: item.name,
                                 type: "view",
@@ -504,10 +507,12 @@ export function DatabaseSidebar() {
                         ))}
                     </div>
                   )}
-                </div>
+                  </div>
+                )}
 
-                {/* Functions */}
-                <div className="mb-2">
+                {/* Functions - Only show if there are functions */}
+                {filteredFunctions.length > 0 && (
+                  <div className="mb-2">
                   <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 -mx-2 px-2 py-1">
                     <Button
                       variant="ghost"
@@ -520,7 +525,7 @@ export function DatabaseSidebar() {
                       ) : (
                         <ChevronRight className="h-4 w-4 mr-1" />
                       )}
-                      <span className="font-medium">Functions</span>
+                      <span className="font-medium text-xs">Functions</span>
                       <span className="ml-auto text-xs text-muted-foreground">
                         {filteredFunctions.length}
                       </span>
@@ -549,7 +554,7 @@ export function DatabaseSidebar() {
                             }
                             size="sm"
                             className={cn(
-                              "w-full justify-start h-7 px-2 mb-0.5 text-sm group",
+                              "w-full justify-start h-7 px-2 mb-0.5 text-xs group",
                               isItemActive({
                                 name: item.name,
                                 type: "function",
@@ -575,13 +580,14 @@ export function DatabaseSidebar() {
                         ))}
                     </div>
                   )}
-                </div>
+                  </div>
+                )}
               </>
             )
           ) : (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <Search className="h-8 w-8 text-muted-foreground mb-3" />
-              <p className="text-sm text-muted-foreground mb-2">
+              <p className="text-xs text-muted-foreground mb-2">
                 No Database Connected
               </p>
               <p className="text-xs text-muted-foreground/70">
