@@ -22,6 +22,8 @@ import {
   RotateCcw,
   ChevronUp,
   ChevronDown,
+  PanelBottomOpen,
+  PanelBottomClose,
 } from "lucide-react";
 import { ViewMode } from "../types";
 
@@ -118,11 +120,11 @@ export const Toolbar = memo(
                   onInteractOutside={() => setIsColumnsDropdownOpen(false)}
                 >
                   <div className="flex items-center justify-between px-2 py-1.5">
-                    <span className="text-sm font-medium">Visible Columns</span>
+                    <span className="text-xs font-medium">Visible Columns</span>
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 px-2 text-sm"
+                      className="h-7 px-2 text-xs"
                       onClick={() => {
                         table.getAllColumns().forEach((column) => {
                           column.toggleVisibility(true);
@@ -140,7 +142,7 @@ export const Toolbar = memo(
                         return (
                           <DropdownMenuCheckboxItem
                             key={column.id}
-                            className="text-sm py-1.5 cursor-pointer"
+                            className="text-xs py-1.5 cursor-pointer"
                             checked={column.getIsVisible()}
                             onCheckedChange={(value) => {
                               column.toggleVisibility(!!value);
@@ -163,35 +165,39 @@ export const Toolbar = memo(
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-7 px-2 text-sm bg-muted/50 hover:bg-muted/70"
+                    className="h-7 px-2 text-xs bg-muted/50 hover:bg-muted/70"
                   >
                     <MoreVertical className="h-3 w-3" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem className="text-sm" onClick={exportAsCSV}>
+                  <DropdownMenuItem className="text-xs" onClick={exportAsCSV}>
                     <Download className="h-3 w-3 mr-2" />
                     Export as CSV
                   </DropdownMenuItem>
-                  {selectedRow && (
-                    <DropdownMenuItem
-                      className="text-sm"
-                      onClick={() => setShowDetails(!showDetails)}
-                    >
-                      {showDetails ? (
-                        <ChevronDown className="h-3 w-3 mr-2" />
-                      ) : (
-                        <ChevronUp className="h-3 w-3 mr-2" />
-                      )}
-                      Row Details
-                    </DropdownMenuItem>
-                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
+
+              {/* Preview Panel Toggle Button */}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => setShowDetails(!showDetails)}
+                title={
+                  showDetails ? "Hide Preview Panel" : "Show Preview Panel"
+                }
+              >
+                {showDetails ? (
+                  <PanelBottomClose className="h-3.5 w-3.5" />
+                ) : (
+                  <PanelBottomOpen className="h-3.5 w-3.5" />
+                )}
+              </Button>
             </>
           )}
           {viewMode === "structure" && (
-            <span className="text-sm text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               {tableStructure.length} columns
             </span>
           )}

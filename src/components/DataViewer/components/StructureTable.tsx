@@ -31,9 +31,9 @@ export const StructureTable = memo(
           minSize: 60,
           maxSize: 250,
           cell: ({ getValue }) => (
-            <div className="h-7 px-2 flex items-center">
+            <div className="h-6 px-2 flex items-center">
               <span
-                className="truncate text-sm font-mono"
+                className="truncate text-xs font-mono"
                 title={getValue() as string}
               >
                 {getValue() as string}
@@ -54,8 +54,8 @@ export const StructureTable = memo(
                 : ""
             }`;
             return (
-              <div className="min-h-[32px] px-2 py-0.5 flex items-center">
-                <span className="truncate text-sm" title={value}>
+              <div className="min-h-[26px] px-2 py-0.5 flex items-center">
+                <span className="truncate text-xs" title={value}>
                   {value}
                 </span>
               </div>
@@ -71,10 +71,10 @@ export const StructureTable = memo(
           cell: ({ getValue }) => {
             const value = getValue() as string;
             return (
-              <div className="min-h-[32px] px-2 py-0.5 flex items-center">
+              <div className="min-h-[26px] px-2 py-0.5 flex items-center">
                 <span
                   className={cn(
-                    "px-1 py-0.5 rounded text-sm",
+                    "px-1 py-0.5 rounded text-xs",
                     value === "YES"
                       ? "bg-yellow-500/20 text-yellow-700"
                       : "bg-green-500/20 text-green-700",
@@ -95,9 +95,9 @@ export const StructureTable = memo(
           cell: ({ getValue }) => {
             const value = String(getValue() || "-");
             return (
-              <div className="min-h-[32px] px-2 py-0.5 flex items-center">
+              <div className="min-h-[26px] px-2 py-0.5 flex items-center">
                 <span
-                  className="truncate text-sm font-mono text-muted-foreground"
+                  className="truncate text-xs font-mono text-muted-foreground"
                   title={value}
                 >
                   {value}
@@ -112,14 +112,14 @@ export const StructureTable = memo(
           size: 120,
           minSize: 80,
           cell: ({ row }) => (
-            <div className="min-h-[32px] px-2 py-0.5 flex items-center gap-1">
+            <div className="min-h-[26px] px-2 py-0.5 flex items-center gap-1">
               {row.original.is_primary_key && (
-                <span className="px-1 py-0.5 bg-blue-500/20 text-blue-700 rounded text-sm">
+                <span className="px-1 py-0.5 bg-blue-500/20 text-blue-700 rounded text-xs">
                   PK
                 </span>
               )}
               {row.original.is_foreign_key && (
-                <span className="px-1 py-0.5 bg-purple-500/20 text-purple-700 rounded text-sm">
+                <span className="px-1 py-0.5 bg-purple-500/20 text-purple-700 rounded text-xs">
                   FK
                 </span>
               )}
@@ -160,7 +160,7 @@ export const StructureTable = memo(
               {headerGroup.headers.map((header) => (
                 <th
                   key={header.id}
-                  className="text-left text-sm font-medium h-9 px-2 bg-muted/30 relative border-r border-border/50 last:border-r-0 select-none"
+                  className="text-left text-xs font-medium h-7 px-2 bg-muted/30 relative border-r border-border/50 last:border-r-0 select-none"
                 >
                   {header.isPlaceholder
                     ? null
