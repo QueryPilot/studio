@@ -631,6 +631,7 @@ export function DataViewer({
         : undefined,
   });
 
+
   // Handle infinite scroll with optimized debouncing
   const scrollTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
   const lastScrollTop = useRef(0);
