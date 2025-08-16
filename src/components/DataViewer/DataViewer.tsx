@@ -960,6 +960,14 @@ export function DataViewer({
     setShowDetails(true);
   }, [getSelectedRows]);
 
+  // Handle hiding columns
+  const handleHideColumn = useCallback((columnId: string) => {
+    const column = table.getColumn(columnId);
+    if (column) {
+      column.toggleVisibility(false);
+    }
+  }, [table]);
+
   // Get selected count
   const selectedCount = selectedRowIds.size;
   const {
@@ -1190,6 +1198,7 @@ export function DataViewer({
                             key={header.id}
                             column={header.column}
                             header={header}
+                            onHideColumn={handleHideColumn}
                           />
                         ))}
                       </SortableContext>
