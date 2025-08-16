@@ -1,12 +1,28 @@
 # Frontend (React/TypeScript) Guidelines
 
-## Recent UI Improvements
-- **DataViewer Component**: Virtual scrolling with infinite loading for large datasets
-- **Row Selection**: Stable selection using row IDs instead of indices
-- **Column Virtualization**: Fixed width calculations for off-viewport columns
-- **Resizable Panels**: Always-mounted ResizablePanelGroup to prevent flashing
-- **Compact Toolbar**: Reduced heights for space efficiency (h-6 for buttons, h-5 for toggles)
-- **Backdrop Blur Headers**: Sticky headers with backdrop-filter for all tables
+## DataViewer Component Architecture
+
+### Component Structure
+- **Main Component**: `DataViewer.tsx` - Orchestrates the entire data viewing experience
+- **Sub-components** (in `/components/DataViewer/components/`):
+  - `Toolbar.tsx` - Search, column visibility, export functionality
+  - `VirtualRow.tsx` - Individual virtualized table rows
+  - `DetailsPanel.tsx` - Row details with table/JSON view modes
+  - `RowContextMenu.tsx` - Right-click menu for row operations
+  - `ColumnContextMenu.tsx` - Column-specific context menu
+  - `DraggableHeader.tsx` - Draggable and resizable column headers
+  - `PreviewTable.tsx` - Table preview component
+  - `StructureTable.tsx` - Table structure display
+  - `SkeletonRow.tsx` - Loading state skeleton
+
+### Key Features
+- **Virtual Scrolling**: TanStack Virtual for infinite loading of large datasets
+- **Row Selection**: Stable selection using row IDs with multi-select support
+- **Column Management**: Drag-to-reorder, resize, visibility toggles
+- **Context Menus**: Separate menus for rows and columns
+- **Search & Filter**: Real-time global search
+- **Export**: CSV export functionality
+- **Responsive Design**: Compact toolbar with h-6 buttons, h-5 toggles
 
 ## UI Component Patterns
 
@@ -59,12 +75,18 @@
 - Separate drag handles from resize handles
 - Use `restrictToHorizontalAxis` modifier for column reordering
 
-### Data Table Features
-- Column resizing with live preview
-- Column visibility toggles with "Reset" option
-- Global search with real-time filtering
-- Export to CSV functionality
-- Details panel with table/JSON view modes
+### Data Table Implementation Details
+- **Column Resizing**: Live preview with resize handles separate from drag handles
+- **Column Reordering**: DnD Kit with `restrictToHorizontalAxis` modifier
+- **Selection Management**: 
+  - Shift+click for range selection
+  - Cmd/Ctrl+click for individual selection
+  - Select all with Cmd/Ctrl+A
+- **Performance**:
+  - `FETCH_SIZE = 100` rows per batch
+  - `WINDOW_SIZE = 1000` max rows in memory
+  - Deferred value for selection state updates
+- **Sticky Headers**: `bg-background/95 backdrop-blur` for transparency effect
 
 ## Performance Optimizations
 - Memoize expensive components with `React.memo`

@@ -54,7 +54,14 @@ make clean
 ### Project Structure
 - `/src/` - React frontend application
   - `/components/ui/` - shadcn/ui components library (Alert, Button, Dialog, etc.)
-  - `/components/` - Application components (ConnectionDialog, DataViewer, QueryEditor, QueryResults, QueryWorkspace)
+  - `/components/` - Application components
+    - `/DataViewer/` - Data table viewer with virtual scrolling
+      - `/components/` - Sub-components (Toolbar, VirtualRow, DetailsPanel, RowContextMenu, ColumnContextMenu, etc.)
+      - `DataViewer.tsx` - Main data viewer component
+    - `ConnectionDialog.tsx` - Database connection dialog
+    - `QueryEditor.tsx` - SQL query editor
+    - `QueryResults.tsx` - Query results display
+    - `QueryWorkspace.tsx` - Query workspace container
   - `/lib/` - Utilities (cn helper, databaseUri parser, utils)
   - `/types/` - TypeScript type definitions
     - `database.ts` - Database-related types (TableInfo, ViewInfo, FunctionInfo, etc.)
@@ -122,6 +129,7 @@ make clean
 - **Column highlights clipping**: Set explicit width on parent containers using total column width
 - **Scroll position lost**: Preserve tableContainerRef, avoid unmounting table container
 - **Header transparency**: Use `bg-background/95 backdrop-blur` for sticky headers
+- **Context menus**: Separate RowContextMenu and ColumnContextMenu components for better organization
 
 ### Performance Issues
 - **Large dataset lag**: Implement virtual scrolling with TanStack Virtual
