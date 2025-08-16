@@ -382,7 +382,7 @@ export function DataViewer({
                   return (
                     <Button
                       variant="ghost"
-                      className="h-6 px-1 font-semibold text-xs w-full justify-between hover:bg-transparent"
+                      className="h-6 px-1 font-semibold text-sm w-full justify-between hover:bg-transparent"
                       onClick={handleSort}
                     >
                       <span className="truncate">{col}</span>
@@ -402,7 +402,7 @@ export function DataViewer({
                   const value = getValue();
                   if (value === null) {
                     return (
-                      <span className="text-muted-foreground italic text-xs">
+                      <span className="text-muted-foreground italic text-sm">
                         NULL
                       </span>
                     );
@@ -411,7 +411,7 @@ export function DataViewer({
                     return (
                       <span
                         className={cn(
-                          "font-mono text-xs",
+                          "font-mono text-sm",
                           value ? "text-green-600" : "text-red-600",
                         )}
                       >
@@ -422,7 +422,7 @@ export function DataViewer({
                   if (typeof value === "object") {
                     return (
                       <span
-                        className="font-mono text-xs"
+                        className="font-mono text-sm"
                         title={JSON.stringify(value)}
                       >
                         {JSON.stringify(value).substring(0, 50)}...
@@ -431,7 +431,7 @@ export function DataViewer({
                   }
                   return (
                     <span
-                      className="block truncate text-xs"
+                      className="block truncate text-sm"
                       title={String(value)}
                     >
                       {String(value)}
@@ -597,7 +597,7 @@ export function DataViewer({
   const rowVirtualizer = useVirtualizer({
     count: rows.length + (isFetchingMore ? 10 : 0), // Add skeleton rows when loading
     getScrollElement: () => tableContainerRef.current,
-    estimateSize: useCallback(() => 28, []), // Compact row height
+    estimateSize: useCallback(() => 32, []), // Row height for text-sm
     overscan: OVERSCAN, // Use constant from constants.ts
     scrollMargin: 0,
     getItemKey: useCallback((index: number) => index, []),
@@ -1010,7 +1010,7 @@ export function DataViewer({
       <div className="flex items-center justify-center h-full">
         <div className="flex flex-col items-center gap-2">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          <p className="text-xs text-muted-foreground">Loading table...</p>
+          <p className="text-sm text-muted-foreground">Loading table...</p>
         </div>
       </div>
     );
@@ -1020,7 +1020,7 @@ export function DataViewer({
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
-          <p className="text-xs text-destructive">{error}</p>
+          <p className="text-sm text-destructive">{error}</p>
         </div>
       </div>
     );
@@ -1085,7 +1085,7 @@ export function DataViewer({
                   {table.getHeaderGroups().map((headerGroup) => (
                     <tr
                       key={headerGroup.id}
-                      className="h-7 border-b border-border/50"
+                      className="h-9 border-b border-border/50"
                       style={{
                         display: 'flex',
                         width: '100%',
@@ -1122,7 +1122,7 @@ export function DataViewer({
                       colSpan={table.getAllColumns().length}
                       className="flex items-center justify-center h-32"
                     >
-                      <p className="text-muted-foreground text-xs">
+                      <p className="text-muted-foreground text-sm">
                         No data available
                       </p>
                     </td>
@@ -1154,6 +1154,7 @@ export function DataViewer({
                         isHighlighted={
                           selectedRow?._rowIndex === row.original._rowIndex
                         }
+                        isSelecting={isSelecting}
                         onMouseDown={(e) => {
                           e.stopPropagation();
                           handleRowMouseDown(row.id, e);
@@ -1171,7 +1172,7 @@ export function DataViewer({
             {isFetchingMore && (
               <div className="flex items-center justify-center py-2">
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mr-2" />
-                <span className="text-xs text-muted-foreground">
+                <span className="text-sm text-muted-foreground">
                   Loading more...
                 </span>
               </div>
@@ -1179,7 +1180,9 @@ export function DataViewer({
           </div>
         ) : (
           /* Structure View */
-          <StructureTable tableStructure={tableStructure} />
+          <div className="h-full overflow-auto">
+            <StructureTable tableStructure={tableStructure} />
+          </div>
         )}
       </div>
     </>

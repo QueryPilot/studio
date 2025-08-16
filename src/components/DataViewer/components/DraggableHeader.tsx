@@ -40,11 +40,11 @@ export const DraggableHeader = memo(({ column, header }: DraggableHeaderProps) =
         ...style,
         display: 'flex',
       }}
-      className="relative flex items-center text-left text-xs bg-muted/50 border-r border-border/50 box-border"
+      className="relative flex items-center text-left text-sm bg-muted/50 border-r border-border/50 box-border"
       {...attributes}
     >
       <div
-        className="flex items-center justify-between w-full px-1.5 py-0.5 h-7"
+        className="flex items-center justify-between w-full px-2 py-1 h-9"
         {...listeners}
       >
         {flexRender(header.column.columnDef.header, header.getContext())}
