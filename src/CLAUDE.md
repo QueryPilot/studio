@@ -1,5 +1,13 @@
 # Frontend (React/TypeScript) Guidelines
 
+## Recent UI Improvements
+- **DataViewer Component**: Virtual scrolling with infinite loading for large datasets
+- **Row Selection**: Stable selection using row IDs instead of indices
+- **Column Virtualization**: Fixed width calculations for off-viewport columns
+- **Resizable Panels**: Always-mounted ResizablePanelGroup to prevent flashing
+- **Compact Toolbar**: Reduced heights for space efficiency (h-6 for buttons, h-5 for toggles)
+- **Backdrop Blur Headers**: Sticky headers with backdrop-filter for all tables
+
 ## UI Component Patterns
 
 ### Component Organization
@@ -39,3 +47,29 @@
 - TanStack Query for server state
 - Query keys in consistent format
 - Optimistic updates where appropriate
+
+### Virtual Scrolling
+- Use TanStack Virtual for large lists
+- Implement infinite scrolling with `FETCH_SIZE` and `WINDOW_SIZE` constants
+- Preserve scroll position when layout changes
+- Calculate total column width for proper horizontal scrolling
+
+### Drag & Drop
+- DnD Kit for sortable columns
+- Separate drag handles from resize handles
+- Use `restrictToHorizontalAxis` modifier for column reordering
+
+### Data Table Features
+- Column resizing with live preview
+- Column visibility toggles with "Reset" option
+- Global search with real-time filtering
+- Export to CSV functionality
+- Details panel with table/JSON view modes
+
+## Performance Optimizations
+- Memoize expensive components with `React.memo`
+- Use `useDeferredValue` for selection state updates
+- Implement windowing for large datasets (keep max 1000 rows in memory)
+- Cache table data and schema with `cacheService`
+- Avoid layout thrashing by calculating widths upfront
+- Use `contain: strict` CSS for better scroll performance

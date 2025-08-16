@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Database, Rows, Plus, RefreshCw, Loader2, Table, Layers } from "lucide-react";
+import { Database, Rows, Plus, RefreshCw, Table, Layers } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -20,7 +20,6 @@ export function StatusBar() {
     selectedRowCount, 
     totalRowCount, 
     estimatedRowCount, 
-    isLoadingData,
     currentTableName,
     selectedSchema,
     setSelectedSchema,
@@ -199,16 +198,8 @@ export function StatusBar() {
 
       {/* Right side - Row counts and selection info */}
       <div className="flex items-center gap-2">
-        {/* Loading indicator */}
-        {isLoadingData && (
-          <div className="flex items-center gap-1.5">
-            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-            <span className="text-xs text-muted-foreground">Loading...</span>
-          </div>
-        )}
-        
-        {/* Combined selection and row count */}
-        {currentTableName && !isLoadingData && (
+        {/* Combined selection and row count - show always when table is selected */}
+        {currentTableName && (
           <div className="flex items-center gap-1.5 text-xs">
             {selectedRowCount > 0 && (
               <>
