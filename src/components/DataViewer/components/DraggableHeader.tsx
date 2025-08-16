@@ -2,13 +2,15 @@ import { memo } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { flexRender } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
+import { ColumnContextMenu } from "./ColumnContextMenu";
 
 interface DraggableHeaderProps {
   column: any;
   header: any;
+  onHideColumn?: (columnId: string) => void;
 }
 
-export const DraggableHeader = memo(({ column, header }: DraggableHeaderProps) => {
+export const DraggableHeader = memo(({ column, header, onHideColumn }: DraggableHeaderProps) => {
   const {
     attributes,
     listeners,
@@ -33,7 +35,7 @@ export const DraggableHeader = memo(({ column, header }: DraggableHeaderProps) =
     flex: isLastColumn ? "1 1 auto" : "none",
   };
 
-  return (
+  const headerElement = (
     <th
       ref={setNodeRef}
       style={{
@@ -70,6 +72,20 @@ export const DraggableHeader = memo(({ column, header }: DraggableHeaderProps) =
       )}
     </th>
   );
+
+  // Only wrap in context menu if onHideColumn is provided
+  if (onHideColumn) {
+    return (
+      <ColumnContextMenu
+        columnId={column.id}
+        onHideColumn={onHideColumn}
+      >
+        {headerElement}
+      </ColumnContextMenu>
+    );
+  }
+
+  return headerElement;
 });
 
 DraggableHeader.displayName = "DraggableHeader";
