@@ -1,7 +1,10 @@
 export function getInitialColumnSize(colName: string, rows: any[]) {
-  const headerSize = colName.length * 8 + 24;
-  const minSize = Math.max(headerSize, 100);
+  // Calculate minimum size based on column name length
+  // Use 7px per character + padding (same as PreviewTable)
+  const headerSize = colName.length * 7 + 40; // Extra padding for sort icon
+  const minSize = Math.max(headerSize, 50); // Minimum 50px
 
+  // Sample first 10 rows to estimate content width
   const sampleSize = Math.min(rows.length, 10);
   let maxContentLength = 0;
 
@@ -13,37 +16,65 @@ export function getInitialColumnSize(colName: string, rows: any[]) {
     }
   }
 
+  // Calculate content size (6px per character + padding)
   const contentSize = Math.min(maxContentLength * 6 + 24, 400);
 
+  // Smart defaults based on column name patterns
   const lowerCol = colName.toLowerCase();
   let defaultSize = 120;
 
-  if (lowerCol === "id" || lowerCol.endsWith("_id")) defaultSize = 60;
-  else if (
+  if (lowerCol === "id" || lowerCol.endsWith("_id")) {
+    defaultSize = Math.max(80, minSize); // IDs need at least 80px
+  } else if (
     lowerCol.includes("date") ||
     lowerCol.includes("time") ||
-    lowerCol.includes("_at")
-  )
-    defaultSize = 140;
-  else if (lowerCol.includes("email")) defaultSize = 180;
-  else if (lowerCol.includes("name") || lowerCol.includes("title"))
-    defaultSize = 150;
-  else if (
+    lowerCol.includes("_at") ||
+    lowerCol.includes("created") ||
+    lowerCol.includes("updated")
+  ) {
+    defaultSize = Math.max(140, minSize);
+  } else if (lowerCol.includes("email")) {
+    defaultSize = Math.max(180, minSize);
+  } else if (lowerCol.includes("name") || lowerCol.includes("title")) {
+    defaultSize = Math.max(150, minSize);
+  } else if (
     lowerCol.includes("description") ||
     lowerCol.includes("content") ||
-    lowerCol.includes("text")
-  )
-    defaultSize = 250;
-  else if (lowerCol.includes("url") || lowerCol.includes("link"))
-    defaultSize = 200;
-  else if (lowerCol.includes("status") || lowerCol.includes("type"))
-    defaultSize = 100;
+    lowerCol.includes("text") ||
+    lowerCol.includes("comment") ||
+    lowerCol.includes("message")
+  ) {
+    defaultSize = Math.max(250, minSize);
+  } else if (lowerCol.includes("url") || lowerCol.includes("link")) {
+    defaultSize = Math.max(200, minSize);
+  } else if (
+    lowerCol.includes("status") || 
+    lowerCol.includes("type") ||
+    lowerCol.includes("state")
+  ) {
+    defaultSize = Math.max(100, minSize);
+  } else if (
+    lowerCol.includes("price") ||
+    lowerCol.includes("amount") ||
+    lowerCol.includes("total") ||
+    lowerCol.includes("count")
+  ) {
+    defaultSize = Math.max(100, minSize);
+  } else if (lowerCol.includes("phone") || lowerCol.includes("mobile")) {
+    defaultSize = Math.max(130, minSize);
+  } else if (lowerCol.includes("address")) {
+    defaultSize = Math.max(200, minSize);
+  } else {
+    // For any other column, use the header size as default
+    defaultSize = Math.max(120, minSize);
+  }
 
-  const finalSize = Math.max(minSize, contentSize, defaultSize);
+  // Final size is the maximum of content size and default size
+  const finalSize = Math.max(contentSize, defaultSize);
 
   return {
-    size: Math.min(finalSize, 400),
-    min: minSize,
+    size: Math.min(finalSize, 400), // Cap at 400px
+    min: minSize, // Dynamic minimum based on column name
     max: 500,
   };
 }

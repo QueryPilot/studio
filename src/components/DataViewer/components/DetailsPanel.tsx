@@ -68,10 +68,12 @@ export const DetailsPanel = memo(
             <X className="h-3 w-3" />
           </Button>
         </div>
-        <ScrollArea className="flex-1 overflow-auto">
-          {detailViewMode === "table" ? (
+        {detailViewMode === "table" ? (
+          <div className="flex-1 overflow-auto">
             <PreviewTable data={getSelectionDetails || selectedRow || {}} />
-          ) : (
+          </div>
+        ) : (
+          <ScrollArea className="flex-1 overflow-auto">
             <div className="p-2">
               <DetailsPanelJSON
                 selectedRowIds={selectedRowIds}
@@ -80,8 +82,8 @@ export const DetailsPanel = memo(
                 rows={rows}
               />
             </div>
-          )}
-        </ScrollArea>
+          </ScrollArea>
+        )}
       </div>
     );
   },
@@ -129,7 +131,7 @@ const DetailsPanelJSON = memo(
     }, [deferredSelectedRowIds, getSelectionDetails, selectedRow, rows]);
 
     return (
-      <pre className="text-xs font-mono bg-background rounded p-2 overflow-auto whitespace-pre-wrap break-words">
+      <pre className="text-sm font-mono bg-background rounded p-2 overflow-auto whitespace-pre-wrap break-words">
         {jsonContent}
       </pre>
     );

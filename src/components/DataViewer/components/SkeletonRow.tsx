@@ -18,13 +18,13 @@ export const SkeletonRow = memo(({ virtualRow, columnCount }: SkeletonRowProps) 
     {Array.from({ length: columnCount }).map((_, index) => (
       <td
         key={index}
-        className="flex items-center px-2 py-0.5 border-b border-r border-border/50"
+        className="flex items-center px-2 py-1 border-b border-r border-border/50"
         style={{
           display: 'flex',
           width: `${100 / columnCount}%`,
         }}
       >
-        <div className="h-3 bg-muted/50 rounded w-3/4"></div>
+        <div className="h-4 bg-muted/50 rounded w-3/4"></div>
       </td>
     ))}
   </tr>

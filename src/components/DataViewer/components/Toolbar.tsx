@@ -63,7 +63,7 @@ export const Toolbar = memo(
     return (
       <div className="flex-shrink-0 flex items-center justify-between p-1 border-b bg-muted/30">
         <div className="flex items-center gap-1">
-          <div className="flex items-center bg-muted/50 border rounded-md p-0.5 h-6">
+          <div className="flex items-center bg-muted/50 border rounded-md p-0.5 h-7">
             <ToggleButton
               isActive={viewMode === "data"}
               onClick={() => setViewMode("data")}
@@ -82,13 +82,13 @@ export const Toolbar = memo(
 
           {viewMode === "data" && (
             <>
-              <div className="relative flex-1 flex items-center bg-muted/50 border rounded-md px-1.5 h-6 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-0">
-                <Search className="h-3 w-3 text-muted-foreground mr-1" />
+              <div className="relative flex-1 flex items-center bg-muted/50 border rounded-md px-1.5 h-7 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-0">
+                <Search className="h-3.5 w-3.5 text-muted-foreground mr-1" />
                 <Input
                   placeholder="Search..."
                   value={globalFilter ?? ""}
                   onChange={(e) => setGlobalFilter(e.target.value)}
-                  className="h-4 border-0 !bg-transparent !outline-none px-0 text-xs focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 w-full"
+                  className="h-5 !text-xs border-0 !bg-transparent !outline-none px-0 focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 w-full"
                 />
               </div>
             </>
@@ -106,7 +106,7 @@ export const Toolbar = memo(
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-6 px-2 text-xs bg-muted/50 border rounded-md hover:bg-muted/70"
+                    className="h-7 px-2 text-xs bg-muted/50 border rounded-md hover:bg-muted/70"
                   >
                     <Eye className="h-3 w-3 mr-1" />
                     Columns
@@ -118,11 +118,11 @@ export const Toolbar = memo(
                   onInteractOutside={() => setIsColumnsDropdownOpen(false)}
                 >
                   <div className="flex items-center justify-between px-2 py-1.5">
-                    <span className="text-xs font-medium">Visible Columns</span>
+                    <span className="text-sm font-medium">Visible Columns</span>
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-6 px-2 text-xs"
+                      className="h-7 px-2 text-sm"
                       onClick={() => {
                         table.getAllColumns().forEach((column) => {
                           column.toggleVisibility(true);
@@ -140,7 +140,7 @@ export const Toolbar = memo(
                         return (
                           <DropdownMenuCheckboxItem
                             key={column.id}
-                            className="text-xs py-1.5 cursor-pointer"
+                            className="text-sm py-1.5 cursor-pointer"
                             checked={column.getIsVisible()}
                             onCheckedChange={(value) => {
                               column.toggleVisibility(!!value);
@@ -163,19 +163,19 @@ export const Toolbar = memo(
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-6 px-2 text-xs bg-muted/50 hover:bg-muted/70"
+                    className="h-7 px-2 text-sm bg-muted/50 hover:bg-muted/70"
                   >
                     <MoreVertical className="h-3 w-3" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem className="text-xs" onClick={exportAsCSV}>
+                  <DropdownMenuItem className="text-sm" onClick={exportAsCSV}>
                     <Download className="h-3 w-3 mr-2" />
                     Export as CSV
                   </DropdownMenuItem>
                   {selectedRow && (
                     <DropdownMenuItem
-                      className="text-xs"
+                      className="text-sm"
                       onClick={() => setShowDetails(!showDetails)}
                     >
                       {showDetails ? (
@@ -191,7 +191,7 @@ export const Toolbar = memo(
             </>
           )}
           {viewMode === "structure" && (
-            <span className="text-xs text-muted-foreground">
+            <span className="text-sm text-muted-foreground">
               {tableStructure.length} columns
             </span>
           )}
