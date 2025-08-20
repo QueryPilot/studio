@@ -7,6 +7,7 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::database::types::*;
+use crate::database::types::postgres::register_postgres_converters;
 use crate::error::AppError;
 
 use super::DbAdapter;
@@ -20,13 +21,22 @@ pub struct PostgresCursor {
 pub struct PostgresAdapter {
     pool: Arc<PgPool>,
     cursors: Arc<RwLock<HashMap<String, PostgresCursor>>>,
+    type_registry: TypeRegistry,
 }
 
 impl PostgresAdapter {
     pub fn new(pool: PgPool) -> Self {
+        let mut type_registry = TypeRegistry::new();
+        
+        // Register PostgreSQL-specific converters
+        for converter in register_postgres_converters() {
+            type_registry.register(converter);
+        }
+        
         Self {
             pool: Arc::new(pool),
             cursors: Arc::new(RwLock::new(HashMap::new())),
+            type_registry,
         }
     }
     
@@ -50,38 +60,25 @@ impl PostgresAdapter {
         columns
     }
     
-    fn row_to_json_values(row: sqlx::postgres::PgRow) -> Vec<serde_json::Value> {
+    fn row_to_json_values(&self, row: sqlx::postgres::PgRow) -> Vec<serde_json::Value> {
         let mut values = Vec::new();
         
-        for (i, _column) in row.columns().iter().enumerate() {
-            let value = if let Ok(val) = row.try_get::<Option<String>, _>(i) {
-                val.map(serde_json::Value::String)
-                    .unwrap_or(serde_json::Value::Null)
-            } else if let Ok(val) = row.try_get::<Option<i32>, _>(i) {
-                val.map(|v| serde_json::Value::Number(v.into()))
-                    .unwrap_or(serde_json::Value::Null)
-            } else if let Ok(val) = row.try_get::<Option<i64>, _>(i) {
-                val.map(|v| serde_json::Value::Number(v.into()))
-                    .unwrap_or(serde_json::Value::Null)
-            } else if let Ok(val) = row.try_get::<Option<f64>, _>(i) {
-                val.and_then(|v| serde_json::Number::from_f64(v))
-                    .map(serde_json::Value::Number)
-                    .unwrap_or(serde_json::Value::Null)
-            } else if let Ok(val) = row.try_get::<Option<bool>, _>(i) {
-                val.map(serde_json::Value::Bool)
-                    .unwrap_or(serde_json::Value::Null)
-            } else {
-                // Fallback to string representation
-                if let Ok(val) = row.try_get_raw(i) {
-                    if val.is_null() {
+        for (i, column) in row.columns().iter().enumerate() {
+            let type_name = format!("{:?}", column.type_info());
+            let raw_value = row.try_get_raw(i).unwrap_or_else(|_| {
+                use sqlx::ValueRef;
+                sqlx::postgres::PgValueRef::NULL
+            });
+            
+            let value = self.type_registry.convert(&type_name, &raw_value)
+                .unwrap_or_else(|_| {
+                    // Fallback for unsupported types
+                    if raw_value.is_null() {
                         serde_json::Value::Null
                     } else {
-                        serde_json::Value::String(format!("{:?}", val))
+                        serde_json::Value::String(format!("{:?}", raw_value))
                     }
-                } else {
-                    serde_json::Value::Null
-                }
-            };
+                });
             
             values.push(value);
         }
@@ -255,7 +252,7 @@ impl DbAdapter for PostgresAdapter {
         
         let mut json_rows = Vec::new();
         for row in rows.iter().take(opts.page_size) {
-            json_rows.push(Self::row_to_json_values(row.clone()));
+            json_rows.push(self.row_to_json_values(row.clone()));
         }
         
         let is_complete = rows.len() <= opts.page_size;
@@ -286,7 +283,7 @@ impl DbAdapter for PostgresAdapter {
         
         let mut json_rows = Vec::new();
         for row in rows.iter() {
-            json_rows.push(Self::row_to_json_values(row.clone()));
+            json_rows.push(self.row_to_json_values(row.clone()));
         }
         
         let is_complete = rows.len() < page_size;
