@@ -1,10 +1,10 @@
 use aes_gcm::{
-    aead::{Aead, AeadCore, KeyInit, OsRng},
+    aead::{Aead, KeyInit},
     Aes256Gcm, Key, Nonce,
 };
 use chacha20poly1305::ChaCha20Poly1305;
 use serde::{Deserialize, Serialize};
-use crate::crypto::secure_string::{SecureBytes, SecureString};
+use crate::crypto::secure_string::SecureBytes;
 use crate::crypto::nonce::generate_nonce;
 use std::error::Error;
 

@@ -1,7 +1,6 @@
 use std::error::Error;
 use keyring::Entry;
 use uuid::Uuid;
-use rand::{RngCore, thread_rng};
 use crate::crypto::nonce::generate_random_key;
 
 const SERVICE_NAME: &str = "DevDB Studio";

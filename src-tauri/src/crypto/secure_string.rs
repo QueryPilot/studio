@@ -1,5 +1,4 @@
 use zeroize::{Zeroize, ZeroizeOnDrop};
-use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Secure string that zeros memory on drop

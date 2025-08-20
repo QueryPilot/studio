@@ -1,7 +1,6 @@
 use std::error::Error;
 use rayon::prelude::*;
 use crate::crypto::{EncryptionService, SecureBytes, encrypt_field, decrypt_field};
-use uuid::Uuid;
 
 /// Batch encryption result
 #[derive(Debug)]

@@ -8,8 +8,6 @@ use crate::database::connection_manager::{ConnectionManager, ConnectionConfig, D
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-pub use adapter::DbAdapter;
-pub use executor::QueryExecutor;
 pub use registry::ConnectionRegistry;
 
 // Keep existing structs for compatibility

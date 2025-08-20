@@ -48,6 +48,7 @@
     "dayjs": "^1.11.13",
     "dexie": "^4.0.11",
     "fuse.js": "^7.1.0",
+    "immer": "^10.1.1",
     "lru-cache": "^11.1.0",
     "lucide-react": "^0.477.0",
     "monaco-editor": "^0.52.2",
