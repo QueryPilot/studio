@@ -1,19 +1,18 @@
 use std::error::Error;
 use std::path::PathBuf;
-use sqlx::{SqlitePool, SqliteConnection, Row};
-use tauri::{AppHandle, Manager};
+use sqlx::{SqlitePool, Row};
+use tauri::AppHandle;
 use uuid::Uuid;
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use std::sync::{Arc, Mutex};
 
 use crate::crypto::{
-    EncryptionService, EncryptedData, SecureBytes, SecureString,
+    EncryptionService, SecureBytes,
     KeyManager, encrypt_field, decrypt_field,
 };
 use crate::storage::keychain::KeychainManager;
 use crate::storage::audit_log::{AuditLogger, AuditEvent, SecurityEventType, EventOutcome};
-use crate::storage::models::{ConnectionConfig, WorkspaceConfig};
+use crate::storage::models::ConnectionConfig;
 use crate::cache::{CredentialCache, ConnectionPool, PoolConfig};
 
 /// Secure storage service with encryption at rest and performance optimizations

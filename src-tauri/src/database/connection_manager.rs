@@ -81,8 +81,8 @@ impl ConnectionManager {
                     .after_connect(|conn, _meta| {
                         Box::pin(async move {
                             // Disable prepared statement caching to avoid conflicts
-                            use sqlx::postgres::PgConnection;
-                            use sqlx::Connection;
+                            
+                            
                             // This helps prevent "prepared statement already exists" errors
                             Ok(())
                         })
@@ -154,7 +154,7 @@ impl ConnectionManager {
                 DatabasePool::PostgreSQL(pg_pool) => {
                     // Use a simple query that doesn't create prepared statements
                     use sqlx::postgres::PgRow;
-                    use sqlx::Row;
+                    
                     let _row: PgRow = sqlx::query("SELECT 1 as test")
                         .persistent(false) // Don't cache this statement
                         .fetch_one(pg_pool)
@@ -163,7 +163,7 @@ impl ConnectionManager {
                 },
                 DatabasePool::MySQL(mysql_pool) => {
                     use sqlx::mysql::MySqlRow;
-                    use sqlx::Row;
+                    
                     let _row: MySqlRow = sqlx::query("SELECT 1 as test")
                         .persistent(false) // Don't cache this statement
                         .fetch_one(mysql_pool)
@@ -172,7 +172,7 @@ impl ConnectionManager {
                 },
                 DatabasePool::SQLite(sqlite_pool) => {
                     use sqlx::sqlite::SqliteRow;
-                    use sqlx::Row;
+                    
                     let _row: SqliteRow = sqlx::query("SELECT 1 as test")
                         .persistent(false) // Don't cache this statement
                         .fetch_one(sqlite_pool)

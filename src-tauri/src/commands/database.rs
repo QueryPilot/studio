@@ -230,7 +230,7 @@ pub async fn db_update_cell(
         .ok_or_else(|| AppError::ConnectionNotFound(connection_id))?;
     
     // Build UPDATE query with PK conditions
-    let mut set_clause = format!("{} = $1", update.column);
+    let set_clause = format!("{} = $1", update.column);
     let mut where_clauses = Vec::new();
     let mut param_idx = 2;
     

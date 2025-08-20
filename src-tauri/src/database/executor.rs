@@ -4,7 +4,6 @@ use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use futures::future::AbortHandle;
 use futures::future::Abortable;
-use futures::future::abortable;
 
 use crate::database::adapter::{DbAdapter, types::*};
 use crate::error::AppError;
