@@ -40,6 +40,12 @@ export interface TabState {
     
     // For schema tabs
     selectedSchema?: string;
+    
+    // Additional flexible properties
+    title?: string;
+    tableType?: 'table' | 'view';
+    objectName?: string;
+    objectType?: 'function' | 'procedure';
   };
   
   // UI state
