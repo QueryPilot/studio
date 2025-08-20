@@ -1,0 +1,48 @@
+use async_trait::async_trait;
+use serde_json::Value;
+use std::time::Duration;
+
+use crate::database::types::*;
+use crate::error::AppError;
+
+pub mod postgres;
+pub mod mysql;
+pub mod sqlite;
+
+#[async_trait]
+pub trait DbAdapter: Send + Sync {
+    // Connection management
+    async fn ping(&self) -> Result<Duration, AppError>;
+    async fn disconnect(&self) -> Result<(), AppError>;
+    
+    // Database/Schema discovery
+    async fn list_databases(&self) -> Result<Vec<String>, AppError>;
+    async fn list_schemas(&self, database: &str) -> Result<Vec<String>, AppError>;
+    
+    // Table metadata
+    async fn list_tables(&self, database: &str, schema: &str) 
+        -> Result<Vec<TableMeta>, AppError>;
+    async fn table_columns(&self, database: &str, schema: &str, table: &str) 
+        -> Result<Vec<ColumnMeta>, AppError>;
+    async fn estimate_count(&self, database: &str, schema: &str, table: &str) 
+        -> Result<i64, AppError>;
+    
+    // Query execution with cursors
+    async fn begin_query(&self, sql: &str, params: Option<Vec<Value>>, 
+                         opts: QueryOptions) -> Result<QueryCursor, AppError>;
+    async fn fetch_page(&self, cursor: &mut QueryCursor, page: usize, 
+                        page_size: usize) -> Result<QueryPage, AppError>;
+    async fn close_cursor(&self, cursor_id: &str) -> Result<(), AppError>;
+    
+    // Direct execution (for DML)
+    async fn execute(&self, sql: &str, params: Option<Vec<Value>>) 
+        -> Result<ExecuteResult, AppError>;
+    
+    // Transactions (optional for now)
+    async fn begin_transaction(&self) -> Result<TransactionId, AppError>;
+    async fn commit(&self, tx_id: TransactionId) -> Result<(), AppError>;
+    async fn rollback(&self, tx_id: TransactionId) -> Result<(), AppError>;
+    
+    // Server info
+    async fn server_version(&self) -> Result<String, AppError>;
+}
