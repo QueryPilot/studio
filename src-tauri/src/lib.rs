@@ -7,9 +7,11 @@ mod crypto;
 mod storage;
 mod commands;
 mod cache;
+mod error;
 
 use storage::SecureStorage;
 use database::connection_manager::ConnectionManager;
+use database::ConnectionRegistry;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -46,17 +48,34 @@ pub fn run() {
                 }
             }
             
-            // Initialize connection manager
+            // Initialize connection manager (legacy)
             let connection_manager = Arc::new(RwLock::new(
                 ConnectionManager::new(storage_state.clone())
             ));
             
+            // Initialize new connection registry
+            let connection_registry = ConnectionRegistry::new(app_handle.clone());
+            
             app.handle().manage(storage_state);
             app.handle().manage(connection_manager);
+            app.handle().manage(connection_registry);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            // Secure database commands
+            // New database architecture commands
+            commands::database::db_connect,
+            commands::database::db_disconnect,
+            commands::database::db_ping,
+            commands::database::db_list_databases,
+            commands::database::db_list_schemas,
+            commands::database::db_list_tables,
+            commands::database::db_table_columns,
+            commands::database::db_query_begin,
+            commands::database::db_query_fetch,
+            commands::database::db_query_cancel,
+            commands::database::db_execute,
+            commands::database::db_update_cell,
+            // Legacy secure database commands (for backward compatibility)
             database::create_db_connection,
             database::test_db_connection,
             database::execute_db_query,

@@ -43,6 +43,11 @@ pbkdf2 = "0.12"
 hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
+# New architecture dependencies
+async-trait = "0.1"
+thiserror = "1.0"
+tokio-util = "0.7"
+futures = "0.3"
 # Performance optimization
 rayon = "1.10"
 
