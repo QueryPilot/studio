@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: devdb-postgres
+    ports:
+      - "15432:5432"
+    environment:
+      POSTGRES_USER: devuser
+      POSTGRES_PASSWORD: devpass123
+      POSTGRES_DB: todoapp
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./seeds/postgres:/docker-entrypoint-initdb.d
+    networks:
+      - devdb-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devuser -d todoapp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mysql:
+    image: mysql:8.3
+    container_name: devdb-mysql
+    ports:
+      - "13306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass123
+      MYSQL_USER: devuser
+      MYSQL_PASSWORD: devpass123
+      MYSQL_DATABASE: todoapp
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./seeds/mysql:/docker-entrypoint-initdb.d
+    networks:
+      - devdb-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: devdb-sqlserver
+    ports:
+      - "11433:1433"
+    environment:
+      SA_PASSWORD: DevPass123!
+      ACCEPT_EULA: Y
+      MSSQL_PID: Developer
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+      - ./seeds/sqlserver:/seeds
+    networks:
+      - devdb-network
+    healthcheck:
+      test: ["CMD", "/opt/mssql-tools18/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", "DevPass123!", "-Q", "SELECT 1", "-C"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  oracle:
+    image: container-registry.oracle.com/database/express:21.3.0-xe
+    container_name: devdb-oracle
+    ports:
+      - "11521:1521"
+      - "15500:5500"
+    environment:
+      ORACLE_PWD: DevPass123
+      ORACLE_CHARACTERSET: AL32UTF8
+    volumes:
+      - oracle_data:/opt/oracle/oradata
+      - ./seeds/oracle:/seeds
+    networks:
+      - devdb-network
+    healthcheck:
+      test: ["CMD", "sh", "-c", "echo 'SELECT 1 FROM DUAL;' | sqlplus -s system/DevPass123@localhost:1521/XE"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+
+networks:
+  devdb-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  mysql_data:
+  sqlserver_data:
+  oracle_data:

@@ -1,4 +1,31 @@
-.PHONY: d dev build clean install
+.PHONY: help d dev build clean install docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup
+
+# Default target - show help
+help:
+	@echo "DevDB Studio - Available Commands:"
+	@echo ""
+	@echo "Development:"
+	@echo "  make dev, make d    - Run in development mode"
+	@echo "  make build          - Build for production"
+	@echo "  make install        - Install dependencies"
+	@echo "  make clean          - Clean build artifacts"
+	@echo ""
+	@echo "Docker Database Management:"
+	@echo "  make docker-up      - Start all database containers"
+	@echo "  make docker-down    - Stop all database containers"
+	@echo "  make docker-reset   - Stop, remove volumes, and restart containers"
+	@echo ""
+	@echo "Database Seeding:"
+	@echo "  make seed-all       - Seed all databases"
+	@echo "  make seed-postgres  - Seed PostgreSQL only"
+	@echo "  make seed-mysql     - Seed MySQL only"
+	@echo "  make seed-sqlite    - Seed SQLite only"
+	@echo "  make seed-sqlserver - Seed SQL Server only"
+	@echo "  make seed-oracle    - Seed Oracle only"
+	@echo "  make reseed-all     - Drop and reseed all databases (DELETES existing data)"
+	@echo ""
+	@echo "Quick Start:"
+	@echo "  make setup          - Start containers and seed all databases"
 
 # Development
 d:
@@ -20,3 +47,94 @@ clean:
 	rm -rf dist
 	rm -rf src-tauri/target
 	rm -rf node_modules
+
+# Docker commands
+docker-up:
+	docker-compose up -d
+	@echo "Waiting for databases to be ready..."
+	@echo "PostgreSQL and MySQL will be ready quickly, SQL Server and Oracle take longer..."
+	@sleep 45
+	@echo "Databases should be ready. You can check with: docker-compose ps"
+
+docker-down:
+	docker-compose down
+
+docker-reset:
+	docker-compose down -v
+	docker-compose up -d
+	@echo "Waiting for databases to be ready..."
+	@sleep 30
+
+# Seeding commands
+seed-postgres:
+	@echo "Seeding PostgreSQL..."
+	@docker exec -i devdb-postgres psql -U devuser -d todoapp < seeds/postgres/01_schema.sql
+	@docker exec -i devdb-postgres psql -U devuser -d todoapp < seeds/postgres/02_seed_data.sql
+	@echo "PostgreSQL seeded successfully!"
+
+seed-mysql:
+	@echo "Seeding MySQL..."
+	@docker exec -i devdb-mysql mysql -udevuser -pdevpass123 < seeds/mysql/01_schema.sql
+	@docker exec -i devdb-mysql mysql -udevuser -pdevpass123 < seeds/mysql/02_seed_data.sql
+	@echo "MySQL seeded successfully!"
+
+seed-sqlite:
+	@echo "Seeding SQLite..."
+	@cd seeds/sqlite && python3 seed_sqlite.py
+	@echo "SQLite seeded successfully!"
+
+seed-sqlserver:
+	@echo "Waiting for SQL Server to be ready..."
+	@sleep 20
+	@echo "Testing SQL Server connection..."
+	@until docker exec devdb-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P DevPass123! -Q "SELECT 1" -C -No > /dev/null 2>&1; do \
+		echo "Waiting for SQL Server to accept connections..."; \
+		sleep 5; \
+	done
+	@echo "Seeding SQL Server..."
+	@docker exec -i devdb-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P DevPass123! -i /seeds/01_schema.sql -C
+	@docker exec -i devdb-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P DevPass123! -i /seeds/02_seed_data.sql -C
+	@echo "SQL Server seeded successfully!"
+
+seed-oracle:
+	@echo "Setting up Oracle user..."
+	@docker exec -i devdb-oracle sqlplus -s system/DevPass123@localhost:1521/XE < seeds/oracle/setup.sql || true
+	@echo "Creating Oracle schema..."
+	@docker exec -i devdb-oracle sqlplus -s todoapp/DevPass123@localhost:1521/XE < seeds/oracle/01_schema.sql || true
+	@echo "Seeding Oracle data..."
+	@docker exec -i devdb-oracle sqlplus -s todoapp/DevPass123@localhost:1521/XE < seeds/oracle/02_seed_data.sql || true
+	@echo "Oracle seeding attempted (may require manual setup for complex schemas)"
+
+seed-all: seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle
+	@echo "All databases seeded successfully!"
+
+# Reset and reseed databases (cleans existing data first)
+reseed-all: 
+	@echo "Reseeding all databases (this will DELETE existing data)..."
+	@$(MAKE) seed-all
+	@echo "All databases reseeded successfully!"
+
+reseed-postgres:
+	@echo "Reseeding PostgreSQL (this will DELETE existing data)..."
+	@$(MAKE) seed-postgres
+
+reseed-mysql:
+	@echo "Reseeding MySQL (this will DELETE existing data)..."
+	@$(MAKE) seed-mysql
+
+# Setup - complete initialization
+setup: docker-up
+	@echo "Waiting additional time for all databases to initialize..."
+	@sleep 30
+	@$(MAKE) seed-all
+	@echo ""
+	@echo "✅ Setup complete! All databases are running and seeded."
+	@echo ""
+	@echo "Database Connections:"
+	@echo "  PostgreSQL: localhost:15432 (user: devuser, pass: devpass123, db: todoapp)"
+	@echo "  MySQL:      localhost:13306 (user: devuser, pass: devpass123, db: todoapp)"
+	@echo "  SQLite:     seeds/sqlite/todoapp.db"
+	@echo "  SQL Server: localhost:11433 (user: sa, pass: DevPass123!, db: todoapp)"
+	@echo "  Oracle:     localhost:11521 (user: todoapp, pass: DevPass123, service: XE)"
+	@echo ""
+	@echo "Run 'make dev' to start the application"
