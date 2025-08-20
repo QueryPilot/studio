@@ -2,7 +2,6 @@ pub mod adapter;
 pub mod connection_manager;
 pub mod executor;
 pub mod registry;
-pub mod types;
 
 use serde::{Deserialize, Serialize};
 use crate::database::connection_manager::{ConnectionManager, ConnectionConfig, DatabaseType, QueryResult, ConnectionStatus};

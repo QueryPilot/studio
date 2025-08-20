@@ -6,9 +6,8 @@ use tokio::task::JoinHandle;
 use uuid::Uuid;
 use sqlx::{postgres::PgPoolOptions, mysql::MySqlPoolOptions, sqlite::SqlitePoolOptions};
 
-use crate::database::adapter::{postgres::PostgresAdapter, mysql::MySqlAdapter, sqlite::SqliteAdapter, DbAdapter};
+use crate::database::adapter::{postgres::PostgresAdapter, mysql::MySqlAdapter, sqlite::SqliteAdapter, DbAdapter, types::*};
 use crate::database::executor::QueryExecutor;
-use crate::database::types::*;
 use crate::error::AppError;
 
 pub struct ConnectionHandle {
@@ -53,6 +52,9 @@ impl ConnectionRegistry {
         // Verify connection
         adapter.ping().await?;
         
+        // Create Arc for adapter to share between components
+        let adapter_arc = Arc::new(adapter);
+        
         // Create query executor with cancellation support
         let query_executor = Arc::new(QueryExecutor::new());
         
@@ -60,7 +62,7 @@ impl ConnectionRegistry {
         let health_monitor = if config.enable_health_check.unwrap_or(true) {
             Some(spawn_health_monitor(
                 conn_id.clone(),
-                Arc::new(adapter.clone()),
+                adapter_arc.clone(),
                 self.app_handle.clone(),
             ))
         } else {
@@ -68,7 +70,7 @@ impl ConnectionRegistry {
         };
         
         let handle = Arc::new(ConnectionHandle {
-            adapter: Arc::new(adapter),
+            adapter: adapter_arc,
             config,
             health_monitor,
             query_executor,
@@ -86,7 +88,7 @@ impl ConnectionRegistry {
     pub async fn disconnect(&self, conn_id: &str) -> Result<(), AppError> {
         if let Some(handle) = self.connections.write().await.remove(conn_id) {
             // Stop health monitor
-            if let Some(monitor) = handle.health_monitor {
+            if let Some(ref monitor) = handle.health_monitor {
                 monitor.abort();
             }
             
@@ -108,11 +110,11 @@ async fn create_pg_pool(config: &ConnectionConfig) -> Result<sqlx::PgPool, AppEr
     } else {
         format!(
             "postgresql://{}:{}@{}:{}/{}",
-            config.user.as_ref().ok_or_else(|| AppError::InvalidConfig("Missing user".to_string()))?,
+            config.user.as_ref().unwrap_or(&config.username),
             config.password.as_ref().ok_or_else(|| AppError::InvalidConfig("Missing password".to_string()))?,
-            config.host.as_ref().ok_or_else(|| AppError::InvalidConfig("Missing host".to_string()))?,
-            config.port.unwrap_or(5432),
-            config.database.as_ref().ok_or_else(|| AppError::InvalidConfig("Missing database".to_string()))?
+            config.host,
+            config.port,
+            config.database
         )
     };
     
@@ -131,11 +133,11 @@ async fn create_mysql_pool(config: &ConnectionConfig) -> Result<sqlx::MySqlPool,
     } else {
         format!(
             "mysql://{}:{}@{}:{}/{}",
-            config.user.as_ref().ok_or_else(|| AppError::InvalidConfig("Missing user".to_string()))?,
+            config.user.as_ref().unwrap_or(&config.username),
             config.password.as_ref().ok_or_else(|| AppError::InvalidConfig("Missing password".to_string()))?,
-            config.host.as_ref().ok_or_else(|| AppError::InvalidConfig("Missing host".to_string()))?,
-            config.port.unwrap_or(3306),
-            config.database.as_ref().ok_or_else(|| AppError::InvalidConfig("Missing database".to_string()))?
+            config.host,
+            config.port,
+            config.database
         )
     };
     
@@ -151,8 +153,8 @@ async fn create_mysql_pool(config: &ConnectionConfig) -> Result<sqlx::MySqlPool,
 async fn create_sqlite_pool(config: &ConnectionConfig) -> Result<sqlx::SqlitePool, AppError> {
     let database_url = if let Some(url) = &config.database_url {
         url.clone()
-    } else if let Some(database) = &config.database {
-        format!("sqlite:{}", database)
+    } else if !config.database.is_empty() {
+        format!("sqlite:{}", config.database)
     } else {
         "sqlite::memory:".to_string()
     };

@@ -1,9 +1,39 @@
 use tauri::State;
 use uuid::Uuid;
+use serde::{Deserialize, Serialize};
 
 use crate::database::registry::ConnectionRegistry;
-use crate::database::types::*;
+use crate::database::adapter::types::*;
 use crate::error::AppError;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ConnectResponse {
+    pub connection_id: String,
+    pub server_version: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct QueryBeginResponse {
+    pub cursor_id: String,
+    pub columns: Vec<ColumnMeta>,
+    pub total_approx: Option<usize>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct QueryFetchResponse {
+    pub rows: Vec<Vec<serde_json::Value>>,
+    pub page: usize,
+    pub is_complete: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CellUpdate {
+    pub schema: String,
+    pub table: String,
+    pub column: String,
+    pub pk: std::collections::HashMap<String, serde_json::Value>,
+    pub new_value: serde_json::Value,
+}
 
 #[tauri::command]
 pub async fn db_connect(
@@ -153,7 +183,7 @@ pub async fn db_query_fetch(
     Ok(QueryFetchResponse {
         rows: page_data.rows,
         page: page_data.page,
-        done: page_data.is_complete,
+        is_complete: page_data.is_complete,
     })
 }
 
