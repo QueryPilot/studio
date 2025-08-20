@@ -2,8 +2,10 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::time::Duration;
 
-use crate::database::types::*;
 use crate::error::AppError;
+
+pub mod types;
+pub use types::*;
 
 pub mod postgres;
 pub mod mysql;

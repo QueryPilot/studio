@@ -1,32 +1,22 @@
 use async_trait::async_trait;
-use sqlx::{mysql::MySqlPool, Row};
+use sqlx::{mysql::MySqlPool, Row, Column};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
-use crate::database::types::*;
-use crate::database::types::mysql::register_mysql_converters;
 use crate::error::AppError;
+use super::types::*;
 
 use super::DbAdapter;
 
 pub struct MySqlAdapter {
     pool: Arc<MySqlPool>,
-    type_registry: TypeRegistry,
 }
 
 impl MySqlAdapter {
     pub fn new(pool: MySqlPool) -> Self {
-        let mut type_registry = TypeRegistry::new();
-        
-        // Register MySQL-specific converters
-        for converter in register_mysql_converters() {
-            type_registry.register(converter);
-        }
-        
         Self {
             pool: Arc::new(pool),
-            type_registry,
         }
     }
     
@@ -50,25 +40,29 @@ impl MySqlAdapter {
         columns
     }
     
-    fn row_to_json_values(&self, row: sqlx::mysql::MySqlRow) -> Vec<serde_json::Value> {
+    fn row_to_json_values(&self, row: &sqlx::mysql::MySqlRow) -> Vec<serde_json::Value> {
         let mut values = Vec::new();
         
-        for (i, column) in row.columns().iter().enumerate() {
-            let type_name = format!("{:?}", column.type_info());
-            let raw_value = row.try_get_raw(i).unwrap_or_else(|_| {
-                use sqlx::ValueRef;
-                sqlx::mysql::MySqlValueRef::NULL
-            });
-            
-            let value = self.type_registry.convert(&type_name, &raw_value)
-                .unwrap_or_else(|_| {
-                    // Fallback for unsupported types
-                    if raw_value.is_null() {
-                        serde_json::Value::Null
-                    } else {
-                        serde_json::Value::String(format!("{:?}", raw_value))
-                    }
-                });
+        for i in 0..row.columns().len() {
+            // Try common types in order of likelihood
+            let value = if let Ok(val) = row.try_get::<Option<String>, _>(i) {
+                val.map(serde_json::Value::String).unwrap_or(serde_json::Value::Null)
+            } else if let Ok(val) = row.try_get::<Option<i32>, _>(i) {
+                val.map(|v| serde_json::Value::Number(v.into())).unwrap_or(serde_json::Value::Null)
+            } else if let Ok(val) = row.try_get::<Option<i64>, _>(i) {
+                val.map(|v| serde_json::Value::Number(v.into())).unwrap_or(serde_json::Value::Null)
+            } else if let Ok(val) = row.try_get::<Option<f64>, _>(i) {
+                val.and_then(|v| serde_json::Number::from_f64(v))
+                   .map(serde_json::Value::Number)
+                   .unwrap_or(serde_json::Value::Null)
+            } else if let Ok(val) = row.try_get::<Option<bool>, _>(i) {
+                val.map(serde_json::Value::Bool).unwrap_or(serde_json::Value::Null)
+            } else if let Ok(val) = row.try_get::<Option<serde_json::Value>, _>(i) {
+                val.unwrap_or(serde_json::Value::Null)
+            } else {
+                // Fallback to null for unsupported types
+                serde_json::Value::Null
+            };
             
             values.push(value);
         }
@@ -224,7 +218,7 @@ impl DbAdapter for MySqlAdapter {
         
         let mut json_rows = Vec::new();
         for row in rows.iter() {
-            json_rows.push(self.row_to_json_values(row.clone()));
+            json_rows.push(self.row_to_json_values(&row));
         }
         
         let is_complete = rows.len() < opts.page_size;
@@ -254,7 +248,7 @@ impl DbAdapter for MySqlAdapter {
         
         let mut json_rows = Vec::new();
         for row in rows.iter() {
-            json_rows.push(self.row_to_json_values(row.clone()));
+            json_rows.push(self.row_to_json_values(&row));
         }
         
         let is_complete = rows.len() < page_size;

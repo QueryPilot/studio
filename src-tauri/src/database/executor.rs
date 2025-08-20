@@ -6,8 +6,7 @@ use futures::future::AbortHandle;
 use futures::future::Abortable;
 use futures::future::abortable;
 
-use crate::database::adapter::DbAdapter;
-use crate::database::types::*;
+use crate::database::adapter::{DbAdapter, types::*};
 use crate::error::AppError;
 
 pub struct QueryExecutor {
