@@ -32,6 +32,9 @@ pub enum AppError {
     
     #[error("Unsupported operation: {0}")]
     Unsupported(String),
+    
+    #[error("Validation error: {0}")]
+    ValidationError(String),
 }
 
 impl AppError {

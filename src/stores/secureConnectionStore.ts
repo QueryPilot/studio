@@ -9,6 +9,7 @@ interface Connection {
   config: ConnectionConfig;
   status: "connected" | "connecting" | "disconnected" | "error";
   error?: string;
+  actualConnectionId?: string; // The isolated connection ID returned from backend
 }
 
 interface QueryResult {
@@ -31,12 +32,13 @@ interface ConnectionState {
   updateConnection: (connectionId: string, config: ConnectionConfig) => Promise<void>;
   removeConnection: (connectionId: string) => Promise<void>;
   removeAllConnections: () => Promise<void>;
-  connect: (connectionId: string) => Promise<void>;
+  connect: (connectionId: string, maxRetries?: number, workspaceId?: string) => Promise<void>;
   disconnect: (connectionId: string) => Promise<void>;
   setActiveConnection: (connectionId: string) => void;
   getDecryptedConfig: (connectionId: string) => Promise<ConnectionConfig>;
   executeQuery: (query: string) => Promise<QueryResult>;
   setQueryProgress: (progress: number) => void;
+  getActualConnectionId: (connectionId: string) => string;
   testConnection: (config: ConnectionConfig) => Promise<boolean>;
 }
 
@@ -235,7 +237,7 @@ export const useSecureConnectionStore = create<ConnectionState>((set, get) => ({
     }
   },
     
-  connect: async (connectionId) => {
+  connect: async (connectionId, maxRetries = 3, workspaceId) => {
     const connection = get().connections.get(connectionId);
     if (!connection) {
       console.error(`[SecureConnectionStore] Connection ${connectionId} not found`);
@@ -254,65 +256,92 @@ export const useSecureConnectionStore = create<ConnectionState>((set, get) => ({
       return { connections: newConnections };
     });
     
-    try {
-      // Create connection with 30-second timeout
-      const connectionPromise = (async () => {
-        // Create connection in backend (password is fetched from secure storage in Rust)
-        await secureDatabaseService.createConnection(connectionId, connection.config);
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`[SecureConnectionStore] Connection attempt ${attempt}/${maxRetries} for ${connectionId}`);
         
-        // Test the connection
-        const isConnected = await secureDatabaseService.testConnection(connectionId);
-        
-        if (!isConnected) {
-          throw new Error("Connection test failed");
-        }
-      })();
+        // Create connection with 30-second timeout
+        const connectionPromise = (async () => {
+          // Create connection using ID only - backend will fetch details from secure storage
+          const actualConnectionId = await secureDatabaseService.createConnectionById(connectionId, workspaceId);
+          
+          // Test the connection using the actual connection ID returned from backend (includes workspace isolation)
+          const isConnected = await secureDatabaseService.testConnection(actualConnectionId);
+          
+          if (!isConnected) {
+            throw new Error("Connection test failed");
+          }
+          
+          return actualConnectionId;
+        })();
 
-      // Apply 30-second timeout to the connection process
-      await Promise.race([
-        connectionPromise,
-        new Promise<void>((_, reject) => 
-          setTimeout(() => reject(new Error("Connection timeout after 30 seconds")), 30000)
-        )
-      ]);
-      
-      console.log(`[SecureConnectionStore] Successfully connected ${connectionId}`);
-      
-      set((state) => {
-        const newConnections = new Map(state.connections);
-        const conn = newConnections.get(connectionId);
-        if (conn) {
-          conn.status = "connected";
+        // Apply 30-second timeout to the connection process
+        const actualConnectionId = await Promise.race([
+          connectionPromise,
+          new Promise<string>((_, reject) => 
+            setTimeout(() => reject(new Error("Connection timeout after 30 seconds")), 30000)
+          )
+        ]);
+        
+        console.log(`[SecureConnectionStore] Successfully connected ${connectionId} on attempt ${attempt} with actual ID: ${actualConnectionId}`);
+        
+        set((state) => {
+          const newConnections = new Map(state.connections);
+          const conn = newConnections.get(connectionId);
+          if (conn) {
+            conn.status = "connected";
+            conn.error = undefined;
+            conn.actualConnectionId = actualConnectionId; // Store the isolated connection ID
+          }
+          // Only update activeConnectionId if it's not already set to this connection
+          // This preserves optimistic updates from the UI
+          return { 
+            connections: newConnections,
+            ...(state.activeConnectionId !== connectionId && { activeConnectionId: connectionId })
+          };
+        });
+        
+        return; // Success - exit retry loop
+        
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error("Connection failed");
+        console.error(`[SecureConnectionStore] Connection attempt ${attempt}/${maxRetries} failed for ${connectionId}:`, lastError.message);
+        
+        // If this isn't the last attempt, wait before retrying
+        if (attempt < maxRetries) {
+          const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Exponential backoff, max 5 seconds
+          console.log(`[SecureConnectionStore] Retrying connection in ${delayMs}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
         }
-        // Only update activeConnectionId if it's not already set to this connection
-        // This preserves optimistic updates from the UI
-        return { 
-          connections: newConnections,
-          ...(state.activeConnectionId !== connectionId && { activeConnectionId: connectionId })
-        };
-      });
-    } catch (error) {
-      console.error(`[SecureConnectionStore] Connection failed for ${connectionId}:`, error);
-      
-      const errorMessage = error instanceof Error ? error.message : "Connection failed";
-      
-      set((state) => {
-        const newConnections = new Map(state.connections);
-        const conn = newConnections.get(connectionId);
-        if (conn) {
-          conn.status = "error";
-          conn.error = errorMessage;
-        }
-        return { connections: newConnections };
-      });
-      
-      throw new Error(errorMessage);
+      }
     }
+    
+    // All attempts failed - set error state
+    const errorMessage = lastError?.message || "Connection failed after multiple attempts";
+    console.error(`[SecureConnectionStore] All ${maxRetries} connection attempts failed for ${connectionId}: ${errorMessage}`);
+    
+    set((state) => {
+      const newConnections = new Map(state.connections);
+      const conn = newConnections.get(connectionId);
+      if (conn) {
+        conn.status = "error";
+        conn.error = `Failed after ${maxRetries} attempts: ${errorMessage}`;
+      }
+      return { connections: newConnections };
+    });
+    
+    throw new Error(`Connection failed after ${maxRetries} attempts: ${errorMessage}`);
   },
   
   disconnect: async (connectionId) => {
     try {
-      await secureDatabaseService.closeConnection(connectionId);
+      // Get the actual connection ID (isolated) for backend operations
+      const connection = get().connections.get(connectionId);
+      const backendConnectionId = connection?.actualConnectionId || connectionId;
+      
+      await secureDatabaseService.closeConnection(backendConnectionId);
     } catch (error) {
       console.error("Error disconnecting:", error);
     }
@@ -373,8 +402,12 @@ export const useSecureConnectionStore = create<ConnectionState>((set, get) => ({
     set({ isExecuting: true, queryProgress: 0 });
     
     try {
+      // Get the actual connection ID (isolated) for backend operations
+      const connection = get().connections.get(activeConnectionId);
+      const backendConnectionId = connection?.actualConnectionId || activeConnectionId;
+      
       // Execute query through secure backend service
-      const result = await secureDatabaseService.executeQuery(activeConnectionId, query);
+      const result = await secureDatabaseService.executeQuery(backendConnectionId, query);
       
       set({ isExecuting: false, queryProgress: 100 });
       return result;
@@ -385,6 +418,12 @@ export const useSecureConnectionStore = create<ConnectionState>((set, get) => ({
   },
   
   setQueryProgress: (progress) => set({ queryProgress: progress }),
+  
+  // Helper method to get the actual backend connection ID (isolated ID)
+  getActualConnectionId: (connectionId: string) => {
+    const connection = get().connections.get(connectionId);
+    return connection?.actualConnectionId || connectionId;
+  },
   
   testConnection: async (config) => {
     let tempId: string | null = null;

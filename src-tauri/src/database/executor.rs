@@ -11,6 +11,7 @@ use crate::error::AppError;
 pub struct QueryExecutor {
     abort_registry: Arc<RwLock<HashMap<String, AbortHandle>>>,
     cancellation_tokens: Arc<RwLock<HashMap<String, CancellationToken>>>,
+    cursors: Arc<RwLock<HashMap<String, QueryCursor>>>,
 }
 
 impl QueryExecutor {
@@ -18,6 +19,7 @@ impl QueryExecutor {
         Self {
             abort_registry: Arc::new(RwLock::new(HashMap::new())),
             cancellation_tokens: Arc::new(RwLock::new(HashMap::new())),
+            cursors: Arc::new(RwLock::new(HashMap::new())),
         }
     }
     
@@ -128,5 +130,17 @@ impl QueryExecutor {
     pub async fn remove_cancellation_token(&self, query_id: &str) {
         self.cancellation_tokens.write().await.remove(query_id);
         self.abort_registry.write().await.remove(query_id);
+    }
+    
+    pub async fn store_cursor(&self, cursor: QueryCursor) {
+        self.cursors.write().await.insert(cursor.id.clone(), cursor);
+    }
+    
+    pub async fn get_cursor(&self, cursor_id: &str) -> Option<QueryCursor> {
+        self.cursors.read().await.get(cursor_id).cloned()
+    }
+    
+    pub async fn remove_cursor(&self, cursor_id: &str) {
+        self.cursors.write().await.remove(cursor_id);
     }
 }

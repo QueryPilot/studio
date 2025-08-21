@@ -59,6 +59,14 @@ pub struct ColumnMeta {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionMeta {
+    pub schema: String,
+    pub name: String,
+    pub return_type: String,
+    pub arguments: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryCursor {
     pub id: String,
     pub sql: String,

@@ -75,7 +75,7 @@ export function WorkspaceScreen() {
       const connection = connections.get(priorityConnectionId);
       if (connection && connection.status !== 'connected' && connection.status !== 'connecting') {
         console.log(`[WorkspaceScreen] Auto-connecting to ${priorityConnectionId}`);
-        connect(priorityConnectionId).catch(err => {
+        connect(priorityConnectionId, 3, workspaceId).catch(err => {
           console.error(`[WorkspaceScreen] Failed to auto-connect:`, err);
         });
       }
@@ -178,7 +178,7 @@ export function WorkspaceScreen() {
         </ResizablePanelGroup>
       </div>
 
-      <StatusBar />
+      <StatusBar workspaceId={workspaceId} />
     </div>
   );
 }

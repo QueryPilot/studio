@@ -53,9 +53,9 @@ export function SchemaTab({ tab }: SchemaTabProps) {
         type: 'table' as const,
         name: table.name,
         schema: table.schema || 'public',
-        comment: table.comment,
-        columns: table.column_count,
-        rows: table.row_count,
+        comment: undefined,
+        columns: undefined,
+        rows: table.rowCount,
       })));
     }
     
@@ -65,17 +65,17 @@ export function SchemaTab({ tab }: SchemaTabProps) {
         type: 'view' as const,
         name: view.name,
         schema: view.schema || 'public',
-        comment: view.comment,
+        comment: undefined,
       })));
     }
     
     // Add functions/procedures
     if (databasesQuery.data.functions) {
       items.push(...databasesQuery.data.functions.map(func => ({
-        type: (func.type === 'procedure' ? 'procedure' : 'function') as 'function' | 'procedure',
+        type: 'function' as const,
         name: func.name,
         schema: func.schema || 'public',
-        comment: func.comment,
+        comment: undefined,
       })));
     }
     

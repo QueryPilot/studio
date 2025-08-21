@@ -141,6 +141,39 @@ impl DbAdapter for MySqlAdapter {
         
         Ok(tables)
     }
+
+    async fn list_functions(&self, database: &str, _schema: &str) 
+        -> Result<Vec<FunctionMeta>, AppError> {
+        let sql = r#"
+            SELECT 
+                ROUTINE_NAME AS name,
+                ROUTINE_TYPE AS type,
+                DATA_TYPE AS return_type,
+                ROUTINE_DEFINITION AS definition
+            FROM information_schema.ROUTINES
+            WHERE ROUTINE_SCHEMA = ?
+            AND ROUTINE_TYPE IN ('FUNCTION', 'PROCEDURE')
+            ORDER BY ROUTINE_NAME
+        "#;
+        
+        let mut functions = Vec::new();
+        let rows = sqlx::query(sql)
+            .bind(database)
+            .fetch_all(self.pool.as_ref())
+            .await
+            .map_err(AppError::from_sqlx)?;
+        
+        for row in rows {
+            functions.push(FunctionMeta {
+                schema: database.to_string(),
+                name: row.get("name"),
+                return_type: row.get("return_type"),
+                arguments: Vec::new(), // MySQL doesn't easily expose arguments
+            });
+        }
+        
+        Ok(functions)
+    }
     
     async fn table_columns(&self, database: &str, _schema: &str, table: &str) 
         -> Result<Vec<ColumnMeta>, AppError> {

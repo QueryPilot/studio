@@ -234,34 +234,25 @@ export function ConnectionDialog({
     setTestStatus("testing");
 
     try {
-      const now = new Date();
       const testConfig = {
-        id: crypto.randomUUID(),
-        name:
-          formData.name ||
-          `${formData.type} - ${formData.database || "database"}`,
         type: formData.type,
         host: formData.host,
         port: formData.port,
         database: formData.database,
         username: formData.username,
         password: formData.password,
-        // ssl: formData.ssl, // Not supported in new architecture
-        filepath: formData.filePath,
-        createdAt: now,
-        updatedAt: now,
+        ssl_mode: formData.ssl ? "require" : "prefer",
       };
 
-      const success = await useConnectionStore
-        .getState()
-        .testConnection(testConfig);
+      const { secureDatabaseService } = await import("@/services/secureDatabaseService");
+      const result = await secureDatabaseService.testConnectionConfig(testConfig);
 
-      if (success) {
+      if (result.success) {
         setTestStatus("success");
         // No toast for success - just show in UI
       } else {
         setTestStatus("error");
-        toast.error("Failed to connect: Connection refused");
+        toast.error(`Failed to connect: ${result.error || "Unknown error"}`);
       }
     } catch (error) {
       setTestStatus("error");

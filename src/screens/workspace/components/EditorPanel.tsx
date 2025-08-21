@@ -16,15 +16,33 @@ import {
   Code,
   ChevronDown,
 } from "lucide-react";
-import { useTabsStore } from "@/stores/tabsStore";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { QueryWorkspace } from "@/components/QueryWorkspace";
 import { DataViewer } from "@/components/DataViewer";
+import { useWorkspaceStore } from "@/stores/workspaceStore";
+import { useParams } from "react-router-dom";
+import type { TabState } from "@/types/workspace";
 
 export function EditorPanel() {
-  const { tabs, activeTab, setActiveTab, removeTab, addTab } = useTabsStore();
-  const [visibleTabs, setVisibleTabs] = useState<typeof tabs>([]);
-  const [overflowTabs, setOverflowTabs] = useState<typeof tabs>([]);
+  const { id: workspaceId } = useParams<{ id: string }>();
+  const workspace = useWorkspaceStore(state => state.getWorkspace(workspaceId || ''));
+  const { 
+    addTab, 
+    removeTab, 
+    setActiveTab
+  } = useWorkspaceStore();
+  
+  // Convert Map to array and maintain order - memoize to prevent infinite loops
+  const tabs: TabState[] = useMemo(() => {
+    return workspace 
+      ? workspace.tabOrder.map(id => workspace.tabs.get(id)).filter((tab): tab is TabState => Boolean(tab))
+      : [];
+  }, [workspace?.tabOrder.join(','), workspace?.tabs.size]);
+  
+  const activeTab = workspace?.activeTabId || '';
+  
+  const [visibleTabs, setVisibleTabs] = useState<TabState[]>([]);
+  const [overflowTabs, setOverflowTabs] = useState<TabState[]>([]);
   const tabsContainerRef = useRef<HTMLDivElement>(null);
 
   const getIcon = (type: string) => {
@@ -43,8 +61,14 @@ export function EditorPanel() {
   };
 
   const handleNewQuery = () => {
-    const queryCount = tabs.filter((t) => t.type === "query").length;
-    addTab({ name: `Query ${queryCount + 1}`, type: "query" });
+    if (!workspaceId) return;
+    const queryCount = tabs.filter((t: TabState) => t.type === "query").length;
+    addTab(workspaceId, {
+      type: "query",
+      title: `Query ${queryCount + 1}`,
+      connectionId: workspace?.activeConnectionId || '',
+      payload: {}
+    });
   };
 
   useEffect(() => {
@@ -61,16 +85,16 @@ export function EditorPanel() {
       const dropdownButtonWidth = 45; // Space for dropdown when needed
 
       // More accurate tab width estimation
-      const getTabWidth = (tab: (typeof tabs)[0]) => {
+      const getTabWidth = (tab: TabState) => {
         // Icon (16) + margin (4) + text + close button (16) + margin (6) + padding (16)
         const baseWidth = 58;
         const charWidth = 6.5; // More accurate character width
-        return baseWidth + tab.name.length * charWidth;
+        return baseWidth + (tab?.title || '').length * charWidth;
       };
 
       // Calculate total width needed for all tabs
       const totalTabsWidth = tabs.reduce(
-        (sum, tab) => sum + getTabWidth(tab),
+        (sum: number, tab: TabState) => sum + getTabWidth(tab),
         0,
       );
 
@@ -93,7 +117,7 @@ export function EditorPanel() {
       const visibleTabIds: string[] = [];
 
       // Always try to show the active tab
-      const activeIndex = tabs.findIndex((tab) => tab.id === activeTab);
+      const activeIndex = tabs.findIndex((tab: TabState) => tab.id === activeTab);
 
       // First, try to fit as many tabs as possible
       for (let i = 0; i < tabs.length; i++) {
@@ -110,7 +134,7 @@ export function EditorPanel() {
             // Remove the last visible tab to make room for active
             const removedId = visibleTabIds.pop();
             if (removedId) {
-              const removedTab = tabs.find((t) => t.id === removedId);
+              const removedTab = tabs.find((t: TabState) => t.id === removedId);
               if (removedTab) {
                 currentWidth -= getTabWidth(removedTab);
               }
@@ -130,8 +154,8 @@ export function EditorPanel() {
       }
 
       // Build final arrays maintaining original order
-      const visible = tabs.filter((tab) => visibleTabIds.includes(tab.id));
-      const overflow = tabs.filter((tab) => !visibleTabIds.includes(tab.id));
+      const visible = tabs.filter((tab: TabState) => visibleTabIds.includes(tab.id));
+      const overflow = tabs.filter((tab: TabState) => !visibleTabIds.includes(tab.id));
 
       setVisibleTabs(visible);
       setOverflowTabs(overflow);
@@ -156,7 +180,7 @@ export function EditorPanel() {
     <div className="h-full flex flex-col bg-background">
       <Tabs
         value={activeTab}
-        onValueChange={setActiveTab}
+        onValueChange={(tabId) => workspaceId && setActiveTab(workspaceId, tabId)}
         className="h-full flex flex-col"
       >
         <div
@@ -164,19 +188,19 @@ export function EditorPanel() {
           ref={tabsContainerRef}
         >
           <TabsList className="h-8 flex-1 inline-flex items-center justify-start rounded-none bg-muted p-0.5 gap-0.5 overflow-hidden">
-            {visibleTabs.map((tab) => (
+            {visibleTabs.map((tab: TabState) => (
               <TabsTrigger
                 key={tab.id}
                 value={tab.id}
                 className="text-xs h-6 px-2 py-1 gap-0"
               >
                 {getIcon(tab.type)}
-                <span>{tab.name}</span>
+                <span>{tab.title}</span>
                 <div
                   className="h-3.5 w-3.5 p-0 ml-1.5 hover:bg-transparent opacity-60 hover:opacity-100 cursor-pointer flex items-center justify-center"
                   onClick={(e) => {
                     e.stopPropagation();
-                    removeTab(tab.id);
+                    workspaceId && removeTab(workspaceId, tab.id);
                   }}
                 >
                   <X className="h-3 w-3" />
@@ -198,14 +222,14 @@ export function EditorPanel() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {overflowTabs.map((tab) => (
+                {overflowTabs.map((tab: TabState) => (
                   <DropdownMenuItem
                     key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
+                    onClick={() => workspaceId && setActiveTab(workspaceId, tab.id)}
                     className="text-sm"
                   >
                     {getIcon(tab.type)}
-                    <span>{tab.name}</span>
+                    <span>{tab.title}</span>
                     {tab.id === activeTab && (
                       <span className="ml-auto text-sm">●</span>
                     )}
@@ -226,7 +250,7 @@ export function EditorPanel() {
           </Button>
         </div>
 
-        {tabs.map((tab) => {
+        {tabs.map((tab: TabState) => {
           // saving render performance
           if (tab.id !== activeTab) {
             return null;
@@ -241,15 +265,23 @@ export function EditorPanel() {
               {tab.type === "query" ? (
                 <QueryWorkspace />
               ) : tab.type === "table" ? (
-                <DataViewer tableName={tab.name} schema={tab.schema} />
-              ) : tab.type === "view" ? (
-                <DataViewer tableName={tab.name} schema={tab.schema} />
+                <DataViewer 
+                  tableName={tab.payload?.tableName || tab.title} 
+                  schema={tab.payload?.schema} 
+                  connectionId={tab.connectionId}
+                />
+              ) : tab.type === "schema" ? (
+                <DataViewer 
+                  tableName={tab.payload?.tableName || tab.title} 
+                  schema={tab.payload?.schema} 
+                  connectionId={tab.connectionId}
+                />
               ) : (
                 <ScrollArea className="h-full">
                   <div className="p-4">
                     <div className="text-muted-foreground">
-                      {tab.type === "function" &&
-                        `Function definition for '${tab.name}' will be displayed here`}
+                      {tab.type !== "result" && tab.type !== "table" && tab.type !== "query" && tab.type !== "schema" &&
+                        `Content for '${tab.title}' will be displayed here`}
                     </div>
                   </div>
                 </ScrollArea>

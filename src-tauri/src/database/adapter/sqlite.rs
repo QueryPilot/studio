@@ -141,6 +141,13 @@ impl DbAdapter for SqliteAdapter {
         
         Ok(tables)
     }
+
+    async fn list_functions(&self, _database: &str, _schema: &str) 
+        -> Result<Vec<FunctionMeta>, AppError> {
+        // SQLite doesn't have user-defined functions stored in the database
+        // Return empty list
+        Ok(Vec::new())
+    }
     
     async fn table_columns(&self, _database: &str, _schema: &str, table: &str) 
         -> Result<Vec<ColumnMeta>, AppError> {

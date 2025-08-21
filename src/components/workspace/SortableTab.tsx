@@ -11,7 +11,6 @@ import {
   FileText,
   Play,
   Table,
-  GitBranch,
 } from 'lucide-react';
 
 interface SortableTabProps {

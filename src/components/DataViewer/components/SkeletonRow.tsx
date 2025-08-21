@@ -1,11 +1,12 @@
 import { memo } from "react";
+import { Column } from "@tanstack/react-table";
 
 interface SkeletonRowProps {
   virtualRow: any;
-  columnCount: number;
+  columns: Column<any>[];
 }
 
-export const SkeletonRow = memo(({ virtualRow, columnCount }: SkeletonRowProps) => (
+export const SkeletonRow = memo(({ virtualRow, columns }: SkeletonRowProps) => (
   <tr
     className="absolute w-full animate-pulse"
     style={{
@@ -15,13 +16,14 @@ export const SkeletonRow = memo(({ virtualRow, columnCount }: SkeletonRowProps) 
       willChange: "transform",
     }}
   >
-    {Array.from({ length: columnCount }).map((_, index) => (
+    {columns.map((column) => (
       <td
-        key={index}
+        key={column.id}
         className="flex items-center px-2 py-1 border-b border-r border-border/50"
         style={{
           display: 'flex',
-          width: `${100 / columnCount}%`,
+          width: `${column.getSize()}px`,
+          flexShrink: 0,
         }}
       >
         <div className="h-4 bg-muted/50 rounded w-3/4"></div>

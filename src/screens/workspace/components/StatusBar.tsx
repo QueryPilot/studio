@@ -12,18 +12,22 @@ import { useConnectionStore } from "@/stores";
 import { ConnectionDialog } from "@/components/ConnectionDialog";
 import { useUIStore } from "@/stores/uiStore";
 
-export function StatusBar() {
+interface StatusBarProps {
+  workspaceId?: string;
+}
+
+export function StatusBar({ workspaceId }: StatusBarProps) {
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
   const { connections, activeConnectionId, setActiveConnection, connect } =
     useConnectionStore();
-  const { 
-    selectedRowCount, 
-    totalRowCount, 
-    estimatedRowCount, 
+  const {
+    selectedRowCount,
+    totalRowCount,
+    estimatedRowCount,
     currentTableName,
     selectedSchema,
     setSelectedSchema,
-    availableSchemas
+    availableSchemas,
   } = useUIStore();
   console.log(">>>", "connections", connections);
   // Get unique connections - filter out any duplicates by connection ID
@@ -52,21 +56,24 @@ export function StatusBar() {
     );
   }, [connectionStatus, activeConnectionId]);
 
-
   const handleConnectionChange = async (connectionId: string) => {
     // Optimistically set the new connection as active immediately
     setActiveConnection(connectionId);
-    
+
     // Get the selected connection
     const selectedConnection = connections.get(connectionId);
-    
+
     // If the connection is not connected, initiate connection
-    if (selectedConnection && 
-        selectedConnection.status !== "connected" && 
-        selectedConnection.status !== "connecting") {
-      console.log(`[StatusBar] Initiating connection for ${connectionId} on selection`);
+    if (
+      selectedConnection &&
+      selectedConnection.status !== "connected" &&
+      selectedConnection.status !== "connecting"
+    ) {
+      console.log(
+        `[StatusBar] Initiating connection for ${connectionId} on selection`,
+      );
       try {
-        await connect(connectionId);
+        await connect(connectionId, 3, workspaceId);
       } catch (error) {
         console.error(`[StatusBar] Failed to connect:`, error);
       }
@@ -99,22 +106,26 @@ export function StatusBar() {
               : "Disconnected"}
           </span>
           {/* Reconnect button for failed connections */}
-          {(connectionStatus === "error" || connectionStatus === "disconnected") && activeConnectionId && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-5 px-1 py-0"
-              onClick={() => {
-                console.log(`[StatusBar] Manual reconnect for ${activeConnectionId}`);
-                connect(activeConnectionId).catch((error) => {
-                  console.error(`[StatusBar] Reconnect failed:`, error);
-                });
-              }}
-              title="Retry connection"
-            >
-              <RefreshCw className="h-3 w-3" />
-            </Button>
-          )}
+          {(connectionStatus === "error" ||
+            connectionStatus === "disconnected") &&
+            activeConnectionId && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-5 px-1 py-0"
+                onClick={() => {
+                  console.log(
+                    `[StatusBar] Manual reconnect for ${activeConnectionId}`,
+                  );
+                  connect(activeConnectionId, 3, workspaceId).catch((error) => {
+                    console.error(`[StatusBar] Reconnect failed:`, error);
+                  });
+                }}
+                title="Retry connection"
+              >
+                <RefreshCw className="h-3 w-3" />
+              </Button>
+            )}
         </div>
 
         {/* Connection Switcher */}
@@ -162,38 +173,39 @@ export function StatusBar() {
               variant="ghost"
               size="sm"
               className="h-5 text-xs px-2 py-0"
-              onClick={() => setConnectionDialogOpen(true)}
+              onClick={() => {
+                setConnectionDialogOpen(true);
+              }}
             >
               <Plus className="h-3 w-3 mr-1" />
               Add Connection
             </Button>
           )}
         </div>
-        
+
         {/* Schema Selector */}
-        {activeConnection && connectionStatus === "connected" && availableSchemas.length > 0 && (
-          <div className="flex items-center gap-1.5">
-            <Layers className="h-3 w-3 text-muted-foreground" />
-            <Select
-              value={selectedSchema}
-              onValueChange={setSelectedSchema}
-            >
-              <SelectTrigger className="!h-5 text-xs border-0 bg-transparent hover:bg-primary/10 px-2 py-0 gap-1 min-w-[80px]">
-                <SelectValue placeholder="Schema">
-                  {selectedSchema === "all" ? "All Schemas" : selectedSchema}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Schemas</SelectItem>
-                {availableSchemas.map((schema) => (
-                  <SelectItem key={schema} value={schema}>
-                    {schema}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
+        {activeConnection &&
+          connectionStatus === "connected" &&
+          availableSchemas.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <Layers className="h-3 w-3 text-muted-foreground" />
+              <Select value={selectedSchema} onValueChange={setSelectedSchema}>
+                <SelectTrigger className="!h-5 text-xs border-0 bg-transparent hover:bg-primary/10 px-2 py-0 gap-1 min-w-[80px]">
+                  <SelectValue placeholder="Schema">
+                    {selectedSchema === "all" ? "All Schemas" : selectedSchema}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Schemas</SelectItem>
+                  {availableSchemas.map((schema) => (
+                    <SelectItem key={schema} value={schema}>
+                      {schema}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
       </div>
 
       {/* Right side - Row counts and selection info */}
@@ -204,16 +216,20 @@ export function StatusBar() {
             {selectedRowCount > 0 && (
               <>
                 <Rows className="h-3 w-3 text-primary" />
-                <span className="text-primary font-medium">{selectedRowCount} selected</span>
+                <span className="text-primary font-medium">
+                  {selectedRowCount} selected
+                </span>
                 <span className="text-muted-foreground">|</span>
               </>
             )}
             <Table className="h-3 w-3 text-muted-foreground" />
             <span className="text-muted-foreground">
-              {totalRowCount.toLocaleString()} rows
-              {estimatedRowCount && estimatedRowCount > totalRowCount && 
-                ` (~${estimatedRowCount.toLocaleString()} total)`
-              }
+              {totalRowCount.toLocaleString()} rows loaded
+              {estimatedRowCount && estimatedRowCount > totalRowCount && (
+                <span className="text-muted-foreground/70">
+                  {` (of ~${estimatedRowCount.toLocaleString()} total)`}
+                </span>
+              )}
             </span>
           </div>
         )}

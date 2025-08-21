@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { invoke } from '@tauri-apps/api/core';
+import { secureDatabaseService } from '@/services/secureDatabaseService';
 import { cacheService } from '@/services/cacheService';
 
 // Types based on the backend implementation
@@ -42,7 +42,6 @@ export function useQueryData(
   sql: string,
   options: QueryOptions = {}
 ) {
-  const queryClient = useQueryClient();
   const { pageSize = 1000, useCache = true } = options;
 
   return useQuery({
@@ -74,14 +73,24 @@ export function useQueryData(
         }
       }
 
-      // Execute query through Tauri backend
-      const result = await invoke<QueryCursor>('db_query_begin', {
-        connectionId,
-        sql: sql.trim(),
-        options: {
-          pageSize,
-        },
-      });
+      // Execute query through secure database service
+      const queryResult = await secureDatabaseService.executeQuery(connectionId, sql.trim());
+      
+      // Convert to expected format
+      const result: QueryCursor = {
+        id: crypto.randomUUID(),
+        columns: queryResult.columns.map((colName: string, index: number) => ({
+          name: colName,
+          db_type: 'unknown', // TODO: Get actual type from backend
+          nullable: true,
+          is_pk: false,
+          is_fk: false,
+          ordinal: index,
+        })),
+        rows: queryResult.rows as any[][],
+        total_rows: queryResult.rowCount,
+        is_complete: true,
+      };
 
       // Cache the result if caching is enabled
       if (useCache) {
@@ -116,17 +125,19 @@ export function useFetchMore(connectionId: string | null) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ cursorId }: { cursorId: string }): Promise<QueryPageResult> => {
+    mutationFn: async ({ cursorId: _cursorId }: { cursorId: string }): Promise<QueryPageResult> => {
       if (!connectionId) {
         throw new Error('Connection ID is required');
       }
 
-      return await invoke<QueryPageResult>('db_query_fetch', {
-        connectionId,
-        cursorId,
-      });
+      // For now, fetch more is not directly supported in the new architecture
+      // Return empty result since queries return all results at once
+      return {
+        rows: [],
+        is_complete: true,
+      };
     },
-    onSuccess: (data, { cursorId }) => {
+    onSuccess: (data, { cursorId: _cursorId }) => {
       // Update the query cache with new rows
       queryClient.setQueryData(
         ['query', connectionId],
@@ -164,10 +175,7 @@ export function useCancelQuery(connectionId: string | null) {
         throw new Error('Connection ID is required');
       }
 
-      await invoke('db_query_cancel', {
-        connectionId,
-        cursorId,
-      });
+      await secureDatabaseService.cancelQuery(connectionId, cursorId);
     },
     onSuccess: () => {
       console.log('Query cancelled successfully');
@@ -190,12 +198,9 @@ export function useExecuteSQL(connectionId: string | null) {
         throw new Error('Connection ID is required');
       }
 
-      const result = await invoke('db_execute', {
-        connectionId,
-        sql: sql.trim(),
-      });
+      const rowsAffected = await secureDatabaseService.executeStatement(connectionId, sql.trim());
 
-      return result;
+      return { rows_affected: rowsAffected };
     },
     onSuccess: () => {
       // Invalidate all cached queries for this connection

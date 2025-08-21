@@ -44,7 +44,6 @@ import { emergencyClearAllConnections } from "@/utils/clearConnections";
 import { toast } from "sonner";
 import logo from "@/assets/logo.png";
 
-
 function getDatabaseIcon(type: string) {
   switch (type) {
     case "postgresql":
@@ -63,27 +62,43 @@ function getDatabaseIcon(type: string) {
 export function MainScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
-  const [selectedWorkspaceForConnection, setSelectedWorkspaceForConnection] = useState<string | null>(null);
-  const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
-  const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
+  const [selectedWorkspaceForConnection, setSelectedWorkspaceForConnection] =
+    useState<string | null>(null);
+  const [editingConnectionId, setEditingConnectionId] = useState<string | null>(
+    null,
+  );
+  const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(
+    null,
+  );
   const [editingWorkspaceName, setEditingWorkspaceName] = useState("");
-  const [deleteConfirmWorkspaceId, setDeleteConfirmWorkspaceId] = useState<string | null>(null);
-  const [deleteConfirmConnectionId, setDeleteConfirmConnectionId] = useState<string | null>(null);
+  const [deleteConfirmWorkspaceId, setDeleteConfirmWorkspaceId] = useState<
+    string | null
+  >(null);
+  const [deleteConfirmConnectionId, setDeleteConfirmConnectionId] = useState<
+    string | null
+  >(null);
   const [clearStorageDialogOpen, setClearStorageDialogOpen] = useState(false);
-  const [emergencyClearDialogOpen, setEmergencyClearDialogOpen] = useState(false);
+  const [emergencyClearDialogOpen, setEmergencyClearDialogOpen] =
+    useState(false);
   const [storageStats, setStorageStats] = useState<any>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const { workspaces, ensureUncategorizedWorkspace, addWorkspace, updateWorkspace, removeWorkspace } = useWorkspaceStore();
+  const {
+    workspaces,
+    ensureUncategorizedWorkspace,
+    addWorkspace,
+    updateWorkspace,
+    removeWorkspace,
+  } = useWorkspaceStore();
   const { connections, removeConnection } = useConnectionStore();
 
   useEffect(() => {
     // Ensure uncategorized workspace exists
     ensureUncategorizedWorkspace();
-    
+
     // Note: Connections are loaded by useSecureStorageMigration hook in App.tsx
     // No need to load them here to avoid duplicates
   }, []); // Empty dependency array - run only once on mount
-  
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Cmd/Ctrl + F for search
@@ -91,11 +106,15 @@ export function MainScreen() {
         e.preventDefault();
         searchInputRef.current?.focus();
       }
-      
+
       // Cmd/Ctrl + Shift + Delete for clearing storage
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "Delete" || e.key === "Backspace")) {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        e.shiftKey &&
+        (e.key === "Delete" || e.key === "Backspace")
+      ) {
         e.preventDefault();
-        getStorageStats().then(stats => {
+        getStorageStats().then((stats) => {
           setStorageStats(stats);
           setClearStorageDialogOpen(true);
         });
@@ -103,50 +122,59 @@ export function MainScreen() {
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
   }, []);
 
   const getWorkspaceConnections = (workspaceId: string) => {
     const workspace = workspaces.get(workspaceId);
     if (!workspace) return [];
-    
+
     return workspace.connectionIds
-      .map(id => connections.get(id))
-      .filter(conn => conn !== undefined);
+      .map((id) => connections.get(id))
+      .filter((conn) => conn !== undefined);
   };
-  
-  const formatLastOpened = (dateString: string) => {
-    const date = new Date(dateString);
+
+  const formatLastOpened = (date: Date) => {
     const now = new Date();
     const diff = now.getTime() - date.getTime();
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const days = Math.floor(hours / 24);
-    
-    if (hours < 1) return 'Just now';
-    if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
-    if (days === 1) return 'Yesterday';
+
+    if (hours < 1) return "Just now";
+    if (hours < 24) return `${hours} hour${hours > 1 ? "s" : ""} ago`;
+    if (days === 1) return "Yesterday";
     if (days < 7) return `${days} days ago`;
     return date.toLocaleDateString();
   };
-  
+
   const filteredWorkspaces = Array.from(workspaces.values()).filter(
     (workspace) => {
-      const matchesName = workspace.name.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesName = workspace.name
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase());
       const workspaceConnections = getWorkspaceConnections(workspace.id);
-      const matchesConnection = workspaceConnections.some(conn =>
-        conn && (
+      const matchesConnection = workspaceConnections.some(
+        (conn) =>
           conn.config.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (conn.config.database && conn.config.database.toLowerCase().includes(searchQuery.toLowerCase()))
-        )
+          (conn.config.database &&
+            conn.config.database
+              .toLowerCase()
+              .includes(searchQuery.toLowerCase())),
       );
       return matchesName || matchesConnection;
-    }
+    },
   );
-  
+
   // Debug: Log workspaces on demand
   useEffect(() => {
     if (filteredWorkspaces.length > 0) {
-      console.log('Workspaces available:', filteredWorkspaces.length, filteredWorkspaces.map(w => ({ id: w.id, name: w.name })));
+      console.log(
+        "Workspaces available:",
+        filteredWorkspaces.length,
+        filteredWorkspaces.map((w) => ({ id: w.id, name: w.name })),
+      );
     }
   }, [filteredWorkspaces]);
 
@@ -182,15 +210,24 @@ export function MainScreen() {
 
             {/* CTA Actions */}
             <div className="w-full space-y-2">
-              <Button 
-                className="w-full justify-start" 
+              <Button
+                className="w-full justify-start"
                 size="default"
                 onClick={() => {
                   addWorkspace({
-                    name: 'Untitled',
-                    path: '~/untitled',
-                    lastOpened: new Date().toISOString(),
+                    name: "Untitled",
+                    path: "~/untitled",
+                    lastOpened: new Date(),
                     connectionIds: [],
+                    activeConnectionId: null,
+                    activeTabId: null,
+                    settings: {
+                      defaultPageSize: 100,
+                      autoSave: true,
+                      confirmOnClose: false,
+                      theme: "system",
+                      maxTabsOpen: 10,
+                    },
                   });
                 }}
               >
@@ -210,17 +247,18 @@ export function MainScreen() {
                 <Database className="mr-2 h-4 w-4" />
                 Connect Database
               </Button>
-              
+
               <Button
                 variant="destructive"
                 className="w-full justify-start"
                 size="default"
-                onClick={() => setEmergencyClearDialogOpen(true)}
+                onClick={() => {
+                  setEmergencyClearDialogOpen(true);
+                }}
               >
                 <Trash2 className="mr-2 h-4 w-4" />
                 Emergency Clear All
               </Button>
-              
             </div>
           </div>
 
@@ -250,11 +288,15 @@ export function MainScreen() {
                     <Trash2 className="mr-2 h-4 w-4" />
                     <div className="flex items-center justify-between w-full">
                       <span>Clear All Data</span>
-                      <span className="text-xs text-muted-foreground ml-2">⌘⇧⌫</span>
+                      <span className="text-xs text-muted-foreground ml-2">
+                        ⌘⇧⌫
+                      </span>
                     </div>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => setEmergencyClearDialogOpen(true)}
+                    onClick={() => {
+                      setEmergencyClearDialogOpen(true);
+                    }}
                     className="text-red-600"
                   >
                     <Trash2 className="mr-2 h-4 w-4" />
@@ -279,7 +321,9 @@ export function MainScreen() {
                 placeholder="Search workspaces... (⌘F)"
                 className="pl-10"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                }}
               />
             </div>
           </div>
@@ -293,10 +337,12 @@ export function MainScreen() {
                     key={workspace.id}
                     className="p-4 bg-muted/30 hover:bg-muted/70 transition-colors cursor-pointer group border-0 shadow-none hover:shadow-sm"
                     onClick={() => {
-                      console.log('Card clicked for workspace:', workspace.id);
-                      windowManager.openWorkspace(workspace.id).catch(err => {
-                        console.error('Failed to open workspace:', err);
-                        alert(`Failed to open workspace: ${err.message || err}`);
+                      console.log("Card clicked for workspace:", workspace.id);
+                      windowManager.openWorkspace(workspace.id).catch((err) => {
+                        console.error("Failed to open workspace:", err);
+                        alert(
+                          `Failed to open workspace: ${err.message || err}`,
+                        );
                       });
                     }}
                   >
@@ -305,33 +351,39 @@ export function MainScreen() {
                         {editingWorkspaceId === workspace.id ? (
                           <input
                             value={editingWorkspaceName}
-                            onChange={(e) => setEditingWorkspaceName(e.target.value)}
+                            onChange={(e) => {
+                              setEditingWorkspaceName(e.target.value);
+                            }}
                             onBlur={() => {
                               if (editingWorkspaceName.trim()) {
-                                updateWorkspace(workspace.id, { name: editingWorkspaceName.trim() });
+                                updateWorkspace(workspace.id, {
+                                  name: editingWorkspaceName.trim(),
+                                });
                               }
                               setEditingWorkspaceId(null);
                               setEditingWorkspaceName("");
                             }}
                             onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
+                              if (e.key === "Enter") {
                                 if (editingWorkspaceName.trim()) {
-                                  updateWorkspace(workspace.id, { name: editingWorkspaceName.trim() });
+                                  updateWorkspace(workspace.id, {
+                                    name: editingWorkspaceName.trim(),
+                                  });
                                 }
                                 setEditingWorkspaceId(null);
                                 setEditingWorkspaceName("");
                               }
-                              if (e.key === 'Escape') {
+                              if (e.key === "Escape") {
                                 setEditingWorkspaceId(null);
                                 setEditingWorkspaceName("");
                               }
                             }}
                             autoFocus
                             className="text-base font-semibold bg-transparent border border-primary rounded px-2 py-1 -mx-2 -my-1 w-full min-w-0 resize-none overflow-hidden focus:outline-none focus:ring-1 focus:ring-primary"
-                            style={{ lineHeight: '1.25rem' }}
+                            style={{ lineHeight: "1.25rem" }}
                           />
                         ) : (
-                          <h3 
+                          <h3
                             className="text-base font-semibold flex items-center cursor-pointer hover:text-foreground/80 px-2 py-1 -mx-2 -my-1 rounded hover:bg-accent/20"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -354,17 +406,19 @@ export function MainScreen() {
                         {workspace.id !== "uncategorized" && (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button 
-                                variant="ghost" 
-                                size="sm" 
+                              <Button
+                                variant="ghost"
+                                size="sm"
                                 className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                                onClick={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                }}
                               >
                                 <MoreHorizontal className="h-4 w-4" />
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem 
+                              <DropdownMenuItem
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setEditingWorkspaceId(workspace.id);
@@ -374,7 +428,7 @@ export function MainScreen() {
                                 <Edit className="mr-2 h-4 w-4" />
                                 Edit
                               </DropdownMenuItem>
-                              <DropdownMenuItem 
+                              <DropdownMenuItem
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setDeleteConfirmWorkspaceId(workspace.id);
@@ -392,63 +446,85 @@ export function MainScreen() {
 
                     {/* Databases */}
                     <div className="space-y-2">
-                      {getWorkspaceConnections(workspace.id).map((connection) => (
-                        <div
-                          key={connection.config.id}
-                          className="flex items-center justify-between py-2 px-3 rounded-md bg-muted/90 hover:bg-muted transition-colors cursor-pointer group border-0 shadow-none relative"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            console.log('Opening workspace with connection:', workspace.id, connection.config.id);
-                            windowManager.openWorkspace(workspace.id, connection.config.id).catch(err => {
-                              console.error('Failed to open workspace:', err);
-                              alert(`Failed to open workspace: ${err.message || err}`);
-                            });
-                          }}
-                        >
-                          <div className="flex items-center gap-2 flex-1">
-                            {getDatabaseIcon(connection.config.type)}
-                            <span className="text-sm font-medium select-none">
-                              {connection.config.name}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {connection.status === 'connected' && (
-                              <div className="h-2 w-2 rounded-full bg-green-500" />
-                            )}
-                            <Badge
-                              variant="outline"
-                              className="text-xs select-none"
-                            >
-                              {connection.config.type}
-                            </Badge>
-                            <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-                              <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                className="h-6 w-6 p-0"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setEditingConnectionId(connection.config.id);
-                                  setConnectionDialogOpen(true);
-                                }}
+                      {getWorkspaceConnections(workspace.id).map(
+                        (connection) => (
+                          <div
+                            key={connection.config.id}
+                            className="flex items-center justify-between py-2 px-3 rounded-md bg-muted/90 hover:bg-muted transition-colors cursor-pointer group border-0 shadow-none relative"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              console.log(
+                                "Opening workspace with connection:",
+                                workspace.id,
+                                connection.config.id,
+                              );
+                              windowManager
+                                .openWorkspace(
+                                  workspace.id,
+                                  connection.config.id,
+                                )
+                                .catch((err) => {
+                                  console.error(
+                                    "Failed to open workspace:",
+                                    err,
+                                  );
+                                  alert(
+                                    `Failed to open workspace: ${
+                                      err.message || err
+                                    }`,
+                                  );
+                                });
+                            }}
+                          >
+                            <div className="flex items-center gap-2 flex-1">
+                              {getDatabaseIcon(connection.config.type)}
+                              <span className="text-sm font-medium select-none">
+                                {connection.config.name}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {connection.status === "connected" && (
+                                <div className="h-2 w-2 rounded-full bg-green-500" />
+                              )}
+                              <Badge
+                                variant="outline"
+                                className="text-xs select-none"
                               >
-                                <Edit className="h-3 w-3" />
-                              </Button>
-                              <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                className="h-6 w-6 p-0 text-destructive hover:text-destructive"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setDeleteConfirmConnectionId(connection.config.id);
-                                }}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
+                                {connection.config.type}
+                              </Badge>
+                              <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditingConnectionId(
+                                      connection.config.id,
+                                    );
+                                    setConnectionDialogOpen(true);
+                                  }}
+                                >
+                                  <Edit className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDeleteConfirmConnectionId(
+                                      connection.config.id,
+                                    );
+                                  }}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        ),
+                      )}
 
                       {/* Action Buttons */}
                       <div className="flex gap-1 mt-1">
@@ -458,11 +534,17 @@ export function MainScreen() {
                           className="flex-1 justify-start h-8"
                           onClick={(e) => {
                             e.stopPropagation();
-                            console.log('Opening workspace:', workspace.id);
-                            windowManager.openWorkspace(workspace.id).catch(err => {
-                              console.error('Failed to open workspace:', err);
-                              alert(`Failed to open workspace: ${err.message || err}`);
-                            });
+                            console.log("Opening workspace:", workspace.id);
+                            windowManager
+                              .openWorkspace(workspace.id)
+                              .catch((err) => {
+                                console.error("Failed to open workspace:", err);
+                                alert(
+                                  `Failed to open workspace: ${
+                                    err.message || err
+                                  }`,
+                                );
+                              });
                           }}
                         >
                           <ExternalLink className="mr-2 h-3 w-3" />
@@ -511,9 +593,9 @@ export function MainScreen() {
           </div>
         </div>
       </div>
-      
+
       {/* Connection Dialog */}
-      <ConnectionDialog 
+      <ConnectionDialog
         open={connectionDialogOpen}
         onOpenChange={(open) => {
           setConnectionDialogOpen(open);
@@ -525,15 +607,24 @@ export function MainScreen() {
         preSelectedWorkspaceId={selectedWorkspaceForConnection}
         editingConnectionId={editingConnectionId}
       />
-      
+
       {/* Delete Workspace Confirmation */}
-      <AlertDialog open={deleteConfirmWorkspaceId !== null} onOpenChange={() => setDeleteConfirmWorkspaceId(null)}>
+      <AlertDialog
+        open={deleteConfirmWorkspaceId !== null}
+        onOpenChange={() => {
+          setDeleteConfirmWorkspaceId(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Workspace</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{deleteConfirmWorkspaceId ? workspaces.get(deleteConfirmWorkspaceId)?.name : ''}"? 
-              This will also remove all database connections in this workspace. This action cannot be undone.
+              Are you sure you want to delete "
+              {deleteConfirmWorkspaceId
+                ? workspaces.get(deleteConfirmWorkspaceId)?.name
+                : ""}
+              "? This will also remove all database connections in this
+              workspace. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -542,8 +633,12 @@ export function MainScreen() {
               onClick={() => {
                 if (deleteConfirmWorkspaceId) {
                   // Remove all connections in this workspace
-                  const workspaceConnections = getWorkspaceConnections(deleteConfirmWorkspaceId);
-                  workspaceConnections.forEach(conn => removeConnection(conn.config.id));
+                  const workspaceConnections = getWorkspaceConnections(
+                    deleteConfirmWorkspaceId,
+                  );
+                  workspaceConnections.forEach((conn) =>
+                    removeConnection(conn.config.id),
+                  );
                   // Remove workspace
                   removeWorkspace(deleteConfirmWorkspaceId);
                 }
@@ -556,14 +651,20 @@ export function MainScreen() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      
+
       {/* Delete Connection Confirmation */}
-      <AlertDialog open={deleteConfirmConnectionId !== null} onOpenChange={() => setDeleteConfirmConnectionId(null)}>
+      <AlertDialog
+        open={deleteConfirmConnectionId !== null}
+        onOpenChange={() => {
+          setDeleteConfirmConnectionId(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Connection</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this database connection? This action cannot be undone.
+              Are you sure you want to delete this database connection? This
+              action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -582,9 +683,12 @@ export function MainScreen() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      
+
       {/* Clear Storage Confirmation */}
-      <AlertDialog open={clearStorageDialogOpen} onOpenChange={setClearStorageDialogOpen}>
+      <AlertDialog
+        open={clearStorageDialogOpen}
+        onOpenChange={setClearStorageDialogOpen}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Clear All Application Data</AlertDialogTitle>
@@ -598,24 +702,27 @@ export function MainScreen() {
                   <li>Application settings and preferences</li>
                 </ul>
               </div>
-              
+
               {storageStats && (
                 <div className="bg-muted rounded-md p-3 space-y-1 text-sm">
                   <div>Storage Usage:</div>
                   <div className="text-muted-foreground">
-                    • localStorage: {storageStats.localStorage.items} items ({(storageStats.localStorage.size / 1024).toFixed(2)} KB)
+                    • localStorage: {storageStats.localStorage.items} items (
+                    {(storageStats.localStorage.size / 1024).toFixed(2)} KB)
                   </div>
                   <div className="text-muted-foreground">
-                    • sessionStorage: {storageStats.sessionStorage.items} items ({(storageStats.sessionStorage.size / 1024).toFixed(2)} KB)
+                    • sessionStorage: {storageStats.sessionStorage.items} items
+                    ({(storageStats.sessionStorage.size / 1024).toFixed(2)} KB)
                   </div>
                   <div className="text-muted-foreground">
                     • Total: {(storageStats.total / 1024).toFixed(2)} KB
                   </div>
                 </div>
               )}
-              
+
               <div className="font-semibold text-destructive">
-                ⚠️ This action cannot be undone. The application will reload after clearing.
+                ⚠️ This action cannot be undone. The application will reload
+                after clearing.
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -626,18 +733,18 @@ export function MainScreen() {
                 try {
                   // Clear all storage
                   await StorageCleaner.clearAll();
-                  console.log('✅ All storage cleared successfully');
-                  
+                  console.log("✅ All storage cleared successfully");
+
                   // Close dialog
                   setClearStorageDialogOpen(false);
-                  
+
                   // Reload the application after a brief delay
                   setTimeout(() => {
                     window.location.reload();
                   }, 500);
                 } catch (error) {
-                  console.error('Failed to clear storage:', error);
-                  alert('Failed to clear storage. Please try again.');
+                  console.error("Failed to clear storage:", error);
+                  alert("Failed to clear storage. Please try again.");
                 }
               }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
@@ -647,17 +754,23 @@ export function MainScreen() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      
+
       {/* Emergency Clear Connections Dialog */}
-      <AlertDialog open={emergencyClearDialogOpen} onOpenChange={setEmergencyClearDialogOpen}>
+      <AlertDialog
+        open={emergencyClearDialogOpen}
+        onOpenChange={setEmergencyClearDialogOpen}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-destructive">⚠️ Emergency Clear All Connections</AlertDialogTitle>
+            <AlertDialogTitle className="text-destructive">
+              ⚠️ Emergency Clear All Connections
+            </AlertDialogTitle>
             <AlertDialogDescription className="space-y-4">
               <div>
-                This will <strong>FORCEFULLY DELETE</strong> all database connections and completely reset the application.
+                This will <strong>FORCEFULLY DELETE</strong> all database
+                connections and completely reset the application.
               </div>
-              
+
               <div className="bg-destructive/10 border border-destructive/20 rounded-md p-3 space-y-2">
                 <div className="font-semibold">This action will:</div>
                 <ul className="list-disc list-inside space-y-1 text-sm">
@@ -667,9 +780,10 @@ export function MainScreen() {
                   <li>Automatically reload the application</li>
                 </ul>
               </div>
-              
+
               <div className="font-semibold text-destructive">
-                ⚠️ This action cannot be undone. The application will reload immediately after clearing.
+                ⚠️ This action cannot be undone. The application will reload
+                immediately after clearing.
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -681,8 +795,13 @@ export function MainScreen() {
                   toast.info("Emergency clearing all connections...");
                   await emergencyClearAllConnections();
                 } catch (error) {
-                  console.error("Failed to emergency clear connections:", error);
-                  toast.error("Failed to clear connections - manual reload may be needed");
+                  console.error(
+                    "Failed to emergency clear connections:",
+                    error,
+                  );
+                  toast.error(
+                    "Failed to clear connections - manual reload may be needed",
+                  );
                 }
               }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"

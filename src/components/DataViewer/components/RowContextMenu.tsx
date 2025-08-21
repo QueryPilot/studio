@@ -54,8 +54,6 @@ export const RowContextMenu = memo(({
   onViewDetails,
   onOpenChange,
   isPinned = false,
-  tableName = "table",
-  schema,
 }: RowContextMenuProps) => {
   const rowCount = selectedRows.length;
   const rowText = rowCount === 1 ? "row" : "rows";

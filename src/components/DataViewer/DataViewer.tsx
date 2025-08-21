@@ -55,7 +55,7 @@ import {
   DetailViewMode,
   TableColumn,
 } from "./types";
-import { WINDOW_SIZE, FETCH_SIZE, OVERSCAN } from "./constants";
+import { FETCH_SIZE, OVERSCAN } from "./constants";
 import { getInitialColumnSize } from "./utils";
 import {
   DraggableHeader,
@@ -189,7 +189,7 @@ export function DataViewer({
       const countQuery = `
         SELECT reltuples::BIGINT AS estimate
         FROM pg_class
-        WHERE oid = '"${schema}"."${tableName}"'::regclass;
+        WHERE oid = '"${schema}"."${tableName}"'::regclass
       `;
 
       const result = await secureDatabaseService.executeQuery(
@@ -278,9 +278,9 @@ export function DataViewer({
     }
   }, [activeConnection, schema, tableName]);
 
-  // Load table data with windowing
+  // Load table data with bidirectional windowing
   const loadTableData = useCallback(
-    async (newOffset: number = 0, append: boolean = false) => {
+    async (newOffset: number = 0, append: boolean = false, prepend: boolean = false) => {
       if (!activeConnection) {
         setError("No active database connection");
         setIsLoading(false);
@@ -294,7 +294,7 @@ export function DataViewer({
         return;
       }
 
-      if (!append) {
+      if (!append && !prepend) {
         setIsLoading(true);
       } else {
         setIsFetchingMore(true);
@@ -459,7 +459,7 @@ export function DataViewer({
           }
         }
 
-        // Convert rows to objects
+        // Convert rows to objects with absolute row indices
         const tableData = result.rows.map((row, idx) => {
           const rowObj: any = { _rowIndex: newOffset + idx };
           result.columns.forEach((col: string, index: number) => {
@@ -469,21 +469,29 @@ export function DataViewer({
         });
 
         if (append) {
-          setData((prev) => {
-            const newData = [...prev, ...tableData];
-            // Keep only WINDOW_SIZE records
-            if (newData.length > WINDOW_SIZE) {
-              const start = newData.length - WINDOW_SIZE;
-              return newData.slice(start);
-            }
-            return newData;
-          });
+          // Simple append without removing old data for now
+          setData((prev) => [...prev, ...tableData]);
         } else {
+          // Initial load or refresh
           setData(tableData);
         }
 
-        setOffset(newOffset + result.rows.length);
-        setHasMore(result.rows.length === FETCH_SIZE);
+        // Update offset for next fetch
+        if (!prepend) {
+          setOffset(newOffset + result.rows.length);
+        }
+        
+        // Check if we've hit the end
+        const hitEnd = result.rows.length < FETCH_SIZE;
+        setHasMore(!hitEnd);
+        
+        // Update total rows known if we hit the end
+        if (hitEnd && !prepend) {
+          const total = newOffset + result.rows.length;
+          // Update UI store with exact count
+          useUIStore.getState().setEstimatedRowCount(total);
+        }
+        
         setDataLoaded(true);
       } catch (err) {
         console.error("Error loading table data:", err);
@@ -502,9 +510,13 @@ export function DataViewer({
   useEffect(() => {
     // Load both data and structure on mount
     if (activeConnection) {
-      loadTableData(0, false);
-      fetchEstimatedCount();
-      fetchTableStructure();
+      // Reset state for new table
+      setOffset(0);
+      setHasMore(true);
+      
+      void loadTableData(0, false);
+      void fetchEstimatedCount();
+      void fetchTableStructure();
     }
   }, [activeConnection, tableName, schema]);
 
@@ -516,10 +528,11 @@ export function DataViewer({
   // Handle sorting changes
   useEffect(() => {
     if (viewMode === "data" && !isLoading) {
-      // Reset and reload when sorting changes
+      // Reset state and reload when sorting changes
       setOffset(0);
+      setHasMore(true);
       setData([]);
-      loadTableData(0, false);
+      void loadTableData(0, false);
     }
   }, [sorting]);
 
@@ -619,7 +632,7 @@ export function DataViewer({
 
   // Virtualizer for rows with improved performance
   const rowVirtualizer = useVirtualizer({
-    count: rows.length + (isFetchingMore ? 10 : 0), // Add skeleton rows when loading
+    count: data.length + (hasMore ? 5 : 0), // Add 5 skeleton rows when loading more
     getScrollElement: () => tableContainerRef.current,
     estimateSize: useCallback(() => 28, []), // Row height for text-xs
     overscan: OVERSCAN, // Use constant from constants.ts
@@ -632,40 +645,18 @@ export function DataViewer({
   });
 
 
-  // Handle infinite scroll with optimized debouncing
-  const scrollTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
-  const lastScrollTop = useRef(0);
-
-  const handleScroll = useCallback(
-    (e: React.UIEvent<HTMLDivElement>) => {
-      const container = e.currentTarget;
-      const { scrollHeight, scrollTop, clientHeight } = container;
-
-      // Only trigger on downward scroll
-      const isScrollingDown = scrollTop > lastScrollTop.current;
-      lastScrollTop.current = scrollTop;
-
-      if (!isScrollingDown) return;
-
-      // Clear existing timeout
-      if (scrollTimeoutRef.current) {
-        clearTimeout(scrollTimeoutRef.current);
-      }
-
-      // Reduced debounce for faster response
-      scrollTimeoutRef.current = setTimeout(() => {
-        // Load more when approaching bottom (increased threshold for earlier loading)
-        if (
-          scrollHeight - scrollTop - clientHeight < 800 &&
-          !isFetchingMore &&
-          hasMore
-        ) {
-          loadTableData(offset, true);
-        }
-      }, 50); // Reduced from 100ms to 50ms
-    },
-    [offset, isFetchingMore, hasMore, loadTableData],
-  );
+  // Simple infinite scroll handler for better performance
+  const handleScroll = useCallback(() => {
+    const container = tableContainerRef.current;
+    if (!container) return;
+    
+    const { scrollHeight, scrollTop, clientHeight } = container;
+    
+    // Load more when near bottom
+    if (scrollHeight - scrollTop - clientHeight < 500 && !isFetchingMore && hasMore) {
+      void loadTableData(offset, true, false);
+    }
+  }, [offset, isFetchingMore, hasMore, loadTableData]);
 
   // Handle keyboard shortcuts
   useEffect(() => {
@@ -914,51 +905,49 @@ export function DataViewer({
     [onRowClick],
   );
 
-  // Context menu handlers
-  const getSelectedRows = useCallback(() => {
+  // Memoize selected rows to avoid expensive recalculation on every render
+  const selectedRows = useMemo(() => {
     const selectedIds = Array.from(selectedRowIds);
     return rows
       .filter((row) => selectedIds.includes(row.id))
       .map((row) => row.original);
   }, [selectedRowIds, rows]);
+  
+  // Context menu handlers - directly use memoized selectedRows
 
   const handleCopyAsCSV = useCallback(() => {
-    const selectedRows = getSelectedRows();
     if (selectedRows.length === 0) return;
     const cols = Object.keys(selectedRows[0]);
     copyAsCSV(selectedRows, cols);
-  }, [getSelectedRows]);
+  }, [selectedRows]);
 
   const handleCopyAsJSON = useCallback(() => {
-    const selectedRows = getSelectedRows();
     if (selectedRows.length === 0) return;
     copyAsJSON(selectedRows);
-  }, [getSelectedRows]);
+  }, [selectedRows]);
 
   const handleCopyAsSQLValues = useCallback(() => {
-    const selectedRows = getSelectedRows();
     if (selectedRows.length === 0) return;
     const cols = Object.keys(selectedRows[0]);
     copyAsSQLValues(selectedRows, cols);
-  }, [getSelectedRows]);
+  }, [selectedRows]);
 
   const handleCopyAsInsert = useCallback(() => {
-    const selectedRows = getSelectedRows();
     if (selectedRows.length === 0) return;
     const cols = Object.keys(selectedRows[0]);
     copyAsInsertStatement(selectedRows, cols, tableName, schema);
-  }, [getSelectedRows, tableName, schema]);
+  }, [selectedRows, tableName, schema]);
 
-  const handleViewDetails = useCallback(() => {
-    const selectedRows = getSelectedRows();
-    if (selectedRows.length === 1) {
-      setSelectedRow(selectedRows[0]);
-    } else if (selectedRows.length > 1) {
-      // For multiple rows, the preview panel will show shared values
-      setSelectedRow(null); // Clear single row selection
-    }
-    setShowDetails(true);
-  }, [getSelectedRows]);
+  // const handleViewDetails = useCallback(() => {
+  //   const selectedRows = getSelectedRows();
+  //   if (selectedRows.length === 1) {
+  //     setSelectedRow(selectedRows[0]);
+  //   } else if (selectedRows.length > 1) {
+  //     // For multiple rows, the preview panel will show shared values
+  //     setSelectedRow(null); // Clear single row selection
+  //   }
+  //   setShowDetails(true);
+  // }, [getSelectedRows]);
 
   // Handle hiding columns
   const handleHideColumn = useCallback((columnId: string) => {
@@ -1228,15 +1217,16 @@ export function DataViewer({
                   </tr>
                 ) : (
                   rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                    const isSkeletonRow = virtualRow.index >= rows.length;
+                    // Simple index mapping
+                    const isSkeletonRow = virtualRow.index >= data.length;
 
                     if (isSkeletonRow) {
-                      // Show skeleton row when loading more data
+                      // Show skeleton row when data is not loaded
                       return (
                         <SkeletonRow
                           key={`skeleton-${virtualRow.index}`}
                           virtualRow={virtualRow}
-                          columnCount={table.getAllColumns().length}
+                          columns={table.getAllColumns()}
                         />
                       );
                     }
@@ -1249,7 +1239,7 @@ export function DataViewer({
                         key={row.id}
                         selectedRows={
                           selectedRowIds.has(row.id) 
-                            ? getSelectedRows() 
+                            ? selectedRows 
                             : [row.original] // If this row isn't selected, it will be the only selection
                         }
                         onCopyAsCSV={() => {
@@ -1338,15 +1328,7 @@ export function DataViewer({
               </tbody>
             </table>
 
-            {/* Loading more indicator */}
-            {isFetchingMore && (
-              <div className="flex items-center justify-center py-2">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mr-2" />
-                <span className="text-xs text-muted-foreground">
-                  Loading more...
-                </span>
-              </div>
-            )}
+            {/* Removed loading spinner - skeleton rows already indicate loading */}
           </div>
         ) : (
           /* Structure View */
