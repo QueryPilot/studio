@@ -8,9 +8,10 @@ interface DraggableHeaderProps {
   column: any;
   header: any;
   onHideColumn?: (columnId: string) => void;
+  virtualSize?: number;
 }
 
-export const DraggableHeader = memo(({ column, header, onHideColumn }: DraggableHeaderProps) => {
+export const DraggableHeader = memo(({ column, header, onHideColumn, virtualSize }: DraggableHeaderProps) => {
   const {
     attributes,
     listeners,
@@ -23,7 +24,7 @@ export const DraggableHeader = memo(({ column, header, onHideColumn }: Draggable
   });
 
   const isLastColumn = header.column.getIsLastColumn();
-  const columnWidth = header.getSize();
+  const columnWidth = virtualSize || header.getSize();
   const style = {
     transform: transform ? `translateX(${transform.x}px)` : undefined,
     transition,
@@ -32,7 +33,7 @@ export const DraggableHeader = memo(({ column, header, onHideColumn }: Draggable
     width: columnWidth,
     minWidth: Math.max(columnWidth, 100),
     maxWidth: isLastColumn ? undefined : columnWidth,
-    flex: isLastColumn ? "1 1 auto" : "none",
+    flex: virtualSize ? "none" : isLastColumn ? "1 1 auto" : "none",
   };
 
   const headerElement = (

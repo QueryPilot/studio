@@ -7,3 +7,4 @@ export { VirtualRow } from "./VirtualRow";
 export { Toolbar } from "./Toolbar";
 export { RowContextMenu } from "./RowContextMenu";
 export { ColumnContextMenu } from "./ColumnContextMenu";
+export { TableSkeleton } from "./TableSkeleton";
