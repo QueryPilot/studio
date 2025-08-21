@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { secureDatabaseService } from '@/services/secureDatabaseService';
 import { cacheService } from '@/services/cacheService';
+import { useQueryStore } from '@/stores/queryStore';
 
 // Types based on the backend implementation
 interface QueryOptions {
@@ -220,6 +221,68 @@ export function useExecuteSQL(connectionId: string | null) {
     },
     onError: (error) => {
       console.error('Failed to execute SQL:', error);
+    },
+  });
+}
+
+/**
+ * Enhanced hook for executing queries with cancellation support
+ * This integrates with the query store to track active queries
+ */
+export function useExecuteQueryWithCancellation(connectionId: string | null) {
+  const queryClient = useQueryClient();
+  const queryStore = useQueryStore();
+
+  return useMutation({
+    mutationFn: async ({ sql }: { sql: string }): Promise<{ queryId: string; result: any }> => {
+      if (!connectionId) {
+        throw new Error('Connection ID is required');
+      }
+
+      // Generate unique query ID
+      const queryId = crypto.randomUUID();
+      
+      // Add to active queries
+      queryStore.addActiveQuery({
+        id: queryId,
+        connectionId,
+        sql: sql.trim(),
+        startTime: new Date(),
+        isCancellable: true,
+      });
+
+      try {
+        const result = await secureDatabaseService.executeQuery(connectionId, sql.trim());
+        
+        // Update with cursor ID if available
+        if (result && typeof result === 'object' && 'cursor_id' in result) {
+          queryStore.updateActiveQuery(queryId, { cursorId: (result as any).cursor_id });
+        }
+        
+        return { queryId, result };
+      } finally {
+        // Always remove from active queries when done
+        queryStore.removeActiveQuery(queryId);
+      }
+    },
+    onSuccess: (data) => {
+      // Invalidate queries if this was a mutating operation
+      if (connectionId) {
+        const sql = data.result?.sql?.toLowerCase();
+        if (sql && (sql.includes('insert') || sql.includes('update') || sql.includes('delete'))) {
+          cacheService.invalidateConnection(connectionId);
+          queryClient.invalidateQueries({
+            queryKey: ['query', connectionId],
+          });
+          queryClient.invalidateQueries({
+            queryKey: ['table', connectionId],
+          });
+        }
+      }
+    },
+    onError: (error) => {
+      console.error('Query execution failed:', error);
+      // Query will be removed from active queries by the finally block
     },
   });
 }

@@ -40,6 +40,12 @@ impl ConnectionRegistry {
         println!("[ConnectionRegistry] Connection config: name={}, host={}, port={}, db_type={:?}", 
             config.name, config.host, config.port, config.db_type);
         
+        // Check if connection already exists
+        if self.connections.read().await.contains_key(&conn_id) {
+            println!("[ConnectionRegistry] Connection already exists with ID: {}, reusing existing connection", conn_id);
+            return Ok(conn_id);
+        }
+        
         // Create appropriate adapter based on database type
         let adapter: Box<dyn DbAdapter> = match config.db_type {
             DbType::Postgres => {

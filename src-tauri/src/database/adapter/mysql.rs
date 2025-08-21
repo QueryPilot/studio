@@ -93,7 +93,13 @@ impl DbAdapter for MySqlAdapter {
             .await
             .map_err(AppError::from_sqlx)?;
         
-        Ok(rows)
+        // Filter out system databases
+        let filtered: Vec<String> = rows.into_iter()
+            .filter(|db| !matches!(db.as_str(), 
+                "information_schema" | "performance_schema" | "mysql" | "sys"))
+            .collect();
+        
+        Ok(filtered)
     }
     
     async fn list_schemas(&self, database: &str) -> Result<Vec<String>, AppError> {

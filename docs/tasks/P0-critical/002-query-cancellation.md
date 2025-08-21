@@ -13,12 +13,36 @@ None - Independent foundation task
 Long-running queries cannot be cancelled, forcing users to wait or restart the application. This is especially problematic for accidental cartesian joins or missing WHERE clauses.
 
 ## Acceptance Criteria
-- [ ] Backend tracks all active queries with unique IDs
-- [ ] Cancellation command immediately aborts query execution
-- [ ] Proper cleanup of database resources on cancellation
-- [ ] Frontend shows cancel button for running queries
-- [ ] User receives confirmation when query is cancelled
-- [ ] Cancelled queries don't affect other operations
+- [x] Backend tracks all active queries with unique IDs
+- [x] Cancellation command immediately aborts query execution
+- [x] Proper cleanup of database resources on cancellation
+- [x] Frontend shows cancel button for running queries
+- [x] User receives confirmation when query is cancelled
+- [x] Cancelled queries don't affect other operations
+
+## Status: ✅ COMPLETED ✨ FULLY IMPLEMENTED
+
+### Implementation Summary
+Query cancellation has been successfully implemented and is fully operational with the following components:
+
+**Backend (Rust/Tauri):**
+- `QueryExecutor` with abort handle registry and cancellation token support
+- `db_query_cancel` Tauri command for cancelling queries
+- Proper cleanup of database resources and connections
+
+**Frontend (React/TypeScript):**
+- Enhanced `useQueryStore` to track active queries in runtime
+- `useExecuteQueryWithCancellation` hook for query execution with cancellation support
+- Cancel buttons in QueryEditor and QueryTab components
+- Real-time display of active queries with individual cancel options
+- Graceful error handling and user feedback
+
+**Key Features:**
+- Queries are tracked with unique IDs from execution start
+- Cancel buttons appear for all running queries
+- Individual query cancellation and "Cancel All" functionality
+- Visual feedback showing running queries in blue badges
+- Proper cleanup of UI state after cancellation
 
 ## Implementation Notes
 

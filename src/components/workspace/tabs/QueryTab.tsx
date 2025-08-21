@@ -3,7 +3,8 @@ import Editor from '@monaco-editor/react';
 import { Button } from '@/components/ui/button';
 import { useTheme } from 'next-themes';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
-import { useQueryData, useExecuteSQL } from '@/hooks/useQueryData';
+import { useQueryStore } from '@/stores/queryStore';
+import { useQueryData, useExecuteSQL, useExecuteQueryWithCancellation } from '@/hooks/useQueryData';
 import { DataViewer } from '@/components/DataViewer/DataViewer';
 import { TabState } from '@/types/workspace';
 import {
@@ -11,6 +12,7 @@ import {
   Square,
   Save,
   Share,
+  X,
 } from 'lucide-react';
 
 interface QueryTabProps {
@@ -21,17 +23,23 @@ export function QueryTab({ tab }: QueryTabProps) {
   const { theme } = useTheme();
   const { updateTabPayload, setTabDirty, setTabLoading, setTabError } = useWorkspaceStore();
   const workspace = useWorkspaceStore(s => s.getActiveWorkspace());
+  const { getActiveQueriesForConnection, cancelQuery } = useQueryStore();
   
   const [sql, setSql] = useState(tab.payload.sql || '');
   const [isExecuting, setIsExecuting] = useState(false);
   
   // Hooks for query execution
-  const queryMutation = useExecuteSQL(tab.connectionId);
+  const enhancedQueryMutation = useExecuteQueryWithCancellation(tab.connectionId);
   const queryData = useQueryData(
     tab.connectionId,
     tab.payload.sql || '',
     { pageSize: 1000 }
   );
+  
+  // Get active queries for this tab's connection
+  const activeQueries = tab.connectionId 
+    ? getActiveQueriesForConnection(tab.connectionId)
+    : [];
 
   const handleSqlChange = useCallback((value: string | undefined) => {
     const newSql = value || '';
@@ -53,13 +61,15 @@ export function QueryTab({ tab }: QueryTabProps) {
       // Save SQL to tab payload
       updateTabPayload(workspace!.id, tab.id, { sql });
       
-      // Execute the query
+      // Execute the query with cancellation support
       if (sql.trim().toLowerCase().startsWith('select')) {
-        // For SELECT queries, use the query data hook
+        // For SELECT queries, use enhanced query mutation for cancellation support
+        await enhancedQueryMutation.mutateAsync({ sql });
+        // Also trigger the query data refetch for UI display
         await queryData.refetch();
       } else {
-        // For INSERT/UPDATE/DELETE, use execute mutation
-        await queryMutation.mutateAsync({ sql });
+        // For INSERT/UPDATE/DELETE, use enhanced mutation
+        await enhancedQueryMutation.mutateAsync({ sql });
       }
       
       // Mark tab as not dirty after successful execution
@@ -72,7 +82,29 @@ export function QueryTab({ tab }: QueryTabProps) {
       setIsExecuting(false);
       setTabLoading(workspace!.id, tab.id, false);
     }
-  }, [sql, workspace, tab.id, updateTabPayload, setTabLoading, setTabError, setTabDirty, queryData, queryMutation]);
+  }, [sql, workspace, tab.id, updateTabPayload, setTabLoading, setTabError, setTabDirty, queryData, enhancedQueryMutation]);
+
+  const handleCancelQueries = useCallback(async () => {
+    try {
+      await Promise.all(
+        activeQueries.map(query => cancelQuery(query.id))
+      );
+      setIsExecuting(false);
+      setTabLoading(workspace!.id, tab.id, false);
+    } catch (error) {
+      console.error('Failed to cancel queries:', error);
+      setIsExecuting(false);
+      setTabLoading(workspace!.id, tab.id, false);
+    }
+  }, [activeQueries, cancelQuery, workspace, tab.id, setTabLoading]);
+
+  const handleCancelSingleQuery = useCallback(async (queryId: string) => {
+    try {
+      await cancelQuery(queryId);
+    } catch (error) {
+      console.error('Failed to cancel query:', error);
+    }
+  }, [cancelQuery]);
 
   const handleSaveQuery = useCallback(() => {
     updateTabPayload(workspace!.id, tab.id, { sql });
@@ -91,7 +123,7 @@ export function QueryTab({ tab }: QueryTabProps) {
             size="sm"
             className="gap-2"
           >
-            {isExecuting ? (
+            {isExecuting || activeQueries.length > 0 ? (
               <>
                 <Square className="h-4 w-4" />
                 Executing...
@@ -103,6 +135,18 @@ export function QueryTab({ tab }: QueryTabProps) {
               </>
             )}
           </Button>
+          
+          {activeQueries.length > 0 && (
+            <Button
+              onClick={handleCancelQueries}
+              size="sm"
+              variant="destructive"
+              className="gap-2"
+            >
+              <Square className="h-4 w-4" />
+              Cancel All
+            </Button>
+          )}
           
           <Button
             onClick={handleSaveQuery}
@@ -126,6 +170,29 @@ export function QueryTab({ tab }: QueryTabProps) {
           </Button>
           
           <div className="flex-1" />
+          
+          {/* Active queries display */}
+          <div className="flex items-center gap-1">
+            {activeQueries.map((query) => (
+              <div
+                key={query.id}
+                className="flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/30 rounded text-xs"
+              >
+                <span className="text-blue-700 dark:text-blue-300">
+                  Query running...
+                </span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => handleCancelSingleQuery(query.id)}
+                  className="h-4 w-4 p-0 text-red-600 hover:text-red-700"
+                  title="Cancel this query"
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+            ))}
+          </div>
           
           {tab.isDirty && (
             <span className="text-sm text-muted-foreground">

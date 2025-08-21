@@ -65,12 +65,21 @@ class SecureDatabaseService {
    * Backend will fetch connection details from secure storage
    */
   async createConnectionById(connectionId: string, workspaceId?: string): Promise<string> {
-    const response = await invoke<ConnectResponse>('db_connect_by_id', {
-      connectionId,
-      workspaceId: workspaceId || null
-    });
-    
-    return response.connection_id;
+    try {
+      console.log(`[SecureDatabaseService] Creating connection by ID: ${connectionId}, workspace: ${workspaceId}`);
+      
+      const response = await invoke<ConnectResponse>('db_connect_by_id', {
+        connectionId,
+        workspaceId: workspaceId || null
+      });
+      
+      console.log(`[SecureDatabaseService] Connection created successfully: ${response.connection_id}`);
+      return response.connection_id;
+    } catch (error) {
+      console.error('[SecureDatabaseService] Failed to create connection by ID:', error);
+      // Re-throw with more context
+      throw new Error(`Failed to create connection: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   /**
@@ -109,11 +118,16 @@ class SecureDatabaseService {
   async testConnection(connectionId: string): Promise<boolean> {
     try {
       const actualConnectionId = this.getActualConnectionId(connectionId);
+      console.log(`[SecureDatabaseService] Testing connection with actualConnectionId: ${actualConnectionId}`);
+      
       const pingMs = await invoke<number>('db_ping', { connectionId: actualConnectionId });
+      console.log(`[SecureDatabaseService] Ping successful: ${pingMs}ms`);
       return pingMs >= 0;
     } catch (error) {
-      console.error('[SecureDatabaseService] Test connection failed:', error);
-      return false;
+      const actualConnectionId = this.getActualConnectionId(connectionId);
+      console.error('[SecureDatabaseService] Test connection failed for:', actualConnectionId, error);
+      // Re-throw the error with more context instead of just returning false
+      throw new Error(`Connection test failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

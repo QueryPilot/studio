@@ -112,6 +112,9 @@ impl DbAdapter for PostgresAdapter {
         let rows = sqlx::query_scalar::<_, String>(
             "SELECT schema_name FROM information_schema.schemata 
              WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+             AND schema_name NOT LIKE 'pg_temp_%'
+             AND schema_name NOT LIKE 'pg_toast_temp_%'
+             AND schema_name NOT IN ('auth', 'extensions', 'graphql', 'graphql_public', 'pgbouncer', 'pgsodium', 'pgsodium_masks', 'realtime', 'storage', 'vault', 'net')
              ORDER BY schema_name"
         )
         .fetch_all(self.pool.as_ref())
