@@ -467,9 +467,16 @@ export function DataViewer({
           }
         }
 
-        // Convert rows to objects with absolute row indices
+        // Convert rows to objects with unique row IDs
+        // Use a combination of offset, index, and first few cell values for uniqueness
         const tableData = result.rows.map((row, idx) => {
-          const rowObj: any = { _rowIndex: newOffset + idx };
+          const absoluteIndex = newOffset + idx;
+          // Create a unique key using index and first few values
+          const rowKey = `${absoluteIndex}_${row.slice(0, 3).join('_')}`;
+          const rowObj: any = { 
+            _rowIndex: absoluteIndex,
+            _rowKey: rowKey 
+          };
           result.columns.forEach((col: string, index: number) => {
             rowObj[col] = row[index];
           });
@@ -525,7 +532,11 @@ export function DataViewer({
       if (preloadedData.data.length > 0 && Array.isArray(preloadedData.data[0])) {
         // Data is in array format, need to transform to object format
         transformedData = preloadedData.data.map((row: any, idx: number) => {
-          const rowObj: any = { _rowIndex: idx };
+          const rowKey = `${idx}_${row.slice(0, 3).join('_')}`;
+          const rowObj: any = { 
+            _rowIndex: idx,
+            _rowKey: rowKey
+          };
           if (preloadedData.columns) {
             preloadedData.columns.forEach((col: string, colIndex: number) => {
               rowObj[col] = row[colIndex];
@@ -534,11 +545,15 @@ export function DataViewer({
           return rowObj;
         });
       } else if (preloadedData.data.length > 0 && !preloadedData.data[0]._rowIndex) {
-        // Data is already in object format but missing _rowIndex
-        transformedData = preloadedData.data.map((row: any, idx: number) => ({
-          ...row,
-          _rowIndex: idx
-        }));
+        // Data is already in object format but missing _rowIndex and _rowKey
+        transformedData = preloadedData.data.map((row: any, idx: number) => {
+          const rowValues = Object.values(row).slice(0, 3).join('_');
+          return {
+            ...row,
+            _rowIndex: idx,
+            _rowKey: `${idx}_${rowValues}`
+          };
+        });
       }
       
       setData(transformedData);
@@ -761,7 +776,7 @@ export function DataViewer({
     columnResizeMode: "onChange",
     enableColumnResizing: true,
     enableRowSelection: true,
-    getRowId: useCallback((row: any) => String(row._rowIndex), []), // Memoized stable row ID generation
+    getRowId: useCallback((row: any) => row._rowKey || String(row._rowIndex), []), // Use unique rowKey if available
     defaultColumn: {
       size: 150,
       minSize: 50,
@@ -1267,7 +1282,7 @@ export function DataViewer({
 
     // Check each field for shared values
     Object.keys(firstRow).forEach((key) => {
-      if (key === "_rowIndex") return;
+      if (key === "_rowIndex" || key === "_rowKey") return;
 
       const firstValue = firstRow[key];
       const allSame = selectedRows.every((row) => {
