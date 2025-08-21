@@ -18,6 +18,9 @@ import {
   Search,
   Loader2,
   RefreshCw,
+  Database,
+  Plus,
+  Layers,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useConnectionStore } from "@/stores";
@@ -36,6 +39,7 @@ interface TreeItem {
 
 export function DatabaseSidebar() {
   const [expanded, setExpanded] = useState<string[]>(["Tables"]);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoadingSchema, setIsLoadingSchema] = useState(false);
   const [tables, setTables] = useState<TableInfo[]>([]);
@@ -51,13 +55,20 @@ export function DatabaseSidebar() {
   const tabs = workspace ? Array.from(workspace.tabs.values()) : [];
   const activeTabId = workspace?.activeTabId || "";
 
-  const { connections, activeConnectionId } = useConnectionStore();
-  const { selectedSchema, setSelectedSchema, availableSchemas, setAvailableSchemas } =
-    useUIStore();
+  const { connections, connect, setActiveConnection, activeConnectionId } =
+    useConnectionStore();
+  const {
+    selectedSchema,
+    setSelectedSchema,
+    availableSchemas,
+    setAvailableSchemas,
+  } = useUIStore();
 
   const activeConnection = activeConnectionId
     ? connections.get(activeConnectionId)
     : null;
+
+  const workspaceConnections = Array.from(connections.values());
 
   const toggleExpand = (name: string) => {
     setExpanded((prev) =>
@@ -66,6 +77,32 @@ export function DatabaseSidebar() {
         : [...prev, name],
     );
   };
+
+  const handleConnectionChange = async (connectionId: string) => {
+    // Optimistically set the new connection as active immediately
+    setActiveConnection(connectionId);
+
+    // Get the selected connection
+    const selectedConnection = connections.get(connectionId);
+
+    // If the connection is not connected, initiate connection
+    if (
+      selectedConnection &&
+      selectedConnection.status !== "connected" &&
+      selectedConnection.status !== "connecting"
+    ) {
+      console.log(
+        `[StatusBar] Initiating connection for ${connectionId} on selection`,
+      );
+      try {
+        await connect(connectionId, 3, workspaceId);
+      } catch (error) {
+        console.error(`[StatusBar] Failed to connect:`, error);
+      }
+    }
+  };
+
+  const connectionStatus = activeConnection?.status || "disconnected";
 
   const loadDatabaseSchema = async (forceResetSchema = false) => {
     console.log(
@@ -109,19 +146,24 @@ export function DatabaseSidebar() {
       let functionsData: FunctionInfo[];
 
       // First, fetch all available schemas
-      const allSchemas = await secureDatabaseService.getSchemas(activeConnectionId, '');
+      const allSchemas = await secureDatabaseService.getSchemas(
+        activeConnectionId,
+        "",
+      );
       console.log("[DatabaseSidebar] Found schemas:", allSchemas);
       const sortedSchemas = allSchemas.sort();
       setAvailableSchemas(sortedSchemas);
-      
+
       // Determine which schema to use
       let targetSchema = selectedSchema;
       if (forceResetSchema || !sortedSchemas.includes(selectedSchema)) {
         // Reset to public or first available schema
-        targetSchema = sortedSchemas.includes("public") ? "public" : (sortedSchemas[0] || "public");
+        targetSchema = sortedSchemas.includes("public")
+          ? "public"
+          : sortedSchemas[0] || "public";
         setSelectedSchema(targetSchema);
       }
-      
+
       // Check cache first unless force refresh
       if (!forceResetSchema) {
         const cachedSchema = await cacheService.getSchema(activeConnectionId);
@@ -132,28 +174,50 @@ export function DatabaseSidebar() {
           functionsData = cachedSchema.functions;
         } else {
           console.log("[DatabaseSidebar] Cache miss, fetching fresh schema");
-          
+
           // Fetch tables/views/functions for the selected schema only
           const [tables, views, functions] = await Promise.all([
-            secureDatabaseService.getTables(activeConnectionId, '', targetSchema).catch(err => {
-              console.error(`[DatabaseSidebar] Failed to fetch tables for schema ${targetSchema}:`, err);
-              return [];
-            }),
-            secureDatabaseService.getViews(activeConnectionId, '', targetSchema).catch(err => {
-              console.error(`[DatabaseSidebar] Failed to fetch views for schema ${targetSchema}:`, err);
-              return [];
-            }),
-            secureDatabaseService.getFunctions(activeConnectionId, '', targetSchema).catch(err => {
-              console.error(`[DatabaseSidebar] Failed to fetch functions for schema ${targetSchema}:`, err);
-              return [];
-            })
+            secureDatabaseService
+              .getTables(activeConnectionId, "", targetSchema)
+              .catch((err) => {
+                console.error(
+                  `[DatabaseSidebar] Failed to fetch tables for schema ${targetSchema}:`,
+                  err,
+                );
+                return [];
+              }),
+            secureDatabaseService
+              .getViews(activeConnectionId, "", targetSchema)
+              .catch((err) => {
+                console.error(
+                  `[DatabaseSidebar] Failed to fetch views for schema ${targetSchema}:`,
+                  err,
+                );
+                return [];
+              }),
+            secureDatabaseService
+              .getFunctions(activeConnectionId, "", targetSchema)
+              .catch((err) => {
+                console.error(
+                  `[DatabaseSidebar] Failed to fetch functions for schema ${targetSchema}:`,
+                  err,
+                );
+                return [];
+              }),
           ]);
-          
+
           tablesData = tables;
           viewsData = views;
           functionsData = functions;
-          
-          console.log("[DatabaseSidebar] Fetched data - tables:", tablesData.length, "views:", viewsData.length, "functions:", functionsData.length);
+
+          console.log(
+            "[DatabaseSidebar] Fetched data - tables:",
+            tablesData.length,
+            "views:",
+            viewsData.length,
+            "functions:",
+            functionsData.length,
+          );
 
           // Cache the schema
           await cacheService.setSchema(
@@ -168,25 +232,47 @@ export function DatabaseSidebar() {
         // Force refresh - bypass cache
         // Fetch tables/views/functions for the selected schema only
         const [tables, views, functions] = await Promise.all([
-          secureDatabaseService.getTables(activeConnectionId, '', targetSchema).catch(err => {
-            console.error(`[DatabaseSidebar] Force refresh - Failed to fetch tables for schema ${targetSchema}:`, err);
-            return [];
-          }),
-          secureDatabaseService.getViews(activeConnectionId, '', targetSchema).catch(err => {
-            console.error(`[DatabaseSidebar] Force refresh - Failed to fetch views for schema ${targetSchema}:`, err);
-            return [];
-          }),
-          secureDatabaseService.getFunctions(activeConnectionId, '', targetSchema).catch(err => {
-            console.error(`[DatabaseSidebar] Force refresh - Failed to fetch functions for schema ${targetSchema}:`, err);
-            return [];
-          })
+          secureDatabaseService
+            .getTables(activeConnectionId, "", targetSchema)
+            .catch((err) => {
+              console.error(
+                `[DatabaseSidebar] Force refresh - Failed to fetch tables for schema ${targetSchema}:`,
+                err,
+              );
+              return [];
+            }),
+          secureDatabaseService
+            .getViews(activeConnectionId, "", targetSchema)
+            .catch((err) => {
+              console.error(
+                `[DatabaseSidebar] Force refresh - Failed to fetch views for schema ${targetSchema}:`,
+                err,
+              );
+              return [];
+            }),
+          secureDatabaseService
+            .getFunctions(activeConnectionId, "", targetSchema)
+            .catch((err) => {
+              console.error(
+                `[DatabaseSidebar] Force refresh - Failed to fetch functions for schema ${targetSchema}:`,
+                err,
+              );
+              return [];
+            }),
         ]);
-        
+
         tablesData = tables;
         viewsData = views;
         functionsData = functions;
-        
-        console.log("[DatabaseSidebar] Force refresh - Fetched data - tables:", tablesData.length, "views:", viewsData.length, "functions:", functionsData.length);
+
+        console.log(
+          "[DatabaseSidebar] Force refresh - Fetched data - tables:",
+          tablesData.length,
+          "views:",
+          viewsData.length,
+          "functions:",
+          functionsData.length,
+        );
 
         // Update cache
         await cacheService.setSchema(
@@ -282,9 +368,9 @@ export function DatabaseSidebar() {
   // Reload data when selected schema changes
   useEffect(() => {
     if (
-      activeConnectionId && 
-      activeConnection?.status === "connected" && 
-      selectedSchema && 
+      activeConnectionId &&
+      activeConnection?.status === "connected" &&
+      selectedSchema &&
       availableSchemas.length > 0 &&
       selectedSchema !== lastLoadedSchema
     ) {
@@ -403,25 +489,81 @@ export function DatabaseSidebar() {
       {/* Fixed Header Section */}
       <div className="bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         {/* Schema Selector */}
-        {availableSchemas.length > 0 && (
-          <div className="px-2 py-1.5 border-b">
-            <Select value={selectedSchema} onValueChange={setSelectedSchema}>
-              <SelectTrigger className="h-7 text-xs">
-                <SelectValue placeholder="Select schema" />
+        <div className="flex items-center justify-start px-2 py-1.5 bg-background">
+          {/* Connection Switcher */}
+          <div className="flex items-center gap-1.5">
+            <Database className="h-3 w-3 text-muted-foreground" />
+
+            <Select
+              value={activeConnectionId || ""}
+              onValueChange={handleConnectionChange}
+            >
+              <SelectTrigger className="!h-5 text-xs border-0 bg-transparent hover:bg-primary/10 px-2 py-0 gap-1 min-w-[120px]">
+                <SelectValue placeholder="Select connection">
+                  {activeConnection
+                    ? activeConnection.config.name
+                    : "No connection"}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {availableSchemas.map((schema) => (
-                  <SelectItem key={schema} value={schema}>
-                    {schema}
+                {workspaceConnections.map((connection) => (
+                  <SelectItem
+                    key={connection.config.id}
+                    value={connection.config.id}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={`h-2 w-2 rounded-full ${
+                          connection.status === "connected"
+                            ? "bg-green-500"
+                            : connection.status === "connecting"
+                            ? "bg-yellow-500"
+                            : "bg-gray-400"
+                        }`}
+                      />
+                      <span>{connection.config.name}</span>
+                      <span className="text-xs text-muted-foreground ml-auto">
+                        {connection.config.type}
+                      </span>
+                    </div>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
-        )}
-        
+
+          {/* Schema Selector */}
+          {activeConnection &&
+            connectionStatus === "connected" &&
+            availableSchemas.length > 0 && (
+              <div className="flex items-center gap-1.5">
+                <Layers className="h-3 w-3 text-muted-foreground" />
+                <Select
+                  value={selectedSchema}
+                  onValueChange={setSelectedSchema}
+                >
+                  <SelectTrigger className="!h-5 text-xs border-0 bg-transparent hover:bg-primary/10 px-2 py-0 gap-1 min-w-[80px]">
+                    <SelectValue placeholder="Schema">
+                      {selectedSchema === "all"
+                        ? "All Schemas"
+                        : selectedSchema}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Schemas</SelectItem>
+                    {availableSchemas.map((schema) => (
+                      <SelectItem key={schema} value={schema}>
+                        {schema}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+        </div>
+
         {/* Search with Refresh */}
-        <div className="h-8 px-2 flex items-center bg-muted/50">
+        <div className="px-2 flex items-center p-2">
           <div className="relative flex items-center gap-2 flex-1">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
             <Input
@@ -525,11 +667,12 @@ export function DatabaseSidebar() {
                             >
                               {getIcon("table")}
                               <span className="ml-2 truncate">{item.name}</span>
-                              {item.schema && item.schema !== selectedSchema && (
-                                <span className="ml-auto text-xs text-muted-foreground opacity-0 group-hover:opacity-100">
-                                  {item.schema}
-                                </span>
-                              )}
+                              {item.schema &&
+                                item.schema !== selectedSchema && (
+                                  <span className="ml-auto text-xs text-muted-foreground opacity-0 group-hover:opacity-100">
+                                    {item.schema}
+                                  </span>
+                                )}
                             </Button>
                           ))}
                       </div>
@@ -600,11 +743,12 @@ export function DatabaseSidebar() {
                             >
                               {getIcon("view")}
                               <span className="ml-2 truncate">{item.name}</span>
-                              {item.schema && item.schema !== selectedSchema && (
-                                <span className="ml-auto text-xs text-muted-foreground opacity-0 group-hover:opacity-100">
-                                  {item.schema}
-                                </span>
-                              )}
+                              {item.schema &&
+                                item.schema !== selectedSchema && (
+                                  <span className="ml-auto text-xs text-muted-foreground opacity-0 group-hover:opacity-100">
+                                    {item.schema}
+                                  </span>
+                                )}
                             </Button>
                           ))}
                       </div>
@@ -675,11 +819,12 @@ export function DatabaseSidebar() {
                             >
                               {getIcon("function")}
                               <span className="ml-2 truncate">{item.name}</span>
-                              {item.schema && item.schema !== selectedSchema && (
-                                <span className="ml-auto text-xs text-muted-foreground opacity-0 group-hover:opacity-100">
-                                  {item.schema}
-                                </span>
-                              )}
+                              {item.schema &&
+                                item.schema !== selectedSchema && (
+                                  <span className="ml-auto text-xs text-muted-foreground opacity-0 group-hover:opacity-100">
+                                    {item.schema}
+                                  </span>
+                                )}
                             </Button>
                           ))}
                       </div>

@@ -44,6 +44,14 @@ export function QueryEditor({
     // Apply theme after mount
     monaco.editor.setTheme(theme === "dark" ? "devdb-dark" : "devdb-light");
 
+    // Remove Command Palette from context menu
+    // The action ID for command palette is 'editor.action.quickCommand'
+    const commandPaletteAction = editor.getAction('editor.action.quickCommand');
+    if (commandPaletteAction) {
+      // Remove it from context menu but keep F1 shortcut if desired
+      (commandPaletteAction as any).menuOpts = undefined;
+    }
+
     // Register custom actions
     editor.addAction({
       id: "run-query",
