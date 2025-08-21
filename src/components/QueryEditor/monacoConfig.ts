@@ -159,10 +159,16 @@ export function configureSQLLanguage({ connectionId, monaco }: MonacoSQLConfig) 
           console.error('[Monaco] Failed to get schema for autocomplete:', error);
         }
 
-        // Add SQL keywords (but check if not already added)
+        // Add SQL keywords (but check if not already added and filter based on current input)
         const keywords = getSQLKeywords();
+        const currentWordLower = word.word.toLowerCase();
         keywords.forEach(keyword => {
-          const keywordKey = `keyword:${keyword.toLowerCase()}`;
+          const keywordLower = keyword.toLowerCase();
+          // Only show keywords that start with the current input
+          if (currentWordLower && !keywordLower.startsWith(currentWordLower)) {
+            return;
+          }
+          const keywordKey = `keyword:${keywordLower}`;
           if (!addedItems.has(keywordKey)) {
             addedItems.add(keywordKey);
             suggestions.push({
@@ -170,15 +176,20 @@ export function configureSQLLanguage({ connectionId, monaco }: MonacoSQLConfig) 
               kind: monaco.languages.CompletionItemKind.Keyword,
               insertText: keyword,
               range,
-              sortText: "9" + keyword, // Lower priority for keywords
+              sortText: "5" + keyword, // Medium priority for keywords
             });
           }
         });
 
-        // Add common SQL functions (only if not already added from schema)
+        // Add common SQL functions (only if not already added from schema and match input)
         const functions = getSQLFunctions();
         functions.forEach(func => {
-          const funcKey = `func:${func.name.toLowerCase()}`;
+          const funcNameLower = func.name.toLowerCase();
+          // Only show functions that start with the current input
+          if (currentWordLower && !funcNameLower.startsWith(currentWordLower)) {
+            return;
+          }
+          const funcKey = `func:${funcNameLower}`;
           if (!addedItems.has(funcKey)) {
             addedItems.add(funcKey);
             suggestions.push({
@@ -190,7 +201,7 @@ export function configureSQLLanguage({ connectionId, monaco }: MonacoSQLConfig) 
                 : undefined,
               range,
               detail: func.detail,
-              sortText: "8" + func.name,
+              sortText: "6" + func.name, // Lower priority than keywords
             });
           }
         });
@@ -360,21 +371,13 @@ export function registerSQLSnippets(monaco: Monaco) {
         endColumn: word.endColumn,
       };
 
-      // Only show snippets if user has typed at least 2 characters of the snippet trigger
-      const textBeforeCursor = model.getValueInRange({
-        startLineNumber: position.lineNumber,
-        startColumn: 1,
-        endLineNumber: position.lineNumber,
-        endColumn: position.column,
-      });
-
       const snippets: languages.CompletionItem[] = [];
       
-      // Only add snippets if the user is typing a snippet trigger
-      if (word.word.length >= 2) {
+      // Only add snippets if the user is typing a snippet trigger (minimum 3 chars to avoid conflicts)
+      if (word.word.length >= 3) {
         const lowerWord = word.word.toLowerCase();
         
-        if ("sel".startsWith(lowerWord) && lowerWord !== "select") {
+        if (lowerWord.startsWith("sel") && lowerWord !== "select") {
           snippets.push({
             label: "sel",
             kind: monaco.languages.CompletionItemKind.Snippet,
@@ -387,7 +390,7 @@ export function registerSQLSnippets(monaco: Monaco) {
           });
         }
         
-        if ("seljoin".startsWith(lowerWord)) {
+        if (lowerWord.startsWith("selj")) {
           snippets.push({
             label: "seljoin",
             kind: monaco.languages.CompletionItemKind.Snippet,
@@ -405,7 +408,7 @@ export function registerSQLSnippets(monaco: Monaco) {
           });
         }
         
-        if ("ins".startsWith(lowerWord) && lowerWord !== "insert" && lowerWord !== "into") {
+        if (lowerWord.startsWith("ins") && lowerWord !== "insert" && lowerWord !== "into") {
           snippets.push({
             label: "ins",
             kind: monaco.languages.CompletionItemKind.Snippet,
@@ -418,7 +421,7 @@ export function registerSQLSnippets(monaco: Monaco) {
           });
         }
         
-        if ("upd".startsWith(lowerWord) && lowerWord !== "update") {
+        if (lowerWord.startsWith("upd") && lowerWord !== "update") {
           snippets.push({
             label: "upd",
             kind: monaco.languages.CompletionItemKind.Snippet,
@@ -431,7 +434,7 @@ export function registerSQLSnippets(monaco: Monaco) {
           });
         }
         
-        if ("del".startsWith(lowerWord) && lowerWord !== "delete") {
+        if (lowerWord.startsWith("del") && lowerWord !== "delete") {
           snippets.push({
             label: "del",
             kind: monaco.languages.CompletionItemKind.Snippet,
@@ -444,7 +447,7 @@ export function registerSQLSnippets(monaco: Monaco) {
           });
         }
         
-        if ("createtable".startsWith(lowerWord)) {
+        if (lowerWord.startsWith("createt")) {
           snippets.push({
             label: "createtable",
             kind: monaco.languages.CompletionItemKind.Snippet,
@@ -463,7 +466,7 @@ export function registerSQLSnippets(monaco: Monaco) {
           });
         }
         
-        if ("createindex".startsWith(lowerWord)) {
+        if (lowerWord.startsWith("createi")) {
           snippets.push({
             label: "createindex",
             kind: monaco.languages.CompletionItemKind.Snippet,

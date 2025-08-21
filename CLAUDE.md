@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-DevDB Studio is a secure desktop database IDE built with Tauri (Rust backend) and React/TypeScript (frontend). It features a modern UI with shadcn/ui components, encrypted credential storage, and supports light/dark themes.
+DevDB Studio is a secure desktop database IDE built with Tauri (Rust backend) and React/TypeScript (frontend). It features a modern UI with shadcn/ui components, encrypted credential storage, and supports PostgreSQL, MySQL, SQLite, SQL Server, and Oracle databases with light/dark themes.
 
 ## Development Commands
 
@@ -33,6 +33,20 @@ pnpm typecheck
 
 # Clean build artifacts
 make clean
+
+# Docker database management
+make docker-up      # Start all database containers
+make docker-down    # Stop all database containers
+make docker-reset   # Stop, remove volumes, and restart containers
+make setup         # Complete setup: start containers and seed all databases
+
+# Database seeding
+make seed-all      # Seed all databases
+make seed-postgres # Seed PostgreSQL only
+make seed-mysql    # Seed MySQL only
+make seed-sqlite   # Seed SQLite only
+make seed-sqlserver # Seed SQL Server only
+make seed-oracle   # Seed Oracle only
 ```
 
 ## Architecture
@@ -50,6 +64,9 @@ make clean
 - **Database**: Tauri SQL Plugin
 - **Drag & Drop**: DnD Kit (sortable, core, modifiers)
 - **Resizable Panels**: react-resizable-panels
+- **Date Picker**: react-day-picker
+- **Command Palette**: cmdk
+- **Notifications**: Sonner
 
 ### Project Structure
 - `/src/` - React frontend application
@@ -59,7 +76,7 @@ make clean
       - `/components/` - Sub-components (Toolbar, VirtualRow, DetailsPanel, RowContextMenu, ColumnContextMenu, etc.)
       - `DataViewer.tsx` - Main data viewer component
     - `ConnectionDialog.tsx` - Database connection dialog
-    - `QueryEditor.tsx` - SQL query editor
+    - `QueryEditor.tsx` - SQL query editor with Monaco
     - `QueryResults.tsx` - Query results display
     - `QueryWorkspace.tsx` - Query workspace container
   - `/lib/` - Utilities (cn helper, databaseUri parser, utils)
@@ -98,14 +115,22 @@ make clean
   - `development-plan.md` - Development roadmap
   - `storage-cleanup-guide.md` - Storage management guide
   - `theme-usage.md` - Theme implementation guide
+- `/seeds/` - Database seed files for testing
+  - `/postgres/` - PostgreSQL schemas and data
+  - `/mysql/` - MySQL schemas and data
+  - `/sqlite/` - SQLite database and seeding script
+  - `/sqlserver/` - SQL Server schemas and data
+  - `/oracle/` - Oracle schemas and data
 
 ### Key Features
 - **Secure Storage**: AES-GCM encryption for database credentials
-- **Multi-database Support**: Connect to multiple databases simultaneously
-- **Query Workspace**: Monaco editor with SQL syntax highlighting
+- **Multi-database Support**: Connect to PostgreSQL, MySQL, SQLite, SQL Server, and Oracle
+- **Query Workspace**: Monaco editor with SQL syntax highlighting and autocomplete
 - **Connection Management**: Encrypted credential storage with master password
 - **Theme Support**: Light/dark mode with next-themes
 - **Resizable Panels**: Using react-resizable-panels for flexible layouts
+- **Virtual Scrolling**: Efficient handling of large datasets
+- **Data Export**: CSV export functionality
 
 ### Security Architecture
 - Master password-based encryption using AES-GCM
@@ -121,6 +146,8 @@ make clean
 - ESLint configured with strict TypeScript checks
 - Component library using Radix UI primitives with Tailwind styling
 - Toast notifications via Sonner
+- Virtual scrolling for tables with TanStack Virtual
+- Monaco editor with custom theme support
 
 ## Common Issues & Solutions
 
@@ -135,8 +162,29 @@ make clean
 - **Large dataset lag**: Implement virtual scrolling with TanStack Virtual
 - **Selection performance**: Use `useDeferredValue` for expensive state calculations
 - **Memory usage**: Window data to max 1000 rows, implement proper cleanup
+- **Virtual scrolling**: Use column virtualization for tables with many columns
 
 ### State Management
 - **Schema not updating**: Check `loadedForConnectionRef` to prevent duplicate loads
 - **Selection count wrong**: Use stable row.id instead of virtualRow.index
 - **Cache invalidation**: Use `cacheService.invalidateConnection()` when refreshing
+- **Query execution**: Track execution time with `uiQueryTime` in UI store
+
+### Testing Database Connections
+```
+PostgreSQL: localhost:15432 (user: devuser, pass: devpass123, db: todoapp)
+MySQL:      localhost:13306 (user: devuser, pass: devpass123, db: todoapp)
+SQLite:     seeds/sqlite/todoapp.db
+SQL Server: localhost:11433 (user: sa, pass: DevPass123!, db: todoapp)
+Oracle:     localhost:11521 (user: todoapp, pass: DevPass123, service: XE)
+```
+
+## Code Quality Standards
+
+### ESLint Rules
+- **No any types**: Always specify proper TypeScript types
+- **Template literal types**: Ensure valid types in template literals
+- **React hooks dependencies**: Include all dependencies in dependency arrays
+- **Conditional checks**: Remove unnecessary conditionals
+- **Safe type usage**: Avoid unsafe member access on any values
+- **Optional chaining**: Don't use on non-nullish values
