@@ -11,13 +11,13 @@ import {
   getCoreRowModel,
   getSortedRowModel,
   getFilteredRowModel,
-  ColumnDef,
-  SortingState,
-  ColumnFiltersState,
-  VisibilityState,
-  ColumnSizingState,
-  Row,
-  ColumnOrderState,
+  type ColumnDef,
+  type SortingState,
+  type ColumnFiltersState,
+  type VisibilityState,
+  type ColumnSizingState,
+  type Row,
+  type ColumnOrderState,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -27,7 +27,7 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
-  DragEndEvent,
+  type DragEndEvent,
 } from "@dnd-kit/core";
 import {
   arrayMove,
@@ -50,10 +50,10 @@ import { cacheService } from "@/services/cacheService";
 import { useUIStore } from "@/stores/uiStore";
 
 import {
-  DataViewerProps,
-  ViewMode,
-  DetailViewMode,
-  TableColumn,
+  type DataViewerProps,
+  type ViewMode,
+  type DetailViewMode,
+  type TableColumn,
 } from "./types";
 import { FETCH_SIZE, OVERSCAN } from "./constants";
 import { getInitialColumnSize } from "./utils";
@@ -197,7 +197,7 @@ export function DataViewer({
         countQuery,
       );
       if (result.rows.length > 0 && result.rows[0]?.[0]) {
-        setEstimatedRowCount(result.rows[0]![0]);
+        setEstimatedRowCount(result.rows[0][0]);
       }
     } catch (err) {
       console.error("Error fetching estimated count:", err);
@@ -280,7 +280,11 @@ export function DataViewer({
 
   // Load table data with bidirectional windowing
   const loadTableData = useCallback(
-    async (newOffset: number = 0, append: boolean = false, prepend: boolean = false) => {
+    async (
+      newOffset: number = 0,
+      append: boolean = false,
+      prepend: boolean = false,
+    ) => {
       if (!activeConnection) {
         setError("No active database connection");
         setIsLoading(false);
@@ -480,18 +484,18 @@ export function DataViewer({
         if (!prepend) {
           setOffset(newOffset + result.rows.length);
         }
-        
+
         // Check if we've hit the end
         const hitEnd = result.rows.length < FETCH_SIZE;
         setHasMore(!hitEnd);
-        
+
         // Update total rows known if we hit the end
         if (hitEnd && !prepend) {
           const total = newOffset + result.rows.length;
           // Update UI store with exact count
           useUIStore.getState().setEstimatedRowCount(total);
         }
-        
+
         setDataLoaded(true);
       } catch (err) {
         console.error("Error loading table data:", err);
@@ -513,7 +517,7 @@ export function DataViewer({
       // Reset state for new table
       setOffset(0);
       setHasMore(true);
-      
+
       void loadTableData(0, false);
       void fetchEstimatedCount();
       void fetchTableStructure();
@@ -584,10 +588,12 @@ export function DataViewer({
     onRowSelectionChange: (updater) => {
       // Convert TanStack Table's RowSelectionState updates to Set updates
       if (typeof updater === "function") {
-        const currentState = Array.from(selectedRowIds).reduce((acc, id) => {
+        const currentState = Array.from(selectedRowIds).reduce<
+          Record<string, boolean>
+        >((acc, id) => {
           acc[id] = true;
           return acc;
-        }, {} as Record<string, boolean>);
+        }, {});
         const newState = updater(currentState);
         const newSet = new Set(
           Object.keys(newState).filter((id) => newState[id]),
@@ -617,19 +623,6 @@ export function DataViewer({
 
   const { rows } = table.getRowModel();
 
-  // Memoize total table width calculation to prevent recalculation on every render
-  const totalTableWidth = useMemo(() => {
-    const width = table
-      .getAllColumns()
-      .reduce((sum, col) => sum + col.getSize(), 0);
-    return `${width}px`;
-  }, [
-    table
-      .getAllColumns()
-      .map((c) => c.getSize())
-      .join(","),
-  ]); // Only recalculate when column sizes change
-
   // Virtualizer for rows with improved performance
   const rowVirtualizer = useVirtualizer({
     count: data.length + (hasMore ? 5 : 0), // Add 5 skeleton rows when loading more
@@ -644,16 +637,68 @@ export function DataViewer({
         : undefined,
   });
 
+  // Virtualizer for columns - only activate when there are many columns
+  const visibleColumns = table.getVisibleLeafColumns();
+  const shouldVirtualizeColumns = visibleColumns.length > 15; // Threshold for column virtualization
+
+  const columnVirtualizer = useVirtualizer({
+    count: shouldVirtualizeColumns ? visibleColumns.length : 0,
+    getScrollElement: () => tableContainerRef.current,
+    estimateSize: useCallback(
+      (index: number) => {
+        return shouldVirtualizeColumns
+          ? visibleColumns[index]?.getSize() ?? 150
+          : 150;
+      },
+      [shouldVirtualizeColumns, visibleColumns],
+    ),
+    horizontal: true, // Key option for column virtualization
+    overscan: 2, // Fewer columns need to be rendered off-screen
+    scrollMargin: 0,
+    getItemKey: useCallback(
+      (index: number) => {
+        return shouldVirtualizeColumns
+          ? visibleColumns[index]?.id ?? index
+          : index;
+      },
+      [shouldVirtualizeColumns, visibleColumns],
+    ),
+  });
+
+  // Memoize total table width calculation to prevent recalculation on every render
+  const totalTableWidth = useMemo(() => {
+    if (shouldVirtualizeColumns && columnVirtualizer) {
+      // Use virtualizer's total size when virtualizing columns
+      return `${columnVirtualizer.getTotalSize()}px`;
+    }
+    // When not virtualizing, use minimum of 100% to fill container
+    const width = table
+      .getAllColumns()
+      .reduce((sum, col) => sum + col.getSize(), 0);
+    // Use 100% if columns don't fill the container, otherwise use actual width
+    return width < 800 ? "100%" : `${width}px`;
+  }, [
+    shouldVirtualizeColumns,
+    columnVirtualizer?.getTotalSize(),
+    table
+      .getAllColumns()
+      .map((c) => c.getSize())
+      .join(","),
+  ]); // Only recalculate when column sizes change
 
   // Simple infinite scroll handler for better performance
   const handleScroll = useCallback(() => {
     const container = tableContainerRef.current;
     if (!container) return;
-    
+
     const { scrollHeight, scrollTop, clientHeight } = container;
-    
+
     // Load more when near bottom
-    if (scrollHeight - scrollTop - clientHeight < 500 && !isFetchingMore && hasMore) {
+    if (
+      scrollHeight - scrollTop - clientHeight < 500 &&
+      !isFetchingMore &&
+      hasMore
+    ) {
       void loadTableData(offset, true, false);
     }
   }, [offset, isFetchingMore, hasMore, loadTableData]);
@@ -681,7 +726,9 @@ export function DataViewer({
     };
 
     document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, [table, viewMode, showDetails]);
 
   // Export data as CSV - memoized to prevent recreation
@@ -881,7 +928,9 @@ export function DataViewer({
   useEffect(() => {
     if (isSelecting) {
       document.addEventListener("mouseup", handleMouseUp);
-      return () => document.removeEventListener("mouseup", handleMouseUp);
+      return () => {
+        document.removeEventListener("mouseup", handleMouseUp);
+      };
     }
     return undefined;
   }, [isSelecting, handleMouseUp]);
@@ -912,7 +961,7 @@ export function DataViewer({
       .filter((row) => selectedIds.includes(row.id))
       .map((row) => row.original);
   }, [selectedRowIds, rows]);
-  
+
   // Context menu handlers - directly use memoized selectedRows
 
   const handleCopyAsCSV = useCallback(() => {
@@ -950,12 +999,15 @@ export function DataViewer({
   // }, [getSelectedRows]);
 
   // Handle hiding columns
-  const handleHideColumn = useCallback((columnId: string) => {
-    const column = table.getColumn(columnId);
-    if (column) {
-      column.toggleVisibility(false);
-    }
-  }, [table]);
+  const handleHideColumn = useCallback(
+    (columnId: string) => {
+      const column = table.getColumn(columnId);
+      if (column) {
+        column.toggleVisibility(false);
+      }
+    },
+    [table],
+  );
 
   // Get selected count
   const selectedCount = selectedRowIds.size;
@@ -1026,7 +1078,9 @@ export function DataViewer({
       const timer = setTimeout(() => {
         setShouldUpdatePreview(true);
       }, 100); // Debounce for 100ms
-      return () => clearTimeout(timer);
+      return () => {
+        clearTimeout(timer);
+      };
     } else {
       setShouldUpdatePreview(true);
     }
@@ -1150,6 +1204,7 @@ export function DataViewer({
               style={{
                 display: "grid",
                 width: totalTableWidth,
+                minWidth: "100%",
               }}
             >
               {/* Table Header with Drag and Drop */}
@@ -1176,20 +1231,104 @@ export function DataViewer({
                       style={{
                         display: "flex",
                         width: "100%",
+                        position: "relative",
                       }}
                     >
                       <SortableContext
                         items={columnOrder}
                         strategy={horizontalListSortingStrategy}
                       >
-                        {headerGroup.headers.map((header) => (
-                          <DraggableHeader
-                            key={header.id}
-                            column={header.column}
-                            header={header}
-                            onHideColumn={handleHideColumn}
-                          />
-                        ))}
+                        {shouldVirtualizeColumns &&
+                        columnVirtualizer &&
+                        columnVirtualizer.getVirtualItems().length > 0 ? (
+                          // Column virtualization enabled for headers
+                          <>
+                            {/* Spacer for headers before virtual range */}
+                            {(() => {
+                              const firstItem =
+                                columnVirtualizer.getVirtualItems()[0];
+                              const spacerWidth = firstItem?.start || 0;
+                              return spacerWidth > 0 ? (
+                                <th
+                                  style={{
+                                    width: spacerWidth,
+                                    minWidth: spacerWidth,
+                                    maxWidth: spacerWidth,
+                                    padding: 0,
+                                    border: "none",
+                                    backgroundColor: "transparent",
+                                    fontSize: 0,
+                                    lineHeight: 0,
+                                    flexShrink: 0,
+                                  }}
+                                />
+                              ) : null;
+                            })()}
+                            {columnVirtualizer
+                              .getVirtualItems()
+                              .map((virtualColumn: any) => {
+                                const header =
+                                  headerGroup.headers[virtualColumn.index];
+                                if (!header) return null;
+
+                                return (
+                                  <th
+                                    key={header.id}
+                                    style={{
+                                      width: virtualColumn.size,
+                                      minWidth: virtualColumn.size,
+                                      maxWidth: virtualColumn.size,
+                                      display: "flex",
+                                      flex: "none",
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    <DraggableHeader
+                                      column={header.column}
+                                      header={header}
+                                      onHideColumn={handleHideColumn}
+                                    />
+                                  </th>
+                                );
+                              })}
+                            {/* Spacer for headers after virtual range */}
+                            {(() => {
+                              const lastItem =
+                                columnVirtualizer.getVirtualItems()[
+                                  columnVirtualizer.getVirtualItems().length - 1
+                                ];
+                              const remainingWidth = lastItem
+                                ? columnVirtualizer.getTotalSize() -
+                                  lastItem.end
+                                : 0;
+                              return remainingWidth > 0 ? (
+                                <th
+                                  style={{
+                                    width: remainingWidth,
+                                    minWidth: remainingWidth,
+                                    maxWidth: remainingWidth,
+                                    padding: 0,
+                                    border: "none",
+                                    backgroundColor: "transparent",
+                                    fontSize: 0,
+                                    lineHeight: 0,
+                                    flexShrink: 0,
+                                  }}
+                                />
+                              ) : null;
+                            })()}
+                          </>
+                        ) : (
+                          // Standard header rendering - all headers visible
+                          headerGroup.headers.map((header) => (
+                            <DraggableHeader
+                              key={header.id}
+                              column={header.column}
+                              header={header}
+                              onHideColumn={handleHideColumn}
+                            />
+                          ))
+                        )}
                       </SortableContext>
                     </tr>
                   ))}
@@ -1227,6 +1366,12 @@ export function DataViewer({
                           key={`skeleton-${virtualRow.index}`}
                           virtualRow={virtualRow}
                           columns={table.getAllColumns()}
+                          columnVirtualizer={
+                            shouldVirtualizeColumns
+                              ? columnVirtualizer
+                              : undefined
+                          }
+                          shouldVirtualizeColumns={shouldVirtualizeColumns}
                         />
                       );
                     }
@@ -1238,8 +1383,8 @@ export function DataViewer({
                       <RowContextMenu
                         key={row.id}
                         selectedRows={
-                          selectedRowIds.has(row.id) 
-                            ? selectedRows 
+                          selectedRowIds.has(row.id)
+                            ? selectedRows
                             : [row.original] // If this row isn't selected, it will be the only selection
                         }
                         onCopyAsCSV={() => {
@@ -1278,7 +1423,12 @@ export function DataViewer({
                             const newSelection = new Set([row.id]);
                             setSelectedRowIds(newSelection);
                             const cols = Object.keys(row.original);
-                            copyAsInsertStatement([row.original], cols, tableName, schema);
+                            copyAsInsertStatement(
+                              [row.original],
+                              cols,
+                              tableName,
+                              schema,
+                            );
                           } else {
                             handleCopyAsInsert();
                           }
@@ -1314,12 +1464,22 @@ export function DataViewer({
                           isSelected={selectedRowIds.has(row.id)}
                           isHighlighted={false} // Only true when editing, not for selection/preview
                           isSelecting={isSelecting}
+                          columnVirtualizer={
+                            shouldVirtualizeColumns
+                              ? columnVirtualizer
+                              : undefined
+                          }
+                          shouldVirtualizeColumns={shouldVirtualizeColumns}
                           onMouseDown={(e) => {
                             e.stopPropagation();
                             handleRowMouseDown(row.id, e);
                           }}
-                          onMouseEnter={() => handleRowMouseEnter(row.id)}
-                          onDoubleClick={() => handleRowClick(row.original)}
+                          onMouseEnter={() => {
+                            handleRowMouseEnter(row.id);
+                          }}
+                          onDoubleClick={() => {
+                            handleRowClick(row.original);
+                          }}
                         />
                       </RowContextMenu>
                     );
@@ -1356,7 +1516,9 @@ export function DataViewer({
               defaultSize={showDetails ? detailsPanelSize : 0}
               minSize={15}
               maxSize={70}
-              onResize={(size) => setDetailsPanelSize(size)}
+              onResize={(size) => {
+                setDetailsPanelSize(size);
+              }}
             >
               <DetailsPanel
                 showDetails={showDetails}
