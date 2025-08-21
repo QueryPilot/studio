@@ -44,6 +44,10 @@ export const SkeletonRow = memo(({ virtualRow, columns, columnVirtualizer, shoul
         {columnVirtualizer.getVirtualItems().map((virtualColumn: any) => {
           const column = columns[virtualColumn.index];
           if (!column) return null;
+          // Use the column's actual size, not the virtualizer's size
+          const columnSize = column.getSize();
+          // Ensure minimum width of 80px for all skeleton cells
+          const finalColumnSize = Math.max(columnSize, 80);
           
           return (
             <td
@@ -51,9 +55,9 @@ export const SkeletonRow = memo(({ virtualRow, columns, columnVirtualizer, shoul
               className="flex items-center px-2 py-1 border-b border-r border-border/50"
               style={{
                 display: 'flex',
-                width: virtualColumn.size,
-                minWidth: virtualColumn.size,
-                maxWidth: virtualColumn.size,
+                width: finalColumnSize,
+                minWidth: finalColumnSize,
+                maxWidth: finalColumnSize,
                 flex: "none",
                 flexShrink: 0,
               }}

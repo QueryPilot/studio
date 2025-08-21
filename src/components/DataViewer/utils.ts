@@ -1,8 +1,8 @@
 export function getInitialColumnSize(colName: string, rows: any[]) {
   // Calculate minimum size based on column name length
-  // Use 7px per character + padding (same as PreviewTable)
-  const headerSize = colName.length * 7 + 40; // Extra padding for sort icon
-  const minSize = Math.max(headerSize, 50); // Minimum 50px
+  // Use 8px per character + padding for better readability
+  const headerSize = colName.length * 8 + 50; // Extra padding for sort icon and spacing
+  const minSize = Math.max(headerSize, 80); // Increased minimum to 80px for better visibility
 
   // Sample first 10 rows to estimate content width
   const sampleSize = Math.min(rows.length, 10);
@@ -16,15 +16,15 @@ export function getInitialColumnSize(colName: string, rows: any[]) {
     }
   }
 
-  // Calculate content size (6px per character + padding)
-  const contentSize = Math.min(maxContentLength * 6 + 24, 400);
+  // Calculate content size (7px per character + padding for better readability)
+  const contentSize = Math.min(maxContentLength * 7 + 40, 500);
 
   // Smart defaults based on column name patterns
   const lowerCol = colName.toLowerCase();
-  let defaultSize = 120;
+  let defaultSize = 150; // Increased default size
 
   if (lowerCol === "id" || lowerCol.endsWith("_id")) {
-    defaultSize = Math.max(80, minSize); // IDs need at least 80px
+    defaultSize = Math.max(100, minSize); // IDs need at least 100px
   } else if (
     lowerCol.includes("date") ||
     lowerCol.includes("time") ||
@@ -32,11 +32,11 @@ export function getInitialColumnSize(colName: string, rows: any[]) {
     lowerCol.includes("created") ||
     lowerCol.includes("updated")
   ) {
-    defaultSize = Math.max(140, minSize);
+    defaultSize = Math.max(160, minSize);
   } else if (lowerCol.includes("email")) {
-    defaultSize = Math.max(180, minSize);
+    defaultSize = Math.max(200, minSize);
   } else if (lowerCol.includes("name") || lowerCol.includes("title")) {
-    defaultSize = Math.max(150, minSize);
+    defaultSize = Math.max(180, minSize);
   } else if (
     lowerCol.includes("description") ||
     lowerCol.includes("content") ||
@@ -44,29 +44,29 @@ export function getInitialColumnSize(colName: string, rows: any[]) {
     lowerCol.includes("comment") ||
     lowerCol.includes("message")
   ) {
-    defaultSize = Math.max(250, minSize);
+    defaultSize = Math.max(300, minSize);
   } else if (lowerCol.includes("url") || lowerCol.includes("link")) {
-    defaultSize = Math.max(200, minSize);
+    defaultSize = Math.max(250, minSize);
   } else if (
     lowerCol.includes("status") || 
     lowerCol.includes("type") ||
     lowerCol.includes("state")
   ) {
-    defaultSize = Math.max(100, minSize);
+    defaultSize = Math.max(120, minSize);
   } else if (
     lowerCol.includes("price") ||
     lowerCol.includes("amount") ||
     lowerCol.includes("total") ||
     lowerCol.includes("count")
   ) {
-    defaultSize = Math.max(100, minSize);
-  } else if (lowerCol.includes("phone") || lowerCol.includes("mobile")) {
-    defaultSize = Math.max(130, minSize);
-  } else if (lowerCol.includes("address")) {
-    defaultSize = Math.max(200, minSize);
-  } else {
-    // For any other column, use the header size as default
     defaultSize = Math.max(120, minSize);
+  } else if (lowerCol.includes("phone") || lowerCol.includes("mobile")) {
+    defaultSize = Math.max(150, minSize);
+  } else if (lowerCol.includes("address")) {
+    defaultSize = Math.max(250, minSize);
+  } else {
+    // For any other column, use a reasonable default
+    defaultSize = Math.max(150, minSize);
   }
 
   // Final size is the maximum of content size and default size
