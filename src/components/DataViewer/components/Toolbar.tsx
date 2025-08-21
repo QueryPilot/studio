@@ -20,8 +20,6 @@ import {
   Database,
   MoreVertical,
   RotateCcw,
-  ChevronUp,
-  ChevronDown,
   PanelBottomOpen,
   PanelBottomClose,
 } from "lucide-react";
@@ -53,7 +51,6 @@ export const Toolbar = memo(
     setIsColumnsDropdownOpen,
     table,
     exportAsCSV,
-    selectedRow,
     showDetails,
     setShowDetails,
     tableStructure,

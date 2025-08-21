@@ -32,6 +32,13 @@ impl ConnectionRegistry {
     
     pub async fn connect(&self, config: ConnectionConfig) -> Result<String, AppError> {
         let conn_id = Uuid::new_v4().to_string();
+        self.connect_with_id(config, conn_id).await
+    }
+    
+    pub async fn connect_with_id(&self, config: ConnectionConfig, conn_id: String) -> Result<String, AppError> {
+        println!("[ConnectionRegistry] connect_with_id called with ID: {}", conn_id);
+        println!("[ConnectionRegistry] Connection config: name={}, host={}, port={}, db_type={:?}", 
+            config.name, config.host, config.port, config.db_type);
         
         // Create appropriate adapter based on database type
         let adapter: Box<dyn DbAdapter> = match config.db_type {
@@ -49,8 +56,16 @@ impl ConnectionRegistry {
             }
         };
         
+        println!("[ConnectionRegistry] Database adapter created, testing connection...");
+        
         // Verify connection
-        adapter.ping().await?;
+        adapter.ping().await
+            .map_err(|e| {
+                println!("[ConnectionRegistry] ERROR: Initial ping failed: {}", e);
+                e
+            })?;
+        
+        println!("[ConnectionRegistry] Initial ping successful");
         
         // Create Arc for adapter to share between components
         let adapter_arc = Arc::new(adapter);
@@ -76,13 +91,20 @@ impl ConnectionRegistry {
             query_executor,
         });
         
+        println!("[ConnectionRegistry] Storing connection in registry with ID: {}", conn_id);
         self.connections.write().await.insert(conn_id.clone(), handle);
+        
+        let connection_count = self.connections.read().await.len();
+        println!("[ConnectionRegistry] Connection stored successfully. Total connections: {}", connection_count);
         
         Ok(conn_id)
     }
     
     pub async fn get(&self, conn_id: &str) -> Option<Arc<ConnectionHandle>> {
-        self.connections.read().await.get(conn_id).cloned()
+        println!("[ConnectionRegistry] Getting connection for ID: {}", conn_id);
+        let result = self.connections.read().await.get(conn_id).cloned();
+        println!("[ConnectionRegistry] Get result for ID {}: {}", conn_id, if result.is_some() { "FOUND" } else { "NOT FOUND" });
+        result
     }
     
     pub async fn disconnect(&self, conn_id: &str) -> Result<(), AppError> {
@@ -100,7 +122,9 @@ impl ConnectionRegistry {
     }
     
     pub async fn list_connections(&self) -> Vec<String> {
-        self.connections.read().await.keys().cloned().collect()
+        let connections: Vec<String> = self.connections.read().await.keys().cloned().collect();
+        println!("[ConnectionRegistry] list_connections returning {} connections: {:?}", connections.len(), connections);
+        connections
     }
 }
 
@@ -118,11 +142,30 @@ async fn create_pg_pool(config: &ConnectionConfig) -> Result<sqlx::PgPool, AppEr
         )
     };
     
+    println!("[create_pg_pool] Connecting to PostgreSQL: postgresql://{}@{}:{}/{}", 
+        config.username, config.host, config.port, config.database);
+    
     let pool = PgPoolOptions::new()
         .max_connections(config.pool_size.unwrap_or(10))
+        .acquire_timeout(std::time::Duration::from_millis(config.connection_timeout))
         .connect(&database_url)
         .await
-        .map_err(AppError::from_sqlx)?;
+        .map_err(|e| {
+            println!("[create_pg_pool] ERROR: Failed to connect to PostgreSQL: {}", e);
+            match e {
+                sqlx::Error::PoolTimedOut => AppError::Database(format!(
+                    "Connection timeout: Unable to connect to PostgreSQL at {}:{} within {}ms. Check if server is running and accessible.", 
+                    config.host, config.port, config.connection_timeout
+                )),
+                sqlx::Error::Database(db_err) => AppError::Database(format!(
+                    "Database error: {} (Check credentials and database name)", db_err
+                )),
+                sqlx::Error::Io(io_err) => AppError::Database(format!(
+                    "Network error: {} (Check host and port)", io_err
+                )),
+                _ => AppError::from_sqlx(e)
+            }
+        })?;
     
     Ok(pool)
 }
@@ -141,11 +184,30 @@ async fn create_mysql_pool(config: &ConnectionConfig) -> Result<sqlx::MySqlPool,
         )
     };
     
+    println!("[create_mysql_pool] Connecting to MySQL: mysql://{}@{}:{}/{}", 
+        config.username, config.host, config.port, config.database);
+    
     let pool = MySqlPoolOptions::new()
         .max_connections(config.pool_size.unwrap_or(10))
+        .acquire_timeout(std::time::Duration::from_millis(config.connection_timeout))
         .connect(&database_url)
         .await
-        .map_err(AppError::from_sqlx)?;
+        .map_err(|e| {
+            println!("[create_mysql_pool] ERROR: Failed to connect to MySQL: {}", e);
+            match e {
+                sqlx::Error::PoolTimedOut => AppError::Database(format!(
+                    "Connection timeout: Unable to connect to MySQL at {}:{} within {}ms. Check if server is running and accessible.", 
+                    config.host, config.port, config.connection_timeout
+                )),
+                sqlx::Error::Database(db_err) => AppError::Database(format!(
+                    "Database error: {} (Check credentials and database name)", db_err
+                )),
+                sqlx::Error::Io(io_err) => AppError::Database(format!(
+                    "Network error: {} (Check host and port)", io_err
+                )),
+                _ => AppError::from_sqlx(e)
+            }
+        })?;
     
     Ok(pool)
 }

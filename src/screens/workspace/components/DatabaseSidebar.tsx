@@ -1,6 +1,13 @@
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
   ChevronRight,
@@ -13,9 +20,10 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
-import { useTabsStore } from "@/stores/tabsStore";
 import { useConnectionStore } from "@/stores";
 import { useUIStore } from "@/stores/uiStore";
+import { useWorkspaceStore } from "@/stores/workspaceStore";
+import { useParams } from "react-router-dom";
 import { secureDatabaseService } from "@/services/secureDatabaseService";
 import { cacheService } from "@/services/cacheService";
 import type { TableInfo, ViewInfo, FunctionInfo } from "@/types/database";
@@ -33,9 +41,18 @@ export function DatabaseSidebar() {
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [views, setViews] = useState<ViewInfo[]>([]);
   const [functions, setFunctions] = useState<FunctionInfo[]>([]);
-  const { addTab, tabs, activeTab } = useTabsStore();
+  const [lastLoadedSchema, setLastLoadedSchema] = useState<string | null>(null);
+
+  const { id: workspaceId } = useParams<{ id: string }>();
+  const workspace = useWorkspaceStore((state) =>
+    state.getWorkspace(workspaceId || ""),
+  );
+  const { addTab, setActiveTab } = useWorkspaceStore();
+  const tabs = workspace ? Array.from(workspace.tabs.values()) : [];
+  const activeTabId = workspace?.activeTabId || "";
+
   const { connections, activeConnectionId } = useConnectionStore();
-  const { selectedSchema, setSelectedSchema, setAvailableSchemas } =
+  const { selectedSchema, setSelectedSchema, availableSchemas, setAvailableSchemas } =
     useUIStore();
 
   const activeConnection = activeConnectionId
@@ -91,6 +108,20 @@ export function DatabaseSidebar() {
       let viewsData: ViewInfo[];
       let functionsData: FunctionInfo[];
 
+      // First, fetch all available schemas
+      const allSchemas = await secureDatabaseService.getSchemas(activeConnectionId, '');
+      console.log("[DatabaseSidebar] Found schemas:", allSchemas);
+      const sortedSchemas = allSchemas.sort();
+      setAvailableSchemas(sortedSchemas);
+      
+      // Determine which schema to use
+      let targetSchema = selectedSchema;
+      if (forceResetSchema || !sortedSchemas.includes(selectedSchema)) {
+        // Reset to public or first available schema
+        targetSchema = sortedSchemas.includes("public") ? "public" : (sortedSchemas[0] || "public");
+        setSelectedSchema(targetSchema);
+      }
+      
       // Check cache first unless force refresh
       if (!forceResetSchema) {
         const cachedSchema = await cacheService.getSchema(activeConnectionId);
@@ -101,15 +132,28 @@ export function DatabaseSidebar() {
           functionsData = cachedSchema.functions;
         } else {
           console.log("[DatabaseSidebar] Cache miss, fetching fresh schema");
-          // Fetch schema information from secure backend
-          const results = await Promise.all([
-            secureDatabaseService.getTables(activeConnectionId),
-            secureDatabaseService.getViews(activeConnectionId),
-            secureDatabaseService.getFunctions(activeConnectionId),
+          
+          // Fetch tables/views/functions for the selected schema only
+          const [tables, views, functions] = await Promise.all([
+            secureDatabaseService.getTables(activeConnectionId, '', targetSchema).catch(err => {
+              console.error(`[DatabaseSidebar] Failed to fetch tables for schema ${targetSchema}:`, err);
+              return [];
+            }),
+            secureDatabaseService.getViews(activeConnectionId, '', targetSchema).catch(err => {
+              console.error(`[DatabaseSidebar] Failed to fetch views for schema ${targetSchema}:`, err);
+              return [];
+            }),
+            secureDatabaseService.getFunctions(activeConnectionId, '', targetSchema).catch(err => {
+              console.error(`[DatabaseSidebar] Failed to fetch functions for schema ${targetSchema}:`, err);
+              return [];
+            })
           ]);
-          tablesData = results[0];
-          viewsData = results[1];
-          functionsData = results[2];
+          
+          tablesData = tables;
+          viewsData = views;
+          functionsData = functions;
+          
+          console.log("[DatabaseSidebar] Fetched data - tables:", tablesData.length, "views:", viewsData.length, "functions:", functionsData.length);
 
           // Cache the schema
           await cacheService.setSchema(
@@ -122,14 +166,27 @@ export function DatabaseSidebar() {
       } else {
         console.log("[DatabaseSidebar] Force refresh, bypassing cache");
         // Force refresh - bypass cache
-        const results = await Promise.all([
-          secureDatabaseService.getTables(activeConnectionId),
-          secureDatabaseService.getViews(activeConnectionId),
-          secureDatabaseService.getFunctions(activeConnectionId),
+        // Fetch tables/views/functions for the selected schema only
+        const [tables, views, functions] = await Promise.all([
+          secureDatabaseService.getTables(activeConnectionId, '', targetSchema).catch(err => {
+            console.error(`[DatabaseSidebar] Force refresh - Failed to fetch tables for schema ${targetSchema}:`, err);
+            return [];
+          }),
+          secureDatabaseService.getViews(activeConnectionId, '', targetSchema).catch(err => {
+            console.error(`[DatabaseSidebar] Force refresh - Failed to fetch views for schema ${targetSchema}:`, err);
+            return [];
+          }),
+          secureDatabaseService.getFunctions(activeConnectionId, '', targetSchema).catch(err => {
+            console.error(`[DatabaseSidebar] Force refresh - Failed to fetch functions for schema ${targetSchema}:`, err);
+            return [];
+          })
         ]);
-        tablesData = results[0];
-        viewsData = results[1];
-        functionsData = results[2];
+        
+        tablesData = tables;
+        viewsData = views;
+        functionsData = functions;
+        
+        console.log("[DatabaseSidebar] Force refresh - Fetched data - tables:", tablesData.length, "views:", viewsData.length, "functions:", functionsData.length);
 
         // Update cache
         await cacheService.setSchema(
@@ -143,45 +200,7 @@ export function DatabaseSidebar() {
       setTables(tablesData);
       setViews(viewsData);
       setFunctions(functionsData);
-
-      // Extract unique schemas from all objects
-      const schemas = new Set<string>();
-      tablesData.forEach((t) => {
-        if (t.schema) schemas.add(t.schema);
-      });
-      viewsData.forEach((v) => {
-        if (v.schema) schemas.add(v.schema);
-      });
-      functionsData.forEach((f) => {
-        if (f.schema) schemas.add(f.schema);
-      });
-      const sortedSchemas = Array.from(schemas).sort();
-      setAvailableSchemas(sortedSchemas);
-
-      // Schema selection logic
-      if (forceResetSchema || selectedSchema === "public") {
-        // Always prefer "public" schema, especially when switching databases
-        if (sortedSchemas.includes("public")) {
-          setSelectedSchema("public");
-        } else {
-          // Fall back to first available schema or "all"
-          setSelectedSchema(
-            sortedSchemas.length > 0 ? sortedSchemas[0]! : "all",
-          );
-        }
-      } else if (
-        !sortedSchemas.includes(selectedSchema) &&
-        selectedSchema !== "all"
-      ) {
-        // Current selection is invalid for this database
-        if (sortedSchemas.includes("public")) {
-          setSelectedSchema("public");
-        } else {
-          setSelectedSchema(
-            sortedSchemas.length > 0 ? sortedSchemas[0]! : "all",
-          );
-        }
-      }
+      setLastLoadedSchema(targetSchema);
     } catch (error) {
       console.error("Error loading schema:", error);
     } finally {
@@ -235,7 +254,9 @@ export function DatabaseSidebar() {
           "[DatabaseSidebar] Loading database schema for:",
           activeConnectionId,
         );
-        loadDatabaseSchema(isSwitch); // Pass isSwitch to force reset on database switch
+        // Reset lastLoadedSchema when connection changes
+        setLastLoadedSchema(null);
+        void loadDatabaseSchema(isSwitch); // Pass isSwitch to force reset on database switch
         loadedForConnectionRef.current = activeConnectionId;
       }
 
@@ -258,23 +279,75 @@ export function DatabaseSidebar() {
     }
   }, [activeConnectionId, activeConnection?.status]);
 
+  // Reload data when selected schema changes
+  useEffect(() => {
+    if (
+      activeConnectionId && 
+      activeConnection?.status === "connected" && 
+      selectedSchema && 
+      availableSchemas.length > 0 &&
+      selectedSchema !== lastLoadedSchema
+    ) {
+      console.log("[DatabaseSidebar] Schema changed to:", selectedSchema);
+      // Invalidate cache and reload for the new schema
+      cacheService.invalidateConnection(activeConnectionId);
+      void loadDatabaseSchema(false);
+    }
+  }, [selectedSchema, lastLoadedSchema]); // Depend on both selectedSchema and lastLoadedSchema
+
   const handleItemClick = (item: TreeItem & { schema?: string }) => {
+    if (!workspaceId || !activeConnectionId) return;
+
     // Check if tab already exists
-    const existingTab = tabs.find(
-      (tab) =>
-        tab.name === item.name &&
-        tab.type === item.type &&
-        tab.schema === item.schema,
-    );
+    const existingTab = tabs.find((tab) => {
+      if (
+        tab.type === "table" &&
+        (item.type === "table" || item.type === "view")
+      ) {
+        return (
+          tab.payload?.tableName === item.name &&
+          tab.payload?.schema === (item.schema || selectedSchema)
+        );
+      } else if (tab.type === "schema" && item.type === "function") {
+        return (
+          tab.payload?.objectName === item.name &&
+          tab.payload?.schema === (item.schema || selectedSchema)
+        );
+      }
+      return false;
+    });
+
     if (!existingTab) {
-      addTab({
-        name: item.name,
-        type: item.type,
-        schema: item.schema || selectedSchema,
+      // Create appropriate tab based on type
+      const tabId = addTab(workspaceId, {
+        type:
+          item.type === "table" || item.type === "view"
+            ? "table"
+            : item.type === "function"
+            ? "schema"
+            : "query",
+        title: item.name,
+        connectionId: activeConnectionId,
+        payload: {
+          schema: item.schema || selectedSchema,
+          tableName:
+            item.type === "table" || item.type === "view"
+              ? item.name
+              : undefined,
+          tableType:
+            item.type === "view"
+              ? "view"
+              : item.type === "table"
+              ? "table"
+              : undefined,
+          objectName: item.type === "function" ? item.name : undefined,
+          objectType: item.type === "function" ? "function" : undefined,
+        },
       });
+      setActiveTab(workspaceId, tabId);
     } else {
       // If tab exists, just set it as active
-      useTabsStore.getState().setActiveTab(existingTab.id);
+      setActiveTab(workspaceId, existingTab.id);
     }
   };
 
@@ -283,12 +356,27 @@ export function DatabaseSidebar() {
     type: string;
     schema?: string;
   }) => {
-    const currentTab = tabs.find((tab) => tab.id === activeTab);
-    return (
-      currentTab?.name === item.name &&
-      currentTab?.type === item.type &&
-      currentTab?.schema === (item.schema || selectedSchema)
-    );
+    const currentTab = tabs.find((tab) => tab.id === activeTabId);
+    if (!currentTab) return false;
+
+    const itemSchema = item.schema || selectedSchema;
+
+    if (
+      (item.type === "table" || item.type === "view") &&
+      currentTab.type === "table"
+    ) {
+      return (
+        currentTab.payload?.tableName === item.name &&
+        currentTab.payload?.schema === itemSchema
+      );
+    } else if (item.type === "function" && currentTab.type === "schema") {
+      return (
+        currentTab.payload?.objectName === item.name &&
+        currentTab.payload?.schema === itemSchema
+      );
+    }
+
+    return false;
   };
 
   const getIcon = (type: string) => {
@@ -305,25 +393,33 @@ export function DatabaseSidebar() {
   };
 
   // Filter objects by selected schema
-  const filteredTables =
-    selectedSchema === "all"
-      ? tables
-      : tables.filter((t) => t.schema === selectedSchema);
-
-  const filteredViews =
-    selectedSchema === "all"
-      ? views
-      : views.filter((v) => v.schema === selectedSchema);
-
-  const filteredFunctions =
-    selectedSchema === "all"
-      ? functions
-      : functions.filter((f) => f.schema === selectedSchema);
+  // Since we now load data per schema, no filtering needed
+  const filteredTables = tables;
+  const filteredViews = views;
+  const filteredFunctions = functions;
 
   return (
     <div className="h-full flex flex-col bg-muted/30">
       {/* Fixed Header Section */}
       <div className="bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        {/* Schema Selector */}
+        {availableSchemas.length > 0 && (
+          <div className="px-2 py-1.5 border-b">
+            <Select value={selectedSchema} onValueChange={setSelectedSchema}>
+              <SelectTrigger className="h-7 text-xs">
+                <SelectValue placeholder="Select schema" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableSchemas.map((schema) => (
+                  <SelectItem key={schema} value={schema}>
+                    {schema}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        
         {/* Search with Refresh */}
         <div className="h-8 px-2 flex items-center bg-muted/50">
           <div className="relative flex items-center gap-2 flex-1">
@@ -332,7 +428,9 @@ export function DatabaseSidebar() {
               placeholder="Search objects..."
               className="pl-7 h-6 text-xs border-0 bg-background/60"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+              }}
             />
             <Button
               variant="ghost"
@@ -367,219 +465,225 @@ export function DatabaseSidebar() {
                 {/* Tables - Only show if there are tables */}
                 {filteredTables.length > 0 && (
                   <div className="mb-2">
-                  <div className="sticky top-0 z-30 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-full justify-start h-8 px-2"
-                      onClick={() => toggleExpand("Tables")}
-                    >
-                      {expanded.includes("Tables") ? (
-                        <ChevronDown className="h-4 w-4 mr-1" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4 mr-1" />
-                      )}
-                      <span className="font-medium text-xs">Tables</span>
-                      <span className="ml-auto text-xs text-muted-foreground">
-                        {filteredTables.length}
-                      </span>
-                    </Button>
-                  </div>
-
-                  {expanded.includes("Tables") && (
-                    <div className="ml-4 mt-1">
-                      {filteredTables
-                        .filter((item) =>
-                          item.name
-                            .toLowerCase()
-                            .includes(searchQuery.toLowerCase()),
-                        )
-                        .map((item) => (
-                          <Button
-                            key={`${item.schema}.${item.name}`}
-                            variant={
-                              isItemActive({
-                                name: item.name,
-                                type: "table",
-                                schema: item.schema,
-                              })
-                                ? "secondary"
-                                : "ghost"
-                            }
-                            size="sm"
-                            className={cn(
-                              "w-full justify-start h-7 px-2 mb-0.5 text-xs group",
-                              isItemActive({
-                                name: item.name,
-                                type: "table",
-                                schema: item.schema,
-                              }) && "font-medium",
-                            )}
-                            onClick={() =>
-                              handleItemClick({
-                                name: item.name,
-                                type: "table",
-                                schema: item.schema,
-                              })
-                            }
-                          >
-                            {getIcon("table")}
-                            <span className="ml-2 truncate">{item.name}</span>
-                            {selectedSchema === "all" && (
-                              <span className="ml-auto text-xs text-muted-foreground opacity-0 group-hover:opacity-100">
-                                {item.schema}
-                              </span>
-                            )}
-                          </Button>
-                        ))}
+                    <div className="sticky top-0 z-30 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-start h-8 px-2"
+                        onClick={() => {
+                          toggleExpand("Tables");
+                        }}
+                      >
+                        {expanded.includes("Tables") ? (
+                          <ChevronDown className="h-4 w-4 mr-1" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 mr-1" />
+                        )}
+                        <span className="font-medium text-xs">Tables</span>
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          {filteredTables.length}
+                        </span>
+                      </Button>
                     </div>
-                  )}
+
+                    {expanded.includes("Tables") && (
+                      <div className="ml-4 mt-1">
+                        {filteredTables
+                          .filter((item) =>
+                            item.name
+                              .toLowerCase()
+                              .includes(searchQuery.toLowerCase()),
+                          )
+                          .map((item, index) => (
+                            <Button
+                              key={`table-${item.schema}.${item.name}-${index}`}
+                              variant={
+                                isItemActive({
+                                  name: item.name,
+                                  type: "table",
+                                  schema: item.schema,
+                                })
+                                  ? "secondary"
+                                  : "ghost"
+                              }
+                              size="sm"
+                              className={cn(
+                                "w-full justify-start h-7 px-2 mb-0.5 text-xs group",
+                                isItemActive({
+                                  name: item.name,
+                                  type: "table",
+                                  schema: item.schema,
+                                }) && "font-medium",
+                              )}
+                              onClick={() => {
+                                handleItemClick({
+                                  name: item.name,
+                                  type: "table",
+                                  schema: item.schema,
+                                });
+                              }}
+                            >
+                              {getIcon("table")}
+                              <span className="ml-2 truncate">{item.name}</span>
+                              {item.schema && item.schema !== selectedSchema && (
+                                <span className="ml-auto text-xs text-muted-foreground opacity-0 group-hover:opacity-100">
+                                  {item.schema}
+                                </span>
+                              )}
+                            </Button>
+                          ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
                 {/* Views - Only show if there are views */}
                 {filteredViews.length > 0 && (
                   <div className="mb-2">
-                  <div className="sticky top-0 z-20 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 -mx-2 px-2 py-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-full justify-start h-8 px-2"
-                      onClick={() => toggleExpand("Views")}
-                    >
-                      {expanded.includes("Views") ? (
-                        <ChevronDown className="h-4 w-4 mr-1" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4 mr-1" />
-                      )}
-                      <span className="font-medium text-xs">Views</span>
-                      <span className="ml-auto text-xs text-muted-foreground">
-                        {filteredViews.length}
-                      </span>
-                    </Button>
-                  </div>
-
-                  {expanded.includes("Views") && (
-                    <div className="ml-4 mt-1">
-                      {filteredViews
-                        .filter((item) =>
-                          item.name
-                            .toLowerCase()
-                            .includes(searchQuery.toLowerCase()),
-                        )
-                        .map((item) => (
-                          <Button
-                            key={`${item.schema}.${item.name}`}
-                            variant={
-                              isItemActive({
-                                name: item.name,
-                                type: "view",
-                                schema: item.schema,
-                              })
-                                ? "secondary"
-                                : "ghost"
-                            }
-                            size="sm"
-                            className={cn(
-                              "w-full justify-start h-7 px-2 mb-0.5 text-xs group",
-                              isItemActive({
-                                name: item.name,
-                                type: "view",
-                                schema: item.schema,
-                              }) && "font-medium",
-                            )}
-                            onClick={() =>
-                              handleItemClick({
-                                name: item.name,
-                                type: "view",
-                                schema: item.schema,
-                              })
-                            }
-                          >
-                            {getIcon("view")}
-                            <span className="ml-2 truncate">{item.name}</span>
-                            {selectedSchema === "all" && (
-                              <span className="ml-auto text-xs text-muted-foreground opacity-0 group-hover:opacity-100">
-                                {item.schema}
-                              </span>
-                            )}
-                          </Button>
-                        ))}
+                    <div className="sticky top-0 z-20 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 -mx-2 px-2 py-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-start h-8 px-2"
+                        onClick={() => {
+                          toggleExpand("Views");
+                        }}
+                      >
+                        {expanded.includes("Views") ? (
+                          <ChevronDown className="h-4 w-4 mr-1" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 mr-1" />
+                        )}
+                        <span className="font-medium text-xs">Views</span>
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          {filteredViews.length}
+                        </span>
+                      </Button>
                     </div>
-                  )}
+
+                    {expanded.includes("Views") && (
+                      <div className="ml-4 mt-1">
+                        {filteredViews
+                          .filter((item) =>
+                            item.name
+                              .toLowerCase()
+                              .includes(searchQuery.toLowerCase()),
+                          )
+                          .map((item, index) => (
+                            <Button
+                              key={`view-${item.schema}.${item.name}-${index}`}
+                              variant={
+                                isItemActive({
+                                  name: item.name,
+                                  type: "view",
+                                  schema: item.schema,
+                                })
+                                  ? "secondary"
+                                  : "ghost"
+                              }
+                              size="sm"
+                              className={cn(
+                                "w-full justify-start h-7 px-2 mb-0.5 text-xs group",
+                                isItemActive({
+                                  name: item.name,
+                                  type: "view",
+                                  schema: item.schema,
+                                }) && "font-medium",
+                              )}
+                              onClick={() => {
+                                handleItemClick({
+                                  name: item.name,
+                                  type: "view",
+                                  schema: item.schema,
+                                });
+                              }}
+                            >
+                              {getIcon("view")}
+                              <span className="ml-2 truncate">{item.name}</span>
+                              {item.schema && item.schema !== selectedSchema && (
+                                <span className="ml-auto text-xs text-muted-foreground opacity-0 group-hover:opacity-100">
+                                  {item.schema}
+                                </span>
+                              )}
+                            </Button>
+                          ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
                 {/* Functions - Only show if there are functions */}
                 {filteredFunctions.length > 0 && (
                   <div className="mb-2">
-                  <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 -mx-2 px-2 py-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-full justify-start h-8 px-2"
-                      onClick={() => toggleExpand("Functions")}
-                    >
-                      {expanded.includes("Functions") ? (
-                        <ChevronDown className="h-4 w-4 mr-1" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4 mr-1" />
-                      )}
-                      <span className="font-medium text-xs">Functions</span>
-                      <span className="ml-auto text-xs text-muted-foreground">
-                        {filteredFunctions.length}
-                      </span>
-                    </Button>
-                  </div>
-
-                  {expanded.includes("Functions") && (
-                    <div className="ml-4 mt-1">
-                      {filteredFunctions
-                        .filter((item) =>
-                          item.name
-                            .toLowerCase()
-                            .includes(searchQuery.toLowerCase()),
-                        )
-                        .map((item) => (
-                          <Button
-                            key={`${item.schema}.${item.name}`}
-                            variant={
-                              isItemActive({
-                                name: item.name,
-                                type: "function",
-                                schema: item.schema,
-                              })
-                                ? "secondary"
-                                : "ghost"
-                            }
-                            size="sm"
-                            className={cn(
-                              "w-full justify-start h-7 px-2 mb-0.5 text-xs group",
-                              isItemActive({
-                                name: item.name,
-                                type: "function",
-                                schema: item.schema,
-                              }) && "font-medium",
-                            )}
-                            onClick={() =>
-                              handleItemClick({
-                                name: item.name,
-                                type: "function",
-                                schema: item.schema,
-                              })
-                            }
-                          >
-                            {getIcon("function")}
-                            <span className="ml-2 truncate">{item.name}</span>
-                            {selectedSchema === "all" && (
-                              <span className="ml-auto text-xs text-muted-foreground opacity-0 group-hover:opacity-100">
-                                {item.schema}
-                              </span>
-                            )}
-                          </Button>
-                        ))}
+                    <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 -mx-2 px-2 py-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-start h-8 px-2"
+                        onClick={() => {
+                          toggleExpand("Functions");
+                        }}
+                      >
+                        {expanded.includes("Functions") ? (
+                          <ChevronDown className="h-4 w-4 mr-1" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 mr-1" />
+                        )}
+                        <span className="font-medium text-xs">Functions</span>
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          {filteredFunctions.length}
+                        </span>
+                      </Button>
                     </div>
-                  )}
+
+                    {expanded.includes("Functions") && (
+                      <div className="ml-4 mt-1">
+                        {filteredFunctions
+                          .filter((item) =>
+                            item.name
+                              .toLowerCase()
+                              .includes(searchQuery.toLowerCase()),
+                          )
+                          .map((item, index) => (
+                            <Button
+                              key={`function-${item.schema}.${item.name}-${index}`}
+                              variant={
+                                isItemActive({
+                                  name: item.name,
+                                  type: "function",
+                                  schema: item.schema,
+                                })
+                                  ? "secondary"
+                                  : "ghost"
+                              }
+                              size="sm"
+                              className={cn(
+                                "w-full justify-start h-7 px-2 mb-0.5 text-xs group",
+                                isItemActive({
+                                  name: item.name,
+                                  type: "function",
+                                  schema: item.schema,
+                                }) && "font-medium",
+                              )}
+                              onClick={() => {
+                                handleItemClick({
+                                  name: item.name,
+                                  type: "function",
+                                  schema: item.schema,
+                                });
+                              }}
+                            >
+                              {getIcon("function")}
+                              <span className="ml-2 truncate">{item.name}</span>
+                              {item.schema && item.schema !== selectedSchema && (
+                                <span className="ml-auto text-xs text-muted-foreground opacity-0 group-hover:opacity-100">
+                                  {item.schema}
+                                </span>
+                              )}
+                            </Button>
+                          ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </>

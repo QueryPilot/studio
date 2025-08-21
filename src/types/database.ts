@@ -19,6 +19,8 @@ export interface DatabaseConnection {
   username?: string;
   password?: string; // Only used when creating/updating, never stored in frontend
   filepath?: string; // For SQLite
+  ssl_mode?: string; // SSL mode for PostgreSQL/MySQL connections
+  sslMode?: string; // Alternative property name for SSL mode
   createdAt: Date;
   updatedAt: Date;
 }
@@ -27,11 +29,8 @@ export interface DatabaseConnection {
  * Connection status from backend
  */
 export interface ConnectionStatus {
-  connectionId: string;
   isConnected: boolean;
-  poolSize: number;
-  idleConnections: number;
-  maxConnections: number;
+  latency?: number;
 }
 
 export interface ConnectionProfile {

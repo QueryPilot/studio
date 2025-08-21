@@ -125,19 +125,16 @@ impl DbAdapter for PostgresAdapter {
         -> Result<Vec<TableMeta>, AppError> {
         let sql = r#"
             SELECT 
-                schemaname AS schema,
-                tablename AS name,
-                'table' AS kind,
-                n_live_tup AS row_estimate,
-                pg_relation_size(schemaname||'.'||tablename) as size_bytes
-            FROM pg_stat_user_tables
-            WHERE schemaname = $1
-            UNION ALL
-            SELECT 
-                schemaname, viewname, 'view', NULL, 0
-            FROM pg_views
-            WHERE schemaname = $1
-            ORDER BY kind, name
+                table_schema AS schema,
+                table_name AS name,
+                table_type AS kind,
+                COALESCE(n_live_tup, 0) AS row_estimate,
+                0::BIGINT AS size_bytes
+            FROM information_schema.tables t
+            LEFT JOIN pg_stat_user_tables s ON s.schemaname = t.table_schema AND s.relname = t.table_name
+            WHERE table_schema = $1
+            AND table_type IN ('BASE TABLE', 'VIEW', 'MATERIALIZED VIEW')
+            ORDER BY table_type, table_name
         "#;
         
         let mut tables = Vec::new();
@@ -148,9 +145,11 @@ impl DbAdapter for PostgresAdapter {
             .map_err(AppError::from_sqlx)?;
         
         for row in rows {
-            let kind = match row.get::<String, _>("kind").as_str() {
-                "table" => DbObjectKind::Table,
-                "view" => DbObjectKind::View,
+            let table_type: String = row.get("kind");
+            let kind = match table_type.as_str() {
+                "BASE TABLE" => DbObjectKind::Table,
+                "VIEW" => DbObjectKind::View,
+                "MATERIALIZED VIEW" => DbObjectKind::View,
                 _ => DbObjectKind::Table,
             };
             
@@ -158,12 +157,53 @@ impl DbAdapter for PostgresAdapter {
                 schema: row.get("schema"),
                 name: row.get("name"),
                 kind,
-                row_estimate: row.get("row_estimate"),
-                size_bytes: row.get("size_bytes"),
+                row_estimate: row.get::<Option<i64>, _>("row_estimate"),
+                size_bytes: row.get::<Option<i64>, _>("size_bytes"),
             });
         }
         
         Ok(tables)
+    }
+
+    async fn list_functions(&self, _database: &str, schema: &str) 
+        -> Result<Vec<FunctionMeta>, AppError> {
+        let sql = r#"
+            SELECT 
+                n.nspname as schema,
+                p.proname as name,
+                pg_catalog.pg_get_function_result(p.oid) as return_type,
+                pg_catalog.pg_get_function_arguments(p.oid) as arguments
+            FROM pg_catalog.pg_proc p
+            LEFT JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = $1
+            AND pg_catalog.pg_function_is_visible(p.oid)
+            ORDER BY n.nspname, p.proname
+        "#;
+        
+        let mut functions = Vec::new();
+        let rows = sqlx::query(sql)
+            .bind(schema)
+            .fetch_all(self.pool.as_ref())
+            .await
+            .map_err(AppError::from_sqlx)?;
+        
+        for row in rows {
+            let args_str: Option<String> = row.get("arguments");
+            let arguments = if let Some(args) = args_str {
+                vec![args]
+            } else {
+                Vec::new()
+            };
+            
+            functions.push(FunctionMeta {
+                schema: row.get("schema"),
+                name: row.get("name"),
+                return_type: row.get::<Option<String>, _>("return_type").unwrap_or_else(|| "void".to_string()),
+                arguments,
+            });
+        }
+        
+        Ok(functions)
     }
     
     async fn table_columns(&self, _database: &str, schema: &str, table: &str) 
@@ -232,11 +272,23 @@ impl DbAdapter for PostgresAdapter {
                          opts: QueryOptions) -> Result<QueryCursor, AppError> {
         let cursor_id = Uuid::new_v4().to_string();
         
+        // Remove trailing semicolons and whitespace
+        let clean_sql = sql.trim_end_matches(';').trim();
+        
+        println!("[PostgresAdapter::begin_query] Starting query execution");
+        println!("[PostgresAdapter::begin_query] Original SQL: {}", sql);
+        println!("[PostgresAdapter::begin_query] Cleaned SQL: {}", clean_sql);
+        println!("[PostgresAdapter::begin_query] Options: page_size={}, max_rows={:?}", opts.page_size, opts.max_rows);
+        
         // For simple queries, just execute directly
-        let rows = sqlx::query(sql)
+        let rows = sqlx::query(clean_sql)
             .fetch_all(self.pool.as_ref())
             .await
-            .map_err(AppError::from_sqlx)?;
+            .map_err(|e| {
+                println!("[PostgresAdapter::begin_query] SQL execution error: {}", e);
+                println!("[PostgresAdapter::begin_query] Failed SQL was: {}", clean_sql);
+                AppError::from_sqlx(e)
+            })?;
         
         let columns = if !rows.is_empty() {
             Self::extract_columns(&rows[0])
@@ -253,7 +305,7 @@ impl DbAdapter for PostgresAdapter {
         
         Ok(QueryCursor {
             id: cursor_id,
-            sql: sql.to_string(),
+            sql: clean_sql.to_string(),  // Store the cleaned SQL without semicolons
             columns,
             rows: json_rows,
             page_size: opts.page_size,
@@ -266,14 +318,51 @@ impl DbAdapter for PostgresAdapter {
     
     async fn fetch_page(&self, cursor: &mut QueryCursor, page: usize, 
                         page_size: usize) -> Result<QueryPage, AppError> {
-        // Simple pagination using LIMIT/OFFSET
-        let offset = page * page_size;
-        let sql = format!("{} LIMIT {} OFFSET {}", cursor.sql, page_size, offset);
+        println!("[PostgresAdapter::fetch_page] Original query: {}", cursor.sql);
+        println!("[PostgresAdapter::fetch_page] Page: {}, Page size: {}", page, page_size);
+        
+        // Remove trailing semicolons and whitespace
+        let clean_sql = cursor.sql.trim_end_matches(';').trim();
+        println!("[PostgresAdapter::fetch_page] Cleaned query (semicolons removed): {}", clean_sql);
+        
+        // Check if the query already has LIMIT/OFFSET or is an aggregate query
+        let sql_upper = clean_sql.to_uppercase();
+        // Remove extra whitespace for better matching
+        let sql_normalized = sql_upper.split_whitespace().collect::<Vec<_>>().join(" ");
+        
+        println!("[PostgresAdapter::fetch_page] Normalized query for checking: {}", sql_normalized);
+        
+        let needs_pagination = !sql_normalized.contains("LIMIT") && 
+                               !sql_normalized.contains("COUNT(") &&
+                               !sql_normalized.contains("SUM(") &&
+                               !sql_normalized.contains("AVG(") &&
+                               !sql_normalized.contains("MAX(") &&
+                               !sql_normalized.contains("MIN(");
+        
+        println!("[PostgresAdapter::fetch_page] Needs pagination: {}", needs_pagination);
+        
+        let sql = if needs_pagination {
+            // Simple pagination using LIMIT/OFFSET
+            let offset = page * page_size;
+            let paginated_sql = format!("{} LIMIT {} OFFSET {}", clean_sql, page_size, offset);
+            println!("[PostgresAdapter::fetch_page] Adding pagination - Final SQL: {}", paginated_sql);
+            paginated_sql
+        } else {
+            // Query already has pagination or is an aggregate, use as-is
+            println!("[PostgresAdapter::fetch_page] Using query as-is (already has LIMIT or is aggregate)");
+            clean_sql.to_string()
+        };
+        
+        println!("[PostgresAdapter::fetch_page] Executing SQL: {}", sql);
         
         let rows = sqlx::query(&sql)
             .fetch_all(self.pool.as_ref())
             .await
-            .map_err(AppError::from_sqlx)?;
+            .map_err(|e| {
+                println!("[PostgresAdapter::fetch_page] SQL execution error: {}", e);
+                println!("[PostgresAdapter::fetch_page] Failed SQL was: {}", sql);
+                AppError::from_sqlx(e)
+            })?;
         
         let mut json_rows = Vec::new();
         for row in rows.iter() {
@@ -298,10 +387,20 @@ impl DbAdapter for PostgresAdapter {
         -> Result<ExecuteResult, AppError> {
         let start = Instant::now();
         
-        let result = sqlx::query(sql)
+        // Remove trailing semicolons and whitespace
+        let clean_sql = sql.trim_end_matches(';').trim();
+        
+        println!("[PostgresAdapter::execute] Original SQL: {}", sql);
+        println!("[PostgresAdapter::execute] Cleaned SQL: {}", clean_sql);
+        
+        let result = sqlx::query(clean_sql)
             .execute(self.pool.as_ref())
             .await
-            .map_err(AppError::from_sqlx)?;
+            .map_err(|e| {
+                println!("[PostgresAdapter::execute] SQL execution error: {}", e);
+                println!("[PostgresAdapter::execute] Failed SQL was: {}", clean_sql);
+                AppError::from_sqlx(e)
+            })?;
         
         Ok(ExecuteResult {
             rows_affected: result.rows_affected(),

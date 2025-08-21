@@ -1,52 +1,151 @@
 /**
  * Secure Database Service
- * All database operations go through Rust backend with connection pooling
- * No passwords or connection strings are ever constructed in frontend
+ * Uses new database architecture commands from Rust backend
  */
 
 import { invoke } from '@tauri-apps/api/core';
 import { DatabaseConnection, ConnectionStatus, QueryResult, TableInfo, ViewInfo, FunctionInfo } from '@/types/database';
+import { useSecureConnectionStore } from '@/stores/secureConnectionStore';
+
+// Backend types that match Rust definitions
+interface ConnectResponse {
+  connection_id: string;
+  server_version?: string;
+}
+
+interface TableMeta {
+  schema: string;
+  name: string;
+  kind: 'Table' | 'View' | 'MaterializedView';
+  row_estimate: number | null;
+  size_bytes: number | null;
+}
+
+interface ColumnMeta {
+  name: string;
+  db_type: string;
+  nullable: boolean;
+  default: string | null;
+  is_pk: boolean;
+  is_fk: boolean;
+  ordinal: number;
+  precision: number | null;
+  scale: number | null;
+}
+
+interface QueryBeginResponse {
+  cursor_id: string;
+  columns: ColumnMeta[];
+  total_approx?: number;
+}
+
+interface QueryFetchResponse {
+  rows: any[][];
+  page: number;
+  is_complete: boolean;
+}
+
 
 class SecureDatabaseService {
   /**
-   * Create a new database connection in the backend
-   * Connection pool is managed by Rust
+   * Get the actual connection ID (isolated) for backend operations
+   * This resolves the frontend connection ID to the backend isolated ID
+   */
+  private getActualConnectionId(connectionId: string): string {
+    // We can't use the hook directly in a service, so we need to access the store
+    const store = useSecureConnectionStore.getState();
+    const actualId = store.getActualConnectionId(connectionId);
+    
+    // Return the actual connection ID as-is, including any workspace prefix
+    // The backend creates these prefixed IDs for workspace isolation
+    return actualId;
+  }
+  /**
+   * Create a new database connection using connection ID and workspace ID only
+   * Backend will fetch connection details from secure storage
+   */
+  async createConnectionById(connectionId: string, workspaceId?: string): Promise<string> {
+    const response = await invoke<ConnectResponse>('db_connect_by_id', {
+      connectionId,
+      workspaceId: workspaceId || null
+    });
+    
+    return response.connection_id;
+  }
+
+  /**
+   * Legacy method - Create a new database connection using full config
+   * @deprecated Use createConnectionById instead
    */
   async createConnection(connectionId: string, config: DatabaseConnection): Promise<string> {
-    return await invoke<string>('create_db_connection', {
-      connectionId,
+    const connectionConfig = {
+      id: connectionId,
       name: config.name,
-      dbType: config.type,
+      db_type: config.type === 'postgresql' ? 'Postgres' : 
+               config.type === 'mysql' ? 'Mysql' : 'Sqlite',
       host: config.host || 'localhost',
       port: config.port || this.getDefaultPort(config.type),
       database: config.database || '',
       username: config.username || '',
-      // Password is fetched from secure storage in the backend
+      password: config.password,
+      ssl_mode: config.sslMode || config.ssl_mode || 'prefer',
+      max_connections: 10,
+      min_connections: 1,
+      connection_timeout: 30000,
+      idle_timeout: 600000,
+      max_lifetime: 3600000,
+    };
+
+    const response = await invoke<ConnectResponse>('db_connect', {
+      config: connectionConfig
     });
+    
+    return response.connection_id;
   }
 
   /**
-   * Test database connection through backend
-   * Uses connection pool for testing
+   * Test database connection through new ping command
    */
   async testConnection(connectionId: string): Promise<boolean> {
     try {
-      return await invoke<boolean>('test_db_connection', { connectionId });
+      const actualConnectionId = this.getActualConnectionId(connectionId);
+      const pingMs = await invoke<number>('db_ping', { connectionId: actualConnectionId });
+      return pingMs >= 0;
     } catch (error) {
       console.error('[SecureDatabaseService] Test connection failed:', error);
-      throw error;
+      return false;
     }
   }
 
   /**
-   * Execute query through backend connection pool
+   * Execute query through new query architecture
    */
   async executeQuery(connectionId: string, query: string): Promise<QueryResult> {
     try {
-      return await invoke<QueryResult>('execute_db_query', { 
-        connectionId, 
-        query 
+      const actualConnectionId = this.getActualConnectionId(connectionId);
+      
+      // Begin query execution
+      const beginResponse = await invoke<QueryBeginResponse>('db_query_begin', { 
+        connectionId: actualConnectionId, 
+        sql: query,
+        params: null,
+        opts: null
       });
+
+      // Fetch first page of results
+      const fetchResponse = await invoke<QueryFetchResponse>('db_query_fetch', {
+        connectionId: actualConnectionId,
+        cursorId: beginResponse.cursor_id,
+        page: 0,
+        pageSize: 1000
+      });
+
+      return {
+        columns: beginResponse.columns.map(col => col.name),
+        rows: fetchResponse.rows,
+        rowCount: fetchResponse.rows.length,
+        executionTime: 0,
+      };
     } catch (error) {
       console.error('[SecureDatabaseService] Query execution failed:', error);
       throw error;
@@ -54,11 +153,30 @@ class SecureDatabaseService {
   }
 
   /**
-   * Close database connection and release pool resources
+   * Execute statement (non-query) through new architecture
+   */
+  async executeStatement(connectionId: string, sql: string): Promise<number> {
+    try {
+      const actualConnectionId = this.getActualConnectionId(connectionId);
+      const result = await invoke<{ rows_affected: number }>('db_execute', { 
+        connectionId: actualConnectionId, 
+        sql,
+        params: null
+      });
+      return result.rows_affected;
+    } catch (error) {
+      console.error('[SecureDatabaseService] Statement execution failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Close database connection
    */
   async closeConnection(connectionId: string): Promise<void> {
     try {
-      await invoke('close_db_connection', { connectionId });
+      const actualConnectionId = this.getActualConnectionId(connectionId);
+      await invoke('db_disconnect', { connectionId: actualConnectionId });
     } catch (error) {
       console.error('[SecureDatabaseService] Failed to close connection:', error);
       throw error;
@@ -66,16 +184,21 @@ class SecureDatabaseService {
   }
 
   /**
-   * Get connection pool status
+   * Get connection status via ping
    */
   async getConnectionStatus(connectionId: string): Promise<ConnectionStatus> {
     try {
-      return await invoke<ConnectionStatus>('get_db_connection_status', { 
-        connectionId 
-      });
+      const actualConnectionId = this.getActualConnectionId(connectionId);
+      const pingMs = await invoke<number>('db_ping', { connectionId: actualConnectionId });
+      return {
+        isConnected: pingMs >= 0,
+        latency: pingMs
+      };
     } catch (error) {
-      console.error('[SecureDatabaseService] Failed to get connection status:', error);
-      throw error;
+      return {
+        isConnected: false,
+        latency: -1
+      };
     }
   }
 
@@ -85,6 +208,7 @@ class SecureDatabaseService {
   private getDefaultPort(type: string): number {
     switch (type) {
       case 'postgresql':
+      case 'postgres':
         return 5432;
       case 'mysql':
         return 3306;
@@ -103,7 +227,7 @@ class SecureDatabaseService {
     
     try {
       // Begin transaction
-      await this.executeQuery(connectionId, 'BEGIN');
+      await this.executeStatement(connectionId, 'BEGIN');
       
       // Execute all queries
       for (const query of queries) {
@@ -112,13 +236,13 @@ class SecureDatabaseService {
       }
       
       // Commit transaction
-      await this.executeQuery(connectionId, 'COMMIT');
+      await this.executeStatement(connectionId, 'COMMIT');
       
       return results;
     } catch (error) {
       // Rollback on error
       try {
-        await this.executeQuery(connectionId, 'ROLLBACK');
+        await this.executeStatement(connectionId, 'ROLLBACK');
       } catch (rollbackError) {
         console.error('[SecureDatabaseService] Failed to rollback transaction:', rollbackError);
       }
@@ -127,40 +251,231 @@ class SecureDatabaseService {
   }
 
   /**
-   * Get database metadata through secure backend commands
+   * Get database list using new architecture
    */
   async getDatabases(connectionId: string): Promise<string[]> {
-    const result = await this.executeQuery(connectionId, `
-      SELECT datname FROM pg_database 
-      WHERE datistemplate = false
-    `);
-    return result.rows.map(row => row[0] as string);
+    try {
+      const actualConnectionId = this.getActualConnectionId(connectionId);
+      return await invoke<string[]>('db_list_databases', { connectionId: actualConnectionId });
+    } catch (error) {
+      console.error('[SecureDatabaseService] Failed to fetch databases:', error);
+      return [];
+    }
   }
 
-  async getTables(connectionId: string): Promise<TableInfo[]> {
+  /**
+   * Get schemas using new architecture
+   */
+  async getSchemas(connectionId: string, database: string): Promise<string[]> {
     try {
-      return await invoke<TableInfo[]>('get_db_tables', { connectionId });
+      const actualConnectionId = this.getActualConnectionId(connectionId);
+      return await invoke<string[]>('db_list_schemas', { 
+        connectionId: actualConnectionId,
+        database 
+      });
+    } catch (error) {
+      console.error('[SecureDatabaseService] Failed to fetch schemas:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get tables using backend db_list_tables command
+   */
+  async getTables(connectionId: string, database?: string, schema?: string): Promise<TableInfo[]> {
+    try {
+      const actualConnectionId = this.getActualConnectionId(connectionId);
+      const tables = await invoke<TableMeta[]>('db_list_tables', { 
+        connectionId: actualConnectionId,
+        database: database || '',
+        schema: schema || 'public'
+      });
+      
+      // Transform TableMeta to TableInfo format
+      return tables
+        .filter(t => t.kind === 'Table')
+        .map(t => ({
+          name: t.name,
+          schema: t.schema,
+          type: 'table' as const,
+          rowCount: t.row_estimate || 0
+        }));
     } catch (error) {
       console.error('[SecureDatabaseService] Failed to fetch tables:', error);
       return [];
     }
   }
 
-  async getViews(connectionId: string): Promise<ViewInfo[]> {
+  /**
+   * Get views using backend db_list_tables command
+   */
+  async getViews(connectionId: string, database?: string, schema?: string): Promise<ViewInfo[]> {
     try {
-      return await invoke<ViewInfo[]>('get_db_views', { connectionId });
+      const actualConnectionId = this.getActualConnectionId(connectionId);
+      const tables = await invoke<TableMeta[]>('db_list_tables', { 
+        connectionId: actualConnectionId,
+        database: database || '',
+        schema: schema || 'public'
+      });
+      
+      // Filter for views only and transform to ViewInfo format
+      return tables
+        .filter(t => t.kind === 'View' || t.kind === 'MaterializedView')
+        .map(v => ({
+          name: v.name,
+          schema: v.schema,
+          type: v.kind === 'MaterializedView' ? 'materialized_view' as const : 'view' as const,
+          definition: ''
+        }));
     } catch (error) {
       console.error('[SecureDatabaseService] Failed to fetch views:', error);
       return [];
     }
   }
 
-  async getFunctions(connectionId: string): Promise<FunctionInfo[]> {
+  /**
+   * Get functions using backend db_list_functions command
+   */
+  async getFunctions(connectionId: string, database?: string, schema?: string): Promise<FunctionInfo[]> {
     try {
-      return await invoke<FunctionInfo[]>('get_db_functions', { connectionId });
+      const actualConnectionId = this.getActualConnectionId(connectionId);
+      
+      // Define FunctionMeta interface matching backend
+      interface FunctionMeta {
+        schema: string;
+        name: string;
+        return_type: string;
+        arguments: string[];
+      }
+      
+      const functions = await invoke<FunctionMeta[]>('db_list_functions', { 
+        connectionId: actualConnectionId,
+        database: database || '',
+        schema: schema || 'public'
+      });
+      
+      // Transform to FunctionInfo format
+      return functions.map(f => ({
+        name: f.name,
+        schema: f.schema,
+        returnType: f.return_type,
+        arguments: f.arguments
+      }));
     } catch (error) {
       console.error('[SecureDatabaseService] Failed to fetch functions:', error);
       return [];
+    }
+  }
+
+  /**
+   * Get table columns using backend db_table_columns command
+   */
+  async getTableColumns(connectionId: string, database: string, schema: string, table: string): Promise<ColumnMeta[]> {
+    try {
+      const actualConnectionId = this.getActualConnectionId(connectionId);
+      return await invoke<ColumnMeta[]>('db_table_columns', {
+        connectionId: actualConnectionId,
+        database,
+        schema,
+        table
+      });
+    } catch (error) {
+      console.error('[SecureDatabaseService] Failed to fetch table columns:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Cancel a running query
+   */
+  async cancelQuery(connectionId: string, queryId: string): Promise<void> {
+    try {
+      const actualConnectionId = this.getActualConnectionId(connectionId);
+      await invoke('db_query_cancel', {
+        connectionId: actualConnectionId,
+        queryId
+      });
+    } catch (error) {
+      console.error('[SecureDatabaseService] Failed to cancel query:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update a cell value in a table
+   */
+  async updateCell(connectionId: string, update: {
+    schema: string;
+    table: string;
+    column: string;
+    pk: Record<string, any>;
+    newValue: any;
+  }): Promise<number> {
+    try {
+      const actualConnectionId = this.getActualConnectionId(connectionId);
+      const result = await invoke<{ rows_affected: number }>('db_update_cell', {
+        connectionId: actualConnectionId,
+        update: {
+          schema: update.schema,
+          table: update.table,
+          column: update.column,
+          pk: update.pk,
+          new_value: update.newValue
+        }
+      });
+      return result.rows_affected;
+    } catch (error) {
+      console.error('[SecureDatabaseService] Failed to update cell:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Test database connection with configuration
+   * This creates a temporary connection to test connectivity without persisting it
+   */
+  async testConnectionConfig(config: {
+    type: string;
+    host: string;
+    port: number;
+    database: string;
+    username: string;
+    password: string;
+    ssl_mode?: string;
+  }): Promise<{ success: boolean; error?: string }> {
+    try {
+      const connectionConfig = {
+        id: 'test',
+        name: 'Test Connection',
+        db_type: config.type === 'postgresql' ? 'Postgres' : 
+                 config.type === 'mysql' ? 'Mysql' : 'Sqlite',
+        host: config.host,
+        port: config.port,
+        database: config.database,
+        username: config.username,
+        password: config.password,
+        ssl_mode: config.ssl_mode || 'prefer',
+        max_connections: 1,
+        min_connections: 1,
+        connection_timeout: 5000,
+        idle_timeout: 10000,
+        max_lifetime: 60000,
+      };
+
+      const result = await invoke<{ success: boolean; error_message?: string }>('db_test_connection', {
+        config: connectionConfig
+      });
+
+      return {
+        success: result.success,
+        error: result.error_message
+      };
+    } catch (error) {
+      console.error('[SecureDatabaseService] Test connection failed:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
+      };
     }
   }
 }

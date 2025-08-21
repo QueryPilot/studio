@@ -1,7 +1,8 @@
-import { useState, memo, useCallback, useRef, useEffect } from "react";
+import { useState, memo, useCallback } from "react";
 import { flexRender } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
 import { Clipboard, ClipboardCheck } from "lucide-react";
+import styles from "./VirtualRow.module.css";
 
 interface VirtualRowProps {
   row: any;
@@ -28,44 +29,27 @@ export const VirtualRow = memo(
     onContextMenu,
   }: VirtualRowProps) => {
     const [copiedCell, setCopiedCell] = useState<string | null>(null);
-    const [hoveredCellId, setHoveredCellId] = useState<string | null>(null);
-    const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    
+    // Simplified copy handler without hover state management
+    const handleCopy = useCallback(async (cell: any) => {
+      const value = cell.getValue();
+      let textToCopy = "";
 
-    // Hide copy button when selection starts
-    useEffect(() => {
-      if (isSelecting) {
-        setHoveredCellId(null);
-        if (hoverTimeoutRef.current) {
-          clearTimeout(hoverTimeoutRef.current);
-        }
+      if (value === null) {
+        textToCopy = "NULL";
+      } else if (typeof value === "object") {
+        textToCopy = JSON.stringify(value, null, 2);
+      } else {
+        textToCopy = String(value);
       }
-    }, [isSelecting]);
 
-    // Debounced hover handlers to prevent rapid state changes
-    const handleCellEnter = useCallback(
-      (cellId: string) => {
-        // Don't show copy button when selecting
-        if (isSelecting) return;
-
-        // Clear any pending timeout
-        if (hoverTimeoutRef.current) {
-          clearTimeout(hoverTimeoutRef.current);
-        }
-        // Show after 300ms delay to avoid showing when just moving mouse around
-        hoverTimeoutRef.current = setTimeout(() => {
-          setHoveredCellId(cellId);
-        }, 300);
-      },
-      [isSelecting],
-    );
-
-    const handleCellLeave = useCallback(() => {
-      // Clear the show timeout if mouse leaves before delay
-      if (hoverTimeoutRef.current) {
-        clearTimeout(hoverTimeoutRef.current);
-        hoverTimeoutRef.current = null;
+      try {
+        await navigator.clipboard.writeText(textToCopy);
+        setCopiedCell(cell.id);
+        setTimeout(() => setCopiedCell(null), 2000);
+      } catch (err) {
+        console.error("Failed to copy:", err);
       }
-      setHoveredCellId(null);
     }, []);
 
     return (
@@ -90,7 +74,11 @@ export const VirtualRow = memo(
           return (
             <td
               key={cell.id}
-              className="relative flex items-center px-2 py-1 text-xs border-b border-r border-border/50 box-border"
+              className={cn(
+                "relative flex items-center px-2 py-1 text-xs border-b border-r border-border/50 box-border",
+                styles.cell,
+                isSelecting && styles.selecting
+              )}
               style={{
                 display: "flex",
                 width: cell.column.getSize(),
@@ -98,64 +86,28 @@ export const VirtualRow = memo(
                 maxWidth: isLastColumn ? undefined : cell.column.getSize(),
                 flex: isLastColumn ? "1 1 auto" : "none",
               }}
-              onMouseEnter={() => handleCellEnter(cell.id)}
-              onMouseLeave={handleCellLeave}
             >
               <div className="overflow-hidden flex-1">
                 {flexRender(cell.column.columnDef.cell, cell.getContext())}
               </div>
-              {hoveredCellId === cell.id && cell.getValue() !== null && (
+              {cell.getValue() !== null && (
                 <button
                   type="button"
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 p-0 bg-background/95 hover:bg-accent rounded flex items-center justify-center"
+                  className={styles.copyButton}
                   onMouseDown={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
                   }}
-                  onClick={async (e) => {
+                  onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-
-                    const value = cell.getValue();
-                    let textToCopy = "";
-
-                    if (value === null) {
-                      textToCopy = "NULL";
-                    } else if (typeof value === "object") {
-                      textToCopy = JSON.stringify(value, null, 2);
-                    } else {
-                      textToCopy = String(value);
-                    }
-
-                    try {
-                      await navigator.clipboard.writeText(textToCopy);
-                      setCopiedCell(cell.id);
-                      setTimeout(() => setCopiedCell(null), 3000);
-                    } catch (err) {
-                      console.error("Failed to copy:", err);
-                      // Fallback for older browsers
-                      const textArea = document.createElement("textarea");
-                      textArea.value = textToCopy;
-                      textArea.style.position = "fixed";
-                      textArea.style.left = "-999999px";
-                      document.body.appendChild(textArea);
-                      textArea.focus();
-                      textArea.select();
-                      try {
-                        document.execCommand("copy");
-                        setCopiedCell(cell.id);
-                        setTimeout(() => setCopiedCell(null), 3000);
-                      } catch (err) {
-                        console.error("Fallback copy failed:", err);
-                      }
-                      document.body.removeChild(textArea);
-                    }
+                    handleCopy(cell);
                   }}
                 >
                   {copiedCell === cell.id ? (
-                    <ClipboardCheck className="h-4 w-4 text-green-600" />
+                    <ClipboardCheck className="h-3 w-3 text-green-600" />
                   ) : (
-                    <Clipboard className="h-4 w-4" />
+                    <Clipboard className="h-3 w-3" />
                   )}
                 </button>
               )}

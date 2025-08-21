@@ -1,12 +1,18 @@
-import Database from '@tauri-apps/plugin-sql';
+/**
+ * Query Service
+ * Delegates all database operations to the secure database service
+ * which uses the new architecture commands
+ */
+
 import { DatabaseConnection } from '@/types/database';
-// Decryption now handled by Rust backend
+import { secureDatabaseService } from './secureDatabaseService';
 
 export interface QueryResult {
   columns: string[];
   rows: any[];
   rowCount: number;
   queryTime: number;
+  error?: string | null;
 }
 
 export interface QueryError {
@@ -16,7 +22,8 @@ export interface QueryError {
 }
 
 class QueryService {
-  private connections: Map<string, Database> = new Map();
+  // Track active query cursors for cancellation
+  private activeQueries: Map<string, string> = new Map();
 
   async executeQuery(
     connection: DatabaseConnection,
@@ -25,27 +32,15 @@ class QueryService {
     const startTime = performance.now();
     
     try {
-      // Get or create database connection
-      let db = this.connections.get(connection.id);
-      
-      if (!db) {
-        const connectionString = await this.buildConnectionString(connection);
-        db = await Database.load(connectionString);
-        this.connections.set(connection.id, db);
-      }
-
-      // Execute query
-      const result = await db.select(query) as any[];
+      const result = await secureDatabaseService.executeQuery(connection.id, query);
       const queryTime = Math.round(performance.now() - startTime);
 
-      // Extract columns from first row
-      const columns = result.length > 0 ? Object.keys(result[0]) : [];
-
       return {
-        columns,
-        rows: result,
-        rowCount: result.length,
-        queryTime
+        columns: result.columns || [],
+        rows: result.rows || [],
+        rowCount: result.rowCount || 0,
+        queryTime,
+        error: undefined
       };
     } catch (error) {
       throw this.formatError(error);
@@ -59,19 +54,11 @@ class QueryService {
     const startTime = performance.now();
     
     try {
-      let db = this.connections.get(connection.id);
-      
-      if (!db) {
-        const connectionString = await this.buildConnectionString(connection);
-        db = await Database.load(connectionString);
-        this.connections.set(connection.id, db);
-      }
-
-      const result = await db.execute(query);
+      const affectedRows = await secureDatabaseService.executeStatement(connection.id, query);
       const queryTime = Math.round(performance.now() - startTime);
 
       return {
-        affectedRows: result.rowsAffected || 0,
+        affectedRows,
         queryTime
       };
     } catch (error) {
@@ -81,70 +68,87 @@ class QueryService {
 
   async testConnection(connection: DatabaseConnection): Promise<boolean> {
     try {
-      const connectionString = await this.buildConnectionString(connection);
-      const db = await Database.load(connectionString);
-      
-      // Test with a simple query
-      const testQuery = this.getTestQuery(connection.type);
-      await db.select(testQuery);
-      
-      // Store the connection for reuse
-      this.connections.set(connection.id, db);
-      
-      return true;
+      return await secureDatabaseService.testConnection(connection.id);
     } catch (error) {
-      // Don't log the error to console as it might contain credentials
-      // Just return false to indicate failure
+      console.error('[QueryService] Connection test failed:', error);
       return false;
     }
   }
 
   async closeConnection(connectionId: string): Promise<void> {
-    const db = this.connections.get(connectionId);
-    if (db) {
-      await db.close();
-      this.connections.delete(connectionId);
+    try {
+      await secureDatabaseService.closeConnection(connectionId);
+      // Clean up any active queries for this connection
+      this.activeQueries.delete(connectionId);
+    } catch (error) {
+      console.error('[QueryService] Failed to close connection:', error);
     }
   }
 
   async closeAllConnections(): Promise<void> {
-    for (const [, db] of this.connections) {
-      await db.close();
-    }
-    this.connections.clear();
+    // This would need to be tracked at a higher level
+    // For now, clear active queries
+    this.activeQueries.clear();
   }
 
-  private async buildConnectionString(connection: DatabaseConnection): Promise<string> {
-    const { type, host, port, database, username, password } = connection;
-    
-    // Password is already decrypted from secure storage in backend
-    const decryptedPassword = password || '';
-    
-    switch (type) {
-      case 'postgresql':
-        return `postgresql://${username}:${decryptedPassword}@${host}:${port}/${database}`;
-      
-      case 'mysql':
-        return `mysql://${username}:${decryptedPassword}@${host}:${port}/${database}`;
-      
-      case 'sqlite':
-        return `sqlite:${database}`; // database is the file path for SQLite
-      
-      default:
-        throw new Error(`Unsupported database type: ${type}`);
+  async cancelQuery(connectionId: string): Promise<void> {
+    const queryId = this.activeQueries.get(connectionId);
+    if (queryId) {
+      try {
+        await secureDatabaseService.cancelQuery(connectionId, queryId);
+        this.activeQueries.delete(connectionId);
+      } catch (error) {
+        console.error('[QueryService] Failed to cancel query:', error);
+      }
     }
   }
 
-  private getTestQuery(type: DatabaseConnection['type']): string {
-    switch (type) {
-      case 'postgresql':
-        return 'SELECT 1';
-      case 'mysql':
-        return 'SELECT 1';
-      case 'sqlite':
-        return 'SELECT 1';
-      default:
-        return 'SELECT 1';
+  // Execute multiple queries in sequence
+  async executeMultipleQueries(
+    connection: DatabaseConnection,
+    queries: string[]
+  ): Promise<QueryResult[]> {
+    const results: QueryResult[] = [];
+    
+    for (const query of queries) {
+      try {
+        const result = await this.executeQuery(connection, query);
+        results.push(result);
+      } catch (error) {
+        // Add error result but continue with other queries
+        results.push({
+          columns: [],
+          rows: [],
+          rowCount: 0,
+          queryTime: 0,
+          error: this.formatError(error).message
+        });
+      }
+    }
+    
+    return results;
+  }
+
+  // Execute queries in a transaction
+  async executeTransaction(
+    connection: DatabaseConnection,
+    queries: string[]
+  ): Promise<QueryResult[]> {
+    try {
+      const results = await secureDatabaseService.executeTransaction(
+        connection.id,
+        queries
+      );
+      
+      return results.map(result => ({
+        columns: result.columns || [],
+        rows: result.rows || [],
+        rowCount: result.rowCount || 0,
+        queryTime: 0,
+        error: undefined
+      }));
+    } catch (error) {
+      throw this.formatError(error);
     }
   }
 
@@ -171,37 +175,15 @@ class QueryService {
         'password=[REDACTED]'
       );
       
-      // Sanitize stack trace as well
-      let sanitizedStack = error.stack || '';
-      sanitizedStack = sanitizedStack.replace(
-        /postgresql:\/\/[^:]+:([^@]+)@/g, 
-        'postgresql://[username]:[REDACTED]@'
-      );
-      sanitizedStack = sanitizedStack.replace(
-        /mysql:\/\/[^:]+:([^@]+)@/g,
-        'mysql://[username]:[REDACTED]@'
-      );
-      
       return {
         message: sanitizedMessage,
-        details: sanitizedStack
+        details: error.stack
       };
     }
     
-    // Sanitize string error as well
-    let sanitizedError = String(error);
-    sanitizedError = sanitizedError.replace(
-      /postgresql:\/\/[^:]+:([^@]+)@/g, 
-      'postgresql://[username]:[REDACTED]@'
-    );
-    sanitizedError = sanitizedError.replace(
-      /mysql:\/\/[^:]+:([^@]+)@/g,
-      'mysql://[username]:[REDACTED]@'
-    );
-    
     return {
-      message: sanitizedError,
-      details: sanitizedError
+      message: String(error),
+      details: String(error)
     };
   }
 
@@ -228,6 +210,36 @@ class QueryService {
       .split(';')
       .map(q => q.trim())
       .filter(q => q.length > 0);
+  }
+
+  // Get databases for a connection
+  async getDatabases(connectionId: string): Promise<string[]> {
+    return await secureDatabaseService.getDatabases(connectionId);
+  }
+
+  // Get schemas for a database
+  async getSchemas(connectionId: string, database: string): Promise<string[]> {
+    return await secureDatabaseService.getSchemas(connectionId, database);
+  }
+
+  // Get tables for a schema
+  async getTables(connectionId: string, database?: string, schema?: string) {
+    return await secureDatabaseService.getTables(connectionId, database, schema);
+  }
+
+  // Get views for a schema
+  async getViews(connectionId: string, database?: string, schema?: string) {
+    return await secureDatabaseService.getViews(connectionId, database, schema);
+  }
+
+  // Get functions for a schema
+  async getFunctions(connectionId: string, database?: string, schema?: string) {
+    return await secureDatabaseService.getFunctions(connectionId, database, schema);
+  }
+
+  // Get table columns
+  async getTableColumns(connectionId: string, database: string, schema: string, table: string) {
+    return await secureDatabaseService.getTableColumns(connectionId, database, schema, table);
   }
 }
 

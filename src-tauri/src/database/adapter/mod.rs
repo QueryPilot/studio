@@ -24,6 +24,8 @@ pub trait DbAdapter: Send + Sync {
     // Table metadata
     async fn list_tables(&self, database: &str, schema: &str) 
         -> Result<Vec<TableMeta>, AppError>;
+    async fn list_functions(&self, database: &str, schema: &str) 
+        -> Result<Vec<FunctionMeta>, AppError>;
     async fn table_columns(&self, database: &str, schema: &str, table: &str) 
         -> Result<Vec<ColumnMeta>, AppError>;
     async fn estimate_count(&self, database: &str, schema: &str, table: &str) 

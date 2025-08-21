@@ -1,35 +1,33 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { invoke } from '@tauri-apps/api/core';
-import { cacheService } from '@/services/cacheService';
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { secureDatabaseService } from "@/services/secureDatabaseService";
+import { cacheService } from "@/services/cacheService";
+import { type DatabaseType } from "@/types/database";
+import { useSecureConnectionStore } from "@/stores";
 
-interface DatabaseInfo {
-  databases: string[];
-}
+// interface DatabaseInfo {
+//   databases: string[];
+// }
 
-interface SchemaInfo {
-  schemas: string[];
-}
+// interface SchemaInfo {
+//   schemas: string[];
+// }
 
 /**
  * Hook for fetching available databases
  */
 export function useDatabases(connectionId: string | null) {
   return useQuery({
-    queryKey: ['databases', connectionId],
+    queryKey: ["databases", connectionId],
     queryFn: async (): Promise<string[]> => {
       if (!connectionId) {
-        throw new Error('Connection ID is required');
+        throw new Error("Connection ID is required");
       }
 
-      const result = await invoke<string[]>('db_list_databases', {
-        connectionId,
-      });
-
-      return result || [];
+      return await secureDatabaseService.getDatabases(connectionId);
     },
     enabled: !!connectionId,
-    staleTime: 10 * 60 * 1000,  // 10 minutes
-    gcTime: 30 * 60 * 1000,     // 30 minutes
+    staleTime: 10 * 60 * 1000, // 10 minutes
+    gcTime: 30 * 60 * 1000, // 30 minutes
   });
 }
 
@@ -38,22 +36,20 @@ export function useDatabases(connectionId: string | null) {
  */
 export function useSchemas(connectionId: string | null, database?: string) {
   return useQuery({
-    queryKey: ['schemas', connectionId, database],
+    queryKey: ["schemas", connectionId, database],
     queryFn: async (): Promise<string[]> => {
       if (!connectionId) {
-        throw new Error('Connection ID is required');
+        throw new Error("Connection ID is required");
       }
 
-      const result = await invoke<string[]>('db_list_schemas', {
+      return await secureDatabaseService.getSchemas(
         connectionId,
-        database: database || '',
-      });
-
-      return result || [];
+        database || "",
+      );
     },
     enabled: !!connectionId,
-    staleTime: 10 * 60 * 1000,  // 10 minutes
-    gcTime: 30 * 60 * 1000,     // 30 minutes
+    staleTime: 10 * 60 * 1000, // 10 minutes
+    gcTime: 30 * 60 * 1000, // 30 minutes
   });
 }
 
@@ -62,39 +58,41 @@ export function useSchemas(connectionId: string | null, database?: string) {
  */
 export function useDatabase(connectionId: string | null) {
   return useQuery({
-    queryKey: ['database', connectionId],
+    queryKey: ["database", connectionId],
     queryFn: async () => {
       if (!connectionId) {
-        throw new Error('Connection ID is required');
+        throw new Error("Connection ID is required");
       }
 
       // Fetch all schema information in parallel
       const [schemas, tables, views, functions] = await Promise.all([
-        invoke<string[]>('db_list_schemas', { connectionId }),
-        invoke<any[]>('db_list_tables', { connectionId }),
-        invoke<any[]>('db_list_views', { connectionId }),
-        invoke<any[]>('db_list_functions', { connectionId }),
+        secureDatabaseService.getSchemas(connectionId, ""),
+        secureDatabaseService.getTables(connectionId),
+        secureDatabaseService.getViews(connectionId),
+        secureDatabaseService.getFunctions(connectionId),
       ]);
 
       return {
-        schemas: schemas || [],
-        tables: tables || [],
-        views: views || [],
-        functions: functions || [],
+        schemas,
+        tables,
+        views,
+        functions,
       };
     },
     enabled: !!connectionId,
-    staleTime: 10 * 60 * 1000,  // 10 minutes
-    gcTime: 30 * 60 * 1000,     // 30 minutes
+    staleTime: 10 * 60 * 1000, // 10 minutes
+    gcTime: 30 * 60 * 1000, // 30 minutes
   });
 }
 
 /**
  * Hook for testing database connection
+ * Delegates to the secure connection store's test functionality
  */
 export function useTestConnection() {
   return useMutation({
     mutationFn: async (config: {
+      type: string;
       host: string;
       port: number;
       database: string;
@@ -102,14 +100,26 @@ export function useTestConnection() {
       password: string;
       ssl_mode?: string;
     }) => {
-      const result = await invoke('db_test_connection', config);
-      return result;
+      // Note: This should typically use the secure connection store
+      // For now, we'll use the service directly but this may need refactoring
+      const tempConnectionId = crypto.randomUUID();
+      try {
+        await secureDatabaseService.createConnectionById(tempConnectionId);
+        const result = await secureDatabaseService.testConnection(
+          tempConnectionId,
+        );
+        await secureDatabaseService.closeConnection(tempConnectionId);
+        return result;
+      } catch (error) {
+        await secureDatabaseService.closeConnection(tempConnectionId);
+        throw error;
+      }
     },
     onSuccess: () => {
-      console.log('Connection test successful');
+      console.log("Connection test successful");
     },
     onError: (error) => {
-      console.error('Connection test failed:', error);
+      console.error("Connection test failed:", error);
     },
   });
 }
@@ -122,6 +132,7 @@ export function useConnectDatabase() {
 
   return useMutation({
     mutationFn: async (config: {
+      type: string;
       host: string;
       port: number;
       database: string;
@@ -129,28 +140,34 @@ export function useConnectDatabase() {
       password: string;
       ssl_mode?: string;
     }) => {
-      const result = await invoke<{
-        connection_id: string;
-        database_type: string;
-        server_version: string;
-      }>('db_connect', config);
+      const connectionId = crypto.randomUUID();
+      await secureDatabaseService.createConnection(connectionId, {
+        id: connectionId,
+        name: `${config.host}:${config.port}`,
+        type: config.type as DatabaseType,
+        sslMode: config.ssl_mode,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
 
-      return result;
+      return {
+        connection_id: connectionId,
+        database_type: config.type,
+        server_version: "unknown", // TODO: Get from backend
+      };
     },
     onSuccess: (data) => {
       // Preload basic schema information
       queryClient.prefetchQuery({
-        queryKey: ['databases', data.connection_id],
-        queryFn: () => invoke('db_list_databases', {
-          connectionId: data.connection_id,
-        }),
+        queryKey: ["databases", data.connection_id],
+        queryFn: () => secureDatabaseService.getDatabases(data.connection_id),
         staleTime: 10 * 60 * 1000,
       });
 
-      console.log('Connected to database:', data);
+      console.log("Connected to database:", data);
     },
     onError: (error) => {
-      console.error('Failed to connect to database:', error);
+      console.error("Failed to connect to database:", error);
     },
   });
 }
@@ -163,7 +180,7 @@ export function useDisconnectDatabase() {
 
   return useMutation({
     mutationFn: async (connectionId: string) => {
-      await invoke('db_disconnect', { connectionId });
+      await secureDatabaseService.closeConnection(connectionId);
       return connectionId;
     },
     onSuccess: (connectionId) => {
@@ -172,25 +189,25 @@ export function useDisconnectDatabase() {
 
       // Remove all queries related to this connection
       queryClient.removeQueries({
-        queryKey: ['databases', connectionId],
+        queryKey: ["databases", connectionId],
       });
       queryClient.removeQueries({
-        queryKey: ['schemas', connectionId],
+        queryKey: ["schemas", connectionId],
       });
       queryClient.removeQueries({
-        queryKey: ['table', connectionId],
+        queryKey: ["table", connectionId],
       });
       queryClient.removeQueries({
-        queryKey: ['query', connectionId],
+        queryKey: ["query", connectionId],
       });
       queryClient.removeQueries({
-        queryKey: ['columns', connectionId],
+        queryKey: ["columns", connectionId],
       });
 
-      console.log('Disconnected from database:', connectionId);
+      console.log("Disconnected from database:", connectionId);
     },
     onError: (error) => {
-      console.error('Failed to disconnect from database:', error);
+      console.error("Failed to disconnect from database:", error);
     },
   });
 }
@@ -199,21 +216,31 @@ export function useDisconnectDatabase() {
  * Hook for getting database server information
  */
 export function useDatabaseInfo(connectionId: string | null) {
+  const { getActualConnectionId } = useSecureConnectionStore();
+
   return useQuery({
-    queryKey: ['database-info', connectionId],
+    queryKey: ["database-info", connectionId],
     queryFn: async () => {
       if (!connectionId) {
-        throw new Error('Connection ID is required');
+        throw new Error("Connection ID is required");
       }
 
-      const version = await invoke<string>('db_server_version', {
-        connectionId,
-      });
+      // Get the actual backend connection ID (includes workspace isolation)
+      const actualConnectionId = getActualConnectionId(connectionId);
 
-      return { version };
+      // Server version info is not currently available in the new architecture
+      // Return basic connection status instead
+      const isConnected = await secureDatabaseService.testConnection(
+        actualConnectionId,
+      );
+
+      return {
+        version: "unknown", // TODO: Implement server version in backend
+        connected: isConnected,
+      };
     },
     enabled: !!connectionId,
-    staleTime: 60 * 60 * 1000,  // 1 hour
+    staleTime: 60 * 60 * 1000, // 1 hour
     gcTime: 2 * 60 * 60 * 1000, // 2 hours
   });
 }
@@ -225,31 +252,49 @@ export function useDatabaseMaintenance(connectionId: string | null) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ operation, params }: { 
-      operation: 'analyze' | 'vacuum' | 'reindex';
+    mutationFn: async ({
+      operation,
+      params: _params,
+    }: {
+      operation: "analyze" | "vacuum" | "reindex";
       params?: Record<string, any>;
     }) => {
       if (!connectionId) {
-        throw new Error('Connection ID is required');
+        throw new Error("Connection ID is required");
       }
 
-      const result = await invoke('db_maintenance', {
-        connectionId,
-        operation,
-        params: params || {},
-      });
+      // Database maintenance operations are not currently supported in the new architecture
+      // Execute SQL commands directly instead
+      let sql = "";
+      switch (operation) {
+        case "analyze":
+          sql = "ANALYZE";
+          break;
+        case "vacuum":
+          sql = "VACUUM";
+          break;
+        case "reindex":
+          sql = "REINDEX DATABASE CURRENT";
+          break;
+        default:
+          throw new Error(`Unsupported maintenance operation: ${operation}`);
+      }
 
-      return result;
+      const result = await secureDatabaseService.executeStatement(
+        connectionId,
+        sql,
+      );
+      return { rows_affected: result };
     },
     onSuccess: (_, variables) => {
       console.log(`Database ${variables.operation} completed`);
-      
+
       // Invalidate relevant caches after maintenance
       if (connectionId) {
-        if (variables.operation === 'analyze') {
+        if (variables.operation === "analyze") {
           // Invalidate table statistics
           queryClient.invalidateQueries({
-            queryKey: ['row-count', connectionId],
+            queryKey: ["row-count", connectionId],
           });
         }
       }
@@ -268,27 +313,22 @@ export function useTransaction(connectionId: string | null) {
     begin: useMutation({
       mutationFn: async () => {
         if (!connectionId) {
-          throw new Error('Connection ID is required');
+          throw new Error("Connection ID is required");
         }
 
-        const result = await invoke<string>('db_begin_transaction', {
-          connectionId,
-        });
-
-        return result;
+        // Use direct SQL execution for transaction commands
+        await secureDatabaseService.executeStatement(connectionId, "BEGIN");
+        return crypto.randomUUID(); // Return a dummy transaction ID
       },
     }),
 
     commit: useMutation({
-      mutationFn: async (transactionId: string) => {
+      mutationFn: async (_transactionId: string) => {
         if (!connectionId) {
-          throw new Error('Connection ID is required');
+          throw new Error("Connection ID is required");
         }
 
-        await invoke('db_commit', {
-          connectionId,
-          txId: transactionId,
-        });
+        await secureDatabaseService.executeStatement(connectionId, "COMMIT");
       },
       onSuccess: () => {
         // Invalidate all cached data as transaction changes are committed
@@ -299,15 +339,12 @@ export function useTransaction(connectionId: string | null) {
     }),
 
     rollback: useMutation({
-      mutationFn: async (transactionId: string) => {
+      mutationFn: async (_transactionId: string) => {
         if (!connectionId) {
-          throw new Error('Connection ID is required');
+          throw new Error("Connection ID is required");
         }
 
-        await invoke('db_rollback', {
-          connectionId,
-          txId: transactionId,
-        });
+        await secureDatabaseService.executeStatement(connectionId, "ROLLBACK");
       },
     }),
   };
