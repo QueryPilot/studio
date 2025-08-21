@@ -186,7 +186,7 @@ export const VirtualRow = memo(
                   flex: isLastColumn ? "1 1 auto" : "0 0 auto",
                 }}
               >
-                <div className="overflow-hidden flex-1">
+                <div className="overflow-hidden flex-1 truncate">
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
                 </div>
                 {cell.getValue() !== null && (
