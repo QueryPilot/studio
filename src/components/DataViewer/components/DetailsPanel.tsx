@@ -1,22 +1,31 @@
 import { memo, useMemo, useDeferredValue } from "react";
 import { Button } from "@/components/ui/button";
 import { ToggleButton } from "@/components/ui/toggle-button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { X, FileJson, TableProperties } from "lucide-react";
-import { DetailViewMode } from "../types";
+import { type DetailViewMode } from "../types";
 import { PreviewTable } from "./PreviewTable";
+import Editor from "@monaco-editor/react";
+import { useTheme } from "next-themes";
+import { defineThemes } from "@/components/QueryEditor/monacoTheme";
+
+interface RowData {
+  id: string;
+  original?: Record<string, unknown>;
+  _rowIndex?: number;
+  [key: string]: unknown;
+}
 
 interface DetailsPanelProps {
   showDetails: boolean;
-  getSelectionDetails: any;
-  selectedRow: any;
+  getSelectionDetails: Record<string, unknown> | null;
+  selectedRow: Record<string, unknown> | null;
   selectedRowIds: Set<string>;
   detailViewMode: DetailViewMode;
   setDetailViewMode: (mode: DetailViewMode) => void;
   setShowDetails: (show: boolean) => void;
   setSelectedRowIds: (selection: Set<string>) => void;
-  setSelectedRow: (row: any) => void;
-  rows: any[];
+  setSelectedRow: (row: Record<string, unknown> | null) => void;
+  rows: RowData[];
 }
 
 export const DetailsPanel = memo(
@@ -43,14 +52,18 @@ export const DetailsPanel = memo(
             <div className="flex items-center bg-muted/50 border rounded-md p-0.5">
               <ToggleButton
                 isActive={detailViewMode === "table"}
-                onClick={() => setDetailViewMode("table")}
+                onClick={() => {
+                  setDetailViewMode("table");
+                }}
               >
                 <TableProperties className="h-3 w-3 mr-1" />
                 Preview
               </ToggleButton>
               <ToggleButton
                 isActive={detailViewMode === "json"}
-                onClick={() => setDetailViewMode("json")}
+                onClick={() => {
+                  setDetailViewMode("json");
+                }}
               >
                 <FileJson className="h-3 w-3 mr-1" />
                 JSON
@@ -76,16 +89,14 @@ export const DetailsPanel = memo(
               <PreviewTable data={getSelectionDetails || selectedRow || {}} />
             </div>
           ) : (
-            <ScrollArea className="flex-1 overflow-auto">
-              <div className="p-2">
-                <DetailsPanelJSON
-                  selectedRowIds={selectedRowIds}
-                  getSelectionDetails={getSelectionDetails}
-                  selectedRow={selectedRow}
-                  rows={rows}
-                />
-              </div>
-            </ScrollArea>
+            <div className="flex-1 overflow-hidden">
+              <DetailsPanelJSON
+                selectedRowIds={selectedRowIds}
+                getSelectionDetails={getSelectionDetails}
+                selectedRow={selectedRow}
+                rows={rows}
+              />
+            </div>
           )
         ) : (
           <div className="flex-1 flex items-center justify-center">
@@ -110,10 +121,11 @@ const DetailsPanelJSON = memo(
     rows,
   }: {
     selectedRowIds: Set<string>;
-    getSelectionDetails: any;
-    selectedRow: any;
-    rows: any[];
+    getSelectionDetails: Record<string, unknown> | null;
+    selectedRow: Record<string, unknown> | null;
+    rows: RowData[];
   }) => {
+    const { theme } = useTheme();
     // Use deferred value for JSON content to prevent blocking renders
     const deferredSelectedRowIds = useDeferredValue(selectedRowIds);
 
@@ -123,10 +135,13 @@ const DetailsPanelJSON = memo(
 
       if (selectedIds.length > 1) {
         const selectedRows = selectedIds
-          .map((id) => rows.find((r) => r.id === id)?.original)
+          .map((id) => {
+            const row = rows.find((r) => r.id === id);
+            return row?.original || row;
+          })
           .filter(Boolean)
           .map((row) => {
-            const cleanRow = { ...row };
+            const cleanRow = { ...row } as Record<string, unknown>;
             delete cleanRow._rowIndex;
             return cleanRow;
           });
@@ -141,9 +156,35 @@ const DetailsPanelJSON = memo(
     }, [deferredSelectedRowIds, getSelectionDetails, selectedRow, rows]);
 
     return (
-      <pre className="text-xs font-mono bg-background rounded p-2 overflow-auto whitespace-pre-wrap break-words">
-        {jsonContent}
-      </pre>
+      <Editor
+        height="100%"
+        defaultLanguage="json"
+        value={jsonContent}
+        theme={theme === "dark" ? "devdb-dark" : "devdb-light"}
+        beforeMount={(monaco) => {
+          defineThemes(monaco);
+        }}
+        options={{
+          readOnly: true,
+          minimap: { enabled: false },
+          fontSize: 12,
+          wordWrap: "on",
+          scrollBeyondLastLine: false,
+          automaticLayout: true,
+          lineNumbers: "off",
+          glyphMargin: false,
+          folding: true,
+          lineDecorationsWidth: 0,
+          lineNumbersMinChars: 0,
+          renderLineHighlight: "none",
+          scrollbar: {
+            vertical: "auto",
+            horizontal: "auto",
+            verticalScrollbarSize: 10,
+            horizontalScrollbarSize: 10,
+          },
+        }}
+      />
     );
   },
 );
