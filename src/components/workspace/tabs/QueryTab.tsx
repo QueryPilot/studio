@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
 import { Button } from '@/components/ui/button';
 import { useTheme } from 'next-themes';
+import { defineThemes } from '@/components/QueryEditor/monacoTheme';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useQueryStore } from '@/stores/queryStore';
 import { useQueryData, useExecuteSQL, useExecuteQueryWithCancellation } from '@/hooks/useQueryData';
@@ -205,7 +206,10 @@ export function QueryTab({ tab }: QueryTabProps) {
         <div className="flex-1">
           <Editor
             language="sql"
-            theme={theme === 'dark' ? 'vs-dark' : 'vs-light'}
+            theme={theme === 'dark' ? 'devdb-dark' : 'devdb-light'}
+            beforeMount={(monaco) => {
+              defineThemes(monaco);
+            }}
             value={sql}
             onChange={handleSqlChange}
             options={{

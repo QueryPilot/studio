@@ -4,6 +4,9 @@ import { Badge } from '@/components/ui/badge';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { DataViewer } from '@/components/DataViewer/DataViewer';
 import { TabState } from '@/types/workspace';
+import Editor from '@monaco-editor/react';
+import { useTheme } from 'next-themes';
+import { defineThemes } from '@/components/QueryEditor/monacoTheme';
 import {
   RefreshCw,
   Download,
@@ -37,6 +40,7 @@ interface QueryResult {
 export function ResultTab({ tab, resultId }: ResultTabProps) {
   const { updateTabPayload } = useWorkspaceStore();
   const workspace = useWorkspaceStore(s => s.getActiveWorkspace());
+  const { theme } = useTheme();
   
   // Mock result data - in practice this would come from a query store or cache
   const [result] = useState<QueryResult>({
@@ -198,9 +202,37 @@ export function ResultTab({ tab, resultId }: ResultTabProps) {
       {showSql && (
         <div className="border-b p-4 bg-muted/20">
           <div className="text-sm font-medium mb-2">Executed Query</div>
-          <pre className="text-sm bg-background p-2 rounded border font-mono whitespace-pre-wrap">
-            {result.sql}
-          </pre>
+          <div className="h-32 border rounded overflow-hidden">
+            <Editor
+              height="100%"
+              defaultLanguage="sql"
+              value={result.sql}
+              theme={theme === "dark" ? "devdb-dark" : "devdb-light"}
+              beforeMount={(monaco) => {
+                defineThemes(monaco);
+              }}
+              options={{
+                readOnly: true,
+                minimap: { enabled: false },
+                fontSize: 12,
+                wordWrap: "on",
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+                lineNumbers: "off",
+                glyphMargin: false,
+                folding: false,
+                lineDecorationsWidth: 0,
+                lineNumbersMinChars: 0,
+                renderLineHighlight: "none",
+                scrollbar: {
+                  vertical: "auto",
+                  horizontal: "auto",
+                  verticalScrollbarSize: 10,
+                  horizontalScrollbarSize: 10,
+                },
+              }}
+            />
+          </div>
           <div className="text-xs text-muted-foreground mt-2">
             Executed at {formatTimestamp(result.executedAt)}
           </div>
