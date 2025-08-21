@@ -2,8 +2,9 @@ import { useRef, useState, useEffect } from "react";
 import Editor, { Monaco } from "@monaco-editor/react";
 import { editor } from "monaco-editor";
 import { useConnectionStore } from "@/stores";
+import { useQueryStore } from "@/stores/queryStore";
 import { Button } from "@/components/ui/button";
-import { Play, Square, History, Save, RefreshCw } from "lucide-react";
+import { Play, Square, History, Save, RefreshCw, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/components/theme-provider";
 import { configureSQLLanguage, registerSQLSnippets } from "./QueryEditor/monacoConfig";
@@ -33,6 +34,17 @@ export function QueryEditor({
   const [isRefreshingSchema, setIsRefreshingSchema] = useState(false);
   const languageDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const snippetsDisposableRef = useRef<{ dispose: () => void } | null>(null);
+  
+  // Query store for tracking active queries
+  const { 
+    getActiveQueriesForConnection, 
+    cancelQuery 
+  } = useQueryStore();
+  
+  // Get active queries for current connection
+  const activeQueries = activeConnectionId 
+    ? getActiveQueriesForConnection(activeConnectionId)
+    : [];
 
   const handleEditorDidMount = (
     editor: editor.IStandaloneCodeEditor,
@@ -154,9 +166,31 @@ export function QueryEditor({
     }
   };
 
-  const handleStop = () => {
-    // TODO: Implement query cancellation
-    setIsExecuting(false);
+  const handleStop = async () => {
+    if (activeQueries.length === 0) {
+      setIsExecuting(false);
+      return;
+    }
+
+    try {
+      // Cancel all active queries for this connection
+      await Promise.all(
+        activeQueries.map(query => cancelQuery(query.id))
+      );
+      setIsExecuting(false);
+    } catch (error) {
+      console.error('Failed to cancel queries:', error);
+      // Still stop the UI execution state
+      setIsExecuting(false);
+    }
+  };
+
+  const handleCancelQuery = async (queryId: string) => {
+    try {
+      await cancelQuery(queryId);
+    } catch (error) {
+      console.error('Failed to cancel query:', error);
+    }
   };
 
   const handleRefreshSchema = async () => {
@@ -281,7 +315,30 @@ export function QueryEditor({
       </div>
 
       {/* Compact Toolbar at Bottom */}
-      <div className="flex items-center justify-end h-8 px-2 border-t bg-muted/30">
+      <div className="flex items-center justify-between h-8 px-2 border-t bg-muted/30">
+        {/* Active queries on left */}
+        <div className="flex items-center gap-1">
+          {activeQueries.map((query) => (
+            <div
+              key={query.id}
+              className="flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/30 rounded text-xs"
+            >
+              <span className="text-blue-700 dark:text-blue-300">
+                Running query...
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => handleCancelQuery(query.id)}
+                className="h-4 w-4 p-0 text-red-600 hover:text-red-700 hover:bg-red-100 dark:hover:bg-red-900/30"
+                title="Cancel Query"
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            </div>
+          ))}
+        </div>
+
         {/* Action buttons on right */}
         <div className="flex items-center gap-1">
           {selectedText && (
@@ -297,7 +354,7 @@ export function QueryEditor({
             </Button>
           )}
 
-          {isExecuting ? (
+          {isExecuting || activeQueries.length > 0 ? (
             <Button
               size="sm"
               variant="ghost"
@@ -305,7 +362,7 @@ export function QueryEditor({
               className="h-6 px-2 text-xs gap-1 text-destructive"
             >
               <Square className="h-3 w-3" />
-              Stop
+              Stop All
             </Button>
           ) : (
             <Button

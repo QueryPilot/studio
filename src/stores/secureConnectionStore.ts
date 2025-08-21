@@ -307,7 +307,16 @@ export const useSecureConnectionStore = create<ConnectionState>((set, get) => ({
         
       } catch (error) {
         lastError = error instanceof Error ? error : new Error("Connection failed");
-        console.error(`[SecureConnectionStore] Connection attempt ${attempt}/${maxRetries} failed for ${connectionId}:`, lastError.message);
+        console.error(`[SecureConnectionStore] Connection attempt ${attempt}/${maxRetries} failed for ${connectionId}: –`, lastError.message);
+        
+        // Log more detailed error information
+        if (error instanceof Error) {
+          console.error(`[SecureConnectionStore] Error details:`, {
+            name: error.name,
+            message: error.message,
+            stack: error.stack?.split('\n').slice(0, 3).join('\n'), // First 3 lines of stack
+          });
+        }
         
         // If this isn't the last attempt, wait before retrying
         if (attempt < maxRetries) {
