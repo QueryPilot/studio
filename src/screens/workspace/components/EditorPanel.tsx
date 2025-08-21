@@ -218,7 +218,7 @@ export function EditorPanel() {
                   className="h-6 px-1.5 ml-0.5 flex-none"
                 >
                   <ChevronDown className="h-4 w-4" />
-                  <span className="ml-0.5 text-sm">{overflowTabs.length}</span>
+                  <span className="ml-0.5 text-xs">{overflowTabs.length}</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -226,7 +226,7 @@ export function EditorPanel() {
                   <DropdownMenuItem
                     key={tab.id}
                     onClick={() => workspaceId && setActiveTab(workspaceId, tab.id)}
-                    className="text-sm"
+                    className="text-xs"
                   >
                     {getIcon(tab.type)}
                     <span>{tab.title}</span>

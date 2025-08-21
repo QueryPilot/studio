@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { QueryEditor } from "./QueryEditor";
-import { QueryResults } from "./QueryResults";
+import { QueryDataViewer } from "./QueryDataViewer";
 import { useConnectionStore, useQueryStore } from "@/stores";
 import { queryService, QueryResult, QueryError } from "@/services/queryService";
 import { schemaService } from "@/services/schemaService";
+import { splitSqlStatements, getStatementType } from "@/utils/sqlParser";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, AlertCircle } from "lucide-react";
@@ -50,37 +51,60 @@ export function QueryWorkspace() {
     try {
       const startTime = Date.now();
 
-      // Determine query type
-      const queryType = queryService.getQueryType(query);
-
-      let queryResult: QueryResult;
-
-      if (queryType === "select") {
-        queryResult = await queryService.executeQuery(activeConnection, query);
-        setResults(queryResult);
-        setLastResults(queryResult);
-
-        setMessages([
-          `Query executed successfully in ${queryResult.queryTime}ms`,
-          `Returned ${queryResult.rowCount} row(s)`,
-        ]);
-      } else if (queryType === "update") {
-        const result = await queryService.executeUpdate(
-          activeConnection,
-          query,
-        );
-        setMessages([
-          `Query executed successfully in ${result.queryTime}ms`,
-          `${result.affectedRows} row(s) affected`,
-        ]);
-      } else {
-        // For DDL and other queries
-        const result = await queryService.executeUpdate(
-          activeConnection,
-          query,
-        );
-        setMessages([`Query executed successfully in ${result.queryTime}ms`]);
+      // Split the query into individual statements
+      const statements = splitSqlStatements(query);
+      
+      if (statements.length === 0) {
+        setMessages(["No valid SQL statements to execute"]);
+        return;
       }
+
+      const statementMessages: string[] = [];
+      let lastSelectResult: QueryResult | null = null;
+
+      // Execute each statement separately
+      for (let i = 0; i < statements.length; i++) {
+        const statement = statements[i];
+        const stmtType = getStatementType(statement);
+        
+        try {
+          if (stmtType === "select") {
+            const queryResult = await queryService.executeQuery(activeConnection, statement);
+            lastSelectResult = queryResult;
+            
+            statementMessages.push(
+              `Statement ${i + 1}: SELECT executed in ${queryResult.queryTime}ms, returned ${queryResult.rowCount} row(s)`
+            );
+          } else if (stmtType === "update" || stmtType === "insert" || stmtType === "delete") {
+            const result = await queryService.executeUpdate(activeConnection, statement);
+            statementMessages.push(
+              `Statement ${i + 1}: ${stmtType.toUpperCase()} executed in ${result.queryTime}ms, ${result.affectedRows} row(s) affected`
+            );
+          } else {
+            // For DDL and other queries
+            const result = await queryService.executeUpdate(activeConnection, statement);
+            statementMessages.push(
+              `Statement ${i + 1}: ${stmtType === 'ddl' ? 'DDL' : stmtType.toUpperCase()} executed in ${result.queryTime}ms`
+            );
+          }
+        } catch (stmtError: any) {
+          // If any statement fails, stop execution and show error
+          const errorMsg = stmtError.message || `Statement ${i + 1} failed`;
+          throw new Error(`${errorMsg}\n\nFailed statement:\n${statement}`);
+        }
+      }
+
+      // Show results from the last SELECT statement if any
+      if (lastSelectResult) {
+        setResults(lastSelectResult);
+        setLastResults(lastSelectResult);
+      }
+
+      // Display all execution messages
+      setMessages([
+        `Executed ${statements.length} statement(s) in ${Date.now() - startTime}ms`,
+        ...statementMessages
+      ]);
 
       // Add to history
       addToHistory({
@@ -139,9 +163,9 @@ export function QueryWorkspace() {
 
       <ResizablePanel defaultSize={40} minSize={20} className="flex flex-col">
         <Tabs defaultValue="results" className="h-full flex flex-col">
-          <TabsList className="w-full justify-start rounded-none border-b flex-shrink-0">
-            <TabsTrigger value="results">Results</TabsTrigger>
-            <TabsTrigger value="messages">Messages</TabsTrigger>
+          <TabsList className="w-full justify-start rounded-none border-b flex-shrink-0 h-8 p-0.5">
+            <TabsTrigger value="results" className="text-xs h-6">Results</TabsTrigger>
+            <TabsTrigger value="messages" className="text-xs h-6">Messages</TabsTrigger>
           </TabsList>
 
           <TabsContent value="results" className="flex-1 mt-0 overflow-auto">
@@ -173,10 +197,11 @@ export function QueryWorkspace() {
                 </Alert>
               </div>
             ) : results ? (
-              <QueryResults
+              <QueryDataViewer
                 data={results.rows}
                 columns={results.columns}
                 queryTime={results.queryTime}
+                connectionId={activeConnectionId || undefined}
               />
             ) : (
               <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -187,9 +212,9 @@ export function QueryWorkspace() {
 
           <TabsContent value="messages" className="flex-1 mt-0 p-4 overflow-auto">
             {messages.length > 0 ? (
-              <div className="space-y-2">
+              <div className="space-y-1">
                 {messages.map((message, index) => (
-                  <div key={index} className="text-sm">
+                  <div key={index} className="text-xs">
                     <span className="text-muted-foreground">
                       [{new Date().toLocaleTimeString()}]
                     </span>{" "}
@@ -198,7 +223,7 @@ export function QueryWorkspace() {
                 ))}
               </div>
             ) : (
-              <div className="text-muted-foreground text-sm">
+              <div className="text-muted-foreground text-xs">
                 No messages to display
               </div>
             )}

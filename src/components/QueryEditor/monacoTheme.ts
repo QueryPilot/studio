@@ -82,22 +82,35 @@ export const lightTheme: editor.IStandaloneThemeData = {
     "editor.wordHighlightBackground": "#FCA31122",
     "editor.wordHighlightStrongBackground": "#FCA31133",
     
-    // Suggest widget
+    // Suggest widget - Fixed for better visibility
     "editorSuggestWidget.background": "#FFFFFF",
-    "editorSuggestWidget.border": "#E5E7EB",
-    "editorSuggestWidget.foreground": "#0A0A0A",
-    "editorSuggestWidget.highlightForeground": "#FCA311",
+    "editorSuggestWidget.border": "#D1D5DB",
+    "editorSuggestWidget.foreground": "#111827", // Darker text for better contrast
+    "editorSuggestWidget.highlightForeground": "#EA580C", // Darker orange for highlights
     "editorSuggestWidget.selectedBackground": "#F3F4F6",
-    "editorSuggestWidget.focusHighlightForeground": "#FCA311",
+    "editorSuggestWidget.selectedForeground": "#111827", // Ensure selected text is visible
+    "editorSuggestWidget.focusHighlightForeground": "#EA580C",
+    "list.focusBackground": "#FEF3C7", // Light amber background for focused item
+    "list.focusForeground": "#111827", // Dark text on focus
+    "list.activeSelectionBackground": "#FEF3C7",
+    "list.activeSelectionForeground": "#111827",
+    "list.hoverBackground": "#F9FAFB",
+    "list.hoverForeground": "#111827",
     
     // Hover widget
     "editorHoverWidget.background": "#FFFFFF",
-    "editorHoverWidget.border": "#E5E7EB",
-    "editorHoverWidget.foreground": "#0A0A0A",
+    "editorHoverWidget.border": "#D1D5DB",
+    "editorHoverWidget.foreground": "#111827",
     
     // Editor widget
     "editorWidget.background": "#FFFFFF",
-    "editorWidget.border": "#E5E7EB",
+    "editorWidget.border": "#D1D5DB",
+    "editorWidget.foreground": "#111827",
+    
+    // Parameter hints
+    "editorParameterHint.background": "#FFFFFF",
+    "editorParameterHint.border": "#D1D5DB",
+    "editorParameterHint.foreground": "#111827",
     
     // Gutter
     "editorGutter.background": "#FFFFFF",
@@ -109,6 +122,17 @@ export const lightTheme: editor.IStandaloneThemeData = {
     "editorOverviewRuler.border": "#E5E7EB",
     "editorOverviewRuler.findMatchForeground": "#FCA31166",
     "editorOverviewRuler.selectionHighlightForeground": "#FCA31166",
+    
+    // Quick input and command palette
+    "quickInput.background": "#FFFFFF",
+    "quickInput.foreground": "#111827",
+    "quickInputList.focusBackground": "#FEF3C7",
+    "quickInputList.focusForeground": "#111827",
+    
+    // Dropdown
+    "dropdown.background": "#FFFFFF",
+    "dropdown.foreground": "#111827",
+    "dropdown.border": "#D1D5DB",
   }
 };
 

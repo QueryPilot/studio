@@ -5,6 +5,13 @@ export interface DataViewerProps {
   schema?: string;
   connectionId?: string;
   onRowClick?: (row: any) => void;
+  // For query results mode - provide data directly instead of fetching
+  preloadedData?: {
+    data: any[];
+    columns: string[];
+    totalRows?: number;
+    queryTime?: number;
+  };
 }
 
 export type ViewMode = "data" | "structure";

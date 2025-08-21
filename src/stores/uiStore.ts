@@ -15,6 +15,8 @@ interface UIState {
   setSelectedSchema: (schema: string) => void;
   availableSchemas: string[];
   setAvailableSchemas: (schemas: string[]) => void;
+  queryTime: number | null;
+  setQueryTime: (time: number | null) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -32,4 +34,6 @@ export const useUIStore = create<UIState>((set) => ({
   setSelectedSchema: (schema) => set({ selectedSchema: schema }),
   availableSchemas: [],
   setAvailableSchemas: (schemas) => set({ availableSchemas: schemas }),
+  queryTime: null,
+  setQueryTime: (time) => set({ queryTime: time }),
 }));

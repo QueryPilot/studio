@@ -78,6 +78,7 @@ export function DataViewer({
   schema = "public",
   connectionId,
   onRowClick,
+  preloadedData,
 }: DataViewerProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("data");
   const [data, setData] = useState<any[]>([]);
@@ -117,6 +118,7 @@ export function DataViewer({
 
   const { activeConnectionId, connections } = useConnectionStore();
   const activeConnection = connectionId || activeConnectionId;
+  const { setQueryTime: setUIQueryTime } = useUIStore();
 
   // Refs for virtual scrolling
   const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -513,9 +515,60 @@ export function DataViewer({
 
   // Initial load - separate effects to prevent flashing
   useEffect(() => {
-    // Load both data and structure on mount
-    if (activeConnection) {
-      // Reset state for new table
+    // If we have preloaded data, use it directly
+    if (preloadedData) {
+      setIsLoading(false);
+      setData(preloadedData.data);
+      setDataLoaded(true);
+      setHasMore(false); // All data is preloaded
+      setEstimatedRowCount(preloadedData.totalRows || preloadedData.data.length);
+      
+      // Generate columns from the data
+      if (preloadedData.columns && preloadedData.columns.length > 0) {
+        const generatedColumns: ColumnDef<any>[] = preloadedData.columns.map((col) => {
+          const columnSize = getInitialColumnSize(col, preloadedData.data);
+          return {
+            id: col,
+            accessorKey: col,
+            header: col,
+            size: columnSize.size,
+            minSize: columnSize.min,
+            maxSize: columnSize.max,
+            enableSorting: true,
+            enableResizing: true,
+          };
+        });
+        setColumns(generatedColumns);
+        setColumnOrder(preloadedData.columns);
+        
+        // Initialize column sizing state
+        const sizingState: ColumnSizingState = {};
+        preloadedData.columns.forEach((col) => {
+          const size = getInitialColumnSize(col, preloadedData.data);
+          sizingState[col] = size.size;
+        });
+        setColumnSizing(sizingState);
+      }
+      
+      // Create mock structure for query results
+      const mockStructure: TableColumn[] = preloadedData.columns.map((col) => ({
+        column_name: col,
+        data_type: "text",
+        is_nullable: "YES",
+        column_default: null,
+        character_maximum_length: null,
+        is_primary_key: false,
+        is_foreign_key: false,
+      }));
+      setTableStructure(mockStructure);
+      setStructureLoaded(true);
+      
+      // Set query time in UI store if provided
+      if (preloadedData.queryTime !== undefined) {
+        setUIQueryTime(preloadedData.queryTime);
+      }
+    } else if (activeConnection) {
+      // Normal mode - fetch from database
       setOffset(0);
       setHasMore(true);
 
@@ -523,7 +576,7 @@ export function DataViewer({
       void fetchEstimatedCount();
       void fetchTableStructure();
     }
-  }, [activeConnection, tableName, schema]);
+  }, [activeConnection, tableName, schema, preloadedData]);
 
   // Don't reload when switching view modes - data is already cached
   useEffect(() => {
@@ -1040,6 +1093,7 @@ export function DataViewer({
       setCurrentTableName(null);
       setTotalRowCount(0);
       setUIEstimatedRowCount(null);
+      setUIQueryTime(null);
     };
   }, [
     tableName,
@@ -1048,6 +1102,7 @@ export function DataViewer({
     setCurrentTableName,
     setTotalRowCount,
     setUIEstimatedRowCount,
+    setUIQueryTime,
   ]);
 
   // Update loading state
