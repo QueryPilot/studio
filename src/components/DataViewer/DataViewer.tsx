@@ -42,7 +42,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { ArrowUpDown, ArrowUp, ArrowDown, Loader2 } from "lucide-react";
+import { ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConnectionStore } from "@/stores";
 import { secureDatabaseService } from "@/services/secureDatabaseService";
@@ -65,6 +65,7 @@ import {
   VirtualRow,
   Toolbar,
   RowContextMenu,
+  TableSkeleton,
 } from "./components";
 import {
   copyAsCSV,
@@ -1295,16 +1296,9 @@ export function DataViewer({
     shouldUpdatePreview,
   ]);
 
-  // Only show loading on initial load, not when switching views
+  // Show skeleton loading on initial load
   if (!dataLoaded && !structureLoaded && isLoading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="flex flex-col items-center gap-2">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          <p className="text-xs text-muted-foreground">Loading table...</p>
-        </div>
-      </div>
-    );
+    return <TableSkeleton />;
   }
 
   if (error) {
@@ -1422,23 +1416,13 @@ export function DataViewer({
                                 if (!header) return null;
 
                                 return (
-                                  <th
+                                  <DraggableHeader
                                     key={header.id}
-                                    style={{
-                                      width: virtualColumn.size,
-                                      minWidth: virtualColumn.size,
-                                      maxWidth: virtualColumn.size,
-                                      display: "flex",
-                                      flex: "none",
-                                      flexShrink: 0,
-                                    }}
-                                  >
-                                    <DraggableHeader
-                                      column={header.column}
-                                      header={header}
-                                      onHideColumn={handleHideColumn}
-                                    />
-                                  </th>
+                                    column={header.column}
+                                    header={header}
+                                    onHideColumn={handleHideColumn}
+                                    virtualSize={virtualColumn.size}
+                                  />
                                 );
                               })}
                             {/* Spacer for headers after virtual range */}

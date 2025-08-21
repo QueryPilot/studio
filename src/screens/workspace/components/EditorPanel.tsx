@@ -38,7 +38,7 @@ export function EditorPanel() {
           .map((id) => workspace.tabs.get(id))
           .filter((tab): tab is TabState => Boolean(tab))
       : [];
-  }, [workspace?.tabOrder.join(","), workspace?.tabs.size]);
+  }, [workspace]);
 
   const activeTab = workspace?.activeTabId || "";
 
@@ -66,7 +66,7 @@ export function EditorPanel() {
     const queryCount = tabs.filter((t: TabState) => t.type === "query").length;
     addTab(workspaceId, {
       type: "query",
-      title: `Query ${queryCount + 1}`,
+      title: `Query ${String(queryCount + 1)}`,
       connectionId: workspace?.activeConnectionId || "",
       payload: {},
     });
@@ -90,7 +90,7 @@ export function EditorPanel() {
         // Icon (16) + margin (4) + text + close button (16) + margin (6) + padding (16)
         const baseWidth = 58;
         const charWidth = 6.5; // More accurate character width
-        return baseWidth + (tab?.title || "").length * charWidth;
+        return baseWidth + (tab.title || "").length * charWidth;
       };
 
       // Calculate total width needed for all tabs
@@ -133,7 +133,7 @@ export function EditorPanel() {
           visibleTabIds.push(tab.id);
         } else {
           // Can't fit this tab, check if it's the active one
-          if (tab && tab.id === activeTab && visibleTabIds.length > 0) {
+          if (tab.id === activeTab && visibleTabIds.length > 0) {
             // Remove the last visible tab to make room for active
             const removedId = visibleTabIds.pop();
             if (removedId) {
@@ -187,9 +187,11 @@ export function EditorPanel() {
     <div className="h-full flex flex-col bg-background">
       <Tabs
         value={activeTab}
-        onValueChange={(tabId) =>
-          workspaceId && setActiveTab(workspaceId, tabId)
-        }
+        onValueChange={(tabId) => {
+          if (workspaceId) {
+            setActiveTab(workspaceId, tabId);
+          }
+        }}
         className="h-full flex flex-col"
       >
         <div
@@ -209,7 +211,9 @@ export function EditorPanel() {
                   className="h-3.5 w-3.5 p-0 ml-1.5 hover:bg-transparent opacity-60 hover:opacity-100 cursor-pointer flex items-center justify-center"
                   onClick={(e) => {
                     e.stopPropagation();
-                    workspaceId && removeTab(workspaceId, tab.id);
+                    if (workspaceId) {
+                      removeTab(workspaceId, tab.id);
+                    }
                   }}
                 >
                   <X className="h-3 w-3" />
@@ -234,9 +238,11 @@ export function EditorPanel() {
                 {overflowTabs.map((tab: TabState) => (
                   <DropdownMenuItem
                     key={tab.id}
-                    onClick={() =>
-                      workspaceId && setActiveTab(workspaceId, tab.id)
-                    }
+                    onClick={() => {
+                      if (workspaceId) {
+                        setActiveTab(workspaceId, tab.id);
+                      }
+                    }}
                     className="text-xs"
                   >
                     {getIcon(tab.type)}
@@ -301,25 +307,21 @@ export function EditorPanel() {
                 <QueryWorkspace />
               ) : tab.type === "table" ? (
                 <DataViewer
-                  tableName={tab.payload?.tableName || tab.title}
-                  schema={tab.payload?.schema}
+                  tableName={tab.payload.tableName || tab.title}
+                  schema={tab.payload.schema}
                   connectionId={tab.connectionId}
                 />
               ) : tab.type === "schema" ? (
                 <DataViewer
-                  tableName={tab.payload?.tableName || tab.title}
-                  schema={tab.payload?.schema}
+                  tableName={tab.payload.tableName || tab.title}
+                  schema={tab.payload.schema}
                   connectionId={tab.connectionId}
                 />
               ) : (
                 <ScrollArea className="h-full">
                   <div className="p-4">
                     <div className="text-muted-foreground">
-                      {tab.type !== "result" &&
-                        tab.type !== "table" &&
-                        tab.type !== "query" &&
-                        tab.type !== "schema" &&
-                        `Content for '${tab.title}' will be displayed here`}
+                      Content for '{tab.title}' will be displayed here
                     </div>
                   </div>
                 </ScrollArea>
