@@ -101,6 +101,10 @@ export const VirtualRow = memo(
               if (!cell) return null;
               
               const isLastColumn = virtualColumn.index === row.getVisibleCells().length - 1;
+              // Use the column's actual size, not the virtualizer's size
+              const columnSize = cell.column.getSize();
+              // Ensure minimum width of 80px for all cells
+              const finalColumnSize = Math.max(columnSize, 80);
               return (
                 <td
                   key={cell.id}
@@ -111,9 +115,9 @@ export const VirtualRow = memo(
                   )}
                   style={{
                     display: "flex",
-                    width: virtualColumn.size,
-                    minWidth: virtualColumn.size,
-                    maxWidth: virtualColumn.size,
+                    width: finalColumnSize,
+                    minWidth: finalColumnSize,
+                    maxWidth: finalColumnSize,
                     flex: "none",
                     flexShrink: 0,
                   }}

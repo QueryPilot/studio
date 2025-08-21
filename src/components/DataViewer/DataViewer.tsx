@@ -795,14 +795,13 @@ export function DataViewer({
     getScrollElement: () => tableContainerRef.current,
     estimateSize: useCallback(
       (index: number) => {
-        return shouldVirtualizeColumns
-          ? visibleColumns[index]?.getSize() ?? 150
-          : 150;
+        // Always return the actual column size for accurate virtualization
+        return visibleColumns[index]?.getSize() ?? 150;
       },
-      [shouldVirtualizeColumns, visibleColumns],
+      [visibleColumns],
     ),
     horizontal: true, // Key option for column virtualization
-    overscan: 2, // Fewer columns need to be rendered off-screen
+    overscan: 3, // Render more columns off-screen to prevent gaps
     scrollMargin: 0,
     getItemKey: useCallback(
       (index: number) => {
@@ -1421,7 +1420,7 @@ export function DataViewer({
                                     column={header.column}
                                     header={header}
                                     onHideColumn={handleHideColumn}
-                                    virtualSize={virtualColumn.size}
+                                    virtualSize={header.getSize()}
                                   />
                                 );
                               })}
