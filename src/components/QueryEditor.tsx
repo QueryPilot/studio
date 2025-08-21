@@ -7,6 +7,7 @@ import { Play, Square, History, Save, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/components/theme-provider";
 import { configureSQLLanguage, registerSQLSnippets } from "./QueryEditor/monacoConfig";
+import { defineThemes } from "./QueryEditor/monacoTheme";
 import { schemaService } from "@/services/schemaService";
 
 interface QueryEditorProps {
@@ -39,6 +40,9 @@ export function QueryEditor({
   ) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
+
+    // Apply theme after mount
+    monaco.editor.setTheme(theme === "dark" ? "devdb-dark" : "devdb-light");
 
     // Register custom actions
     editor.addAction({
@@ -109,6 +113,13 @@ export function QueryEditor({
       }
     };
   }, [activeConnectionId]);
+
+  // Effect to update theme when it changes
+  useEffect(() => {
+    if (editorRef.current && monacoRef.current) {
+      monacoRef.current.editor.setTheme(theme === "dark" ? "devdb-dark" : "devdb-light");
+    }
+  }, [theme]);
 
   const handleExecute = async () => {
     if (!editorRef.current || !onExecute) return;
@@ -218,7 +229,12 @@ export function QueryEditor({
         <Editor
           defaultLanguage="sql"
           defaultValue={initialValue}
-          theme={theme === "dark" ? "vs-dark" : "vs"}
+          theme={theme === "dark" ? "devdb-dark" : "devdb-light"}
+          loading={<div className="h-full w-full bg-background" />}
+          beforeMount={(monaco) => {
+            // Define themes before mount
+            defineThemes(monaco);
+          }}
           onMount={handleEditorDidMount}
           options={{
             minimap: { enabled: false },

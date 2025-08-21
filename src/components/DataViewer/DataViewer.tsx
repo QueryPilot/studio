@@ -427,18 +427,19 @@ export function DataViewer({
                     );
                   }
                   if (typeof value === "object") {
+                    const jsonStr = JSON.stringify(value);
                     return (
                       <span
-                        className="font-mono text-xs"
-                        title={JSON.stringify(value)}
+                        className="block truncate font-mono text-xs whitespace-nowrap"
+                        title={jsonStr}
                       >
-                        {JSON.stringify(value).substring(0, 50)}...
+                        {jsonStr}
                       </span>
                     );
                   }
                   return (
                     <span
-                      className="block truncate text-xs"
+                      className="block truncate text-xs whitespace-nowrap"
                       title={String(value)}
                     >
                       {String(value)}
