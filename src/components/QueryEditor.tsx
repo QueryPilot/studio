@@ -3,9 +3,11 @@ import Editor, { Monaco } from "@monaco-editor/react";
 import { editor } from "monaco-editor";
 import { useConnectionStore } from "@/stores";
 import { Button } from "@/components/ui/button";
-import { Play, Square, History, Save } from "lucide-react";
+import { Play, Square, History, Save, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/components/theme-provider";
+import { configureSQLLanguage, registerSQLSnippets } from "./QueryEditor/monacoConfig";
+import { schemaService } from "@/services/schemaService";
 
 interface QueryEditorProps {
   className?: string;
@@ -27,6 +29,9 @@ export function QueryEditor({
   const { theme } = useTheme();
   const [isExecuting, setIsExecuting] = useState(false);
   const [selectedText, setSelectedText] = useState("");
+  const [isRefreshingSchema, setIsRefreshingSchema] = useState(false);
+  const languageDisposableRef = useRef<{ dispose: () => void } | null>(null);
+  const snippetsDisposableRef = useRef<{ dispose: () => void } | null>(null);
 
   const handleEditorDidMount = (
     editor: editor.IStandaloneCodeEditor,
@@ -67,119 +72,43 @@ export function QueryEditor({
       }
     });
 
-    // Configure SQL language features
-    configureSQLFeatures(monaco);
+    // Register SQL snippets only once during mount
+    if (!snippetsDisposableRef.current) {
+      snippetsDisposableRef.current = registerSQLSnippets(monaco);
+    }
+    
+    // Initial configuration will be done by useEffect
   };
 
-  const configureSQLFeatures = (monaco: Monaco) => {
-    // Register completion provider for SQL
-    monaco.languages.registerCompletionItemProvider("sql", {
-      provideCompletionItems: (model: any, position: any) => {
-        const word = model.getWordUntilPosition(position);
-        const range = {
-          startLineNumber: position.lineNumber,
-          endLineNumber: position.lineNumber,
-          startColumn: word.startColumn,
-          endColumn: word.endColumn,
-        };
-
-        // Basic SQL keywords
-        const keywords = [
-          "SELECT",
-          "FROM",
-          "WHERE",
-          "JOIN",
-          "LEFT",
-          "RIGHT",
-          "INNER",
-          "OUTER",
-          "INSERT",
-          "UPDATE",
-          "DELETE",
-          "CREATE",
-          "ALTER",
-          "DROP",
-          "TABLE",
-          "INDEX",
-          "VIEW",
-          "TRIGGER",
-          "PROCEDURE",
-          "FUNCTION",
-          "AS",
-          "ON",
-          "GROUP",
-          "BY",
-          "ORDER",
-          "HAVING",
-          "LIMIT",
-          "OFFSET",
-          "UNION",
-          "DISTINCT",
-          "VALUES",
-          "INTO",
-          "SET",
-          "AND",
-          "OR",
-          "NOT",
-          "IN",
-          "EXISTS",
-          "BETWEEN",
-          "LIKE",
-          "IS",
-          "NULL",
-          "TRUE",
-          "FALSE",
-          "CASE",
-          "WHEN",
-          "THEN",
-          "ELSE",
-          "END",
-          "WITH",
-          "RECURSIVE",
-        ];
-
-        const suggestions = keywords.map((keyword) => ({
-          label: keyword,
-          kind: monaco.languages.CompletionItemKind.Keyword,
-          insertText: keyword,
-          range: range,
-        }));
-
-        // Add common functions
-        const functions = [
-          "COUNT",
-          "SUM",
-          "AVG",
-          "MIN",
-          "MAX",
-          "ROUND",
-          "FLOOR",
-          "CEIL",
-          "CONCAT",
-          "SUBSTRING",
-          "LENGTH",
-          "UPPER",
-          "LOWER",
-          "TRIM",
-          "NOW",
-          "CURRENT_DATE",
-          "CURRENT_TIME",
-          "DATE_FORMAT",
-        ];
-
-        functions.forEach((func) => {
-          suggestions.push({
-            label: func,
-            kind: monaco.languages.CompletionItemKind.Function,
-            insertText: `${func}()`,
-            range: range,
-          });
-        });
-
-        return { suggestions };
-      },
-    });
-  };
+  // Effect to configure/reconfigure intellisense when connection changes
+  useEffect(() => {
+    if (monacoRef.current && activeConnectionId) {
+      // Dispose previous configuration if exists
+      if (languageDisposableRef.current) {
+        languageDisposableRef.current.dispose();
+        languageDisposableRef.current = null;
+      }
+      
+      // Configure new language features
+      languageDisposableRef.current = configureSQLLanguage({ 
+        connectionId: activeConnectionId, 
+        monaco: monacoRef.current 
+      });
+      
+      // Refresh schema
+      schemaService.getSchema(activeConnectionId).catch(err => {
+        console.warn('[QueryEditor] Failed to refresh schema:', err);
+      });
+    }
+    
+    // Cleanup on unmount or connection change
+    return () => {
+      if (languageDisposableRef.current) {
+        languageDisposableRef.current.dispose();
+        languageDisposableRef.current = null;
+      }
+    };
+  }, [activeConnectionId]);
 
   const handleExecute = async () => {
     if (!editorRef.current || !onExecute) return;
@@ -210,6 +139,48 @@ export function QueryEditor({
     // TODO: Implement query cancellation
     setIsExecuting(false);
   };
+
+  const handleRefreshSchema = async () => {
+    if (!activeConnectionId) return;
+    
+    setIsRefreshingSchema(true);
+    try {
+      // Force refresh schema
+      await schemaService.getSchema(activeConnectionId, true);
+      
+      // Reconfigure language features if Monaco is available
+      if (monacoRef.current) {
+        // Dispose existing configuration first
+        if (languageDisposableRef.current) {
+          languageDisposableRef.current.dispose();
+        }
+        
+        // Configure new language features
+        languageDisposableRef.current = configureSQLLanguage({ 
+          connectionId: activeConnectionId, 
+          monaco: monacoRef.current 
+        });
+      }
+    } catch (error) {
+      console.error('[QueryEditor] Failed to refresh schema:', error);
+    } finally {
+      setIsRefreshingSchema(false);
+    }
+  };
+
+  // Cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      // Cleanup language features
+      if (languageDisposableRef.current) {
+        languageDisposableRef.current.dispose();
+      }
+      // Cleanup snippets
+      if (snippetsDisposableRef.current) {
+        snippetsDisposableRef.current.dispose();
+      }
+    };
+  }, []);
 
   // Prevent Cmd+A from selecting all text when editor is not focused
   useEffect(() => {
@@ -327,6 +298,17 @@ export function QueryEditor({
           )}
 
           <div className="w-px h-4 bg-border mx-1" />
+
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-xs"
+            onClick={handleRefreshSchema}
+            disabled={!activeConnection || isRefreshingSchema}
+            title="Refresh Schema (for autocomplete)"
+          >
+            <RefreshCw className={cn("h-3 w-3", isRefreshingSchema && "animate-spin")} />
+          </Button>
 
           <Button
             size="sm"

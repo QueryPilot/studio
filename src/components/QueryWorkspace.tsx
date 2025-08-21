@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { QueryEditor } from "./QueryEditor";
 import { QueryResults } from "./QueryResults";
 import { useConnectionStore, useQueryStore } from "@/stores";
 import { queryService, QueryResult, QueryError } from "@/services/queryService";
+import { schemaService } from "@/services/schemaService";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, AlertCircle } from "lucide-react";
@@ -23,6 +24,17 @@ export function QueryWorkspace() {
   const activeConnection = Array.from(connections.values()).find(
     (c) => c.config.id === activeConnectionId,
   )?.config;
+
+  // Refresh schema when connection changes
+  useEffect(() => {
+    if (activeConnectionId) {
+      // Clear old schema and fetch new one
+      schemaService.clearCache(activeConnectionId);
+      schemaService.getSchema(activeConnectionId).catch(err => {
+        console.warn('[QueryWorkspace] Failed to refresh schema:', err);
+      });
+    }
+  }, [activeConnectionId]);
 
   const handleExecuteQuery = async (query: string) => {
     if (!activeConnection) {
