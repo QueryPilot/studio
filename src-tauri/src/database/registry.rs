@@ -235,43 +235,143 @@ fn spawn_health_monitor(
     adapter: Arc<Box<dyn DbAdapter>>,
     app_handle: AppHandle,
 ) -> JoinHandle<()> {
+    println!("[HealthMonitor] Starting health monitor for connection: {}", conn_id);
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
         let mut miss_count = 0;
+        let mut last_status = "ready";
+        let mut reconnect_attempts = 0;
+        const MAX_RECONNECT_ATTEMPTS: u32 = 5;
+        
+        println!("[HealthMonitor] Health monitor loop started for connection: {}", conn_id);
+        
+        // Emit initial status event
+        println!("[HealthMonitor] Emitting initial status event for connection: {}", conn_id);
+        
+        // Test emit - simple event first
+        let test_emit = app_handle.emit("test-event", &serde_json::json!({
+            "message": "Test from health monitor",
+            "connectionId": conn_id.clone()
+        }));
+        println!("[HealthMonitor] Test event emission result: {:?}", test_emit);
+        
+        let emit_result = app_handle.emit("db:connection_status", &serde_json::json!({
+            "connectionId": conn_id,
+            "status": "ready",
+            "rttMs": 0,
+            "at": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as i64,
+        }));
+        println!("[HealthMonitor] Initial status event emission result: {:?}", emit_result);
         
         loop {
             interval.tick().await;
             
-            match adapter.ping().await {
-                Ok(rtt) => {
+            // Add jitter (±10%)
+            let jitter = rand::random::<u64>() % 3000;
+            tokio::time::sleep(std::time::Duration::from_millis(jitter)).await;
+            
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                adapter.ping()
+            ).await {
+                Ok(Ok(rtt)) => {
                     miss_count = 0;
+                    reconnect_attempts = 0;
+                    let rtt_ms = rtt.as_millis() as u32;
                     
-                    // Emit health event
-                    let _ = app_handle.emit("db:connection_health", serde_json::json!({
-                        "connection_id": conn_id,
-                        "status": "healthy",
-                        "rtt_ms": rtt.as_millis(),
-                    })).ok();
-                }
-                Err(_) => {
-                    miss_count += 1;
-                    
-                    let status = if miss_count == 1 {
+                    let status = if rtt_ms <= 150 {
+                        "ready"
+                    } else if rtt_ms <= 1000 {
                         "degraded"
-                    } else if miss_count >= 3 {
-                        "error"
                     } else {
                         "degraded"
                     };
                     
-                    // Emit health event
-                    let _ = app_handle.emit("db:connection_health", serde_json::json!({
-                        "connection_id": conn_id,
+                    println!("[HealthMonitor] Connection {}: status={}, rtt={}ms, last_status={}", 
+                        conn_id, status, rtt_ms, last_status);
+                    
+                    // Always emit status event (not just on changes) for frontend sync
+                    let emit_result = app_handle.emit("db:connection_status", &serde_json::json!({
+                        "connectionId": conn_id,
                         "status": status,
-                        "miss_count": miss_count,
-                    })).ok();
+                        "rttMs": rtt_ms,
+                        "at": std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis() as i64,
+                    }));
+                    println!("[HealthMonitor] Status event emission result: {:?}", emit_result);
+                    
+                    last_status = status;
+                }
+                Ok(Err(_)) | Err(_) => {
+                    miss_count += 1;
+                    
+                    let status = if miss_count == 1 {
+                        "degraded"
+                    } else if miss_count >= 2 {
+                        // Start reconnection attempts
+                        if reconnect_attempts < MAX_RECONNECT_ATTEMPTS {
+                            spawn_reconnect(
+                                conn_id.clone(),
+                                adapter.clone(),
+                                app_handle.clone(),
+                                reconnect_attempts,
+                            );
+                            reconnect_attempts += 1;
+                            "reconnecting"
+                        } else {
+                            "error"
+                        }
+                    } else {
+                        "degraded"
+                    };
+                    
+                    if status != last_status {
+                        // Emit health event
+                        let _ = app_handle.emit("db:connection_status", &serde_json::json!({
+                            "connectionId": conn_id,
+                            "status": status,
+                            "reason": if status == "error" {
+                                Some(format!("Connection lost after {} attempts", reconnect_attempts))
+                            } else if miss_count > 0 {
+                                Some("Connection timeout".to_string())
+                            } else {
+                                None
+                            },
+                            "at": std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap()
+                                .as_millis() as i64,
+                        }));
+                        last_status = status;
+                    }
                 }
             }
         }
     })
+}
+
+fn spawn_reconnect(
+    conn_id: String,
+    adapter: Arc<Box<dyn DbAdapter>>,
+    app_handle: AppHandle,
+    attempt: u32,
+) {
+    tokio::spawn(async move {
+        let backoff = [1, 2, 5, 10, 30];
+        let delay = backoff.get(attempt as usize).unwrap_or(&30);
+        
+        tokio::time::sleep(std::time::Duration::from_secs(*delay)).await;
+        
+        if adapter.ping().await.is_ok() {
+            let _ = app_handle.emit("db:connection_recovered", &serde_json::json!({
+                "connectionId": conn_id,
+                "attempts": attempt + 1,
+            }));
+        }
+    });
 }

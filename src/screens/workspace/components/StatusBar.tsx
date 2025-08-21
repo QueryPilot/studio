@@ -4,13 +4,15 @@ import { Rows, RefreshCw, Table, Clock } from "lucide-react";
 import { useEffect } from "react";
 import { useConnectionStore } from "@/stores";
 import { useUIStore } from "@/stores/uiStore";
+import { ConnectionStatus } from "@/components/ConnectionStatus";
+import { useConnectionHealth } from "@/hooks/useConnectionHealth";
 
 interface StatusBarProps {
   workspaceId?: string;
 }
 
 export function StatusBar({ workspaceId }: StatusBarProps) {
-  const { connections, activeConnectionId, connect } = useConnectionStore();
+  const { connections, activeConnectionId } = useConnectionStore();
   const {
     selectedRowCount,
     totalRowCount,
@@ -18,64 +20,51 @@ export function StatusBar({ workspaceId }: StatusBarProps) {
     currentTableName,
     queryTime,
   } = useUIStore();
-
+  
+  // Get the actual backend connection ID for health monitoring
   const activeConnection = activeConnectionId
     ? connections.get(activeConnectionId)
     : null;
+  const actualConnectionId = activeConnection?.actualConnectionId;
+  
+  const { health } = useConnectionHealth(actualConnectionId || undefined);
 
   const connectionStatus = activeConnection?.status || "disconnected";
 
   // Debug logging
   useEffect(() => {
-    console.log(`[StatusBar] Active connection status: ${connectionStatus},`);
-  }, [connectionStatus, activeConnectionId]);
+    console.log(`[StatusBar] Active connection ID: ${activeConnectionId}, actual: ${actualConnectionId}, status: ${connectionStatus}, health: ${JSON.stringify(health)}`);
+    console.log(`[StatusBar] All connections:`, Array.from(connections.keys()));
+    if (activeConnection) {
+      console.log(`[StatusBar] Active connection details:`, {
+        id: activeConnection.config?.id,
+        name: activeConnection.config?.name,
+        actualConnectionId: activeConnection.actualConnectionId,
+        status: activeConnection.status
+      });
+    }
+  }, [connectionStatus, activeConnectionId, actualConnectionId, health, connections, activeConnection]);
 
   return (
     <div className="h-8 border-t bg-muted/50 flex items-center justify-between px-4 text-xs">
       <div className="flex items-center gap-4">
-        {/* Connection Status */}
-        <div className="flex items-center gap-2">
-          <div
-            className={`h-2 w-2 rounded-full ${
-              connectionStatus === "connected"
-                ? "bg-green-500"
-                : connectionStatus === "connecting"
-                ? "bg-yellow-500 animate-pulse"
-                : connectionStatus === "error"
-                ? "bg-red-500"
-                : "bg-gray-500"
-            }`}
+        {/* Connection Status - Using new health monitoring component */}
+        {actualConnectionId ? (
+          <ConnectionStatus 
+            connectionId={actualConnectionId}
+            showLabel={true}
+            showLatency={true}
           />
-          <span className="text-muted-foreground">
-            {connectionStatus === "connected"
-              ? "Connected"
-              : connectionStatus === "connecting"
-              ? "Connecting..."
-              : connectionStatus === "error"
-              ? activeConnection?.error || "Connection Error"
-              : "Disconnected"}
-          </span>
-          {/* Reconnect button for failed connections */}
-          {(connectionStatus === "error" ||
-            connectionStatus === "disconnected") &&
-            activeConnectionId && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-5 px-1 py-0"
-                onClick={() => {
-                  console.log(
-                    `[StatusBar] Manual reconnect for ${activeConnectionId}`,
-                  );
-                  connect(activeConnectionId, 3, workspaceId).catch((error) => {
-                    console.error(`[StatusBar] Reconnect failed:`, error);
-                  });
-                }}
-                title="Retry connection"
-              >
-                <RefreshCw className="h-3 w-3" />
-              </Button>
-            )}
+        ) : (
+          <div className="flex items-center gap-2">
+            <div className="h-2 w-2 rounded-full bg-gray-500" />
+            <span className="text-muted-foreground">No connection</span>
+          </div>
+        )}
+        
+        {/* Debug info */}
+        <div className="text-xs text-gray-500">
+          Debug: active={activeConnectionId?.slice(-8)}, actual={actualConnectionId?.slice(-8)}, status={connectionStatus}
         </div>
       </div>
 

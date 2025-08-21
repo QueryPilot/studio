@@ -140,7 +140,7 @@ export interface WorkspaceStore {
     updates: Partial<TabState>,
   ) => void;
   closeTab: (workspaceId: string, tabId: string) => void;
-  setActiveTab: (workspaceId: string, tabId: string) => void;
+  setActiveTab: (workspaceId: string, tabId: string | null) => void;
   reorderTabs: (workspaceId: string, newOrder: string[]) => void;
   duplicateTab: (workspaceId: string, tabId: string) => string;
   closeOtherTabs: (workspaceId: string, tabId: string) => void;
