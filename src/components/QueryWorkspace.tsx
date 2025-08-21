@@ -2,7 +2,11 @@ import { useState, useEffect } from "react";
 import { QueryEditor } from "./QueryEditor";
 import { QueryDataViewer } from "./QueryDataViewer";
 import { useConnectionStore, useQueryStore } from "@/stores";
-import { queryService, QueryResult, QueryError } from "@/services/queryService";
+import {
+  queryService,
+  type QueryResult,
+  type QueryError,
+} from "@/services/queryService";
 import { schemaService } from "@/services/schemaService";
 import { splitSqlStatements, getStatementType } from "@/utils/sqlParser";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -31,8 +35,8 @@ export function QueryWorkspace() {
     if (activeConnectionId) {
       // Clear old schema and fetch new one
       schemaService.clearCache(activeConnectionId);
-      schemaService.getSchema(activeConnectionId).catch(err => {
-        console.warn('[QueryWorkspace] Failed to refresh schema:', err);
+      schemaService.getSchema(activeConnectionId).catch((err) => {
+        console.warn("[QueryWorkspace] Failed to refresh schema:", err);
       });
     }
   }, [activeConnectionId]);
@@ -53,7 +57,7 @@ export function QueryWorkspace() {
 
       // Split the query into individual statements
       const statements = splitSqlStatements(query);
-      
+
       if (statements.length === 0) {
         setMessages(["No valid SQL statements to execute"]);
         return;
@@ -66,25 +70,44 @@ export function QueryWorkspace() {
       for (let i = 0; i < statements.length; i++) {
         const statement = statements[i];
         const stmtType = getStatementType(statement);
-        
+
         try {
           if (stmtType === "select") {
-            const queryResult = await queryService.executeQuery(activeConnection, statement);
-            lastSelectResult = queryResult;
-            
-            statementMessages.push(
-              `Statement ${i + 1}: SELECT executed in ${queryResult.queryTime}ms, returned ${queryResult.rowCount} row(s)`
+            const queryResult = await queryService.executeQuery(
+              activeConnection,
+              statement,
             );
-          } else if (stmtType === "update" || stmtType === "insert" || stmtType === "delete") {
-            const result = await queryService.executeUpdate(activeConnection, statement);
+            lastSelectResult = queryResult;
+
             statementMessages.push(
-              `Statement ${i + 1}: ${stmtType.toUpperCase()} executed in ${result.queryTime}ms, ${result.affectedRows} row(s) affected`
+              `Statement ${i + 1}: SELECT executed in ${
+                queryResult.queryTime
+              }ms, returned ${queryResult.rowCount} row(s)`,
+            );
+          } else if (
+            stmtType === "update" ||
+            stmtType === "insert" ||
+            stmtType === "delete"
+          ) {
+            const result = await queryService.executeUpdate(
+              activeConnection,
+              statement,
+            );
+            statementMessages.push(
+              `Statement ${i + 1}: ${stmtType.toUpperCase()} executed in ${
+                result.queryTime
+              }ms, ${result.affectedRows} row(s) affected`,
             );
           } else {
             // For DDL and other queries
-            const result = await queryService.executeUpdate(activeConnection, statement);
+            const result = await queryService.executeUpdate(
+              activeConnection,
+              statement,
+            );
             statementMessages.push(
-              `Statement ${i + 1}: ${stmtType === 'ddl' ? 'DDL' : stmtType.toUpperCase()} executed in ${result.queryTime}ms`
+              `Statement ${i + 1}: ${
+                stmtType === "ddl" ? "DDL" : stmtType.toUpperCase()
+              } executed in ${result.queryTime}ms`,
             );
           }
         } catch (stmtError: any) {
@@ -102,8 +125,10 @@ export function QueryWorkspace() {
 
       // Display all execution messages
       setMessages([
-        `Executed ${statements.length} statement(s) in ${Date.now() - startTime}ms`,
-        ...statementMessages
+        `Executed ${statements.length} statement(s) in ${
+          Date.now() - startTime
+        }ms`,
+        ...statementMessages,
       ]);
 
       // Add to history
@@ -153,10 +178,7 @@ export function QueryWorkspace() {
   return (
     <ResizablePanelGroup direction="vertical" className="h-full w-full">
       <ResizablePanel defaultSize={60} minSize={30} className="h-full">
-        <QueryEditor
-          onExecute={handleExecuteQuery}
-          initialValue="-- Write your SQL query here\n-- Press Cmd+Enter (Mac) or Ctrl+Enter (Windows/Linux) to execute\n\nSELECT * FROM "
-        />
+        <QueryEditor onExecute={handleExecuteQuery} initialValue="" />
       </ResizablePanel>
 
       <ResizableHandle />
@@ -164,8 +186,12 @@ export function QueryWorkspace() {
       <ResizablePanel defaultSize={40} minSize={20} className="flex flex-col">
         <Tabs defaultValue="results" className="h-full flex flex-col">
           <TabsList className="w-full justify-start rounded-none border-b flex-shrink-0 h-8 p-0.5">
-            <TabsTrigger value="results" className="text-xs h-6">Results</TabsTrigger>
-            <TabsTrigger value="messages" className="text-xs h-6">Messages</TabsTrigger>
+            <TabsTrigger value="results" className="text-xs h-6">
+              Results
+            </TabsTrigger>
+            <TabsTrigger value="messages" className="text-xs h-6">
+              Messages
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="results" className="flex-1 mt-0 overflow-auto">
@@ -210,7 +236,10 @@ export function QueryWorkspace() {
             )}
           </TabsContent>
 
-          <TabsContent value="messages" className="flex-1 mt-0 p-4 overflow-auto">
+          <TabsContent
+            value="messages"
+            className="flex-1 mt-0 p-4 overflow-auto"
+          >
             {messages.length > 0 ? (
               <div className="space-y-1">
                 {messages.map((message, index) => (

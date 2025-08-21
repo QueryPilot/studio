@@ -518,24 +518,118 @@ export function DataViewer({
     // If we have preloaded data, use it directly
     if (preloadedData) {
       setIsLoading(false);
-      setData(preloadedData.data);
+      
+      // Transform the data from array of arrays to array of objects if needed
+      let transformedData = preloadedData.data;
+      if (preloadedData.data.length > 0 && Array.isArray(preloadedData.data[0])) {
+        // Data is in array format, need to transform to object format
+        transformedData = preloadedData.data.map((row: any, idx: number) => {
+          const rowObj: any = { _rowIndex: idx };
+          if (preloadedData.columns) {
+            preloadedData.columns.forEach((col: string, colIndex: number) => {
+              rowObj[col] = row[colIndex];
+            });
+          }
+          return rowObj;
+        });
+      } else if (preloadedData.data.length > 0 && !preloadedData.data[0]._rowIndex) {
+        // Data is already in object format but missing _rowIndex
+        transformedData = preloadedData.data.map((row: any, idx: number) => ({
+          ...row,
+          _rowIndex: idx
+        }));
+      }
+      
+      setData(transformedData);
       setDataLoaded(true);
       setHasMore(false); // All data is preloaded
-      setEstimatedRowCount(preloadedData.totalRows || preloadedData.data.length);
+      setEstimatedRowCount(preloadedData.totalRows || transformedData.length);
       
       // Generate columns from the data
       if (preloadedData.columns && preloadedData.columns.length > 0) {
         const generatedColumns: ColumnDef<any>[] = preloadedData.columns.map((col) => {
-          const columnSize = getInitialColumnSize(col, preloadedData.data);
+          const columnSize = getInitialColumnSize(col, transformedData);
           return {
             id: col,
             accessorKey: col,
-            header: col,
+            header: ({ column }: any) => {
+              const handleSort = () => {
+                const currentSort = column.getIsSorted();
+                if (currentSort === false) {
+                  column.toggleSorting(false); // Set to ascending
+                } else if (currentSort === "asc") {
+                  column.toggleSorting(true); // Set to descending
+                } else {
+                  column.clearSorting(); // Clear sorting on third click
+                }
+              };
+
+              return (
+                <Button
+                  variant="ghost"
+                  className="h-6 px-1 font-semibold text-xs w-full justify-between hover:bg-transparent"
+                  onClick={handleSort}
+                >
+                  <span className="truncate">{col}</span>
+                  <span className="ml-1 flex-shrink-0">
+                    {column.getIsSorted() === "asc" ? (
+                      <ArrowUp className="h-2.5 w-2.5" />
+                    ) : column.getIsSorted() === "desc" ? (
+                      <ArrowDown className="h-2.5 w-2.5" />
+                    ) : (
+                      <ArrowUpDown className="h-2.5 w-2.5 opacity-20" />
+                    )}
+                  </span>
+                </Button>
+              );
+            },
+            cell: ({ getValue }: any) => {
+              const value = getValue();
+              if (value === null) {
+                return (
+                  <span className="text-muted-foreground italic text-xs">
+                    NULL
+                  </span>
+                );
+              }
+              if (typeof value === "boolean") {
+                return (
+                  <span
+                    className={cn(
+                      "font-mono text-xs",
+                      value ? "text-green-600" : "text-red-600",
+                    )}
+                  >
+                    {String(value)}
+                  </span>
+                );
+              }
+              if (typeof value === "object") {
+                const jsonStr = JSON.stringify(value, null, 2);
+                return (
+                  <span
+                    className="block truncate font-mono text-xs whitespace-nowrap"
+                    title={jsonStr}
+                  >
+                    {jsonStr}
+                  </span>
+                );
+              }
+              return (
+                <span
+                  className="block truncate text-xs whitespace-nowrap"
+                  title={String(value)}
+                >
+                  {String(value)}
+                </span>
+              );
+            },
             size: columnSize.size,
             minSize: columnSize.min,
             maxSize: columnSize.max,
             enableSorting: true,
             enableResizing: true,
+            enableHiding: true,
           };
         });
         setColumns(generatedColumns);
@@ -544,7 +638,7 @@ export function DataViewer({
         // Initialize column sizing state
         const sizingState: ColumnSizingState = {};
         preloadedData.columns.forEach((col) => {
-          const size = getInitialColumnSize(col, preloadedData.data);
+          const size = getInitialColumnSize(col, transformedData);
           sizingState[col] = size.size;
         });
         setColumnSizing(sizingState);

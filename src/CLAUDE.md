@@ -4,6 +4,7 @@
 
 ### Component Structure
 - **Main Component**: `DataViewer.tsx` - Orchestrates the entire data viewing experience
+- **QueryDataViewer**: `QueryDataViewer.tsx` - Adapter component for query results display
 - **Sub-components** (in `/components/DataViewer/components/`):
   - `Toolbar.tsx` - Search, column visibility, export functionality
   - `VirtualRow.tsx` - Individual virtualized table rows
@@ -24,18 +25,34 @@
 - **Export**: CSV export functionality
 - **Responsive Design**: Compact toolbar with h-6 buttons, h-5 toggles
 
+## Workspace Tab System
+
+### Tab Components (in `/components/workspace/tabs/`)
+- **QueryTab**: SQL query editor with Monaco integration
+- **ResultTab**: Query execution results display
+- **TableTab**: Table data viewer with full DataViewer features
+- **SchemaTab**: Database schema browser and structure viewer
+
+### Tab Management
+- **TabBar**: Draggable tab bar with SortableTab components
+- **TabContent**: Dynamic content rendering based on tab type
+- **NewTabButton**: Create new tabs with type selection
+- **EmptyState**: Shown when no tabs are open
+
 ## UI Component Patterns
 
 ### Component Organization
 - Use functional components with TypeScript
 - Place reusable UI components in `/components/ui/`
 - Application-specific components in `/components/`
+- Workspace components in `/components/workspace/`
 - Screen-level components in `/screens/`
 
 ### State Management
 - Zustand stores in `/stores/` directory
 - Use typed store hooks with TypeScript
 - Secure stores prefix with "secure" (e.g., secureConnectionStore)
+- **Note**: `editorStore.ts` has a naming conflict (exports `useWorkspaceStore` instead of `useEditorStore`)
 
 ### Styling Conventions
 - Tailwind CSS for utility-first styling

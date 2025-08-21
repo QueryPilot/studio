@@ -3,9 +3,12 @@
 ## Tauri Configuration
 
 ### Window Management
-- Transparent background with overlay titlebar
-- Decorations disabled for custom titlebar
+- Overlay titlebar style with hidden title
+- Decorations enabled (using native controls)
+- Default size: 900x650 (minimum)
+- Center window on startup
 - Window state persistence
+- macOS Private API enabled
 
 ### Security
 - Content Security Policy (CSP) configured
@@ -19,8 +22,9 @@
 
 ### Build Configuration
 - Production builds use release optimizations
-- Bundle identifiers: com.devdb.studio
+- Bundle identifier: com.hieuvd.devdb-studio
 - Code signing for distribution
+- Minimum macOS version: 10.15
 
 ## Rust Patterns
 
