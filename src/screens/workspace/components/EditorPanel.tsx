@@ -17,6 +17,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { useEffect, useRef, useState, useMemo } from "react";
+import logoUrl from "@/assets/logo.png";
 import { QueryWorkspace } from "@/components/QueryWorkspace";
 import { DataViewer } from "@/components/DataViewer";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
@@ -25,22 +26,22 @@ import type { TabState } from "@/types/workspace";
 
 export function EditorPanel() {
   const { id: workspaceId } = useParams<{ id: string }>();
-  const workspace = useWorkspaceStore(state => state.getWorkspace(workspaceId || ''));
-  const { 
-    addTab, 
-    removeTab, 
-    setActiveTab
-  } = useWorkspaceStore();
-  
+  const workspace = useWorkspaceStore((state) =>
+    state.getWorkspace(workspaceId || ""),
+  );
+  const { addTab, removeTab, setActiveTab } = useWorkspaceStore();
+
   // Convert Map to array and maintain order - memoize to prevent infinite loops
   const tabs: TabState[] = useMemo(() => {
-    return workspace 
-      ? workspace.tabOrder.map(id => workspace.tabs.get(id)).filter((tab): tab is TabState => Boolean(tab))
+    return workspace
+      ? workspace.tabOrder
+          .map((id) => workspace.tabs.get(id))
+          .filter((tab): tab is TabState => Boolean(tab))
       : [];
-  }, [workspace?.tabOrder.join(','), workspace?.tabs.size]);
-  
-  const activeTab = workspace?.activeTabId || '';
-  
+  }, [workspace?.tabOrder.join(","), workspace?.tabs.size]);
+
+  const activeTab = workspace?.activeTabId || "";
+
   const [visibleTabs, setVisibleTabs] = useState<TabState[]>([]);
   const [overflowTabs, setOverflowTabs] = useState<TabState[]>([]);
   const tabsContainerRef = useRef<HTMLDivElement>(null);
@@ -66,8 +67,8 @@ export function EditorPanel() {
     addTab(workspaceId, {
       type: "query",
       title: `Query ${queryCount + 1}`,
-      connectionId: workspace?.activeConnectionId || '',
-      payload: {}
+      connectionId: workspace?.activeConnectionId || "",
+      payload: {},
     });
   };
 
@@ -89,7 +90,7 @@ export function EditorPanel() {
         // Icon (16) + margin (4) + text + close button (16) + margin (6) + padding (16)
         const baseWidth = 58;
         const charWidth = 6.5; // More accurate character width
-        return baseWidth + (tab?.title || '').length * charWidth;
+        return baseWidth + (tab?.title || "").length * charWidth;
       };
 
       // Calculate total width needed for all tabs
@@ -117,7 +118,9 @@ export function EditorPanel() {
       const visibleTabIds: string[] = [];
 
       // Always try to show the active tab
-      const activeIndex = tabs.findIndex((tab: TabState) => tab.id === activeTab);
+      const activeIndex = tabs.findIndex(
+        (tab: TabState) => tab.id === activeTab,
+      );
 
       // First, try to fit as many tabs as possible
       for (let i = 0; i < tabs.length; i++) {
@@ -154,8 +157,12 @@ export function EditorPanel() {
       }
 
       // Build final arrays maintaining original order
-      const visible = tabs.filter((tab: TabState) => visibleTabIds.includes(tab.id));
-      const overflow = tabs.filter((tab: TabState) => !visibleTabIds.includes(tab.id));
+      const visible = tabs.filter((tab: TabState) =>
+        visibleTabIds.includes(tab.id),
+      );
+      const overflow = tabs.filter(
+        (tab: TabState) => !visibleTabIds.includes(tab.id),
+      );
 
       setVisibleTabs(visible);
       setOverflowTabs(overflow);
@@ -180,7 +187,9 @@ export function EditorPanel() {
     <div className="h-full flex flex-col bg-background">
       <Tabs
         value={activeTab}
-        onValueChange={(tabId) => workspaceId && setActiveTab(workspaceId, tabId)}
+        onValueChange={(tabId) =>
+          workspaceId && setActiveTab(workspaceId, tabId)
+        }
         className="h-full flex flex-col"
       >
         <div
@@ -225,7 +234,9 @@ export function EditorPanel() {
                 {overflowTabs.map((tab: TabState) => (
                   <DropdownMenuItem
                     key={tab.id}
-                    onClick={() => workspaceId && setActiveTab(workspaceId, tab.id)}
+                    onClick={() =>
+                      workspaceId && setActiveTab(workspaceId, tab.id)
+                    }
                     className="text-xs"
                   >
                     {getIcon(tab.type)}
@@ -250,6 +261,30 @@ export function EditorPanel() {
           </Button>
         </div>
 
+        {/* Show empty state when no active tab */}
+        {!activeTab && (
+          <div className="flex-1 flex items-center justify-center h-full bg-background">
+            <div className="text-center text-muted-foreground">
+              <img
+                src={logoUrl}
+                alt="DevDB Studio"
+                className="h-32 w-32 mx-auto mb-4"
+              />
+              <h3 className="text-lg font-medium mb-2">
+                Welcome to your workspace
+              </h3>
+              <p className="text-sm mb-6 max-w-md">
+                Select a table or view from the sidebar to explore your data, or
+                create a new query tab to get started.
+              </p>
+              <Button onClick={handleNewQuery} className="gap-2">
+                <Plus className="h-4 w-4" />
+                New Query
+              </Button>
+            </div>
+          </div>
+        )}
+
         {tabs.map((tab: TabState) => {
           // saving render performance
           if (tab.id !== activeTab) {
@@ -265,22 +300,25 @@ export function EditorPanel() {
               {tab.type === "query" ? (
                 <QueryWorkspace />
               ) : tab.type === "table" ? (
-                <DataViewer 
-                  tableName={tab.payload?.tableName || tab.title} 
-                  schema={tab.payload?.schema} 
+                <DataViewer
+                  tableName={tab.payload?.tableName || tab.title}
+                  schema={tab.payload?.schema}
                   connectionId={tab.connectionId}
                 />
               ) : tab.type === "schema" ? (
-                <DataViewer 
-                  tableName={tab.payload?.tableName || tab.title} 
-                  schema={tab.payload?.schema} 
+                <DataViewer
+                  tableName={tab.payload?.tableName || tab.title}
+                  schema={tab.payload?.schema}
                   connectionId={tab.connectionId}
                 />
               ) : (
                 <ScrollArea className="h-full">
                   <div className="p-4">
                     <div className="text-muted-foreground">
-                      {tab.type !== "result" && tab.type !== "table" && tab.type !== "query" && tab.type !== "schema" &&
+                      {tab.type !== "result" &&
+                        tab.type !== "table" &&
+                        tab.type !== "query" &&
+                        tab.type !== "schema" &&
                         `Content for '${tab.title}' will be displayed here`}
                     </div>
                   </div>

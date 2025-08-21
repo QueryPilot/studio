@@ -79,6 +79,13 @@ export function DatabaseSidebar() {
   };
 
   const handleConnectionChange = async (connectionId: string) => {
+    // Navigate to workspace home view when switching databases
+    // Clear active tab to show the empty workspace state instead of keeping table selection
+    if (workspaceId && activeConnectionId !== connectionId) {
+      // Clear the active tab to navigate to workspace home
+      setActiveTab(workspaceId, null);
+    }
+
     // Optimistically set the new connection as active immediately
     setActiveConnection(connectionId);
 
@@ -92,12 +99,12 @@ export function DatabaseSidebar() {
       selectedConnection.status !== "connecting"
     ) {
       console.log(
-        `[StatusBar] Initiating connection for ${connectionId} on selection`,
+        `[DatabaseSidebar] Initiating connection for ${connectionId} on selection`,
       );
       try {
         await connect(connectionId, 3, workspaceId);
       } catch (error) {
-        console.error(`[StatusBar] Failed to connect:`, error);
+        console.error(`[DatabaseSidebar] Failed to connect:`, error);
       }
     }
   };

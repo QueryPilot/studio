@@ -255,13 +255,22 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       setActiveTab: (workspaceId, tabId) => {
         set((state) => {
           const workspace = state.workspaces.get(workspaceId);
-          const tab = workspace?.tabs.get(tabId);
-
-          if (workspace && tab) {
-            workspace.activeTabId = tabId;
-            workspace.activeConnectionId = tab.connectionId;
-            tab.lastAccessedAt = new Date();
-            workspace.updatedAt = new Date();
+          
+          if (workspace) {
+            // Handle clearing active tab (null)
+            if (tabId === null) {
+              workspace.activeTabId = null;
+              workspace.updatedAt = new Date();
+              return;
+            }
+            
+            const tab = workspace.tabs.get(tabId);
+            if (tab) {
+              workspace.activeTabId = tabId;
+              workspace.activeConnectionId = tab.connectionId;
+              tab.lastAccessedAt = new Date();
+              workspace.updatedAt = new Date();
+            }
           }
         });
       },
