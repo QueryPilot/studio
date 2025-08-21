@@ -1,12 +1,12 @@
 import { memo } from "react";
 import { useSortable } from "@dnd-kit/sortable";
-import { flexRender } from "@tanstack/react-table";
+import { flexRender, type Header, type Column } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
 import { ColumnContextMenu } from "./ColumnContextMenu";
 
 interface DraggableHeaderProps {
-  column: any;
-  header: any;
+  column: Column<any>;
+  header: Header<any, unknown>;
   onHideColumn?: (columnId: string) => void;
   virtualSize?: number;
 }

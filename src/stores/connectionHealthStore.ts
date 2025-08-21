@@ -73,9 +73,17 @@ export const useConnectionHealthStore = create<ConnectionHealthStore>()(
           const str = localStorage.getItem(name);
           if (!str) return null;
           const parsed = JSON.parse(str);
+          // Convert array back to Map and restore Date objects
+          const healthEntries = parsed.state.health.map(([key, value]: [string, any]) => {
+            // Convert lastPing string back to Date object if it exists
+            if (value.lastPing) {
+              value.lastPing = new Date(value.lastPing);
+            }
+            return [key, value];
+          });
           return {
             state: {
-              health: new Map(parsed.state.health),
+              health: new Map(healthEntries),
             },
           };
         },

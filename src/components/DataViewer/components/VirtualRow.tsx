@@ -1,12 +1,13 @@
 import { useState, memo, useCallback } from "react";
-import { flexRender } from "@tanstack/react-table";
+import { flexRender, type Row, type Cell } from "@tanstack/react-table";
+import type { VirtualItem, Virtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/utils";
 import { Clipboard, ClipboardCheck } from "lucide-react";
 import styles from "./VirtualRow.module.css";
 
 interface VirtualRowProps {
-  row: any;
-  virtualRow: any;
+  row: Row<any>;
+  virtualRow: VirtualItem;
   isSelected: boolean;
   isHighlighted: boolean;
   isSelecting?: boolean;
@@ -14,7 +15,7 @@ interface VirtualRowProps {
   onMouseEnter: () => void;
   onDoubleClick: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
-  columnVirtualizer?: any; // Optional column virtualizer for performance
+  columnVirtualizer?: Virtualizer<HTMLDivElement, Element>;
   shouldVirtualizeColumns?: boolean;
 }
 
@@ -35,7 +36,7 @@ export const VirtualRow = memo(
     const [copiedCell, setCopiedCell] = useState<string | null>(null);
     
     // Simplified copy handler without hover state management
-    const handleCopy = useCallback(async (cell: any) => {
+    const handleCopy = useCallback(async (cell: Cell<any, unknown>) => {
       const value = cell.getValue();
       let textToCopy = "";
 
@@ -96,11 +97,10 @@ export const VirtualRow = memo(
                 />
               ) : null;
             })()}
-            {columnVirtualizer.getVirtualItems().map((virtualColumn: any) => {
+            {columnVirtualizer.getVirtualItems().map((virtualColumn) => {
               const cell = row.getVisibleCells()[virtualColumn.index];
               if (!cell) return null;
               
-              const isLastColumn = virtualColumn.index === row.getVisibleCells().length - 1;
               // Use the column's actual size, not the virtualizer's size
               const columnSize = cell.column.getSize();
               // Ensure minimum width of 80px for all cells
@@ -172,7 +172,7 @@ export const VirtualRow = memo(
           </>
         ) : (
           // Standard rendering - all columns visible
-          row.getVisibleCells().map((cell: any, index: number) => {
+          row.getVisibleCells().map((cell, index) => {
             const isLastColumn = index === row.getVisibleCells().length - 1;
             return (
               <td

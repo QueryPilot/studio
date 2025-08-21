@@ -91,7 +91,9 @@ export function ConnectionStatus({
     }
     
     if (health.lastPing) {
-      const secondsAgo = Math.floor((Date.now() - health.lastPing.getTime()) / 1000);
+      // Ensure lastPing is a Date object (might be a string from persisted storage)
+      const pingDate = health.lastPing instanceof Date ? health.lastPing : new Date(health.lastPing);
+      const secondsAgo = Math.floor((Date.now() - pingDate.getTime()) / 1000);
       lines.push(`Last ping: ${String(secondsAgo)}s ago`);
     }
     
