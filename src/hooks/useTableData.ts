@@ -41,8 +41,8 @@ interface ColumnMeta {
   is_pk: boolean;
   is_fk: boolean;
   ordinal: number;
-  precision: number | null;
-  scale: number | null;
+  precision?: number | null;
+  scale?: number | null;
 }
 
 interface TableDataResult {
