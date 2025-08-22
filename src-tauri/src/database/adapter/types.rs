@@ -112,3 +112,19 @@ pub struct ExecuteResult {
 }
 
 pub type TransactionId = String;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryBeginResponse {
+    pub cursor_id: String,
+    pub columns: Vec<ColumnMeta>,
+    pub rows: Vec<Vec<serde_json::Value>>,
+    pub total_rows: Option<usize>,
+    pub is_complete: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryFetchResponse {
+    pub rows: Vec<Vec<serde_json::Value>>,
+    pub page: usize,
+    pub is_complete: bool,
+}
