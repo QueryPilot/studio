@@ -25,7 +25,18 @@ tauri-plugin-clipboard-manager = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
-sqlx = { version = "0.8", features = ["runtime-tokio-native-tls", "postgres", "mysql", "sqlite", "chrono", "uuid", "json"] }
+sqlx = { version = "0.8", features = [
+    "runtime-tokio-native-tls", 
+    "postgres", 
+    "mysql", 
+    "sqlite", 
+    "chrono",     # For date/time types
+    "uuid",       # For UUID type
+    "json",       # For JSON/JSONB
+    "rust_decimal", # For DECIMAL/NUMERIC with precision
+    "ipnetwork",  # For INET/CIDR in PostgreSQL
+    "mac_address" # For MACADDR type
+] }
 # Secure storage dependencies
 keyring = { version = "3.0", features = ["apple-native", "windows-native", "sync-secret-service"] }
 argon2 = "0.5"
