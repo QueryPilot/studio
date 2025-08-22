@@ -1257,7 +1257,7 @@ export function DataViewer({
         setLastSelectedIndex(rowIndex);
       }
     },
-    [lastSelectedIndex, rows, selectedRowIds],
+    [lastSelectedIndex, rows.length], // Only depend on rows.length, not rows array
   );
 
   const handleRowMouseEnter = useCallback(
@@ -1280,7 +1280,7 @@ export function DataViewer({
         setSelectedRowIds(newSet);
       }
     },
-    [isSelecting, selectionStart, rows],
+    [isSelecting, selectionStart], // Remove rows dependency, access it directly
   );
 
   // Auto-scroll during drag selection
@@ -1384,11 +1384,14 @@ export function DataViewer({
       event.stopPropagation();
       setSelectedCell({ rowId, columnId });
       // Clear editing if clicking on a different cell
-      if (editingCell && (editingCell.rowId !== rowId || editingCell.columnId !== columnId)) {
-        setEditingCell(null);
-      }
+      setEditingCell((prev) => {
+        if (prev && (prev.rowId !== rowId || prev.columnId !== columnId)) {
+          return null;
+        }
+        return prev;
+      });
     },
-    [editingCell],
+    [], // No dependencies needed
   );
 
   // Handle cell double-click to edit
@@ -1427,76 +1430,83 @@ export function DataViewer({
 
   // Handle edit complete
   const handleEditComplete = useCallback(() => {
-    if (editingCell) {
-      // Here you would typically save the value to the database
-      // For now, just clear the editing state
-      setEditingCell(null);
-    }
-  }, [editingCell]);
+    // Here you would typically save the value to the database
+    // For now, just clear the editing state
+    setEditingCell(null);
+  }, []);
 
   // Handle Tab navigation in edit mode
   const handleCellKeyDown = useCallback(
     (event: React.KeyboardEvent, rowId: string, columnId: string) => {
-      if (event.key === "Tab" && editingCell) {
-        event.preventDefault();
-        
-        const visibleColumns = table.getVisibleLeafColumns();
-        const currentColIndex = visibleColumns.findIndex((col) => col.id === columnId);
-        const currentRowIndex = rows.findIndex((row) => row.id === rowId);
-        
-        let nextRowId = rowId;
-        let nextColumnId = columnId;
-        
-        if (event.shiftKey) {
-          // Tab backward
-          if (currentColIndex > 0) {
-            // Move to previous column in same row
-            nextColumnId = visibleColumns[currentColIndex - 1]?.id || columnId;
-          } else if (currentRowIndex > 0) {
-            // Move to last column of previous row
-            const prevRow = rows[currentRowIndex - 1];
-            if (prevRow) {
-              nextRowId = prevRow.id;
-              nextColumnId = visibleColumns[visibleColumns.length - 1]?.id || columnId;
+      if (event.key === "Tab") {
+        setEditingCell((currentEditingCell) => {
+          if (!currentEditingCell) return null;
+          
+          event.preventDefault();
+          
+          const visibleColumns = table.getVisibleLeafColumns();
+          const currentColIndex = visibleColumns.findIndex((col) => col.id === columnId);
+          const currentRowIndex = rows.findIndex((row) => row.id === rowId);
+          
+          let nextRowId = rowId;
+          let nextColumnId = columnId;
+          
+          if (event.shiftKey) {
+            // Tab backward
+            if (currentColIndex > 0) {
+              // Move to previous column in same row
+              nextColumnId = visibleColumns[currentColIndex - 1]?.id || columnId;
+            } else if (currentRowIndex > 0) {
+              // Move to last column of previous row
+              const prevRow = rows[currentRowIndex - 1];
+              if (prevRow) {
+                nextRowId = prevRow.id;
+                nextColumnId = visibleColumns[visibleColumns.length - 1]?.id || columnId;
+              }
+            }
+          } else {
+            // Tab forward
+            if (currentColIndex < visibleColumns.length - 1) {
+              // Move to next column in same row
+              nextColumnId = visibleColumns[currentColIndex + 1]?.id || columnId;
+            } else if (currentRowIndex < rows.length - 1) {
+              // Move to first column of next row
+              const nextRow = rows[currentRowIndex + 1];
+              if (nextRow) {
+                nextRowId = nextRow.id;
+                nextColumnId = visibleColumns[0]?.id || columnId;
+              }
             }
           }
-        } else {
-          // Tab forward
-          if (currentColIndex < visibleColumns.length - 1) {
-            // Move to next column in same row
-            nextColumnId = visibleColumns[currentColIndex + 1]?.id || columnId;
-          } else if (currentRowIndex < rows.length - 1) {
-            // Move to first column of next row
-            const nextRow = rows[currentRowIndex + 1];
-            if (nextRow) {
-              nextRowId = nextRow.id;
-              nextColumnId = visibleColumns[0]?.id || columnId;
-            }
-          }
-        }
-        
-        // Save current cell and move to next
-        handleEditComplete();
-        setSelectedCell({ rowId: nextRowId, columnId: nextColumnId });
-        setEditingCell({ rowId: nextRowId, columnId: nextColumnId });
-      } else if (event.key === "Escape" && editingCell) {
-        // Cancel editing
-        setEditingCell(null);
-        // Optionally reset the value
-        const key = `${rowId}-${columnId}`;
-        setCellValues((prev) => {
-          const newMap = new Map(prev);
-          newMap.delete(key);
-          return newMap;
+          
+          // Move to next cell
+          setSelectedCell({ rowId: nextRowId, columnId: nextColumnId });
+          return { rowId: nextRowId, columnId: nextColumnId };
         });
-      } else if (event.key === "Enter" && !editingCell && selectedCell) {
-        // Enter on selected cell starts editing
-        if (selectedCell.rowId === rowId && selectedCell.columnId === columnId) {
-          setEditingCell({ rowId, columnId });
-        }
+      } else if (event.key === "Escape") {
+        setEditingCell((currentEditingCell) => {
+          if (currentEditingCell) {
+            // Cancel editing and reset the value
+            const key = `${rowId}-${columnId}`;
+            setCellValues((prev) => {
+              const newMap = new Map(prev);
+              newMap.delete(key);
+              return newMap;
+            });
+            return null;
+          }
+          return currentEditingCell;
+        });
+      } else if (event.key === "Enter") {
+        setEditingCell((currentEditingCell) => {
+          if (!currentEditingCell && selectedCell?.rowId === rowId && selectedCell?.columnId === columnId) {
+            return { rowId, columnId };
+          }
+          return currentEditingCell;
+        });
       }
     },
-    [editingCell, selectedCell, table, rows, handleEditComplete],
+    [table, rows, selectedCell], // Much fewer dependencies
   );
 
   // Memoize selected rows to avoid expensive recalculation on every render
