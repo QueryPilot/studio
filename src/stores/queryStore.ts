@@ -68,7 +68,7 @@ export const useQueryStore = create<QueryStore>()(
       // History
       history: [],
       addToHistory: (item) =>
-        set((state) => ({
+        { set((state) => ({
           history: [
             {
               ...item,
@@ -76,59 +76,59 @@ export const useQueryStore = create<QueryStore>()(
             },
             ...state.history.slice(0, 99), // Keep last 100 queries
           ],
-        })),
-      clearHistory: () => set({ history: [] }),
+        })); },
+      clearHistory: () => { set({ history: [] }); },
       removeFromHistory: (id) =>
-        set((state) => ({
+        { set((state) => ({
           history: state.history.filter((item) => item.id !== id),
-        })),
+        })); },
       
       // Saved queries
       savedQueries: [],
       saveQuery: (query) =>
-        set((state) => ({
+        { set((state) => ({
           savedQueries: [...state.savedQueries, query],
-        })),
+        })); },
       updateSavedQuery: (id, updates) =>
-        set((state) => ({
+        { set((state) => ({
           savedQueries: state.savedQueries.map((q) =>
             q.id === id ? { ...q, ...updates, updatedAt: new Date().toISOString() } : q
           ),
-        })),
+        })); },
       deleteSavedQuery: (id) =>
-        set((state) => ({
+        { set((state) => ({
           savedQueries: state.savedQueries.filter((q) => q.id !== id),
-        })),
+        })); },
       
       // Current query
       currentQuery: '',
-      setCurrentQuery: (query) => set({ currentQuery: query }),
+      setCurrentQuery: (query) => { set({ currentQuery: query }); },
       
       // Results
       lastResults: null,
-      setLastResults: (results) => set({ lastResults: results }),
+      setLastResults: (results) => { set({ lastResults: results }); },
       
       // Active queries
       activeQueries: new Map(),
       addActiveQuery: (query) =>
-        set((state) => ({
+        { set((state) => ({
           activeQueries: new Map(state.activeQueries).set(query.id, query),
-        })),
+        })); },
       removeActiveQuery: (queryId) =>
-        set((state) => {
+        { set((state) => {
           const newMap = new Map(state.activeQueries);
           newMap.delete(queryId);
           return { activeQueries: newMap };
-        }),
+        }); },
       updateActiveQuery: (queryId, updates) =>
-        set((state) => {
+        { set((state) => {
           const query = state.activeQueries.get(queryId);
           if (!query) return state;
           
           const newMap = new Map(state.activeQueries);
           newMap.set(queryId, { ...query, ...updates });
           return { activeQueries: newMap };
-        }),
+        }); },
       getActiveQueriesForConnection: (connectionId) => {
         const activeQueries = get().activeQueries;
         return Array.from(activeQueries.values()).filter(

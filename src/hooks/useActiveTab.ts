@@ -1,7 +1,7 @@
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { useSecureConnectionStore } from "@/stores/secureConnectionStore";
 import { useConnectionHealthStore } from "@/stores/connectionHealthStore";
-import { TabState } from "@/types/workspace";
+import { type TabState } from "@/types/workspace";
 
 export interface ActiveTabInfo {
   tab: TabState | null;

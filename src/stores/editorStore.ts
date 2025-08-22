@@ -41,10 +41,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   queryHistory: [],
   
   setActiveWorkspace: (workspaceId) =>
-    set({ activeWorkspaceId: workspaceId }),
+    { set({ activeWorkspaceId: workspaceId }); },
     
   addTab: (tab) =>
-    set((state) => {
+    { set((state) => {
       const newTab = {
         ...tab,
         id: `tab-${Date.now()}`,
@@ -53,17 +53,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
         openTabs: [...state.openTabs, newTab],
         activeTabId: newTab.id,
       };
-    }),
+    }); },
     
   updateTab: (tabId, updates) =>
-    set((state) => ({
+    { set((state) => ({
       openTabs: state.openTabs.map((tab) =>
         tab.id === tabId ? { ...tab, ...updates } : tab
       ),
-    })),
+    })); },
     
   closeTab: (tabId) =>
-    set((state) => {
+    { set((state) => {
       const filteredTabs = state.openTabs.filter((tab) => tab.id !== tabId);
       const newActiveTabId =
         state.activeTabId === tabId
@@ -73,19 +73,19 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
         openTabs: filteredTabs,
         activeTabId: newActiveTabId,
       };
-    }),
+    }); },
     
-  setActiveTab: (tabId) => set({ activeTabId: tabId }),
+  setActiveTab: (tabId) => { set({ activeTabId: tabId }); },
   
-  selectTable: (tableName) => set({ selectedTable: tableName }),
+  selectTable: (tableName) => { set({ selectedTable: tableName }); },
   
   addQueryToHistory: (query) =>
-    set((state) => ({
+    { set((state) => ({
       queryHistory: [
         { ...query, id: `query-${Date.now()}` },
         ...state.queryHistory,
       ].slice(0, 100), // Keep last 100 queries
-    })),
+    })); },
     
-  clearQueryHistory: () => set({ queryHistory: [] }),
+  clearQueryHistory: () => { set({ queryHistory: [] }); },
 }));

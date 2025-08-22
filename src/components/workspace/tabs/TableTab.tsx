@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useTableData } from '@/hooks/useTableData';
 import { DataViewer } from '@/components/DataViewer/DataViewer';
-import { TabState } from '@/types/workspace';
+import { type TabState } from '@/types/workspace';
 import {
   RefreshCw,
   Filter,
@@ -127,7 +127,7 @@ export function TableTab({ tab, schema, tableName }: TableTabProps) {
           <Input
             placeholder="Search table..."
             value={searchQuery}
-            onChange={(e) => handleSearch(e.target.value)}
+            onChange={(e) => { handleSearch(e.target.value); }}
             className="pl-8"
           />
         </div>
@@ -178,12 +178,12 @@ export function TableTab({ tab, schema, tableName }: TableTabProps) {
               <Input
                 placeholder="Column"
                 value={filter.column}
-                onChange={(e) => handleUpdateFilter(index, 'column', e.target.value)}
+                onChange={(e) => { handleUpdateFilter(index, 'column', e.target.value); }}
                 className="w-32"
               />
               <select
                 value={filter.operator}
-                onChange={(e) => handleUpdateFilter(index, 'operator', e.target.value)}
+                onChange={(e) => { handleUpdateFilter(index, 'operator', e.target.value); }}
                 className="px-2 py-1 border rounded text-sm"
               >
                 <option value="equals">=</option>
@@ -197,11 +197,11 @@ export function TableTab({ tab, schema, tableName }: TableTabProps) {
               <Input
                 placeholder="Value"
                 value={filter.value}
-                onChange={(e) => handleUpdateFilter(index, 'value', e.target.value)}
+                onChange={(e) => { handleUpdateFilter(index, 'value', e.target.value); }}
                 className="flex-1"
               />
               <Button
-                onClick={() => handleRemoveFilter(index)}
+                onClick={() => { handleRemoveFilter(index); }}
                 size="sm"
                 variant="ghost"
               >
@@ -227,6 +227,7 @@ export function TableTab({ tab, schema, tableName }: TableTabProps) {
             schema={schema}
             connectionId={tab.connectionId}
             onRowClick={() => {}}
+            initialViewMode={tab.payload.initialViewMode}
           />
         ) : isLoading ? (
           <div className="flex items-center justify-center h-full">

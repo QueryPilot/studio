@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
-use sqlx::{Row, postgres::PgRow};
+use sqlx::Row;
 use crate::error::AppError;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -325,6 +325,62 @@ pub async fn fetch_enhanced_columns_mysql(
     }
     
     Ok(columns)
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TableIndex {
+    pub name: String,
+    pub columns: Vec<String>,
+    pub is_unique: bool,
+    pub is_primary: bool,
+    pub index_type: String,
+    pub definition: Option<String>,
+}
+
+pub async fn fetch_table_indexes_postgres(
+    pool: &sqlx::PgPool,
+    schema: &str,
+    table: &str,
+) -> Result<Vec<TableIndex>, AppError> {
+    let sql = r#"
+        SELECT 
+            i.relname AS index_name,
+            idx.indisunique AS is_unique,
+            idx.indisprimary AS is_primary,
+            am.amname AS index_type,
+            pg_get_indexdef(idx.indexrelid) AS definition,
+            array_agg(a.attname ORDER BY array_position(idx.indkey, a.attnum)) AS columns
+        FROM pg_index idx
+        JOIN pg_class i ON i.oid = idx.indexrelid
+        JOIN pg_class t ON t.oid = idx.indrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        JOIN pg_am am ON am.oid = i.relam
+        JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(idx.indkey)
+        WHERE n.nspname = $1 AND t.relname = $2
+        GROUP BY i.relname, idx.indisunique, idx.indisprimary, am.amname, idx.indexrelid
+        ORDER BY idx.indisprimary DESC, i.relname
+    "#;
+    
+    let rows = sqlx::query(sql)
+        .bind(schema)
+        .bind(table)
+        .fetch_all(pool)
+        .await?;
+    
+    let mut indexes = Vec::new();
+    for row in rows {
+        let columns: Vec<String> = row.get("columns");
+        indexes.push(TableIndex {
+            name: row.get("index_name"),
+            columns,
+            is_unique: row.get("is_unique"),
+            is_primary: row.get("is_primary"),
+            index_type: row.get("index_type"),
+            definition: row.get("definition"),
+        });
+    }
+    
+    Ok(indexes)
 }
 
 pub async fn fetch_enhanced_columns_sqlite(

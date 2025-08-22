@@ -4,7 +4,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { DatabaseConnection, ConnectionStatus, QueryResult, TableInfo, ViewInfo, FunctionInfo, ColumnMeta } from '@/types/database';
+import { type DatabaseConnection, type ConnectionStatus, type QueryResult, type TableInfo, type ViewInfo, type FunctionInfo, type ColumnMeta } from '@/types/database';
 import { useSecureConnectionStore } from '@/stores/secureConnectionStore';
 
 // Backend types that match Rust definitions
@@ -385,6 +385,24 @@ class SecureDatabaseService {
       });
     } catch (error) {
       console.error('[SecureDatabaseService] Failed to fetch table columns:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get table indexes using backend db_table_indexes command
+   */
+  async getTableIndexes(connectionId: string, database: string, schema: string, table: string): Promise<any[]> {
+    try {
+      const actualConnectionId = this.getActualConnectionId(connectionId);
+      return await invoke<any[]>('db_table_indexes', {
+        connectionId: actualConnectionId,
+        database,
+        schema,
+        table
+      });
+    } catch (error) {
+      console.error('[SecureDatabaseService] Failed to fetch table indexes:', error);
       return [];
     }
   }

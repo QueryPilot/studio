@@ -27,20 +27,20 @@ export const useAppStore = create<AppState>()(
         fontSize: 14,
         tabSize: 2,
       },
-      setTheme: (theme) => set({ theme }),
+      setTheme: (theme) => { set({ theme }); },
       toggleSidebar: () =>
-        set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+        { set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })); },
       addRecentConnection: (connectionId) =>
-        set((state) => ({
+        { set((state) => ({
           recentConnections: [
             connectionId,
             ...state.recentConnections.filter((id) => id !== connectionId),
           ].slice(0, 10),
-        })),
+        })); },
       updatePreferences: (preferences) =>
-        set((state) => ({
+        { set((state) => ({
           preferences: { ...state.preferences, ...preferences },
-        })),
+        })); },
     }),
     {
       name: "app-store",

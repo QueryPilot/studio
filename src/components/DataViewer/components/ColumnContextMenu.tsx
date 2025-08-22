@@ -25,7 +25,7 @@ export const ColumnContextMenu = memo(({
       </ContextMenuTrigger>
       <ContextMenuContent className="w-40 text-xs">
         <ContextMenuItem 
-          onClick={() => onHideColumn(columnId)}
+          onClick={() => { onHideColumn(columnId); }}
           className="text-xs h-7"
         >
           <EyeOff className="mr-1.5 h-3 w-3" />

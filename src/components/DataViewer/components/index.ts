@@ -8,3 +8,6 @@ export { Toolbar } from "./Toolbar";
 export { RowContextMenu } from "./RowContextMenu";
 export { ColumnContextMenu } from "./ColumnContextMenu";
 export { TableSkeleton } from "./TableSkeleton";
+export { IndexesTable } from "./IndexesTable";
+export type { TableIndex } from "./IndexesTable";
+export { TriggersTable } from "./TriggersTable";

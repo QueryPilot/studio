@@ -86,7 +86,7 @@ export function WorkspaceTitleBar({
           variant="ghost"
           size="sm"
           className="h-7 w-7 !p-0 rounded-sm"
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          onClick={() => { setTheme(theme === "dark" ? "light" : "dark"); }}
           title="Toggle theme"
         >
           {theme === "dark" ? (

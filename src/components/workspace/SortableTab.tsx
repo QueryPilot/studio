@@ -9,7 +9,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { TabState } from "@/types/workspace";
+import { type TabState } from "@/types/workspace";
 import { useConnectionHealthStore } from "@/stores/connectionHealthStore";
 import { useSecureConnectionStore } from "@/stores/secureConnectionStore";
 import {

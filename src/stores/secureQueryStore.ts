@@ -172,9 +172,9 @@ export const useSecureQueryStore = create<QueryStore>((set, get) => ({
   
   // Current query
   currentQuery: '',
-  setCurrentQuery: (query) => set({ currentQuery: query }),
+  setCurrentQuery: (query) => { set({ currentQuery: query }); },
   
   // Results
   lastResults: null,
-  setLastResults: (results) => set({ lastResults: results }),
+  setLastResults: (results) => { set({ lastResults: results }); },
 }));

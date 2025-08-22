@@ -3,7 +3,7 @@ import {
   useReactTable,
   getCoreRowModel,
   flexRender,
-  ColumnDef,
+  type ColumnDef,
 } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
 import { Clipboard, ClipboardCheck } from "lucide-react";
@@ -72,13 +72,13 @@ export const PreviewTable = memo(({ data }: PreviewTableProps) => {
           const handleCopy = () => {
             navigator.clipboard.writeText(fieldName);
             setCopiedCell(cellId);
-            setTimeout(() => setCopiedCell(null), 3000);
+            setTimeout(() => { setCopiedCell(null); }, 3000);
           };
 
           return (
             <div
               className="group relative h-7 px-2 select-text flex items-center"
-              onMouseEnter={() => handleCellMouseEnter(cellId)}
+              onMouseEnter={() => { handleCellMouseEnter(cellId); }}
               onMouseLeave={handleCellMouseLeave}
             >
               <span className="text-xs font-medium text-muted-foreground whitespace-nowrap truncate select-text">
@@ -126,7 +126,7 @@ export const PreviewTable = memo(({ data }: PreviewTableProps) => {
 
             navigator.clipboard.writeText(textToCopy);
             setCopiedCell(cellId);
-            setTimeout(() => setCopiedCell(null), 3000);
+            setTimeout(() => { setCopiedCell(null); }, 3000);
           };
 
           return (

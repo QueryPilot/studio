@@ -98,6 +98,18 @@ export interface FunctionInfo {
   arguments: string[];
 }
 
+export interface TriggerInfo {
+  name: string;
+  schema: string;
+  table_name: string;
+  event: string; // INSERT, UPDATE, DELETE
+  timing: string; // BEFORE, AFTER, INSTEAD OF
+  level: string; // ROW, STATEMENT
+  enabled: boolean;
+  function_name?: string;
+  definition?: string;
+}
+
 export interface ColumnInfo {
   name: string;
   type: string;

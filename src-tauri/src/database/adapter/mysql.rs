@@ -73,6 +73,10 @@ impl MySqlAdapter {
 
 #[async_trait]
 impl DbAdapter for MySqlAdapter {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    
     async fn ping(&self) -> Result<Duration, AppError> {
         let start = Instant::now();
         sqlx::query("SELECT 1")

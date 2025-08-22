@@ -139,13 +139,13 @@ export function ConnectionDialog({
         if (parsed) {
           parseAndFillUri(text);
           setPasteSuccess(true);
-          setTimeout(() => setPasteSuccess(false), 2000);
+          setTimeout(() => { setPasteSuccess(false); }, 2000);
         }
       }
     };
 
     window.addEventListener("paste", handlePaste);
-    return () => window.removeEventListener("paste", handlePaste);
+    return () => { window.removeEventListener("paste", handlePaste); };
   }, [
     open,
     preSelectedWorkspaceId,
@@ -164,7 +164,7 @@ export function ConnectionDialog({
           // Show success icon instead of toast
           setPasteSuccess(true);
           // Reset icon after 2 seconds
-          setTimeout(() => setPasteSuccess(false), 2000);
+          setTimeout(() => { setPasteSuccess(false); }, 2000);
           return true;
         } else if (showErrors) {
           // Only show error if explicitly requested (button click)
@@ -188,7 +188,7 @@ export function ConnectionDialog({
     if (parsed) {
       setFormData((prev) => ({
         ...prev,
-        type: parsed.type as "postgresql" | "mysql" | "sqlite",
+        type: parsed.type,
         host: parsed.host || prev.host,
         port: parsed.port || prev.port,
         database: parsed.database || prev.database,
@@ -258,7 +258,7 @@ export function ConnectionDialog({
       setTestStatus("error");
       toast.error(error instanceof Error ? error.message : "Connection failed");
     } finally {
-      setTimeout(() => setTestStatus("idle"), 3000);
+      setTimeout(() => { setTestStatus("idle"); }, 3000);
     }
   };
 
@@ -401,7 +401,7 @@ export function ConnectionDialog({
 
     if (open) {
       document.addEventListener('keydown', handleKeyDown, true);
-      return () => document.removeEventListener('keydown', handleKeyDown, true);
+      return () => { document.removeEventListener('keydown', handleKeyDown, true); };
     }
     return undefined;
   }, [open]);
@@ -458,7 +458,7 @@ export function ConnectionDialog({
                 id="name"
                 placeholder="My Database"
                 value={formData.name}
-                onChange={(e) => handleInputChange("name", e.target.value)}
+                onChange={(e) => { handleInputChange("name", e.target.value); }}
                 className="w-full"
               />
             </div>
@@ -519,7 +519,7 @@ export function ConnectionDialog({
                 id="filePath"
                 placeholder="/path/to/database.db"
                 value={formData.filePath}
-                onChange={(e) => handleInputChange("filePath", e.target.value)}
+                onChange={(e) => { handleInputChange("filePath", e.target.value); }}
               />
             </div>
           ) : (
@@ -539,7 +539,7 @@ export function ConnectionDialog({
                       id="host"
                       value={formData.host}
                       onChange={(e) =>
-                        handleInputChange("host", e.target.value)
+                        { handleInputChange("host", e.target.value); }
                       }
                     />
                   </div>
@@ -552,7 +552,7 @@ export function ConnectionDialog({
                       type="number"
                       value={formData.port}
                       onChange={(e) =>
-                        handleInputChange("port", parseInt(e.target.value))
+                        { handleInputChange("port", parseInt(e.target.value)); }
                       }
                     />
                   </div>
@@ -567,7 +567,7 @@ export function ConnectionDialog({
                       id="username"
                       value={formData.username}
                       onChange={(e) =>
-                        handleInputChange("username", e.target.value)
+                        { handleInputChange("username", e.target.value); }
                       }
                     />
                   </div>
@@ -581,7 +581,7 @@ export function ConnectionDialog({
                       type="password"
                       value={formData.password}
                       onChange={(e) =>
-                        handleInputChange("password", e.target.value)
+                        { handleInputChange("password", e.target.value); }
                       }
                     />
                   </div>
@@ -596,7 +596,7 @@ export function ConnectionDialog({
                     placeholder="database_name"
                     value={formData.database}
                     onChange={(e) =>
-                      handleInputChange("database", e.target.value)
+                      { handleInputChange("database", e.target.value); }
                     }
                   />
                 </div>
@@ -608,7 +608,7 @@ export function ConnectionDialog({
                     type="checkbox"
                     id="ssl"
                     checked={formData.ssl}
-                    onChange={(e) => handleInputChange("ssl", e.target.checked)}
+                    onChange={(e) => { handleInputChange("ssl", e.target.checked); }}
                     className="rounded border-gray-300"
                   />
                   <Label htmlFor="ssl" className="text-sm select-none">

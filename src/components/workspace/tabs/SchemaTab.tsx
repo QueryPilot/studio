@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useDatabase } from '@/hooks/useDatabase';
-import { TabState } from '@/types/workspace';
+import { type TabState } from '@/types/workspace';
 import {
   RefreshCw,
   Search,
@@ -221,7 +221,7 @@ export function SchemaTab({ tab }: SchemaTabProps) {
           <Input
             placeholder="Search schema objects..."
             value={searchQuery}
-            onChange={(e) => handleSearch(e.target.value)}
+            onChange={(e) => { handleSearch(e.target.value); }}
             className="pl-8"
           />
         </div>
@@ -258,7 +258,7 @@ export function SchemaTab({ tab }: SchemaTabProps) {
               <p className="text-muted-foreground">No schema objects found</p>
               {searchQuery && (
                 <Button 
-                  onClick={() => setSearchQuery('')} 
+                  onClick={() => { setSearchQuery(''); }} 
                   variant="outline" 
                   size="sm"
                 >
@@ -277,7 +277,7 @@ export function SchemaTab({ tab }: SchemaTabProps) {
                   {/* Schema Header */}
                   <div
                     className="flex items-center gap-2 p-2 rounded hover:bg-muted/50 cursor-pointer group"
-                    onClick={() => handleToggleSchema(schema)}
+                    onClick={() => { handleToggleSchema(schema); }}
                   >
                     {isExpanded ? (
                       <>

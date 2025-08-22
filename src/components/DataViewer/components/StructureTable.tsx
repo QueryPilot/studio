@@ -3,17 +3,19 @@ import {
   useReactTable,
   getCoreRowModel,
   flexRender,
-  ColumnDef,
+  getFilteredRowModel,
+  type ColumnDef,
 } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
-import { TableColumn } from "../types";
+import { type TableColumn } from "../types";
 
 interface StructureTableProps {
   tableStructure: TableColumn[];
+  globalFilter?: string;
 }
 
 export const StructureTable = memo(
-  ({ tableStructure }: StructureTableProps) => {
+  ({ tableStructure, globalFilter }: StructureTableProps) => {
     const structureColumns = useMemo<ColumnDef<any>[]>(() => {
       // Calculate the exact width needed for the column name column
       const maxColumnNameLength = Math.max(
@@ -87,6 +89,110 @@ export const StructureTable = memo(
           },
         },
         {
+          id: "constraints",
+          header: "Constraints",
+          size: 150,
+          minSize: 100,
+          cell: ({ row }) => (
+            <div className="min-h-[26px] px-2 py-0.5 flex items-center gap-1">
+              {row.original.is_primary_key && (
+                <span
+                  className="px-1 py-0.5 bg-blue-500/20 text-blue-700 dark:text-blue-400 rounded text-xs font-medium"
+                  title="Primary Key"
+                >
+                  PK
+                </span>
+              )}
+              {row.original.is_foreign_key && (
+                <span
+                  className="px-1 py-0.5 bg-purple-500/20 text-purple-700 dark:text-purple-400 rounded text-xs font-medium"
+                  title="Foreign Key"
+                >
+                  FK
+                </span>
+              )}
+              {row.original.is_unique && !row.original.is_primary_key && (
+                <span
+                  className="px-1 py-0.5 bg-amber-500/20 text-amber-700 dark:text-amber-400 rounded text-xs font-medium"
+                  title="Unique"
+                >
+                  UQ
+                </span>
+              )}
+              {row.original.is_indexed &&
+                !row.original.is_primary_key &&
+                !row.original.is_unique && (
+                  <span
+                    className="px-1 py-0.5 bg-green-500/20 text-green-700 dark:text-green-400 rounded text-xs font-medium"
+                    title="Indexed"
+                  >
+                    IX
+                  </span>
+                )}
+            </div>
+          ),
+        },
+        {
+          id: "references",
+          header: "References",
+          size: 200,
+          minSize: 120,
+          maxSize: 300,
+          cell: ({ row }) => {
+            const fkRef = row.original.fk_reference;
+            if (!fkRef) {
+              return (
+                <div className="min-h-[26px] px-2 py-0.5 flex items-center">
+                  <span className="text-xs text-muted-foreground">-</span>
+                </div>
+              );
+            }
+
+            return (
+              <div className="min-h-[26px] px-2 py-0.5 flex items-center">
+                <span
+                  className="px-1 py-0.5 bg-purple-500/20 text-purple-700 dark:text-purple-400 rounded text-xs font-medium truncate cursor-pointer hover:bg-purple-500/30"
+                  title={`${fkRef.referenced_table}.${fkRef.referenced_column}\nON DELETE: ${fkRef.on_delete}\nON UPDATE: ${fkRef.on_update}`}
+                  onClick={() => {
+                    // TODO: Navigate to referenced table
+                    console.log("Navigate to:", fkRef.referenced_table);
+                  }}
+                >
+                  {fkRef.referenced_table}.{fkRef.referenced_column}
+                </span>
+              </div>
+            );
+          },
+        },
+        {
+          id: "check_constraint",
+          header: "Check",
+          size: 200,
+          minSize: 100,
+          maxSize: 400,
+          cell: ({ row }) => {
+            const checkConstraint = row.original.check_constraint;
+            if (!checkConstraint) {
+              return (
+                <div className="min-h-[26px] px-2 py-0.5 flex items-center">
+                  <span className="text-xs text-muted-foreground">-</span>
+                </div>
+              );
+            }
+
+            return (
+              <div className="min-h-[26px] px-2 py-0.5 flex items-center">
+                <span
+                  className="truncate text-xs font-mono text-muted-foreground"
+                  title={checkConstraint}
+                >
+                  {checkConstraint}
+                </span>
+              </div>
+            );
+          },
+        },
+        {
           accessorKey: "column_default",
           header: "Default",
           size: 150,
@@ -106,26 +212,6 @@ export const StructureTable = memo(
             );
           },
         },
-        {
-          id: "constraints",
-          header: "Constraints",
-          size: 120,
-          minSize: 80,
-          cell: ({ row }) => (
-            <div className="min-h-[26px] px-2 py-0.5 flex items-center gap-1">
-              {row.original.is_primary_key && (
-                <span className="px-1 py-0.5 bg-blue-500/20 text-blue-700 rounded text-xs">
-                  PK
-                </span>
-              )}
-              {row.original.is_foreign_key && (
-                <span className="px-1 py-0.5 bg-purple-500/20 text-purple-700 rounded text-xs">
-                  FK
-                </span>
-              )}
-            </div>
-          ),
-        },
       ];
     }, [tableStructure]);
 
@@ -133,6 +219,10 @@ export const StructureTable = memo(
       data: tableStructure,
       columns: structureColumns,
       getCoreRowModel: getCoreRowModel(),
+      getFilteredRowModel: getFilteredRowModel(),
+      state: {
+        globalFilter,
+      },
       enableColumnResizing: true,
       columnResizeMode: "onChange",
       defaultColumn: {
@@ -148,19 +238,25 @@ export const StructureTable = memo(
             <col
               key={column.id}
               style={{
-                width: index === 0 ? `${column.getSize()}px` : undefined,
-                minWidth: index === 0 ? `${column.getSize()}px` : "80px",
+                width: index === 0 ? `${String(column.getSize())}px` : undefined,
+                minWidth: index === 0 ? `${String(column.getSize())}px` : "80px",
               }}
             />
           ))}
         </colgroup>
-        <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border/50">
+        <thead className="sticky top-0 z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border/50">
           {structureTable.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id} className="border-b">
-              {headerGroup.headers.map((header) => (
+              {headerGroup.headers.map((header, index) => (
                 <th
                   key={header.id}
-                  className="text-left text-xs font-medium h-7 px-2 bg-muted/30 relative border-r border-border/50 last:border-r-0 select-none"
+                  className={cn(
+                    "text-left text-xs font-medium h-7 px-2 bg-muted/30 relative select-none",
+                    index !== headerGroup.headers.length - 1 &&
+                      "border-r border-border/50",
+                    index === 0 &&
+                      "sticky left-0 z-50 bg-white/95 dark:bg-background/95 [backdrop-filter]:bg-background/60 shadow-[2px_0_4px_rgba(0,0,0,0.08)] dark:shadow-[2px_0_4px_rgba(0,0,0,0.2)]",
+                  )}
                 >
                   {header.isPlaceholder
                     ? null
@@ -187,14 +283,18 @@ export const StructureTable = memo(
         <tbody>
           {structureTable.getRowModel().rows.map((row) => (
             <tr key={row.id} className="border-b hover:bg-muted/30">
-              {row.getVisibleCells().map((cell) => (
+              {row.getVisibleCells().map((cell, index) => (
                 <td
                   key={cell.id}
-                  className="border-r border-border/50 last:border-r-0 align-top select-none"
+                  className={cn(
+                    "border-r border-border/50 last:border-r-0 align-top select-none",
+                    index === 0 &&
+                      "sticky left-0 z-30 bg-white dark:bg-background/95 [backdrop-filter]:bg-background/60 shadow-[2px_0_2px_rgba(0,0,0,0.03)] dark:shadow-[2px_0_2px_rgba(0,0,0,0.1)]",
+                  )}
                   style={{
                     width:
                       cell.column.id === "column_name"
-                        ? `${cell.column.getSize()}px`
+                        ? `${String(cell.column.getSize())}px`
                         : undefined,
                   }}
                 >

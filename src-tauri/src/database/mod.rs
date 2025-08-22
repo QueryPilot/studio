@@ -7,4 +7,4 @@ pub mod value_converter;
 pub mod metadata;
 
 pub use registry::ConnectionRegistry;
-pub use cursor::{CursorManager, QueryBeginResponse, QueryFetchResponse};
+// pub use cursor::{CursorManager, QueryBeginResponse, QueryFetchResponse};

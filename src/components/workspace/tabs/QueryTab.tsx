@@ -7,7 +7,7 @@ import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useQueryStore } from '@/stores/queryStore';
 import { useQueryData, useExecuteQueryWithCancellation } from '@/hooks/useQueryData';
 import { DataViewer } from '@/components/DataViewer/DataViewer';
-import { TabState } from '@/types/workspace';
+import { type TabState } from '@/types/workspace';
 import {
   Play,
   Square,

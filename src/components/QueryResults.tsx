@@ -113,7 +113,7 @@ export function QueryResults({
         <Button
           size="sm"
           variant="ghost"
-          onClick={() => handleExport('csv')}
+          onClick={() => { handleExport('csv'); }}
           className="gap-2"
         >
           <Download className="h-4 w-4" />
@@ -123,7 +123,7 @@ export function QueryResults({
         <Button
           size="sm"
           variant="ghost"
-          onClick={() => handleExport('json')}
+          onClick={() => { handleExport('json'); }}
           className="gap-2"
         >
           <Download className="h-4 w-4" />
@@ -177,7 +177,7 @@ export function QueryResults({
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              onClick={() => { setCurrentPage(p => Math.max(1, p - 1)); }}
               disabled={currentPage === 1}
             >
               <ChevronLeft className="h-4 w-4" />
@@ -185,7 +185,7 @@ export function QueryResults({
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              onClick={() => { setCurrentPage(p => Math.min(totalPages, p + 1)); }}
               disabled={currentPage === totalPages}
             >
               <ChevronRight className="h-4 w-4" />

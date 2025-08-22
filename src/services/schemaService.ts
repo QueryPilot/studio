@@ -4,7 +4,7 @@
  */
 
 import { secureDatabaseService } from './secureDatabaseService';
-import { TableInfo, ViewInfo, FunctionInfo } from '@/types/database';
+import { type TableInfo, type ViewInfo, type FunctionInfo } from '@/types/database';
 
 export interface SchemaInfo {
   tables: TableInfo[];

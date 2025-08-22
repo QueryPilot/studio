@@ -43,6 +43,7 @@ export interface TabState {
     tableName?: string;
     filters?: ColumnFilter[];
     sort?: SortConfig;
+    initialViewMode?: "data" | "structure" | "indexes" | "triggers";
 
     // For result tabs
     resultId?: string;
