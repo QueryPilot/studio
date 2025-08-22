@@ -268,6 +268,31 @@ pub async fn db_table_columns(
 }
 
 #[tauri::command]
+pub async fn db_table_indexes(
+    connection_id: String,
+    database: String,
+    schema: String,
+    table: String,
+    registry: State<'_, ConnectionRegistry>,
+) -> Result<Vec<crate::database::metadata::TableIndex>, AppError> {
+    let conn = registry.get(&connection_id).await
+        .ok_or_else(|| AppError::ConnectionNotFound(connection_id.clone()))?;
+    
+    // For now, we'll use the metadata module directly
+    // Try to downcast to PostgresAdapter
+    if let Some(pg) = conn.adapter.as_any().downcast_ref::<crate::database::adapter::postgres::PostgresAdapter>() {
+        crate::database::metadata::fetch_table_indexes_postgres(
+            pg.get_pool(),
+            &schema,
+            &table
+        ).await
+    } else {
+        // Return empty for other databases for now
+        Ok(vec![])
+    }
+}
+
+#[tauri::command]
 pub async fn db_query_begin(
     connection_id: String,
     sql: String,

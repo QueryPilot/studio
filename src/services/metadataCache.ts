@@ -163,7 +163,7 @@ class MetadataCache {
    * Start periodic cleanup
    */
   startPeriodicCleanup(intervalMs = 5 * 60 * 1000) {
-    setInterval(() => this.cleanup(), intervalMs);
+    setInterval(() => { this.cleanup(); }, intervalMs);
     console.log(`[MetadataCache] Started periodic cleanup every ${intervalMs}ms`);
   }
 }

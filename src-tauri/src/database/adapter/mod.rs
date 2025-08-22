@@ -13,6 +13,8 @@ pub mod sqlite;
 
 #[async_trait]
 pub trait DbAdapter: Send + Sync {
+    // For downcasting
+    fn as_any(&self) -> &dyn std::any::Any;
     // Connection management
     async fn ping(&self) -> Result<Duration, AppError>;
     async fn disconnect(&self) -> Result<(), AppError>;

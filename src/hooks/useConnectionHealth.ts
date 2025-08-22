@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
-import { listen, UnlistenFn } from '@tauri-apps/api/event';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
-import { useConnectionHealthStore, ConnectionStatus } from '@/stores/connectionHealthStore';
+import { useConnectionHealthStore, type ConnectionStatus } from '@/stores/connectionHealthStore';
 
 interface ConnectionHealthEvent {
   connectionId: string;
@@ -136,7 +136,7 @@ export function useConnectionHealth(connectionId?: string) {
     // Cleanup
     return () => {
       Promise.all(unlisteners).then((fns) => {
-        fns.forEach((fn) => fn());
+        fns.forEach((fn) => { fn(); });
       });
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('online', handleOnline);

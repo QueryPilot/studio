@@ -5,7 +5,7 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
-  DragEndEvent,
+  type DragEndEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -82,8 +82,8 @@ export function TabBar() {
                   key={tab.id}
                   tab={tab}
                   isActive={isActive}
-                  onActivate={() => setActiveTab(workspace.id, tab.id)}
-                  onClose={() => closeTab(workspace.id, tab.id)}
+                  onActivate={() => { setActiveTab(workspace.id, tab.id); }}
+                  onClose={() => { closeTab(workspace.id, tab.id); }}
                 />
               );
             })}

@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Table as TableInstance } from "@tanstack/react-table";
+import { type Table as TableInstance } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
 import { ToggleButton } from "@/components/ui/toggle-button";
 import { Input } from "@/components/ui/input";
@@ -22,8 +22,10 @@ import {
   RotateCcw,
   PanelBottomOpen,
   PanelBottomClose,
+  Zap,
+  Workflow,
 } from "lucide-react";
-import { ViewMode } from "../types";
+import { type ViewMode } from "../types";
 
 interface ToolbarProps {
   viewMode: ViewMode;
@@ -54,7 +56,7 @@ export const Toolbar = memo(
     showDetails,
     setShowDetails,
     tableStructure,
-    columnVisibility, // eslint-disable-line @typescript-eslint/no-unused-vars
+    columnVisibility,  
   }: ToolbarProps) => {
     // columnVisibility is used for memo dependency tracking to trigger re-renders
     void columnVisibility;
@@ -65,36 +67,47 @@ export const Toolbar = memo(
           <div className="flex items-center bg-muted/50 border rounded-md p-0.5 h-7">
             <ToggleButton
               isActive={viewMode === "data"}
-              onClick={() => setViewMode("data")}
+              onClick={() => { setViewMode("data"); }}
             >
               <Table className="h-3 w-3 mr-1" />
               Data
             </ToggleButton>
             <ToggleButton
               isActive={viewMode === "structure"}
-              onClick={() => setViewMode("structure")}
+              onClick={() => { setViewMode("structure"); }}
             >
               <Database className="h-3 w-3 mr-1" />
               Structure
             </ToggleButton>
+            <ToggleButton
+              isActive={viewMode === "indexes"}
+              onClick={() => { setViewMode("indexes"); }}
+            >
+              <Zap className="h-3 w-3 mr-1" />
+              Indexes
+            </ToggleButton>
+            <ToggleButton
+              isActive={viewMode === "triggers"}
+              onClick={() => { setViewMode("triggers"); }}
+            >
+              <Workflow className="h-3 w-3 mr-1" />
+              Triggers
+            </ToggleButton>
           </div>
-
-          {viewMode === "data" && (
-            <>
-              <div className="relative flex-1 flex items-center bg-muted/50 border rounded-md px-1.5 h-7 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-0">
-                <Search className="h-3.5 w-3.5 text-muted-foreground mr-1" />
-                <Input
-                  placeholder="Search..."
-                  value={globalFilter ?? ""}
-                  onChange={(e) => setGlobalFilter(e.target.value)}
-                  className="h-5 !text-xs border-0 !bg-transparent !outline-none px-0 focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 w-full"
-                />
-              </div>
-            </>
-          )}
         </div>
 
         <div className="flex items-center gap-1">
+          {/* Search Bar - Available for all views */}
+          <div className="relative flex items-center bg-muted/50 border rounded-md px-1.5 h-7 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-0 min-w-[150px]">
+            <Search className="h-3.5 w-3.5 text-muted-foreground mr-1" />
+            <Input
+              placeholder={`Search ${viewMode}...`}
+              value={globalFilter ?? ""}
+              onChange={(e) => { setGlobalFilter(e.target.value); }}
+              className="h-5 !text-xs border-0 !bg-transparent !outline-none px-0 focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 w-full"
+            />
+          </div>
+
           {viewMode === "data" && (
             <>
               <DropdownMenu
@@ -114,7 +127,7 @@ export const Toolbar = memo(
                 <DropdownMenuContent
                   align="start"
                   className="w-56"
-                  onInteractOutside={() => setIsColumnsDropdownOpen(false)}
+                  onInteractOutside={() => { setIsColumnsDropdownOpen(false); }}
                 >
                   <div className="flex items-center justify-between px-2 py-1.5">
                     <span className="text-xs font-medium">Visible Columns</span>
@@ -144,7 +157,7 @@ export const Toolbar = memo(
                             onCheckedChange={(value) => {
                               column.toggleVisibility(!!value);
                             }}
-                            onSelect={(e) => e.preventDefault()}
+                            onSelect={(e) => { e.preventDefault(); }}
                           >
                             <span className="truncate" title={column.id}>
                               {column.id}
@@ -180,7 +193,7 @@ export const Toolbar = memo(
                 variant="ghost"
                 size="sm"
                 className="h-7 px-2 text-xs"
-                onClick={() => setShowDetails(!showDetails)}
+                onClick={() => { setShowDetails(!showDetails); }}
                 title={
                   showDetails ? "Hide Preview Panel" : "Show Preview Panel"
                 }

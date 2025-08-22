@@ -88,7 +88,7 @@ export function useQueryData(
           is_fk: false,
           ordinal: index,
         })),
-        rows: queryResult.rows as any[][],
+        rows: queryResult.rows,
         total_rows: queryResult.rowCount,
         is_complete: true,
       };

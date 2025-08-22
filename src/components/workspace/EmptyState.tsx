@@ -56,7 +56,7 @@ export function EmptyState({ message = "No tab selected" }: EmptyStateProps) {
         {workspace?.activeConnectionId && (
           <div className="flex flex-col gap-2 w-full">
             <Button
-              onClick={() => handleCreateTab('query')}
+              onClick={() => { handleCreateTab('query'); }}
               className="w-full justify-start"
               variant="outline"
             >
@@ -65,7 +65,7 @@ export function EmptyState({ message = "No tab selected" }: EmptyStateProps) {
             </Button>
             
             <Button
-              onClick={() => handleCreateTab('table')}
+              onClick={() => { handleCreateTab('table'); }}
               className="w-full justify-start"
               variant="outline"
             >
@@ -74,7 +74,7 @@ export function EmptyState({ message = "No tab selected" }: EmptyStateProps) {
             </Button>
             
             <Button
-              onClick={() => handleCreateTab('schema')}
+              onClick={() => { handleCreateTab('schema'); }}
               className="w-full justify-start"
               variant="outline"
             >

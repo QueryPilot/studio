@@ -4,7 +4,6 @@ use sqlx::mysql::MySqlRow;
 use sqlx::sqlite::SqliteRow;
 
 use crate::database::adapter::types::ColumnMeta;
-use crate::error::AppError;
 
 /// Convert database row values to strings, preserving full precision
 pub fn row_to_strings(row: &PgRow, columns: &[ColumnMeta]) -> Vec<String> {

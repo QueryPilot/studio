@@ -51,7 +51,7 @@ export const VirtualRow = memo(
       try {
         await navigator.clipboard.writeText(textToCopy);
         setCopiedCell(cell.id);
-        setTimeout(() => setCopiedCell(null), 2000);
+        setTimeout(() => { setCopiedCell(null); }, 2000);
       } catch (err) {
         console.error("Failed to copy:", err);
       }

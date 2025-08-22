@@ -95,7 +95,7 @@ export const useConnectionHealthStore = create<ConnectionHealthStore>()(
           };
           localStorage.setItem(name, JSON.stringify(serialized));
         },
-        removeItem: (name) => localStorage.removeItem(name),
+        removeItem: (name) => { localStorage.removeItem(name); },
       },
     }
   )

@@ -1,10 +1,11 @@
-import { ColumnFiltersState, ColumnOrderState, ColumnSizingState, RowSelectionState, SortingState, VisibilityState } from "@tanstack/react-table";
+import { type ColumnFiltersState, type ColumnOrderState, type ColumnSizingState, type RowSelectionState, type SortingState, type VisibilityState } from "@tanstack/react-table";
 
 export interface DataViewerProps {
   tableName: string;
   schema?: string;
   connectionId?: string;
   onRowClick?: (row: any) => void;
+  initialViewMode?: ViewMode;
   // For query results mode - provide data directly instead of fetching
   preloadedData?: {
     data: any[];
@@ -14,7 +15,7 @@ export interface DataViewerProps {
   };
 }
 
-export type ViewMode = "data" | "structure";
+export type ViewMode = "data" | "structure" | "indexes" | "triggers";
 export type DetailViewMode = "table" | "json";
 
 export interface TableColumn {
@@ -25,6 +26,17 @@ export interface TableColumn {
   character_maximum_length: number | null;
   is_primary_key: boolean;
   is_foreign_key: boolean;
+  is_unique?: boolean;
+  is_indexed?: boolean;
+  check_constraint?: string;
+  fk_reference?: {
+    constraint_name: string;
+    referenced_schema: string;
+    referenced_table: string;
+    referenced_column: string;
+    on_delete: string;
+    on_update: string;
+  };
 }
 
 export interface TableState {

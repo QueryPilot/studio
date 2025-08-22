@@ -20,6 +20,9 @@ import {
   RefreshCw,
   Database,
   Layers,
+  Zap,
+  FileText,
+  Workflow,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useConnectionStore } from "@/stores";
@@ -52,6 +55,7 @@ export function DatabaseSidebar() {
   );
   const {
     addTab,
+    updateTabPayload,
     setActiveTab,
     setActiveConnection: setWorkspaceActiveConnection,
     addConnectionToWorkspace,
@@ -160,6 +164,8 @@ export function DatabaseSidebar() {
       let tablesData: TableInfo[];
       let viewsData: ViewInfo[];
       let functionsData: FunctionInfo[];
+      // TODO: Add trigger support when backend implements getTriggers
+      // let triggersData: TriggerInfo[];
 
       // First, fetch all available schemas
       const allSchemas = await secureDatabaseService.getSchemas(
@@ -397,7 +403,7 @@ export function DatabaseSidebar() {
     }
   }, [selectedSchema, lastLoadedSchema]); // Depend on both selectedSchema and lastLoadedSchema
 
-  const handleItemClick = (item: TreeItem & { schema?: string }) => {
+  const handleItemClick = (item: TreeItem & { schema?: string; initialViewMode?: "data" | "structure" | "indexes" | "triggers" }) => {
     if (!workspaceId || !activeConnectionId) return;
 
     // Check if tab already exists
@@ -444,11 +450,18 @@ export function DatabaseSidebar() {
               : undefined,
           objectName: item.type === "function" ? item.name : undefined,
           objectType: item.type === "function" ? "function" : undefined,
+          initialViewMode: item.initialViewMode,
         },
       });
       setActiveTab(workspaceId, tabId);
     } else {
-      // If tab exists, just set it as active
+      // If tab exists, update its initialViewMode if different and set it as active
+      if (item.initialViewMode && existingTab.payload?.initialViewMode !== item.initialViewMode) {
+        updateTabPayload(workspaceId, existingTab.id, {
+          ...existingTab.payload,
+          initialViewMode: item.initialViewMode,
+        });
+      }
       setActiveTab(workspaceId, existingTab.id);
     }
   };
@@ -657,43 +670,104 @@ export function DatabaseSidebar() {
                               .includes(searchQuery.toLowerCase()),
                           )
                           .map((item, index) => (
-                            <Button
+                            <div
                               key={`table-${item.schema}.${item.name}-${index}`}
-                              variant={
-                                isItemActive({
-                                  name: item.name,
-                                  type: "table",
-                                  schema: item.schema,
-                                })
-                                  ? "secondary"
-                                  : "ghost"
-                              }
-                              size="sm"
-                              className={cn(
-                                "w-full justify-start h-7 px-2 mb-0.5 text-xs group",
-                                isItemActive({
-                                  name: item.name,
-                                  type: "table",
-                                  schema: item.schema,
-                                }) && "font-medium",
-                              )}
-                              onClick={() => {
-                                handleItemClick({
-                                  name: item.name,
-                                  type: "table",
-                                  schema: item.schema,
-                                });
-                              }}
+                              className="relative group"
                             >
-                              {getIcon("table")}
-                              <span className="ml-2 truncate">{item.name}</span>
-                              {item.schema &&
-                                item.schema !== selectedSchema && (
-                                  <span className="ml-auto text-xs text-muted-foreground opacity-0 group-hover:opacity-100">
-                                    {item.schema}
-                                  </span>
+                              <Button
+                                variant={
+                                  isItemActive({
+                                    name: item.name,
+                                    type: "table",
+                                    schema: item.schema,
+                                  })
+                                    ? "secondary"
+                                    : "ghost"
+                                }
+                                size="sm"
+                                className={cn(
+                                  "w-full justify-start h-7 px-2 mb-0.5 text-xs",
+                                  isItemActive({
+                                    name: item.name,
+                                    type: "table",
+                                    schema: item.schema,
+                                  }) && "font-medium",
                                 )}
-                            </Button>
+                                onClick={() => {
+                                  handleItemClick({
+                                    name: item.name,
+                                    type: "table",
+                                    schema: item.schema,
+                                  });
+                                }}
+                              >
+                                {getIcon("table")}
+                                <span className="ml-2 truncate">{item.name}</span>
+                                {item.schema &&
+                                  item.schema !== selectedSchema && (
+                                    <span className="ml-auto text-xs text-muted-foreground opacity-0 group-hover:opacity-100">
+                                      {item.schema}
+                                    </span>
+                                  )}
+                              </Button>
+                              {/* Hover action buttons */}
+                              <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-5 w-5 p-0 hover:bg-primary/10"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    // Open structure view
+                                    handleItemClick({
+                                      name: item.name,
+                                      type: "table",
+                                      schema: item.schema,
+                                      initialViewMode: "structure",
+                                    });
+                                  }}
+                                  title="View Structure"
+                                >
+                                  <FileText className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-5 w-5 p-0 hover:bg-primary/10"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    // Open indexes view
+                                    handleItemClick({
+                                      name: item.name,
+                                      type: "table",
+                                      schema: item.schema,
+                                      initialViewMode: "indexes",
+                                    });
+                                  }}
+                                  title="View Indexes"
+                                >
+                                  <Zap className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-5 w-5 p-0 hover:bg-primary/10"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    // Open triggers view
+                                    handleItemClick({
+                                      name: item.name,
+                                      type: "table",
+                                      schema: item.schema,
+                                      initialViewMode: "triggers",
+                                    });
+                                  }}
+                                  title="View Triggers"
+                                >
+                                  <Workflow className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </div>
                           ))}
                       </div>
                     )}
@@ -733,43 +807,68 @@ export function DatabaseSidebar() {
                               .includes(searchQuery.toLowerCase()),
                           )
                           .map((item, index) => (
-                            <Button
+                            <div
                               key={`view-${item.schema}.${item.name}-${index}`}
-                              variant={
-                                isItemActive({
-                                  name: item.name,
-                                  type: "view",
-                                  schema: item.schema,
-                                })
-                                  ? "secondary"
-                                  : "ghost"
-                              }
-                              size="sm"
-                              className={cn(
-                                "w-full justify-start h-7 px-2 mb-0.5 text-xs group",
-                                isItemActive({
-                                  name: item.name,
-                                  type: "view",
-                                  schema: item.schema,
-                                }) && "font-medium",
-                              )}
-                              onClick={() => {
-                                handleItemClick({
-                                  name: item.name,
-                                  type: "view",
-                                  schema: item.schema,
-                                });
-                              }}
+                              className="relative group"
                             >
-                              {getIcon("view")}
-                              <span className="ml-2 truncate">{item.name}</span>
-                              {item.schema &&
-                                item.schema !== selectedSchema && (
-                                  <span className="ml-auto text-xs text-muted-foreground opacity-0 group-hover:opacity-100">
-                                    {item.schema}
-                                  </span>
+                              <Button
+                                variant={
+                                  isItemActive({
+                                    name: item.name,
+                                    type: "view",
+                                    schema: item.schema,
+                                  })
+                                    ? "secondary"
+                                    : "ghost"
+                                }
+                                size="sm"
+                                className={cn(
+                                  "w-full justify-start h-7 px-2 mb-0.5 text-xs",
+                                  isItemActive({
+                                    name: item.name,
+                                    type: "view",
+                                    schema: item.schema,
+                                  }) && "font-medium",
                                 )}
-                            </Button>
+                                onClick={() => {
+                                  handleItemClick({
+                                    name: item.name,
+                                    type: "view",
+                                    schema: item.schema,
+                                  });
+                                }}
+                              >
+                                {getIcon("view")}
+                                <span className="ml-2 truncate">{item.name}</span>
+                                {item.schema &&
+                                  item.schema !== selectedSchema && (
+                                    <span className="ml-auto text-xs text-muted-foreground opacity-0 group-hover:opacity-100">
+                                      {item.schema}
+                                    </span>
+                                  )}
+                              </Button>
+                              {/* Hover action button for views */}
+                              <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-5 w-5 p-0 hover:bg-primary/10"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    // Open structure view
+                                    handleItemClick({
+                                      name: item.name,
+                                      type: "view",
+                                      schema: item.schema,
+                                      initialViewMode: "structure",
+                                    });
+                                  }}
+                                  title="View Structure"
+                                >
+                                  <FileText className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </div>
                           ))}
                       </div>
                     )}

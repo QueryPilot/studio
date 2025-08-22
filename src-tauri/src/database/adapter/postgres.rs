@@ -30,6 +30,10 @@ impl PostgresAdapter {
         }
     }
     
+    pub fn get_pool(&self) -> &PgPool {
+        &self.pool
+    }
+    
     fn extract_columns(row: &sqlx::postgres::PgRow) -> Vec<ColumnMeta> {
         let mut columns = Vec::new();
         
@@ -83,6 +87,10 @@ impl PostgresAdapter {
 
 #[async_trait]
 impl DbAdapter for PostgresAdapter {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    
     async fn ping(&self) -> Result<Duration, AppError> {
         let start = Instant::now();
         sqlx::query("SELECT 1")

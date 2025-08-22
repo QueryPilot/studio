@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { secureDatabaseService } from "@/services/secureDatabaseService";
-import { secureStorage, SecureConnectionConfig } from "@/services/secureStorage";
-import { DatabaseConnection } from "@/types/database";
+import { secureStorage, type SecureConnectionConfig } from "@/services/secureStorage";
+import { type DatabaseConnection } from "@/types/database";
 
 type ConnectionConfig = DatabaseConnection;
 
@@ -281,7 +281,7 @@ export const useSecureConnectionStore = create<ConnectionState>((set, get) => ({
         const actualConnectionId = await Promise.race([
           connectionPromise,
           new Promise<string>((_, reject) => 
-            setTimeout(() => reject(new Error("Connection timeout after 30 seconds")), 30000)
+            setTimeout(() => { reject(new Error("Connection timeout after 30 seconds")); }, 30000)
           )
         ]);
         
@@ -369,7 +369,7 @@ export const useSecureConnectionStore = create<ConnectionState>((set, get) => ({
   },
     
   setActiveConnection: (connectionId) =>
-    set({ activeConnectionId: connectionId }),
+    { set({ activeConnectionId: connectionId }); },
     
   getDecryptedConfig: async (connectionId: string) => {
     try {
@@ -426,7 +426,7 @@ export const useSecureConnectionStore = create<ConnectionState>((set, get) => ({
     }
   },
   
-  setQueryProgress: (progress) => set({ queryProgress: progress }),
+  setQueryProgress: (progress) => { set({ queryProgress: progress }); },
   
   // Helper method to get the actual backend connection ID (isolated ID)
   getActualConnectionId: (connectionId: string) => {
@@ -478,7 +478,7 @@ export const useSecureConnectionStore = create<ConnectionState>((set, get) => ({
         return await Promise.race([
           testPromise,
           new Promise<boolean>((_, reject) => 
-            setTimeout(() => reject(new Error("Connection test timeout after 30 seconds")), 30000)
+            setTimeout(() => { reject(new Error("Connection test timeout after 30 seconds")); }, 30000)
           )
         ]);
       } catch (error) {

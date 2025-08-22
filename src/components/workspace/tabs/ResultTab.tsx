@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { DataViewer } from '@/components/DataViewer/DataViewer';
-import { TabState } from '@/types/workspace';
+import { type TabState } from '@/types/workspace';
 import Editor from '@monaco-editor/react';
 import { useTheme } from 'next-themes';
 import { defineThemes } from '@/components/QueryEditor/monacoTheme';
@@ -164,7 +164,7 @@ export function ResultTab({ tab, resultId }: ResultTabProps) {
 
         {/* Actions */}
         <Button
-          onClick={() => setShowSql(!showSql)}
+          onClick={() => { setShowSql(!showSql); }}
           size="sm"
           variant="outline"
         >

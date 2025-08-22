@@ -1,5 +1,5 @@
 import { LRUCache } from 'lru-cache';
-import Dexie, { Table } from 'dexie';
+import Dexie, { type Table } from 'dexie';
 
 interface SchemaCache {
   tables: any[];

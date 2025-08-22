@@ -8,7 +8,7 @@ import { DatabaseSidebar } from "./components/DatabaseSidebar";
 import { EditorPanel } from "./components/EditorPanel";
 import { StatusBar } from "./components/StatusBar";
 import { useState, useRef, useEffect } from "react";
-import { ImperativePanelHandle } from "react-resizable-panels";
+import { type ImperativePanelHandle } from "react-resizable-panels";
 import { Settings } from "lucide-react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useConnectionStore } from "@/stores";
@@ -122,7 +122,7 @@ export function WorkspaceScreen() {
       });
     }, 30000); // Save every 30 seconds
     
-    return () => clearInterval(saveInterval);
+    return () => { clearInterval(saveInterval); };
   }, [workspaceId, saveWorkspaceState]);
   
   return (
@@ -143,8 +143,8 @@ export function WorkspaceScreen() {
             maxSize={30}
             collapsible={true}
             collapsedSize={0}
-            onCollapse={() => setLeftPanelVisible(false)}
-            onExpand={() => setLeftPanelVisible(true)}
+            onCollapse={() => { setLeftPanelVisible(false); }}
+            onExpand={() => { setLeftPanelVisible(true); }}
           >
             <DatabaseSidebar />
           </ResizablePanel>
@@ -164,8 +164,8 @@ export function WorkspaceScreen() {
             maxSize={50}
             collapsible={true}
             collapsedSize={0}
-            onCollapse={() => setRightPanelVisible(false)}
-            onExpand={() => setRightPanelVisible(true)}
+            onCollapse={() => { setRightPanelVisible(false); }}
+            onExpand={() => { setRightPanelVisible(true); }}
           >
             <div className="h-full bg-muted/30 flex items-center justify-center text-muted-foreground">
               <div className="text-center">

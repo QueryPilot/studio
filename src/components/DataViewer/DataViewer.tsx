@@ -57,16 +57,19 @@ import {
 } from "./types";
 import { FETCH_SIZE, OVERSCAN } from "./constants";
 import { getInitialColumnSize } from "./utils";
-import { NumericCell, isNumericColumn } from "@/components/cells/NumericCell";
+import { DataCell } from "@/components/cells";
 import {
   DraggableHeader,
   StructureTable,
+  IndexesTable,
+  TriggersTable,
   DetailsPanel,
   SkeletonRow,
   VirtualRow,
   Toolbar,
   RowContextMenu,
   TableSkeleton,
+  type TableIndex,
 } from "./components";
 import {
   copyAsCSV,
@@ -80,12 +83,15 @@ export function DataViewer({
   schema = "public",
   connectionId,
   onRowClick,
+  initialViewMode,
   preloadedData,
 }: DataViewerProps) {
-  const [viewMode, setViewMode] = useState<ViewMode>("data");
+  const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode || "data");
   const [data, setData] = useState<any[]>([]);
   const [columns, setColumns] = useState<ColumnDef<any>[]>([]);
   const [tableStructure, setTableStructure] = useState<TableColumn[]>([]);
+  const [tableIndexes, setTableIndexes] = useState<TableIndex[]>([]);
+  const [tableTriggers, setTableTriggers] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
@@ -136,6 +142,13 @@ export function DataViewer({
       coordinateGetter: sortableKeyboardCoordinates,
     }),
   );
+
+  // Update viewMode when initialViewMode changes
+  useEffect(() => {
+    if (initialViewMode) {
+      setViewMode(initialViewMode);
+    }
+  }, [initialViewMode]);
 
   // Load saved column order on mount
   useEffect(() => {
@@ -221,6 +234,159 @@ export function DataViewer({
     }
   }, [activeConnection, schema, tableName]);
 
+  // Fetch table indexes
+  const fetchTableIndexes = useCallback(async () => {
+    if (!activeConnection) return;
+
+    try {
+      const database = ''; // Use default database for now
+      const indexes = await secureDatabaseService.getTableIndexes(
+        activeConnection,
+        database,
+        schema,
+        tableName
+      );
+      
+      setTableIndexes(indexes);
+    } catch (err) {
+      console.error("Error fetching table indexes:", err);
+      setTableIndexes([]);
+    }
+  }, [activeConnection, schema, tableName]);
+
+  // Fetch table triggers
+  const fetchTableTriggers = useCallback(async () => {
+    if (!activeConnection) return;
+
+    try {
+      // Get connection details to determine database type
+      const connection = connections.get(activeConnection);
+      if (!connection) return;
+
+      console.log('Fetching triggers for:', { 
+        type: connection.config.type, 
+        tableName, 
+        schema,
+        database: connection.config.database 
+      });
+
+      let triggersQuery = '';
+
+      switch (connection.config.type) {
+        case 'postgresql':
+          // Use template literals for PostgreSQL to avoid parameter binding issues
+          triggersQuery = `
+            SELECT 
+              tg.trigger_name as name,
+              tg.event_manipulation as event,
+              tg.action_timing as timing,
+              tg.action_orientation as level,
+              CASE 
+                WHEN tg.is_trigger_enabled = 'YES' THEN true
+                ELSE false
+              END as enabled,
+              tg.action_statement as function_name,
+              pg_get_triggerdef(t.oid) as definition
+            FROM information_schema.triggers tg
+            LEFT JOIN pg_trigger t ON t.tgname = tg.trigger_name
+            LEFT JOIN pg_class c ON c.oid = t.tgrelid
+            WHERE tg.event_object_table = '${String(tableName).replace(/'/g, "''")}'  
+              AND tg.trigger_schema = '${String(schema).replace(/'/g, "''")}'
+            ORDER BY tg.trigger_name;
+          `;
+          break;
+
+        case 'mysql': {
+          const mysqlSchema = schema || connection.config.database;
+          triggersQuery = `
+            SELECT 
+              TRIGGER_NAME as name,
+              EVENT_MANIPULATION as event,
+              ACTION_TIMING as timing,
+              ACTION_ORIENTATION as level,
+              CASE 
+                WHEN TRIGGER_NAME IS NOT NULL THEN true
+                ELSE false
+              END as enabled,
+              ACTION_STATEMENT as function_name,
+              CONCAT(
+                'CREATE TRIGGER ', TRIGGER_NAME, ' ',
+                ACTION_TIMING, ' ', EVENT_MANIPULATION, ' ',
+                'ON ', EVENT_OBJECT_TABLE, ' ',
+                'FOR EACH ', ACTION_ORIENTATION, ' ',
+                ACTION_STATEMENT
+              ) as definition
+            FROM information_schema.TRIGGERS
+            WHERE EVENT_OBJECT_TABLE = '${String(tableName).replace(/'/g, "''")}'
+              AND TRIGGER_SCHEMA = '${String(mysqlSchema).replace(/'/g, "''")}'
+            ORDER BY TRIGGER_NAME;
+          `;
+          break;
+        }
+
+        case 'sqlite':
+          triggersQuery = `
+            SELECT 
+              name,
+              CASE 
+                WHEN sql LIKE '%INSERT%' THEN 'INSERT'
+                WHEN sql LIKE '%UPDATE%' THEN 'UPDATE'
+                WHEN sql LIKE '%DELETE%' THEN 'DELETE'
+                ELSE 'UNKNOWN'
+              END as event,
+              CASE 
+                WHEN sql LIKE '%BEFORE%' THEN 'BEFORE'
+                WHEN sql LIKE '%AFTER%' THEN 'AFTER'
+                WHEN sql LIKE '%INSTEAD OF%' THEN 'INSTEAD OF'
+                ELSE 'UNKNOWN'
+              END as timing,
+              CASE 
+                WHEN sql LIKE '%FOR EACH ROW%' THEN 'ROW'
+                ELSE 'STATEMENT'
+              END as level,
+              1 as enabled,
+              '' as function_name,
+              sql as definition
+            FROM sqlite_master
+            WHERE type = 'trigger'
+              AND tbl_name = '${String(tableName).replace(/'/g, "''")}'
+            ORDER BY name;
+          `;
+          break;
+
+        default:
+          console.warn(`Triggers not supported for database type: ${connection.config.type}`);
+          setTableTriggers([]);
+          return;
+      }
+      
+      console.log('Executing trigger query:', triggersQuery);
+      
+      const result = await secureDatabaseService.executeQuery(
+        activeConnection,
+        triggersQuery
+      );
+      
+      console.log('Trigger query result:', result);
+      
+      const triggers = result.rows.map((row: any) => ({
+        name: row[0],
+        event: row[1],
+        timing: row[2],
+        level: row[3],
+        enabled: row[4],
+        function_name: row[5],
+        definition: row[6],
+      }));
+      
+      console.log('Parsed triggers:', triggers);
+      setTableTriggers(triggers);
+    } catch (err) {
+      console.error("Failed to fetch table triggers:", err);
+      setTableTriggers([]);
+    }
+  }, [activeConnection, connections, schema, tableName]);
+
   // Fetch table structure
   const fetchTableStructure = useCallback(async () => {
     if (!activeConnection) return;
@@ -234,7 +400,14 @@ export function DataViewer({
           c.column_default,
           c.character_maximum_length,
           CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_primary_key,
-          CASE WHEN fk.column_name IS NOT NULL THEN true ELSE false END as is_foreign_key
+          CASE WHEN fk.column_name IS NOT NULL THEN true ELSE false END as is_foreign_key,
+          fk.constraint_name as fk_constraint_name,
+          fk.referenced_schema,
+          fk.referenced_table,
+          fk.referenced_column,
+          fk.delete_rule,
+          fk.update_rule,
+          chk.check_clause
         FROM information_schema.columns c
         LEFT JOIN (
           SELECT ku.column_name
@@ -247,15 +420,43 @@ export function DataViewer({
             AND tc.table_name = '${tableName}'
         ) pk ON c.column_name = pk.column_name
         LEFT JOIN (
-          SELECT ku.column_name
-          FROM information_schema.table_constraints tc
-          JOIN information_schema.key_column_usage ku
-            ON tc.constraint_name = ku.constraint_name
-            AND tc.table_schema = ku.table_schema
+          SELECT 
+            kcu.column_name,
+            kcu.constraint_name,
+            ccu.table_schema AS referenced_schema,
+            ccu.table_name AS referenced_table,
+            ccu.column_name AS referenced_column,
+            rc.delete_rule,
+            rc.update_rule
+          FROM information_schema.key_column_usage kcu
+          JOIN information_schema.table_constraints tc
+            ON kcu.constraint_name = tc.constraint_name
+            AND kcu.table_schema = tc.table_schema
+          JOIN information_schema.constraint_column_usage ccu
+            ON ccu.constraint_name = tc.constraint_name
+            AND ccu.table_schema = tc.table_schema
+          JOIN information_schema.referential_constraints rc
+            ON rc.constraint_name = tc.constraint_name
+            AND rc.constraint_schema = tc.table_schema
           WHERE tc.constraint_type = 'FOREIGN KEY'
-            AND tc.table_schema = '${schema}'
-            AND tc.table_name = '${tableName}'
+            AND kcu.table_schema = '${schema}'
+            AND kcu.table_name = '${tableName}'
         ) fk ON c.column_name = fk.column_name
+        LEFT JOIN (
+          SELECT 
+            ccu.column_name,
+            pg_get_constraintdef(con.oid) AS check_clause
+          FROM pg_constraint con
+          JOIN pg_attribute a ON a.attnum = ANY(con.conkey)
+          JOIN pg_class cl ON cl.oid = con.conrelid
+          JOIN pg_namespace n ON n.oid = cl.relnamespace
+          JOIN information_schema.constraint_column_usage ccu
+            ON ccu.constraint_name = con.conname
+            AND ccu.table_schema = n.nspname
+          WHERE con.contype = 'c'
+            AND n.nspname = '${schema}'
+            AND cl.relname = '${tableName}'
+        ) chk ON c.column_name = chk.column_name
         WHERE c.table_schema = '${schema}'
           AND c.table_name = '${tableName}'
         ORDER BY c.ordinal_position;
@@ -273,6 +474,15 @@ export function DataViewer({
         character_maximum_length: row[4],
         is_primary_key: row[5],
         is_foreign_key: row[6],
+        fk_reference: row[6] ? {
+          constraint_name: row[7],
+          referenced_schema: row[8],
+          referenced_table: row[9],
+          referenced_column: row[10],
+          on_delete: row[11],
+          on_update: row[12],
+        } : undefined,
+        check_constraint: row[13] || undefined,
       }));
 
       setTableStructure(structure);
@@ -376,8 +586,15 @@ export function DataViewer({
           const tableColumns: ColumnDef<any>[] = [
             ...result.columns.map((col: string, index: number) => {
               const sizing = getInitialColumnSize(col, result.rows);
+              // Try to get column metadata from result or from table structure
               const colMeta = result.columnMeta?.[index];
-              const isNumeric = colMeta && isNumericColumn(colMeta.db_type);
+              const structureCol = tableStructure.find(s => s.column_name === col);
+              const columnMetadata = colMeta || (structureCol ? {
+                name: col,
+                db_type: structureCol.data_type,
+                nullable: structureCol.is_nullable === 'YES',
+                character_maximum_length: structureCol.character_maximum_length,
+              } : undefined);
               
               return {
                 accessorKey: col,
@@ -415,18 +632,18 @@ export function DataViewer({
                 cell: ({ getValue }: any) => {
                   const value = getValue();
                   
-                  // Use NumericCell for numeric columns
-                  if (isNumeric && colMeta) {
+                  // Use DataCell only if we have column metadata
+                  if (columnMetadata) {
                     return (
-                      <NumericCell
-                        value={value === null ? null : String(value)}
-                        columnMeta={colMeta}
+                      <DataCell
+                        value={value}
+                        columnMeta={columnMetadata}
                         isEditing={false}
-                        className="text-xs"
                       />
                     );
                   }
                   
+                  // Fallback to basic rendering when no metadata
                   if (value === null) {
                     return (
                       <span className="text-muted-foreground italic text-xs">
@@ -709,6 +926,20 @@ export function DataViewer({
   useEffect(() => {
     // This effect is intentionally empty - we preload both views
   }, [viewMode]);
+
+  // Load indexes when indexes view is selected
+  useEffect(() => {
+    if (viewMode === "indexes" && tableIndexes.length === 0) {
+      void fetchTableIndexes();
+    }
+  }, [viewMode, fetchTableIndexes]);
+
+  // Load triggers when triggers view is selected
+  useEffect(() => {
+    if (viewMode === "triggers" && tableTriggers.length === 0) {
+      void fetchTableTriggers();
+    }
+  }, [viewMode, fetchTableTriggers, tableTriggers.length]);
 
   // Handle sorting changes
   useEffect(() => {
@@ -1655,10 +1886,20 @@ export function DataViewer({
 
             {/* Removed loading spinner - skeleton rows already indicate loading */}
           </div>
-        ) : (
+        ) : viewMode === "structure" ? (
           /* Structure View */
           <div className="h-full overflow-auto">
-            <StructureTable tableStructure={tableStructure} />
+            <StructureTable tableStructure={tableStructure} globalFilter={globalFilter} />
+          </div>
+        ) : viewMode === "indexes" ? (
+          /* Indexes View */
+          <div className="h-full overflow-auto">
+            <IndexesTable indexes={tableIndexes} globalFilter={globalFilter} />
+          </div>
+        ) : (
+          /* Triggers View */
+          <div className="h-full overflow-auto">
+            <TriggersTable triggers={tableTriggers} globalFilter={globalFilter} />
           </div>
         )}
       </div>
@@ -1674,7 +1915,7 @@ export function DataViewer({
         >
           <div className="h-full flex flex-col">{tableContent}</div>
         </ResizablePanel>
-        {showDetails && (
+        {showDetails && viewMode === "data" && (
           <>
             <ResizableHandle />
             <ResizablePanel

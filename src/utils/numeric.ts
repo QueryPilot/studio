@@ -196,7 +196,7 @@ export function parseNumeric(input: string): NumericValue | null {
   }
   
   // Remove currency symbols and thousand separators
-  let cleaned = input
+  const cleaned = input
     .replace(/[$,]/g, '')
     .replace(/\s/g, '')
     .trim();
@@ -220,7 +220,7 @@ export function parseNumeric(input: string): NumericValue | null {
  */
 export function sumNumeric(values: (NumericValue | null)[]): NumericValue {
   // For integers, use BigInt
-  const nonNullValues = values.filter(v => v !== null) as NumericValue[];
+  const nonNullValues = values.filter(v => v !== null);
   
   if (nonNullValues.every(v => v.toBigInt() !== null)) {
     // All integers, use BigInt math
@@ -245,7 +245,7 @@ export function sumNumeric(values: (NumericValue | null)[]): NumericValue {
  * Calculate average with specified scale
  */
 export function avgNumeric(values: (NumericValue | null)[], scale = 2): NumericValue | null {
-  const nonNullValues = values.filter(v => v !== null) as NumericValue[];
+  const nonNullValues = values.filter(v => v !== null);
   
   if (nonNullValues.length === 0) {
     return null;
@@ -265,7 +265,7 @@ export function avgNumeric(values: (NumericValue | null)[], scale = 2): NumericV
  * Find min/max values
  */
 export function minNumeric(values: (NumericValue | null)[]): NumericValue | null {
-  const nonNullValues = values.filter(v => v !== null) as NumericValue[];
+  const nonNullValues = values.filter(v => v !== null);
   
   if (nonNullValues.length === 0) {
     return null;
@@ -277,7 +277,7 @@ export function minNumeric(values: (NumericValue | null)[]): NumericValue | null
 }
 
 export function maxNumeric(values: (NumericValue | null)[]): NumericValue | null {
-  const nonNullValues = values.filter(v => v !== null) as NumericValue[];
+  const nonNullValues = values.filter(v => v !== null);
   
   if (nonNullValues.length === 0) {
     return null;

@@ -310,6 +310,7 @@ export function EditorPanel() {
                   tableName={tab.payload.tableName || tab.title}
                   schema={tab.payload.schema}
                   connectionId={tab.connectionId}
+                  initialViewMode={tab.payload.initialViewMode}
                 />
               ) : tab.type === "schema" ? (
                 <DataViewer

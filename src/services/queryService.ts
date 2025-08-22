@@ -4,7 +4,7 @@
  * which uses the new architecture commands
  */
 
-import { DatabaseConnection } from '@/types/database';
+import { type DatabaseConnection } from '@/types/database';
 import { secureDatabaseService } from './secureDatabaseService';
 
 export interface QueryResult {

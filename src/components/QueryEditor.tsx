@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from "react";
-import Editor, { Monaco } from "@monaco-editor/react";
-import { editor } from "monaco-editor";
+import Editor, { type Monaco } from "@monaco-editor/react";
+import { type editor } from "monaco-editor";
 import { useConnectionStore } from "@/stores";
 import { useQueryStore } from "@/stores/queryStore";
 import { Button } from "@/components/ui/button";

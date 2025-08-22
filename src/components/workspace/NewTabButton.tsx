@@ -56,17 +56,17 @@ export function NewTabButton({ workspaceId }: NewTabButtonProps) {
       </DropdownMenuTrigger>
       
       <DropdownMenuContent align="start" className="w-48">
-        <DropdownMenuItem onClick={() => handleCreateTab('query')}>
+        <DropdownMenuItem onClick={() => { handleCreateTab('query'); }}>
           <Play className="h-4 w-4 mr-2" />
           New Query
         </DropdownMenuItem>
         
-        <DropdownMenuItem onClick={() => handleCreateTab('table')}>
+        <DropdownMenuItem onClick={() => { handleCreateTab('table'); }}>
           <Table className="h-4 w-4 mr-2" />
           Browse Tables
         </DropdownMenuItem>
         
-        <DropdownMenuItem onClick={() => handleCreateTab('schema')}>
+        <DropdownMenuItem onClick={() => { handleCreateTab('schema'); }}>
           <Database className="h-4 w-4 mr-2" />
           Browse Schema
         </DropdownMenuItem>
