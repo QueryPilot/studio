@@ -238,8 +238,10 @@ export const StructureTable = memo(
             <col
               key={column.id}
               style={{
-                width: index === 0 ? `${String(column.getSize())}px` : undefined,
-                minWidth: index === 0 ? `${String(column.getSize())}px` : "80px",
+                width:
+                  index === 0 ? `${String(column.getSize())}px` : undefined,
+                minWidth:
+                  index === 0 ? `${String(column.getSize())}px` : "80px",
               }}
             />
           ))}

@@ -113,6 +113,11 @@ export function DataViewer({
   const [detailViewMode, setDetailViewMode] = useState<DetailViewMode>("table");
   const [detailsPanelSize, setDetailsPanelSize] = useState(30); // 30% default size
 
+  // Cell selection and editing state
+  const [selectedCell, setSelectedCell] = useState<{ rowId: string; columnId: string } | null>(null);
+  const [editingCell, setEditingCell] = useState<{ rowId: string; columnId: string } | null>(null);
+  const [cellValues, setCellValues] = useState<Map<string, any>>(new Map());
+
   // Click-drag selection state
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectionStart, setSelectionStart] = useState<number | null>(null);
@@ -598,6 +603,7 @@ export function DataViewer({
               
               return {
                 accessorKey: col,
+                meta: columnMetadata, // Add metadata for cell editing
                 header: ({ column }: any) => {
                   const handleSort = () => {
                     const currentSort = column.getIsSorted();
@@ -799,9 +805,16 @@ export function DataViewer({
       if (preloadedData.columns && preloadedData.columns.length > 0) {
         const generatedColumns: ColumnDef<any>[] = preloadedData.columns.map((col) => {
           const columnSize = getInitialColumnSize(col, transformedData);
+          // Create basic metadata for preloaded columns
+          const columnMetadata = {
+            name: col,
+            db_type: "text", // Default type for preloaded data
+            nullable: true,
+          };
           return {
             id: col,
             accessorKey: col,
+            meta: columnMetadata,
             header: ({ column }: any) => {
               const handleSort = () => {
                 const currentSort = column.getIsSorted();
@@ -1365,6 +1378,127 @@ export function DataViewer({
     [onRowClick],
   );
 
+  // Handle cell selection
+  const handleCellClick = useCallback(
+    (rowId: string, columnId: string, event: React.MouseEvent) => {
+      event.stopPropagation();
+      setSelectedCell({ rowId, columnId });
+      // Clear editing if clicking on a different cell
+      if (editingCell && (editingCell.rowId !== rowId || editingCell.columnId !== columnId)) {
+        setEditingCell(null);
+      }
+    },
+    [editingCell],
+  );
+
+  // Handle cell double-click to edit
+  const handleCellDoubleClick = useCallback(
+    (rowId: string, columnId: string, event: React.MouseEvent) => {
+      event.stopPropagation();
+      setSelectedCell({ rowId, columnId });
+      setEditingCell({ rowId, columnId });
+    },
+    [],
+  );
+
+  // Handle cell edit button click
+  const handleEditButtonClick = useCallback(
+    (rowId: string, columnId: string, event: React.MouseEvent) => {
+      event.stopPropagation();
+      event.preventDefault();
+      setSelectedCell({ rowId, columnId });
+      setEditingCell({ rowId, columnId });
+    },
+    [],
+  );
+
+  // Handle cell value change
+  const handleCellValueChange = useCallback(
+    (rowId: string, columnId: string, value: any) => {
+      const key = `${rowId}-${columnId}`;
+      setCellValues((prev) => {
+        const newMap = new Map(prev);
+        newMap.set(key, value);
+        return newMap;
+      });
+    },
+    [],
+  );
+
+  // Handle edit complete
+  const handleEditComplete = useCallback(() => {
+    if (editingCell) {
+      // Here you would typically save the value to the database
+      // For now, just clear the editing state
+      setEditingCell(null);
+    }
+  }, [editingCell]);
+
+  // Handle Tab navigation in edit mode
+  const handleCellKeyDown = useCallback(
+    (event: React.KeyboardEvent, rowId: string, columnId: string) => {
+      if (event.key === "Tab" && editingCell) {
+        event.preventDefault();
+        
+        const visibleColumns = table.getVisibleLeafColumns();
+        const currentColIndex = visibleColumns.findIndex((col) => col.id === columnId);
+        const currentRowIndex = rows.findIndex((row) => row.id === rowId);
+        
+        let nextRowId = rowId;
+        let nextColumnId = columnId;
+        
+        if (event.shiftKey) {
+          // Tab backward
+          if (currentColIndex > 0) {
+            // Move to previous column in same row
+            nextColumnId = visibleColumns[currentColIndex - 1]?.id || columnId;
+          } else if (currentRowIndex > 0) {
+            // Move to last column of previous row
+            const prevRow = rows[currentRowIndex - 1];
+            if (prevRow) {
+              nextRowId = prevRow.id;
+              nextColumnId = visibleColumns[visibleColumns.length - 1]?.id || columnId;
+            }
+          }
+        } else {
+          // Tab forward
+          if (currentColIndex < visibleColumns.length - 1) {
+            // Move to next column in same row
+            nextColumnId = visibleColumns[currentColIndex + 1]?.id || columnId;
+          } else if (currentRowIndex < rows.length - 1) {
+            // Move to first column of next row
+            const nextRow = rows[currentRowIndex + 1];
+            if (nextRow) {
+              nextRowId = nextRow.id;
+              nextColumnId = visibleColumns[0]?.id || columnId;
+            }
+          }
+        }
+        
+        // Save current cell and move to next
+        handleEditComplete();
+        setSelectedCell({ rowId: nextRowId, columnId: nextColumnId });
+        setEditingCell({ rowId: nextRowId, columnId: nextColumnId });
+      } else if (event.key === "Escape" && editingCell) {
+        // Cancel editing
+        setEditingCell(null);
+        // Optionally reset the value
+        const key = `${rowId}-${columnId}`;
+        setCellValues((prev) => {
+          const newMap = new Map(prev);
+          newMap.delete(key);
+          return newMap;
+        });
+      } else if (event.key === "Enter" && !editingCell && selectedCell) {
+        // Enter on selected cell starts editing
+        if (selectedCell.rowId === rowId && selectedCell.columnId === columnId) {
+          setEditingCell({ rowId, columnId });
+        }
+      }
+    },
+    [editingCell, selectedCell, table, rows, handleEditComplete],
+  );
+
   // Memoize selected rows to avoid expensive recalculation on every render
   const selectedRows = useMemo(() => {
     const selectedIds = Array.from(selectedRowIds);
@@ -1860,6 +1994,9 @@ export function DataViewer({
                           isSelected={selectedRowIds.has(row.id)}
                           isHighlighted={false} // Only true when editing, not for selection/preview
                           isSelecting={isSelecting}
+                          selectedCell={selectedCell}
+                          editingCell={editingCell}
+                          cellValues={cellValues}
                           columnVirtualizer={
                             shouldVirtualizeColumns
                               ? columnVirtualizer
@@ -1876,6 +2013,12 @@ export function DataViewer({
                           onDoubleClick={() => {
                             handleRowClick(row.original);
                           }}
+                          onCellClick={handleCellClick}
+                          onCellDoubleClick={handleCellDoubleClick}
+                          onEditButtonClick={handleEditButtonClick}
+                          onCellValueChange={handleCellValueChange}
+                          onEditComplete={handleEditComplete}
+                          onCellKeyDown={handleCellKeyDown}
                         />
                       </RowContextMenu>
                     );
