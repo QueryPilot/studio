@@ -1,10 +1,7 @@
-use sqlx::{Row, Column, TypeInfo, Value, ValueRef, Decode};
-use sqlx::postgres::{PgRow, PgValueRef};
+use sqlx::{Row, Column, TypeInfo, Value, ValueRef};
+use sqlx::postgres::PgRow;
 use sqlx::mysql::MySqlRow;
 use sqlx::sqlite::SqliteRow;
-use rust_decimal::Decimal;
-use chrono::{DateTime, NaiveDate, NaiveTime, NaiveDateTime, Utc};
-use serde_json::Value as JsonValue;
 
 use crate::database::adapter::types::ColumnMeta;
 use crate::error::AppError;
@@ -38,13 +35,13 @@ pub fn row_to_strings(row: &PgRow, columns: &[ColumnMeta]) -> Vec<String> {
           .unwrap_or_else(|_| "null".to_string())
       },
       
-      // Decimal/Numeric types - use rust_decimal for exact representation
+      // Decimal/Numeric types - get as string for exact representation
       "DECIMAL" | "NUMERIC" => {
-        row.try_get::<Decimal, _>(i)
-          .map(|v| v.to_string())
+        row.try_get::<String, _>(i)
           .unwrap_or_else(|_| {
-            // Fallback to string if Decimal fails
-            row.try_get::<String, _>(i)
+            // Fallback to f64 if string fails
+            row.try_get::<f64, _>(i)
+              .map(|v| v.to_string())
               .unwrap_or_else(|_| "null".to_string())
           })
       },
@@ -104,51 +101,22 @@ pub fn row_to_strings(row: &PgRow, columns: &[ColumnMeta]) -> Vec<String> {
           .unwrap_or_else(|_| "null".to_string())
       },
       
-      // Date/Time types
-      "DATE" => {
-        row.try_get::<NaiveDate, _>(i)
-          .map(|v| v.format("%Y-%m-%d").to_string())
-          .unwrap_or_else(|_| "null".to_string())
-      },
-      "TIME" => {
-        row.try_get::<NaiveTime, _>(i)
-          .map(|v| v.format("%H:%M:%S%.f").to_string())
-          .unwrap_or_else(|_| "null".to_string())
-      },
-      "TIMESTAMP" => {
-        row.try_get::<NaiveDateTime, _>(i)
-          .map(|v| v.format("%Y-%m-%d %H:%M:%S%.f").to_string())
-          .unwrap_or_else(|_| "null".to_string())
-      },
-      "TIMESTAMPTZ" | "TIMESTAMP WITH TIME ZONE" => {
-        row.try_get::<DateTime<Utc>, _>(i)
-          .map(|v| v.to_rfc3339())
+      // Date/Time types - get as string
+      "DATE" | "TIME" | "TIMESTAMP" | "TIMESTAMPTZ" | "TIMESTAMP WITH TIME ZONE" => {
+        row.try_get::<String, _>(i)
           .unwrap_or_else(|_| "null".to_string())
       },
       
-      // JSON types
-      "JSON" | "JSONB" => {
-        row.try_get::<JsonValue, _>(i)
-          .map(|v| v.to_string())
+      // JSON types and UUID - get as string
+      "JSON" | "JSONB" | "UUID" => {
+        row.try_get::<String, _>(i)
           .unwrap_or_else(|_| "null".to_string())
       },
       
-      // UUID
-      "UUID" => {
-        row.try_get::<uuid::Uuid, _>(i)
-          .map(|v| v.to_string())
-          .unwrap_or_else(|_| "null".to_string())
-      },
-      
-      // Array types - serialize as JSON
+      // Array types - get as string
       ty if ty.starts_with("_") || ty.ends_with("[]") => {
-        // PostgreSQL array types start with underscore
-        row.try_get::<JsonValue, _>(i)
-          .map(|v| v.to_string())
-          .unwrap_or_else(|_| {
-            row.try_get::<String, _>(i)
-              .unwrap_or_else(|_| "null".to_string())
-          })
+        row.try_get::<String, _>(i)
+          .unwrap_or_else(|_| "null".to_string())
       },
       
       // Default: try to get as string
@@ -201,10 +169,12 @@ pub fn mysql_row_to_strings(row: &MySqlRow, columns: &[ColumnMeta]) -> Vec<Strin
           .unwrap_or_else(|_| "null".to_string())
       },
       "DECIMAL" | "NUMERIC" | "DEC" => {
-        row.try_get::<Decimal, _>(i)
-          .map(|v| v.to_string())
+        // MySQL stores DECIMAL as string, so get it as string directly
+        row.try_get::<String, _>(i)
           .unwrap_or_else(|_| {
-            row.try_get::<String, _>(i)
+            // Try as f64 if string fails
+            row.try_get::<f64, _>(i)
+              .map(|v| v.to_string())
               .unwrap_or_else(|_| "null".to_string())
           })
       },
