@@ -45,8 +45,32 @@ interface VirtualRowProps {
   ) => void;
 }
 
-export const VirtualRow = memo(
-  ({
+// Proper comparison function for memoization
+const areEqual = (prev: VirtualRowProps, next: VirtualRowProps): boolean => {
+  // Compare only the props that should trigger re-render
+  const baseEqual = 
+    prev.row.id === next.row.id &&
+    prev.isSelected === next.isSelected &&
+    prev.isHighlighted === next.isHighlighted &&
+    prev.virtualRow.start === next.virtualRow.start &&
+    prev.virtualRow.size === next.virtualRow.size &&
+    prev.selectedCell?.rowId === next.selectedCell?.rowId &&
+    prev.selectedCell?.columnId === next.selectedCell?.columnId &&
+    prev.editingCell?.rowId === next.editingCell?.rowId &&
+    prev.editingCell?.columnId === next.editingCell?.columnId &&
+    prev.isSelecting === next.isSelecting;
+  
+  if (!baseEqual) return false;
+  
+  // Check if cell values for this row have changed
+  if (prev.cellValues === next.cellValues) return true;
+  if (!prev.cellValues || !next.cellValues) return false;
+  
+  const rowKeys = Array.from(prev.cellValues.keys()).filter(k => k.startsWith(prev.row.id));
+  return rowKeys.every(key => prev.cellValues?.get(key) === next.cellValues?.get(key));
+};
+
+const VirtualRowComponent = ({
     row,
     virtualRow,
     isSelected,
@@ -69,7 +93,7 @@ export const VirtualRow = memo(
     onCellKeyDown,
   }: VirtualRowProps) => {
     const [copiedCell, setCopiedCell] = useState<string | null>(null);
-    const [hoveredCell, setHoveredCell] = useState<string | null>(null);
+    // Removed hoveredCell state - using CSS hover instead
 
     // Simplified copy handler without hover state management
     const handleCopy = useCallback(async (cell: Cell<any, unknown>) => {
@@ -117,8 +141,80 @@ export const VirtualRow = memo(
           <>
             {/* Spacer for columns before virtual range */}
             {(() => {
-              const firstItem = columnVirtualizer.getVirtualItems()[0];
+              const virtualItems = columnVirtualizer.getVirtualItems();
+              const firstItem = virtualItems[0];
+              
+              // Check if editing cell is before the virtual range
+              let editingCellBeforeRange = false;
+              let editingCellIndex = -1;
+              
+              if (editingCell?.rowId === row.id && firstItem) {
+                const cells = row.getVisibleCells();
+                editingCellIndex = cells.findIndex(c => c.column.id === editingCell.columnId);
+                editingCellBeforeRange = editingCellIndex >= 0 && editingCellIndex < firstItem.index;
+              }
+              
               const spacerWidth = firstItem?.start || 0;
+              
+              // If editing cell is before range, render it in the spacer area
+              if (editingCellBeforeRange && editingCellIndex >= 0) {
+                const editingCellData = row.getVisibleCells()[editingCellIndex];
+                const columnSize = editingCellData.column.getSize();
+                const finalColumnSize = Math.max(columnSize, 80);
+                const columnId = editingCellData.column.id;
+                const columnMeta = editingCellData.column.columnDef.meta as ColumnMeta;
+                const cellKey = `${row.id}-${columnId}`;
+                const editedValue = cellValues?.get(cellKey);
+                const cellValue = editedValue !== undefined ? editedValue : editingCellData.getValue();
+                
+                return (
+                  <>
+                    {spacerWidth > finalColumnSize && (
+                      <td
+                        style={{
+                          width: spacerWidth - finalColumnSize,
+                          minWidth: spacerWidth - finalColumnSize,
+                          maxWidth: spacerWidth - finalColumnSize,
+                          padding: 0,
+                          border: "none",
+                          backgroundColor: "transparent",
+                          fontSize: 0,
+                          lineHeight: 0,
+                          flexShrink: 0,
+                        }}
+                      />
+                    )}
+                    <td
+                      key={editingCellData.id}
+                      className={cn(
+                        "relative flex items-center px-2 py-1 text-xs border-b border-border/50 box-border",
+                        "ring-2 ring-primary ring-offset-0 bg-background z-20",
+                        styles.cell,
+                      )}
+                      style={{
+                        display: "flex",
+                        width: finalColumnSize,
+                        minWidth: finalColumnSize,
+                        maxWidth: finalColumnSize,
+                        flex: "none",
+                        flexShrink: 0,
+                      }}
+                      onKeyDown={(e) => onCellKeyDown?.(e, row.id, columnId)}
+                    >
+                      <div className="overflow-hidden flex-1 truncate">
+                          <DataCell
+                            value={cellValue as string | number | boolean | null}
+                            columnMeta={columnMeta}
+                            isEditing={true}
+                            onChange={(value) => onCellValueChange?.(row.id, columnId, value)}
+                            onEditComplete={onEditComplete}
+                          />
+                      </div>
+                    </td>
+                  </>
+                );
+              }
+              
               return spacerWidth > 0 ? (
                 <td
                   style={{
@@ -138,31 +234,36 @@ export const VirtualRow = memo(
             {columnVirtualizer.getVirtualItems().map((virtualColumn) => {
               const cell = row.getVisibleCells()[virtualColumn.index];
               if (!cell) return null;
+              
+              // Skip if this is the editing cell and we already rendered it
+              const columnId = cell.column.id;
+              if (editingCell?.rowId === row.id && editingCell?.columnId === columnId) {
+                const virtualItems = columnVirtualizer.getVirtualItems();
+                const firstItem = virtualItems[0];
+                if (firstItem && virtualColumn.index < firstItem.index) {
+                  return null; // Already rendered in spacer
+                }
+              }
 
               // Use the column's actual size, not the virtualizer's size
               const columnSize = cell.column.getSize();
               // Ensure minimum width of 80px for all cells
               const finalColumnSize = Math.max(columnSize, 80);
-              const columnId = cell.column.id;
               const columnMeta = cell.column.columnDef.meta as ColumnMeta;
               const isCellSelected =
                 selectedCell?.rowId === row.id &&
-                selectedCell?.columnId === columnId;
+                selectedCell.columnId === columnId;
               const isCellEditing =
                 editingCell?.rowId === row.id &&
-                editingCell?.columnId === columnId;
-              const isCellHovered = hoveredCell === cell.id;
-              const isDateColumn =
-                columnMeta &&
-                (columnMeta.db_type?.toLowerCase().includes("date") ||
-                  columnMeta.db_type?.toLowerCase().includes("time"));
+                editingCell.columnId === columnId;
+              const dbType = columnMeta.db_type ? columnMeta.db_type.toLowerCase() : null;
+              const isDateColumn = dbType ? (dbType.includes("date") || dbType.includes("time")) : false;
               const showEditButton = !isCellEditing && !isDateColumn;
 
               // Get the edited value if it exists
               const cellKey = `${row.id}-${columnId}`;
               const editedValue = cellValues?.get(cellKey);
-              const cellValue =
-                editedValue !== undefined ? editedValue : cell.getValue();
+              const cellValue = editedValue !== undefined ? editedValue : cell.getValue();
 
               return (
                 <td
@@ -190,19 +291,13 @@ export const VirtualRow = memo(
                   onDoubleClick={(e) =>
                     onCellDoubleClick?.(row.id, columnId, e)
                   }
-                  onMouseEnter={() => {
-                    setHoveredCell(cell.id);
-                  }}
-                  onMouseLeave={() => {
-                    setHoveredCell(null);
-                  }}
                   onKeyDown={(e) => onCellKeyDown?.(e, row.id, columnId)}
                 >
                   <div className="overflow-hidden flex-1 truncate">
                     {isCellEditing ? (
                       cell.column.columnDef.meta ? (
                         <DataCell
-                          value={cellValue}
+                          value={cellValue as string | number | boolean | null}
                           columnMeta={cell.column.columnDef.meta as ColumnMeta}
                           isEditing={true}
                           onChange={(value) =>
@@ -213,7 +308,7 @@ export const VirtualRow = memo(
                       ) : (
                         // Fallback to StringCell if no metadata
                         <DataCell
-                          value={cellValue}
+                          value={cellValue as string | number | boolean | null}
                           columnMeta={{ name: columnId, db_type: "text", nullable: true }}
                           isEditing={true}
                           onChange={(value) =>
@@ -254,7 +349,7 @@ export const VirtualRow = memo(
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            handleCopy(cell);
+                            void handleCopy(cell);
                           }}
                         >
                           {copiedCell === cell.id ? (
@@ -271,13 +366,83 @@ export const VirtualRow = memo(
             })}
             {/* Spacer for columns after virtual range */}
             {(() => {
-              const lastItem =
-                columnVirtualizer.getVirtualItems()[
-                  columnVirtualizer.getVirtualItems().length - 1
-                ];
+              const virtualItems = columnVirtualizer.getVirtualItems();
+              const lastItem = virtualItems[virtualItems.length - 1];
+              
+              // Check if editing cell is after the virtual range
+              let editingCellAfterRange = false;
+              let editingCellIndex = -1;
+              
+              if (editingCell?.rowId === row.id && lastItem) {
+                const cells = row.getVisibleCells();
+                editingCellIndex = cells.findIndex(c => c.column.id === editingCell.columnId);
+                editingCellAfterRange = editingCellIndex >= 0 && editingCellIndex > lastItem.index;
+              }
+              
               const remainingWidth = lastItem
                 ? columnVirtualizer.getTotalSize() - lastItem.end
                 : 0;
+              
+              // If editing cell is after range, render it in the spacer area
+              if (editingCellAfterRange && editingCellIndex >= 0) {
+                const editingCellData = row.getVisibleCells()[editingCellIndex];
+                if (!editingCellData) return null;
+                const columnSize = editingCellData.column.getSize();
+                const finalColumnSize = Math.max(columnSize, 80);
+                const columnId = editingCellData.column.id;
+                const columnMeta = editingCellData.column.columnDef.meta as ColumnMeta;
+                const cellKey = `${row.id}-${columnId}`;
+                const editedValue = cellValues?.get(cellKey);
+                const cellValue = editedValue !== undefined ? editedValue : editingCellData.getValue();
+                
+                return (
+                  <>
+                    <td
+                      key={editingCellData.id}
+                      className={cn(
+                        "relative flex items-center px-2 py-1 text-xs border-b border-border/50 box-border",
+                        "ring-2 ring-primary ring-offset-0 bg-background z-20",
+                        styles.cell,
+                      )}
+                      style={{
+                        display: "flex",
+                        width: finalColumnSize,
+                        minWidth: finalColumnSize,
+                        maxWidth: finalColumnSize,
+                        flex: "none",
+                        flexShrink: 0,
+                      }}
+                      onKeyDown={(e) => onCellKeyDown?.(e, row.id, columnId)}
+                    >
+                      <div className="overflow-hidden flex-1 truncate">
+                          <DataCell
+                            value={cellValue as string | number | boolean | null}
+                            columnMeta={columnMeta}
+                            isEditing={true}
+                            onChange={(value) => onCellValueChange?.(row.id, columnId, value)}
+                            onEditComplete={onEditComplete}
+                          />
+                      </div>
+                    </td>
+                    {remainingWidth > finalColumnSize && (
+                      <td
+                        style={{
+                          width: remainingWidth - finalColumnSize,
+                          minWidth: remainingWidth - finalColumnSize,
+                          maxWidth: remainingWidth - finalColumnSize,
+                          padding: 0,
+                          border: "none",
+                          backgroundColor: "transparent",
+                          fontSize: 0,
+                          lineHeight: 0,
+                          flexShrink: 0,
+                        }}
+                      />
+                    )}
+                  </>
+                );
+              }
+              
               return remainingWidth > 0 ? (
                 <td
                   style={{
@@ -301,24 +466,20 @@ export const VirtualRow = memo(
             const isLastColumn = index === row.getVisibleCells().length - 1;
             const columnId = cell.column.id;
             const isCellSelected =
-              selectedCell?.rowId === row.id &&
-              selectedCell?.columnId === columnId;
+              (selectedCell?.rowId === row.id &&
+              selectedCell?.columnId === columnId) || false;
             const isCellEditing =
-              editingCell?.rowId === row.id &&
-              editingCell?.columnId === columnId;
-            const isCellHovered = hoveredCell === cell.id;
+              (editingCell?.rowId === row.id &&
+              editingCell?.columnId === columnId) || false;
             const columnMeta = cell.column.columnDef.meta as ColumnMeta;
-            const isDateColumn =
-              columnMeta &&
-              (columnMeta.db_type?.toLowerCase().includes("date") ||
-                columnMeta.db_type?.toLowerCase().includes("time"));
+            const dbType = columnMeta.db_type ? columnMeta.db_type.toLowerCase() : null;
+            const isDateColumn = dbType ? (dbType.includes("date") || dbType.includes("time")) : false;
             const showEditButton = !isCellEditing && !isDateColumn;
 
             // Get the edited value if it exists
             const cellKey = `${row.id}-${columnId}`;
             const editedValue = cellValues?.get(cellKey);
-            const cellValue =
-              editedValue !== undefined ? editedValue : cell.getValue();
+            const cellValue = editedValue !== undefined ? editedValue : cell.getValue();
 
             return (
               <td
@@ -343,12 +504,6 @@ export const VirtualRow = memo(
                 }}
                 onClick={(e) => onCellClick?.(row.id, columnId, e)}
                 onDoubleClick={(e) => onCellDoubleClick?.(row.id, columnId, e)}
-                onMouseEnter={() => {
-                  setHoveredCell(cell.id);
-                }}
-                onMouseLeave={() => {
-                  setHoveredCell(null);
-                }}
                 onKeyDown={(e) => onCellKeyDown?.(e, row.id, columnId)}
               >
                 <div className="overflow-hidden flex-1 truncate">
@@ -407,7 +562,7 @@ export const VirtualRow = memo(
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          handleCopy(cell);
+                          void handleCopy(cell);
                         }}
                       >
                         {copiedCell === cell.id ? (
@@ -425,7 +580,9 @@ export const VirtualRow = memo(
         )}
       </tr>
     );
-  },
-);
+  };
+
+// Export memoized component with proper comparison
+export const VirtualRow = memo(VirtualRowComponent, areEqual);
 
 VirtualRow.displayName = "VirtualRow";
