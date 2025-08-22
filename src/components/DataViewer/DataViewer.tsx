@@ -57,6 +57,7 @@ import {
 } from "./types";
 import { FETCH_SIZE, OVERSCAN } from "./constants";
 import { getInitialColumnSize } from "./utils";
+import { NumericCell, isNumericColumn } from "@/components/cells/NumericCell";
 import {
   DraggableHeader,
   StructureTable,
@@ -373,8 +374,11 @@ export function DataViewer({
         if (!append && result.rows.length > 0) {
           // Generate columns without checkbox
           const tableColumns: ColumnDef<any>[] = [
-            ...result.columns.map((col: string) => {
+            ...result.columns.map((col: string, index: number) => {
               const sizing = getInitialColumnSize(col, result.rows);
+              const colMeta = result.columnMeta?.[index];
+              const isNumeric = colMeta && isNumericColumn(colMeta.db_type);
+              
               return {
                 accessorKey: col,
                 header: ({ column }: any) => {
@@ -410,6 +414,19 @@ export function DataViewer({
                 },
                 cell: ({ getValue }: any) => {
                   const value = getValue();
+                  
+                  // Use NumericCell for numeric columns
+                  if (isNumeric && colMeta) {
+                    return (
+                      <NumericCell
+                        value={value === null ? null : String(value)}
+                        columnMeta={colMeta}
+                        isEditing={false}
+                        className="text-xs"
+                      />
+                    );
+                  }
+                  
                   if (value === null) {
                     return (
                       <span className="text-muted-foreground italic text-xs">

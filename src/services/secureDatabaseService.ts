@@ -4,7 +4,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { DatabaseConnection, ConnectionStatus, QueryResult, TableInfo, ViewInfo, FunctionInfo } from '@/types/database';
+import { DatabaseConnection, ConnectionStatus, QueryResult, TableInfo, ViewInfo, FunctionInfo, ColumnMeta } from '@/types/database';
 import { useSecureConnectionStore } from '@/stores/secureConnectionStore';
 
 // Backend types that match Rust definitions
@@ -21,17 +21,6 @@ interface TableMeta {
   size_bytes: number | null;
 }
 
-interface ColumnMeta {
-  name: string;
-  db_type: string;
-  nullable: boolean;
-  default: string | null;
-  is_pk: boolean;
-  is_fk: boolean;
-  ordinal: number;
-  precision: number | null;
-  scale: number | null;
-}
 
 interface QueryBeginResponse {
   cursor_id: string;
@@ -156,6 +145,7 @@ class SecureDatabaseService {
 
       return {
         columns: beginResponse.columns.map(col => col.name),
+        columnMeta: beginResponse.columns,
         rows: fetchResponse.rows,
         rowCount: fetchResponse.rows.length,
         executionTime: 0,

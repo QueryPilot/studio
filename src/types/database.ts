@@ -40,8 +40,21 @@ export interface ConnectionProfile {
   connections: DatabaseConnection[];
 }
 
+export interface ColumnMeta {
+  name: string;
+  db_type: string;
+  nullable: boolean;
+  default: string | null;
+  is_pk: boolean;
+  is_fk: boolean;
+  ordinal: number;
+  precision?: number | null;
+  scale?: number | null;
+}
+
 export interface QueryResult {
   columns: string[];
+  columnMeta?: ColumnMeta[];
   rows: any[][];
   rowCount: number;
   executionTime: number;
