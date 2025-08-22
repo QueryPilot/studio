@@ -19,7 +19,6 @@ import {
   Loader2,
   RefreshCw,
   Database,
-  Plus,
   Layers,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
@@ -51,7 +50,12 @@ export function DatabaseSidebar() {
   const workspace = useWorkspaceStore((state) =>
     state.getWorkspace(workspaceId || ""),
   );
-  const { addTab, setActiveTab } = useWorkspaceStore();
+  const {
+    addTab,
+    setActiveTab,
+    setActiveConnection: setWorkspaceActiveConnection,
+    addConnectionToWorkspace,
+  } = useWorkspaceStore();
   const tabs = workspace ? Array.from(workspace.tabs.values()) : [];
   const activeTabId = workspace?.activeTabId || "";
 
@@ -64,8 +68,10 @@ export function DatabaseSidebar() {
     setAvailableSchemas,
   } = useUIStore();
 
-  const activeConnection = activeConnectionId
-    ? connections.get(activeConnectionId)
+  // Use workspace-scoped active connection for UI consistency
+  const workspaceActiveConnectionId = workspace?.activeConnectionId;
+  const activeConnection = workspaceActiveConnectionId
+    ? connections.get(workspaceActiveConnectionId)
     : null;
 
   const workspaceConnections = Array.from(connections.values());
@@ -79,14 +85,17 @@ export function DatabaseSidebar() {
   };
 
   const handleConnectionChange = async (connectionId: string) => {
-    // Navigate to workspace home view when switching databases
-    // Clear active tab to show the empty workspace state instead of keeping table selection
-    if (workspaceId && activeConnectionId !== connectionId) {
-      // Clear the active tab to navigate to workspace home
-      setActiveTab(workspaceId, null);
+    // Navigate to workspace and switch database connection
+    if (workspaceId && workspaceActiveConnectionId !== connectionId) {
+      // Ensure connection is added to workspace FIRST
+      addConnectionToWorkspace(workspaceId, connectionId);
+
+      // Then set the workspace-scoped active connection
+      // This will automatically save current tabs and restore previous tabs
+      setWorkspaceActiveConnection(workspaceId, connectionId);
     }
 
-    // Optimistically set the new connection as active immediately
+    // Set the global connection as active for backend operations
     setActiveConnection(connectionId);
 
     // Get the selected connection
@@ -587,8 +596,12 @@ export function DatabaseSidebar() {
               className="h-6 w-6 p-0 absolute right-1 top-1/2 -translate-y-1/2"
               onClick={() => {
                 // Invalidate cache and force refresh
-                cacheService.invalidateConnection(activeConnectionId!);
-                loadDatabaseSchema(true);
+                if (workspaceActiveConnectionId) {
+                  cacheService.invalidateConnection(
+                    workspaceActiveConnectionId,
+                  );
+                  void loadDatabaseSchema(true);
+                }
               }}
               title="Refresh schema"
             >

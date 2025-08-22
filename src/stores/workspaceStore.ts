@@ -30,6 +30,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     immer((set, get) => ({
       workspaces: new Map(),
       activeWorkspaceId: null,
+      lastActiveTabByConnection: new Map(),
 
       // Workspace actions
       addWorkspace: (workspace) => {
@@ -151,8 +152,46 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         set((state) => {
           const workspace = state.workspaces.get(workspaceId);
           if (workspace && workspace.connectionIds.includes(connectionId)) {
+            // Save current active tab for the previous connection before switching
+            if (workspace.activeConnectionId && workspace.activeTabId) {
+              if (!state.lastActiveTabByConnection.has(workspaceId)) {
+                state.lastActiveTabByConnection.set(workspaceId, new Map());
+              }
+              const workspaceTabMap = state.lastActiveTabByConnection.get(workspaceId)!;
+              workspaceTabMap.set(workspace.activeConnectionId, workspace.activeTabId);
+            }
+            
+            // Switch to new connection
             workspace.activeConnectionId = connectionId;
             workspace.updatedAt = new Date();
+            
+            // Restore the last active tab for this connection
+            const workspaceTabMap = state.lastActiveTabByConnection.get(workspaceId);
+            if (workspaceTabMap) {
+              const lastActiveTab = workspaceTabMap.get(connectionId);
+              if (lastActiveTab && workspace.tabs.has(lastActiveTab)) {
+                // Verify the tab belongs to this connection
+                const tab = workspace.tabs.get(lastActiveTab);
+                if (tab && tab.connectionId === connectionId) {
+                  workspace.activeTabId = lastActiveTab;
+                } else {
+                  // Find first tab for this connection
+                  const firstTab = Array.from(workspace.tabs.values())
+                    .find(t => t.connectionId === connectionId);
+                  workspace.activeTabId = firstTab?.id || null;
+                }
+              } else {
+                // Find first tab for this connection
+                const firstTab = Array.from(workspace.tabs.values())
+                  .find(t => t.connectionId === connectionId);
+                workspace.activeTabId = firstTab?.id || null;
+              }
+            } else {
+              // Find first tab for this connection
+              const firstTab = Array.from(workspace.tabs.values())
+                .find(t => t.connectionId === connectionId);
+              workspace.activeTabId = firstTab?.id || null;
+            }
           }
         });
       },
@@ -255,7 +294,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       setActiveTab: (workspaceId, tabId) => {
         set((state) => {
           const workspace = state.workspaces.get(workspaceId);
-          
+
           if (workspace) {
             // Handle clearing active tab (null)
             if (tabId === null) {
@@ -263,13 +302,23 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               workspace.updatedAt = new Date();
               return;
             }
-            
+
             const tab = workspace.tabs.get(tabId);
             if (tab) {
               workspace.activeTabId = tabId;
-              workspace.activeConnectionId = tab.connectionId;
+              // DO NOT change activeConnectionId here - this was causing circular updates
+              // activeConnectionId should only be changed via explicit database switching
               tab.lastAccessedAt = new Date();
               workspace.updatedAt = new Date();
+              
+              // Also save this as the last active tab for the current connection
+              if (workspace.activeConnectionId) {
+                if (!state.lastActiveTabByConnection.has(workspaceId)) {
+                  state.lastActiveTabByConnection.set(workspaceId, new Map());
+                }
+                const workspaceTabMap = state.lastActiveTabByConnection.get(workspaceId)!;
+                workspaceTabMap.set(workspace.activeConnectionId, tabId);
+              }
             }
           }
         });
@@ -558,6 +607,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           ],
         ),
         activeWorkspaceId: state.activeWorkspaceId,
+        lastActiveTabByConnection: Array.from(state.lastActiveTabByConnection.entries()).map(
+          ([workspaceId, connectionMap]) => [
+            workspaceId,
+            Array.from(connectionMap.entries())
+          ]
+        ),
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
@@ -593,6 +648,19 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         });
 
         state.workspaces = workspaces;
+
+        // Restore lastActiveTabByConnection map
+        const lastActiveTabByConnection = new Map<string, Map<string, string>>();
+        if (state.lastActiveTabByConnection) {
+          (state.lastActiveTabByConnection as any).forEach(([workspaceId, connectionArray]: [string, any]) => {
+            const connectionMap = new Map<string, string>();
+            connectionArray.forEach(([connectionId, tabId]: [string, string]) => {
+              connectionMap.set(connectionId, tabId);
+            });
+            lastActiveTabByConnection.set(workspaceId, connectionMap);
+          });
+        }
+        state.lastActiveTabByConnection = lastActiveTabByConnection;
 
         // Ensure Uncategorized workspace exists
         state.ensureUncategorizedWorkspace();

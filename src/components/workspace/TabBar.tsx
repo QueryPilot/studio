@@ -6,19 +6,19 @@ import {
   useSensor,
   useSensors,
   DragEndEvent,
-} from '@dnd-kit/core';
+} from "@dnd-kit/core";
 import {
   SortableContext,
   sortableKeyboardCoordinates,
   horizontalListSortingStrategy,
   arrayMove,
-} from '@dnd-kit/sortable';
-import { useWorkspaceStore } from '@/stores/workspaceStore';
-import { SortableTab } from './SortableTab';
-import { NewTabButton } from './NewTabButton';
+} from "@dnd-kit/sortable";
+import { useWorkspaceStore } from "@/stores/workspaceStore";
+import { SortableTab } from "./SortableTab";
+import { NewTabButton } from "./NewTabButton";
 
 export function TabBar() {
-  const workspace = useWorkspaceStore(s => s.getActiveWorkspace());
+  const workspace = useWorkspaceStore((s) => s.getActiveWorkspace());
   const { setActiveTab, closeTab, reorderTabs } = useWorkspaceStore();
 
   // Setup drag and drop sensors
@@ -30,7 +30,7 @@ export function TabBar() {
     }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
-    })
+    }),
   );
 
   if (!workspace) {
@@ -63,9 +63,17 @@ export function TabBar() {
           strategy={horizontalListSortingStrategy}
         >
           <div className="flex items-center min-w-0 flex-1">
-            {workspace.tabOrder.map(tabId => {
+            {workspace.tabOrder.map((tabId) => {
               const tab = workspace.tabs.get(tabId);
               if (!tab) return null;
+
+              // Only show tabs that belong to the active connection
+              if (
+                !workspace.activeConnectionId ||
+                tab.connectionId !== workspace.activeConnectionId
+              ) {
+                return null;
+              }
 
               const isActive = workspace.activeTabId === tabId;
 
@@ -79,7 +87,7 @@ export function TabBar() {
                 />
               );
             })}
-            
+
             <NewTabButton workspaceId={workspace.id} />
           </div>
         </SortableContext>
