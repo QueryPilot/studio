@@ -13,12 +13,12 @@ None - Independent foundation for data grid
 Current column metadata is basic, missing foreign key references, check constraints, and precision/scale information. Users can't see relationships or validation rules, leading to data entry errors.
 
 ## Acceptance Criteria
-- [ ] Fetch complete column metadata including FK references
-- [ ] Display check constraints in column tooltips
-- [ ] Show precision/scale for numeric columns
-- [ ] Visual indicators for PK/FK columns
-- [ ] Link to referenced tables from FK columns
-- [ ] Column metadata caching to avoid repeated queries
+- [x] Fetch complete column metadata including FK references
+- [x] Display check constraints in column tooltips
+- [x] Show precision/scale for numeric columns
+- [x] Visual indicators for PK/FK columns
+- [x] Link to referenced tables from FK columns
+- [x] Column metadata caching to avoid repeated queries
 
 ## Implementation Notes
 

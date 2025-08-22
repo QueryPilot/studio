@@ -8,4 +8,3 @@ pub mod metadata;
 
 pub use registry::ConnectionRegistry;
 pub use cursor::{CursorManager, QueryBeginResponse, QueryFetchResponse};
-pub use value_converter::{row_to_strings, mysql_row_to_strings, sqlite_row_to_strings};
