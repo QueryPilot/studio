@@ -5,7 +5,7 @@ import { useTheme } from 'next-themes';
 import { defineThemes } from '@/components/QueryEditor/monacoTheme';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useQueryStore } from '@/stores/queryStore';
-import { useQueryData, useExecuteSQL, useExecuteQueryWithCancellation } from '@/hooks/useQueryData';
+import { useQueryData, useExecuteQueryWithCancellation } from '@/hooks/useQueryData';
 import { DataViewer } from '@/components/DataViewer/DataViewer';
 import { TabState } from '@/types/workspace';
 import {
@@ -46,10 +46,13 @@ export function QueryTab({ tab }: QueryTabProps) {
     const newSql = value || '';
     setSql(newSql);
     
-    // Mark tab as dirty if SQL changed
+    // Auto-save SQL content to tab payload so it persists when switching connections
+    updateTabPayload(workspace!.id, tab.id, { sql: newSql });
+    
+    // Mark tab as dirty if SQL changed from last saved state
     const isDirty = newSql !== (tab.payload.sql || '');
     setTabDirty(workspace!.id, tab.id, isDirty);
-  }, [tab.payload.sql, workspace, tab.id, setTabDirty]);
+  }, [tab.payload.sql, workspace, tab.id, setTabDirty, updateTabPayload]);
 
   const handleExecuteQuery = useCallback(async () => {
     if (!sql.trim()) return;

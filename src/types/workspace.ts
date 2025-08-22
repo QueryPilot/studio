@@ -112,6 +112,7 @@ export interface WorkspaceStore {
   // State
   workspaces: Map<string, WorkspaceState>;
   activeWorkspaceId: string | null;
+  lastActiveTabByConnection: Map<string, Map<string, string>>; // workspaceId -> connectionId -> tabId
 
   // Workspace actions
   addWorkspace: (
@@ -216,4 +217,5 @@ export interface SerializableWorkspaceState
 export interface SerializableWorkspaceStore {
   workspaces: [string, SerializableWorkspaceState][];
   activeWorkspaceId: string | null;
+  lastActiveTabByConnection?: [string, [string, string][]][]; // [workspaceId, [connectionId, tabId][]][]
 }
