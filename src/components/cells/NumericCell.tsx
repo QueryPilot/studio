@@ -83,7 +83,7 @@ export function NumericCell({
         const decimalDigits = parts[1]?.length || 0;
         
         const maxIntegerDigits = (columnMeta.precision || 0) - (columnMeta.scale || 0);
-        return integerDigits <= maxIntegerDigits && decimalDigits <= columnMeta.scale;
+        return integerDigits <= maxIntegerDigits && decimalDigits <= (columnMeta.scale || 0);
       }
       
       return true;

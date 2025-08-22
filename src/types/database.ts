@@ -52,6 +52,24 @@ export interface ColumnMeta {
   scale?: number | null;
 }
 
+export interface ForeignKeyRef {
+  constraint_name: string;
+  referenced_schema: string;
+  referenced_table: string;
+  referenced_column: string;
+  on_delete: string;
+  on_update: string;
+}
+
+export interface EnhancedColumnMeta extends ColumnMeta {
+  fk_reference?: ForeignKeyRef | null;
+  check_constraint?: string | null;
+  character_maximum_length?: number | null;
+  is_unique: boolean;
+  is_indexed: boolean;
+  comment?: string | null;
+}
+
 export interface QueryResult {
   columns: string[];
   columnMeta?: ColumnMeta[];
