@@ -4,27 +4,33 @@
   position: relative;
 }
 
-.copyButton {
+.cell-btn {
   position: absolute;
-  right: 4px;
   top: 50%;
   transform: translateY(-50%);
   height: 24px;
   width: 24px;
   padding: 0;
-  background: var(--background);
+  background: hsl(var(--background));
   border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
   opacity: 0;
   pointer-events: none;
-  /* Add delay before showing, but instant hide when hover ends */
   transition: opacity 0.2s ease, visibility 0s linear 0.2s;
   visibility: hidden;
 }
 
-.cell:hover .copyButton {
+.copyButton {
+  right: 28px;
+}
+
+.editButton {
+  right: 4px;
+}
+
+.cell:hover .cell-btn {
   opacity: 1;
   pointer-events: auto;
   visibility: visible;
@@ -32,11 +38,12 @@
   transition: opacity 0.2s ease 0.5s, visibility 0s linear 0.5s;
 }
 
-.copyButton:hover {
-  background: var(--accent);
+.cell-btn:hover {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
 }
 
 /* Hide during selection to avoid flicker */
-.selecting .copyButton {
+.selecting .cell-btn {
   display: none;
 }

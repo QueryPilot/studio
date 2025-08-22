@@ -93,7 +93,7 @@ export function IntegerCell({
       onChange={(e) => { handleChange(e.target.value); }}
       onKeyDown={handleKeyDown}
       className={cn(
-        "h-7 text-xs font-mono text-right border-0 bg-transparent",
+        "h-6 text-xs font-mono text-right border-0 bg-transparent px-0 py-0 focus-visible:ring-0 focus-visible:ring-offset-0",
         !isValid && "border-red-500 bg-red-50 dark:bg-red-900/20"
       )}
       placeholder={columnMeta?.nullable ? "NULL" : undefined}

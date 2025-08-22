@@ -17,13 +17,12 @@ import {
   Eye,
   Download,
   Table,
-  Database,
+  Bolt,
   MoreVertical,
   RotateCcw,
   PanelBottomOpen,
   PanelBottomClose,
   Zap,
-  Workflow,
 } from "lucide-react";
 import { type ViewMode } from "../types";
 
@@ -76,7 +75,7 @@ export const Toolbar = memo(
               isActive={viewMode === "structure"}
               onClick={() => { setViewMode("structure"); }}
             >
-              <Database className="h-3 w-3 mr-1" />
+              <Bolt className="h-3 w-3 mr-1" />
               Structure
             </ToggleButton>
             <ToggleButton
@@ -85,13 +84,6 @@ export const Toolbar = memo(
             >
               <Zap className="h-3 w-3 mr-1" />
               Indexes
-            </ToggleButton>
-            <ToggleButton
-              isActive={viewMode === "triggers"}
-              onClick={() => { setViewMode("triggers"); }}
-            >
-              <Workflow className="h-3 w-3 mr-1" />
-              Triggers
             </ToggleButton>
           </div>
         </div>

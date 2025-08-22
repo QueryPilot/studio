@@ -21,8 +21,7 @@ import {
   Database,
   Layers,
   Zap,
-  FileText,
-  Workflow,
+  Bolt,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useConnectionStore } from "@/stores";
@@ -728,7 +727,7 @@ export function DatabaseSidebar() {
                                   }}
                                   title="View Structure"
                                 >
-                                  <FileText className="h-3 w-3" />
+                                  <Bolt className="h-3 w-3" />
                                 </Button>
                                 <Button
                                   variant="ghost"
@@ -747,24 +746,6 @@ export function DatabaseSidebar() {
                                   title="View Indexes"
                                 >
                                   <Zap className="h-3 w-3" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-5 w-5 p-0 hover:bg-primary/10"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    // Open triggers view
-                                    handleItemClick({
-                                      name: item.name,
-                                      type: "table",
-                                      schema: item.schema,
-                                      initialViewMode: "triggers",
-                                    });
-                                  }}
-                                  title="View Triggers"
-                                >
-                                  <Workflow className="h-3 w-3" />
                                 </Button>
                               </div>
                             </div>
@@ -865,7 +846,7 @@ export function DatabaseSidebar() {
                                   }}
                                   title="View Structure"
                                 >
-                                  <FileText className="h-3 w-3" />
+                                  <Bolt className="h-3 w-3" />
                                 </Button>
                               </div>
                             </div>

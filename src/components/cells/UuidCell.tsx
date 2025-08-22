@@ -83,7 +83,7 @@ export function UuidCell({
         onChange={(e) => { handleChange(e.target.value); }}
         onKeyDown={handleKeyDown}
         className={cn(
-          "h-7 text-xs font-mono border-0 bg-transparent flex-1",
+          "h-6 text-xs font-mono border-0 bg-transparent flex-1 px-0 py-0 focus-visible:ring-0 focus-visible:ring-offset-0",
           !isValid && "border-red-500 bg-red-50 dark:bg-red-900/20"
         )}
         placeholder={columnMeta?.nullable ? "NULL" : "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"}
