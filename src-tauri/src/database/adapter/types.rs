@@ -6,6 +6,8 @@ pub enum DbType {
     Postgres,
     Mysql,
     Sqlite,
+    Mssql,
+    Mariadb,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,6 +29,12 @@ pub struct ConnectionConfig {
     pub idle_timeout: u64,
     pub max_lifetime: u64,
     pub enable_health_check: Option<bool>,
+    // MSSQL specific
+    pub instance_name: Option<String>,
+    pub encrypt: Option<bool>,
+    pub trust_server_certificate: Option<bool>,
+    pub auth_type: Option<String>, // "windows" or "sql"
+    pub named_pipe: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,6 +64,16 @@ pub struct ColumnMeta {
     pub ordinal: i32,
     pub precision: Option<i32>,
     pub scale: Option<i32>,
+    // MSSQL specific
+    pub is_identity: Option<bool>,
+    pub is_computed: Option<bool>,
+    pub is_hierarchyid: Option<bool>,
+    pub is_spatial: Option<bool>,
+    // MySQL/MariaDB specific
+    pub is_json: Option<bool>,
+    pub enum_values: Option<Vec<String>>,
+    pub set_values: Option<Vec<String>>,
+    pub is_virtual: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,4 +145,106 @@ pub struct QueryFetchResponse {
     pub rows: Vec<Vec<serde_json::Value>>,
     pub page: usize,
     pub is_complete: bool,
+}
+
+// Table data reading types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TableReadRequest {
+    pub schema: Option<String>,
+    pub table: String,
+    pub select: Option<Vec<String>>,
+    pub sorts: Vec<SortSpec>,
+    pub filters: Vec<FilterSpec>,
+    pub search: Option<String>,
+    pub pagination: PaginationMode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SortSpec {
+    pub column: String,
+    pub direction: SortDirection,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SortDirection {
+    Asc,
+    Desc,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilterSpec {
+    pub column: String,
+    pub operator: FilterOperator,
+    pub value: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum FilterOperator {
+    #[serde(rename = "=")]
+    Equal,
+    #[serde(rename = "!=")]
+    NotEqual,
+    #[serde(rename = "<")]
+    LessThan,
+    #[serde(rename = "<=")]
+    LessThanOrEqual,
+    #[serde(rename = ">")]
+    GreaterThan,
+    #[serde(rename = ">=")]
+    GreaterThanOrEqual,
+    Like,
+    ILike,
+    In,
+    #[serde(rename = "IS NULL")]
+    IsNull,
+    #[serde(rename = "IS NOT NULL")]
+    IsNotNull,
+    Between,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum PaginationMode {
+    #[serde(rename = "cursor")]
+    Cursor { cursor: Option<String> },
+    #[serde(rename = "offset")]
+    Offset { offset: usize, limit: usize },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TableDataCursor {
+    pub connection_id: String,
+    pub table: String,
+    pub schema: Option<String>,
+    pub select: Option<Vec<String>>,
+    pub sorts: Vec<SortSpec>,
+    pub filters: Vec<FilterSpec>,
+    pub search: Option<String>,
+    pub offset: usize,
+    pub keyset_values: Option<Vec<serde_json::Value>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum TableDataResponse {
+    #[serde(rename = "meta")]
+    Meta {
+        table: String,
+        schema: Option<String>,
+        columns: Vec<ColumnMeta>,
+        selected: Vec<String>,
+        page_size: usize,
+        cursor_key_columns: Vec<String>,
+    },
+    #[serde(rename = "rows")]
+    Rows {
+        rows: Vec<serde_json::Map<String, serde_json::Value>>,
+        next_cursor: Option<String>,
+    },
+    #[serde(rename = "done")]
+    Done,
+    #[serde(rename = "error")]
+    Error { code: String, message: String },
 }

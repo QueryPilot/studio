@@ -5,6 +5,13 @@ import { BooleanCell } from "./BooleanCell";
 import { DateCell } from "./DateCell";
 import { JsonCell } from "./JsonCell";
 import { UuidCell } from "./UuidCell";
+import { 
+  JsonRenderer, 
+  SpatialRenderer, 
+  XmlRenderer, 
+  BinaryRenderer, 
+  HierarchyRenderer 
+} from "../DataViewer/renderers";
 // import { NumericCell } from "./NumericCell"; // Keep existing NumericCell for backwards compatibility
 
 export interface ColumnMeta {
@@ -14,6 +21,16 @@ export interface ColumnMeta {
   precision?: number;
   scale?: number;
   character_maximum_length?: number;
+  // MSSQL specific
+  is_identity?: boolean;
+  is_computed?: boolean;
+  is_hierarchyid?: boolean;
+  is_spatial?: boolean;
+  // MySQL/MariaDB specific
+  is_json?: boolean;
+  enum_values?: string[];
+  set_values?: string[];
+  is_virtual?: boolean;
 }
 
 interface DataCellProps {
@@ -126,7 +143,58 @@ export function DataCell({
   onChange,
   onEditComplete,
 }: DataCellProps) {
-  const cellType = getCellType(columnMeta.db_type);
+  // Check for special data types first
+  if (value && typeof value === 'object') {
+    // Handle special structured data from backend
+    if (value.type === 'spatial') {
+      return <SpatialRenderer value={value} className="inline-flex" />;
+    }
+    if (value.type === 'xml') {
+      return <XmlRenderer value={value} className="inline-flex" />;
+    }
+    if (value.type === 'hierarchyid') {
+      return <HierarchyRenderer value={value} className="inline-flex" />;
+    }
+    if (value.type === 'money') {
+      return <StringCell value={`$${value.value}`} isEditing={isEditing} onChange={onChange} onEditComplete={onEditComplete} columnMeta={columnMeta} />;
+    }
+    if (value.type === 'bit') {
+      return <StringCell value={value.binary || value.decimal?.toString()} isEditing={isEditing} onChange={onChange} onEditComplete={onEditComplete} columnMeta={columnMeta} />;
+    }
+    if (value.type === 'set') {
+      return <JsonRenderer value={value.values} className="inline-flex" compact />;
+    }
+  }
+  
+  // Check column metadata for specific types (with null safety)
+  if (columnMeta?.is_hierarchyid) {
+    return <HierarchyRenderer value={value} className="inline-flex" />;
+  }
+  if (columnMeta?.is_spatial) {
+    return <SpatialRenderer value={value} className="inline-flex" />;
+  }
+  if (columnMeta?.is_json) {
+    return <JsonRenderer value={value} className="inline-flex" compact />;
+  }
+  
+  // Check for binary data (base64 encoded strings)
+  const dbType = columnMeta?.db_type?.toLowerCase() || '';
+  if (dbType && (dbType.includes('binary') || dbType.includes('blob') || dbType.includes('image'))) {
+    if (typeof value === 'string' && value.length > 0) {
+      // Check if it looks like base64
+      if (/^[A-Za-z0-9+/]+=*$/.test(value)) {
+        return <BinaryRenderer value={value} className="inline-flex" />;
+      }
+    }
+  }
+  
+  // Check for XML data
+  if (dbType && dbType.includes('xml')) {
+    return <XmlRenderer value={value} className="inline-flex" />;
+  }
+  
+  // Fall back to standard cell type detection
+  const cellType = getCellType(columnMeta?.db_type || 'text');
   
   const commonProps = {
     value,

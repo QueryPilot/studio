@@ -268,18 +268,19 @@ class SecureDatabaseService {
   }
 
   /**
-   * Get schemas using new architecture
+   * Get available schemas for a database
    */
-  async getSchemas(connectionId: string, database: string): Promise<string[]> {
+  async getSchemas(connectionId: string, database?: string): Promise<string[]> {
     try {
       const actualConnectionId = this.getActualConnectionId(connectionId);
-      return await invoke<string[]>('db_list_schemas', { 
+      const schemas = await invoke<string[]>('db_list_schemas', { 
         connectionId: actualConnectionId,
-        database 
+        database: database || ''
       });
+      return schemas;
     } catch (error) {
       console.error('[SecureDatabaseService] Failed to fetch schemas:', error);
-      return [];
+      return ['public']; // Default fallback
     }
   }
 
@@ -289,11 +290,22 @@ class SecureDatabaseService {
   async getTables(connectionId: string, database?: string, schema?: string): Promise<TableInfo[]> {
     try {
       const actualConnectionId = this.getActualConnectionId(connectionId);
+      console.log('[SecureDatabaseService] getTables called with:', { connectionId: actualConnectionId, database, schema });
+      
+      // Don't default schema to 'public' - let the backend handle it based on database type
+      console.log('[SecureDatabaseService] Invoking db_list_tables with params:', {
+        connectionId: actualConnectionId,
+        database: database || '',
+        schema: schema || ''
+      });
+      
       const tables = await invoke<TableMeta[]>('db_list_tables', { 
         connectionId: actualConnectionId,
         database: database || '',
-        schema: schema || 'public'
+        schema: schema || ''
       });
+      
+      console.log('[SecureDatabaseService] Backend returned tables:', tables);
       
       // Transform TableMeta to TableInfo format
       return tables
@@ -305,8 +317,11 @@ class SecureDatabaseService {
           rowCount: t.row_estimate || 0
         }));
     } catch (error) {
-      console.error('[SecureDatabaseService] Failed to fetch tables:', error);
-      return [];
+      console.error('[SecureDatabaseService] Failed to fetch tables - Full error:', error);
+      console.error('[SecureDatabaseService] Error type:', typeof error);
+      console.error('[SecureDatabaseService] Error details:', JSON.stringify(error, null, 2));
+      // Don't swallow the error - let it propagate
+      throw error;
     }
   }
 
@@ -316,11 +331,16 @@ class SecureDatabaseService {
   async getViews(connectionId: string, database?: string, schema?: string): Promise<ViewInfo[]> {
     try {
       const actualConnectionId = this.getActualConnectionId(connectionId);
+      console.log('[SecureDatabaseService] getViews called with:', { connectionId: actualConnectionId, database, schema });
+      
+      // Don't default schema to 'public' - let the backend handle it based on database type
       const tables = await invoke<TableMeta[]>('db_list_tables', { 
         connectionId: actualConnectionId,
         database: database || '',
-        schema: schema || 'public'
+        schema: schema || ''
       });
+      
+      console.log('[SecureDatabaseService] Backend returned views:', tables.filter(t => t.kind === 'View' || t.kind === 'MaterializedView'));
       
       // Filter for views only and transform to ViewInfo format
       return tables
@@ -332,8 +352,9 @@ class SecureDatabaseService {
           definition: ''
         }));
     } catch (error) {
-      console.error('[SecureDatabaseService] Failed to fetch views:', error);
-      return [];
+      console.error('[SecureDatabaseService] Failed to fetch views - Full error:', error);
+      console.error('[SecureDatabaseService] Error details:', JSON.stringify(error, null, 2));
+      throw error;
     }
   }
 
@@ -343,6 +364,7 @@ class SecureDatabaseService {
   async getFunctions(connectionId: string, database?: string, schema?: string): Promise<FunctionInfo[]> {
     try {
       const actualConnectionId = this.getActualConnectionId(connectionId);
+      console.log('[SecureDatabaseService] getFunctions called with:', { connectionId: actualConnectionId, database, schema });
       
       // Define FunctionMeta interface matching backend
       interface FunctionMeta {
@@ -352,11 +374,14 @@ class SecureDatabaseService {
         arguments: string[];
       }
       
+      // Don't default schema to 'public' - let the backend handle it based on database type
       const functions = await invoke<FunctionMeta[]>('db_list_functions', { 
         connectionId: actualConnectionId,
         database: database || '',
-        schema: schema || 'public'
+        schema: schema || ''
       });
+      
+      console.log('[SecureDatabaseService] Backend returned functions:', functions);
       
       // Transform to FunctionInfo format
       return functions.map(f => ({
@@ -366,8 +391,9 @@ class SecureDatabaseService {
         arguments: f.arguments
       }));
     } catch (error) {
-      console.error('[SecureDatabaseService] Failed to fetch functions:', error);
-      return [];
+      console.error('[SecureDatabaseService] Failed to fetch functions - Full error:', error);
+      console.error('[SecureDatabaseService] Error details:', JSON.stringify(error, null, 2));
+      throw error;
     }
   }
 

@@ -46,7 +46,6 @@ export function DatabaseSidebar() {
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [views, setViews] = useState<ViewInfo[]>([]);
   const [functions, setFunctions] = useState<FunctionInfo[]>([]);
-  const [lastLoadedSchema, setLastLoadedSchema] = useState<string | null>(null);
 
   const { id: workspaceId } = useParams<{ id: string }>();
   const workspace = useWorkspaceStore((state) =>
@@ -135,6 +134,7 @@ export function DatabaseSidebar() {
       },
     );
 
+    // Check connection status first before setting loading state
     if (
       !activeConnection ||
       activeConnection.status !== "connected" ||
@@ -166,25 +166,6 @@ export function DatabaseSidebar() {
       // TODO: Add trigger support when backend implements getTriggers
       // let triggersData: TriggerInfo[];
 
-      // First, fetch all available schemas
-      const allSchemas = await secureDatabaseService.getSchemas(
-        activeConnectionId,
-        "",
-      );
-      console.log("[DatabaseSidebar] Found schemas:", allSchemas);
-      const sortedSchemas = allSchemas.sort();
-      setAvailableSchemas(sortedSchemas);
-
-      // Determine which schema to use
-      let targetSchema = selectedSchema;
-      if (forceResetSchema || !sortedSchemas.includes(selectedSchema)) {
-        // Reset to public or first available schema
-        targetSchema = sortedSchemas.includes("public")
-          ? "public"
-          : sortedSchemas[0] || "public";
-        setSelectedSchema(targetSchema);
-      }
-
       // Check cache first unless force refresh
       if (!forceResetSchema) {
         const cachedSchema = await cacheService.getSchema(activeConnectionId);
@@ -196,36 +177,179 @@ export function DatabaseSidebar() {
         } else {
           console.log("[DatabaseSidebar] Cache miss, fetching fresh schema");
 
-          // Fetch tables/views/functions for the selected schema only
-          const [tables, views, functions] = await Promise.all([
-            secureDatabaseService
-              .getTables(activeConnectionId, "", targetSchema)
+          // Determine database name based on connection type
+          const databaseName = 
+            (activeConnection?.config.type === 'mysql' || activeConnection?.config.type === 'mariadb')
+              ? activeConnection.config.database || ''
+              : '';
+          
+          let tables: TableInfo[];
+          let views: ViewInfo[];
+          let functions: FunctionInfo[];
+          
+          // Handle different database types
+          const dbType = activeConnection?.config.type;
+          
+          if (dbType === 'mysql' || dbType === 'mariadb' || dbType === 'sqlite') {
+            // For MySQL/MariaDB/SQLite: fetch directly without schema iteration
+            console.log(`[DatabaseSidebar] Fetching data for ${dbType} (no schema iteration)`);
+            console.log(`[DatabaseSidebar] Database name: '${databaseName}', Connection ID: '${activeConnectionId}'`);
+            console.log(`[DatabaseSidebar] Connection config:`, activeConnection?.config);
+            
+            // For SQLite, use empty strings. For MySQL/MariaDB, pass the database name only for database param
+            const dbParam = dbType === 'sqlite' ? '' : (databaseName || activeConnection?.config.database || '');
+            const schemaParam = ''; // Don't pass schema for any of these databases
+            
+            console.log(`[DatabaseSidebar] Using database: '${dbParam}', schema: '${schemaParam}'`);
+            
+            try {
+              // Try different parameter combinations to find what works
+              let tablesData: TableInfo[] = [];
+              let viewsData: ViewInfo[] = [];
+              let functionsData: FunctionInfo[] = [];
+              
+              // First attempt: with database and schema parameters
+              console.log(`[DatabaseSidebar] Attempt 1: Fetching with database='${dbParam}', schema='${schemaParam}'`);
+              
+              [tablesData, viewsData, functionsData] = await Promise.all([
+                secureDatabaseService
+                  .getTables(activeConnectionId, dbParam, schemaParam)
+                  .then((result) => {
+                    console.log(`[DatabaseSidebar] Tables fetched (attempt 1):`, result);
+                    return result;
+                  }),
+                secureDatabaseService
+                  .getViews(activeConnectionId, dbParam, schemaParam)
+                  .then((result) => {
+                    console.log(`[DatabaseSidebar] Views fetched (attempt 1):`, result);
+                    return result;
+                  }),
+                secureDatabaseService
+                  .getFunctions(activeConnectionId, dbParam, schemaParam)
+                  .then((result) => {
+                    console.log(`[DatabaseSidebar] Functions fetched (attempt 1):`, result);
+                    return result;
+                  }),
+              ]);
+              
+              // If no tables found and it's MySQL/MariaDB, try with empty database parameter
+              if (tablesData.length === 0 && (dbType === 'mysql' || dbType === 'mariadb')) {
+                console.log(`[DatabaseSidebar] Attempt 2: No tables found, trying with empty database parameter`);
+                
+                const [tables2, views2, functions2] = await Promise.all([
+                  secureDatabaseService
+                    .getTables(activeConnectionId, '', databaseName)
+                    .then((result) => {
+                      console.log(`[DatabaseSidebar] Tables fetched (attempt 2):`, result);
+                      return result;
+                    })
+                    .catch((err) => {
+                      console.error(`[DatabaseSidebar] Failed to fetch tables (attempt 2):`, err);
+                      return [];
+                    }),
+                  secureDatabaseService
+                    .getViews(activeConnectionId, '', databaseName)
+                    .then((result) => {
+                      console.log(`[DatabaseSidebar] Views fetched (attempt 2):`, result);
+                      return result;
+                    })
+                    .catch((err) => {
+                      console.error(`[DatabaseSidebar] Failed to fetch views (attempt 2):`, err);
+                      return [];
+                    }),
+                  secureDatabaseService
+                    .getFunctions(activeConnectionId, '', databaseName)
+                    .then((result) => {
+                      console.log(`[DatabaseSidebar] Functions fetched (attempt 2):`, result);
+                      return result;
+                    })
+                    .catch((err) => {
+                      console.error(`[DatabaseSidebar] Failed to fetch functions (attempt 2):`, err);
+                      return [];
+                    }),
+                ]);
+                
+                if (tables2.length > 0 || views2.length > 0) {
+                  tablesData = tables2;
+                  viewsData = views2;
+                  functionsData = functions2;
+                }
+              }
+              
+              tables = tablesData;
+              views = viewsData;
+              functions = functionsData;
+              
+              console.log(`[DatabaseSidebar] Final results - Tables: ${tables.length}, Views: ${views.length}, Functions: ${functions.length}`);
+              
+              if (tables.length === 0 && views.length === 0) {
+                console.warn(`[DatabaseSidebar] WARNING: No tables or views found for ${dbType} database`);
+                console.warn(`[DatabaseSidebar] This could mean:`);
+                console.warn(`[DatabaseSidebar] 1. The database is empty`);
+                console.warn(`[DatabaseSidebar] 2. The user lacks permissions`);
+                console.warn(`[DatabaseSidebar] 3. The database/schema parameters are incorrect`);
+              }
+            } catch (error) {
+              console.error(`[DatabaseSidebar] Unexpected error during fetch:`, error);
+              console.error('[DatabaseSidebar] Error type:', typeof error);
+              console.error('[DatabaseSidebar] Error details:', JSON.stringify(error, null, 2));
+              
+              // Check if it's a connection issue
+              if (error instanceof Error && error.message.includes('not found')) {
+                console.error('[DatabaseSidebar] Connection not found error - connection ID might be wrong');
+                console.error('[DatabaseSidebar] Using connection ID:', activeConnectionId);
+              }
+              
+              tables = [];
+              views = [];
+              functions = [];
+            }
+          } else {
+            // For PostgreSQL and others: use schema iteration
+            console.log(`[DatabaseSidebar] Fetching data for ${dbType} (with schema iteration)`);
+            
+            // First, get all available schemas
+            const schemas = await secureDatabaseService
+              .getSchemas(activeConnectionId, databaseName)
               .catch((err) => {
-                console.error(
-                  `[DatabaseSidebar] Failed to fetch tables for schema ${targetSchema}:`,
-                  err,
-                );
-                return [];
-              }),
-            secureDatabaseService
-              .getViews(activeConnectionId, "", targetSchema)
-              .catch((err) => {
-                console.error(
-                  `[DatabaseSidebar] Failed to fetch views for schema ${targetSchema}:`,
-                  err,
-                );
-                return [];
-              }),
-            secureDatabaseService
-              .getFunctions(activeConnectionId, "", targetSchema)
-              .catch((err) => {
-                console.error(
-                  `[DatabaseSidebar] Failed to fetch functions for schema ${targetSchema}:`,
-                  err,
-                );
-                return [];
-              }),
-          ]);
+                console.error("[DatabaseSidebar] Failed to fetch schemas:", err);
+                return ['public']; // Fallback to public schema
+              });
+
+            console.log("[DatabaseSidebar] Available schemas:", schemas);
+            
+            // Fetch tables/views/functions from all schemas in parallel
+            const schemaPromises = schemas.map(async (schema) => {
+              const [tables, views, functions] = await Promise.all([
+                secureDatabaseService
+                  .getTables(activeConnectionId, databaseName, schema)
+                  .catch((err) => {
+                    console.error(`[DatabaseSidebar] Failed to fetch tables for schema ${schema}:`, err);
+                    return [];
+                  }),
+                secureDatabaseService
+                  .getViews(activeConnectionId, databaseName, schema)
+                  .catch((err) => {
+                    console.error(`[DatabaseSidebar] Failed to fetch views for schema ${schema}:`, err);
+                    return [];
+                  }),
+                secureDatabaseService
+                  .getFunctions(activeConnectionId, databaseName, schema)
+                  .catch((err) => {
+                    console.error(`[DatabaseSidebar] Failed to fetch functions for schema ${schema}:`, err);
+                    return [];
+                  }),
+              ]);
+              return { tables, views, functions };
+            });
+
+            const schemaResults = await Promise.all(schemaPromises);
+            
+            // Combine results from all schemas
+            tables = schemaResults.flatMap(r => r.tables);
+            views = schemaResults.flatMap(r => r.views);
+            functions = schemaResults.flatMap(r => r.functions);
+          }
 
           tablesData = tables;
           viewsData = views;
@@ -239,6 +363,7 @@ export function DatabaseSidebar() {
             "functions:",
             functionsData.length,
           );
+          console.log("[DatabaseSidebar] Sample table data:", tablesData.slice(0, 3));
 
           // Cache the schema
           await cacheService.setSchema(
@@ -250,37 +375,96 @@ export function DatabaseSidebar() {
         }
       } else {
         console.log("[DatabaseSidebar] Force refresh, bypassing cache");
-        // Force refresh - bypass cache
-        // Fetch tables/views/functions for the selected schema only
-        const [tables, views, functions] = await Promise.all([
-          secureDatabaseService
-            .getTables(activeConnectionId, "", targetSchema)
+        
+        // Determine database name based on connection type
+        const databaseName = 
+          (activeConnection?.config.type === 'mysql' || activeConnection?.config.type === 'mariadb')
+            ? activeConnection.config.database || ''
+            : '';
+        
+        let tables: TableInfo[];
+        let views: ViewInfo[];
+        let functions: FunctionInfo[];
+        
+        // Handle different database types
+        const dbType = activeConnection?.config.type;
+        
+        if (dbType === 'mysql' || dbType === 'mariadb' || dbType === 'sqlite') {
+          // For MySQL/MariaDB/SQLite: fetch directly without schema iteration
+          console.log(`[DatabaseSidebar] Force refresh - Fetching data for ${dbType} (no schema iteration)`);
+          
+          const schemaName = dbType === 'sqlite' ? 'main' : databaseName;
+          
+          const [tablesData, viewsData, functionsData] = await Promise.all([
+            secureDatabaseService
+              .getTables(activeConnectionId, databaseName, schemaName)
+              .catch((err) => {
+                console.error(`[DatabaseSidebar] Force refresh - Failed to fetch tables:`, err);
+                return [];
+              }),
+            secureDatabaseService
+              .getViews(activeConnectionId, databaseName, schemaName)
+              .catch((err) => {
+                console.error(`[DatabaseSidebar] Force refresh - Failed to fetch views:`, err);
+                return [];
+              }),
+            secureDatabaseService
+              .getFunctions(activeConnectionId, databaseName, schemaName)
+              .catch((err) => {
+                console.error(`[DatabaseSidebar] Force refresh - Failed to fetch functions:`, err);
+                return [];
+              }),
+          ]);
+          
+          tables = tablesData;
+          views = viewsData;
+          functions = functionsData;
+        } else {
+          // For PostgreSQL and others: use schema iteration
+          console.log(`[DatabaseSidebar] Force refresh - Fetching data for ${dbType} (with schema iteration)`);
+          
+          // First, get all available schemas
+          const schemas = await secureDatabaseService
+            .getSchemas(activeConnectionId, databaseName)
             .catch((err) => {
-              console.error(
-                `[DatabaseSidebar] Force refresh - Failed to fetch tables for schema ${targetSchema}:`,
-                err,
-              );
-              return [];
-            }),
-          secureDatabaseService
-            .getViews(activeConnectionId, "", targetSchema)
-            .catch((err) => {
-              console.error(
-                `[DatabaseSidebar] Force refresh - Failed to fetch views for schema ${targetSchema}:`,
-                err,
-              );
-              return [];
-            }),
-          secureDatabaseService
-            .getFunctions(activeConnectionId, "", targetSchema)
-            .catch((err) => {
-              console.error(
-                `[DatabaseSidebar] Force refresh - Failed to fetch functions for schema ${targetSchema}:`,
-                err,
-              );
-              return [];
-            }),
-        ]);
+              console.error("[DatabaseSidebar] Force refresh - Failed to fetch schemas:", err);
+              return ['public']; // Fallback to public schema
+            });
+
+          console.log("[DatabaseSidebar] Force refresh - Available schemas:", schemas);
+          
+          // Fetch tables/views/functions from all schemas in parallel
+          const schemaPromises = schemas.map(async (schema) => {
+            const [tables, views, functions] = await Promise.all([
+              secureDatabaseService
+                .getTables(activeConnectionId, databaseName, schema)
+                .catch((err) => {
+                  console.error(`[DatabaseSidebar] Force refresh - Failed to fetch tables for schema ${schema}:`, err);
+                  return [];
+                }),
+              secureDatabaseService
+                .getViews(activeConnectionId, databaseName, schema)
+                .catch((err) => {
+                  console.error(`[DatabaseSidebar] Force refresh - Failed to fetch views for schema ${schema}:`, err);
+                  return [];
+                }),
+              secureDatabaseService
+                .getFunctions(activeConnectionId, databaseName, schema)
+                .catch((err) => {
+                  console.error(`[DatabaseSidebar] Force refresh - Failed to fetch functions for schema ${schema}:`, err);
+                  return [];
+                }),
+            ]);
+            return { tables, views, functions };
+          });
+
+          const schemaResults = await Promise.all(schemaPromises);
+          
+          // Combine results from all schemas
+          tables = schemaResults.flatMap(r => r.tables);
+          views = schemaResults.flatMap(r => r.views);
+          functions = schemaResults.flatMap(r => r.functions);
+        }
 
         tablesData = tables;
         viewsData = views;
@@ -304,10 +488,54 @@ export function DatabaseSidebar() {
         );
       }
 
+      // Extract unique schemas from all data
+      const schemasFromTables = new Set<string>();
+      
+      // Add schemas from tables
+      tablesData.forEach(table => {
+        if (table.schema) {
+          schemasFromTables.add(table.schema);
+        }
+      });
+      
+      // Add schemas from views
+      viewsData.forEach(view => {
+        if (view.schema) {
+          schemasFromTables.add(view.schema);
+        }
+      });
+      
+      // Add schemas from functions
+      functionsData.forEach(func => {
+        if (func.schema) {
+          schemasFromTables.add(func.schema);
+        }
+      });
+      
+      // Convert to sorted array and filter out empty strings
+      const extractedSchemas = Array.from(schemasFromTables)
+        .filter(schema => schema && schema.trim() !== "")
+        .sort();
+      
+      console.log("[DatabaseSidebar] Extracted schemas from data:", extractedSchemas);
+      
+      // Set available schemas
+      setAvailableSchemas(extractedSchemas);
+      
+      // Set or adjust selected schema if needed
+      if (!extractedSchemas.includes(selectedSchema) || forceResetSchema) {
+        const targetSchema = extractedSchemas.includes("public") 
+          ? "public" 
+          : extractedSchemas[0] || "all";
+        setSelectedSchema(targetSchema);
+      }
+      
+      // Store ALL data (unfiltered)
+      console.log(`[DatabaseSidebar] Setting state - Tables: ${tablesData.length}, Views: ${viewsData.length}, Functions: ${functionsData.length}`);
       setTables(tablesData);
       setViews(viewsData);
       setFunctions(functionsData);
-      setLastLoadedSchema(targetSchema);
+      console.log(`[DatabaseSidebar] State set successfully`);
     } catch (error) {
       console.error("Error loading schema:", error);
     } finally {
@@ -361,8 +589,6 @@ export function DatabaseSidebar() {
           "[DatabaseSidebar] Loading database schema for:",
           activeConnectionId,
         );
-        // Reset lastLoadedSchema when connection changes
-        setLastLoadedSchema(null);
         void loadDatabaseSchema(isSwitch); // Pass isSwitch to force reset on database switch
         loadedForConnectionRef.current = activeConnectionId;
       }
@@ -385,22 +611,6 @@ export function DatabaseSidebar() {
       );
     }
   }, [activeConnectionId, activeConnection?.status]);
-
-  // Reload data when selected schema changes
-  useEffect(() => {
-    if (
-      activeConnectionId &&
-      activeConnection?.status === "connected" &&
-      selectedSchema &&
-      availableSchemas.length > 0 &&
-      selectedSchema !== lastLoadedSchema
-    ) {
-      console.log("[DatabaseSidebar] Schema changed to:", selectedSchema);
-      // Invalidate cache and reload for the new schema
-      cacheService.invalidateConnection(activeConnectionId);
-      void loadDatabaseSchema(false);
-    }
-  }, [selectedSchema, lastLoadedSchema]); // Depend on both selectedSchema and lastLoadedSchema
 
   const handleItemClick = (item: TreeItem & { schema?: string; initialViewMode?: "data" | "structure" | "indexes" | "triggers" }) => {
     if (!workspaceId || !activeConnectionId) return;
@@ -506,11 +716,18 @@ export function DatabaseSidebar() {
     }
   };
 
-  // Filter objects by selected schema
-  // Since we now load data per schema, no filtering needed
-  const filteredTables = tables;
-  const filteredViews = views;
-  const filteredFunctions = functions;
+  // Filter objects by selected schema (client-side filtering)
+  const filteredTables = selectedSchema === "all" 
+    ? tables 
+    : tables.filter(t => t.schema === selectedSchema || (!t.schema && selectedSchema === ""));
+  
+  const filteredViews = selectedSchema === "all"
+    ? views
+    : views.filter(v => v.schema === selectedSchema || (!v.schema && selectedSchema === ""));
+  
+  const filteredFunctions = selectedSchema === "all"
+    ? functions
+    : functions.filter(f => f.schema === selectedSchema || (!f.schema && selectedSchema === ""));
 
   return (
     <div className="h-full flex flex-col bg-muted/30">

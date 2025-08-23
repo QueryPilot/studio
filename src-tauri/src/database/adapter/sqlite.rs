@@ -34,6 +34,16 @@ impl SqliteAdapter {
                 ordinal: i as i32,
                 precision: None,
                 scale: None,
+                // MSSQL specific - all None for SQLite
+                is_identity: None,
+                is_computed: None,
+                is_hierarchyid: None,
+                is_spatial: None,
+                // MySQL/MariaDB specific - all None for SQLite
+                is_json: None,
+                enum_values: None,
+                set_values: None,
+                is_virtual: None,
             });
         }
         
@@ -174,6 +184,16 @@ impl DbAdapter for SqliteAdapter {
                 ordinal: row.get("cid"),
                 precision: None,
                 scale: None,
+                // MSSQL specific - all None for SQLite
+                is_identity: None,
+                is_computed: None,
+                is_hierarchyid: None,
+                is_spatial: None,
+                // MySQL/MariaDB specific - all None for SQLite
+                is_json: None,
+                enum_values: None,
+                set_values: None,
+                is_virtual: None,
             });
         }
         
@@ -298,5 +318,304 @@ impl DbAdapter for SqliteAdapter {
             .map_err(AppError::from_sqlx)?;
         
         Ok(format!("SQLite {}", version))
+    }
+    
+    async fn read_table_data(&self, request: TableReadRequest) 
+        -> Result<(TableDataResponse, Option<String>), AppError> {
+        use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+        
+        // Build SQL query
+        let mut sql = String::new();
+        let mut params: Vec<serde_json::Value> = Vec::new();
+        
+        // SELECT clause
+        sql.push_str("SELECT ");
+        if let Some(ref columns) = request.select {
+            let quoted_cols: Vec<String> = columns.iter()
+                .map(|c| format!("\"{}\"", c))
+                .collect();
+            sql.push_str(&quoted_cols.join(", "));
+        } else {
+            sql.push_str("*");
+        }
+        
+        // FROM clause  
+        sql.push_str(" FROM ");
+        // SQLite doesn't use schemas the same way
+        sql.push_str(&format!("\"{}\"", request.table));
+        
+        // WHERE clause for filters
+        let mut where_clauses = Vec::new();
+        
+        for filter in &request.filters {
+            let column = format!("\"{}\"", filter.column);
+            let clause = match filter.operator {
+                FilterOperator::Equal => {
+                    params.push(filter.value.clone());
+                    format!("{} = ?", column)
+                },
+                FilterOperator::NotEqual => {
+                    params.push(filter.value.clone());
+                    format!("{} != ?", column)
+                },
+                FilterOperator::LessThan => {
+                    params.push(filter.value.clone());
+                    format!("{} < ?", column)
+                },
+                FilterOperator::LessThanOrEqual => {
+                    params.push(filter.value.clone());
+                    format!("{} <= ?", column)
+                },
+                FilterOperator::GreaterThan => {
+                    params.push(filter.value.clone());
+                    format!("{} > ?", column)
+                },
+                FilterOperator::GreaterThanOrEqual => {
+                    params.push(filter.value.clone());
+                    format!("{} >= ?", column)
+                },
+                FilterOperator::Like => {
+                    params.push(filter.value.clone());
+                    format!("{} LIKE ?", column)
+                },
+                FilterOperator::ILike => {
+                    // SQLite LIKE is case-insensitive by default
+                    params.push(filter.value.clone());
+                    format!("{} LIKE ?", column)
+                },
+                FilterOperator::In => {
+                    if let serde_json::Value::Array(values) = &filter.value {
+                        let placeholders = vec!["?"; values.len()].join(", ");
+                        for v in values {
+                            params.push(v.clone());
+                        }
+                        format!("{} IN ({})", column, placeholders)
+                    } else {
+                        continue;
+                    }
+                },
+                FilterOperator::IsNull => {
+                    format!("{} IS NULL", column)
+                },
+                FilterOperator::IsNotNull => {
+                    format!("{} IS NOT NULL", column)
+                },
+                FilterOperator::Between => {
+                    if let serde_json::Value::Array(values) = &filter.value {
+                        if values.len() == 2 {
+                            params.push(values[0].clone());
+                            params.push(values[1].clone());
+                            format!("{} BETWEEN ? AND ?", column)
+                        } else {
+                            continue;
+                        }
+                    } else {
+                        continue;
+                    }
+                },
+            };
+            
+            where_clauses.push(clause);
+        }
+        
+        // Add search conditions if provided
+        if let Some(ref search_text) = request.search {
+            // Get text-like columns for search
+            let text_columns = self.get_text_columns(&request.table, &request.select).await?;
+            
+            if !text_columns.is_empty() {
+                let search_clauses: Vec<String> = text_columns.iter()
+                    .map(|col| {
+                        params.push(serde_json::Value::String(format!("%{}%", search_text)));
+                        format!("\"{}\" LIKE ?", col)
+                    })
+                    .collect();
+                
+                if !search_clauses.is_empty() {
+                    where_clauses.push(format!("({})", search_clauses.join(" OR ")));
+                }
+            }
+        }
+        
+        if !where_clauses.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&where_clauses.join(" AND "));
+        }
+        
+        // ORDER BY clause
+        if !request.sorts.is_empty() {
+            let order_clauses: Vec<String> = request.sorts.iter()
+                .map(|sort| {
+                    let dir = match sort.direction {
+                        SortDirection::Asc => "ASC",
+                        SortDirection::Desc => "DESC",
+                    };
+                    format!("\"{}\" {}", sort.column, dir)
+                })
+                .collect();
+            sql.push_str(" ORDER BY ");
+            sql.push_str(&order_clauses.join(", "));
+        }
+        
+        // Pagination
+        let (limit, offset) = match &request.pagination {
+            PaginationMode::Offset { offset, limit } => (*limit, *offset),
+            PaginationMode::Cursor { cursor } => {
+                if let Some(cursor_str) = cursor {
+                    // Decode cursor
+                    if let Ok(decoded) = URL_SAFE_NO_PAD.decode(cursor_str) {
+                        if let Ok(cursor_data) = serde_json::from_slice::<TableDataCursor>(&decoded) {
+                            (100, cursor_data.offset)
+                        } else {
+                            (100, 0)
+                        }
+                    } else {
+                        (100, 0)
+                    }
+                } else {
+                    (100, 0)
+                }
+            }
+        };
+        
+        sql.push_str(&format!(" LIMIT {} OFFSET {}", limit, offset));
+        
+        println!("[SQLite] Executing table read query: {}", sql);
+        println!("[SQLite] Parameters: {:?}", params);
+        
+        // Execute query
+        let mut query = sqlx::query(&sql);
+        for param in &params {
+            query = match param {
+                serde_json::Value::String(s) => query.bind(s.clone()),
+                serde_json::Value::Number(n) => {
+                    if let Some(i) = n.as_i64() {
+                        query.bind(i)
+                    } else if let Some(f) = n.as_f64() {
+                        query.bind(f)
+                    } else {
+                        query
+                    }
+                },
+                serde_json::Value::Bool(b) => query.bind(*b),
+                serde_json::Value::Null => query.bind(Option::<String>::None),
+                _ => query,
+            };
+        }
+        
+        let rows = query
+            .fetch_all(self.pool.as_ref())
+            .await
+            .map_err(|e| {
+                println!("[SQLite] Query execution error: {}", e);
+                AppError::from_sqlx(e)
+            })?;
+        
+        // Convert rows to JSON objects
+        let mut json_rows = Vec::new();
+        for row in &rows {
+            let mut json_row = serde_json::Map::new();
+            
+            if let Some(ref columns) = request.select {
+                for (i, col_name) in columns.iter().enumerate() {
+                    let value = self.extract_value_by_index(&row, i);
+                    json_row.insert(col_name.clone(), value);
+                }
+            } else {
+                // Extract all columns
+                for (i, column) in row.columns().iter().enumerate() {
+                    let col_name = column.name().to_string();
+                    let value = self.extract_value_by_index(&row, i);
+                    json_row.insert(col_name, value);
+                }
+            }
+            
+            json_rows.push(json_row);
+        }
+        
+        // Generate next cursor if there might be more data
+        let next_cursor = if rows.len() >= limit {
+            let new_cursor = TableDataCursor {
+                connection_id: String::new(),
+                table: request.table.clone(),
+                schema: request.schema.clone(),
+                select: request.select.clone(),
+                sorts: request.sorts.clone(),
+                filters: request.filters.clone(),
+                search: request.search.clone(),
+                offset: offset + limit,
+                keyset_values: None,
+            };
+            
+            let cursor_json = serde_json::to_vec(&new_cursor)
+                .map_err(|e| AppError::Serialization(e.to_string()))?;
+            Some(URL_SAFE_NO_PAD.encode(&cursor_json))
+        } else {
+            None
+        };
+        
+        let response = TableDataResponse::Rows {
+            rows: json_rows,
+            next_cursor: next_cursor.clone(),
+        };
+        
+        Ok((response, next_cursor))
+    }
+}
+
+impl SqliteAdapter {
+    fn extract_value_by_index(&self, row: &sqlx::sqlite::SqliteRow, index: usize) -> serde_json::Value {
+        use sqlx::Row;
+        
+        // SQLite has different type handling
+        if let Ok(val) = row.try_get::<Option<String>, _>(index) {
+            val.map(serde_json::Value::String).unwrap_or(serde_json::Value::Null)
+        } else if let Ok(val) = row.try_get::<Option<i64>, _>(index) {
+            val.map(|v| serde_json::Value::Number(v.into())).unwrap_or(serde_json::Value::Null)
+        } else if let Ok(val) = row.try_get::<Option<f64>, _>(index) {
+            val.and_then(|v| serde_json::Number::from_f64(v))
+               .map(serde_json::Value::Number)
+               .unwrap_or(serde_json::Value::Null)
+        } else if let Ok(val) = row.try_get::<Option<bool>, _>(index) {
+            val.map(serde_json::Value::Bool).unwrap_or(serde_json::Value::Null)
+        } else if let Ok(val) = row.try_get::<Option<Vec<u8>>, _>(index) {
+            val.map(|bytes| {
+                use base64::{Engine as _, engine::general_purpose::STANDARD};
+                serde_json::Value::String(STANDARD.encode(bytes))
+            }).unwrap_or(serde_json::Value::Null)
+        } else {
+            // Fallback to null for unsupported types
+            serde_json::Value::Null
+        }
+    }
+    
+    async fn get_text_columns(&self, table: &str, select: &Option<Vec<String>>) 
+        -> Result<Vec<String>, AppError> {
+        // Query to find text-like columns
+        let query = r#"
+            SELECT name
+            FROM pragma_table_info(?)
+            WHERE type LIKE '%TEXT%' 
+               OR type LIKE '%CHAR%'
+               OR type LIKE '%CLOB%'
+               OR type = ''
+            ORDER BY cid
+            LIMIT 8
+        "#;
+        
+        let text_cols: Vec<String> = sqlx::query_scalar(query)
+            .bind(table)
+            .fetch_all(self.pool.as_ref())
+            .await
+            .map_err(AppError::from_sqlx)?;
+        
+        // If select is specified, filter to only those columns
+        if let Some(ref selected) = select {
+            Ok(text_cols.into_iter()
+                .filter(|col| selected.contains(col))
+                .collect())
+        } else {
+            Ok(text_cols)
+        }
     }
 }

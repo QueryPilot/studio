@@ -1,8 +1,10 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { secureDatabaseService } from "@/services/secureDatabaseService";
 import { cacheService } from "@/services/cacheService";
+import { useTableDataStream } from "@/hooks/useTableDataStream";
+import type { FilterSpec, SortSpec } from "@/types/tableData";
 
-// Types for filtering and sorting
+// Legacy types for backward compatibility
 export interface ColumnFilter {
   column: string;
   operator:
@@ -22,6 +24,45 @@ export interface ColumnFilter {
 export interface SortConfig {
   column: string;
   direction: "asc" | "desc";
+}
+
+// Convert legacy filter to new format
+function convertFilter(filter: ColumnFilter): FilterSpec {
+  const operatorMap: Record<string, FilterSpec['operator']> = {
+    equals: "=",
+    not_equals: "!=",
+    contains: "LIKE",
+    not_contains: "NOT LIKE",
+    starts_with: "LIKE",
+    ends_with: "LIKE",
+    greater_than: ">",
+    less_than: "<",
+    is_null: "IS NULL",
+    is_not_null: "IS NOT NULL",
+  };
+  
+  let value = filter.value;
+  if (filter.operator === "contains" || filter.operator === "not_contains") {
+    value = `%${String(filter.value)}%`;
+  } else if (filter.operator === "starts_with") {
+    value = `${String(filter.value)}%`;
+  } else if (filter.operator === "ends_with") {
+    value = `%${String(filter.value)}`;
+  }
+  
+  return {
+    column: filter.column,
+    operator: operatorMap[filter.operator] || "=",
+    value,
+  };
+}
+
+// Convert legacy sort to new format
+function convertSort(sort: SortConfig): SortSpec {
+  return {
+    column: sort.column,
+    direction: sort.direction === "asc" ? "asc" : "desc",
+  };
 }
 
 interface TableMeta {
@@ -53,53 +94,6 @@ interface TableDataResult {
 }
 
 /**
- * Hook for fetching table schema information
- */
-export function useTableSchema(
-  connectionId: string | null,
-  database?: string,
-  schema?: string,
-) {
-  return useQuery({
-    queryKey: ["schema", connectionId, database, schema],
-    queryFn: async (): Promise<TableMeta[]> => {
-      if (!connectionId) {
-        throw new Error("Connection ID is required");
-      }
-
-      // Check cache first
-      const cached = await cacheService.getSchema(connectionId);
-      if (cached) {
-        return cached.tables || [];
-      }
-
-      // Fetch from backend using secure database service
-      const tables = await secureDatabaseService.getTables(
-        connectionId,
-        database || "",
-        schema || "public",
-      );
-
-      // Convert to expected format
-      const result: TableMeta[] = tables.map((table) => ({
-        schema: table.schema || "public",
-        name: table.name,
-        kind: table.type,
-        row_estimate: table.rowCount,
-      }));
-
-      // Cache the result
-      await cacheService.setSchema(connectionId, result, [], []);
-
-      return result;
-    },
-    enabled: !!connectionId,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    gcTime: 10 * 60 * 1000, // 10 minutes
-  });
-}
-
-/**
  * Hook for fetching table column information
  */
 export function useTableColumns(
@@ -108,27 +102,32 @@ export function useTableColumns(
   schema: string,
   table: string,
 ) {
-  return useQuery({
-    queryKey: ["columns", connectionId, database, schema, table],
-    queryFn: async (): Promise<ColumnMeta[]> => {
-      if (!connectionId) {
-        throw new Error("Connection ID is required");
-      }
-
-      const columns = await secureDatabaseService.getTableColumns(
-        connectionId,
-        database,
-        schema,
-        table,
-      );
-
-      // Columns are already in the correct format from the service
-      return columns;
-    },
-    enabled: !!connectionId && !!database && !!schema && !!table,
-    staleTime: 10 * 60 * 1000, // 10 minutes
-    gcTime: 20 * 60 * 1000, // 20 minutes
+  const streamResult = useTableDataStream({
+    connectionId: connectionId || '',
+    table,
+    schema,
+    limit: 0, // Just get metadata
+    autoFetch: !!connectionId && !!database && !!schema && !!table,
   });
+
+  // Convert stream meta to column format
+  const columns: ColumnMeta[] = streamResult.meta?.columns.map((col, index) => ({
+    name: col.name,
+    db_type: col.dbType,
+    nullable: col.nullable,
+    default: col.default || null,
+    is_pk: col.isPk || false,
+    is_fk: col.isFk || false,
+    ordinal: index,
+    precision: col.precision || null,
+    scale: col.scale || null,
+  })) || [];
+
+  return {
+    data: columns,
+    isLoading: streamResult.loading,
+    error: streamResult.error,
+  };
 }
 
 /**
@@ -143,110 +142,63 @@ export function useTableData(
   pageSize: number = 100,
   offset: number = 0,
 ) {
-  const queryKey = [
-    "table",
+  // Convert legacy filters and sorts to new format
+  const convertedFilters = filters?.map(convertFilter);
+  const convertedSorts = sort ? [convertSort(sort)] : [];
+
+  console.log('[useTableData] Using streaming with:', {
     connectionId,
-    schema,
     table,
-    filters,
-    sort,
-    pageSize,
-    offset,
-  ];
-
-  return useQuery({
-    queryKey,
-    queryFn: async (): Promise<TableDataResult> => {
-      if (!connectionId) {
-        throw new Error("Connection ID is required");
-      }
-
-      // Check cache first (only for first page with no filters/sort)
-      if (offset === 0 && (!filters || filters.length === 0) && !sort) {
-        const cached = cacheService.getTableData(
-          connectionId,
-          schema,
-          table,
-          offset,
-          pageSize,
-        );
-        if (cached) {
-          return {
-            columns: cached.columns.map((col) => ({
-              name: col,
-              db_type: "unknown",
-              nullable: true,
-              default: null,
-              is_pk: false,
-              is_fk: false,
-              ordinal: 0,
-              precision: null,
-              scale: null,
-            })),
-            rows: cached.rows,
-            total_rows: cached.totalCount,
-            is_complete: cached.rows.length < pageSize,
-          };
-        }
-      }
-
-      // Build SQL query with filters and sort
-      const sql = buildTableQuery(
-        schema,
-        table,
-        filters,
-        sort,
-        pageSize,
-        offset,
-      );
-
-      // Execute query through secure database service
-      const queryResult = await secureDatabaseService.executeQuery(
-        connectionId,
-        sql,
-      );
-
-      // Convert to expected format
-      const result: TableDataResult = {
-        columns: queryResult.columns.map((colName: string, index: number) => ({
-          name: colName,
-          db_type: "unknown",
-          nullable: true,
-          default: null,
-          is_pk: false,
-          is_fk: false,
-          ordinal: index,
-          precision: null,
-          scale: null,
-        })),
-        rows: queryResult.rows,
-        total_rows: queryResult.rowCount,
-        is_complete: true,
-      };
-
-      // Cache the result (only first page with no filters/sort)
-      if (offset === 0 && (!filters || filters.length === 0) && !sort) {
-        await cacheService.setTableData(
-          connectionId,
-          schema,
-          table,
-          offset,
-          pageSize,
-          {
-            columns: result.columns.map((col) => col.name),
-            rows: result.rows,
-            totalCount: result.total_rows || result.rows.length,
-            timestamp: Date.now(),
-          },
-        );
-      }
-
-      return result;
-    },
-    enabled: !!connectionId && !!schema && !!table,
-    staleTime: 1 * 60 * 1000, // 1 minute
-    gcTime: 5 * 60 * 1000, // 5 minutes
+    schema,
+    filters: convertedFilters,
+    sorts: convertedSorts,
+    limit: pageSize,
+    autoFetch: !!connectionId && !!schema && !!table
   });
+
+  // Use the new streaming hook
+  const streamResult = useTableDataStream({
+    connectionId: connectionId || '',
+    table,
+    schema,
+    filters: convertedFilters,
+    sorts: convertedSorts,
+    limit: pageSize,
+    autoFetch: !!connectionId && !!schema && !!table,
+  });
+
+  // Convert stream result to legacy format
+  const columns: ColumnMeta[] = streamResult.meta?.columns.map((col, index) => ({
+    name: col.name,
+    db_type: col.dbType,
+    nullable: col.nullable,
+    default: col.default || null,
+    is_pk: col.isPk || false,
+    is_fk: col.isFk || false,
+    ordinal: index,
+    precision: col.precision || null,
+    scale: col.scale || null,
+  })) || [];
+
+  // Convert rows from object format to array format
+  const rows: unknown[][] = streamResult.rows.map(row => {
+    return columns.map(col => row[col.name] as unknown);
+  });
+
+  const result: TableDataResult = {
+    columns,
+    rows,
+    total_rows: streamResult.rows.length,
+    is_complete: !streamResult.hasMore,
+  };
+
+  return {
+    data: result,
+    isLoading: streamResult.loading,
+    error: streamResult.error,
+    refetch: streamResult.refresh,
+    isFetching: streamResult.loading,
+  };
 }
 
 /**
@@ -258,32 +210,20 @@ export function useTableRowCount(
   schema: string,
   table: string,
 ) {
-  return useQuery({
-    queryKey: ["row-count", connectionId, database, schema, table],
-    queryFn: async (): Promise<number> => {
-      if (!connectionId) {
-        throw new Error("Connection ID is required");
-      }
-
-      // For now, estimate count is not directly available in new architecture
-      // Use a simple query to get approximate count
-      try {
-        const queryResult = await secureDatabaseService.executeQuery(
-          connectionId,
-          `SELECT COUNT(*) FROM "${schema}"."${table}"`,
-        );
-        const count = (queryResult.rows[0]?.[0] as number) || 0;
-        return count;
-      } catch (error) {
-        // If COUNT fails, return 0
-        console.warn("Failed to get row count:", error);
-        return 0;
-      }
-    },
-    enabled: !!connectionId && !!database && !!schema && !!table,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    gcTime: 15 * 60 * 1000, // 15 minutes
+  // Use streaming hook with limit 0 to just get metadata
+  const streamResult = useTableDataStream({
+    connectionId: connectionId || '',
+    table,
+    schema,
+    limit: 0,
+    autoFetch: !!connectionId && !!database && !!schema && !!table,
   });
+
+  return {
+    data: streamResult.rows.length || 0, // Using actual row count
+    isLoading: streamResult.loading,
+    error: streamResult.error,
+  };
 }
 
 /**
@@ -391,84 +331,3 @@ export function useUpdateCell(
   });
 }
 
-/**
- * Helper function to build SQL query with filters and sorting
- */
-function buildTableQuery(
-  schema: string,
-  table: string,
-  filters?: ColumnFilter[],
-  sort?: SortConfig,
-  limit?: number,
-  offset?: number,
-): string {
-  const quotedTable = `"${schema}"."${table}"`;
-  let sql = `SELECT * FROM ${quotedTable}`;
-
-  // Add WHERE clause for filters
-  if (filters && filters.length > 0) {
-    const whereConditions = filters.map((filter) => {
-      const quotedColumn = `"${filter.column}"`;
-
-      switch (filter.operator) {
-        case "equals":
-          return `${quotedColumn} = ${formatValue(filter.value)}`;
-        case "not_equals":
-          return `${quotedColumn} != ${formatValue(filter.value)}`;
-        case "contains":
-          return `${quotedColumn} ILIKE ${formatValue(`%${filter.value}%`)}`;
-        case "not_contains":
-          return `${quotedColumn} NOT ILIKE ${formatValue(
-            `%${filter.value}%`,
-          )}`;
-        case "starts_with":
-          return `${quotedColumn} ILIKE ${formatValue(`${filter.value}%`)}`;
-        case "ends_with":
-          return `${quotedColumn} ILIKE ${formatValue(`%${filter.value}`)}`;
-        case "greater_than":
-          return `${quotedColumn} > ${formatValue(filter.value)}`;
-        case "less_than":
-          return `${quotedColumn} < ${formatValue(filter.value)}`;
-        case "is_null":
-          return `${quotedColumn} IS NULL`;
-        case "is_not_null":
-          return `${quotedColumn} IS NOT NULL`;
-        default:
-          return `${quotedColumn} = ${formatValue(filter.value)}`;
-      }
-    });
-
-    sql += ` WHERE ${whereConditions.join(" AND ")}`;
-  }
-
-  // Add ORDER BY clause
-  if (sort) {
-    sql += ` ORDER BY "${sort.column}" ${sort.direction.toUpperCase()}`;
-  }
-
-  // Add LIMIT and OFFSET
-  if (limit) {
-    sql += ` LIMIT ${limit}`;
-  }
-  if (offset) {
-    sql += ` OFFSET ${offset}`;
-  }
-
-  return sql;
-}
-
-/**
- * Helper function to format SQL values
- */
-function formatValue(value: any): string {
-  if (value === null || value === undefined) {
-    return "NULL";
-  }
-  if (typeof value === "string") {
-    return `'${value.replace(/'/g, "''")}'`;
-  }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-  return `'${String(value).replace(/'/g, "''")}'`;
-}

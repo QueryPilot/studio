@@ -42,7 +42,7 @@ export function TableTab({ tab, schema, tableName }: TableTabProps) {
     schema,
     tableName,
     filters,
-    undefined,
+    undefined, // sort
     pageSize,
     currentOffset
   );
@@ -228,6 +228,11 @@ export function TableTab({ tab, schema, tableName }: TableTabProps) {
             connectionId={tab.connectionId}
             onRowClick={() => {}}
             initialViewMode={tab.payload.initialViewMode}
+            preloadedData={{
+              data: tableData.data?.rows || [],
+              columns: tableData.data?.columns.map(c => c.name) || [],
+              totalRows: tableData.data?.total_rows,
+            }}
           />
         ) : isLoading ? (
           <div className="flex items-center justify-center h-full">

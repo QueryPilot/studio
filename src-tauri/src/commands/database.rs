@@ -1,4 +1,4 @@
-use tauri::State;
+use tauri::{State, Emitter};
 use uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
@@ -119,16 +119,23 @@ pub async fn db_connect_by_id(
         port: connection_config.port as u16,
         database: connection_config.database.unwrap_or_default(),
         username: connection_config.username,
-        user: None,
         password: connection_config.password,
-        database_url: None,
-        pool_size: Some(5), // Reduce pool size to avoid connection exhaustion
         max_connections: 5,
         min_connections: 1,
         connection_timeout: 10000, // Reduce to 10 seconds for faster feedback
         idle_timeout: 600000,
         max_lifetime: 3600000,
         enable_health_check: Some(true),
+        // MSSQL specific fields (optional for other databases)
+        auth_type: None,
+        instance_name: None,
+        encrypt: None,
+        trust_server_certificate: None,
+        named_pipe: None,
+        // Additional optional fields
+        user: None,
+        database_url: None,
+        pool_size: Some(5), // Reduce pool size to avoid connection exhaustion
     };
     
     // Create unique connection ID with workspace isolation if provided
@@ -234,10 +241,24 @@ pub async fn db_list_tables(
     schema: String,
     registry: State<'_, ConnectionRegistry>,
 ) -> Result<Vec<TableMeta>, AppError> {
-    let conn = registry.get(&connection_id).await
-        .ok_or_else(|| AppError::ConnectionNotFound(connection_id))?;
+    println!("[db_list_tables] Called with connection_id: {}, database: {}, schema: {}", 
+             connection_id, database, schema);
     
-    conn.adapter.list_tables(&database, &schema).await
+    let conn = registry.get(&connection_id).await
+        .ok_or_else(|| {
+            println!("[db_list_tables] ERROR: Connection not found: {}", connection_id);
+            AppError::ConnectionNotFound(connection_id.clone())
+        })?;
+    
+    println!("[db_list_tables] Connection found, calling adapter.list_tables...");
+    let result = conn.adapter.list_tables(&database, &schema).await;
+    
+    match &result {
+        Ok(tables) => println!("[db_list_tables] Success: returning {} tables", tables.len()),
+        Err(e) => println!("[db_list_tables] ERROR: {}", e),
+    }
+    
+    result
 }
 
 #[tauri::command]
@@ -247,10 +268,24 @@ pub async fn db_list_functions(
     schema: String,
     registry: State<'_, ConnectionRegistry>,
 ) -> Result<Vec<FunctionMeta>, AppError> {
-    let conn = registry.get(&connection_id).await
-        .ok_or_else(|| AppError::ConnectionNotFound(connection_id.clone()))?;
+    println!("[db_list_functions] Called with connection_id: {}, database: {}, schema: {}", 
+             connection_id, database, schema);
     
-    conn.adapter.list_functions(&database, &schema).await
+    let conn = registry.get(&connection_id).await
+        .ok_or_else(|| {
+            println!("[db_list_functions] ERROR: Connection not found: {}", connection_id);
+            AppError::ConnectionNotFound(connection_id.clone())
+        })?;
+    
+    println!("[db_list_functions] Connection found, calling adapter.list_functions...");
+    let result = conn.adapter.list_functions(&database, &schema).await;
+    
+    match &result {
+        Ok(functions) => println!("[db_list_functions] Success: returning {} functions", functions.len()),
+        Err(e) => println!("[db_list_functions] ERROR: {}", e),
+    }
+    
+    result
 }
 
 #[tauri::command]
@@ -479,6 +514,142 @@ pub async fn db_estimate_count(
 }
 
 #[tauri::command]
+pub async fn db_table_data(
+    connection_id: String,
+    table: String,
+    schema: Option<String>,
+    select: Option<Vec<String>>,
+    sorts: Option<Vec<SortSpec>>,
+    filters: Option<Vec<FilterSpec>>,
+    search: Option<String>,
+    cursor: Option<String>,
+    offset: Option<usize>,
+    limit: Option<usize>,
+    registry: State<'_, ConnectionRegistry>,
+    app_handle: tauri::AppHandle,
+) -> Result<String, AppError> {
+    
+    println!("[db_table_data] Starting table data fetch for connection: {}, table: {}", connection_id, table);
+    
+    let conn = registry.get(&connection_id).await
+        .ok_or_else(|| AppError::ConnectionNotFound(connection_id.clone()))?;
+    
+    // Determine pagination mode
+    let pagination = if let Some(cursor_str) = cursor {
+        PaginationMode::Cursor { cursor: Some(cursor_str) }
+    } else {
+        let actual_limit = limit.unwrap_or(100).min(1000).max(1);
+        PaginationMode::Offset { 
+            offset: offset.unwrap_or(0), 
+            limit: actual_limit 
+        }
+    };
+    
+    // Build request
+    let request = TableReadRequest {
+        schema,
+        table: table.clone(),
+        select,
+        sorts: sorts.unwrap_or_default(),
+        filters: filters.unwrap_or_default(),
+        search,
+        pagination,
+    };
+    
+    // Generate unique stream ID for this request
+    let stream_id = uuid::Uuid::new_v4().to_string();
+    let event_name = format!("table-data-{}", stream_id);
+    
+    println!("[db_table_data] Stream ID: {}, Event name: {}", stream_id, event_name);
+    
+    // Spawn async task to stream data
+    let adapter = conn.adapter.clone();
+    let app_handle_clone = app_handle.clone();
+    let event_name_clone = event_name.clone();
+    
+    tokio::spawn(async move {
+        // First, send metadata
+        let columns = match adapter.table_columns(
+            request.schema.as_deref().unwrap_or(""),
+            request.schema.as_deref().unwrap_or("public"),
+            &request.table
+        ).await {
+            Ok(cols) => cols,
+            Err(e) => {
+                let error_response = TableDataResponse::Error {
+                    code: "METADATA_FETCH_FAILED".to_string(),
+                    message: e.to_string(),
+                };
+                let _ = app_handle_clone.emit(&event_name_clone, &error_response);
+                return;
+            }
+        };
+        
+        // Determine selected columns
+        let selected = if let Some(ref select_cols) = request.select {
+            // Validate selected columns exist
+            for col in select_cols {
+                if !columns.iter().any(|c| &c.name == col) {
+                    let error_response = TableDataResponse::Error {
+                        code: "INVALID_COLUMN".to_string(),
+                        message: format!("Column '{}' does not exist in table", col),
+                    };
+                    let _ = app_handle_clone.emit(&event_name_clone, &error_response);
+                    return;
+                }
+            }
+            select_cols.clone()
+        } else {
+            columns.iter().map(|c| c.name.clone()).collect()
+        };
+        
+        // Send metadata
+        let meta_response = TableDataResponse::Meta {
+            table: request.table.clone(),
+            schema: request.schema.clone(),
+            columns: columns.clone(),
+            selected: selected.clone(),
+            page_size: match &request.pagination {
+                PaginationMode::Offset { limit, .. } => *limit,
+                PaginationMode::Cursor { .. } => 100,
+            },
+            cursor_key_columns: vec![], // Will be determined based on primary keys
+        };
+        
+        if let Err(e) = app_handle_clone.emit(&event_name_clone, &meta_response) {
+            println!("[db_table_data] Failed to emit metadata: {}", e);
+            return;
+        }
+        
+        // Fetch and stream data
+        match adapter.read_table_data(request.clone()).await {
+            Ok((response, next_cursor)) => {
+                if let TableDataResponse::Rows { rows, .. } = response {
+                    let rows_response = TableDataResponse::Rows {
+                        rows,
+                        next_cursor,
+                    };
+                    let _ = app_handle_clone.emit(&event_name_clone, &rows_response);
+                }
+                
+                // Send done message
+                let _ = app_handle_clone.emit(&event_name_clone, &TableDataResponse::Done);
+            }
+            Err(e) => {
+                let error_response = TableDataResponse::Error {
+                    code: "QUERY_FAILED".to_string(),
+                    message: e.to_string(),
+                };
+                let _ = app_handle_clone.emit(&event_name_clone, &error_response);
+            }
+        }
+    });
+    
+    // Return the stream ID immediately
+    Ok(stream_id)
+}
+
+#[tauri::command]
 pub async fn db_test_connection(
     config: ConnectionConfig,
 ) -> Result<TestConnectionResult, AppError> {
@@ -535,6 +706,35 @@ pub async fn db_test_connection(
             match SqlitePool::connect(&config.database).await {
                 Ok(pool) => {
                     let adapter = SqliteAdapter::new(pool);
+                    match adapter.ping().await {
+                        Ok(_) => Ok(TestConnectionResult { success: true, error_message: None }),
+                        Err(e) => Ok(TestConnectionResult { success: false, error_message: Some(e.to_string()) }),
+                    }
+                }
+                Err(e) => Ok(TestConnectionResult { success: false, error_message: Some(e.to_string()) }),
+            }
+        }
+        crate::database::adapter::types::DbType::Mssql => {
+            // TODO: Fix tiberius compatibility issues
+            Ok(TestConnectionResult { 
+                success: false, 
+                error_message: Some("MSSQL support is temporarily disabled due to driver compatibility issues".to_string()) 
+            })
+        }
+        crate::database::adapter::types::DbType::Mariadb => {
+            // MariaDB uses the same connection URL format as MySQL
+            let database_url = format!(
+                "mysql://{}:{}@{}:{}/{}",
+                config.username,
+                config.password.unwrap_or_default(),
+                config.host,
+                config.port,
+                config.database
+            );
+            
+            match MySqlPool::connect(&database_url).await {
+                Ok(pool) => {
+                    let adapter = MySqlAdapter::new(pool);
                     match adapter.ping().await {
                         Ok(_) => Ok(TestConnectionResult { success: true, error_message: None }),
                         Err(e) => Ok(TestConnectionResult { success: false, error_message: Some(e.to_string()) }),

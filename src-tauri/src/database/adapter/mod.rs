@@ -6,10 +6,13 @@ use crate::error::AppError;
 
 pub mod types;
 pub use types::*;
+pub mod sql_builder;
 
 pub mod postgres;
 pub mod mysql;
 pub mod sqlite;
+// TODO: Fix tiberius compatibility issues before re-enabling
+// pub mod mssql;
 
 #[async_trait]
 pub trait DbAdapter: Send + Sync {
@@ -51,4 +54,8 @@ pub trait DbAdapter: Send + Sync {
     
     // Server info
     async fn server_version(&self) -> Result<String, AppError>;
+    
+    // Table data reading with projection and filtering
+    async fn read_table_data(&self, request: TableReadRequest) 
+        -> Result<(TableDataResponse, Option<String>), AppError>;
 }

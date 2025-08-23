@@ -35,8 +35,19 @@ sqlx = { version = "0.8", features = [
     "json",       # For JSON/JSONB
     "rust_decimal", # For DECIMAL/NUMERIC with precision
     "ipnetwork",  # For INET/CIDR in PostgreSQL
-    "mac_address" # For MACADDR type
+    "mac_address", # For MACADDR type
+    "bigdecimal", # For precise numeric types
+    "bit-vec",    # For bit types
+    "time"        # Additional time support
 ] }
+# MSSQL support
+tiberius = { version = "0.12", features = ["chrono", "rust_decimal"] }
+bb8 = "0.8"  # Connection pooling for tiberius
+bb8-tiberius = "0.12"
+# Spatial data support
+geo-types = "0.7"
+geojson = "0.24"
+wkt = "0.10"
 # Secure storage dependencies
 keyring = { version = "3.0", features = ["apple-native", "windows-native", "sync-secret-service"] }
 argon2 = "0.5"
@@ -64,8 +75,10 @@ rust_decimal = "1.35"
 rayon = "1.10"
 
 [features]
-default = ["postgres", "mysql", "sqlite"]
+default = ["postgres", "mysql", "sqlite", "mssql", "mariadb"]
 postgres = []
 mysql = []
 sqlite = []
+mssql = []
+mariadb = []
 
