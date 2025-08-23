@@ -198,7 +198,7 @@ export function EditorPanel() {
           className="flex items-center h-8 bg-muted/50"
           ref={tabsContainerRef}
         >
-          <TabsList className="h-8 flex-1 inline-flex items-center justify-start rounded-none bg-muted p-0.5 gap-0.5 overflow-hidden">
+          <TabsList className="h-8 flex-1 inline-flex items-center justify-start rounded-none bg-muted py-0.5 px-1 gap-0.5 overflow-hidden">
             {visibleTabs.map((tab: TabState) => (
               <TabsTrigger
                 key={tab.id}

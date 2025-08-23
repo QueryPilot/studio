@@ -71,7 +71,7 @@ export function ConnectionDialog({
 
   const [formData, setFormData] = useState({
     name: "",
-    type: "postgresql" as "postgresql" | "mysql" | "sqlite",
+    type: "postgresql" as "postgresql" | "mysql" | "sqlite" | "mssql" | "mariadb",
     host: "localhost",
     port: 5432,
     database: "",
@@ -79,6 +79,12 @@ export function ConnectionDialog({
     password: "",
     ssl: false,
     filePath: "",
+    // MSSQL specific
+    instanceName: "",
+    encrypt: false,
+    trustServerCertificate: false,
+    authType: "sql" as "sql" | "windows",
+    namedPipe: false,
   });
 
   useEffect(() => {
@@ -103,6 +109,11 @@ export function ConnectionDialog({
             password: connection.config.password || "",
             ssl: false,
             filePath: connection.config.filepath || "",
+            instanceName: "",
+            encrypt: false,
+            trustServerCertificate: false,
+            authType: "sql",
+            namedPipe: false,
           });
           setSelectedWorkspaceId("uncategorized");
         }
@@ -118,6 +129,11 @@ export function ConnectionDialog({
           password: "",
           ssl: false,
           filePath: "",
+          instanceName: "",
+          encrypt: false,
+          trustServerCertificate: false,
+          authType: "sql",
+          namedPipe: false,
         });
         // Set pre-selected workspace when dialog opens
         if (preSelectedWorkspaceId) {
@@ -196,6 +212,12 @@ export function ConnectionDialog({
         password: parsed.password || prev.password,
         ssl: parsed.ssl ?? prev.ssl,
         filePath: parsed.filePath || prev.filePath,
+        // Keep MSSQL specific defaults
+        instanceName: prev.instanceName,
+        encrypt: prev.encrypt,
+        trustServerCertificate: prev.trustServerCertificate,
+        authType: prev.authType,
+        namedPipe: prev.namedPipe,
       }));
 
       // Auto-generate name if empty
@@ -219,7 +241,9 @@ export function ConnectionDialog({
     const defaultPorts: Record<string, number> = {
       postgresql: 5432,
       mysql: 3306,
-      mongodb: 27017,
+      mssql: 1433,
+      mariadb: 3306,
+      sqlite: 0, // SQLite doesn't use ports
     };
 
     setFormData((prev) => ({
@@ -316,6 +340,12 @@ export function ConnectionDialog({
         password: formData.password,
         // ssl: formData.ssl, // Not supported in new architecture
         filepath: formData.filePath,
+        // MSSQL specific
+        instanceName: formData.instanceName,
+        encrypt: formData.encrypt,
+        trustServerCertificate: formData.trustServerCertificate,
+        authType: formData.authType,
+        namedPipe: formData.namedPipe,
         createdAt: existingConnection?.config.createdAt || new Date(),
         updatedAt: new Date(),
       };
@@ -341,6 +371,12 @@ export function ConnectionDialog({
         password: formData.password,
         // ssl: formData.ssl, // Not supported in new architecture
         filepath: formData.filePath,
+        // MSSQL specific
+        instanceName: formData.instanceName,
+        encrypt: formData.encrypt,
+        trustServerCertificate: formData.trustServerCertificate,
+        authType: formData.authType,
+        namedPipe: formData.namedPipe,
         createdAt: now,
         updatedAt: now,
       };
@@ -364,6 +400,11 @@ export function ConnectionDialog({
       password: "",
       ssl: false,
       filePath: "",
+      instanceName: "",
+      encrypt: false,
+      trustServerCertificate: false,
+      authType: "sql",
+      namedPipe: false,
     });
     setTestStatus("idle");
   };
@@ -372,11 +413,11 @@ export function ConnectionDialog({
     switch (type) {
       case "postgresql":
       case "mysql":
+      case "mariadb":
+      case "mssql":
         return <Server className="h-4 w-4" />;
       case "sqlite":
         return <FileText className="h-4 w-4" />;
-      case "mongodb":
-        return <Database className="h-4 w-4" />;
       default:
         return <Database className="h-4 w-4" />;
     }
@@ -499,10 +540,16 @@ export function ConnectionDialog({
                       SQLite
                     </div>
                   </SelectItem>
-                  <SelectItem value="mongodb">
+                  <SelectItem value="mssql">
                     <div className="flex items-center gap-2">
-                      {getIcon("mongodb")}
-                      MongoDB
+                      {getIcon("mssql")}
+                      SQL Server
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="mariadb">
+                    <div className="flex items-center gap-2">
+                      {getIcon("mariadb")}
+                      MariaDB
                     </div>
                   </SelectItem>
                 </SelectContent>
@@ -615,6 +662,65 @@ export function ConnectionDialog({
                     Use SSL
                   </Label>
                 </div>
+                
+                {formData.type === "mssql" && (
+                  <>
+                    <div className="grid gap-1">
+                      <Label htmlFor="instanceName" className="text-sm select-none">
+                        Instance Name (optional)
+                      </Label>
+                      <Input
+                        id="instanceName"
+                        placeholder="SQLEXPRESS"
+                        value={formData.instanceName}
+                        onChange={(e) => { handleInputChange("instanceName", e.target.value); }}
+                      />
+                    </div>
+                    
+                    <div className="grid gap-1">
+                      <Label htmlFor="authType" className="text-sm select-none">
+                        Authentication Type
+                      </Label>
+                      <Select value={formData.authType} onValueChange={(value) => handleInputChange("authType", value)}>
+                        <SelectTrigger id="authType">
+                          <span>{formData.authType === "windows" ? "Windows Authentication" : "SQL Authentication"}</span>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="sql">SQL Authentication</SelectItem>
+                          <SelectItem value="windows">Windows Authentication</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="encrypt"
+                          checked={formData.encrypt}
+                          onChange={(e) => { handleInputChange("encrypt", e.target.checked); }}
+                          className="rounded border-gray-300"
+                        />
+                        <Label htmlFor="encrypt" className="text-sm select-none">
+                          Encrypt Connection
+                        </Label>
+                      </div>
+                      
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="trustServerCertificate"
+                          checked={formData.trustServerCertificate}
+                          onChange={(e) => { handleInputChange("trustServerCertificate", e.target.checked); }}
+                          className="rounded border-gray-300"
+                        />
+                        <Label htmlFor="trustServerCertificate" className="text-sm select-none">
+                          Trust Server Certificate
+                        </Label>
+                      </div>
+                    </div>
+                  </>
+                )}
               </TabsContent>
             </Tabs>
           )}

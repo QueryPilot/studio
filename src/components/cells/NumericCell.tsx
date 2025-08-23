@@ -39,10 +39,10 @@ export function NumericCell({
   
   const validateNumeric = useCallback((val: string): boolean => {
     if (val === '' || val === 'null') {
-      return columnMeta.nullable;
+      return columnMeta?.nullable ?? true;
     }
     
-    const dbType = columnMeta.db_type.toUpperCase();
+    const dbType = columnMeta?.db_type?.toUpperCase() || '';
     
     // Integer validation
     if (dbType.includes('INT')) {
@@ -113,7 +113,7 @@ export function NumericCell({
   const formatForDisplay = useCallback((val: string | null): string => {
     if (!val || val === 'null') return 'NULL';
     
-    const dbType = columnMeta.db_type.toUpperCase();
+    const dbType = columnMeta?.db_type?.toUpperCase() || '';
     
     // Format integers with thousand separators
     if (dbType.includes('INT') && !dbType.includes('POINT')) {

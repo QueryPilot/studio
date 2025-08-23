@@ -397,103 +397,54 @@ export function DataViewer({
     if (!activeConnection) return;
 
     try {
-      const structureQuery = `
-        SELECT 
-          c.column_name,
-          c.data_type,
-          c.is_nullable,
-          c.column_default,
-          c.character_maximum_length,
-          CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_primary_key,
-          CASE WHEN fk.column_name IS NOT NULL THEN true ELSE false END as is_foreign_key,
-          fk.constraint_name as fk_constraint_name,
-          fk.referenced_schema,
-          fk.referenced_table,
-          fk.referenced_column,
-          fk.delete_rule,
-          fk.update_rule,
-          chk.check_clause
-        FROM information_schema.columns c
-        LEFT JOIN (
-          SELECT ku.column_name
-          FROM information_schema.table_constraints tc
-          JOIN information_schema.key_column_usage ku
-            ON tc.constraint_name = ku.constraint_name
-            AND tc.table_schema = ku.table_schema
-          WHERE tc.constraint_type = 'PRIMARY KEY'
-            AND tc.table_schema = '${schema}'
-            AND tc.table_name = '${tableName}'
-        ) pk ON c.column_name = pk.column_name
-        LEFT JOIN (
-          SELECT 
-            kcu.column_name,
-            kcu.constraint_name,
-            ccu.table_schema AS referenced_schema,
-            ccu.table_name AS referenced_table,
-            ccu.column_name AS referenced_column,
-            rc.delete_rule,
-            rc.update_rule
-          FROM information_schema.key_column_usage kcu
-          JOIN information_schema.table_constraints tc
-            ON kcu.constraint_name = tc.constraint_name
-            AND kcu.table_schema = tc.table_schema
-          JOIN information_schema.constraint_column_usage ccu
-            ON ccu.constraint_name = tc.constraint_name
-            AND ccu.table_schema = tc.table_schema
-          JOIN information_schema.referential_constraints rc
-            ON rc.constraint_name = tc.constraint_name
-            AND rc.constraint_schema = tc.table_schema
-          WHERE tc.constraint_type = 'FOREIGN KEY'
-            AND kcu.table_schema = '${schema}'
-            AND kcu.table_name = '${tableName}'
-        ) fk ON c.column_name = fk.column_name
-        LEFT JOIN (
-          SELECT 
-            ccu.column_name,
-            pg_get_constraintdef(con.oid) AS check_clause
-          FROM pg_constraint con
-          JOIN pg_attribute a ON a.attnum = ANY(con.conkey)
-          JOIN pg_class cl ON cl.oid = con.conrelid
-          JOIN pg_namespace n ON n.oid = cl.relnamespace
-          JOIN information_schema.constraint_column_usage ccu
-            ON ccu.constraint_name = con.conname
-            AND ccu.table_schema = n.nspname
-          WHERE con.contype = 'c'
-            AND n.nspname = '${schema}'
-            AND cl.relname = '${tableName}'
-        ) chk ON c.column_name = chk.column_name
-        WHERE c.table_schema = '${schema}'
-          AND c.table_name = '${tableName}'
-        ORDER BY c.ordinal_position;
-      `;
-
-      const result = await secureDatabaseService.executeQuery(
+      // Get database type for proper parameter handling
+      const connection = useConnectionStore.getState().connections.get(activeConnection);
+      const dbType = connection?.config.type;
+      
+      // Use the backend's table_columns method which handles database-specific queries
+      // For MySQL/MariaDB, database and schema are the same
+      // For SQLite, we use empty database and "main" as schema
+      // For PostgreSQL, we use the database name and schema separately
+      let database: string;
+      let schemaParam: string;
+      
+      if (dbType === 'mysql' || dbType === 'mariadb') {
+        database = schema; // In MySQL, what we call "schema" is actually the database
+        schemaParam = '';  // MySQL doesn't have separate schemas
+      } else if (dbType === 'sqlite') {
+        database = '';
+        schemaParam = 'main';
+      } else {
+        // PostgreSQL
+        database = connection?.config.database || '';
+        schemaParam = schema;
+      }
+      
+      const columns = await secureDatabaseService.getTableColumns(
         activeConnection,
-        structureQuery,
+        database,
+        schemaParam,
+        tableName
       );
-      const structure = result.rows.map((row) => ({
-        column_name: row[0],
-        data_type: row[1],
-        is_nullable: row[2],
-        column_default: row[3],
-        character_maximum_length: row[4],
-        is_primary_key: row[5],
-        is_foreign_key: row[6],
-        fk_reference: row[6] ? {
-          constraint_name: row[7],
-          referenced_schema: row[8],
-          referenced_table: row[9],
-          referenced_column: row[10],
-          on_delete: row[11],
-          on_update: row[12],
-        } : undefined,
-        check_constraint: row[13] || undefined,
+      
+      // Transform to our structure format
+      const structure = columns.map(col => ({
+        column_name: col.name,
+        data_type: col.db_type,
+        is_nullable: col.nullable ? 'YES' : 'NO',
+        column_default: col.default,
+        character_maximum_length: col.precision,
+        is_primary_key: col.is_pk ? 'YES' : 'NO',
+        is_foreign_key: col.is_fk ? 'YES' : 'NO',
+        is_unique: false,
+        check_constraint: null,
       }));
-
+      
       setTableStructure(structure);
       setStructureLoaded(true);
     } catch (err) {
       console.error("Error fetching table structure:", err);
+      setTableStructure([]);
     }
   }, [activeConnection, schema, tableName]);
 
@@ -525,14 +476,28 @@ export function DataViewer({
       setError(null);
 
       try {
-        // Build sort clause
+        // Get database type for proper syntax
+        const connection = useConnectionStore.getState().connections.get(activeConnection);
+        const dbType = connection?.config.type;
+        
+        // Build sort clause with appropriate quoting
         let orderBy = "";
         if (sorting.length > 0) {
-          orderBy =
-            "ORDER BY " +
-            sorting
-              .map((s) => `"${s.id}" ${s.desc ? "DESC" : "ASC"}`)
-              .join(", ");
+          if (dbType === 'mysql' || dbType === 'mariadb') {
+            // MySQL/MariaDB uses backticks
+            orderBy =
+              "ORDER BY " +
+              sorting
+                .map((s) => `\`${s.id}\` ${s.desc ? "DESC" : "ASC"}`)
+                .join(", ");
+          } else {
+            // PostgreSQL and SQLite use double quotes
+            orderBy =
+              "ORDER BY " +
+              sorting
+                .map((s) => `"${s.id}" ${s.desc ? "DESC" : "ASC"}`)
+                .join(", ");
+          }
         }
 
         // Check cache first (only for non-sorted data)
@@ -557,11 +522,33 @@ export function DataViewer({
 
         if (!result) {
           // Fetch data with offset and limit
-          const query = `
-          SELECT * FROM "${schema}"."${tableName}"
-          ${orderBy}
-          LIMIT ${FETCH_SIZE} OFFSET ${newOffset}
-        `;
+          // Check database type for proper query syntax
+          const connection = useConnectionStore.getState().connections.get(activeConnection);
+          const dbType = connection?.config.type;
+          
+          let query: string;
+          if (dbType === 'mysql' || dbType === 'mariadb') {
+            // MySQL/MariaDB syntax: uses backticks and database.table
+            query = `
+              SELECT * FROM \`${schema}\`.\`${tableName}\`
+              ${orderBy}
+              LIMIT ${FETCH_SIZE} OFFSET ${newOffset}
+            `;
+          } else if (dbType === 'sqlite') {
+            // SQLite syntax: no schema, just table name
+            query = `
+              SELECT * FROM "${tableName}"
+              ${orderBy}
+              LIMIT ${FETCH_SIZE} OFFSET ${newOffset}
+            `;
+          } else {
+            // PostgreSQL syntax: uses double quotes and schema.table
+            query = `
+              SELECT * FROM "${schema}"."${tableName}"
+              ${orderBy}
+              LIMIT ${FETCH_SIZE} OFFSET ${newOffset}
+            `;
+          }
 
           result = await secureDatabaseService.executeQuery(
             activeConnection,
@@ -763,8 +750,13 @@ export function DataViewer({
 
   // Initial load - separate effects to prevent flashing
   useEffect(() => {
-    // If we have preloaded data, use it directly
-    if (preloadedData) {
+    // Check if we have preloaded data with actual content
+    const hasPreloadedContent = preloadedData && 
+                               preloadedData.data && 
+                               preloadedData.data.length > 0;
+    
+    // If we have preloaded data with actual content, use it directly
+    if (hasPreloadedContent) {
       setIsLoading(false);
       
       // Transform the data from array of arrays to array of objects if needed
@@ -924,8 +916,8 @@ export function DataViewer({
       if (preloadedData.queryTime !== undefined) {
         setUIQueryTime(preloadedData.queryTime);
       }
-    } else if (activeConnection) {
-      // Normal mode - fetch from database
+    } else if (activeConnection && !hasPreloadedContent) {
+      // Normal mode - fetch from database only if no preloaded data with content
       setOffset(0);
       setHasMore(true);
 
@@ -933,7 +925,7 @@ export function DataViewer({
       void fetchEstimatedCount();
       void fetchTableStructure();
     }
-  }, [activeConnection, tableName, schema, preloadedData]);
+  }, [activeConnection, tableName, schema, preloadedData, loadTableData, fetchEstimatedCount, fetchTableStructure, setUIQueryTime]);
 
   // Don't reload when switching view modes - data is already cached
   useEffect(() => {

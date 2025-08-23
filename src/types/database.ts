@@ -3,7 +3,7 @@
  * All database operations are handled by Rust backend with connection pooling
  */
 
-export type DatabaseType = 'postgresql' | 'mysql' | 'sqlite';
+export type DatabaseType = 'postgresql' | 'mysql' | 'sqlite' | 'mssql' | 'mariadb';
 
 /**
  * Connection configuration for display purposes only
@@ -21,6 +21,12 @@ export interface DatabaseConnection {
   filepath?: string; // For SQLite
   ssl_mode?: string; // SSL mode for PostgreSQL/MySQL connections
   sslMode?: string; // Alternative property name for SSL mode
+  // MSSQL specific
+  instanceName?: string;
+  encrypt?: boolean;
+  trustServerCertificate?: boolean;
+  authType?: 'windows' | 'sql';
+  namedPipe?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -50,6 +56,16 @@ export interface ColumnMeta {
   ordinal: number;
   precision?: number | null;
   scale?: number | null;
+  // MSSQL specific
+  is_identity?: boolean;
+  is_computed?: boolean;
+  is_hierarchyid?: boolean;
+  is_spatial?: boolean;
+  // MySQL/MariaDB specific
+  is_json?: boolean;
+  enum_values?: string[];
+  set_values?: string[];
+  is_virtual?: boolean;
 }
 
 export interface ForeignKeyRef {

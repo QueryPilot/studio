@@ -75,6 +75,7 @@ pub fn run() {
             commands::database::db_update_cell,
             commands::database::db_estimate_count,
             commands::database::db_test_connection,
+            commands::database::db_table_data,
             // Health monitoring commands
             commands::health::test_connection,
             commands::health::get_connection_health,

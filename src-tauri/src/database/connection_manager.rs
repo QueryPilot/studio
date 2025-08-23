@@ -23,6 +23,15 @@ pub struct ConnectionConfig {
     pub connection_timeout: u64,
     pub idle_timeout: u64,
     pub max_lifetime: u64,
+    // MSSQL specific fields
+    pub auth_type: Option<String>,
+    pub instance_name: Option<String>,
+    pub encrypt: Option<bool>,
+    pub trust_server_certificate: Option<bool>,
+    // Additional optional fields for compatibility
+    pub user: Option<String>,
+    pub database_url: Option<String>,
+    pub pool_size: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,6 +40,8 @@ pub enum DatabaseType {
     PostgreSQL,
     MySQL,
     SQLite,
+    Mssql,
+    MariaDB,
 }
 
 pub enum DatabasePool {
@@ -134,6 +145,11 @@ impl ConnectionManager {
                 
                 DatabasePool::SQLite(pool)
             },
+            DatabaseType::Mssql | DatabaseType::MariaDB => {
+                // These database types are not supported in the old connection manager
+                // They use the new adapter system in registry.rs
+                return Err(format!("Database type {:?} is not supported in ConnectionManager. Use the adapter registry instead.", config.db_type));
+            }
         };
         
         // Store pool and config
