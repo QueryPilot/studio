@@ -23,7 +23,8 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      "restrict-template-expressions": "off",
+      "@typescript-eslint/restrict-template-expressions": "off",
+      "@typescript-eslint/no-explicit-any": "warn",
       "react-refresh/only-export-components": [
         "warn",
         { allowConstantExport: true },

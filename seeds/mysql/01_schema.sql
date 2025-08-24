@@ -182,6 +182,7 @@ CREATE TABLE related_todos (
 -- ============================================================================
 
 -- Views
+DROP VIEW IF EXISTS user_stats;
 CREATE VIEW user_stats AS
 SELECT 
     u.id,
@@ -198,6 +199,7 @@ FROM users u
 LEFT JOIN todos t ON u.id = t.user_id
 GROUP BY u.id, u.username, u.email, u.created_at, u.last_login_at;
 
+DROP VIEW IF EXISTS todo_summary;
 CREATE VIEW todo_summary AS
 SELECT 
     t.id,
@@ -218,6 +220,7 @@ LEFT JOIN comments cm ON t.id = cm.todo_id
 LEFT JOIN todo_collaborators tc ON t.id = tc.todo_id
 GROUP BY t.id, t.title, t.status, t.priority, t.due_date, t.completion_percentage, u.username;
 
+DROP VIEW IF EXISTS overdue_todos;
 CREATE VIEW overdue_todos AS
 SELECT 
     t.*,
@@ -232,6 +235,7 @@ WHERE t.due_date < CURDATE()
 -- Functions (MySQL uses DELIMITER for function definitions)
 DELIMITER $$
 
+DROP FUNCTION IF EXISTS get_user_completion_rate$$
 CREATE FUNCTION get_user_completion_rate(user_id_param INT)
 RETURNS DECIMAL(5,2)
 READS SQL DATA
@@ -254,6 +258,7 @@ BEGIN
     RETURN completion_rate;
 END$$
 
+DROP FUNCTION IF EXISTS calculate_todo_score$$
 CREATE FUNCTION calculate_todo_score(todo_id_param INT)
 RETURNS DECIMAL(5,2)
 READS SQL DATA
@@ -301,6 +306,7 @@ BEGIN
     RETURN score;
 END$$
 
+DROP FUNCTION IF EXISTS json_extract_text$$
 CREATE FUNCTION json_extract_text(json_doc JSON, json_path VARCHAR(255))
 RETURNS TEXT
 READS SQL DATA
@@ -316,6 +322,7 @@ DELIMITER ;
 -- Stored Procedures
 DELIMITER $$
 
+DROP PROCEDURE IF EXISTS complete_todo$$
 CREATE PROCEDURE complete_todo(IN todo_id_param INT, IN actual_hours_param DECIMAL(5,2))
 BEGIN
     DECLARE todo_exists INT DEFAULT 0;
@@ -361,6 +368,7 @@ BEGIN
     COMMIT;
 END$$
 
+DROP PROCEDURE IF EXISTS bulk_update_status$$
 CREATE PROCEDURE bulk_update_status(IN todo_ids TEXT, IN new_status VARCHAR(20), IN user_id_param INT)
 BEGIN
     DECLARE done INT DEFAULT FALSE;
@@ -415,6 +423,7 @@ BEGIN
     COMMIT;
 END$$
 
+DROP PROCEDURE IF EXISTS generate_user_report$$
 CREATE PROCEDURE generate_user_report(IN user_id_param INT)
 BEGIN
     -- User summary
@@ -509,7 +518,7 @@ DELIMITER ;
 
 -- Events (MySQL's equivalent to scheduled jobs)
 -- Note: Events require the event scheduler to be enabled
-SET GLOBAL event_scheduler = ON;
+-- SET GLOBAL event_scheduler = ON; -- Commented out due to permission restrictions in Docker
 
 DELIMITER $$
 

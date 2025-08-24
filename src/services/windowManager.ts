@@ -1,131 +1,159 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { LogicalSize } from "@tauri-apps/api/dpi";
-import { navigationTransition } from "./navigationTransition";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { LogicalPosition } from "@tauri-apps/api/window";
 
-export const windowManager = {
-  async openWorkspace(workspaceId: string, connectionId?: string) {
-    console.log("Opening workspace:", workspaceId, "with connection:", connectionId);
-    
-    if (!workspaceId) {
-      throw new Error("Workspace ID is required");
-    }
-    
-    try {
-      // Navigate to workspace URL
-      const url = connectionId 
-        ? `/workspace/${workspaceId}?connection=${connectionId}` 
-        : `/workspace/${workspaceId}`;
-      
-      // Add smooth transition
-      await navigationTransition.fadeOut();
-      
-      // Change window properties for workspace view
-      await this.configureForWorkspace();
-      
-      // Navigate using location.href
-      window.location.href = url;
-      
-    } catch (error) {
-      console.error("Failed to open workspace:", error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error("Error details:", errorMessage);
-      throw error;
-    }
-  },
+interface WindowInfo {
+  label: string;
+  connectionId: string;
+  connectionName: string;
+  createdAt: Date;
+}
 
-  async closeWorkspace() {
-    try {
-      // Add smooth transition
-      await navigationTransition.fadeOut();
-      
-      // Change window properties back to main screen settings
-      await this.configureForMain();
-      
-      // Navigate back to main screen
-      window.location.href = "/";
-      
-    } catch (error) {
-      console.error("Failed to close workspace:", error);
-    }
-  },
+let instance: WindowManager | null = null;
 
-  async openMain() {
-    try {
-      // Add smooth transition
-      await navigationTransition.fadeOut();
-      
-      // Configure window for main screen
-      await this.configureForMain();
-      
-      // Navigate to main screen
-      window.location.href = "/";
-      
-    } catch (error) {
-      console.error("Failed to return to main screen:", error);
+class WindowManager {
+  private windows: Map<string, WindowInfo> = new Map();
+
+  private constructor() {}
+
+  static getInstance(): WindowManager {
+    if (!instance) {
+      instance = new WindowManager();
     }
-  },
-  
-  async configureForMain() {
-    try {
-      const window = getCurrentWindow();
-      
-      // Main screen: smaller, centered window
-      console.log("Configuring window for main screen...");
-      
-      // Set window properties
-      await window.setResizable(true);
-      await window.setSize(new LogicalSize(900, 650));
-      await window.setMinSize(new LogicalSize(900, 650));
-      await window.setTitle("DevDB Studio");
-      await window.center();
-      
-      console.log("Window configured for main screen");
-    } catch (error) {
-      console.error("Failed to configure window for main:", error);
+
+    return instance;
+  }
+
+  async openWorkspace(
+    connectionId: string,
+    connectionName: string,
+  ): Promise<string> {
+    // Check if window already exists for this connection
+    const existingWindow = this.getWindowByConnectionId(connectionId);
+    if (existingWindow) {
+      // Focus existing window
+      const webview = await WebviewWindow.getByLabel(existingWindow.label);
+      if (webview) {
+        await webview.setFocus();
+        return existingWindow.label;
+      }
     }
-  },
-  
-  async configureForWorkspace() {
+
+    // Close the main window
     try {
-      const window = getCurrentWindow();
-      
-      // Workspace screen: larger, resizable window
-      console.log("Configuring window for workspace...");
-      
-      // Set window properties
-      await window.setResizable(true);
-      await window.setSize(new LogicalSize(1400, 900));
-      await window.setMinSize(new LogicalSize(1200, 700));
-      await window.setTitle("DevDB Studio - Workspace");
-      await window.center();
-      
-      console.log("Window configured for workspace");
+      const mainWindow = await WebviewWindow.getByLabel("main");
+      if (mainWindow) {
+        await mainWindow.hide();
+      }
     } catch (error) {
-      console.error("Failed to configure window for workspace:", error);
+      console.error("Failed to hide main window:", error);
     }
-  },
-  
-  async getCurrentWindowSize() {
-    try {
-      const window = getCurrentWindow();
-      const size = await window.innerSize();
-      return {
-        width: size.width,
-        height: size.height
-      };
-    } catch (error) {
-      console.error("Failed to get window size:", error);
-      return null;
+
+    // Create new window with transparent title bar
+    const label = `workspace-${connectionId}`;
+    const webview = new WebviewWindow(label, {
+      url: `/workspace/${connectionId}`,
+      title: `${connectionName} - DevDB Studio`,
+      width: 1400,
+      height: 900,
+      minWidth: 1000,
+      minHeight: 600,
+      center: true,
+      resizable: true,
+      maximizable: true,
+      minimizable: true,
+      closable: true,
+      decorations: true,
+      transparent: true,
+      titleBarStyle: "overlay",
+      hiddenTitle: true,
+      skipTaskbar: false,
+      // Set traffic light position for macOS
+      trafficLightPosition: new LogicalPosition(12, 18),
+    });
+
+    // Register window
+    this.windows.set(label, {
+      label,
+      connectionId,
+      connectionName,
+      createdAt: new Date(),
+    });
+
+    // Handle window close - show main window again
+    await webview.once("tauri://destroyed", async () => {
+      this.windows.delete(label);
+      // Show main window when workspace closes
+      try {
+        const mainWindow = await WebviewWindow.getByLabel("main");
+        if (mainWindow) {
+          await mainWindow.show();
+          await mainWindow.setFocus();
+        }
+      } catch (error) {
+        console.error("Failed to show main window:", error);
+      }
+    });
+
+    return label;
+  }
+
+  async closeWorkspace(connectionId: string): Promise<void> {
+    const window = this.getWindowByConnectionId(connectionId);
+    if (window) {
+      const webview = await WebviewWindow.getByLabel(window.label);
+      if (webview) {
+        await webview.close();
+      }
+      this.windows.delete(window.label);
     }
-  },
-  
-  async setWindowSize(width: number, height: number) {
+
+    // Show main window when closing workspace
     try {
-      const window = getCurrentWindow();
-      await window.setSize(new LogicalSize(width, height));
-      await window.center();
+      const mainWindow = await WebviewWindow.getByLabel("main");
+      if (mainWindow) {
+        await mainWindow.show();
+        await mainWindow.setFocus();
+      }
     } catch (error) {
-      console.error("Failed to set window size:", error);
+      console.error("Failed to show main window:", error);
     }
   }
-};
+
+  async focusWorkspace(connectionId: string): Promise<void> {
+    const window = this.getWindowByConnectionId(connectionId);
+    if (window) {
+      const webview = await WebviewWindow.getByLabel(window.label);
+      if (webview) {
+        await webview.setFocus();
+      }
+    }
+  }
+
+  getWindowByConnectionId(connectionId: string): WindowInfo | undefined {
+    for (const [, info] of this.windows) {
+      if (info.connectionId === connectionId) {
+        return info;
+      }
+    }
+    return undefined;
+  }
+
+  isWorkspaceOpen(connectionId: string): boolean {
+    return this.getWindowByConnectionId(connectionId) !== undefined;
+  }
+
+  getActiveWindows(): Map<string, WindowInfo> {
+    return new Map(this.windows);
+  }
+
+  async broadcastToWorkspaces(event: string, data: unknown): Promise<void> {
+    for (const [label] of this.windows) {
+      const webview = await WebviewWindow.getByLabel(label);
+      if (webview) {
+        await webview.emit(event, data);
+      }
+    }
+  }
+}
+
+export const windowManager = WindowManager.getInstance();

@@ -21,12 +21,6 @@ pub struct QueryBeginResponse {
     pub total_approx: Option<usize>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct QueryFetchResponse {
-    pub rows: Vec<Vec<serde_json::Value>>,
-    pub page: usize,
-    pub is_complete: bool,
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TestConnectionResult {
@@ -96,6 +90,8 @@ pub async fn db_connect_by_id(
         "postgresql" => DbType::Postgres,
         "mysql" => DbType::Mysql,
         "sqlite" => DbType::Sqlite,
+        "mssql" | "sqlserver" => DbType::Mssql,
+        "mariadb" => DbType::Mariadb,
         _ => {
             println!("[db_connect_by_id] ERROR: Unsupported database type: {}", connection_config.connection_type);
             return Err(AppError::ValidationError(format!("Unsupported database type: {}", connection_config.connection_type)));
@@ -122,15 +118,15 @@ pub async fn db_connect_by_id(
         password: connection_config.password,
         max_connections: 5,
         min_connections: 1,
-        connection_timeout: 10000, // Reduce to 10 seconds for faster feedback
+        connection_timeout: 5000, // Reduce to 5 seconds for faster feedback
         idle_timeout: 600000,
         max_lifetime: 3600000,
         enable_health_check: Some(true),
-        // MSSQL specific fields (optional for other databases)
+        // MSSQL specific fields - set defaults for development
         auth_type: None,
         instance_name: None,
-        encrypt: None,
-        trust_server_certificate: None,
+        encrypt: Some(false),  // Don't require encryption for dev
+        trust_server_certificate: Some(true),  // Trust server cert for dev
         named_pipe: None,
         // Additional optional fields
         user: None,
@@ -181,6 +177,22 @@ pub async fn db_disconnect(
     registry: State<'_, ConnectionRegistry>,
 ) -> Result<(), AppError> {
     registry.disconnect(&connection_id).await
+}
+
+#[tauri::command]
+pub async fn db_list_connections(
+    registry: State<'_, ConnectionRegistry>,
+) -> Result<Vec<String>, AppError> {
+    println!("[db_list_connections] Command called");
+    
+    let connections = registry.list_connections().await;
+    
+    println!("[db_list_connections] Found {} active database connections", connections.len());
+    for conn_id in &connections {
+        println!("[db_list_connections] - Active connection: {}", conn_id);
+    }
+    
+    Ok(connections)
 }
 
 #[tauri::command]
@@ -305,26 +317,17 @@ pub async fn db_table_columns(
 #[tauri::command]
 pub async fn db_table_indexes(
     connection_id: String,
-    database: String,
-    schema: String,
-    table: String,
+    _database: String,
+    _schema: String,
+    _table: String,
     registry: State<'_, ConnectionRegistry>,
 ) -> Result<Vec<crate::database::metadata::TableIndex>, AppError> {
-    let conn = registry.get(&connection_id).await
+    let _conn = registry.get(&connection_id).await
         .ok_or_else(|| AppError::ConnectionNotFound(connection_id.clone()))?;
     
-    // For now, we'll use the metadata module directly
-    // Try to downcast to PostgresAdapter
-    if let Some(pg) = conn.adapter.as_any().downcast_ref::<crate::database::adapter::postgres::PostgresAdapter>() {
-        crate::database::metadata::fetch_table_indexes_postgres(
-            pg.get_pool(),
-            &schema,
-            &table
-        ).await
-    } else {
-        // Return empty for other databases for now
-        Ok(vec![])
-    }
+    // TODO: Each database adapter will implement index retrieval
+    // Return empty for now since all adapters are placeholder implementations
+    Ok(vec![])
 }
 
 #[tauri::command]

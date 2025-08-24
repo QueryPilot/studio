@@ -1,184 +1,133 @@
+import { useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { WorkspaceTitleBar } from "./components/WorkspaceTitleBar";
+import { DatabaseSidebar } from "./components/DatabaseSidebar";
+import { DatabaseSchemaSelector } from "./components/DatabaseSchemaSelector";
+import { AISidebar } from "./components/AISidebar";
+import { WorkspaceStatusBar } from "./components/WorkspaceStatusBar";
+import { WorkspacePanelContainer } from "./components/WorkspacePanelContainer";
+import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
+import { useSchemaStore } from "@/stores/schemaStore";
+import { usePanelStore } from "@/stores/panelStore";
+import { databaseService } from "@/services/databaseService";
 import {
   ResizablePanelGroup,
   ResizablePanel,
   ResizableHandle,
 } from "@/components/ui/resizable";
-import { WorkspaceTitleBar } from "./components/WorkspaceTitleBar";
-import { DatabaseSidebar } from "./components/DatabaseSidebar";
-import { EditorPanel } from "./components/EditorPanel";
-import { StatusBar } from "./components/StatusBar";
-import { useState, useRef, useEffect } from "react";
-import { type ImperativePanelHandle } from "react-resizable-panels";
-import { Settings } from "lucide-react";
-import { useParams, useSearchParams } from "react-router-dom";
-import { useConnectionStore } from "@/stores";
-import { useWorkspaceStateStore } from "@/stores/workspaceStateStore";
 
 export function WorkspaceScreen() {
-  const { id: workspaceId } = useParams<{ id: string }>();
-  const [searchParams] = useSearchParams();
-  const priorityConnectionId = searchParams.get('connection');
-  const { connections, setActiveConnection, connect } = useConnectionStore();
-  const { setCurrentWorkspace, loadWorkspaceState, saveWorkspaceState } = useWorkspaceStateStore();
-  
-  const [leftPanelVisible, setLeftPanelVisible] = useState(true);
-  const [rightPanelVisible, setRightPanelVisible] = useState(false);
-  
-  const leftPanelRef = useRef<ImperativePanelHandle>(null);
-  const rightPanelRef = useRef<ImperativePanelHandle>(null);
-  
-  const toggleLeftPanel = () => {
-    if (leftPanelVisible) {
-      leftPanelRef.current?.collapse();
-    } else {
-      leftPanelRef.current?.expand(15); // Set to 15% when expanding
-    }
-    setLeftPanelVisible(!leftPanelVisible);
-  };
-  
-  const toggleRightPanel = () => {
-    if (rightPanelVisible) {
-      rightPanelRef.current?.collapse();
-    } else {
-      rightPanelRef.current?.expand(30); // Set to 30% when expanding
-    }
-    setRightPanelVisible(!rightPanelVisible);
-  };
-  
-  // Handle workspace initialization and state restoration
+  const { connectionId } = useParams<{ connectionId: string }>();
+  const { sidebars, toggleSidebar, initWorkspace } = useWorkspaceScreenStore();
+  const { loadSchemas } = useSchemaStore();
+  const { initialize: initializePanels } = usePanelStore();
+  const [isLoading, setIsLoading] = useState(true);
+  const [selectedDatabase, setSelectedDatabase] = useState("");
+  const [selectedSchema, setSelectedSchema] = useState("");
+
   useEffect(() => {
-    if (workspaceId) {
-      // Set current workspace and load its state
-      const initWorkspace = async () => {
-        setCurrentWorkspace(workspaceId);
-        await loadWorkspaceState(workspaceId);
-        console.log(`[WorkspaceScreen] Initialized workspace ${workspaceId}`);
-      };
-      initWorkspace();
+    if (connectionId) {
+      // Initialize workspace for this connection
+      setIsLoading(true);
+      initWorkspace(connectionId);
+      initializePanels(connectionId);
       
-      // Save state when leaving workspace
-      return () => {
-        saveWorkspaceState(workspaceId).catch(err => {
-          console.error(`[WorkspaceScreen] Failed to save workspace state:`, err);
+      // Connect to the database
+      void databaseService.connectById(connectionId)
+        .then(() => {
+          // Load schemas after successful connection
+          return loadSchemas(connectionId);
+        })
+        .catch((error) => {
+          console.error("Failed to connect to database:", error);
+        })
+        .finally(() => {
+          setIsLoading(false);
         });
-      };
     }
-    return undefined;
-  }, [workspaceId, setCurrentWorkspace, loadWorkspaceState, saveWorkspaceState]);
-  
-  // Handle priority connection on workspace open
-  useEffect(() => {
-    if (priorityConnectionId && connections.has(priorityConnectionId)) {
-      // Set as active connection
-      setActiveConnection(priorityConnectionId);
-      // Auto-connect if not already connected
-      const connection = connections.get(priorityConnectionId);
-      if (connection && connection.status !== 'connected' && connection.status !== 'connecting') {
-        console.log(`[WorkspaceScreen] Auto-connecting to ${priorityConnectionId}`);
-        connect(priorityConnectionId, 3, workspaceId).catch(err => {
-          console.error(`[WorkspaceScreen] Failed to auto-connect:`, err);
-        });
-      }
-    }
-  }, [priorityConnectionId, connections, setActiveConnection, connect]);
 
-  // Prevent Cmd+A from selecting all text in the entire app
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent): void => {
-      // Check if Cmd+A (Mac) or Ctrl+A (Windows/Linux) is pressed
-      if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
-        // Check if the active element is an input, textarea, or contenteditable
-        const activeElement = document.activeElement;
-        const isEditableElement = 
-          activeElement?.tagName === 'INPUT' ||
-          activeElement?.tagName === 'TEXTAREA' ||
-          activeElement?.getAttribute('contenteditable') === 'true' ||
-          activeElement?.classList.contains('monaco-editor');
-        
-        // If not in an editable element, prevent default
-        if (!isEditableElement) {
-          e.preventDefault();
-          e.stopPropagation();
-        }
-      }
-    };
-
-    // Add event listener with capture to intercept early
-    document.addEventListener('keydown', handleKeyDown, true);
-
-    // Cleanup
+    // Cleanup on unmount
     return () => {
-      document.removeEventListener('keydown', handleKeyDown, true);
+      if (connectionId && databaseService.isConnectionActive(connectionId)) {
+        void databaseService.disconnect(connectionId);
+      }
     };
-  }, []);
-  
-  // Auto-save workspace state periodically
-  useEffect(() => {
-    if (!workspaceId) return;
-    
-    const saveInterval = setInterval(() => {
-      saveWorkspaceState(workspaceId).catch(err => {
-        console.error(`[WorkspaceScreen] Failed to auto-save workspace state:`, err);
-      });
-    }, 30000); // Save every 30 seconds
-    
-    return () => { clearInterval(saveInterval); };
-  }, [workspaceId, saveWorkspaceState]);
-  
+  }, [connectionId, loadSchemas, initWorkspace, initializePanels]);
+
+  if (!connectionId) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <p className="text-muted-foreground">No connection ID provided</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="workspace-screen h-screen flex flex-col overflow-hidden bg-background">
-      <WorkspaceTitleBar
-        onToggleLeftPanel={toggleLeftPanel}
-        onToggleRightPanel={toggleRightPanel}
-        leftPanelVisible={leftPanelVisible}
-        rightPanelVisible={rightPanelVisible}
+    <div className="flex flex-col h-screen overflow-hidden bg-background">
+      {/* Title Bar */}
+      <WorkspaceTitleBar 
+        connectionId={connectionId}
+        onToggleSidebar={toggleSidebar}
       />
 
-      <div className="flex-1 overflow-hidden">
-        <ResizablePanelGroup direction="horizontal" className="h-full">
-          <ResizablePanel
-            ref={leftPanelRef}
-            defaultSize={15}
-            minSize={10}
-            maxSize={30}
-            collapsible={true}
-            collapsedSize={0}
-            onCollapse={() => { setLeftPanelVisible(false); }}
-            onExpand={() => { setLeftPanelVisible(true); }}
-          >
-            <DatabaseSidebar />
-          </ResizablePanel>
-
-          {leftPanelVisible && <ResizableHandle />}
-
-          <ResizablePanel defaultSize={50} minSize={30}>
-            <EditorPanel />
-          </ResizablePanel>
-
-          {rightPanelVisible && <ResizableHandle />}
-
-          <ResizablePanel
-            ref={rightPanelRef}
-            defaultSize={0}
-            minSize={20}
-            maxSize={50}
-            collapsible={true}
-            collapsedSize={0}
-            onCollapse={() => { setRightPanelVisible(false); }}
-            onExpand={() => { setRightPanelVisible(true); }}
-          >
-            <div className="h-full bg-muted/30 flex items-center justify-center text-muted-foreground">
-              <div className="text-center">
-                <Settings className="h-8 w-8 mx-auto mb-2" />
-                <p className="text-sm">Right Panel</p>
-                <p className="text-xs">Additional tools</p>
+      {/* Main Content Area */}
+      <ResizablePanelGroup direction="horizontal" className="flex-1">
+        {/* Left Sidebar - Database Explorer */}
+        {sidebars.left && (
+          <>
+            <ResizablePanel 
+              defaultSize={18} 
+              minSize={12} 
+              maxSize={30}
+              className="bg-muted/20 flex flex-col"
+            >
+              {/* Database/Schema Selector aligned with tabs */}
+              <div className="h-9 border-b bg-background flex items-center">
+                <DatabaseSchemaSelector
+                  connectionId={connectionId}
+                  selectedDatabase={selectedDatabase}
+                  selectedSchema={selectedSchema}
+                  onDatabaseChange={setSelectedDatabase}
+                  onSchemaChange={setSelectedSchema}
+                />
               </div>
-            </div>
-          </ResizablePanel>
-        </ResizablePanelGroup>
-      </div>
+              {/* Database Sidebar */}
+              <div className="flex-1">
+                <DatabaseSidebar 
+                  connectionId={connectionId}
+                  isLoading={isLoading}
+                  selectedDatabase={selectedDatabase}
+                  selectedSchema={selectedSchema}
+                />
+              </div>
+            </ResizablePanel>
+            <ResizableHandle withHandle />
+          </>
+        )}
 
-      <StatusBar workspaceId={workspaceId} />
+        {/* Central Content - Split Panels */}
+        <ResizablePanel defaultSize={sidebars.left ? (sidebars.right ? 59 : 82) : (sidebars.right ? 77 : 100)}>
+          <WorkspacePanelContainer connectionId={connectionId} />
+        </ResizablePanel>
+
+        {/* Right Sidebar - AI Assistant */}
+        {sidebars.right && (
+          <>
+            <ResizableHandle withHandle />
+            <ResizablePanel 
+              defaultSize={23} 
+              minSize={15} 
+              maxSize={40}
+              className="bg-muted/20"
+            >
+              <AISidebar connectionId={connectionId} />
+            </ResizablePanel>
+          </>
+        )}
+      </ResizablePanelGroup>
+
+      {/* Status Bar */}
+      <WorkspaceStatusBar connectionId={connectionId} />
     </div>
   );
 }

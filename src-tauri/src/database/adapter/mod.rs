@@ -6,13 +6,11 @@ use crate::error::AppError;
 
 pub mod types;
 pub use types::*;
-pub mod sql_builder;
 
 pub mod postgres;
 pub mod mysql;
 pub mod sqlite;
-// TODO: Fix tiberius compatibility issues before re-enabling
-// pub mod mssql;
+pub mod mssql;
 
 #[async_trait]
 pub trait DbAdapter: Send + Sync {

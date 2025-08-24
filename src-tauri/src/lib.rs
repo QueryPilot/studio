@@ -60,6 +60,7 @@ pub fn run() {
             commands::database::db_connect,
             commands::database::db_connect_by_id,
             commands::database::db_disconnect,
+            commands::database::db_list_connections,
             commands::database::db_ping,
             commands::database::db_list_databases,
             commands::database::db_list_schemas,

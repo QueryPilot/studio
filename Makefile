@@ -74,8 +74,8 @@ seed-postgres:
 
 seed-mysql:
 	@echo "Seeding MySQL..."
-	@docker exec -i devdb-mysql mysql -udevuser -pdevpass123 < seeds/mysql/01_schema.sql
-	@docker exec -i devdb-mysql mysql -udevuser -pdevpass123 < seeds/mysql/02_seed_data.sql
+	@docker exec -i devdb-mysql mysql -uroot -prootpass123 < seeds/mysql/01_schema.sql
+	@docker exec -i devdb-mysql mysql -uroot -prootpass123 < seeds/mysql/02_seed_data.sql
 	@echo "MySQL seeded successfully!"
 
 seed-sqlite:

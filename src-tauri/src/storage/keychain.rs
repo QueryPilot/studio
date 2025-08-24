@@ -3,7 +3,8 @@ use keyring::Entry;
 use uuid::Uuid;
 use crate::crypto::nonce::generate_random_key;
 
-const SERVICE_NAME: &str = "DevDB Studio";
+// Use the same bundle identifier as the app to maintain keychain access across rebuilds
+const SERVICE_NAME: &str = "com.hieuvd.devdb-studio";
 const MASTER_KEY_ACCOUNT: &str = "master_key";
 
 /// Keychain manager for OS-level secure storage
@@ -23,6 +24,7 @@ impl KeychainManager {
     pub fn get_or_create_master_key(&self) -> Result<Vec<u8>, Box<dyn Error>> {
         println!("[KeychainManager] Creating keyring entry for service: {}, account: {}", 
                  &self.service_name, MASTER_KEY_ACCOUNT);
+        
         let entry = Entry::new(&self.service_name, MASTER_KEY_ACCOUNT)?;
         
         // Try to get existing master key
@@ -41,17 +43,10 @@ impl KeychainManager {
                 use base64::{Engine as _, engine::general_purpose};
                 let key_str = general_purpose::STANDARD.encode(&key);
                 
-                // Store in keychain
+                // Store in keychain with proper access control
                 println!("[KeychainManager] Attempting to store master key in keychain...");
-                match entry.set_password(&key_str) {
-                    Ok(_) => {
-                        println!("[KeychainManager] Successfully stored master key in keychain");
-                    }
-                    Err(e) => {
-                        println!("[KeychainManager] Failed to store in keychain: {}", e);
-                        return Err(Box::new(e));
-                    }
-                }
+                entry.set_password(&key_str)?;
+                println!("[KeychainManager] Successfully stored master key in keychain");
                 
                 Ok(key.to_vec())
             }

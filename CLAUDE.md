@@ -2,189 +2,182 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
-
-DevDB Studio is a secure desktop database IDE built with Tauri (Rust backend) and React/TypeScript (frontend). It features a modern UI with shadcn/ui components, encrypted credential storage, and supports PostgreSQL, MySQL, SQLite, SQL Server, and Oracle databases with light/dark themes.
-
 ## Development Commands
 
+### Setup
 ```bash
 # Install dependencies
 pnpm install
 
-# Run in development mode
+# Start development server
 pnpm tauri:dev
-# or
+# or use Makefile
 make dev
-# or shorthand
-make d
+make d  # shorthand
+```
 
+### Build & Testing
+```bash
 # Build for production
 pnpm tauri:build
-# or
+# or 
 make build
 
-# Frontend only development
-pnpm dev
-
-# Linting and type checking
-pnpm lint
+# Type checking
 pnpm typecheck
+
+# Linting
+pnpm lint
 
 # Clean build artifacts
 make clean
-
-# Docker database management
-make docker-up      # Start all database containers
-make docker-down    # Stop all database containers
-make docker-reset   # Stop, remove volumes, and restart containers
-make setup         # Complete setup: start containers and seed all databases
-
-# Database seeding
-make seed-all      # Seed all databases
-make seed-postgres # Seed PostgreSQL only
-make seed-mysql    # Seed MySQL only
-make seed-sqlite   # Seed SQLite only
-make seed-sqlserver # Seed SQL Server only
-make seed-oracle   # Seed Oracle only
 ```
 
-## Architecture
+### Database Development Setup
+```bash
+# Complete setup - starts Docker containers and seeds all databases  
+make setup
+
+# Database container management
+make docker-up      # Start all database containers
+make docker-down    # Stop containers
+make docker-reset   # Stop, remove volumes, restart
+
+# Individual database seeding
+make seed-postgres
+make seed-mysql
+make seed-sqlite
+make seed-sqlserver
+make seed-oracle
+make seed-all       # Seed all databases
+make reseed-all     # Drop and reseed (DELETES data)
+```
+
+## Architecture Overview
 
 ### Tech Stack
-- **Frontend**: React 19, TypeScript, Vite, Tailwind CSS, shadcn/ui components
-- **Backend**: Tauri 2, Rust
-- **State Management**: Zustand 5
-- **Routing**: React Router v7
-- **Package Manager**: pnpm
-- **Query Library**: TanStack Query v5
-- **Virtual Scrolling**: TanStack Virtual v3
-- **Forms**: TanStack Form with Zod validation
-- **Code Editor**: Monaco Editor
-- **Database**: Tauri SQL Plugin
-- **Drag & Drop**: DnD Kit (sortable, core, modifiers)
-- **Resizable Panels**: react-resizable-panels
-- **Date Picker**: react-day-picker
-- **Command Palette**: cmdk
-- **Notifications**: Sonner
+- **Frontend**: React 19 + TypeScript + Vite + Tailwind CSS
+- **Backend**: Tauri 2 + Rust
+- **Database Support**: PostgreSQL, MySQL, SQLite, SQL Server, MariaDB, Oracle (MSSQL adapter disabled due to tiberius compatibility issues)
+- **UI Framework**: shadcn/ui + Radix UI primitives
+- **State Management**: Zustand with persistence
 
 ### Project Structure
-- `/src/` - React frontend application
-  - `/components/ui/` - shadcn/ui components library (Alert, Button, Dialog, etc.)
-  - `/components/` - Application components
-    - `/DataViewer/` - Data table viewer with virtual scrolling
-      - `/components/` - Sub-components (Toolbar, VirtualRow, DetailsPanel, RowContextMenu, ColumnContextMenu, etc.)
-      - `DataViewer.tsx` - Main data viewer component
-    - `ConnectionDialog.tsx` - Database connection dialog
-    - `QueryEditor.tsx` - SQL query editor with Monaco
-    - `QueryResults.tsx` - Query results display
-    - `QueryWorkspace.tsx` - Query workspace container
-  - `/lib/` - Utilities (cn helper, databaseUri parser, utils)
-  - `/types/` - TypeScript type definitions
-    - `database.ts` - Database-related types (TableInfo, ViewInfo, FunctionInfo, etc.)
-  - `/hooks/` - Custom React hooks
-    - `useSecureStorageMigration.ts` - Storage migration hook
-  - `/screens/workspace/` - Workspace-related screens
-    - `/components/` - DatabaseSidebar, EditorPanel, StatusBar, WorkspaceTitleBar, DataPreview
-  - `/services/` - Business logic services
-    - `secureDatabaseService.ts` - Encrypted database connection management
-    - `secureStorage.ts` - Secure credential storage with encryption
-    - `queryService.ts` - Query execution and management
-    - `windowManager.ts` - Window state management
-    - `navigationTransition.ts` - Page transition animations
-    - `cacheService.ts` - Table data and schema caching
-  - `/stores/` - Zustand state stores
-    - `secureConnectionStore.ts` - Secure connection state management
-    - `secureQueryStore.ts` - Query history and results
-    - `workspaceStore.ts` - Workspace state
-    - `workspaceStateStore.ts` - Workspace UI state persistence
-    - `editorStore.ts` - Editor preferences
-    - `tabsStore.ts` - Tab management
-    - `appStore.ts` - Application-level state
-    - `uiStore.ts` - UI state (schema selection, row counts, loading states)
-    - `queryStore.ts` - Query execution state
-  - `/utils/` - Utility functions (clearStorage)
-  - `/styles/` - CSS files including workspace.css
-- `/src-tauri/` - Rust backend using Tauri
-  - `tauri.conf.json` - Tauri configuration (window settings, build config)
-  - `CLAUDE.md` - Backend-specific guidelines
-- `/src/CLAUDE.md` - Frontend-specific guidelines  
-- `/public/` - Static assets
-- `/docs/` - Documentation and ADRs
-  - `secure-storage-architecture.md` - Encrypted storage design
-  - `development-plan.md` - Development roadmap
-  - `storage-cleanup-guide.md` - Storage management guide
-  - `theme-usage.md` - Theme implementation guide
-- `/seeds/` - Database seed files for testing
-  - `/postgres/` - PostgreSQL schemas and data
-  - `/mysql/` - MySQL schemas and data
-  - `/sqlite/` - SQLite database and seeding script
-  - `/sqlserver/` - SQL Server schemas and data
-  - `/oracle/` - Oracle schemas and data
-
-### Key Features
-- **Secure Storage**: AES-GCM encryption for database credentials
-- **Multi-database Support**: Connect to PostgreSQL, MySQL, SQLite, SQL Server, and Oracle
-- **Query Workspace**: Monaco editor with SQL syntax highlighting and autocomplete
-- **Connection Management**: Encrypted credential storage with master password
-- **Theme Support**: Light/dark mode with next-themes
-- **Resizable Panels**: Using react-resizable-panels for flexible layouts
-- **Virtual Scrolling**: Efficient handling of large datasets
-- **Data Export**: CSV export functionality
-
-### Security Architecture
-- Master password-based encryption using AES-GCM
-- PBKDF2 key derivation (100,000 iterations)
-- Secure credential storage in Tauri's app data directory
-- Memory-safe handling of sensitive data
-- No plaintext storage of database credentials
-
-### Key Configuration
-- Window uses transparent background with overlay titlebar style
-- Custom WorkspaceTitleBar handles window controls and navigation
-- Theme switching implemented with next-themes
-- ESLint configured with strict TypeScript checks
-- Component library using Radix UI primitives with Tailwind styling
-- Toast notifications via Sonner
-- Virtual scrolling for tables with TanStack Virtual
-- Monaco editor with custom theme support
-
-## Common Issues & Solutions
-
-### UI/Layout Issues
-- **Table flashing on panel resize**: Always mount ResizablePanelGroup, control size dynamically
-- **Column highlights clipping**: Set explicit width on parent containers using total column width
-- **Scroll position lost**: Preserve tableContainerRef, avoid unmounting table container
-- **Header transparency**: Use `bg-background/95 backdrop-blur` for sticky headers
-- **Context menus**: Separate RowContextMenu and ColumnContextMenu components for better organization
-
-### Performance Issues
-- **Large dataset lag**: Implement virtual scrolling with TanStack Virtual
-- **Selection performance**: Use `useDeferredValue` for expensive state calculations
-- **Memory usage**: Window data to max 1000 rows, implement proper cleanup
-- **Virtual scrolling**: Use column virtualization for tables with many columns
-
-### State Management
-- **Schema not updating**: Check `loadedForConnectionRef` to prevent duplicate loads
-- **Selection count wrong**: Use stable row.id instead of virtualRow.index
-- **Cache invalidation**: Use `cacheService.invalidateConnection()` when refreshing
-- **Query execution**: Track execution time with `uiQueryTime` in UI store
-
-### Testing Database Connections
 ```
-PostgreSQL: localhost:15432 (user: devuser, pass: devpass123, db: todoapp)
-MySQL:      localhost:13306 (user: devuser, pass: devpass123, db: todoapp)
-SQLite:     seeds/sqlite/todoapp.db
-SQL Server: localhost:11433 (user: sa, pass: DevPass123!, db: todoapp)
-Oracle:     localhost:11521 (user: todoapp, pass: DevPass123, service: XE)
+src/                     # React frontend
+├── components/          # React components
+│   ├── ui/             # shadcn/ui components  
+│   └── theme-provider.tsx
+├── screens/            # Screen-level components
+├── stores/             # Zustand stores
+├── services/           # Frontend services
+├── types/              # TypeScript type definitions
+├── lib/                # Utilities and helpers
+└── utils/              # Utility functions
+
+src-tauri/              # Rust backend
+├── src/
+│   ├── commands/       # Tauri command handlers
+│   ├── database/       # Database adapters and management
+│   │   └── adapter/    # Database-specific implementations
+│   ├── crypto/         # Encryption and secure storage
+│   ├── storage/        # Secure storage implementations
+│   └── cache/          # Connection pooling and caching
+└── tauri.conf.json     # Tauri configuration
 ```
 
-## Code Quality Standards
+### Rust Backend Architecture
 
-### ESLint Rules
-- **No any types**: Always specify proper TypeScript types
-- **Template literal types**: Ensure valid types in template literals
-- **React hooks dependencies**: Include all dependencies in dependency arrays
-- **Conditional checks**: Remove unnecessary conditionals
-- **Safe type usage**: Avoid unsafe member access on any values
-- **Optional chaining**: Don't use on non-nullish values
+#### Core Modules
+- **Database Layer**: `src-tauri/src/database/`
+  - `registry.rs` - Connection registry and lifecycle management
+  - `adapter/` - Database-specific adapters (postgres, mysql, sqlite, mssql)
+  - `executor.rs` - Query execution with streaming support
+  - `cursor.rs` - Cursor-based query result streaming
+  - `metadata.rs` - Database schema introspection
+
+- **Security Layer**: `src-tauri/src/crypto/` + `src-tauri/src/storage/`
+  - `encryption.rs` - AES-GCM/ChaCha20-Poly1305 encryption
+  - `key_manager.rs` - Key derivation and rotation
+  - `secure_store.rs` - Encrypted data storage
+  - `keychain.rs` - OS keychain integration
+
+- **Commands**: `src-tauri/src/commands/`
+  - `database.rs` - Database operations (connect, query, schema)
+  - `secure_storage.rs` - Secure connection storage
+  - `health.rs` - Connection health monitoring
+
+#### Database Architecture Features
+- **Connection Pooling**: bb8 connection pools per database
+- **Streaming Queries**: Cursor-based result fetching for large datasets
+- **Type Safety**: Comprehensive value converters for database-specific types
+- **Health Monitoring**: Connection state tracking and automatic reconnection
+- **Secure Credentials**: Encrypted storage with OS keychain backup
+
+### Frontend Architecture
+
+#### State Management Pattern
+- **Zustand Stores**: Located in `src/stores/`
+  - `appStore.ts` - Global app state (theme, preferences)
+  - Persistent stores use zustand middleware
+  - Type-safe with TypeScript interfaces
+
+#### Path Aliases
+Configure in both `vite.config.ts` and `tsconfig.json`:
+```typescript
+"@/*": ["src/*"]
+"@components/*": ["src/components/*"] 
+"@lib/*": ["src/lib/*"]
+"@hooks/*": ["src/hooks/*"]
+"@types/*": ["src/types/*"]
+"@utils/*": ["src/utils/*"]
+```
+
+### Key Development Patterns
+
+#### Database Connection Flow
+1. Credentials stored securely via `secure_storage` commands
+2. Connection established through `db_connect` with pooling
+3. Queries executed with streaming via `db_query_begin`/`db_query_fetch`
+4. Health monitoring tracks connection state
+
+#### Query Execution Pattern
+- Use `db_query_begin` to start streaming queries
+- Fetch results in batches with `db_query_fetch`
+- Always call `db_query_close` to cleanup cursors
+- Handle cancellation with `db_query_cancel`
+
+#### Security Best Practices
+- All sensitive data encrypted at rest using AES-GCM
+- OS keychain integration for master key storage
+- Automatic key rotation support
+- Secure memory handling with zeroization
+
+#### UI Component Guidelines
+- Functional components with TypeScript
+- Use shadcn/ui components for consistency
+- Tailwind classes with `cn()` utility for conditional styling
+- Theme support through CSS variables
+
+#### Performance Considerations
+- Virtual scrolling for large datasets using TanStack Virtual
+- Connection pooling in Rust backend
+- Cursor-based streaming for memory efficiency
+- Proper cleanup of resources (cursors, connections)
+
+## Development Notes
+
+- Package manager: **pnpm** (not npm/yarn)
+- Node.js version: 18+ required
+- Rust stable toolchain required
+- ESLint configured with strict TypeScript rules
+- All database types have comprehensive test seeds in `seeds/` directory
+- Docker Compose provides consistent development database environment
+
+## Database Development
+Test databases are available via Docker Compose:
+- PostgreSQL: `localhost:15432` (user: devuser, pass: devpass123, db: todoapp)
+- MySQL: `localhost:13306` (user: devuser, pass: devpass123, db: todoapp)
+- SQLite: `seeds/sqlite/todoapp.db`
+- SQL Server: `localhost:11433` (user: sa, pass: DevPass123!, db: todoapp)
+- Oracle: `localhost:11521` (user: todoapp, pass: DevPass123, service: XE)

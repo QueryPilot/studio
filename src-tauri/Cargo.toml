@@ -42,8 +42,8 @@ sqlx = { version = "0.8", features = [
 ] }
 # MSSQL support
 tiberius = { version = "0.12", features = ["chrono", "rust_decimal"] }
-bb8 = "0.8"  # Connection pooling for tiberius
-bb8-tiberius = "0.12"
+bb8 = "0.9"
+bb8-tiberius = "0.16"
 # Spatial data support
 geo-types = "0.7"
 geojson = "0.24"
@@ -68,7 +68,7 @@ hex = "0.4"
 # New architecture dependencies
 async-trait = "0.1"
 thiserror = "1.0"
-tokio-util = "0.7"
+tokio-util = { version = "0.7", features = ["compat"] }
 futures = "0.3"
 rust_decimal = "1.35"
 # Performance optimization

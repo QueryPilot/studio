@@ -151,10 +151,10 @@ BEGIN
                     tstzrange(CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + ((random() * 365) || ' days')::interval)
                 ELSE NULL END,
                 CASE WHEN random_status IN ('in_progress', 'completed') THEN 
-                    CURRENT_TIMESTAMP - ((random() * 30) || ' days')::interval
+                    CURRENT_TIMESTAMP + ((random() * 5) || ' minutes')::interval
                 ELSE NULL END,
                 CASE WHEN random_status = 'completed' THEN 
-                    CURRENT_TIMESTAMP - ((random() * 20) || ' days')::interval
+                    CURRENT_TIMESTAMP + ((random() * 10) || ' minutes')::interval
                 ELSE NULL END,
                 CASE WHEN random() > 0.6 THEN 
                     CURRENT_TIMESTAMP + ((random() * 30) || ' days')::interval
