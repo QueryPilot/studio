@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
+use crate::database::cell_value::CellValue;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DbType {
@@ -85,11 +86,20 @@ pub struct FunctionMeta {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TableIndex {
+    pub name: String,
+    pub unique: bool,
+    pub primary: bool,
+    pub columns: Vec<String>,
+    pub index_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryCursor {
     pub id: String,
     pub sql: String,
     pub columns: Vec<ColumnMeta>,
-    pub rows: Vec<Vec<serde_json::Value>>,
+    pub rows: Vec<Vec<CellValue>>,
     pub page_size: usize,
     pub current_page: usize,
     pub total_rows: Option<usize>,
@@ -100,7 +110,7 @@ pub struct QueryCursor {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryPage {
-    pub rows: Vec<Vec<serde_json::Value>>,
+    pub rows: Vec<Vec<CellValue>>,
     pub page: usize,
     pub is_complete: bool,
 }
@@ -135,14 +145,14 @@ pub type TransactionId = String;
 pub struct QueryBeginResponse {
     pub cursor_id: String,
     pub columns: Vec<ColumnMeta>,
-    pub rows: Vec<Vec<serde_json::Value>>,
+    pub rows: Vec<Vec<CellValue>>,
     pub total_rows: Option<usize>,
     pub is_complete: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryFetchResponse {
-    pub rows: Vec<Vec<serde_json::Value>>,
+    pub rows: Vec<Vec<CellValue>>,
     pub page: usize,
     pub is_complete: bool,
 }
@@ -223,7 +233,7 @@ pub struct TableDataCursor {
     pub filters: Vec<FilterSpec>,
     pub search: Option<String>,
     pub offset: usize,
-    pub keyset_values: Option<Vec<serde_json::Value>>,
+    pub keyset_values: Option<Vec<CellValue>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -240,7 +250,7 @@ pub enum TableDataResponse {
     },
     #[serde(rename = "rows")]
     Rows {
-        rows: Vec<serde_json::Map<String, serde_json::Value>>,
+        rows: Vec<std::collections::HashMap<String, CellValue>>,
         next_cursor: Option<String>,
     },
     #[serde(rename = "done")]

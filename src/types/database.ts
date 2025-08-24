@@ -9,10 +9,17 @@ export type DatabaseType = 'postgresql' | 'mysql' | 'sqlite' | 'mssql' | 'mariad
  * Connection configuration for display purposes only
  * Actual connections and passwords are managed securely by Rust backend
  */
+export interface Tag {
+  name: string;
+  color: string;
+}
+
 export interface DatabaseConnection {
   id: string;
   name: string;
   type: DatabaseType;
+  workspace: string; // Now workspace is just a string identifier
+  tags: Tag[]; // Support for multiple tags with name and color
   host?: string;
   port?: number;
   database?: string;
@@ -39,6 +46,7 @@ export interface ConnectionStatus {
   latency?: number;
 }
 
+// Legacy ConnectionProfile interface - deprecated in favor of workspace string in DatabaseConnection
 export interface ConnectionProfile {
   id: string;
   name: string;

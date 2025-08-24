@@ -198,24 +198,47 @@ pub async fn cleanup_test_connections(
 pub async fn delete_all_connections(
     state: State<'_, SecureStorageState>,
 ) -> Result<u32, String> {
+    println!("[delete_all_connections] Command called");
+    
     let mut storage = state.lock().await;
     let storage = storage.as_mut().ok_or("Secure storage not initialized")?;
+    
+    println!("[delete_all_connections] Secure storage accessed, listing connections...");
     
     // Get all connections
     let connections = storage.list_connections()
         .await
-        .map_err(|e| format!("Failed to list connections: {}", e))?;
+        .map_err(|e| {
+            println!("[delete_all_connections] ERROR: Failed to list connections: {}", e);
+            format!("Failed to list connections: {}", e)
+        })?;
+    
+    println!("[delete_all_connections] Found {} connections to delete", connections.len());
     
     let mut deleted = 0;
+    let mut failed = 0;
+    
     for conn in connections {
-        if let Some(id) = conn.id {
+        if let Some(id) = conn.id.clone() {
+            println!("[delete_all_connections] Attempting to delete connection: {} (ID: {})", conn.name, id);
+            
             // Delete the connection
-            if let Ok(()) = storage.delete_connection(&id).await {
-                deleted += 1;
-                println!("Deleted connection: {} ({})", conn.name, id);
+            match storage.delete_connection(&id).await {
+                Ok(()) => {
+                    deleted += 1;
+                    println!("[delete_all_connections] ✓ Successfully deleted connection: {} (ID: {})", conn.name, id);
+                }
+                Err(e) => {
+                    failed += 1;
+                    println!("[delete_all_connections] ✗ Failed to delete connection: {} (ID: {}), Error: {}", conn.name, id, e);
+                }
             }
+        } else {
+            println!("[delete_all_connections] WARNING: Connection {} has no ID, skipping", conn.name);
         }
     }
+    
+    println!("[delete_all_connections] Deletion complete: {} deleted, {} failed", deleted, failed);
     
     Ok(deleted)
 }

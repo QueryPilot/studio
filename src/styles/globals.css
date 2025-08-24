@@ -82,7 +82,7 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground select-none;
     height: 100%;
     overflow: hidden;
   }
@@ -105,7 +105,7 @@
   .scroll-container {
     -webkit-overflow-scrolling: touch;
   }
-  
+
   /* Prevent text selection during row drag selection */
   .no-select {
     -webkit-user-select: none;

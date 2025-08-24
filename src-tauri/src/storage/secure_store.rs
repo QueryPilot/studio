@@ -369,8 +369,17 @@ impl SecureStorage {
     
     /// List all connections (without decrypting sensitive data) - backwards compatibility
     pub async fn list_connections(&self) -> Result<Vec<ConnectionConfig>, Box<dyn Error>> {
+        println!("[SecureStorage::list_connections] Fetching all connections (backwards compatibility mode)");
+        
         // Default to first page with 100 items for backwards compatibility
-        let (connections, _) = self.list_connections_paginated(1, 100).await?;
+        let (connections, total) = self.list_connections_paginated(1, 100).await?;
+        
+        println!("[SecureStorage::list_connections] Found {} connections (showing first 100)", total);
+        
+        for conn in &connections {
+            println!("[SecureStorage::list_connections] - Connection: {} (ID: {:?})", conn.name, conn.id);
+        }
+        
         Ok(connections)
     }
     
@@ -483,13 +492,30 @@ impl SecureStorage {
     
     /// Delete a connection
     pub async fn delete_connection(&mut self, connection_id: &str) -> Result<(), Box<dyn Error>> {
+        println!("[SecureStorage::delete_connection] Deleting connection ID: {}", connection_id);
+        
         let mut conn = self.pool.acquire().await?;
         
+        // Check if connection exists first
+        let exists = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM connections WHERE id = ?")
+            .bind(connection_id)
+            .fetch_one(&mut *conn)
+            .await?;
+        
+        if exists == 0 {
+            println!("[SecureStorage::delete_connection] WARNING: Connection {} not found in database", connection_id);
+            return Err(format!("Connection {} not found", connection_id).into());
+        }
+        
+        println!("[SecureStorage::delete_connection] Connection {} exists, proceeding with deletion", connection_id);
+        
         // Delete from database
-        sqlx::query("DELETE FROM connections WHERE id = ?")
+        let result = sqlx::query("DELETE FROM connections WHERE id = ?")
             .bind(connection_id)
             .execute(&mut *conn)
             .await?;
+        
+        println!("[SecureStorage::delete_connection] Delete query executed, rows affected: {}", result.rows_affected());
         
         // Audit log the deletion
         self.audit_logger.log_event(AuditEvent::new(
@@ -498,6 +524,8 @@ impl SecureStorage {
             EventOutcome::Success,
             None,
         )).await?;
+        
+        println!("[SecureStorage::delete_connection] ✓ Successfully deleted connection {}", connection_id);
         
         Ok(())
     }

@@ -6,7 +6,7 @@ use tokio::task::JoinHandle;
 use uuid::Uuid;
 use sqlx::{postgres::PgPoolOptions, mysql::MySqlPoolOptions, sqlite::SqlitePoolOptions};
 
-use crate::database::adapter::{postgres::PostgresAdapter, mysql::MySqlAdapter, sqlite::SqliteAdapter, DbAdapter, types::*};
+use crate::database::adapter::{postgres::PostgresAdapter, mysql::MySqlAdapter, sqlite::SqliteAdapter, mssql::MssqlAdapter, DbAdapter, types::*};
 use crate::database::executor::QueryExecutor;
 use crate::error::AppError;
 
@@ -61,16 +61,12 @@ impl ConnectionRegistry {
                 Box::new(SqliteAdapter::new(pool))
             }
             DbType::Mssql => {
-                // TODO: Fix tiberius compatibility issues
-                return Err(AppError::Database("MSSQL support is temporarily disabled due to driver compatibility issues".to_string()));
-                // Box::new(MssqlAdapter::new(config.clone()).await?)
+                Box::new(MssqlAdapter::new(&config).await?)
             }
             DbType::Mariadb => {
-                // MariaDB uses MySQL adapter with version detection
+                // MariaDB uses MySQL adapter
                 let pool = create_mysql_pool(&config).await?;
-                let mut adapter = MySqlAdapter::new(pool);
-                adapter.set_is_mariadb(true);
-                Box::new(adapter)
+                Box::new(MySqlAdapter::new(pool))
             }
         };
         
