@@ -228,10 +228,11 @@ mod tests {
         
         let db_id = Uuid::new_v4();
         let db_key1 = manager.get_database_key(db_id).unwrap();
+        let db_key1_slice = db_key1.as_slice().to_vec();
         let db_key2 = manager.get_database_key(db_id).unwrap();
         
         // Same database should get same key
-        assert_eq!(db_key1.as_slice(), db_key2.as_slice());
+        assert_eq!(db_key1_slice, db_key2.as_slice());
     }
 
     #[test]

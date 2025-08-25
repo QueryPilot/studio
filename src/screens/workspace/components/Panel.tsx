@@ -7,6 +7,7 @@ import { ResultPanel } from "./panels/ResultPanel";
 import { ERDPanel } from "./panels/ERDPanel";
 import type { PanelState, TabState } from "@/types/workspaceScreen";
 import { usePanelStore } from "@/stores/panelStore";
+import logo from "@/assets/logo.png";
 
 interface PanelProps {
   panel: PanelState;
@@ -15,14 +16,14 @@ interface PanelProps {
 }
 
 export function Panel({ panel, connectionId, isActive }: PanelProps) {
-  const { 
-    setActiveTabInPanel, 
-    removeTabFromPanel, 
-    updateTabInPanel, 
-    addTabToPanel
+  const {
+    setActiveTabInPanel,
+    removeTabFromPanel,
+    updateTabInPanel,
+    addTabToPanel,
   } = usePanelStore();
   // Get active tab
-  const activeTab = panel.activeTabId 
+  const activeTab = panel.activeTabId
     ? panel.tabs.get(panel.activeTabId)
     : undefined;
 
@@ -87,10 +88,21 @@ export function Panel({ panel, connectionId, isActive }: PanelProps) {
         {activeTab ? (
           renderPanelContent(activeTab)
         ) : (
-          <div className="flex items-center justify-center h-full text-muted-foreground">
-            <div className="text-center">
-              <p className="text-lg font-medium mb-2">No tabs open</p>
-              <p className="text-sm">Create a new tab to get started</p>
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center space-y-4">
+              <img
+                src={logo}
+                alt="DevDB Studio"
+                className="w-24 h-24 mx-auto"
+              />
+              <div>
+                <p className="text-sm text-muted-foreground">
+                  Click the + button to create a new query tab
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  or select a table from the sidebar to explore your data
+                </p>
+              </div>
             </div>
           </div>
         )}

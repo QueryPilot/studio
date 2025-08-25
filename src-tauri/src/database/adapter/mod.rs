@@ -12,6 +12,12 @@ pub mod mysql;
 pub mod sqlite;
 pub mod mssql;
 
+#[cfg(test)]
+mod postgres_test;
+
+#[cfg(test)]
+mod mysql_test;
+
 #[async_trait]
 pub trait DbAdapter: Send + Sync {
     // For downcasting

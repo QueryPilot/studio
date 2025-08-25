@@ -14,7 +14,7 @@ All commands are invoked via Tauri's IPC system from the frontend and return Res
 
 ## Implementation Status
 
-**Current State**: PostgreSQL and MSSQL adapters are fully implemented with comprehensive type support. Other database adapters (MySQL, SQLite, MariaDB) remain as placeholder implementations with TODO markers.
+**Current State**: PostgreSQL, MSSQL, and SQLite adapters are fully implemented with comprehensive type support. Other database adapters (MySQL, MariaDB) remain as placeholder implementations with TODO markers.
 
 ## Error Handling
 
@@ -116,7 +116,7 @@ Each `CellValueType` provides specific rendering hints:
 
 ## Database Commands
 
-**Note:** PostgreSQL and MSSQL adapters are fully implemented with all data types supported. Other database adapters (MySQL, SQLite, MariaDB) remain as placeholder implementations.
+**Note:** PostgreSQL, MSSQL, and SQLite adapters are fully implemented with all data types supported. Other database adapters (MySQL, MariaDB) remain as placeholder implementations.
 
 **Data Conversion Architecture:** Each database adapter is responsible for converting its native data types to the standardized `CellValue` format. This provides:
 
@@ -870,7 +870,7 @@ Retrieves detailed connection health metrics.
 | PostgreSQL            | `pg_`  | ✅         | ✅      | ✅        | ✅       | ✅         |
 | MySQL                 | `my_`  | 🚧         | 🚧      | 🚧        | 🚧       | 🚧         |
 | MariaDB & SingleStore | `ma_`  | 🚧         | 🚧      | 🚧        | 🚧       | 🚧         |
-| SQLite                | `sq_`  | 🚧         | 🚧      | 🚧        | 🚧       | 🚧         |
+| SQLite                | `sq_`  | ✅         | ✅      | ✅        | ✅       | ✅         |
 | Microsoft SQL Server  | `ms_`  | ✅         | ✅      | ✅        | ✅       | ✅         |
 | Oracle                | `or_`  | 🚧         | 🚧      | 🚧        | 🚧       | 🚧         |
 | Redis                 | `rd_`  | 🚧         | 🚧      | 🚧        | 🚧       | 🚧         |
@@ -958,6 +958,43 @@ The PostgreSQL adapter provides comprehensive support for all native PostgreSQL 
 - User-defined types and enums → CellValueType::Enum or CellValueType::Unknown
 
 All types include proper null handling, precision/scale metadata for numeric types, and byte size tracking for large values.
+
+### SQLite Type Support (Implemented)
+
+The SQLite adapter provides comprehensive support for SQLite's dynamic type system:
+
+**Numeric Types:**
+- `INTEGER`, `INT`, `TINYINT`, `SMALLINT`, `MEDIUMINT`, `BIGINT` → CellValueType::Integer
+- `REAL`, `DOUBLE`, `FLOAT`, `NUMERIC`, `DECIMAL` → CellValueType::Decimal
+
+**Text Types:**
+- `TEXT`, `VARCHAR`, `CHAR`, `NVARCHAR`, `NCHAR` → CellValueType::Text
+- String values matching UUID pattern → CellValueType::Uuid
+
+**Boolean:**
+- `BOOLEAN`, `BOOL` → CellValueType::Boolean (stored as INTEGER 0/1)
+
+**Date/Time Types:**
+- `DATE` → CellValueType::Date
+- `DATETIME`, `TIMESTAMP` → CellValueType::DateTime
+- `TIME` → CellValueType::Time
+
+**Binary:**
+- `BLOB` → CellValueType::Binary (hex representation)
+
+**JSON:**
+- `JSON` → CellValueType::Json (stored as TEXT, parsed on retrieval)
+
+**Special Features:**
+- SQLite's dynamic typing system properly handled
+- PRAGMA statements used for metadata introspection
+- Foreign key relationships detected via PRAGMA foreign_key_list
+- Autoincrement columns properly identified
+- Generated columns and virtual tables supported
+- Full-text search (FTS) tables filtered from standard table listings
+- Transaction support with proper isolation
+
+All types include proper null handling and automatic type affinity resolution according to SQLite's type system rules.
 
 ## Performance Considerations
 

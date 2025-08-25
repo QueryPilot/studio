@@ -6,9 +6,9 @@ mod crypto;
 mod storage;
 mod commands;
 mod cache;
-mod error;
+pub mod error;
 
-mod database;
+pub mod database;
 
 use storage::SecureStorage;
 use database::ConnectionRegistry;

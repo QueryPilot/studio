@@ -74,7 +74,7 @@ impl DbAdapter for PostgresAdapter {
             r#"SELECT 
                 t.table_name,
                 t.table_type,
-                coalesce(s.n_tup_ins + s.n_tup_upd + s.n_tup_del, 0) as row_estimate,
+                coalesce(s.n_live_tup, 0) as row_estimate,
                 coalesce(pg_total_relation_size(c.oid), 0) as size_bytes
             FROM information_schema.tables t
             LEFT JOIN pg_class c ON c.relname = t.table_name 
@@ -490,6 +490,10 @@ impl DbAdapter for PostgresAdapter {
         }, None))
     }
 }
+
+#[cfg(test)]
+#[path = "postgres_test.rs"]
+mod tests;
 
 impl PostgresAdapter {
     /// Helper method to bind parameters to sqlx query

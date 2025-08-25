@@ -3,16 +3,36 @@ import { Separator } from "@/components/ui/separator";
 import { useConnectionStore } from "@/stores/connectionStore";
 import { windowManager } from "@/services/windowManager";
 import { useNavigate } from "react-router-dom";
-import type { DatabaseType } from "@/types/database";
+import type { DatabaseType, DatabaseConnection } from "@/types/database";
 import { 
   Database, 
   Server, 
   FileText, 
   HardDrive,
   Layers3,
-  Circle
+  Circle,
+  GripVertical
 } from "lucide-react";
 import { useMemo } from "react";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import {
+  CSS,
+} from "@dnd-kit/utilities";
 
 const databaseIcons: Record<DatabaseType, typeof Database> = {
   postgresql: Database,
@@ -34,9 +54,115 @@ interface ConnectionListProps {
   searchQuery: string;
 }
 
+interface SortableConnectionItemProps {
+  connection: DatabaseConnection;
+  isActive: boolean;
+  onClick: () => void;
+}
+
+function SortableConnectionItem({ connection, isActive, onClick }: SortableConnectionItemProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: connection.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  const IconComponent = databaseIcons[connection.type];
+  const colorClass = databaseColors[connection.type];
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`group flex items-center justify-between px-1 py-1.5 rounded hover:bg-muted/50 cursor-grab active:cursor-grabbing transition-colors ${
+        isActive ? "bg-muted/50 border-l-2 border-primary" : ""
+      } ${isDragging ? "z-10 shadow-lg bg-background border" : ""}`}
+      {...attributes}
+      {...listeners}
+      onClick={onClick}
+    >
+      <div className="flex items-center space-x-1 min-w-0 flex-1">
+        <div className="flex items-center justify-center w-3 h-4 transition-opacity opacity-0 group-hover:opacity-100 text-muted-foreground/70">
+          <GripVertical className="w-2.5 h-2.5" />
+        </div>
+        
+        <div className="flex items-center space-x-2 min-w-0 flex-1">
+          <IconComponent className={`h-5 w-5 flex-shrink-0 ${colorClass}`} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center space-x-1">
+              <span className="text-sm font-medium truncate">{connection.name}</span>
+              {isActive && (
+                <Circle className="h-1.5 w-1.5 fill-primary text-primary flex-shrink-0" />
+              )}
+            </div>
+            <div className="text-sm text-muted-foreground truncate">
+              {connection.host ? 
+                `${connection.host}:${connection.port} • ${connection.database}` :
+                connection.filepath
+              }
+            </div>
+            {connection.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1">
+                {connection.tags.map((tag, index) => (
+                  <Badge 
+                    key={index} 
+                    variant="secondary" 
+                    className="text-xs px-2 py-0.5 h-5"
+                    style={{ 
+                      backgroundColor: `${tag.color}20`,
+                      borderColor: tag.color,
+                      color: tag.color
+                    }}
+                  >
+                    {tag.name}
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      <Badge 
+        variant="secondary" 
+        className={`text-[10px] px-1.5 py-0 h-4 ml-2 flex-shrink-0 font-medium border-0 ${colorClass}`}
+        style={{
+          backgroundColor: colorClass.includes('blue') ? 'rgba(37, 99, 235, 0.1)' :
+                           colorClass.includes('orange') ? 'rgba(251, 146, 60, 0.1)' :
+                           colorClass.includes('gray') ? 'rgba(107, 114, 128, 0.1)' :
+                           colorClass.includes('red') ? 'rgba(239, 68, 68, 0.1)' :
+                           colorClass.includes('purple') ? 'rgba(168, 85, 247, 0.1)' :
+                           'transparent'
+        }}
+      >
+        {connection.type.toUpperCase()}
+      </Badge>
+    </div>
+  );
+}
+
 export function ConnectionList({ searchQuery }: ConnectionListProps) {
-  const { connections, setActiveConnection, activeConnectionId, isLoading } = useConnectionStore();
+  const { connections, setActiveConnection, activeConnectionId, isLoading, reorderConnections } = useConnectionStore();
   const navigate = useNavigate();
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // 8px of movement before drag starts
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   const filteredConnections = useMemo(() => {
     if (!searchQuery) return connections;
@@ -63,8 +189,52 @@ export function ConnectionList({ searchQuery }: ConnectionListProps) {
       }
     });
     
+    // Sort connections within each workspace by order
+    for (const [_, workspaceConnections] of grouped) {
+      workspaceConnections.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    }
+    
     return grouped;
   }, [filteredConnections]);
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    const activeConnection = connections.find(conn => conn.id === active.id);
+    const overConnection = connections.find(conn => conn.id === over.id);
+    
+    if (!activeConnection || !overConnection) {
+      return;
+    }
+
+    // Only allow reordering within the same workspace
+    if (activeConnection.workspace !== overConnection.workspace) {
+      return;
+    }
+
+    // Get all connections in the same workspace
+    const workspaceConnections = connections.filter(conn => conn.workspace === activeConnection.workspace);
+    const oldIndex = workspaceConnections.findIndex(conn => conn.id === active.id);
+    const newIndex = workspaceConnections.findIndex(conn => conn.id === over.id);
+
+    if (oldIndex === -1 || newIndex === -1) {
+      return;
+    }
+
+    // Reorder within workspace
+    const reorderedWorkspaceConnections = arrayMove(workspaceConnections, oldIndex, newIndex);
+    
+    // Update the full connections array with reordered workspace connections
+    const otherConnections = connections.filter(conn => conn.workspace !== activeConnection.workspace);
+    const allReorderedConnections = [...otherConnections, ...reorderedWorkspaceConnections];
+
+    // Save the reordered connections
+    await reorderConnections(allReorderedConnections);
+  };
 
   if (isLoading) {
     return (
@@ -120,84 +290,42 @@ export function ConnectionList({ searchQuery }: ConnectionListProps) {
             </div>
           </div>
           
-          <div className="space-y-1">
-            {workspaceConnections.map((connection) => {
-              const IconComponent = databaseIcons[connection.type];
-              const colorClass = databaseColors[connection.type];
-              const isActive = activeConnectionId === connection.id;
-              
-              return (
-                <div 
-                  key={connection.id} 
-                  className={`flex items-center justify-between px-2 py-1.5 rounded hover:bg-muted/50 cursor-pointer transition-colors ${
-                    isActive ? "bg-muted/50 border-l-2 border-primary" : ""
-                  }`}
-                  onClick={async () => {
+          <DndContext 
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext 
+              items={workspaceConnections.map(conn => conn.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <div className="space-y-1">
+                {workspaceConnections.map((connection) => {
+                  const isActive = activeConnectionId === connection.id;
+                  
+                  const handleConnectionClick = () => {
                     setActiveConnection(connection.id);
                     
                     // Try to open workspace window
-                    try {
-                      await windowManager.openWorkspace(connection.id, connection.name);
-                    } catch (error) {
+                    windowManager.openWorkspace(connection.id, connection.name).catch((error: unknown) => {
                       // If window manager fails, navigate to workspace in same window
                       console.error("Failed to open workspace window:", error);
                       navigate(`/workspace/${connection.id}`);
-                    }
-                  }}
-                >
-                  <div className="flex items-center space-x-2 min-w-0 flex-1">
-                    <IconComponent className={`h-5 w-5 flex-shrink-0 ${colorClass}`} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center space-x-1">
-                        <span className="text-sm font-medium truncate">{connection.name}</span>
-                        {isActive && (
-                          <Circle className="h-1.5 w-1.5 fill-primary text-primary flex-shrink-0" />
-                        )}
-                      </div>
-                      <div className="text-sm text-muted-foreground truncate">
-                        {connection.host ? 
-                          `${connection.host}:${connection.port} • ${connection.database}` :
-                          connection.filepath
-                        }
-                      </div>
-                      {connection.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {connection.tags.map((tag, index) => (
-                            <Badge 
-                              key={index} 
-                              variant="secondary" 
-                              className="text-xs px-2 py-0.5 h-5"
-                              style={{ 
-                                backgroundColor: `${tag.color}20`,
-                                borderColor: tag.color,
-                                color: tag.color
-                              }}
-                            >
-                              {tag.name}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <Badge 
-                    variant="secondary" 
-                    className={`text-[10px] px-1.5 py-0 h-4 ml-2 flex-shrink-0 font-medium border-0 ${colorClass}`}
-                    style={{
-                      backgroundColor: colorClass.includes('blue') ? 'rgba(37, 99, 235, 0.1)' :
-                                       colorClass.includes('orange') ? 'rgba(251, 146, 60, 0.1)' :
-                                       colorClass.includes('gray') ? 'rgba(107, 114, 128, 0.1)' :
-                                       colorClass.includes('red') ? 'rgba(239, 68, 68, 0.1)' :
-                                       colorClass.includes('purple') ? 'rgba(168, 85, 247, 0.1)' :
-                                       'transparent'
-                    }}
-                  >
-                    {connection.type.toUpperCase()}
-                  </Badge>
-                </div>
-              );
-            })}
-          </div>
+                    });
+                  };
+                  
+                  return (
+                    <SortableConnectionItem
+                      key={connection.id}
+                      connection={connection}
+                      isActive={isActive}
+                      onClick={handleConnectionClick}
+                    />
+                  );
+                })}
+              </div>
+            </SortableContext>
+          </DndContext>
         </div>
       ))}
       

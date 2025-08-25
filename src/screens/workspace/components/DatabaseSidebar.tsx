@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import {
   Search,
@@ -19,6 +19,7 @@ import {
 } from "@/services/databaseService";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { listen } from "@tauri-apps/api/event";
 
 interface DatabaseSidebarProps {
   connectionId: string;
@@ -59,8 +60,29 @@ export function DatabaseSidebar({
     }
   }, [selectedSchema, selectedDatabase]);
 
+  // Listen for database reconnection events
+  useEffect(() => {
+    const unlisten = listen<{ connectionId: string }>(
+      "database-reconnected",
+      (event) => {
+        if (
+          event.payload.connectionId === connectionId &&
+          selectedSchema &&
+          selectedDatabase
+        ) {
+          void loadSchemaData();
+        }
+      },
+    );
 
-  const loadSchemaData = async () => {
+    return () => {
+      void unlisten.then((fn) => {
+        fn();
+      });
+    };
+  }, [connectionId, selectedSchema, selectedDatabase]);
+
+  const loadSchemaData = useCallback(async () => {
     try {
       setIsLoadingData(true);
       setError(null);
@@ -99,7 +121,7 @@ export function DatabaseSidebar({
     } finally {
       setIsLoadingData(false);
     }
-  };
+  }, [connectionId, selectedDatabase, selectedSchema]);
 
   const toggleNode = (nodeId: string) => {
     const newExpanded = new Set(expandedNodes);
@@ -119,8 +141,8 @@ export function DatabaseSidebar({
     const existingTab = Array.from(primaryPanel.tabs.values()).find(
       (tab) =>
         tab.type === "table" &&
-        tab.payload?.tableName === table.name &&
-        tab.payload?.schema === table.schema,
+        tab.payload.tableName === table.name &&
+        tab.payload.schema === table.schema,
     );
 
     if (existingTab) {
@@ -150,8 +172,8 @@ export function DatabaseSidebar({
     const existingTab = Array.from(primaryPanel.tabs.values()).find(
       (tab) =>
         tab.type === "function" &&
-        tab.payload?.functionName === func.name &&
-        tab.payload?.schema === func.schema,
+        tab.payload.functionName === func.name &&
+        tab.payload.schema === func.schema,
     );
 
     if (existingTab) {
@@ -203,14 +225,14 @@ export function DatabaseSidebar({
   return (
     <div className="flex flex-col h-full">
       {/* Search Input and Refresh */}
-      <div className="p-2 border-b">
+      <div className="px-2 py-1 border-b">
         <div className="flex gap-1">
           <div className="relative flex-1">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Search className="absolute left-1.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
             <Input
               type="text"
               placeholder="Search objects..."
-              className="pl-7 h-8 text-sm"
+              className="pl-6 h-6 text-xs"
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
@@ -220,13 +242,13 @@ export function DatabaseSidebar({
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 w-8 p-0"
+            className="h-6 w-6 p-0"
             onClick={handleRefresh}
             disabled={isLoadingData}
             title="Refresh"
           >
             <RefreshCw
-              className={cn("h-4 w-4", isLoadingData && "animate-spin")}
+              className={cn("h-3 w-3", isLoadingData && "animate-spin")}
             />
           </Button>
         </div>
@@ -243,8 +265,8 @@ export function DatabaseSidebar({
       )}
 
       {/* Object Tree */}
-      <div className="flex-1 overflow-y-auto relative">
-        <div>
+      <div className="flex-1 overflow-auto relative min-h-0">
+        <div className="pb-2 min-w-0">
           {/* Tables Section */}
           {(schemaData.tables.length > 0 || isLoadingData) && (
             <div>
@@ -267,19 +289,21 @@ export function DatabaseSidebar({
                 </button>
               </div>
               {expandedNodes.has("tables") && (
-                <div className="ml-5 mt-0.5 space-y-0.5 px-2">
+                <div className="ml-5 mt-0.5 space-y-0.5 px-2 overflow-x-auto">
                   {filterItems(schemaData.tables).map((table) => (
                     <div
                       key={`${table.schema}.${table.name}`}
-                      className="flex items-center gap-1.5 p-1 hover:bg-muted/50 rounded cursor-pointer"
+                      className="flex items-center gap-1.5 p-1 hover:bg-muted/50 rounded cursor-pointer min-w-fit"
                       onClick={() => {
                         handleTableClick(table);
                       }}
                     >
-                      <Table className="h-3.5 w-4 min-w-4 text-blue-500" />
-                      <span className="text-sm">{table.name}</span>
+                      <Table className="h-3.5 w-4 min-w-4 text-blue-500 flex-shrink-0" />
+                      <span className="text-sm whitespace-nowrap">
+                        {table.name}
+                      </span>
                       {!!table.row_estimate && (
-                        <span className="text-xs text-muted-foreground ml-auto">
+                        <span className="text-xs text-muted-foreground ml-auto whitespace-nowrap">
                           ~{table.row_estimate.toLocaleString()}
                         </span>
                       )}
@@ -312,17 +336,19 @@ export function DatabaseSidebar({
                 </button>
               </div>
               {expandedNodes.has("views") && (
-                <div className="ml-5 mt-0.5 space-y-0.5 px-2">
+                <div className="ml-5 mt-0.5 space-y-0.5 px-2 overflow-x-auto">
                   {filterItems(schemaData.views).map((view) => (
                     <div
                       key={`${view.schema}.${view.name}`}
-                      className="flex items-center gap-1.5 p-1 hover:bg-muted/50 rounded cursor-pointer"
+                      className="flex items-center gap-1.5 p-1 hover:bg-muted/50 rounded cursor-pointer min-w-fit"
                       onClick={() => {
                         handleTableClick(view);
                       }}
                     >
-                      <Eye className="h-4 min-h-4 w-4 min-w-4 text-green-500" />
-                      <span className="text-sm">{view.name}</span>
+                      <Eye className="h-4 min-h-4 w-4 min-w-4 text-green-500 flex-shrink-0" />
+                      <span className="text-sm whitespace-nowrap">
+                        {view.name}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -352,17 +378,21 @@ export function DatabaseSidebar({
                 </button>
               </div>
               {expandedNodes.has("functions") && (
-                <div className="ml-5 mt-0.5 space-y-0.5 px-2">
-                  {filterItems(schemaData.functions).map((func) => (
+                <div className="ml-5 mt-0.5 space-y-0.5 px-2 overflow-x-auto">
+                  {filterItems(schemaData.functions).map((func, index) => (
                     <div
-                      key={`${func.schema}.${func.name}`}
-                      className="flex items-center gap-1.5 p-1 hover:bg-muted/50 rounded cursor-pointer"
+                      key={`${func.schema}.${func.name}.${func.arguments.join(
+                        ",",
+                      )}.${index}`}
+                      className="flex items-center gap-1.5 p-1 hover:bg-muted/50 rounded cursor-pointer min-w-fit"
                       onClick={() => {
                         handleFunctionClick(func);
                       }}
                     >
-                      <FunctionSquare className="h-3.5 w-4 min-w-4 text-purple-500" />
-                      <span className="text-sm">{func.name}</span>
+                      <FunctionSquare className="h-3.5 w-4 min-w-4 text-purple-500 flex-shrink-0" />
+                      <span className="text-sm whitespace-nowrap">
+                        {func.name}
+                      </span>
                     </div>
                   ))}
                 </div>

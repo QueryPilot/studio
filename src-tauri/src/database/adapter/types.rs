@@ -47,7 +47,7 @@ pub struct TableMeta {
     pub size_bytes: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum DbObjectKind {
     Table,
     View,

@@ -76,6 +76,8 @@ export function WorkspaceScreen() {
         {sidebars.left && (
           <>
             <ResizablePanel 
+              id="sidebar-left"
+              order={1}
               defaultSize={18} 
               minSize={12} 
               maxSize={30}
@@ -92,7 +94,7 @@ export function WorkspaceScreen() {
                 />
               </div>
               {/* Database Sidebar */}
-              <div className="flex-1">
+              <div className="flex-1 overflow-hidden">
                 <DatabaseSidebar 
                   connectionId={connectionId}
                   isLoading={isLoading}
@@ -106,7 +108,11 @@ export function WorkspaceScreen() {
         )}
 
         {/* Central Content - Split Panels */}
-        <ResizablePanel defaultSize={sidebars.left ? (sidebars.right ? 59 : 82) : (sidebars.right ? 77 : 100)}>
+        <ResizablePanel 
+          id="main-content"
+          order={2}
+          defaultSize={sidebars.left ? (sidebars.right ? 59 : 82) : (sidebars.right ? 77 : 100)}
+        >
           <WorkspacePanelContainer connectionId={connectionId} />
         </ResizablePanel>
 
@@ -115,6 +121,8 @@ export function WorkspaceScreen() {
           <>
             <ResizableHandle withHandle />
             <ResizablePanel 
+              id="sidebar-right"
+              order={3}
               defaultSize={23} 
               minSize={15} 
               maxSize={40}

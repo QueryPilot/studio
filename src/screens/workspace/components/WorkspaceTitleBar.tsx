@@ -11,6 +11,9 @@ import {
   Database,
   Circle,
   Columns2,
+  Sun,
+  Moon,
+  Monitor,
 } from "lucide-react";
 import {
   Popover,
@@ -32,6 +35,17 @@ import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { windowManager } from "@/services/windowManager";
 import { databaseService } from "@/services/databaseService";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useTheme } from "@/components/theme-provider";
 
 interface WorkspaceTitleBarProps {
   connectionId: string;
@@ -48,10 +62,18 @@ export function WorkspaceTitleBar({
   const [openWindows, setOpenWindows] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [serverVersion, setServerVersion] = useState<string | null>(null);
-  
+  const { theme, setTheme } = useTheme();
+
   // Get panel store state and functions
-  const { panels, splitMode, setSplitMode, createPanel, getPrimaryPanel, getSecondaryPanel, removePanel, moveTabBetweenPanels } = usePanelStore();
-  
+  const {
+    splitMode,
+    setSplitMode,
+    getPrimaryPanel,
+    getSecondaryPanel,
+    removePanel,
+    moveTabBetweenPanels,
+  } = usePanelStore();
+
   // Load connections if not already loaded
   useEffect(() => {
     if (connections.length === 0) {
@@ -62,7 +84,8 @@ export function WorkspaceTitleBar({
   // Get server version from active connection
   useEffect(() => {
     const updateServerVersion = () => {
-      const activeConnection = databaseService.getActiveConnection(connectionId);
+      const activeConnection =
+        databaseService.getActiveConnection(connectionId);
       if (activeConnection?.server_version) {
         // Extract major version from server string
         const match = activeConnection.server_version.match(/\d+\.?\d*/);
@@ -71,25 +94,31 @@ export function WorkspaceTitleBar({
     };
 
     updateServerVersion();
-    
+
     // Also check periodically as connection might not be immediately ready
     const interval = setInterval(updateServerVersion, 1000);
-    
-    return () => clearInterval(interval);
+
+    return () => {
+      clearInterval(interval);
+    };
   }, [connectionId]);
 
   // Track open workspace windows using windowManager
   useEffect(() => {
     const checkOpenWindows = () => {
       const activeWindows = windowManager.getActiveWindows();
-      const connectionIds = Array.from(activeWindows.values()).map(w => w.connectionId);
+      const connectionIds = Array.from(activeWindows.values()).map(
+        (w) => w.connectionId,
+      );
       setOpenWindows(connectionIds);
     };
-    
+
     checkOpenWindows();
     // Check periodically for window changes
     const interval = setInterval(checkOpenWindows, 2000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+    };
   }, []);
 
   const handleGoHome = async () => {
@@ -126,12 +155,14 @@ export function WorkspaceTitleBar({
       setOpen(false);
       return; // Already on this connection
     }
-    
+
     setOpen(false); // Close the popover
-    
+
     try {
       // Get the target connection details
-      const targetConnection = connections.find(c => c.id === targetConnectionId);
+      const targetConnection = connections.find(
+        (c) => c.id === targetConnectionId,
+      );
       if (!targetConnection) {
         console.error("Target connection not found");
         return;
@@ -143,19 +174,22 @@ export function WorkspaceTitleBar({
         await windowManager.focusWorkspace(targetConnectionId);
       } else {
         // Create new window for this connection
-        await windowManager.openWorkspace(targetConnectionId, targetConnection.name);
+        await windowManager.openWorkspace(
+          targetConnectionId,
+          targetConnection.name,
+        );
       }
     } catch (error) {
       console.error("Failed to switch connection:", error);
       // Fallback: navigate in current window
-      navigate(`/workspace/${targetConnectionId}`);
+      await navigate(`/workspace/${targetConnectionId}`);
     }
   };
 
   const handleToggleSplitPanel = () => {
     const secondaryPanel = getSecondaryPanel();
     const primaryPanel = getPrimaryPanel();
-    
+
     if (splitMode !== "none" && secondaryPanel) {
       // Close split panel - move all tabs from secondary to primary
       if (primaryPanel && secondaryPanel.tabs.size > 0) {
@@ -169,18 +203,17 @@ export function WorkspaceTitleBar({
       setSplitMode("none");
     } else {
       // Create split panel
+      const { createPanel, addTabToPanel } = usePanelStore.getState();
       const newPanelId = createPanel("secondary");
       setSplitMode("horizontal");
-      
-      // Optionally create a new query tab in the secondary panel
-      // This is commented out - uncomment if you want to auto-create a tab
-      // const { addTabToPanel } = usePanelStore.getState();
-      // addTabToPanel(newPanelId, {
-      //   type: "query",
-      //   connectionId,
-      //   title: "New Query",
-      //   payload: { sql: "" },
-      // });
+
+      // Create a new query tab in the secondary panel
+      addTabToPanel(newPanelId, {
+        type: "query",
+        connectionId,
+        title: "New Query",
+        payload: { sql: "" },
+      });
     }
   };
 
@@ -233,8 +266,8 @@ export function WorkspaceTitleBar({
           </PopoverTrigger>
           <PopoverContent className="w-80 p-0" align="start">
             <Command className="[&_[cmdk-input]]:outline-none [&_[cmdk-input]]:focus:outline-none">
-              <CommandInput 
-                placeholder="Search connections..." 
+              <CommandInput
+                placeholder="Search connections..."
                 className="h-9 focus-visible:ring-0"
               />
               <CommandList>
@@ -243,24 +276,30 @@ export function WorkspaceTitleBar({
                   {connections.map((conn) => (
                     <CommandItem
                       key={conn.id}
-                      value={`${conn.name} ${conn.type} ${conn.host || conn.filepath || ''}`}
+                      value={`${conn.name} ${conn.type} ${
+                        conn.host || conn.filepath || ""
+                      }`}
                       onSelect={() => handleSwitchConnection(conn.id)}
                       className="cursor-pointer"
                     >
                       <div className="flex items-center justify-between w-full">
                         <div className="flex items-center gap-2">
-                          <Database className={cn(
-                            "h-4 w-4",
-                            conn.type === 'postgresql' && "text-blue-500",
-                            conn.type === 'mysql' && "text-orange-500",
-                            conn.type === 'sqlite' && "text-green-500",
-                            conn.type === 'mssql' && "text-red-500",
-                            conn.type === 'mariadb' && "text-purple-500"
-                          )} />
+                          <Database
+                            className={cn(
+                              "h-4 w-4",
+                              conn.type === "postgresql" && "text-blue-500",
+                              conn.type === "mysql" && "text-orange-500",
+                              conn.type === "sqlite" && "text-green-500",
+                              conn.type === "mssql" && "text-red-500",
+                              conn.type === "mariadb" && "text-purple-500",
+                            )}
+                          />
                           <div className="flex flex-col">
                             <span className="font-medium">{conn.name}</span>
                             <span className="text-xs text-muted-foreground">
-                              {conn.type.replace('sql', 'SQL')} • {conn.host || conn.filepath || 'localhost'}:{conn.port || ''}
+                              {conn.type.replace("sql", "SQL")} •{" "}
+                              {conn.host || conn.filepath || "localhost"}:
+                              {conn.port || ""}
                             </span>
                           </div>
                         </div>
@@ -268,9 +307,10 @@ export function WorkspaceTitleBar({
                           {conn.id === connectionId && (
                             <Check className="h-4 w-4 text-green-500" />
                           )}
-                          {openWindows.includes(conn.id) && conn.id !== connectionId && (
-                            <Circle className="h-2 w-2 fill-blue-500 text-blue-500" />
-                          )}
+                          {openWindows.includes(conn.id) &&
+                            conn.id !== connectionId && (
+                              <Circle className="h-2 w-2 fill-blue-500 text-blue-500" />
+                            )}
                         </div>
                       </div>
                     </CommandItem>
@@ -284,12 +324,10 @@ export function WorkspaceTitleBar({
 
       {/* Center Section - Absolute positioning for true center */}
       <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-2 text-xs">
-        <span className="font-medium">
-          {connection?.name || "Loading..."}
-        </span>
+        <span className="font-medium">{connection?.name || "Loading..."}</span>
         <span className="text-muted-foreground">|</span>
         <span className="text-muted-foreground capitalize">
-          {connection ? connection.type.replace('sql', 'SQL') : "Database"}
+          {connection ? connection.type.replace("sql", "SQL") : "Database"}
         </span>
         {serverVersion && (
           <>
@@ -312,19 +350,7 @@ export function WorkspaceTitleBar({
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 w-7 p-0"
-          title="Settings"
-        >
-          <Settings className="h-3.5 w-3.5" />
-        </Button>
-
-        <Button
-          variant="ghost"
-          size="sm"
-          className={cn(
-            "h-7 w-7 p-0",
-            splitMode !== "none" && "text-primary"
-          )}
+          className={cn("h-7 w-7 p-0", splitMode !== "none" && "text-primary")}
           onClick={handleToggleSplitPanel}
           title={splitMode !== "none" ? "Close split panel" : "Split panel"}
         >
@@ -354,6 +380,62 @@ export function WorkspaceTitleBar({
         >
           <PanelRight className="h-3.5 w-3.5" />
         </Button>
+
+        {/* Settings Dropdown - Now at the far right */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0"
+              title="Settings"
+            >
+              <Settings className="h-3.5 w-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Monitor className="mr-2 h-4 w-4" />
+                <span>Theme</span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <DropdownMenuItem
+                  onClick={() => {
+                    setTheme("light");
+                  }}
+                >
+                  <Sun className="mr-2 h-4 w-4" />
+                  <span>Light</span>
+                  {theme === "light" && <Check className="ml-auto h-4 w-4" />}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    setTheme("dark");
+                  }}
+                >
+                  <Moon className="mr-2 h-4 w-4" />
+                  <span>Dark</span>
+                  {theme === "dark" && <Check className="ml-auto h-4 w-4" />}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    setTheme("system");
+                  }}
+                >
+                  <Monitor className="mr-2 h-4 w-4" />
+                  <span>System</span>
+                  {theme === "system" && <Check className="ml-auto h-4 w-4" />}
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem disabled>
+              <Settings className="mr-2 h-4 w-4" />
+              <span>Preferences</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );
