@@ -40,8 +40,8 @@ sqlx = { version = "0.8", features = [
     "bit-vec",    # For bit types
     "time"        # Additional time support
 ] }
-# MSSQL support
-tiberius = { version = "0.12", features = ["chrono", "rust_decimal"] }
+# MSSQL support - using rustls for TLS instead of native-tls
+tiberius = { version = "0.12", default-features = false, features = ["rustls", "chrono", "rust_decimal"] }
 bb8 = "0.9"
 bb8-tiberius = "0.16"
 # Spatial data support

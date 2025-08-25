@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Database } from "lucide-react";
 import {
   Select,
@@ -10,6 +10,7 @@ import {
 import { databaseService } from "@/services/databaseService";
 import { useConnectionStore } from "@/stores/connectionStore";
 import { cn } from "@/lib/utils";
+import { listen } from "@tauri-apps/api/event";
 
 interface DatabaseSchemaSelectorProps {
   connectionId: string;
@@ -29,7 +30,7 @@ export function DatabaseSchemaSelector({
   const [databases, setDatabases] = useState<string[]>([]);
   const [schemas, setSchemas] = useState<string[]>([]);
   const { connections } = useConnectionStore();
-  const connection = connections.find(c => c.id === connectionId);
+  const connection = connections.find((c) => c.id === connectionId);
 
   // Load databases on mount
   useEffect(() => {
@@ -59,11 +60,34 @@ export function DatabaseSchemaSelector({
     }
   }, [selectedDatabase]);
 
-  const loadDatabases = async () => {
+  // Listen for database reconnection events
+  useEffect(() => {
+    const unlisten = listen<{ connectionId: string }>(
+      "database-reconnected",
+      (event) => {
+        if (event.payload.connectionId === connectionId) {
+          // Reload databases and schemas on reconnect
+          void loadDatabases().then(() => {
+            if (selectedDatabase) {
+              void loadSchemas();
+            }
+          });
+        }
+      },
+    );
+
+    return () => {
+      void unlisten.then((fn) => {
+        fn();
+      });
+    };
+  }, [connectionId, selectedDatabase]);
+
+  const loadDatabases = useCallback(async () => {
     try {
       const dbs = await databaseService.listDatabases(connectionId);
       setDatabases(dbs);
-      
+
       // Auto-select the current database or first available
       if (!selectedDatabase) {
         if (connection?.database && dbs.includes(connection.database)) {
@@ -83,9 +107,9 @@ export function DatabaseSchemaSelector({
         }
       }
     }
-  };
+  }, [connectionId, selectedDatabase, onDatabaseChange]);
 
-  const loadSchemas = async () => {
+  const loadSchemas = useCallback(async () => {
     try {
       const schemaList = await databaseService.listSchemas(
         connectionId,
@@ -106,13 +130,13 @@ export function DatabaseSchemaSelector({
       setSchemas(["default"]);
       onSchemaChange("default");
     }
-  };
+  }, [connectionId, selectedDatabase, onSchemaChange]);
 
   return (
     <div className="flex items-center gap-1 px-2">
       {databases.length > 0 && (
         <Select value={selectedDatabase} onValueChange={onDatabaseChange}>
-          <SelectTrigger className="h-9 text-sm min-w-[120px] max-w-[180px] border-0 bg-transparent hover:bg-muted/50">
+          <SelectTrigger className="h-9 text-sm min-w-[120px] max-w-[180px] border-0 !bg-background hover:bg-muted/50">
             <Database className="h-3 w-3 mr-1" />
             <SelectValue placeholder="Select database" />
           </SelectTrigger>
@@ -128,10 +152,14 @@ export function DatabaseSchemaSelector({
 
       {schemas.length > 0 && (
         <Select value={selectedSchema} onValueChange={onSchemaChange}>
-          <SelectTrigger className={cn(
-            "h-9 text-sm border-0 bg-transparent hover:bg-muted/50",
-            databases.length > 1 ? "min-w-[100px] max-w-[150px]" : "min-w-[120px] max-w-[180px]"
-          )}>
+          <SelectTrigger
+            className={cn(
+              "h-9 text-sm border-0 !bg-background hover:bg-muted/50",
+              databases.length > 1
+                ? "min-w-[100px] max-w-[150px]"
+                : "min-w-[120px] max-w-[180px]",
+            )}
+          >
             <SelectValue placeholder="Select schema" />
           </SelectTrigger>
           <SelectContent>

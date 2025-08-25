@@ -5,8 +5,9 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use std::collections::HashMap;
 use uuid::Uuid;
+use futures::StreamExt;
 
-use tiberius::{Row, Column, QueryStream};
+use tiberius::{Row, Column};
 use bb8_tiberius::ConnectionManager;
 
 use crate::error::AppError;
@@ -76,9 +77,9 @@ impl MssqlAdapter {
         // Now create the bb8 pool with the same config
         println!("[MssqlAdapter::new] Creating bb8 connection manager...");
         
-        // Build ADO connection string for bb8-tiberius
+        // Build proper ADO.NET connection string for bb8-tiberius
         let conn_str = format!(
-            "server={},{};Database={};Uid={};Pwd={};TrustServerCertificate=true;Encrypt=false;",
+            "Server=tcp:{},{};Database={};User Id={};Password={};TrustServerCertificate=true;Encrypt=false",
             config.host,
             config.port,
             config.database,
@@ -98,13 +99,13 @@ impl MssqlAdapter {
             })?;
         
         
-        // Build connection pool
+        // Build connection pool with optimal settings for Docker containers
         println!("[MssqlAdapter::new] Building connection pool...");
         let pool = bb8::Pool::builder()
-            .max_size(2)  // Small pool size
-            .min_idle(Some(0))  // No minimum idle
-            .connection_timeout(Duration::from_secs(10))  // 10 second timeout
-            .test_on_check_out(false)  // Don't test on checkout
+            .max_size(5)  // Increase pool size
+            .min_idle(Some(1))  // Keep minimum connections alive
+            .connection_timeout(Duration::from_secs(30))  // Longer timeout for Docker containers
+            .test_on_check_out(true)  // Enable connection testing
             .build(mgr)
             .await
             .map_err(|e| {
@@ -350,12 +351,15 @@ impl DbAdapter for MssqlAdapter {
         let mut conn = self.pool.get().await
             .map_err(|e| AppError::Database(format!("Failed to get connection: {}", e)))?;
         
-        // Switch to the target database
-        let use_db = format!("USE [{}]", database);
-        conn.simple_query(&use_db).await
-            .map_err(|e| AppError::Database(format!("Failed to switch database: {}", e)))?
-            .into_results().await
-            .map_err(|e| AppError::Database(format!("Failed to switch database: {}", e)))?;
+        // Only switch database if it's different from the current connection's database
+        // and it's not a schema name (like 'dbo')
+        if !database.is_empty() && database != self.config.database && database != schema {
+            let use_db = format!("USE [{}]", database);
+            conn.simple_query(&use_db).await
+                .map_err(|e| AppError::Database(format!("Failed to switch database: {}", e)))?
+                .into_results().await
+                .map_err(|e| AppError::Database(format!("Failed to switch database: {}", e)))?;
+        }
         
         let query = format!(
             "SELECT 
@@ -408,12 +412,15 @@ impl DbAdapter for MssqlAdapter {
         let mut conn = self.pool.get().await
             .map_err(|e| AppError::Database(format!("Failed to get connection: {}", e)))?;
         
-        // Switch to the target database
-        let use_db = format!("USE [{}]", database);
-        conn.simple_query(&use_db).await
-            .map_err(|e| AppError::Database(format!("Failed to switch database: {}", e)))?
-            .into_results().await
-            .map_err(|e| AppError::Database(format!("Failed to switch database: {}", e)))?;
+        // Only switch database if it's different from the current connection's database
+        // and it's not just a schema name (e.g., 'dbo')
+        if !database.is_empty() && database != self.config.database && database != schema {
+            let use_db = format!("USE [{}]", database);
+            conn.simple_query(&use_db).await
+                .map_err(|e| AppError::Database(format!("Failed to switch database: {}", e)))?
+                .into_results().await
+                .map_err(|e| AppError::Database(format!("Failed to switch database: {}", e)))?;
+        }
         
         let query = format!(
             "SELECT 
@@ -456,12 +463,15 @@ impl DbAdapter for MssqlAdapter {
         let mut conn = self.pool.get().await
             .map_err(|e| AppError::Database(format!("Failed to get connection: {}", e)))?;
         
-        // Switch to the target database
-        let use_db = format!("USE [{}]", database);
-        conn.simple_query(&use_db).await
-            .map_err(|e| AppError::Database(format!("Failed to switch database: {}", e)))?
-            .into_results().await
-            .map_err(|e| AppError::Database(format!("Failed to switch database: {}", e)))?;
+        // Only switch database if it's different from the current connection's database
+        // and it's not just a schema name (e.g., 'dbo')
+        if !database.is_empty() && database != self.config.database && database != schema {
+            let use_db = format!("USE [{}]", database);
+            conn.simple_query(&use_db).await
+                .map_err(|e| AppError::Database(format!("Failed to switch database: {}", e)))?
+                .into_results().await
+                .map_err(|e| AppError::Database(format!("Failed to switch database: {}", e)))?;
+        }
         
         let query = format!(
             "SELECT 
@@ -556,12 +566,15 @@ impl DbAdapter for MssqlAdapter {
         let mut conn = self.pool.get().await
             .map_err(|e| AppError::Database(format!("Failed to get connection: {}", e)))?;
         
-        // Switch to the target database
-        let use_db = format!("USE [{}]", database);
-        conn.simple_query(&use_db).await
-            .map_err(|e| AppError::Database(format!("Failed to switch database: {}", e)))?
-            .into_results().await
-            .map_err(|e| AppError::Database(format!("Failed to switch database: {}", e)))?;
+        // Only switch database if it's different from the current connection's database
+        // and it's not just a schema name (e.g., 'dbo')
+        if !database.is_empty() && database != self.config.database && database != schema {
+            let use_db = format!("USE [{}]", database);
+            conn.simple_query(&use_db).await
+                .map_err(|e| AppError::Database(format!("Failed to switch database: {}", e)))?
+                .into_results().await
+                .map_err(|e| AppError::Database(format!("Failed to switch database: {}", e)))?;
+        }
         
         // Use sys.dm_db_partition_stats for fast row count estimation
         let query = format!(
@@ -630,23 +643,30 @@ impl DbAdapter for MssqlAdapter {
             });
         }
         
-        // Fetch first page of results
+        // Fetch first page of results - stream incrementally to avoid timeout
         let mut rows = Vec::new();
         let mut total_fetched = 0;
         let page_size = opts.page_size;
         let max_rows = opts.max_rows.unwrap_or(usize::MAX);
         
-        let result_rows = stream.into_first_result().await
-            .map_err(|e| AppError::Database(format!("Failed to fetch results: {}", e)))?;
+        // Use into_row_stream to stream rows one by one instead of loading all at once
+        let mut row_stream = stream.into_row_stream();
         
-        for row in result_rows {
+        while let Some(item) = row_stream.next().await {
             if total_fetched >= page_size || total_fetched >= max_rows {
                 break;
             }
             
-            let cells = self.convert_row_to_cells(row)?;
-            rows.push(cells);
-            total_fetched += 1;
+            match item {
+                Ok(row) => {
+                    let cells = self.convert_row_to_cells(row)?;
+                    rows.push(cells);
+                    total_fetched += 1;
+                }
+                Err(e) => {
+                    return Err(AppError::Database(format!("Failed to fetch row: {}", e)));
+                }
+            }
         }
         
         let is_complete = total_fetched < page_size || total_fetched >= max_rows;
@@ -687,16 +707,27 @@ impl DbAdapter for MssqlAdapter {
             cursor.sql, offset, page_size
         );
         
-        let stream = conn.simple_query(&paginated_sql).await
+        let mut stream = conn.simple_query(&paginated_sql).await
             .map_err(|e| AppError::Database(format!("Query execution failed: {}", e)))?;
         
-        let result_rows = stream.into_first_result().await
-            .map_err(|e| AppError::Database(format!("Failed to fetch results: {}", e)))?;
-        
+        // Stream rows incrementally to avoid timeout
         let mut rows = Vec::new();
-        for row in result_rows {
-            let cells = self.convert_row_to_cells(row)?;
-            rows.push(cells);
+        let mut row_stream = stream.into_row_stream();
+        
+        while let Some(item) = row_stream.next().await {
+            if rows.len() >= page_size {
+                break;
+            }
+            
+            match item {
+                Ok(row) => {
+                    let cells = self.convert_row_to_cells(row)?;
+                    rows.push(cells);
+                }
+                Err(e) => {
+                    return Err(AppError::Database(format!("Failed to fetch row: {}", e)));
+                }
+            }
         }
         
         let is_complete = rows.len() < page_size;
@@ -912,22 +943,36 @@ impl DbAdapter for MssqlAdapter {
             });
         }
         
-        // Fetch rows
-        let result_rows = stream.into_first_result().await
-            .map_err(|e| AppError::Database(format!("Failed to fetch results: {}", e)))?;
-        
+        // Fetch rows - stream incrementally to avoid timeout
         let mut rows = Vec::new();
-        for row in result_rows {
-            let cells = self.convert_row_to_cells(row)?;
-            let mut row_map = std::collections::HashMap::new();
-            
-            for (idx, cell) in cells.into_iter().enumerate() {
-                if idx < selected.len() {
-                    row_map.insert(selected[idx].clone(), cell);
-                }
+        let mut row_count = 0;
+        
+        // Use into_row_stream to stream rows one by one instead of loading all at once
+        let mut row_stream = stream.into_row_stream();
+        
+        while let Some(item) = row_stream.next().await {
+            if row_count >= limit {
+                break;  // Stop once we have enough rows for this page
             }
             
-            rows.push(row_map);
+            match item {
+                Ok(row) => {
+                    let cells = self.convert_row_to_cells(row)?;
+                    let mut row_map = std::collections::HashMap::new();
+                    
+                    for (idx, cell) in cells.into_iter().enumerate() {
+                        if idx < selected.len() {
+                            row_map.insert(selected[idx].clone(), cell);
+                        }
+                    }
+                    
+                    rows.push(row_map);
+                    row_count += 1;
+                }
+                Err(e) => {
+                    return Err(AppError::Database(format!("Failed to fetch row: {}", e)));
+                }
+            }
         }
         
         // Build response

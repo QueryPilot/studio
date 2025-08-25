@@ -1,4 +1,4 @@
-.PHONY: help d dev build clean install docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup
+.PHONY: help d dev build clean install test t docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup
 
 # Default target - show help
 help:
@@ -9,6 +9,12 @@ help:
 	@echo "  make build          - Build for production"
 	@echo "  make install        - Install dependencies"
 	@echo "  make clean          - Clean build artifacts"
+	@echo ""
+	@echo "Testing:"
+	@echo "  make test, make t   - Run MSSQL adapter tests"
+	@echo "  make test-release   - Run tests in release mode (faster)"
+	@echo "  make test-all       - Run all Rust tests"
+	@echo "  make test-quick     - Quick MSSQL connection check"
 	@echo ""
 	@echo "Docker Database Management:"
 	@echo "  make docker-up      - Start all database containers"
@@ -47,6 +53,34 @@ clean:
 	rm -rf dist
 	rm -rf src-tauri/target
 	rm -rf node_modules
+
+# Run tests
+test:
+	@echo "Running MSSQL adapter tests..."
+	@cd src-tauri && cargo run --example test_mssql --features mssql
+	@echo "Tests completed!"
+
+# Shorthand for test
+t:
+	@$(MAKE) test
+
+# Run tests with release build (faster execution)
+test-release:
+	@echo "Running MSSQL adapter tests (release mode)..."
+	@cd src-tauri && cargo run --release --example test_mssql --features mssql
+	@echo "Tests completed!"
+
+# Run all Rust tests
+test-all:
+	@echo "Running all Rust tests..."
+	@cd src-tauri && cargo test --features mssql
+	@echo "All tests completed!"
+
+# Quick test - just check if MSSQL connection works
+test-quick:
+	@echo "Quick MSSQL connection test..."
+	@docker exec devdb-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "DevPass123" -Q "SELECT 'MSSQL connection OK'" -C
+	@echo "Connection test passed!"
 
 # Docker commands
 docker-up:
@@ -87,13 +121,13 @@ seed-sqlserver:
 	@echo "Waiting for SQL Server to be ready..."
 	@sleep 20
 	@echo "Testing SQL Server connection..."
-	@until docker exec devdb-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P DevPass123! -Q "SELECT 1" -C -No > /dev/null 2>&1; do \
+	@until docker exec devdb-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P DevPass123 -Q "SELECT 1" -C -No > /dev/null 2>&1; do \
 		echo "Waiting for SQL Server to accept connections..."; \
 		sleep 5; \
 	done
 	@echo "Seeding SQL Server..."
-	@docker exec -i devdb-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P DevPass123! -i /seeds/01_schema.sql -C
-	@docker exec -i devdb-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P DevPass123! -i /seeds/02_seed_data.sql -C
+	@docker exec -i devdb-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P DevPass123 -i /seeds/01_schema.sql -C
+	@docker exec -i devdb-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P DevPass123 -i /seeds/02_seed_data.sql -C
 	@echo "SQL Server seeded successfully!"
 
 seed-oracle:
@@ -134,7 +168,7 @@ setup: docker-up
 	@echo "  PostgreSQL: localhost:15432 (user: devuser, pass: devpass123, db: todoapp)"
 	@echo "  MySQL:      localhost:13306 (user: devuser, pass: devpass123, db: todoapp)"
 	@echo "  SQLite:     seeds/sqlite/todoapp.db"
-	@echo "  SQL Server: localhost:11433 (user: sa, pass: DevPass123!, db: todoapp)"
+	@echo "  SQL Server: localhost:11434 (user: sa, pass: DevPass123, db: todoapp)"
 	@echo "  Oracle:     localhost:11521 (user: todoapp, pass: DevPass123, service: XE)"
 	@echo ""
 	@echo "Run 'make dev' to start the application"

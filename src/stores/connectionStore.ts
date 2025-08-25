@@ -7,6 +7,7 @@ import {
 } from "@/data/defaultConnections";
 import { secureConnectionService } from "@/services/secureConnectionService";
 import { clearAllService } from "@/services/clearAllService";
+import { connectionMetadataService } from "@/services/connectionMetadataService";
 
 interface ConnectionStore {
   // State (temporary cache, not persisted)
@@ -29,6 +30,7 @@ interface ConnectionStore {
   loadConnections: () => Promise<void>;
   loadDefaultConnections: () => Promise<{ added: number; skipped: number }>;
   clearAllConnections: () => Promise<void>;
+  reorderConnections: (connections: DatabaseConnection[]) => Promise<void>;
 
   // Getters
   getConnection: (id: string) => DatabaseConnection | undefined;
@@ -58,6 +60,14 @@ export const useConnectionStore = create<ConnectionStore>()((set, get) => ({
     // Save to backend first
     await secureConnectionService.saveConnection(connection);
 
+    // Save metadata
+    const currentConnections = get().connections;
+    connectionMetadataService.saveMetadata(id, {
+      order: connectionData.order ?? currentConnections.length,
+      workspace: connectionData.workspace ?? "default",
+      tags: connectionData.tags ?? [],
+    });
+
     // Reload connections from backend to ensure consistency
     await get().loadConnections();
 
@@ -79,6 +89,19 @@ export const useConnectionStore = create<ConnectionStore>()((set, get) => ({
     // Save to backend
     await secureConnectionService.saveConnection(updatedConnection);
 
+    // Update metadata if needed
+    if (
+      updates.order !== undefined ||
+      updates.workspace !== undefined ||
+      updates.tags !== undefined
+    ) {
+      connectionMetadataService.saveMetadata(id, {
+        order: updates.order ?? updatedConnection.order,
+        workspace: updates.workspace ?? updatedConnection.workspace,
+        tags: updates.tags ?? updatedConnection.tags,
+      });
+    }
+
     // Reload from backend
     await get().loadConnections();
   },
@@ -86,6 +109,9 @@ export const useConnectionStore = create<ConnectionStore>()((set, get) => ({
   removeConnection: async (id) => {
     // Delete from backend
     await secureConnectionService.deleteConnection(id);
+
+    // Delete metadata
+    connectionMetadataService.deleteMetadata(id);
 
     // Update local state
     set((state) => ({
@@ -104,8 +130,28 @@ export const useConnectionStore = create<ConnectionStore>()((set, get) => ({
     try {
       // Load all connections from backend
       const connections = await secureConnectionService.getAllConnections();
+
+      // Load metadata from local storage
+      const allMetadata = connectionMetadataService.getAllMetadata();
+
+      // Merge connections with metadata
+      const mergedConnections = connections.map((conn, index) => {
+        const metadata = allMetadata[conn.id];
+        return {
+          ...conn,
+          order: metadata?.order ?? index,
+          workspace: metadata?.workspace ?? conn.workspace ?? "default",
+          tags: metadata?.tags ?? conn.tags ?? [],
+        };
+      });
+
+      // Sort connections by order field
+      const sortedConnections = mergedConnections.sort(
+        (a, b) => (a.order ?? 0) - (b.order ?? 0),
+      );
+
       set({
-        connections,
+        connections: sortedConnections,
         isLoading: false,
       });
     } catch (error) {
@@ -124,8 +170,17 @@ export const useConnectionStore = create<ConnectionStore>()((set, get) => ({
         await secureConnectionService.getAllConnections();
 
       const newConnections: DatabaseConnection[] = [];
+      const newMetadata: Array<{
+        id: string;
+        order: number;
+        workspace: string;
+        tags: any[];
+      }> = [];
 
-      for (const defaultConn of defaultConnections) {
+      for (let i = 0; i < defaultConnections.length; i++) {
+        const defaultConn = defaultConnections[i];
+        if (!defaultConn) continue;
+
         // Check for duplicates in backend
         const isDuplicate = backendConnections.some((existing) =>
           isDuplicateConnection(existing, defaultConn),
@@ -146,6 +201,12 @@ export const useConnectionStore = create<ConnectionStore>()((set, get) => ({
           };
 
           newConnections.push(connection);
+          newMetadata.push({
+            id,
+            order: backendConnections.length + added,
+            workspace: connectionData.workspace ?? "default",
+            tags: connectionData.tags ?? [],
+          });
           added++;
         }
       }
@@ -153,6 +214,11 @@ export const useConnectionStore = create<ConnectionStore>()((set, get) => ({
       if (newConnections.length > 0) {
         // Save all new connections to backend
         await secureConnectionService.saveConnections(newConnections);
+
+        // Save metadata for new connections
+        newMetadata.forEach((meta) => {
+          connectionMetadataService.saveMetadata(meta.id, meta);
+        });
 
         // Reload from backend to update local cache
         await get().loadConnections();
@@ -169,6 +235,9 @@ export const useConnectionStore = create<ConnectionStore>()((set, get) => ({
     try {
       // Clear all connections from backend
       await clearAllService.clearConnections();
+
+      // Clear all metadata
+      connectionMetadataService.clearAll();
 
       // Clear local state
       set({
@@ -205,5 +274,27 @@ export const useConnectionStore = create<ConnectionStore>()((set, get) => ({
       state.connections.find((conn) => conn.id === state.activeConnectionId) ||
       null
     );
+  },
+
+  reorderConnections: async (reorderedConnections) => {
+    // Update order field for each connection
+    const updatedConnections = reorderedConnections.map((conn, index) => ({
+      ...conn,
+      order: index,
+      updatedAt: new Date(),
+    }));
+
+    // Save metadata with updated order for all connections
+    const metadata = updatedConnections.map((conn) => ({
+      id: conn.id,
+      order: conn.order ?? 0,
+      workspace: conn.workspace ?? "default",
+      tags: conn.tags ?? [],
+    }));
+
+    connectionMetadataService.saveMultipleMetadata(metadata);
+
+    // Update local state immediately for smooth UI
+    set({ connections: updatedConnections });
   },
 }));

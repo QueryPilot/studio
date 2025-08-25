@@ -20,6 +20,7 @@ export interface DatabaseConnection {
   type: DatabaseType;
   workspace: string; // Now workspace is just a string identifier
   tags: Tag[]; // Support for multiple tags with name and color
+  order?: number; // Order for drag-and-drop sorting
   host?: string;
   port?: number;
   database?: string;

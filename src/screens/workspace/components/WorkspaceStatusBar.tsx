@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { Circle, Clock, Activity, AlertCircle, Loader2 } from "lucide-react";
+import { Circle, Clock, Activity, AlertCircle, Loader2, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { databaseService, type ConnectionHealth } from "@/services/databaseService";
+import { emit } from "@tauri-apps/api/event";
 
 interface WorkspaceStatusBarProps {
   connectionId: string;
@@ -10,6 +12,17 @@ interface WorkspaceStatusBarProps {
 export function WorkspaceStatusBar({ connectionId }: WorkspaceStatusBarProps) {
   const [connectionHealth, setConnectionHealth] = useState<ConnectionHealth | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  
+  const handleReconnect = async () => {
+    setIsConnecting(true);
+    try {
+      await databaseService.connectById(connectionId);
+      // Emit event to refresh sidebar data
+      await emit("database-reconnected", { connectionId });
+    } catch (error) {
+      console.error("Failed to reconnect:", error);
+    }
+  };
   
   // Track query metrics (these would be updated by query execution)
   const [queryTime] = useState<number | null>(null);
@@ -87,6 +100,17 @@ export function WorkspaceStatusBar({ connectionId }: WorkspaceStatusBarProps) {
         <span className={cn(getStatusColor())}>
           {getStatusText()}
         </span>
+        {(!connectionHealth || connectionHealth.status === "error") && !isConnecting && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleReconnect}
+            className="h-5 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground"
+          >
+            <RotateCcw className="h-2.5 w-2.5" />
+            Reconnect
+          </Button>
+        )}
       </div>
 
       {/* Right Section - Query Metrics */}

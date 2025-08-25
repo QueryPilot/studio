@@ -7,27 +7,35 @@ interface PanelStore {
   activePanelId: string;
   splitMode: "none" | "horizontal" | "vertical";
   splitPosition: number;
-  
+
   // Panel operations
   createPanel: (type: "primary" | "secondary") => string;
   removePanel: (panelId: string) => void;
   setActivePanel: (panelId: string) => void;
   setSplitMode: (mode: "none" | "horizontal" | "vertical") => void;
   setSplitPosition: (position: number) => void;
-  
+
   // Tab operations within panels
   addTabToPanel: (panelId: string, tab: Partial<TabState>) => string;
   removeTabFromPanel: (panelId: string, tabId: string) => void;
   setActiveTabInPanel: (panelId: string, tabId: string) => void;
-  updateTabInPanel: (panelId: string, tabId: string, updates: Partial<TabState>) => void;
-  moveTabBetweenPanels: (tabId: string, fromPanelId: string, toPanelId: string) => void;
+  updateTabInPanel: (
+    panelId: string,
+    tabId: string,
+    updates: Partial<TabState>,
+  ) => void;
+  moveTabBetweenPanels: (
+    tabId: string,
+    fromPanelId: string,
+    toPanelId: string,
+  ) => void;
   reorderTabInPanel: (panelId: string, tabId: string, newIndex: number) => void;
-  
+
   // Getters
   getPrimaryPanel: () => PanelState | undefined;
   getSecondaryPanel: () => PanelState | undefined;
   getPanel: (panelId: string) => PanelState | undefined;
-  
+
   // Initialize
   initialize: (connectionId: string) => void;
 }
@@ -39,6 +47,7 @@ export const usePanelStore = create<PanelStore>((set, get) => ({
   splitPosition: 0.5,
 
   createPanel: (type) => {
+    console.log("🆕 Creating new panel of type:", type);
     const panelId = uuidv4();
     const panel: PanelState = {
       id: panelId,
@@ -51,6 +60,8 @@ export const usePanelStore = create<PanelStore>((set, get) => ({
     set((state) => {
       const newPanels = new Map(state.panels);
       newPanels.set(panelId, panel);
+      console.log("✅ Panel created with ID:", panelId);
+      console.log("📊 Total panels now:", newPanels.size);
       return { panels: newPanels };
     });
 
@@ -61,25 +72,31 @@ export const usePanelStore = create<PanelStore>((set, get) => ({
     set((state) => {
       const newPanels = new Map(state.panels);
       newPanels.delete(panelId);
-      
+
       // If removing active panel, set another as active
       if (state.activePanelId === panelId && newPanels.size > 0) {
         const firstPanel = Array.from(newPanels.values())[0];
-        return { 
-          panels: newPanels, 
+        return {
+          panels: newPanels,
           activePanelId: firstPanel?.id || "",
         };
       }
-      
+
       return { panels: newPanels };
     });
   },
 
-  setActivePanel: (panelId) => set({ activePanelId: panelId }),
-  
-  setSplitMode: (mode) => set({ splitMode: mode }),
-  
-  setSplitPosition: (position) => set({ splitPosition: Math.max(0.2, Math.min(0.8, position)) }),
+  setActivePanel: (panelId) => {
+    set({ activePanelId: panelId });
+  },
+
+  setSplitMode: (mode) => {
+    set({ splitMode: mode });
+  },
+
+  setSplitPosition: (position) => {
+    set({ splitPosition: Math.max(0.2, Math.min(0.8, position)) });
+  },
 
   addTabToPanel: (panelId, tabData) => {
     const panel = get().panels.get(panelId);
@@ -109,13 +126,18 @@ export const usePanelStore = create<PanelStore>((set, get) => ({
       ...tabData,
     };
 
-    panel.tabs.set(tabId, newTab);
-    panel.tabOrder.push(tabId);
-    panel.activeTabId = tabId;
+    // Create new panel to avoid mutations
+    const newPanel = {
+      ...panel,
+      tabs: new Map(panel.tabs),
+      tabOrder: [...panel.tabOrder, tabId],
+      activeTabId: tabId,
+    };
+    newPanel.tabs.set(tabId, newTab);
 
     set((state) => {
       const newPanels = new Map(state.panels);
-      newPanels.set(panelId, panel);
+      newPanels.set(panelId, newPanel);
       return { panels: newPanels };
     });
 
@@ -126,27 +148,32 @@ export const usePanelStore = create<PanelStore>((set, get) => ({
     const panel = get().panels.get(panelId);
     if (!panel) return;
 
-    panel.tabs.delete(tabId);
-    panel.tabOrder = panel.tabOrder.filter(id => id !== tabId);
-    
-    if (panel.activeTabId === tabId) {
-      panel.activeTabId = panel.tabOrder[0] || null;
-    }
+    const newTabs = new Map(panel.tabs);
+    newTabs.delete(tabId);
+    const newTabOrder = panel.tabOrder.filter((id) => id !== tabId);
+    const newActiveTabId = panel.activeTabId === tabId ? (newTabOrder[0] || null) : panel.activeTabId;
 
     // If this is a secondary panel and it has no more tabs, remove it
-    if (panel.type === "secondary" && panel.tabOrder.length === 0) {
+    if (panel.type === "secondary" && newTabOrder.length === 0) {
       set((state) => {
         const newPanels = new Map(state.panels);
         newPanels.delete(panelId);
-        return { 
+        return {
           panels: newPanels,
           splitMode: "none",
         };
       });
     } else {
+      const newPanel = {
+        ...panel,
+        tabs: newTabs,
+        tabOrder: newTabOrder,
+        activeTabId: newActiveTabId,
+      };
+
       set((state) => {
         const newPanels = new Map(state.panels);
-        newPanels.set(panelId, panel);
+        newPanels.set(panelId, newPanel);
         return { panels: newPanels };
       });
     }
@@ -156,11 +183,14 @@ export const usePanelStore = create<PanelStore>((set, get) => ({
     const panel = get().panels.get(panelId);
     if (!panel || !panel.tabs.has(tabId)) return;
 
-    panel.activeTabId = tabId;
+    const newPanel = {
+      ...panel,
+      activeTabId: tabId,
+    };
 
     set((state) => {
       const newPanels = new Map(state.panels);
-      newPanels.set(panelId, panel);
+      newPanels.set(panelId, newPanel);
       return { panels: newPanels };
     });
   },
@@ -173,47 +203,82 @@ export const usePanelStore = create<PanelStore>((set, get) => ({
     if (!tab) return;
 
     const updatedTab = { ...tab, ...updates, lastAccessedAt: new Date() };
-    panel.tabs.set(tabId, updatedTab);
+    
+    // Create new panel with updated tab to avoid mutations
+    const newPanel = {
+      ...panel,
+      tabs: new Map(panel.tabs),
+    };
+    newPanel.tabs.set(tabId, updatedTab);
 
     set((state) => {
       const newPanels = new Map(state.panels);
-      newPanels.set(panelId, panel);
+      newPanels.set(panelId, newPanel);
       return { panels: newPanels };
     });
   },
 
   moveTabBetweenPanels: (tabId, fromPanelId, toPanelId) => {
+    console.log("🔄 moveTabBetweenPanels called:", {
+      tabId,
+      fromPanelId,
+      toPanelId,
+    });
+
     const fromPanel = get().panels.get(fromPanelId);
     const toPanel = get().panels.get(toPanelId);
-    
-    if (!fromPanel || !toPanel) return;
+
+    console.log("📋 Panels found:", {
+      fromPanel: fromPanel?.id,
+      toPanel: toPanel?.id,
+      fromPanelTabs: fromPanel ? Array.from(fromPanel.tabs.keys()) : [],
+      toPanelTabs: toPanel ? Array.from(toPanel.tabs.keys()) : [],
+    });
+
+    if (!fromPanel || !toPanel) {
+      console.log("❌ Missing panels for move operation");
+      return;
+    }
 
     const tab = fromPanel.tabs.get(tabId);
-    if (!tab) return;
+    if (!tab) {
+      console.log("❌ Tab not found in source panel:", tabId);
+      return;
+    }
+
+    console.log("✅ Moving tab:", tab.title);
 
     // Update tab's panel reference
     const movedTab = { ...tab, panelId: toPanelId };
-    
-    // Remove from source panel
-    fromPanel.tabs.delete(tabId);
-    fromPanel.tabOrder = fromPanel.tabOrder.filter(id => id !== tabId);
-    if (fromPanel.activeTabId === tabId) {
-      fromPanel.activeTabId = fromPanel.tabOrder[0] || null;
-    }
 
-    // Add to target panel
-    toPanel.tabs.set(tabId, movedTab);
-    toPanel.tabOrder.push(tabId);
-    toPanel.activeTabId = tabId;
+    // Create new panels to avoid mutations
+    const newFromPanelTabs = new Map(fromPanel.tabs);
+    newFromPanelTabs.delete(tabId);
+    const newFromPanelTabOrder = fromPanel.tabOrder.filter((id) => id !== tabId);
+    const newFromPanel = {
+      ...fromPanel,
+      tabs: newFromPanelTabs,
+      tabOrder: newFromPanelTabOrder,
+      activeTabId: fromPanel.activeTabId === tabId ? (newFromPanelTabOrder[0] || null) : fromPanel.activeTabId,
+    };
+
+    const newToPanelTabs = new Map(toPanel.tabs);
+    newToPanelTabs.set(tabId, movedTab);
+    const newToPanel = {
+      ...toPanel,
+      tabs: newToPanelTabs,
+      tabOrder: [...toPanel.tabOrder, tabId],
+      activeTabId: tabId,
+    };
 
     // Check if source panel is empty and is secondary
-    if (fromPanel.type === "secondary" && fromPanel.tabOrder.length === 0) {
+    if (fromPanel.type === "secondary" && newFromPanelTabOrder.length === 0) {
       set((state) => {
         const newPanels = new Map(state.panels);
         newPanels.delete(fromPanelId);
-        newPanels.set(toPanelId, toPanel);
-        return { 
-          panels: newPanels, 
+        newPanels.set(toPanelId, newToPanel);
+        return {
+          panels: newPanels,
           activePanelId: toPanelId,
           splitMode: "none",
         };
@@ -221,10 +286,10 @@ export const usePanelStore = create<PanelStore>((set, get) => ({
     } else {
       set((state) => {
         const newPanels = new Map(state.panels);
-        newPanels.set(fromPanelId, fromPanel);
-        newPanels.set(toPanelId, toPanel);
-        return { 
-          panels: newPanels, 
+        newPanels.set(fromPanelId, newFromPanel);
+        newPanels.set(toPanelId, newToPanel);
+        return {
+          panels: newPanels,
           activePanelId: toPanelId,
         };
       });
@@ -238,24 +303,33 @@ export const usePanelStore = create<PanelStore>((set, get) => ({
     const oldIndex = panel.tabOrder.indexOf(tabId);
     if (oldIndex === -1) return;
 
+    // Create new tab order array to avoid mutations
+    const newTabOrder = [...panel.tabOrder];
     // Remove from old position
-    panel.tabOrder.splice(oldIndex, 1);
+    newTabOrder.splice(oldIndex, 1);
     // Insert at new position
-    panel.tabOrder.splice(newIndex, 0, tabId);
+    newTabOrder.splice(newIndex, 0, tabId);
+
+    const newPanel = {
+      ...panel,
+      tabOrder: newTabOrder,
+    };
 
     set((state) => {
       const newPanels = new Map(state.panels);
-      newPanels.set(panelId, panel);
+      newPanels.set(panelId, newPanel);
       return { panels: newPanels };
     });
   },
 
   getPrimaryPanel: () => {
-    return Array.from(get().panels.values()).find(p => p.type === "primary");
+    return Array.from(get().panels.values()).find((p) => p.type === "primary");
   },
 
   getSecondaryPanel: () => {
-    return Array.from(get().panels.values()).find(p => p.type === "secondary");
+    return Array.from(get().panels.values()).find(
+      (p) => p.type === "secondary",
+    );
   },
 
   getPanel: (panelId) => {
@@ -264,7 +338,7 @@ export const usePanelStore = create<PanelStore>((set, get) => ({
 
   initialize: (connectionId) => {
     const primaryPanelId = get().createPanel("primary");
-    
+
     // Create a default query tab
     get().addTabToPanel(primaryPanelId, {
       type: "query",
@@ -273,7 +347,7 @@ export const usePanelStore = create<PanelStore>((set, get) => ({
       payload: { sql: "" },
     });
 
-    set({ 
+    set({
       activePanelId: primaryPanelId,
       splitMode: "none",
     });

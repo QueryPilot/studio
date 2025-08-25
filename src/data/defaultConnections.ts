@@ -67,10 +67,10 @@ export const defaultConnections: DefaultConnection[] = [
     name: 'SQL Server Development',
     type: 'mssql',
     host: 'localhost', 
-    port: 11433,
+    port: 11434,
     database: 'todoapp',
     username: 'sa',
-    password: 'DevPass123!',
+    password: 'DevPass123',
     workspace: 'Development',
     tags: [
       { name: 'development', color: '#10B981' },
