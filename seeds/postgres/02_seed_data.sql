@@ -1,4 +1,8 @@
 -- Seed data for PostgreSQL
+
+-- Temporarily disable the materialized view refresh trigger to avoid memory issues
+ALTER TABLE todos DISABLE TRIGGER tr_refresh_mv_after_todo_change;
+
 DO $$
 DECLARE
     user_count INTEGER := 100;
@@ -28,9 +32,12 @@ DECLARE
         {"id": 5, "text": "Final review", "done": false}
     ]'::JSONB;
 BEGIN
+    RAISE NOTICE 'Starting to insert % users', user_count;
+    
     -- Insert users
     FOR i IN 1..user_count LOOP
-        INSERT INTO users (
+        BEGIN
+            INSERT INTO users (
             username, email, full_name, avatar_url, bio, is_active, 
             email_verified, phone, date_of_birth, preferences, metadata,
             last_login_at
@@ -57,20 +64,32 @@ BEGIN
             ]),
             CURRENT_TIMESTAMP - ((random() * 30) || ' days')::interval
         );
+        EXCEPTION
+            WHEN OTHERS THEN
+                RAISE NOTICE 'Error inserting user %: %', i, SQLERRM;
+        END;
     END LOOP;
+    
+    -- Check how many users were inserted
+    SELECT COUNT(*) INTO i FROM users;
+    RAISE NOTICE 'Successfully inserted % users', i;
+    
+    IF i = 0 THEN
+        RAISE EXCEPTION 'Failed to insert any users';
+    END IF;
 
     -- Insert categories for each user
-    FOR i IN 1..user_count LOOP
+    FOR current_user_id IN (SELECT id FROM users ORDER BY id LIMIT user_count) LOOP
         INSERT INTO categories (name, color, icon, user_id) VALUES
-            ('Work', '#FF5733', 'briefcase', i),
-            ('Personal', '#33FF57', 'home', i),
-            ('Shopping', '#3357FF', 'cart', i),
-            ('Health', '#FF33F5', 'heart', i),
-            ('Learning', '#F5FF33', 'book', i);
+            ('Work', '#FF5733', 'briefcase', current_user_id),
+            ('Personal', '#33FF57', 'home', current_user_id),
+            ('Shopping', '#3357FF', 'cart', current_user_id),
+            ('Health', '#FF33F5', 'heart', current_user_id),
+            ('Learning', '#F5FF33', 'book', current_user_id);
     END LOOP;
 
     -- Insert todos for each user
-    FOR i IN 1..user_count LOOP
+    FOR current_user_id IN (SELECT id FROM users ORDER BY id) LOOP
         todo_count := 50 + floor(random() * 151)::int; -- 50-200 todos per user
         
         FOR j IN 1..todo_count LOOP
@@ -87,8 +106,8 @@ BEGIN
                 created_from_ip, last_modified_ip, valid_during,
                 started_at, completed_at, reminder_at
             ) VALUES (
-                i,
-                'Task ' || j || ' for user ' || i || ': ' || (ARRAY[
+                current_user_id,
+                'Task ' || j || ' for user ' || current_user_id || ': ' || (ARRAY[
                     'Complete project documentation',
                     'Review pull requests',
                     'Attend team meeting',
@@ -213,4 +232,17 @@ BEGIN
     LIMIT 1000;
 
     RAISE NOTICE 'Seeding completed: % users with their todos', user_count;
+END $$;
+
+-- Re-enable the trigger
+ALTER TABLE todos ENABLE TRIGGER tr_refresh_mv_after_todo_change;
+
+-- Refresh materialized views manually once after all data is inserted
+REFRESH MATERIALIZED VIEW mv_user_activity_summary;
+REFRESH MATERIALIZED VIEW mv_todo_analytics;
+
+-- Log completion
+DO $$
+BEGIN
+    RAISE NOTICE 'Materialized views refreshed successfully';
 END $$;

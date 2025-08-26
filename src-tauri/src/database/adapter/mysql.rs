@@ -347,6 +347,54 @@ impl DbAdapter for MySqlAdapter {
         Ok(columns)
     }
 
+    async fn table_triggers(&self, database: &str, _schema: &str, table: &str) -> Result<Vec<super::TriggerMeta>, AppError> {
+        let rows = sqlx::query(
+            r#"SELECT 
+                TRIGGER_NAME,
+                EVENT_MANIPULATION,
+                ACTION_TIMING,
+                'ROW' as ACTION_ORIENTATION,
+                'Y' as STATUS,
+                ACTION_STATEMENT,
+                NULL as ACTION_CONDITION,
+                CREATED
+            FROM INFORMATION_SCHEMA.TRIGGERS 
+            WHERE TRIGGER_SCHEMA = ? 
+                AND EVENT_OBJECT_TABLE = ?
+            ORDER BY TRIGGER_NAME"#
+        )
+        .bind(database)
+        .bind(table)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::Database(format!("Failed to get table triggers: {}", e)))?;
+        
+        let mut triggers = Vec::new();
+        for row in rows {
+            let trigger_name: String = row.get(0);
+            let event: String = row.get(1);
+            let timing: String = row.get(2);
+            let level: String = row.get(3);
+            let status: String = row.get(4);
+            let function: String = row.get(5);
+            let condition: Option<String> = row.get(6);
+            let created: Option<String> = row.get(7);
+            
+            triggers.push(super::TriggerMeta {
+                name: trigger_name,
+                event,
+                timing,
+                level,
+                enabled: status == "Y",
+                function,
+                condition,
+                created: created.map(|c| c.to_string()),
+            });
+        }
+        
+        Ok(triggers)
+    }
+
     async fn estimate_count(&self, database: &str, _schema: &str, table: &str) -> Result<i64, AppError> {
         let query = "SELECT TABLE_ROWS FROM INFORMATION_SCHEMA.TABLES 
                      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?";

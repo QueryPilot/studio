@@ -84,7 +84,7 @@ export function WorkspaceScreen() {
               className="bg-muted/20 flex flex-col"
             >
               {/* Database/Schema Selector aligned with tabs */}
-              <div className="h-9 border-b bg-background flex items-center">
+              <div className="h-8 border-b bg-background flex items-center">
                 <DatabaseSchemaSelector
                   connectionId={connectionId}
                   selectedDatabase={selectedDatabase}

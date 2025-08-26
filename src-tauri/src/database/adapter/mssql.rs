@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use std::collections::HashMap;
 use uuid::Uuid;
-use futures::StreamExt;
+use futures::{StreamExt, TryStreamExt};
 
 use tiberius::{Row, Column};
 use bb8_tiberius::ConnectionManager;
@@ -560,6 +560,76 @@ impl DbAdapter for MssqlAdapter {
         }
         
         Ok(columns)
+    }
+    
+    async fn table_triggers(&self, database: &str, schema: &str, table: &str) -> Result<Vec<super::TriggerMeta>, AppError> {
+        let mut conn = self.pool.get().await
+            .map_err(|e| AppError::Database(format!("Failed to get connection: {}", e)))?;
+        
+        // Only switch database if it's different from the current connection's database
+        if !database.is_empty() && database != self.config.database && database != schema {
+            let use_db = format!("USE [{}]", database);
+            conn.simple_query(&use_db).await
+                .map_err(|e| AppError::Database(format!("Failed to switch database: {}", e)))?;
+        }
+        
+        let sql = format!(
+            r#"SELECT 
+                t.name AS trigger_name,
+                CASE te.type
+                    WHEN 'I' THEN 'INSERT'
+                    WHEN 'U' THEN 'UPDATE'
+                    WHEN 'D' THEN 'DELETE'
+                    ELSE 'UNKNOWN'
+                END AS event,
+                CASE 
+                    WHEN t.is_instead_of_trigger = 1 THEN 'INSTEAD OF'
+                    WHEN te.is_first = 1 THEN 'BEFORE'
+                    ELSE 'AFTER'
+                END AS timing,
+                'ROW' AS level,
+                CASE WHEN t.is_disabled = 0 THEN 1 ELSE 0 END AS enabled,
+                OBJECT_NAME(t.parent_id) + '.' + t.name AS function_name,
+                NULL AS condition,
+                NULL AS created
+            FROM sys.triggers t
+            INNER JOIN sys.trigger_events te ON t.object_id = te.object_id
+            INNER JOIN sys.tables tb ON t.parent_id = tb.object_id
+            INNER JOIN sys.schemas s ON tb.schema_id = s.schema_id
+            WHERE tb.name = '{}' 
+                AND s.name = '{}'
+            ORDER BY t.name"#,
+            table, schema
+        );
+        
+        let mut stream = conn.simple_query(&sql).await
+            .map_err(|e| AppError::Database(format!("Failed to get table triggers: {}", e)))?;
+        
+        let mut triggers = Vec::new();
+        while let Some(item) = stream.try_next().await
+            .map_err(|e| AppError::Database(format!("Failed to read trigger row: {}", e)))? {
+            if let tiberius::QueryItem::Row(row) = item {
+                let trigger_name = row.get::<&str, _>(0).unwrap_or("").to_string();
+                let event = row.get::<&str, _>(1).unwrap_or("UNKNOWN").to_string();
+                let timing = row.get::<&str, _>(2).unwrap_or("AFTER").to_string();
+                let level = row.get::<&str, _>(3).unwrap_or("ROW").to_string();
+                let enabled = row.get::<i32, _>(4).unwrap_or(1) == 1;
+                let function = row.get::<&str, _>(5).unwrap_or("N/A").to_string();
+                
+                triggers.push(super::TriggerMeta {
+                    name: trigger_name,
+                    event,
+                    timing,
+                    level,
+                    enabled,
+                    function,
+                    condition: None,
+                    created: None,
+                });
+            }
+        }
+        
+        Ok(triggers)
     }
     
     async fn estimate_count(&self, database: &str, schema: &str, table: &str) -> Result<i64, AppError> {

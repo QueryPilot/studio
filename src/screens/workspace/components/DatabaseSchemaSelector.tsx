@@ -133,16 +133,16 @@ export function DatabaseSchemaSelector({
   }, [connectionId, selectedDatabase, onSchemaChange]);
 
   return (
-    <div className="flex items-center gap-1 px-2">
+    <div className="flex items-center gap-1">
       {databases.length > 0 && (
         <Select value={selectedDatabase} onValueChange={onDatabaseChange}>
-          <SelectTrigger className="h-9 text-sm min-w-[120px] max-w-[180px] border-0 !bg-background hover:bg-muted/50">
-            <Database className="h-3 w-3 mr-1" />
+          <SelectTrigger className="!h-8 text-xs min-w-[120px] max-w-[180px] border-0 !bg-background hover:bg-muted/50">
+            <Database className="!h-3.5 !w-3.5 mr-1" />
             <SelectValue placeholder="Select database" />
           </SelectTrigger>
           <SelectContent>
             {databases.map((db) => (
-              <SelectItem key={db} value={db}>
+              <SelectItem key={db} value={db} className="text-xs">
                 {db}
               </SelectItem>
             ))}
@@ -154,7 +154,7 @@ export function DatabaseSchemaSelector({
         <Select value={selectedSchema} onValueChange={onSchemaChange}>
           <SelectTrigger
             className={cn(
-              "h-9 text-sm border-0 !bg-background hover:bg-muted/50",
+              "!h-8 text-xs border-0 !bg-background hover:bg-muted/50",
               databases.length > 1
                 ? "min-w-[100px] max-w-[150px]"
                 : "min-w-[120px] max-w-[180px]",

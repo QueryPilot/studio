@@ -1,4 +1,4 @@
-.PHONY: help d dev build clean install test t docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup
+.PHONY: help d dev build clean install test t test-all test-quick test-adapters test-postgres test-mysql test-mssql test-sqlite test-adapters-quiet test-adapters-verbose test-adapter docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup
 
 # Default target - show help
 help:
@@ -15,6 +15,14 @@ help:
 	@echo "  make test-release   - Run tests in release mode (faster)"
 	@echo "  make test-all       - Run all Rust tests"
 	@echo "  make test-quick     - Quick MSSQL connection check"
+	@echo "  make test-adapters  - Run all database adapter tests"
+	@echo "  make test-postgres  - Run PostgreSQL adapter tests"
+	@echo "  make test-mysql     - Run MySQL adapter tests"
+	@echo "  make test-mssql     - Run MSSQL adapter tests"
+	@echo "  make test-sqlite    - Run SQLite adapter tests"
+	@echo "  make test-adapters-quiet   - Run all adapters (quiet mode)"
+	@echo "  make test-adapters-verbose - Run all adapters (verbose mode)"
+	@echo "  make test-adapter ADAPTER=<name> - Run specific adapter tests"
 	@echo ""
 	@echo "Docker Database Management:"
 	@echo "  make docker-up      - Start all database containers"
@@ -81,6 +89,56 @@ test-quick:
 	@echo "Quick MSSQL connection test..."
 	@docker exec devdb-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "DevPass123" -Q "SELECT 'MSSQL connection OK'" -C
 	@echo "Connection test passed!"
+
+# Database adapter tests
+test-adapters: test-postgres test-mysql test-mssql test-sqlite
+	@echo "All adapter tests completed!"
+
+# PostgreSQL adapter tests
+test-postgres:
+	@echo "Running PostgreSQL adapter tests..."
+	@cd src-tauri && cargo test --lib database::adapter::postgres_test --features postgres -- --nocapture
+	@echo "PostgreSQL adapter tests completed!"
+
+# MySQL adapter tests  
+test-mysql:
+	@echo "Running MySQL adapter tests..."
+	@cd src-tauri && cargo test --lib database::adapter::mysql_test --features mysql -- --nocapture
+	@echo "MySQL adapter tests completed!"
+
+# MSSQL adapter tests
+test-mssql:
+	@echo "Running MSSQL adapter tests..."
+	@cd src-tauri && cargo test --lib database::adapter::mssql_test --features mssql -- --nocapture
+	@echo "MSSQL adapter tests completed!"
+
+# SQLite adapter tests
+test-sqlite:
+	@echo "Running SQLite adapter tests..."
+	@cd src-tauri && cargo test --lib database::adapter::sqlite_test --features sqlite -- --nocapture
+	@echo "SQLite adapter tests completed!"
+
+# Run adapter tests in quiet mode (no capture)
+test-adapters-quiet: 
+	@echo "Running all adapter tests (quiet mode)..."
+	@cd src-tauri && cargo test --lib database::adapter --features "postgres mysql mssql sqlite" -q
+	@echo "All adapter tests completed!"
+
+# Run adapter tests with detailed output
+test-adapters-verbose:
+	@echo "Running all adapter tests (verbose mode)..."
+	@cd src-tauri && cargo test --lib database::adapter --features "postgres mysql mssql sqlite" -- --nocapture --test-threads=1
+	@echo "All adapter tests completed!"
+
+# Run specific adapter test
+test-adapter:
+	@if [ -z "$(ADAPTER)" ]; then \
+		echo "Please specify ADAPTER: make test-adapter ADAPTER=postgres"; \
+		exit 1; \
+	fi
+	@echo "Running $(ADAPTER) adapter tests..."
+	@cd src-tauri && cargo test --lib database::adapter::$(ADAPTER)_test --features $(ADAPTER) -- --nocapture
+	@echo "$(ADAPTER) adapter tests completed!"
 
 # Docker commands
 docker-up:

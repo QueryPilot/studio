@@ -95,6 +95,18 @@ pub struct TableIndex {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerMeta {
+    pub name: String,
+    pub event: String,      // INSERT, UPDATE, DELETE, TRUNCATE
+    pub timing: String,     // BEFORE, AFTER, INSTEAD OF
+    pub level: String,      // ROW, STATEMENT
+    pub enabled: bool,
+    pub function: String,
+    pub condition: Option<String>,
+    pub created: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryCursor {
     pub id: String,
     pub sql: String,

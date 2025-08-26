@@ -331,6 +331,34 @@ pub async fn db_table_indexes(
 }
 
 #[tauri::command]
+pub async fn db_table_triggers(
+    connection_id: String,
+    database: String,
+    schema: String,
+    table: String,
+    registry: State<'_, ConnectionRegistry>,
+) -> Result<Vec<TriggerMeta>, AppError> {
+    println!("[db_table_triggers] Called with connection_id: {}, database: {}, schema: {}, table: {}", 
+             connection_id, database, schema, table);
+    
+    let conn = registry.get(&connection_id).await
+        .ok_or_else(|| {
+            println!("[db_table_triggers] ERROR: Connection not found: {}", connection_id);
+            AppError::ConnectionNotFound(connection_id.clone())
+        })?;
+    
+    println!("[db_table_triggers] Connection found, calling adapter.table_triggers...");
+    let result = conn.adapter.table_triggers(&database, &schema, &table).await;
+    
+    match &result {
+        Ok(triggers) => println!("[db_table_triggers] Success: returning {} triggers", triggers.len()),
+        Err(e) => println!("[db_table_triggers] ERROR: {}", e),
+    }
+    
+    result
+}
+
+#[tauri::command]
 pub async fn db_query_begin(
     connection_id: String,
     sql: String,

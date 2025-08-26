@@ -101,10 +101,10 @@ export function useTableData(): UseTableDataReturn {
     setState((prev) => {
       // Check if we're in the initial load (no cursor) or loading more
       const isInitialLoad = !prev.nextCursor;
-      const newRows = isInitialLoad 
+      const newRows = isInitialLoad
         ? rowsEvent.rows // Replace all rows on initial load
         : [...prev.rows, ...rowsEvent.rows]; // Append on load more
-      
+
       return {
         ...prev,
         rows: newRows,
@@ -114,7 +114,7 @@ export function useTableData(): UseTableDataReturn {
       };
     });
   }, []); // NO dependencies = stable callback
-  console.log(">>>", "render", new Date());
+
   // Handle stream completion - STABLE callback with NO dependencies
   const handleDone = useCallback(() => {
     console.log("[useTableData] Stream completed");
@@ -122,6 +122,7 @@ export function useTableData(): UseTableDataReturn {
 
     setState((prev) => ({
       ...prev,
+      isLoading: false,
       isStreaming: false,
       hasNextPage: false,
     }));
@@ -212,13 +213,13 @@ export function useTableData(): UseTableDataReturn {
   // Load more data (pagination) - STABLE callback using refs
   const loadMore = useCallback(async () => {
     const currentState = stateRef.current;
-    
+
     // Prevent multiple concurrent loadMore calls
     if (isLoadingMoreRef.current) {
       console.log("[useTableData] loadMore already in progress, skipping");
       return;
     }
-    
+
     if (
       !currentParamsRef.current ||
       !currentState.nextCursor ||
@@ -228,7 +229,7 @@ export function useTableData(): UseTableDataReturn {
     ) {
       return;
     }
-    
+
     isLoadingMoreRef.current = true;
 
     const nextParams: TableDataParams = {

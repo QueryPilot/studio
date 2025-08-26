@@ -97,7 +97,7 @@ pub enum CellValueType {
 }
 
 /// Rich metadata for proper value formatting and display
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CellMetadata {
     /// Numeric precision (total number of significant digits)
     /// Used for DECIMAL, NUMERIC types - e.g., DECIMAL(10,2) has precision=10

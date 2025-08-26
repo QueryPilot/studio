@@ -1,7 +1,7 @@
 /**
  * Type definitions for TableDataService based on db_table_data API specification
  */
-import type { CellValue } from '@/components/DataTable/types';
+import type { CellValue } from '@/types/cellValue';
 import type { ColumnMeta } from '@/types/database';
 
 // Sort specification for db_table_data

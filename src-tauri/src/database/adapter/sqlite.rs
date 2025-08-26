@@ -314,6 +314,72 @@ impl DbAdapter for SqliteAdapter {
         Ok(columns)
     }
 
+    async fn table_triggers(&self, _database: &str, _schema: &str, table: &str) -> Result<Vec<super::TriggerMeta>, AppError> {
+        let rows = sqlx::query(
+            r#"SELECT 
+                name as trigger_name,
+                sql
+            FROM sqlite_master 
+            WHERE type = 'trigger' 
+                AND tbl_name = ?
+            ORDER BY name"#
+        )
+        .bind(table)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::Database(format!("Failed to get table triggers: {}", e)))?;
+        
+        let mut triggers = Vec::new();
+        for row in rows {
+            let trigger_name: String = row.get(0);
+            let sql: Option<String> = row.get(1);
+            
+            // Parse the SQL to extract trigger information
+            let (event, timing, enabled) = if let Some(trigger_sql) = &sql {
+                let sql_upper = trigger_sql.to_uppercase();
+                
+                // Extract event (INSERT, UPDATE, DELETE)
+                let event = if sql_upper.contains(" INSERT ") {
+                    "INSERT"
+                } else if sql_upper.contains(" UPDATE ") {
+                    "UPDATE"
+                } else if sql_upper.contains(" DELETE ") {
+                    "DELETE"
+                } else {
+                    "UNKNOWN"
+                };
+                
+                // Extract timing (BEFORE, AFTER, INSTEAD OF)
+                let timing = if sql_upper.contains(" BEFORE ") {
+                    "BEFORE"
+                } else if sql_upper.contains(" AFTER ") {
+                    "AFTER"
+                } else if sql_upper.contains(" INSTEAD OF ") {
+                    "INSTEAD OF"
+                } else {
+                    "UNKNOWN"
+                };
+                
+                (event.to_string(), timing.to_string(), true)
+            } else {
+                ("UNKNOWN".to_string(), "UNKNOWN".to_string(), true)
+            };
+            
+            triggers.push(super::TriggerMeta {
+                name: trigger_name,
+                event,
+                timing,
+                level: "ROW".to_string(), // SQLite triggers are always row-level
+                enabled,
+                function: sql.unwrap_or_else(|| "N/A".to_string()),
+                condition: None,
+                created: None,
+            });
+        }
+        
+        Ok(triggers)
+    }
+
     async fn estimate_count(&self, _database: &str, _schema: &str, table: &str) -> Result<i64, AppError> {
         let query = format!("SELECT COUNT(*) FROM \"{}\"", table);
         let row = sqlx::query(&query)
