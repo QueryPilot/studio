@@ -13,14 +13,14 @@ interface PanelTabBarProps {
   onNewTab: () => void;
 }
 
-export function PanelTabBar({ 
-  panel, 
-  onTabSelect, 
-  onTabClose, 
+export function PanelTabBar({
+  panel,
+  onTabSelect,
+  onTabClose,
   onNewTab,
 }: PanelTabBarProps) {
   return (
-    <div 
+    <div
       className="flex items-center h-9 border-b bg-background relative"
       id={`panel-${panel.id}`}
       data-panel-id={panel.id}
@@ -34,28 +34,32 @@ export function PanelTabBar({
             items={panel.tabOrder}
             strategy={horizontalListSortingStrategy}
           > */}
-            {/* Tabs */}
-            {panel.tabOrder.map((tabId, index) => {
-              const tab = panel.tabs.get(tabId);
-              if (!tab) return null;
-              
-              const isActive = panel.activeTabId === tabId;
-              
-              return (
-                <DraggableTab
-                  key={tabId}
-                  tab={tab}
-                  isActive={isActive}
-                  index={index}
-                  onSelect={() => onTabSelect(tabId)}
-                  onClose={() => onTabClose(tabId)}
-                />
-              );
-            })}
+          {/* Tabs */}
+          {panel.tabOrder.map((tabId, index) => {
+            const tab = panel.tabs.get(tabId);
+            if (!tab) return null;
+
+            const isActive = panel.activeTabId === tabId;
+
+            return (
+              <DraggableTab
+                key={tabId}
+                tab={tab}
+                isActive={isActive}
+                index={index}
+                onSelect={() => {
+                  onTabSelect(tabId);
+                }}
+                onClose={() => {
+                  onTabClose(tabId);
+                }}
+              />
+            );
+          })}
           {/* </SortableContext> */}
         </div>
       </div>
-      
+
       {/* Sticky New Tab Button */}
       <button
         className="flex items-center justify-center h-9 min-w-[36px] px-2 hover:bg-muted/50 transition-colors border-l bg-background flex-shrink-0 sticky right-0 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]"
