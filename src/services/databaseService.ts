@@ -43,6 +43,17 @@ export interface FunctionMeta {
   arguments: string[];
 }
 
+export interface TriggerMeta {
+  name: string;
+  event: string;      // INSERT, UPDATE, DELETE, TRUNCATE
+  timing: string;     // BEFORE, AFTER, INSTEAD OF
+  level: string;      // ROW, STATEMENT
+  enabled: boolean;
+  function: string;
+  condition?: string;
+  created?: string;
+}
+
 export interface ColumnMeta {
   name: string;
   db_type: string;
@@ -259,6 +270,28 @@ class DatabaseService {
       });
     } catch (error) {
       console.error("Failed to list functions:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get table triggers metadata
+   */
+  async listTriggers(
+    connectionId: string,
+    database: string,
+    schema: string,
+    table: string
+  ): Promise<TriggerMeta[]> {
+    try {
+      return await invoke<TriggerMeta[]>("db_table_triggers", {
+        connectionId: connectionId,
+        database,
+        schema,
+        table,
+      });
+    } catch (error) {
+      console.error("Failed to list triggers:", error);
       throw error;
     }
   }

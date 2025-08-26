@@ -68,6 +68,7 @@ pub fn run() {
             commands::database::db_list_functions,
             commands::database::db_table_columns,
             commands::database::db_table_indexes,
+            commands::database::db_table_triggers,
             commands::database::db_query_begin,
             commands::database::db_query_fetch,
             commands::database::db_query_cancel,

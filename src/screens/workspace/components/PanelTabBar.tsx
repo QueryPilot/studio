@@ -21,7 +21,7 @@ export function PanelTabBar({
 }: PanelTabBarProps) {
   return (
     <div
-      className="flex items-center h-9 border-b bg-background relative"
+      className="flex items-center h-8 border-b bg-background relative"
       id={`panel-${panel.id}`}
       data-panel-id={panel.id}
       data-type="panel"
@@ -62,11 +62,11 @@ export function PanelTabBar({
 
       {/* Sticky New Tab Button */}
       <button
-        className="flex items-center justify-center h-9 min-w-[36px] px-2 hover:bg-muted/50 transition-colors border-l bg-background flex-shrink-0 sticky right-0 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]"
+        className="flex items-center justify-center h-8 min-w-[36px] px-2 hover:bg-muted/50 transition-colors border-l bg-background flex-shrink-0 sticky right-0 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]"
         onClick={onNewTab}
         title="New Tab"
       >
-        <Plus className="h-4 w-4 text-muted-foreground" />
+        <Plus className="h-3.5 w-3.5 text-muted-foreground" />
       </button>
     </div>
   );

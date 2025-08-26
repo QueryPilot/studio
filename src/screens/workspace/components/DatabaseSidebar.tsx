@@ -9,6 +9,8 @@ import {
   ChevronRight,
   RefreshCw,
   AlertCircle,
+  Bolt,
+  BookMarked,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePanelStore } from "@/stores/panelStore";
@@ -50,7 +52,7 @@ export function DatabaseSidebar({
     functions: [],
   });
 
-  const { getPrimaryPanel, addTabToPanel, setActiveTabInPanel } =
+  const { getPrimaryPanel, addTabToPanel, setActiveTabInPanel, updateTabInPanel } =
     usePanelStore();
 
   // Load schema data when schema changes
@@ -133,7 +135,7 @@ export function DatabaseSidebar({
     setExpandedNodes(newExpanded);
   };
 
-  const handleTableClick = (table: TableMeta) => {
+  const handleTableClick = (table: TableMeta, viewType: "data" | "structure" | "indexes" = "data") => {
     const primaryPanel = getPrimaryPanel();
     if (!primaryPanel) return;
 
@@ -146,10 +148,17 @@ export function DatabaseSidebar({
     );
 
     if (existingTab) {
-      // If tab exists, just activate it
+      // If tab exists, just activate it and set the view type
       setActiveTabInPanel(primaryPanel.id, existingTab.id);
+      // Update the tab's active view
+      updateTabInPanel(primaryPanel.id, existingTab.id, {
+        payload: {
+          ...existingTab.payload,
+          activeView: viewType,
+        },
+      });
     } else {
-      // Create new table tab
+      // Create new table tab with specified view
       addTabToPanel(primaryPanel.id, {
         type: "table",
         connectionId,
@@ -159,6 +168,7 @@ export function DatabaseSidebar({
           schema: table.schema,
           tableName: table.name,
           isView: table.kind !== "Table",
+          activeView: viewType,
         },
       });
     }
@@ -225,14 +235,14 @@ export function DatabaseSidebar({
   return (
     <div className="flex flex-col h-full">
       {/* Search Input and Refresh */}
-      <div className="px-2 py-1 border-b">
+      <div className="p-1 border-b h-8">
         <div className="flex gap-1">
           <div className="relative flex-1">
-            <Search className="absolute left-1.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+            <Search className="absolute left-1.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               type="text"
               placeholder="Search objects..."
-              className="pl-6 h-6 text-xs"
+              className="pl-6 h-6 !text-xs"
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
@@ -272,7 +282,7 @@ export function DatabaseSidebar({
             <div>
               <div className="sticky top-0 bg-background z-30">
                 <button
-                  className="flex items-center gap-1.5 w-full text-left bg-muted/50 p-1.5 rounded text-sm backdrop-blur-md"
+                  className="flex items-center gap-1.5 w-full text-left bg-muted/50 p-1.5 rounded text-xs backdrop-blur-md"
                   onClick={() => {
                     toggleNode("tables");
                   }}
@@ -282,7 +292,7 @@ export function DatabaseSidebar({
                   ) : (
                     <ChevronRight className="h-4 w-4" />
                   )}
-                  <span className="font-medium">Tables</span>
+                  <span className="font-medium text-xs">Tables</span>
                   <span className="text-xs text-muted-foreground ml-auto">
                     {schemaData.tables.length}
                   </span>
@@ -293,20 +303,42 @@ export function DatabaseSidebar({
                   {filterItems(schemaData.tables).map((table) => (
                     <div
                       key={`${table.schema}.${table.name}`}
-                      className="flex items-center gap-1.5 p-1 hover:bg-muted/50 rounded cursor-pointer min-w-fit"
-                      onClick={() => {
-                        handleTableClick(table);
-                      }}
+                      className="group flex items-center gap-1.5 p-1 hover:bg-muted/50 rounded cursor-pointer min-w-fit"
                     >
                       <Table className="h-3.5 w-4 min-w-4 text-blue-500 flex-shrink-0" />
-                      <span className="text-sm whitespace-nowrap">
+                      <span 
+                        className="text-xs whitespace-nowrap flex-1"
+                        onClick={() => handleTableClick(table, "data")}
+                      >
                         {table.name}
                       </span>
                       {!!table.row_estimate && (
-                        <span className="text-xs text-muted-foreground ml-auto whitespace-nowrap">
+                        <span className="text-xs text-muted-foreground whitespace-nowrap mr-1">
                           ~{table.row_estimate.toLocaleString()}
                         </span>
                       )}
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          className="p-0.5 hover:bg-muted rounded"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTableClick(table, "structure");
+                          }}
+                          title="View Structure"
+                        >
+                          <Bolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                        </button>
+                        <button
+                          className="p-0.5 hover:bg-muted rounded"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTableClick(table, "indexes");
+                          }}
+                          title="View Indexes"
+                        >
+                          <BookMarked className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -319,7 +351,7 @@ export function DatabaseSidebar({
             <div>
               <div className="sticky top-0 bg-background z-20">
                 <button
-                  className="flex items-center gap-1.5 w-full text-left bg-muted/50 p-1.5 rounded text-sm backdrop-blur-md"
+                  className="flex items-center gap-1.5 w-full text-left bg-muted/50 p-1.5 rounded text-xs backdrop-blur-md"
                   onClick={() => {
                     toggleNode("views");
                   }}
@@ -329,7 +361,7 @@ export function DatabaseSidebar({
                   ) : (
                     <ChevronRight className="h-4 w-4" />
                   )}
-                  <span className="font-medium">Views</span>
+                  <span className="font-medium text-xs">Views</span>
                   <span className="text-xs text-muted-foreground ml-auto">
                     {schemaData.views.length}
                   </span>
@@ -340,15 +372,37 @@ export function DatabaseSidebar({
                   {filterItems(schemaData.views).map((view) => (
                     <div
                       key={`${view.schema}.${view.name}`}
-                      className="flex items-center gap-1.5 p-1 hover:bg-muted/50 rounded cursor-pointer min-w-fit"
-                      onClick={() => {
-                        handleTableClick(view);
-                      }}
+                      className="group flex items-center gap-1.5 p-1 hover:bg-muted/50 rounded cursor-pointer min-w-fit"
                     >
                       <Eye className="h-4 min-h-4 w-4 min-w-4 text-green-500 flex-shrink-0" />
-                      <span className="text-sm whitespace-nowrap">
+                      <span 
+                        className="text-xs whitespace-nowrap flex-1"
+                        onClick={() => handleTableClick(view, "data")}
+                      >
                         {view.name}
                       </span>
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          className="p-0.5 hover:bg-muted rounded"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTableClick(view, "structure");
+                          }}
+                          title="View Structure"
+                        >
+                          <Bolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                        </button>
+                        <button
+                          className="p-0.5 hover:bg-muted rounded"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTableClick(view, "indexes");
+                          }}
+                          title="View Indexes"
+                        >
+                          <BookMarked className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -361,7 +415,7 @@ export function DatabaseSidebar({
             <div>
               <div className="sticky top-0 bg-background z-10">
                 <button
-                  className="flex items-center gap-1.5 w-full text-left bg-muted/50 p-1.5 rounded text-sm backdrop-blur-md"
+                  className="flex items-center gap-1.5 w-full text-left bg-muted/50 p-1.5 rounded text-xs backdrop-blur-md"
                   onClick={() => {
                     toggleNode("functions");
                   }}
@@ -371,7 +425,7 @@ export function DatabaseSidebar({
                   ) : (
                     <ChevronRight className="h-4 w-4" />
                   )}
-                  <span className="font-medium">Functions</span>
+                  <span className="font-medium text-xs">Functions</span>
                   <span className="text-xs text-muted-foreground ml-auto">
                     {schemaData.functions.length}
                   </span>
@@ -390,7 +444,7 @@ export function DatabaseSidebar({
                       }}
                     >
                       <FunctionSquare className="h-3.5 w-4 min-w-4 text-purple-500 flex-shrink-0" />
-                      <span className="text-sm whitespace-nowrap">
+                      <span className="text-xs whitespace-nowrap">
                         {func.name}
                       </span>
                     </div>
@@ -406,7 +460,7 @@ export function DatabaseSidebar({
             schemaData.views.length === 0 &&
             schemaData.functions.length === 0 && (
               <div className="text-center py-4">
-                <p className="text-sm text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   {selectedSchema ? "No objects found" : "Select a schema"}
                 </p>
               </div>

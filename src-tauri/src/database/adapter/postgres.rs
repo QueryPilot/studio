@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use std::collections::HashMap;
 use uuid::Uuid;
 use chrono::{DateTime, NaiveDateTime, NaiveDate, NaiveTime, Utc};
+use sqlx::postgres::types::PgRange;
 use rust_decimal::Decimal;
 
 use crate::error::AppError;
@@ -241,6 +242,57 @@ impl DbAdapter for PostgresAdapter {
         }
         
         Ok(columns)
+    }
+
+    async fn table_triggers(&self, _database: &str, schema: &str, table: &str) -> Result<Vec<super::TriggerMeta>, AppError> {
+        let rows = sqlx::query(
+            r#"SELECT 
+                t.trigger_name,
+                t.event_manipulation,
+                t.action_timing,
+                CASE WHEN t.action_orientation IS NULL THEN 'STATEMENT' ELSE t.action_orientation END as action_orientation,
+                CASE WHEN pg_t.tgenabled = 'O' THEN true ELSE false END as enabled,
+                t.action_statement,
+                t.action_condition,
+                NULL::text as created
+            FROM information_schema.triggers t
+            LEFT JOIN pg_trigger pg_t ON pg_t.tgname = t.trigger_name
+            LEFT JOIN pg_class pc ON pc.oid = pg_t.tgrelid AND pc.relname = t.event_object_table
+            LEFT JOIN pg_namespace n ON n.oid = pc.relnamespace AND n.nspname = t.event_object_schema
+            WHERE t.event_object_schema = $1 
+                AND t.event_object_table = $2
+            ORDER BY t.trigger_name"#
+        )
+        .bind(schema)
+        .bind(table)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::Database(format!("Failed to get table triggers: {}", e)))?;
+        
+        let mut triggers = Vec::new();
+        for row in rows {
+            let trigger_name: String = row.get(0);
+            let event: String = row.get(1);
+            let timing: String = row.get(2);
+            let level: String = row.get(3);
+            let enabled: bool = row.get(4);
+            let function: String = row.get(5);
+            let condition: Option<String> = row.get(6);
+            let created: Option<String> = row.get(7);
+            
+            triggers.push(super::TriggerMeta {
+                name: trigger_name,
+                event,
+                timing,
+                level,
+                enabled,
+                function,
+                condition,
+                created,
+            });
+        }
+        
+        Ok(triggers)
     }
 
     async fn estimate_count(&self, _database: &str, schema: &str, table: &str) -> Result<i64, AppError> {
@@ -781,29 +833,301 @@ impl PostgresAdapter {
             
             // Network address types
             "INET" | "CIDR" => {
-                let value: String = row.try_get(column_index)
-                    .map_err(|e| AppError::Database(format!("Failed to get network address: {}", e)))?;
-                Ok(CellValue::text(value, type_name))
+                use std::net::IpAddr;
+                
+                // Try to get as IpAddr first (for INET type)
+                if let Ok(ip_addr) = row.try_get::<IpAddr, _>(column_index) {
+                    Ok(CellValue::text(ip_addr.to_string(), type_name))
+                } else if let Ok(value) = row.try_get::<String, _>(column_index) {
+                    // Most commonly this works - PostgreSQL can cast INET/CIDR to text
+                    Ok(CellValue::text(value, type_name))
+                } else {
+                    // Last resort: check if NULL
+                    let value_ref = row.try_get_raw(column_index)
+                        .map_err(|e| AppError::Database(format!("Failed to get raw {}: {}", type_name, e)))?;
+                    
+                    if value_ref.is_null() {
+                        return Ok(CellValue::null(type_name));
+                    }
+                    
+                    // For INET/CIDR that can't be converted, return a placeholder
+                    Ok(CellValue::text(format!("<{} data>", type_name), type_name))
+                }
+            }
+
+            // Range types
+            "TSTZRANGE" => {
+                // Handle TSTZRANGE with proper PgRange type
+                if let Ok(range) = row.try_get::<PgRange<DateTime<Utc>>, _>(column_index) {
+                    use std::ops::Bound;
+                    
+                    // PgRange has start and end fields, not enum variants
+                    let start_str = match &range.start {
+                        Bound::Included(dt) => dt.format("%Y-%m-%d %H:%M:%S %Z").to_string(),
+                        Bound::Excluded(dt) => format!("({}", dt.format("%Y-%m-%d %H:%M:%S %Z")),
+                        Bound::Unbounded => "-∞".to_string(),
+                    };
+                    let end_str = match &range.end {
+                        Bound::Included(dt) => dt.format("%Y-%m-%d %H:%M:%S %Z").to_string(),
+                        Bound::Excluded(dt) => format!("{})", dt.format("%Y-%m-%d %H:%M:%S %Z")),
+                        Bound::Unbounded => "+∞".to_string(),
+                    };
+                    let range_str = format!("{} → {}", start_str, end_str);
+                    
+                    Ok(CellValue::text(range_str, type_name))
+                } else {
+                    // Fallback if PgRange doesn't work
+                    let value_ref = row.try_get_raw(column_index)
+                        .map_err(|e| AppError::Database(format!("Failed to get raw TSTZRANGE: {}", e)))?;
+                    
+                    if value_ref.is_null() {
+                        return Ok(CellValue::null(type_name));
+                    }
+                    
+                    Ok(CellValue::text("<TSTZRANGE - unable to parse>".to_string(), type_name))
+                }
+            }
+            
+            "TSRANGE" => {
+                // Handle TSRANGE with PgRange<NaiveDateTime>
+                if let Ok(range) = row.try_get::<PgRange<NaiveDateTime>, _>(column_index) {
+                    use std::ops::Bound;
+                    
+                    // PgRange has start and end fields
+                    let start_str = match &range.start {
+                        Bound::Included(dt) => dt.format("%Y-%m-%d %H:%M:%S").to_string(),
+                        Bound::Excluded(dt) => format!("({}", dt.format("%Y-%m-%d %H:%M:%S")),
+                        Bound::Unbounded => "-∞".to_string(),
+                    };
+                    let end_str = match &range.end {
+                        Bound::Included(dt) => dt.format("%Y-%m-%d %H:%M:%S").to_string(),
+                        Bound::Excluded(dt) => format!("{})", dt.format("%Y-%m-%d %H:%M:%S")),
+                        Bound::Unbounded => "+∞".to_string(),
+                    };
+                    let range_str = format!("{} → {}", start_str, end_str);
+                    Ok(CellValue::text(range_str, type_name))
+                } else {
+                    let value_ref = row.try_get_raw(column_index)
+                        .map_err(|e| AppError::Database(format!("Failed to get raw TSRANGE: {}", e)))?;
+                    
+                    if value_ref.is_null() {
+                        return Ok(CellValue::null(type_name));
+                    }
+                    
+                    Ok(CellValue::text("<TSRANGE - unable to parse>".to_string(), type_name))
+                }
+            }
+            
+            "DATERANGE" => {
+                // Handle DATERANGE with PgRange<NaiveDate>
+                if let Ok(range) = row.try_get::<PgRange<NaiveDate>, _>(column_index) {
+                    use std::ops::Bound;
+                    
+                    // PgRange has start and end fields
+                    let start_str = match &range.start {
+                        Bound::Included(d) => d.format("%Y-%m-%d").to_string(),
+                        Bound::Excluded(d) => format!("({}", d.format("%Y-%m-%d")),
+                        Bound::Unbounded => "-∞".to_string(),
+                    };
+                    let end_str = match &range.end {
+                        Bound::Included(d) => d.format("%Y-%m-%d").to_string(),
+                        Bound::Excluded(d) => format!("{})", d.format("%Y-%m-%d")),
+                        Bound::Unbounded => "+∞".to_string(),
+                    };
+                    let range_str = format!("{} → {}", start_str, end_str);
+                    Ok(CellValue::text(range_str, type_name))
+                } else {
+                    let value_ref = row.try_get_raw(column_index)
+                        .map_err(|e| AppError::Database(format!("Failed to get raw DATERANGE: {}", e)))?;
+                    
+                    if value_ref.is_null() {
+                        return Ok(CellValue::null(type_name));
+                    }
+                    
+                    Ok(CellValue::text("<DATERANGE - unable to parse>".to_string(), type_name))
+                }
+            }
+            
+            "INT4RANGE" | "INT8RANGE" | "NUMRANGE" => {
+                // For numeric ranges, try string conversion first
+                // First check if NULL
+                let value_ref = row.try_get_raw(column_index)
+                    .map_err(|e| AppError::Database(format!("Failed to get raw {}: {}", type_name, e)))?;
+                
+                if value_ref.is_null() {
+                    return Ok(CellValue::null(type_name));
+                }
+                
+                // Try to decode the raw bytes as UTF-8 string
+                // PostgreSQL might return the text representation in raw bytes
+                let value_string = if let Ok(value) = row.try_get::<String, _>(column_index) {
+                    value
+                } else {
+                    // Try to get raw bytes and decode as UTF-8
+                    match value_ref.as_bytes() {
+                        Ok(bytes) => {
+                            match std::str::from_utf8(bytes) {
+                                Ok(s) => s.to_string(),
+                                Err(_) => {
+                                    // If we can't decode, return informative message
+                                    return Ok(CellValue::text(
+                                        format!("<{} - cast to ::text in query for proper display>", type_name), 
+                                        type_name
+                                    ));
+                                }
+                            }
+                        },
+                        Err(_) => {
+                            return Ok(CellValue::text(
+                                format!("<{} - cast to ::text in query for proper display>", type_name), 
+                                type_name
+                            ));
+                        }
+                    }
+                };
+                
+                // Now parse the range format with the extracted string
+                {
+                    let value = value_string;
+                    // Parse the range format and convert to a more readable format
+                    let formatted_value = if value == "empty" {
+                        "empty".to_string()
+                    } else if value.starts_with('[') || value.starts_with('(') {
+                        // Parse PostgreSQL range format: [start,end) or (start,end] etc.
+                        let mut chars = value.chars();
+                        let start_bracket = chars.next().unwrap_or('[');
+                        let content = chars.as_str();
+                        
+                        if let Some(comma_pos) = content.find(',') {
+                            let start = &content[..comma_pos];
+                            let end_part = &content[comma_pos + 1..];
+                            let end = end_part.trim_end_matches(')').trim_end_matches(']');
+                            
+                            // Format based on type
+                            match type_name {
+                                "TSTZRANGE" | "TSRANGE" => {
+                                    // For timestamp ranges, format as "start → end"
+                                    if start.is_empty() || start == "\"\"" {
+                                        if end.is_empty() || end == "\"\"" {
+                                            "unbounded".to_string()
+                                        } else {
+                                            format!("... → {}", end.trim_matches('"'))
+                                        }
+                                    } else if end.is_empty() || end == "\"\"" {
+                                        format!("{} → ...", start.trim_matches('"'))
+                                    } else {
+                                        format!("{} → {}", start.trim_matches('"'), end.trim_matches('"'))
+                                    }
+                                },
+                                "DATERANGE" => {
+                                    // For date ranges, format similarly
+                                    if start.is_empty() {
+                                        if end.is_empty() {
+                                            "unbounded".to_string()
+                                        } else {
+                                            format!("... → {}", end)
+                                        }
+                                    } else if end.is_empty() {
+                                        format!("{} → ...", start)
+                                    } else {
+                                        format!("{} → {}", start, end)
+                                    }
+                                },
+                                _ => {
+                                    // For numeric ranges, keep bracket notation but simplify
+                                    format!("{}{},{}{}", 
+                                        start_bracket,
+                                        if start.is_empty() { "∞" } else { start },
+                                        if end.is_empty() { "∞" } else { end },
+                                        content.chars().last().unwrap_or(')')
+                                    )
+                                }
+                            }
+                        } else {
+                            value // If we can't parse, return original
+                        }
+                    } else {
+                        value // Return original if not in expected format
+                    };
+                    
+                    Ok(CellValue::text(formatted_value, type_name))
+                }
             }
             
             // MAC address type
             "MACADDR" | "MACADDR8" => {
-                let value: String = row.try_get(column_index)
-                    .map_err(|e| AppError::Database(format!("Failed to get MAC address: {}", e)))?;
-                Ok(CellValue::text(value, type_name))
+                // Check if NULL first
+                let value_ref = row.try_get_raw(column_index)
+                    .map_err(|e| AppError::Database(format!("Failed to get raw MAC address: {}", e)))?;
+                
+                if value_ref.is_null() {
+                    return Ok(CellValue::null(type_name));
+                }
+                
+                // Try to decode as string, if that fails use raw bytes
+                if let Ok(value) = row.try_get::<String, _>(column_index) {
+                    Ok(CellValue::text(value, type_name))
+                } else {
+                    // Get raw bytes and convert to UTF-8
+                    let bytes = value_ref.as_bytes()
+                        .map_err(|e| AppError::Database(format!("Failed to get bytes for {}: {}", type_name, e)))?;
+                    
+                    let value_str = std::str::from_utf8(bytes)
+                        .map_err(|e| AppError::Database(format!("Failed to decode {} as UTF-8: {}", type_name, e)))?
+                        .to_string();
+                    
+                    Ok(CellValue::text(value_str, type_name))
+                }
             }
             
             // Bit types
             "BIT" | "VARBIT" => {
-                let value: String = row.try_get(column_index)
-                    .map_err(|e| AppError::Database(format!("Failed to get bit string: {}", e)))?;
-                Ok(CellValue::text(value, type_name))
+                // Check if NULL first
+                let value_ref = row.try_get_raw(column_index)
+                    .map_err(|e| AppError::Database(format!("Failed to get raw bit string: {}", e)))?;
+                
+                if value_ref.is_null() {
+                    return Ok(CellValue::null(type_name));
+                }
+                
+                // Try to decode as string, if that fails use raw bytes
+                if let Ok(value) = row.try_get::<String, _>(column_index) {
+                    Ok(CellValue::text(value, type_name))
+                } else {
+                    // Get raw bytes and convert to UTF-8
+                    let bytes = value_ref.as_bytes()
+                        .map_err(|e| AppError::Database(format!("Failed to get bytes for {}: {}", type_name, e)))?;
+                    
+                    let value_str = std::str::from_utf8(bytes)
+                        .map_err(|e| AppError::Database(format!("Failed to decode {} as UTF-8: {}", type_name, e)))?
+                        .to_string();
+                    
+                    Ok(CellValue::text(value_str, type_name))
+                }
             }
             
             // Geometric types
             "POINT" | "LINE" | "LSEG" | "BOX" | "PATH" | "POLYGON" | "CIRCLE" => {
-                let value: String = row.try_get(column_index)
-                    .map_err(|e| AppError::Database(format!("Failed to get geometry: {}", e)))?;
+                // Check if NULL first
+                let value_ref = row.try_get_raw(column_index)
+                    .map_err(|e| AppError::Database(format!("Failed to get raw geometry: {}", e)))?;
+                
+                if value_ref.is_null() {
+                    return Ok(CellValue::null(type_name));
+                }
+                
+                // Try to decode as string, if that fails use raw bytes
+                let value = if let Ok(val) = row.try_get::<String, _>(column_index) {
+                    val
+                } else {
+                    // Get raw bytes and convert to UTF-8
+                    let bytes = value_ref.as_bytes()
+                        .map_err(|e| AppError::Database(format!("Failed to get bytes for {}: {}", type_name, e)))?;
+                    
+                    std::str::from_utf8(bytes)
+                        .map_err(|e| AppError::Database(format!("Failed to decode {} as UTF-8: {}", type_name, e)))?
+                        .to_string()
+                };
                 
                 Ok(CellValue {
                     value: Some(serde_json::Value::String(value)),
@@ -831,52 +1155,191 @@ impl PostgresAdapter {
             }
             
             // Array types (PostgreSQL arrays)
-            type_name if type_name.starts_with('_') => {
-                // PostgreSQL array types start with underscore
-                let element_type = &type_name[1..]; // Remove the underscore
-                let value: String = row.try_get(column_index)
-                    .map_err(|e| AppError::Database(format!("Failed to get array: {}", e)))?;
-                
-                let metadata = CellMetadata {
-                    precision: None,
-                    scale: None,
-                    max_length: None,
-                    charset: None,
-                    timezone: None,
-                    element_type: Some(element_type.to_string()),
-                    srid: None,
-                    enum_values: None,
-                    attributes: None,
-                };
-                
-                // Try to parse array as JSON if possible
-                let array_value = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&format!("[{}]", value.trim_matches(&['{', '}']))) {
-                    parsed
+            type_name if type_name.starts_with('_') || type_name.ends_with("[]") => {
+                // PostgreSQL array types start with underscore or end with []
+                let element_type = if type_name.starts_with('_') {
+                    &type_name[1..] // Remove the underscore
                 } else {
-                    serde_json::Value::String(value)
+                    &type_name[..type_name.len()-2] // Remove the []
                 };
                 
-                Ok(CellValue {
-                    value: Some(array_value),
-                    db_type: type_name.to_string(),
-                    value_type: CellValueType::Array,
-                    metadata: Some(metadata),
-                    is_truncated: false,
-                    byte_size: None,
-                })
+                // Handle different array types
+                match element_type.to_uppercase().as_str() {
+                    "INT4" | "INTEGER" => {
+                        if let Ok(array) = row.try_get::<Vec<i32>, _>(column_index) {
+                            Ok(CellValue {
+                                value: Some(serde_json::json!(array)),
+                                db_type: type_name.to_string(),
+                                value_type: CellValueType::Array,
+                                metadata: Some(CellMetadata {
+                                    element_type: Some(element_type.to_string()),
+                                    ..Default::default()
+                                }),
+                                is_truncated: false,
+                                byte_size: None,
+                            })
+                        } else if let Ok(value) = row.try_get::<String, _>(column_index) {
+                            // Fallback to string representation
+                            Ok(CellValue::text(value, type_name))
+                        } else {
+                            Ok(CellValue::text(format!("<{} array>", element_type), type_name))
+                        }
+                    },
+                    "INT8" | "BIGINT" => {
+                        if let Ok(array) = row.try_get::<Vec<i64>, _>(column_index) {
+                            Ok(CellValue {
+                                value: Some(serde_json::json!(array)),
+                                db_type: type_name.to_string(),
+                                value_type: CellValueType::Array,
+                                metadata: Some(CellMetadata {
+                                    element_type: Some(element_type.to_string()),
+                                    ..Default::default()
+                                }),
+                                is_truncated: false,
+                                byte_size: None,
+                            })
+                        } else if let Ok(value) = row.try_get::<String, _>(column_index) {
+                            Ok(CellValue::text(value, type_name))
+                        } else {
+                            Ok(CellValue::text(format!("<{} array>", element_type), type_name))
+                        }
+                    },
+                    "TEXT" | "VARCHAR" => {
+                        if let Ok(array) = row.try_get::<Vec<String>, _>(column_index) {
+                            Ok(CellValue {
+                                value: Some(serde_json::json!(array)),
+                                db_type: type_name.to_string(),
+                                value_type: CellValueType::Array,
+                                metadata: Some(CellMetadata {
+                                    element_type: Some(element_type.to_string()),
+                                    ..Default::default()
+                                }),
+                                is_truncated: false,
+                                byte_size: None,
+                            })
+                        } else if let Ok(value) = row.try_get::<String, _>(column_index) {
+                            Ok(CellValue::text(value, type_name))
+                        } else {
+                            Ok(CellValue::text(format!("<{} array>", element_type), type_name))
+                        }
+                    },
+                    "FLOAT4" | "REAL" => {
+                        if let Ok(array) = row.try_get::<Vec<f32>, _>(column_index) {
+                            Ok(CellValue {
+                                value: Some(serde_json::json!(array)),
+                                db_type: type_name.to_string(),
+                                value_type: CellValueType::Array,
+                                metadata: Some(CellMetadata {
+                                    element_type: Some(element_type.to_string()),
+                                    ..Default::default()
+                                }),
+                                is_truncated: false,
+                                byte_size: None,
+                            })
+                        } else if let Ok(value) = row.try_get::<String, _>(column_index) {
+                            Ok(CellValue::text(value, type_name))
+                        } else {
+                            Ok(CellValue::text(format!("<{} array>", element_type), type_name))
+                        }
+                    },
+                    "FLOAT8" | "DOUBLE PRECISION" => {
+                        if let Ok(array) = row.try_get::<Vec<f64>, _>(column_index) {
+                            Ok(CellValue {
+                                value: Some(serde_json::json!(array)),
+                                db_type: type_name.to_string(),
+                                value_type: CellValueType::Array,
+                                metadata: Some(CellMetadata {
+                                    element_type: Some(element_type.to_string()),
+                                    ..Default::default()
+                                }),
+                                is_truncated: false,
+                                byte_size: None,
+                            })
+                        } else if let Ok(value) = row.try_get::<String, _>(column_index) {
+                            Ok(CellValue::text(value, type_name))
+                        } else {
+                            Ok(CellValue::text(format!("<{} array>", element_type), type_name))
+                        }
+                    },
+                    "BOOL" | "BOOLEAN" => {
+                        if let Ok(array) = row.try_get::<Vec<bool>, _>(column_index) {
+                            Ok(CellValue {
+                                value: Some(serde_json::json!(array)),
+                                db_type: type_name.to_string(),
+                                value_type: CellValueType::Array,
+                                metadata: Some(CellMetadata {
+                                    element_type: Some(element_type.to_string()),
+                                    ..Default::default()
+                                }),
+                                is_truncated: false,
+                                byte_size: None,
+                            })
+                        } else if let Ok(value) = row.try_get::<String, _>(column_index) {
+                            Ok(CellValue::text(value, type_name))
+                        } else {
+                            Ok(CellValue::text(format!("<{} array>", element_type), type_name))
+                        }
+                    },
+                    _ => {
+                        // Generic fallback for other array types
+                        if let Ok(value) = row.try_get::<String, _>(column_index) {
+                            // Try to parse PostgreSQL array format into JSON
+                            let json_value = if value.starts_with('{') && value.ends_with('}') {
+                                let inner = value.trim_matches(&['{', '}']);
+                                if inner.is_empty() {
+                                    serde_json::json!([])
+                                } else {
+                                    // Split by comma but handle quoted values
+                                    let elements: Vec<_> = inner.split(',').map(|s| s.trim().to_string()).collect();
+                                    serde_json::json!(elements)
+                                }
+                            } else {
+                                serde_json::Value::String(value)
+                            };
+                            
+                            Ok(CellValue {
+                                value: Some(json_value),
+                                db_type: type_name.to_string(),
+                                value_type: CellValueType::Array,
+                                metadata: Some(CellMetadata {
+                                    element_type: Some(element_type.to_string()),
+                                    ..Default::default()
+                                }),
+                                is_truncated: false,
+                                byte_size: None,
+                            })
+                        } else {
+                            Ok(CellValue::text(format!("<{} array>", element_type), type_name))
+                        }
+                    }
+                }
             }
             
             // Money type
             "MONEY" => {
-                let value: String = row.try_get(column_index)
-                    .map_err(|e| AppError::Database(format!("Failed to get money: {}", e)))?;
+                // PostgreSQL MONEY type needs special handling
+                // sqlx doesn't directly support MONEY to String conversion
+                // We need to use Decimal for proper handling
                 
-                // Parse money value (remove currency symbol)
-                let cleaned = value.trim_start_matches('$').replace(',', "");
-                if let Ok(decimal_val) = cleaned.parse::<f64>() {
-                    Ok(CellValue::decimal(decimal_val, type_name, Some(19), Some(2)))
+                // First check if NULL
+                let value_ref = row.try_get_raw(column_index)
+                    .map_err(|e| AppError::Database(format!("Failed to get raw money value: {}", e)))?;
+                
+                if value_ref.is_null() {
+                    return Ok(CellValue::null(type_name));
+                }
+                
+                // Try to decode as Decimal (which sqlx supports for MONEY type)
+                if let Ok(decimal_val) = row.try_get::<Decimal, _>(column_index) {
+                    // Convert Decimal to f64 for our CellValue
+                    let value = decimal_val.to_string().parse::<f64>()
+                        .unwrap_or(0.0);
+                    
+                    Ok(CellValue::decimal(value, type_name, Some(19), Some(2)))
                 } else {
-                    Ok(CellValue::text(value, type_name))
+                    // Fallback: If Decimal doesn't work, return a default representation
+                    // This shouldn't happen with properly configured sqlx
+                    Ok(CellValue::decimal(0.0, type_name, Some(19), Some(2)))
                 }
             }
             
@@ -887,22 +1350,310 @@ impl PostgresAdapter {
                 Ok(CellValue::text(value, type_name))
             }
             
-            // Default case for unknown or custom types
-            _ => {
-                // Try to get as string for any unknown type
-                let value: String = row.try_get(column_index)
-                    .map_err(|e| AppError::Database(format!("Failed to get unknown type as string: {}", e)))?;
+            // Full-text search vector types
+            "TSVECTOR" | "TSQUERY" | "tsvector" | "tsquery" => {
+                // PostgreSQL text search types
+                // SQLx cannot decode these directly to String, they need ::text cast
+                // We'll try to get raw bytes first, then fall back to error handling
+                let value_ref = row.try_get_raw(column_index)
+                    .map_err(|e| AppError::Database(format!("Failed to get raw {}: {}", type_name, e)))?;
                 
-                // Check if it might be an enum by checking if it's a custom type
-                let value_type = if type_name.chars().all(|c| c.is_alphanumeric() || c == '_') 
-                    && !type_name.chars().next().unwrap_or('0').is_numeric() {
+                if value_ref.is_null() {
+                    return Ok(CellValue::null(type_name));
+                }
+                
+                // For tsvector/tsquery, we need to inform the user to cast to text in their query
+                // since SQLx doesn't support direct decoding of these types
+                if let Ok(value) = row.try_get::<String, _>(column_index) {
+                    // Check if this is binary format (starts with null bytes or contains them)
+                    let cleaned_value = if value.starts_with("\0") || value.contains("\0\0\0") {
+                        // This is binary format, extract words from it
+                        // Binary format has structure: count(4 bytes) then for each word: length(4 bytes) + text
+                        let mut words = Vec::new();
+                        let bytes = value.as_bytes();
+                        let mut pos = 0;
+                        
+                        // Skip initial count bytes if present
+                        if bytes.len() > 4 && bytes[0..4] == [0, 0, 0, 2] {
+                            pos = 4; // Skip count
+                            
+                            while pos < bytes.len() {
+                                // Find the next null-terminated word
+                                if let Some(end) = bytes[pos..].iter().position(|&b| b == 0) {
+                                    let word_bytes = &bytes[pos..pos + end];
+                                    if !word_bytes.is_empty() && word_bytes.iter().all(|&b| b >= 32 || b == 9) {
+                                        if let Ok(word) = std::str::from_utf8(word_bytes) {
+                                            words.push(word.to_string());
+                                        }
+                                    }
+                                    pos += end + 1;
+                                    // Skip additional null bytes
+                                    while pos < bytes.len() && bytes[pos] == 0 {
+                                        pos += 1;
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        if words.is_empty() {
+                            // Fallback: extract readable ASCII text
+                            let readable: String = value.chars()
+                                .filter(|c| c.is_alphanumeric() || c.is_whitespace() || *c == '\'' || *c == '-')
+                                .collect();
+                            readable.trim().to_string()
+                        } else {
+                            words.join(", ")
+                        }
+                    } else if (type_name == "TSVECTOR" || type_name == "tsvector") && value.contains(':') {
+                        // Text format: 'word1':1,2 'word2':3
+                        let words: Vec<String> = value
+                            .split_whitespace()
+                            .filter_map(|token| {
+                                if let Some(colon_pos) = token.find(':') {
+                                    let word = &token[..colon_pos];
+                                    Some(word.trim_matches('\'').to_string())
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                        
+                        if words.is_empty() {
+                            value
+                        } else {
+                            words.join(", ")
+                        }
+                    } else {
+                        value
+                    };
+                    
+                    Ok(CellValue {
+                        value: Some(serde_json::Value::String(cleaned_value)),
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Text,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    })
+                } else {
+                    // SQLx cannot decode tsvector/tsquery directly
+                    // Inform user to use ::text cast in their query
+                    Ok(CellValue::text(format!("<{} - use ::text cast>", type_name), type_name))
+                }
+            }
+            
+            // HStore type - key-value store
+            "HSTORE" | "hstore" => {
+                // PostgreSQL hstore type stores key-value pairs
+                // SQLx cannot decode hstore directly to String, needs ::text cast
+                let value_ref = row.try_get_raw(column_index)
+                    .map_err(|e| AppError::Database(format!("Failed to get raw hstore: {}", e)))?;
+                
+                if value_ref.is_null() {
+                    return Ok(CellValue::null(type_name));
+                }
+                
+                // Try to get as string (only works if cast to text in query)
+                if let Ok(value) = row.try_get::<String, _>(column_index) {
+                    // Check if this is binary format (starts with null bytes)
+                    let json_value = if value.starts_with("\0") || value.contains("\0\0\0") {
+                        // This is binary hstore format
+                        // Format: count(4 bytes) then for each pair: key_len(4 bytes) key val_len(4 bytes) val
+                        let mut map = serde_json::Map::new();
+                        let bytes = value.as_bytes();
+                        let mut pos = 0;
+                        
+                        // Read the count of pairs (first 4 bytes, big-endian)
+                        if bytes.len() > 4 {
+                            // Skip count bytes
+                            pos = 4;
+                            
+                            while pos < bytes.len() {
+                                // Read key length (4 bytes)
+                                if pos + 4 > bytes.len() { break; }
+                                let key_len_bytes = &bytes[pos..pos + 4];
+                                pos += 4;
+                                
+                                // Parse key length (skip if it's all zeros or invalid)
+                                let key_len = if key_len_bytes == [0, 0, 0, 0] {
+                                    0
+                                } else {
+                                    // Try to parse as length
+                                    let len = u32::from_be_bytes([key_len_bytes[0], key_len_bytes[1], key_len_bytes[2], key_len_bytes[3]]) as usize;
+                                    if len > 1000 { // Sanity check
+                                        break;
+                                    }
+                                    len
+                                };
+                                
+                                if key_len == 0 || pos + key_len > bytes.len() { break; }
+                                
+                                // Read key
+                                let key_bytes = &bytes[pos..pos + key_len];
+                                if let Ok(key) = std::str::from_utf8(key_bytes) {
+                                    pos += key_len;
+                                    
+                                    // Read value length (4 bytes)
+                                    if pos + 4 > bytes.len() { break; }
+                                    let val_len_bytes = &bytes[pos..pos + 4];
+                                    pos += 4;
+                                    
+                                    let val_len = if val_len_bytes == [0, 0, 0, 0] {
+                                        0
+                                    } else {
+                                        let len = u32::from_be_bytes([val_len_bytes[0], val_len_bytes[1], val_len_bytes[2], val_len_bytes[3]]) as usize;
+                                        if len > 1000 { // Sanity check
+                                            break;
+                                        }
+                                        len
+                                    };
+                                    
+                                    if val_len == 0 || pos + val_len > bytes.len() { break; }
+                                    
+                                    // Read value
+                                    let val_bytes = &bytes[pos..pos + val_len];
+                                    if let Ok(val) = std::str::from_utf8(val_bytes) {
+                                        map.insert(key.to_string(), serde_json::Value::String(val.to_string()));
+                                    }
+                                    pos += val_len;
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // If we couldn't parse anything, try extracting readable text
+                        if map.is_empty() {
+                            // Extract any key=>value patterns from the readable text
+                            let readable: String = value.chars()
+                                .filter(|c| c.is_alphanumeric() || c.is_whitespace() || 
+                                        *c == '"' || *c == '=' || *c == '>' || *c == ',' || *c == '_' || *c == '-')
+                                .collect();
+                            
+                            // Try to parse text format
+                            if readable.contains("=>") {
+                                for pair in readable.split(',') {
+                                    if let Some(arrow_pos) = pair.find("=>") {
+                                        let key = pair[..arrow_pos].trim().trim_matches('"');
+                                        let val = pair[arrow_pos + 2..].trim().trim_matches('"');
+                                        if !key.is_empty() {
+                                            map.insert(key.to_string(), serde_json::Value::String(val.to_string()));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        serde_json::Value::Object(map)
+                    } else if !value.is_empty() {
+                        // Text format: "key"=>"value", "key2"=>"value2"
+                        let mut map = serde_json::Map::new();
+                        
+                        // Split by commas that are not inside quotes
+                        let pairs: Vec<&str> = value.split("\", \"")
+                            .map(|s| s.trim_matches('"'))
+                            .collect();
+                        
+                        for pair in pairs {
+                            if let Some(arrow_pos) = pair.find("=>") {
+                                let key = pair[..arrow_pos].trim().trim_matches('"');
+                                let val = pair[arrow_pos + 2..].trim().trim_matches('"');
+                                map.insert(key.to_string(), serde_json::Value::String(val.to_string()));
+                            } else if pair.contains("=>") {
+                                // Handle pairs that might have quotes in different positions
+                                let parts: Vec<&str> = pair.split("=>").collect();
+                                if parts.len() == 2 {
+                                    let key = parts[0].trim().trim_matches('"');
+                                    let val = parts[1].trim().trim_matches('"');
+                                    map.insert(key.to_string(), serde_json::Value::String(val.to_string()));
+                                }
+                            }
+                        }
+                        
+                        serde_json::Value::Object(map)
+                    } else {
+                        serde_json::Value::Object(serde_json::Map::new())
+                    };
+                    
+                    Ok(CellValue {
+                        value: Some(json_value),
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Json,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    })
+                } else {
+                    // SQLx cannot decode hstore directly
+                    // Inform user to use ::text cast in their query
+                    Ok(CellValue::text(format!("<hstore - use ::text cast>"), type_name))
+                }
+            }
+            
+            // Default case for unknown or custom types (including enums)
+            _ => {
+                // PostgreSQL enums and custom types need special handling
+                // They're not directly supported by sqlx's type system
+                
+                // First check if it's likely an enum type
+                let is_enum = type_name.chars().all(|c| c.is_alphanumeric() || c == '_') 
+                    && !type_name.chars().next().unwrap_or('0').is_numeric()
+                    && !type_name.contains("ARRAY")
+                    && !type_name.contains("[]");
+                
+                // For enums and custom types, we need to cast to text in the query
+                // But since we're already in the conversion phase, we'll handle it here
+                
+                // Try to get the raw value
+                let value_ref = row.try_get_raw(column_index)
+                    .map_err(|e| AppError::Database(format!("Failed to get raw value for {}: {}", type_name, e)))?;
+                
+                if value_ref.is_null() {
+                    return Ok(CellValue::null(type_name));
+                }
+                
+                // For unknown types, try direct string conversion first
+                // Only use raw bytes for enum types that are known to be text-based
+                if let Ok(string_value) = row.try_get::<String, _>(column_index) {
+                    return Ok(CellValue {
+                        value: Some(serde_json::Value::String(string_value)),
+                        db_type: type_name.to_string(),
+                        value_type: if is_enum { CellValueType::Enum } else { CellValueType::Unknown },
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
+
+                // Only try raw byte decoding for enum types
+                if !is_enum {
+                    // For non-enum unknown types, return a placeholder
+                    return Ok(CellValue::text(format!("<{} data>", type_name), type_name));
+                }
+
+                // For enum types, try raw byte decoding as they should be text-based
+                let bytes = value_ref.as_bytes()
+                    .map_err(|e| AppError::Database(format!("Failed to get bytes for {}: {}", type_name, e)))?;
+
+                // Try to decode as UTF-8, but handle failure gracefully
+                let value_str = match std::str::from_utf8(bytes) {
+                    Ok(s) => s.to_string(),
+                    Err(_) => {
+                        // If UTF-8 decoding fails, return a placeholder
+                        return Ok(CellValue::text(format!("<{} enum data>", type_name), type_name));
+                    }
+                };
+                
+                let value_type = if is_enum {
                     CellValueType::Enum
                 } else {
                     CellValueType::Unknown
                 };
                 
                 Ok(CellValue {
-                    value: Some(serde_json::Value::String(value)),
+                    value: Some(serde_json::Value::String(value_str)),
                     db_type: type_name.to_string(),
                     value_type,
                     metadata: None,
