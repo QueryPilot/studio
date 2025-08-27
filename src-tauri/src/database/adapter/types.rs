@@ -2,13 +2,14 @@ use serde::{Deserialize, Serialize};
 use std::time::Instant;
 use crate::database::cell_value::CellValue;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum DbType {
     Postgres,
     Mysql,
     Sqlite,
     Mssql,
     Mariadb,
+    Mongodb,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +37,14 @@ pub struct ConnectionConfig {
     pub trust_server_certificate: Option<bool>,
     pub auth_type: Option<String>, // "windows" or "sql"
     pub named_pipe: Option<bool>,
+    // MongoDB specific
+    pub connection_string: Option<String>,      // Full MongoDB URI (alternative to host/port)
+    pub replica_set: Option<String>,            // Replica set name
+    pub auth_mechanism: Option<String>,         // SCRAM-SHA-1, SCRAM-SHA-256, MONGODB-X509, etc.
+    pub tls: Option<bool>,                      // Enable TLS/SSL
+    pub tls_ca_file: Option<String>,           // Path to CA certificate
+    pub direct_connection: Option<bool>,        // Force direct connection (bypass discovery)
+    pub server_selection_timeout_ms: Option<u64>, // Server selection timeout
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,6 +84,17 @@ pub struct ColumnMeta {
     pub enum_values: Option<Vec<String>>,
     pub set_values: Option<Vec<String>>,
     pub is_virtual: Option<bool>,
+    // MongoDB specific (mg_*)
+    pub mg_is_required: Option<bool>,              // Field is required in validation schema
+    pub mg_is_sparse_index: Option<bool>,          // Field has sparse index
+    pub mg_index_type: Option<String>,             // Index type (2d, 2dsphere, text, hashed)
+    pub mg_is_text_indexed: Option<bool>,          // Field is part of text index
+    pub mg_text_weights: Option<f64>,              // Text search weight
+    pub mg_bson_type: Option<String>,              // Original BSON type (ObjectId, Decimal128, etc.)
+    pub mg_field_path: Option<String>,             // Nested field path (e.g., "address.city")
+    pub mg_is_array_element: Option<bool>,         // Field represents array element type
+    pub mg_validation_rule: Option<String>,        // JSON Schema validation rule
+    pub mg_encryption: Option<String>,             // Field-level encryption settings
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -3,7 +3,7 @@
  * All database operations are handled by Rust backend with connection pooling
  */
 
-export type DatabaseType = 'postgresql' | 'mysql' | 'sqlite' | 'mssql' | 'mariadb';
+export type DatabaseType = 'postgresql' | 'mysql' | 'sqlite' | 'mssql' | 'mariadb' | 'mongodb';
 
 /**
  * Connection configuration for display purposes only

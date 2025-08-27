@@ -11,12 +11,16 @@ pub mod postgres;
 pub mod mysql;
 pub mod sqlite;
 pub mod mssql;
+pub mod mongodb;
 
 #[cfg(test)]
 mod postgres_test;
 
 #[cfg(test)]
 mod mysql_test;
+
+#[cfg(test)]
+mod mongodb_test;
 
 #[async_trait]
 pub trait DbAdapter: Send + Sync {

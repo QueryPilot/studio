@@ -34,6 +34,7 @@ export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
     loadData,
     loadMore,
     refresh,
+    estimatedTotal,
   } = useTableData();
 
   // Initialize data loading
@@ -134,6 +135,7 @@ export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
     refresh,
     columns,
     rows,
+    estimatedTotal,
   };
 }
 

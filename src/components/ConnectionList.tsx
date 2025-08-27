@@ -40,6 +40,7 @@ const databaseIcons: Record<DatabaseType, typeof Database> = {
   sqlite: FileText,
   mssql: Server,
   mariadb: HardDrive,
+  mongodb: Layers3,
 };
 
 const databaseColors: Record<DatabaseType, string> = {
@@ -48,6 +49,7 @@ const databaseColors: Record<DatabaseType, string> = {
   sqlite: "text-gray-600",
   mssql: "text-red-600",
   mariadb: "text-purple-600",
+  mongodb: "text-green-600",
 };
 
 interface ConnectionListProps {

@@ -86,6 +86,27 @@ services:
       retries: 10
       start_period: 90s
 
+  mongodb:
+    image: mongo:7.0
+    container_name: devdb-mongodb
+    ports:
+      - "17017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: devuser
+      MONGO_INITDB_ROOT_PASSWORD: devpass123
+      MONGO_INITDB_DATABASE: todoapp
+    volumes:
+      - mongodb_data:/data/db
+      - ./seeds/mongodb:/docker-entrypoint-initdb.d
+    networks:
+      - devdb-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: ["mongod", "--auth"]
+
   oracle:
     image: container-registry.oracle.com/database/express:21.3.0-xe
     container_name: devdb-oracle
@@ -116,3 +137,4 @@ volumes:
   mariadb_data:
   sqlserver_data:
   oracle_data:
+  mongodb_data:

@@ -1,12 +1,15 @@
 use tauri::{State, Emitter};
 use uuid::Uuid;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tokio::sync::Mutex as TokioMutex;
 
 use crate::database::registry::ConnectionRegistry;
 use crate::database::adapter::types::*;
 use crate::database::adapter::DbAdapter;
 use crate::error::AppError;
 use crate::commands::secure_storage::SecureStorageState;
+use crate::storage::SecureStorage;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ConnectResponse {
@@ -92,6 +95,7 @@ pub async fn db_connect_by_id(
         "sqlite" => DbType::Sqlite,
         "mssql" | "sqlserver" => DbType::Mssql,
         "mariadb" => DbType::Mariadb,
+        "mongodb" => DbType::Mongodb,
         _ => {
             println!("[db_connect_by_id] ERROR: Unsupported database type: {}", connection_config.connection_type);
             return Err(AppError::ValidationError(format!("Unsupported database type: {}", connection_config.connection_type)));
@@ -132,6 +136,14 @@ pub async fn db_connect_by_id(
         user: None,
         database_url: None,
         pool_size: Some(5), // Reduce pool size to avoid connection exhaustion
+        // MongoDB-specific fields
+        auth_mechanism: None,
+        replica_set: None,
+        tls: None,
+        connection_string: None,
+        direct_connection: None,
+        tls_ca_file: None,
+        server_selection_timeout_ms: None,
     };
     
     // Create unique connection ID with workspace isolation if provided
@@ -809,5 +821,120 @@ pub async fn db_test_connection(
                 Err(e) => Ok(TestConnectionResult { success: false, error_message: Some(e.to_string()) }),
             }
         }
+        crate::database::adapter::types::DbType::Mongodb => {
+            // TODO: Implement MongoDB connection test
+            Ok(TestConnectionResult { 
+                success: false, 
+                error_message: Some("MongoDB connection testing not yet implemented".to_string()) 
+            })
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn load_dev_connections(
+    state: State<'_, Arc<TokioMutex<Option<SecureStorage>>>>,
+) -> Result<Vec<String>, AppError> {
+    let dev_connections = vec![
+        // PostgreSQL Development Connection
+        crate::storage::models::ConnectionConfig {
+            id: Some(uuid::Uuid::new_v4().to_string()),
+            name: "PostgreSQL Dev".to_string(),
+            host: "localhost".to_string(),
+            port: 15432,
+            database: Some("todoapp".to_string()),
+            username: "devuser".to_string(),
+            password: Some("devpass123".to_string()),
+            ssh_private_key: None,
+            api_key: None,
+            connection_type: "postgresql".to_string(),
+            created_at: Some(chrono::Utc::now()),
+            updated_at: Some(chrono::Utc::now()),
+        },
+        // MySQL Development Connection
+        crate::storage::models::ConnectionConfig {
+            id: Some(uuid::Uuid::new_v4().to_string()),
+            name: "MySQL Dev".to_string(),
+            host: "localhost".to_string(),
+            port: 13306,
+            database: Some("todoapp".to_string()),
+            username: "devuser".to_string(),
+            password: Some("devpass123".to_string()),
+            ssh_private_key: None,
+            api_key: None,
+            connection_type: "mysql".to_string(),
+            created_at: Some(chrono::Utc::now()),
+            updated_at: Some(chrono::Utc::now()),
+        },
+        // SQLite Development Connection
+        crate::storage::models::ConnectionConfig {
+            id: Some(uuid::Uuid::new_v4().to_string()),
+            name: "SQLite Dev".to_string(),
+            host: "".to_string(),
+            port: 0,
+            database: Some("seeds/sqlite/todoapp.db".to_string()),
+            username: "".to_string(),
+            password: None,
+            ssh_private_key: None,
+            api_key: None,
+            connection_type: "sqlite".to_string(),
+            created_at: Some(chrono::Utc::now()),
+            updated_at: Some(chrono::Utc::now()),
+        },
+        // SQL Server Development Connection
+        crate::storage::models::ConnectionConfig {
+            id: Some(uuid::Uuid::new_v4().to_string()),
+            name: "SQL Server Dev".to_string(),
+            host: "localhost".to_string(),
+            port: 11434,
+            database: Some("todoapp".to_string()),
+            username: "sa".to_string(),
+            password: Some("DevPass123".to_string()),
+            ssh_private_key: None,
+            api_key: None,
+            connection_type: "mssql".to_string(),
+            created_at: Some(chrono::Utc::now()),
+            updated_at: Some(chrono::Utc::now()),
+        },
+        // MongoDB Development Connection
+        crate::storage::models::ConnectionConfig {
+            id: Some(uuid::Uuid::new_v4().to_string()),
+            name: "MongoDB Dev".to_string(),
+            host: "localhost".to_string(),
+            port: 17017,
+            database: Some("todoapp".to_string()),
+            username: "devuser".to_string(),
+            password: Some("devpass123".to_string()),
+            ssh_private_key: None,
+            api_key: None,
+            connection_type: "mongodb".to_string(),
+            created_at: Some(chrono::Utc::now()),
+            updated_at: Some(chrono::Utc::now()),
+        },
+    ];
+
+    let storage_state = state.inner();
+    let mut storage_guard = storage_state.lock().await;
+    
+    if let Some(storage) = storage_guard.as_mut() {
+        let mut created_ids = Vec::new();
+        
+        for conn_config in dev_connections {
+            let conn_name = conn_config.name.clone();
+            match storage.store_connection(conn_config).await {
+                Ok(id) => {
+                    let id_clone = id.clone();
+                    created_ids.push(id);
+                    println!("Created dev connection: {} ({})", conn_name, id_clone);
+                }
+                Err(e) => {
+                    eprintln!("Failed to create dev connection {}: {}", conn_name, e);
+                }
+            }
+        }
+        
+        Ok(created_ids)
+    } else {
+        Err(AppError::Database("SecureStorage not initialized".to_string()))
     }
 }

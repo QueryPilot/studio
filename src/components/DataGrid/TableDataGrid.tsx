@@ -3,6 +3,7 @@ import { useInfiniteTableData } from "./hooks/useInfiniteTableData";
 import { DataGridHeader } from "./components/DataGridHeader";
 import { DataGridRow } from "./components/DataGridRow";
 import { DataGridSkeleton } from "./components/DataGridSkeleton";
+import { DataGridStatusBar } from "./components/DataGridStatusBar";
 import {
   DataGridErrorState,
   DataGridEmptyState,
@@ -32,9 +33,10 @@ export const TableDataGrid = memo(function TableDataGrid({
     isLoading,
     isStreaming,
     error,
-    hasNextPage: _hasNextPage,
+    hasNextPage,
     columns,
     rows,
+    estimatedTotal,
   } = useInfiniteTableData({
     connectionId,
     database,
@@ -122,9 +124,9 @@ export const TableDataGrid = memo(function TableDataGrid({
   };
 
   return (
-    <div className={cn("h-full overflow-hidden", className)}>
+    <div className={cn("h-full flex flex-col overflow-hidden", className)}>
       {/* Single Scroll Container */}
-      <div ref={containerRef} className="h-full w-full overflow-auto">
+      <div ref={containerRef} className="flex-1 w-full overflow-auto">
         <div
           style={{
             height: `${totalSize + 32}px`, // +32px for header height
@@ -158,6 +160,13 @@ export const TableDataGrid = memo(function TableDataGrid({
           {isStreaming && <DataGridLoadingIndicator tableWidth={tableWidth} />}
         </div>
       </div>
+      
+      {/* Status Bar */}
+      <DataGridStatusBar 
+        loadedRows={rows.length}
+        estimatedTotal={estimatedTotal || undefined}
+        hasMore={hasNextPage || isStreaming}
+      />
     </div>
   );
 });

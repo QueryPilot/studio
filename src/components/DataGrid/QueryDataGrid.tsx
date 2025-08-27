@@ -1,5 +1,6 @@
 import { memo } from "react";
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { DataGridStatusBar } from "./components/DataGridStatusBar";
 import { cn } from '@/lib/utils';
 
 interface QueryDataGridProps {
@@ -30,8 +31,8 @@ export const QueryDataGrid = memo(function QueryDataGrid({
   }
 
   return (
-    <div className={cn("h-full", className)}>
-      <ScrollArea className="h-full">
+    <div className={cn("h-full flex flex-col", className)}>
+      <ScrollArea className="flex-1">
         <div className="w-full">
           <table className="w-full">
             <thead className="sticky top-0 z-10 bg-background border-b">
@@ -87,6 +88,11 @@ export const QueryDataGrid = memo(function QueryDataGrid({
           </table>
         </div>
       </ScrollArea>
+      
+      {/* Status Bar */}
+      <DataGridStatusBar 
+        loadedRows={data.rows.length}
+      />
     </div>
   );
 });

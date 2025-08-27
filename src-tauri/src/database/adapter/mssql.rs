@@ -603,6 +603,17 @@ impl DbAdapter for MssqlAdapter {
                 enum_values: None,
                 set_values: None,
                 is_virtual: None,
+                // MongoDB-specific fields (not applicable for MSSQL)
+                mg_is_required: None,
+                mg_is_sparse_index: None,
+                mg_index_type: None,
+                mg_is_text_indexed: None,
+                mg_text_weights: None,
+                mg_bson_type: None,
+                mg_field_path: None,
+                mg_is_array_element: None,
+                mg_validation_rule: None,
+                mg_encryption: None,
             });
         }
         
@@ -815,6 +826,17 @@ impl DbAdapter for MssqlAdapter {
                 enum_values: None,
                 set_values: None,
                 is_virtual: None,
+                // MongoDB-specific fields (not applicable for MSSQL)
+                mg_is_required: None,
+                mg_is_sparse_index: None,
+                mg_index_type: None,
+                mg_is_text_indexed: None,
+                mg_text_weights: None,
+                mg_bson_type: None,
+                mg_field_path: None,
+                mg_is_array_element: None,
+                mg_validation_rule: None,
+                mg_encryption: None,
             });
         }
         
@@ -1192,6 +1214,17 @@ impl DbAdapter for MssqlAdapter {
                 enum_values: None,
                 set_values: None,
                 is_virtual: None,
+                // MongoDB-specific fields (not applicable for MSSQL)
+                mg_is_required: None,
+                mg_is_sparse_index: None,
+                mg_index_type: None,
+                mg_is_text_indexed: None,
+                mg_text_weights: None,
+                mg_bson_type: None,
+                mg_field_path: None,
+                mg_is_array_element: None,
+                mg_validation_rule: None,
+                mg_encryption: None,
             });
         }
         
