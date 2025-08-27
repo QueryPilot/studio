@@ -1,7 +1,8 @@
-import { memo } from "react";
+import { memo, useEffect, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle, KeyRound, Hash, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { databaseService, TableIndex } from "@/services/databaseService";
 
 interface TableIndexesProps {
   connectionId: string;
@@ -10,63 +11,38 @@ interface TableIndexesProps {
   schema?: string;
 }
 
-interface IndexInfo {
-  name: string;
-  columns: string[];
-  type: "btree" | "hash" | "gin" | "gist" | "spgist" | "brin";
-  unique: boolean;
-  primary: boolean;
-  partial?: string;
-  size?: string;
-}
-
-// Mock data for demonstration
-const mockIndexes: IndexInfo[] = [
-  {
-    name: "pk_id",
-    columns: ["id"],
-    type: "btree",
-    unique: true,
-    primary: true,
-    size: "16 KB",
-  },
-  {
-    name: "idx_user_email",
-    columns: ["email"],
-    type: "btree",
-    unique: true,
-    primary: false,
-    size: "24 KB",
-  },
-  {
-    name: "idx_created_at",
-    columns: ["created_at"],
-    type: "btree",
-    unique: false,
-    primary: false,
-    size: "32 KB",
-  },
-  {
-    name: "idx_user_status",
-    columns: ["status", "updated_at"],
-    type: "btree",
-    unique: false,
-    primary: false,
-    partial: "WHERE status != 'deleted'",
-    size: "8 KB",
-  },
-];
-
 export const TableIndexes = memo(function TableIndexes({
   connectionId,
   database,
   table,
   schema,
 }: TableIndexesProps) {
-  // TODO: Replace with actual data fetching
-  const indexes = mockIndexes;
-  const isLoading = false;
-  const error = null;
+  const [indexes, setIndexes] = useState<TableIndex[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchIndexes() {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const result = await databaseService.tableIndexes(
+          connectionId,
+          database,
+          schema || "public",
+          table
+        );
+        setIndexes(result);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load indexes");
+        console.error("Failed to fetch table indexes:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    fetchIndexes();
+  }, [connectionId, database, schema, table]);
 
   if (isLoading) {
     return <TableIndexesSkeleton />;
@@ -103,9 +79,8 @@ export const TableIndexes = memo(function TableIndexes({
             <tr
               key={index.name}
               className={cn(
-                "hover:bg-primary/10 transition-colors text-xs",
+                "hover:bg-primary/10 transition-colors text-xs border-b",
                 i % 2 === 0 && "bg-muted/10",
-                i < indexes.length - 1 ? "border-b" : "border-b-2",
               )}
               style={{ height: "28px" }}
             >
@@ -130,8 +105,8 @@ export const TableIndexes = memo(function TableIndexes({
               </td>
               <td className="px-1.5 py-0.5 text-foreground/80 dark:text-foreground/65">
                 <div className="flex items-center justify-between">
-                  <span className="font-mono text-xs">{index.type}</span>
-                  {index.type === "btree" && (
+                  <span className="font-mono text-xs">{index.index_type}</span>
+                  {index.index_type === "btree" && (
                     <TrendingUp className="h-3 w-3 text-green-600 dark:text-green-500 opacity-70" />
                   )}
                 </div>
@@ -149,10 +124,10 @@ export const TableIndexes = memo(function TableIndexes({
                 </span>
               </td>
               <td className="px-1.5 py-0.5 text-foreground/60 dark:text-foreground/50 text-xs italic">
-                {index.partial || "-"}
+                -
               </td>
               <td className="px-1.5 py-0.5 text-foreground/70 dark:text-foreground/60 text-xs text-right font-mono">
-                {index.size || "-"}
+                -
               </td>
             </tr>
           ))}

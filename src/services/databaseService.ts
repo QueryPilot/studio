@@ -54,6 +54,14 @@ export interface TriggerMeta {
   created?: string;
 }
 
+export interface TableIndex {
+  name: string;
+  unique: boolean;
+  primary: boolean;
+  columns: string[];
+  index_type: string;
+}
+
 export interface ColumnMeta {
   name: string;
   db_type: string;
@@ -314,6 +322,28 @@ class DatabaseService {
       });
     } catch (error) {
       console.error("Failed to get table columns:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get table indexes
+   */
+  async tableIndexes(
+    connectionId: string,
+    database: string,
+    schema: string,
+    table: string
+  ): Promise<TableIndex[]> {
+    try {
+      return await invoke<TableIndex[]>("db_table_indexes", {
+        connectionId: connectionId,
+        database,
+        schema,
+        table,
+      });
+    } catch (error) {
+      console.error("Failed to get table indexes:", error);
       throw error;
     }
   }

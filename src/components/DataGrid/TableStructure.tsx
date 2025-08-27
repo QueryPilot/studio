@@ -2,7 +2,7 @@ import { memo } from "react";
 import { useTableStructure } from "@/hooks/useTableStructure";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { AlertCircle, KeyRound, Hash } from "lucide-react";
+import { AlertCircle, KeyRound, Hash, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface TableStructureProps {
@@ -62,9 +62,8 @@ export const TableStructure = memo(function TableStructure({
             <tr
               key={column.name}
               className={cn(
-                "hover:bg-primary/10 transition-colors text-xs",
+                "hover:bg-primary/10 transition-colors text-xs border-b",
                 index % 2 === 0 && "bg-muted/10",
-                index < columns.length - 1 ? "border-b" : "border-b-2",
               )}
               style={{ height: "28px" }}
             >
@@ -85,7 +84,31 @@ export const TableStructure = memo(function TableStructure({
                 </div>
               </td>
               <td className="px-1.5 py-0.5 text-foreground/80 dark:text-foreground/65 font-mono text-xs">
-                {column.db_type}
+                <div className="flex items-center gap-1">
+                  <span>{column.db_type}</span>
+                  {column.enum_values && column.enum_values.length > 0 && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <ChevronDown className="h-3 w-3 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-[300px]">
+                        <div className="space-y-1">
+                          <p className="font-semibold text-xs">Enum values:</p>
+                          <div className="flex flex-wrap gap-1">
+                            {column.enum_values.map((value) => (
+                              <span
+                                key={value}
+                                className="inline-flex px-1.5 py-0.5 text-xs bg-primary/10 rounded border"
+                              >
+                                {value}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
               </td>
               <td className="px-1.5 py-0.5">
                 <span

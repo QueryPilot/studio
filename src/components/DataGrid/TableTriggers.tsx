@@ -83,9 +83,8 @@ export const TableTriggers = memo(function TableTriggers({
             <tr
               key={trigger.name}
               className={cn(
-                "hover:bg-primary/10 transition-colors text-xs",
+                "hover:bg-primary/10 transition-colors text-xs border-b",
                 i % 2 === 0 && "bg-muted/10",
-                i < triggers.length - 1 ? "border-b" : "border-b-2",
               )}
               style={{ height: "28px" }}
             >

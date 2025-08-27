@@ -12,7 +12,9 @@ export function useCopy(resetDelay = 3000): UseCopyReturn {
   const copy = useCallback(
     async (text: string) => {
       try {
+        console.log("Attempting to copy:", text);
         await navigator.clipboard.writeText(text);
+        console.log("Copy successful");
         setIsCopied(true);
 
         // Clear any existing timeout
@@ -27,6 +29,11 @@ export function useCopy(resetDelay = 3000): UseCopyReturn {
         }, resetDelay);
       } catch (error) {
         console.error("Failed to copy:", error);
+        console.error("Error details:", {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        });
       }
     },
     [resetDelay]

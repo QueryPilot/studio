@@ -57,6 +57,7 @@ export function DatabaseSidebar({
     addTabToPanel,
     setActiveTabInPanel,
     updateTabInPanel,
+    panels,
   } = usePanelStore();
 
   // Load schema data when schema changes
@@ -225,6 +226,36 @@ export function DatabaseSidebar({
     );
   };
 
+  // Check if a table/view is currently active in any panel
+  const isTableActive = (tableName: string, schema: string): boolean => {
+    const allPanels = Array.from(panels.values());
+    
+    return allPanels.some(panel => {
+      if (!panel.activeTabId) return false;
+      
+      const activeTab = panel.tabs.get(panel.activeTabId);
+      if (!activeTab || activeTab.type !== 'table') return false;
+      
+      return activeTab.payload.tableName === tableName && 
+             activeTab.payload.schema === schema;
+    });
+  };
+
+  // Check if a function is currently active in any panel
+  const isFunctionActive = (functionName: string, schema: string): boolean => {
+    const allPanels = Array.from(panels.values());
+    
+    return allPanels.some(panel => {
+      if (!panel.activeTabId) return false;
+      
+      const activeTab = panel.tabs.get(panel.activeTabId);
+      if (!activeTab || activeTab.type !== 'function') return false;
+      
+      return activeTab.payload.functionName === functionName && 
+             activeTab.payload.schema === schema;
+    });
+  };
+
   if (initialLoading) {
     return (
       <div className="flex flex-col h-full p-2 space-y-2">
@@ -307,10 +338,15 @@ export function DatabaseSidebar({
               </div>
               {expandedNodes.has("tables") && (
                 <div className="ml-3.5 mt-0.5 space-y-0.5 px-2 overflow-x-auto">
-                  {filterItems(schemaData.tables).map((table) => (
+                  {filterItems(schemaData.tables).map((table) => {
+                    const isActive = isTableActive(table.name, table.schema);
+                    return (
                     <div
                       key={`${table.schema}.${table.name}`}
-                      className="group flex items-center gap-1.5 p-1 hover:bg-muted/50 rounded cursor-pointer min-w-fit overflow-hidden text-ellipsis"
+                      className={cn(
+                        "group flex items-center gap-1.5 p-1 hover:bg-muted/50 cursor-pointer min-w-fit overflow-hidden text-ellipsis",
+                        isActive ? "bg-primary/10 border-l-2 border-l-primary rounded-r" : "rounded"
+                      )}
                     >
                       <Table className="h-3.5 w-4 min-w-4 text-blue-500 flex-shrink-0" />
                       <span
@@ -326,7 +362,7 @@ export function DatabaseSidebar({
                           ~{table.row_estimate.toLocaleString()}
                         </span>
                       )}
-                      <div className="flex items-center gap-0.5 transition-all delay-300 duration-200 ease-out -mr-10 opacity-0 group-hover:opacity-100 group-hover:mr-1">
+                      <div className="flex items-center gap-0.5 transition-all delay-150 duration-200 ease-out -mr-10 opacity-0 group-hover:opacity-100 group-hover:mr-1">
                         <button
                           className="p-0.5 hover:bg-muted rounded"
                           onClick={(e) => {
@@ -349,7 +385,8 @@ export function DatabaseSidebar({
                         </button>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -378,10 +415,15 @@ export function DatabaseSidebar({
               </div>
               {expandedNodes.has("views") && (
                 <div className="ml-3.5 mt-0.5 space-y-0.5 px-2 overflow-x-auto">
-                  {filterItems(schemaData.views).map((view) => (
+                  {filterItems(schemaData.views).map((view) => {
+                    const isActive = isTableActive(view.name, view.schema);
+                    return (
                     <div
                       key={`${view.schema}.${view.name}`}
-                      className="group flex items-center gap-1.5 p-1 hover:bg-muted/50 rounded cursor-pointer min-w-fit overflow-hidden text-ellipsis"
+                      className={cn(
+                        "group flex items-center gap-1.5 p-1 hover:bg-muted/50 cursor-pointer min-w-fit overflow-hidden text-ellipsis",
+                        isActive ? "bg-primary/10 border-l-2 border-l-primary rounded-r" : "rounded"
+                      )}
                     >
                       <Eye className="h-4 min-h-4 w-4 min-w-4 text-green-500 flex-shrink-0" />
                       <span
@@ -415,7 +457,8 @@ export function DatabaseSidebar({
                         </button>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -444,12 +487,17 @@ export function DatabaseSidebar({
               </div>
               {expandedNodes.has("functions") && (
                 <div className="ml-3.5 mt-0.5 space-y-0.5 px-2 overflow-x-auto">
-                  {filterItems(schemaData.functions).map((func, index) => (
+                  {filterItems(schemaData.functions).map((func, index) => {
+                    const isActive = isFunctionActive(func.name, func.schema);
+                    return (
                     <div
                       key={`${func.schema}.${func.name}.${func.arguments.join(
                         ",",
                       )}.${index}`}
-                      className="flex items-center gap-1.5 p-1 hover:bg-muted/50 rounded cursor-pointer min-w-fit"
+                      className={cn(
+                        "flex items-center gap-1.5 p-1 hover:bg-muted/50 cursor-pointer min-w-fit",
+                        isActive ? "bg-primary/10 border-l-2 border-l-primary rounded-r" : "rounded"
+                      )}
                       onClick={() => {
                         handleFunctionClick(func);
                       }}
@@ -459,7 +507,8 @@ export function DatabaseSidebar({
                         {func.name}
                       </span>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
