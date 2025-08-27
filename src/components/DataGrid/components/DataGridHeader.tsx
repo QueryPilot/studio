@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 interface DataGridHeaderProps {
   tableInstance: Table<TableDataRow>;
   tableWidth: number;
-  getAdjustedColumnWidth: (column: { getSize: () => number }) => number;
+  getAdjustedColumnWidth: (column: { getSize: () => number }, columnIndex?: number) => number;
   isScrolled?: boolean;
 }
 
@@ -31,54 +31,56 @@ export const DataGridHeader = memo(function DataGridHeader({
   return (
     <div 
       className={cn(
-        "sticky top-0 z-10 bg-background border-b flex items-center transition-shadow duration-200",
+        "sticky top-0 z-10 bg-background border-b transition-shadow duration-200 w-full",
         isScrolled ? "shadow-sm" : ""
       )} 
       style={{ height: "32px" }}
     >
-      <table className="table-fixed h-full" style={{ width: tableWidth }}>
+      <table className="table-fixed w-full h-full">
         <thead className="h-full">
           {tableInstance.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id} className="h-full">
-              {headerGroup.headers.map((header) => {
+              {headerGroup.headers.map((header, columnIndex) => {
                 const column = header.column;
                 const isSorted = column.getIsSorted();
-                const adjustedWidth = getAdjustedColumnWidth(header.column);
+                const adjustedWidth = getAdjustedColumnWidth(header.column, columnIndex);
                 
                 return (
                   <th
                     key={header.id}
-                    className="relative px-1.5 text-left text-xs font-semibold text-foreground/85 dark:text-foreground/75 border-r last:border-r-0 align-middle"
+                    className="relative px-1.5 text-left text-xs font-semibold text-foreground/85 dark:text-foreground/75 border-r last:border-r-0 h-8"
                     style={{
                       width: adjustedWidth,
                       minWidth: adjustedWidth,
                       maxWidth: adjustedWidth,
                     }}
                   >
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className={cn(
-                        "h-full p-0 text-xs font-semibold hover:bg-transparent w-full flex items-center justify-between",
-                        isSorted && "text-primary",
-                      )}
-                      onClick={() => handleSort(column)}
-                    >
-                      <span className="truncate">
-                        {header.isPlaceholder
-                          ? null
-                          : flexRender(column.columnDef.header, header.getContext())}
-                      </span>
-                      <span className="ml-1 flex-shrink-0">
-                        {isSorted === "asc" ? (
-                          <ChevronUp className="h-3 w-3" />
-                        ) : isSorted === "desc" ? (
-                          <ChevronDown className="h-3 w-3" />
-                        ) : column.getCanSort() ? (
-                          <ChevronsUpDown className="h-3 w-3 opacity-50" />
-                        ) : null}
-                      </span>
-                    </Button>
+                    <div className="flex items-center h-full">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className={cn(
+                          "h-7 p-0 text-xs font-semibold hover:bg-transparent w-full flex items-center justify-between",
+                          isSorted && "text-primary",
+                        )}
+                        onClick={() => handleSort(column)}
+                      >
+                        <span className="truncate">
+                          {header.isPlaceholder
+                            ? null
+                            : flexRender(column.columnDef.header, header.getContext())}
+                        </span>
+                        <span className="ml-1 flex-shrink-0">
+                          {isSorted === "asc" ? (
+                            <ChevronUp className="h-3 w-3" />
+                          ) : isSorted === "desc" ? (
+                            <ChevronDown className="h-3 w-3" />
+                          ) : column.getCanSort() ? (
+                            <ChevronsUpDown className="h-3 w-3 opacity-50" />
+                          ) : null}
+                        </span>
+                      </Button>
+                    </div>
                     {header.column.getCanResize() && (
                       <div
                         onMouseDown={header.getResizeHandler()}

@@ -13,7 +13,7 @@ interface DataGridRowProps {
   row: Row<TableDataRow> | undefined;
   tableWidth: number;
   columns: ColumnMeta[];
-  getAdjustedColumnWidth: (column: { getSize: () => number }) => number;
+  getAdjustedColumnWidth: (column: { getSize: () => number }, columnIndex?: number) => number;
   isLastRow?: boolean;
 }
 
@@ -35,11 +35,12 @@ export const DataGridRow = memo(function DataGridRow({
         position: "absolute",
         top: virtualItem.start + 32, // +32px offset for header
         left: 0,
-        width: `${tableWidth}px`,
+        right: 0,
+        width: '100%',
         height: `${virtualItem.size}px`,
       }}
     >
-      <table className="table-fixed" style={{ width: tableWidth }}>
+      <table className="table-fixed w-full">
         <tbody>
           <tr
             className={cn(
@@ -48,10 +49,10 @@ export const DataGridRow = memo(function DataGridRow({
             )}
             style={{ height: "28px" }}
           >
-            {row.getVisibleCells().map((cell) => {
+            {row.getVisibleCells().map((cell, columnIndex) => {
               const cellValue = cell.getValue() as CellValue | undefined;
               const column = columns.find((col) => col.name === cell.column.id);
-              const adjustedCellWidth = getAdjustedColumnWidth(cell.column);
+              const adjustedCellWidth = getAdjustedColumnWidth(cell.column, columnIndex);
 
               // Check if cell is NULL
               const isNull =

@@ -11,7 +11,7 @@ use tiberius::{Row, Column};
 use bb8_tiberius::ConnectionManager;
 
 use crate::error::AppError;
-use crate::database::cell_value::{CellValue, CellValueType};
+use crate::database::cell_value::{CellValue, CellValueType, CellMetadata};
 use super::{DbAdapter, TableMeta, FunctionMeta, ColumnMeta, QueryCursor, QueryPage, 
            ExecuteResult, QueryOptions, TransactionId, TableReadRequest, TableDataResponse,
            DbObjectKind, SortDirection, FilterOperator, PaginationMode, ConnectionConfig};
@@ -169,6 +169,51 @@ impl MssqlAdapter {
     {
         let type_name = column.name();
         
+        // First, try to get the SQL Server data type from the column type info
+        // For money types, we need special handling
+        let column_type = column.column_type();
+        // Check if it's a money type by column name since tiberius doesn't expose SmallMoney
+        let is_money_type = matches!(column_type, tiberius::ColumnType::Money);
+        
+        // Handle MONEY types first
+        if is_money_type {
+            let db_type_name = "MONEY"; // Only MONEY is detected by tiberius
+            
+            // Try to get as f64 (money values are typically represented as floating point)
+            if let Some(val) = row.try_get::<f64, _>(idx).ok().flatten() {
+                return Ok(CellValue::money(val, db_type_name, Some(19), Some(4)));
+            }
+            // Try as i64 for money stored as cents
+            else if let Some(val) = row.try_get::<i64, _>(idx).ok().flatten() {
+                // SQL Server stores money as scaled integer (10000 = $1.0000)
+                let money_value = val as f64 / 10000.0;
+                return Ok(CellValue::money(money_value, db_type_name, Some(19), Some(4)));
+            }
+            // If both attempts failed, it's likely NULL - return typed NULL for MONEY
+            else {
+                return Ok(CellValue {
+                    value: None,
+                    db_type: db_type_name.to_string(),
+                    value_type: CellValueType::Money,
+                    metadata: Some(CellMetadata {
+                        precision: Some(19),
+                        scale: Some(4),
+                        max_length: None,
+                        charset: None,
+                        timezone: None,
+                        element_type: None,
+                        srid: None,
+                        enum_values: None,
+                        currency_symbol: None,
+                        currency_code: None,
+                        attributes: None,
+                    }),
+                    is_truncated: false,
+                    byte_size: None,
+                });
+            }
+        }
+        
         // Try to get value at index
         // Different types need different extraction methods
         
@@ -249,7 +294,15 @@ impl MssqlAdapter {
         
         // If none of the above work, assume it's NULL
         // Tiberius will return None for NULL values in the try_get calls above
-        Ok(CellValue::null(type_name))
+        // Return typed NULL based on common SQL Server types
+        Ok(CellValue {
+            value: None,
+            db_type: type_name.to_string(),
+            value_type: CellValueType::Unknown, // Default for unknown types
+            metadata: None,
+            is_truncated: false,
+            byte_size: None,
+        })
     }
 }
 
@@ -571,9 +624,9 @@ impl DbAdapter for MssqlAdapter {
             r#"SELECT 
                 t.name AS trigger_name,
                 CASE te.type
-                    WHEN 'I' THEN 'INSERT'
-                    WHEN 'U' THEN 'UPDATE'
-                    WHEN 'D' THEN 'DELETE'
+                    WHEN 1 THEN 'INSERT'
+                    WHEN 2 THEN 'UPDATE'
+                    WHEN 3 THEN 'DELETE'
                     ELSE 'UNKNOWN'
                 END AS event,
                 CASE 
@@ -661,6 +714,64 @@ impl DbAdapter for MssqlAdapter {
         } else {
             Ok(0)
         }
+    }
+
+    async fn table_indexes(&self, database: &str, schema: &str, table: &str) -> Result<Vec<super::TableIndex>, AppError> {
+        let mut conn = self.pool.get().await
+            .map_err(|e| AppError::Database(format!("Failed to get connection: {}", e)))?;
+        
+        // Only switch database if it's different from the current connection's database
+        if !database.is_empty() && database != self.config.database && database != schema {
+            let use_db = format!("USE [{}]", database);
+            conn.simple_query(&use_db).await
+                .map_err(|e| AppError::Database(format!("Failed to switch database: {}", e)))?
+                .into_results().await
+                .map_err(|e| AppError::Database(format!("Failed to switch database: {}", e)))?;
+        }
+
+        let query = format!(
+            r#"SELECT 
+                i.name as index_name,
+                i.is_unique,
+                i.is_primary_key,
+                i.type_desc,
+                STRING_AGG(c.name, ',') as columns
+            FROM sys.indexes i
+            INNER JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+            INNER JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+            WHERE i.object_id = OBJECT_ID('[{}].[{}]')
+            GROUP BY i.name, i.is_unique, i.is_primary_key, i.type_desc
+            ORDER BY i.name"#,
+            schema, table
+        );
+
+        let stream = conn.simple_query(&query).await
+            .map_err(|e| AppError::Database(format!("Failed to get table indexes: {}", e)))?;
+
+        let results = stream.into_results().await
+            .map_err(|e| AppError::Database(format!("Failed to fetch indexes: {}", e)))?;
+
+        let mut indexes = Vec::new();
+        
+        for result_set in results {
+            for row in result_set {
+                let index_name: &str = row.get(0).ok_or_else(|| AppError::Database("Missing index name".to_string()))?;
+                let is_unique: bool = row.get(1).unwrap_or(false);
+                let is_primary: bool = row.get(2).unwrap_or(false);
+                let type_desc: &str = row.get(3).ok_or_else(|| AppError::Database("Missing type description".to_string()))?;
+                let columns_str: &str = row.get(4).ok_or_else(|| AppError::Database("Missing columns".to_string()))?;
+
+                indexes.push(super::TableIndex {
+                    name: index_name.to_string(),
+                    unique: is_unique,
+                    primary: is_primary,
+                    columns: columns_str.split(',').map(|s| s.trim().to_string()).collect(),
+                    index_type: type_desc.to_lowercase(),
+                });
+            }
+        }
+
+        Ok(indexes)
     }
     
     async fn begin_query(&self, sql: &str, params: Option<Vec<Value>>, opts: QueryOptions) 
@@ -933,8 +1044,37 @@ impl DbAdapter for MssqlAdapter {
                 }
             }
             
-            if columns_str.is_empty() {
-                columns_str = "*".to_string(); // Fallback to * if we couldn't get column names
+            // Debug log to see what we got
+            println!("[MSSQL] Column query result: '{}'", columns_str);
+            
+            if columns_str.is_empty() || columns_str.trim().is_empty() {
+                println!("[MSSQL] Column list is empty, falling back to simple column selection");
+                // Fallback: get columns without the complex UDT filtering
+                let simple_query = format!(
+                    "SELECT QUOTENAME(COLUMN_NAME) 
+                     FROM INFORMATION_SCHEMA.COLUMNS 
+                     WHERE TABLE_SCHEMA = '{}' AND TABLE_NAME = '{}' 
+                     ORDER BY ORDINAL_POSITION",
+                    schema_name, request.table
+                );
+                
+                let simple_result = conn.simple_query(&simple_query).await
+                    .map_err(|e| AppError::Database(format!("Failed to get simple column list: {}", e)))?;
+                
+                let mut column_names = Vec::new();
+                if let Ok(rows) = simple_result.into_first_result().await {
+                    for row in rows {
+                        if let Some(col_name) = row.get::<&str, _>(0) {
+                            column_names.push(col_name.to_string());
+                        }
+                    }
+                }
+                
+                if column_names.is_empty() {
+                    columns_str = "*".to_string();
+                } else {
+                    columns_str = column_names.join(", ");
+                }
             }
             
             sql.push_str(&format!("SELECT {} ", columns_str));

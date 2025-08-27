@@ -322,12 +322,10 @@ pub async fn db_table_indexes(
     _table: String,
     registry: State<'_, ConnectionRegistry>,
 ) -> Result<Vec<crate::database::metadata::TableIndex>, AppError> {
-    let _conn = registry.get(&connection_id).await
+    let conn = registry.get(&connection_id).await
         .ok_or_else(|| AppError::ConnectionNotFound(connection_id.clone()))?;
     
-    // TODO: Each database adapter will implement index retrieval
-    // Return empty for now since all adapters are placeholder implementations
-    Ok(vec![])
+    conn.adapter.table_indexes(&_database, &_schema, &_table).await
 }
 
 #[tauri::command]

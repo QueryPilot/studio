@@ -21,8 +21,8 @@ export class SQLCompletionProvider implements monaco.languages.CompletionItemPro
   async provideCompletionItems(
     model: monaco.editor.ITextModel,
     position: monaco.Position,
-    context: monaco.languages.CompletionContext,
-    token: monaco.CancellationToken
+    _context: monaco.languages.CompletionContext,
+    _token: monaco.CancellationToken
   ): Promise<monaco.languages.CompletionList> {
     const word = model.getWordUntilPosition(position);
     const range = {

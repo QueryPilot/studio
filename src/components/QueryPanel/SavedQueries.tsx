@@ -1,30 +1,11 @@
 import { useEffect, useState } from "react";
-import { savedQueriesService, type SavedQuery } from "@/services/savedQueriesService";
+import { queryHistoryService, type QueryHistoryEntry } from "@/services/queryHistoryService";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Star,
-  StarOff,
-  Trash2,
-  Edit,
-  Save,
-  Search,
-  X,
-  FileText,
-  Tag,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Star, Trash2, Edit, Search, X } from "lucide-react";
+import { toast } from "sonner";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 
@@ -40,32 +21,26 @@ interface SavedQueriesProps {
 export function SavedQueries({
   connectionId,
   database,
-  currentQuery,
+  currentQuery: _currentQuery,
   onSelectQuery,
 }: SavedQueriesProps) {
-  const [queries, setQueries] = useState<SavedQuery[]>([]);
+  const [favorites, setFavorites] = useState<QueryHistoryEntry[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(true);
-  const [showSaveDialog, setShowSaveDialog] = useState(false);
-  const [editingQuery, setEditingQuery] = useState<SavedQuery | null>(null);
-  const [formData, setFormData] = useState({
-    name: "",
-    description: "",
-    query: "",
-    tags: "",
-  });
+  const [editingFavorite, setEditingFavorite] = useState<{ id: number; currentName: string } | null>(null);
+  const [favoriteName, setFavoriteName] = useState("");
 
   useEffect(() => {
-    loadQueries();
+    loadFavorites();
   }, [connectionId, database]);
 
-  const loadQueries = async () => {
+  const loadFavorites = async () => {
     setIsLoading(true);
     try {
-      const savedQueries = await savedQueriesService.getQueries(connectionId, database);
-      setQueries(savedQueries);
+      const favoritesData = await queryHistoryService.getFavorites(connectionId, database);
+      setFavorites(favoritesData);
     } catch (error) {
-      console.error("Failed to load saved queries:", error);
+      console.error("Failed to load favorites:", error);
     } finally {
       setIsLoading(false);
     }
@@ -73,82 +48,50 @@ export function SavedQueries({
 
   const handleSearch = async () => {
     if (searchTerm.trim()) {
-      const results = await savedQueriesService.searchQueries(connectionId, searchTerm);
-      setQueries(results);
+      const allFavorites = await queryHistoryService.getFavorites(connectionId, database);
+      const filtered = allFavorites.filter(fav => 
+        fav.query.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        fav.name?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+      setFavorites(filtered);
     } else {
-      loadQueries();
+      loadFavorites();
     }
   };
 
-  const handleSave = async () => {
-    const tags = formData.tags
-      .split(",")
-      .map((tag) => tag.trim())
-      .filter(Boolean);
-
-    if (editingQuery) {
-      await savedQueriesService.updateQuery(editingQuery.id!, {
-        name: formData.name,
-        description: formData.description,
-        query: formData.query,
-        tags,
-      });
-    } else {
-      await savedQueriesService.saveQuery({
-        connectionId,
-        database,
-        name: formData.name,
-        description: formData.description,
-        query: formData.query,
-        tags,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        isFavorite: false,
-      });
+  const handleUpdateName = async () => {
+    if (editingFavorite && favoriteName.trim()) {
+      try {
+        await queryHistoryService.updateFavoriteName(editingFavorite.id, favoriteName.trim());
+        toast.success("Favorite name updated");
+        setEditingFavorite(null);
+        setFavoriteName("");
+        loadFavorites();
+      } catch (error) {
+        toast.error("Failed to update favorite name");
+      }
     }
-
-    setShowSaveDialog(false);
-    setEditingQuery(null);
-    setFormData({ name: "", description: "", query: "", tags: "" });
-    loadQueries();
-  };
-
-  const handleEdit = (query: SavedQuery) => {
-    setEditingQuery(query);
-    setFormData({
-      name: query.name,
-      description: query.description || "",
-      query: query.query,
-      tags: query.tags?.join(", ") || "",
-    });
-    setShowSaveDialog(true);
   };
 
   const handleDelete = async (id: number) => {
-    await savedQueriesService.deleteQuery(id);
-    loadQueries();
+    try {
+      await queryHistoryService.toggleFavorite(id);
+      toast.success("Removed from favorites");
+      loadFavorites();
+    } catch (error) {
+      toast.error("Failed to remove from favorites");
+    }
   };
 
-  const handleToggleFavorite = async (id: number) => {
-    await savedQueriesService.toggleFavorite(id);
-    loadQueries();
-  };
-
-  const openSaveDialog = () => {
-    setEditingQuery(null);
-    setFormData({
-      name: "",
-      description: "",
-      query: currentQuery || "",
-      tags: "",
-    });
-    setShowSaveDialog(true);
+  const handleEdit = (favorite: QueryHistoryEntry) => {
+    setEditingFavorite({ id: favorite.id!, currentName: favorite.name || '' });
+    setFavoriteName(favorite.name || '');
   };
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-muted-foreground">Loading saved queries...</p>
+        <p className="text-muted-foreground">Loading favorites...</p>
       </div>
     );
   }
@@ -164,14 +107,14 @@ export function SavedQueries({
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                placeholder="Search saved queries..."
+                placeholder="Search favorites..."
                 className="pl-8 h-8"
               />
               {searchTerm && (
                 <Button
                   onClick={() => {
                     setSearchTerm("");
-                    loadQueries();
+                    loadFavorites();
                   }}
                   variant="ghost"
                   size="icon"
@@ -181,82 +124,55 @@ export function SavedQueries({
                 </Button>
               )}
             </div>
-            <Button
-              onClick={openSaveDialog}
-              variant="outline"
-              size="sm"
-              disabled={!currentQuery}
-            >
-              <Save className="h-3 w-3 mr-1" />
-              Save
-            </Button>
           </div>
         </div>
 
         <ScrollArea className="flex-1">
-          {queries.length === 0 ? (
+          {favorites.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full p-8 text-center">
-              <FileText className="h-12 w-12 text-muted-foreground mb-4" />
-              <p className="text-muted-foreground">No saved queries yet</p>
+              <Star className="h-12 w-12 text-muted-foreground mb-4" />
+              <p className="text-muted-foreground">No favorite queries yet</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Star queries from the history to see them here
+              </p>
             </div>
           ) : (
             <div className="p-2 space-y-2">
-              {queries.map((query) => (
+              {favorites.map((favorite) => (
                 <div
-                  key={query.id}
+                  key={favorite.id}
                   className="group relative p-3 rounded-md border cursor-pointer hover:bg-muted/50 transition-colors"
-                  onClick={() => onSelectQuery(query.query)}
+                  onClick={() => onSelectQuery(favorite.query)}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <h4 className="font-medium text-sm">{query.name}</h4>
-                        {query.isFavorite && (
-                          <Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />
-                        )}
+                        <Star className="h-3 w-3 text-yellow-500 fill-yellow-500 flex-shrink-0" />
+                        <h4 className="font-medium text-sm">
+                          {favorite.name || 'Untitled Query'}
+                        </h4>
                       </div>
-                      {query.description && (
-                        <p className="text-xs text-muted-foreground mb-2">
-                          {query.description}
-                        </p>
-                      )}
                       <pre className="font-mono text-xs whitespace-pre-wrap break-all text-muted-foreground">
-                        {query.query.length > 150
-                          ? `${query.query.substring(0, 150)}...`
-                          : query.query}
+                        {favorite.query.length > 150
+                          ? `${favorite.query.substring(0, 150)}...`
+                          : favorite.query}
                       </pre>
-                      <div className="flex items-center gap-2 mt-2">
-                        {query.tags?.map((tag) => (
-                          <Badge key={tag} variant="secondary" className="text-xs py-0">
-                            <Tag className="h-2 w-2 mr-1" />
-                            {tag}
-                          </Badge>
-                        ))}
-                        <span className="text-xs text-muted-foreground ml-auto">
-                          {dayjs(query.updatedAt).fromNow()}
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-xs text-muted-foreground">
+                          {dayjs(favorite.executedAt).fromNow()}
                         </span>
+                        {favorite.rowCount !== undefined && (
+                          <span className="text-xs text-muted-foreground">
+                            {favorite.rowCount} rows
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
                       <Button
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleToggleFavorite(query.id!);
-                        }}
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                      >
-                        {query.isFavorite ? (
-                          <StarOff className="h-3 w-3" />
-                        ) : (
-                          <Star className="h-3 w-3" />
-                        )}
-                      </Button>
-                      <Button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleEdit(query);
+                          handleEdit(favorite);
                         }}
                         variant="ghost"
                         size="icon"
@@ -267,7 +183,7 @@ export function SavedQueries({
                       <Button
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDelete(query.id!);
+                          handleDelete(favorite.id!);
                         }}
                         variant="ghost"
                         size="icon"
@@ -284,63 +200,46 @@ export function SavedQueries({
         </ScrollArea>
       </div>
 
-      <Dialog open={showSaveDialog} onOpenChange={setShowSaveDialog}>
-        <DialogContent>
+      {/* Edit Favorite Name Dialog */}
+      <Dialog open={!!editingFavorite} onOpenChange={(open) => {
+        if (!open) {
+          setEditingFavorite(null);
+          setFavoriteName("");
+        }
+      }}>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>
-              {editingQuery ? "Edit Query" : "Save Query"}
-            </DialogTitle>
-            <DialogDescription>
-              {editingQuery
-                ? "Update the saved query details."
-                : "Save this query for future use."}
-            </DialogDescription>
+            <DialogTitle>Edit Favorite Name</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
               <label className="text-sm font-medium">Name</label>
               <Input
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="Query name"
+                value={favoriteName}
+                onChange={(e) => setFavoriteName(e.target.value)}
+                placeholder="Enter a name for this query..."
+                className="mt-1"
+                onKeyDown={(e) => e.key === "Enter" && handleUpdateName()}
               />
             </div>
-            <div>
-              <label className="text-sm font-medium">Description</label>
-              <Input
-                value={formData.description}
-                onChange={(e) =>
-                  setFormData({ ...formData, description: e.target.value })
-                }
-                placeholder="Optional description"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Query</label>
-              <Textarea
-                value={formData.query}
-                onChange={(e) => setFormData({ ...formData, query: e.target.value })}
-                placeholder="SQL query"
-                className="font-mono text-xs h-32"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium">Tags</label>
-              <Input
-                value={formData.tags}
-                onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
-                placeholder="Comma-separated tags"
-              />
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setEditingFavorite(null);
+                  setFavoriteName("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleUpdateName}
+                disabled={!favoriteName.trim()}
+              >
+                Update
+              </Button>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowSaveDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSave} disabled={!formData.name || !formData.query}>
-              {editingQuery ? "Update" : "Save"}
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { queryHistoryService, type QueryHistoryEntry } from "@/services/queryHistoryService";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Trash2, Clock, AlertCircle, CheckCircle2, Search, X } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Trash2, Clock, AlertCircle, CheckCircle2, Search, X, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
-import { Input } from "@/components/ui/input";
 
 dayjs.extend(relativeTime);
 
@@ -20,6 +22,8 @@ export function QueryHistory({ connectionId, database, onSelectQuery }: QueryHis
   const [history, setHistory] = useState<QueryHistoryEntry[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [editingFavorite, setEditingFavorite] = useState<{ id: number; currentName: string } | null>(null);
+  const [favoriteName, setFavoriteName] = useState("");
 
   useEffect(() => {
     loadHistory();
@@ -57,6 +61,38 @@ export function QueryHistory({ connectionId, database, onSelectQuery }: QueryHis
     await queryHistoryService.clearHistory(connectionId, database);
     setHistory([]);
   };
+
+  const handleToggleFavorite = async (id: number, query: string) => {
+    try {
+      const entry = history.find(h => h.id === id);
+      if (entry?.isFavorite) {
+        await queryHistoryService.toggleFavorite(id);
+        toast.success("Removed from favorites");
+      } else {
+        const defaultName = query.length > 50 ? `${query.substring(0, 50)}...` : query;
+        setEditingFavorite({ id, currentName: defaultName });
+        setFavoriteName(defaultName);
+      }
+      loadHistory();
+    } catch (error) {
+      toast.error("Failed to update favorite");
+    }
+  };
+
+  const handleSaveFavorite = async () => {
+    if (editingFavorite && favoriteName.trim()) {
+      try {
+        await queryHistoryService.toggleFavorite(editingFavorite.id, favoriteName.trim());
+        toast.success("Added to favorites");
+        setEditingFavorite(null);
+        setFavoriteName("");
+        loadHistory();
+      } catch (error) {
+        toast.error("Failed to save favorite");
+      }
+    }
+  };
+
 
   const formatExecutionTime = (ms?: number) => {
     if (!ms) return "";
@@ -158,23 +194,88 @@ export function QueryHistory({ connectionId, database, onSelectQuery }: QueryHis
                       <p className="text-xs text-destructive mt-1">{entry.error}</p>
                     )}
                   </div>
-                  <Button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDelete(entry.id!);
-                    }}
-                    variant="ghost"
-                    size="icon"
-                    className="opacity-0 group-hover:opacity-100 transition-opacity h-7 w-7 flex-shrink-0"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                    <Button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleFavorite(entry.id!, entry.query);
+                      }}
+                      variant="ghost"
+                      size="icon"
+                      className={cn(
+                        "h-7 w-7",
+                        entry.isFavorite && "opacity-100 text-yellow-500"
+                      )}
+                    >
+                      <Star className={cn("h-3 w-3", entry.isFavorite && "fill-current")} />
+                    </Button>
+                    <Button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(entry.id!);
+                      }}
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
                 </div>
+                {entry.isFavorite && entry.name && (
+                  <div className="flex items-center gap-2 mt-1 text-xs text-yellow-600 dark:text-yellow-500">
+                    <Star className="h-3 w-3 fill-current" />
+                    <span className="font-medium">{entry.name}</span>
+                  </div>
+                )}
               </div>
             ))}
           </div>
         )}
       </ScrollArea>
+
+      {/* Edit Favorite Dialog */}
+      <Dialog open={!!editingFavorite} onOpenChange={(open) => {
+        if (!open) {
+          setEditingFavorite(null);
+          setFavoriteName("");
+        }
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add to Favorites</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">Name</label>
+              <Input
+                value={favoriteName}
+                onChange={(e) => setFavoriteName(e.target.value)}
+                placeholder="Enter a name for this query..."
+                className="mt-1"
+                onKeyDown={(e) => e.key === "Enter" && handleSaveFavorite()}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setEditingFavorite(null);
+                  setFavoriteName("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveFavorite}
+                disabled={!favoriteName.trim()}
+              >
+                Save
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

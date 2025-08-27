@@ -2,7 +2,7 @@ import '@/lib/monaco-config'; // Import first to override clipboard before Monac
 import { useEffect, useRef, memo, Suspense, useLayoutEffect } from 'react';
 import Editor, { OnMount, BeforeMount } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
-import { loader, initMonaco } from '@/lib/monaco-loader';
+import { initMonaco } from '@/lib/monaco-loader';
 import { SQLCompletionProvider } from './SQLCompletionProvider';
 import { MonacoThemeProvider } from './ThemeProvider';
 import { Loader2 } from 'lucide-react';
@@ -28,7 +28,6 @@ export const QueryEditor = memo(function QueryEditor({
   value,
   onChange,
   onExecute,
-  height = '400px',
   readOnly = false,
 }: QueryEditorProps) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);

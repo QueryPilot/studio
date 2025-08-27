@@ -12,6 +12,24 @@ GO
 USE todoapp;
 GO
 
+-- Drop existing views first (especially those with SCHEMABINDING)
+IF OBJECT_ID('dbo.user_activity_summary_base', 'V') IS NOT NULL DROP VIEW dbo.user_activity_summary_base;
+IF OBJECT_ID('dbo.user_stats', 'V') IS NOT NULL DROP VIEW dbo.user_stats;
+IF OBJECT_ID('dbo.todo_summary', 'V') IS NOT NULL DROP VIEW dbo.todo_summary;
+IF OBJECT_ID('dbo.overdue_todos', 'V') IS NOT NULL DROP VIEW dbo.overdue_todos;
+IF OBJECT_ID('dbo.todo_analytics', 'V') IS NOT NULL DROP VIEW dbo.todo_analytics;
+GO
+
+-- Drop existing functions
+IF OBJECT_ID('dbo.fn_get_user_completion_rate', 'FN') IS NOT NULL DROP FUNCTION dbo.fn_get_user_completion_rate;
+IF OBJECT_ID('dbo.fn_count_pending_todos', 'FN') IS NOT NULL DROP FUNCTION dbo.fn_count_pending_todos;
+GO
+
+-- Drop existing stored procedures
+IF OBJECT_ID('dbo.sp_get_user_todos', 'P') IS NOT NULL DROP PROCEDURE dbo.sp_get_user_todos;
+IF OBJECT_ID('dbo.sp_update_todo_status', 'P') IS NOT NULL DROP PROCEDURE dbo.sp_update_todo_status;
+GO
+
 -- Drop existing tables if they exist
 IF OBJECT_ID('dbo.activity_logs', 'U') IS NOT NULL DROP TABLE dbo.activity_logs;
 IF OBJECT_ID('dbo.comments', 'U') IS NOT NULL DROP TABLE dbo.comments;

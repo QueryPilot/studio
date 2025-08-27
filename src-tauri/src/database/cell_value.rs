@@ -91,6 +91,10 @@ pub enum CellValueType {
     /// Frontend can show available options or validate against enum values
     Enum,
     
+    /// Money/currency values (MONEY, SMALLMONEY)
+    /// Frontend can format with currency symbols and proper decimal places
+    Money,
+    
     /// Unknown or unsupported database types
     /// Frontend falls back to plain text representation
     Unknown,
@@ -130,6 +134,14 @@ pub struct CellMetadata {
     /// For enum types: available enum values
     /// Helps frontend show dropdowns or validate input
     pub enum_values: Option<Vec<String>>,
+    
+    /// Currency symbol for money types (e.g., "$", "€", "¥")
+    /// None if no currency symbol available or not a money type
+    pub currency_symbol: Option<String>,
+    
+    /// Currency code for money types (e.g., "USD", "EUR", "JPY")  
+    /// None if no currency code available or not a money type
+    pub currency_code: Option<String>,
     
     /// Additional database-specific attributes
     /// Flexible storage for type-specific metadata not covered above
@@ -186,6 +198,8 @@ impl CellValue {
                 element_type: None,
                 srid: None,
                 enum_values: None,
+                currency_symbol: None,
+                currency_code: None,
                 attributes: None,
             })
         } else {
@@ -224,6 +238,44 @@ impl CellValue {
             metadata: None,
             is_truncated: false,
             byte_size: Some(byte_size),
+        }
+    }
+    
+    /// Create a money cell value with proper metadata
+    pub fn money(value: f64, db_type: &str, precision: Option<u32>, scale: Option<u32>) -> Self {
+        Self::money_with_currency(value, db_type, precision, scale, None, None)
+    }
+    
+    /// Create a money cell value with currency information
+    pub fn money_with_currency(
+        value: f64, 
+        db_type: &str, 
+        precision: Option<u32>, 
+        scale: Option<u32>,
+        currency_symbol: Option<String>,
+        currency_code: Option<String>
+    ) -> Self {
+        let metadata = CellMetadata {
+            precision,
+            scale,
+            max_length: None,
+            charset: None,
+            timezone: None,
+            element_type: None,
+            srid: None,
+            enum_values: None,
+            currency_symbol,
+            currency_code,
+            attributes: None,
+        };
+        
+        Self {
+            value: serde_json::Number::from_f64(value).map(serde_json::Value::Number),
+            db_type: db_type.to_string(),
+            value_type: CellValueType::Money,
+            metadata: Some(metadata),
+            is_truncated: false,
+            byte_size: None,
         }
     }
     

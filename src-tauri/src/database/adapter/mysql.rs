@@ -323,9 +323,18 @@ impl DbAdapter for MySqlAdapter {
                 (None, None)
             };
             
+            // Use clean type name instead of full definition for enum/set types
+            let clean_type_name = if data_type.to_uppercase() == "ENUM" {
+                "enum".to_string()
+            } else if data_type.to_uppercase() == "SET" {
+                "set".to_string()
+            } else {
+                data_type
+            };
+            
             columns.push(ColumnMeta {
                 name,
-                db_type: column_type,
+                db_type: clean_type_name.clone(),
                 nullable: is_nullable == "YES",
                 default,
                 is_pk,
@@ -336,7 +345,7 @@ impl DbAdapter for MySqlAdapter {
                 is_identity: Some(is_identity),
                 is_computed: Some(generation_expression.is_some()),
                 is_hierarchyid: None,
-                is_spatial: Some(self.is_spatial_type(&data_type)),
+                is_spatial: Some(self.is_spatial_type(&clean_type_name)),
                 is_json: Some(is_json),
                 enum_values,
                 set_values,
@@ -378,7 +387,14 @@ impl DbAdapter for MySqlAdapter {
             let status: String = row.get(4);
             let function: String = row.get(5);
             let condition: Option<String> = row.get(6);
-            let created: Option<String> = row.get(7);
+            // CREATED is DATETIME in MySQL, need to handle it properly
+            let created: Option<String> = if let Ok(dt) = row.try_get::<Option<NaiveDateTime>, _>(7) {
+                dt.map(|d| d.to_string())
+            } else if let Ok(dt) = row.try_get::<Option<DateTime<Utc>>, _>(7) {
+                dt.map(|d| d.to_rfc3339())
+            } else {
+                row.get(7)
+            };
             
             triggers.push(super::TriggerMeta {
                 name: trigger_name,
@@ -409,6 +425,46 @@ impl DbAdapter for MySqlAdapter {
 
         // Convert u64 to i64, capping at i64::MAX if needed
         Ok(count.map(|c| c.min(i64::MAX as u64) as i64).unwrap_or(0))
+    }
+
+    async fn table_indexes(&self, database: &str, _schema: &str, table: &str) -> Result<Vec<super::TableIndex>, AppError> {
+        let rows = sqlx::query(
+            r#"SELECT 
+                INDEX_NAME,
+                NON_UNIQUE,
+                INDEX_TYPE,
+                GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) as COLUMNS
+            FROM INFORMATION_SCHEMA.STATISTICS 
+            WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+            GROUP BY INDEX_NAME, NON_UNIQUE, INDEX_TYPE
+            ORDER BY INDEX_NAME"#
+        )
+        .bind(database)
+        .bind(table)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::Database(format!("Failed to get table indexes: {}", e)))?;
+
+        let mut indexes = Vec::new();
+        for row in rows {
+            let index_name: String = row.get(0);
+            let non_unique: i32 = row.get(1);
+            let index_type: String = row.get(2);
+            let columns_str: String = row.get(3);
+            
+            let is_unique = non_unique == 0;
+            let is_primary = index_name == "PRIMARY";
+
+            indexes.push(super::TableIndex {
+                name: index_name,
+                unique: is_unique,
+                primary: is_primary,
+                columns: columns_str.split(',').map(|s| s.trim().to_string()).collect(),
+                index_type: index_type.to_lowercase(),
+            });
+        }
+
+        Ok(indexes)
     }
 
     async fn begin_query(&self, sql: &str, params: Option<Vec<Value>>, opts: QueryOptions) -> Result<QueryCursor, AppError> {
@@ -895,14 +951,22 @@ impl MySqlAdapter {
             .map_err(|e| AppError::Database(format!("Failed to check null: {}", e)))?
             .is_null();
         
-        if is_null {
-            return Ok(CellValue::null(type_name));
-        }
+        // Handle type-specific NULL values to preserve column semantics
         
         // Handle each MySQL type appropriately
         match type_name.to_uppercase().as_str() {
             // Integer types
             "TINYINT" | "BOOL" | "BOOLEAN" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: if type_name == "BOOL" || type_name == "BOOLEAN" { CellValueType::Boolean } else { CellValueType::Integer },
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 // MySQL TINYINT(1) is used for boolean, but it's returned as integer
                 // Check if this is likely a boolean by looking at the value
                 if let Ok(val) = row.try_get::<i8, _>(column_index) {
@@ -915,10 +979,27 @@ impl MySqlAdapter {
                 } else if let Ok(val) = row.try_get::<bool, _>(column_index) {
                     Ok(CellValue::boolean(val, type_name))
                 } else {
-                    Ok(CellValue::null(type_name))
+                    Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: if type_name == "BOOL" || type_name == "BOOLEAN" { CellValueType::Boolean } else { CellValueType::Integer },
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    })
                 }
             }
             "TINYINT UNSIGNED" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Integer,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 if let Ok(val) = row.try_get::<u8, _>(column_index) {
                     // If value is 0 or 1, it might be a boolean
                     if val == 0 || val == 1 {
@@ -927,7 +1008,14 @@ impl MySqlAdapter {
                         Ok(CellValue::integer(val as i64, type_name))
                     }
                 } else {
-                    Ok(CellValue::null(type_name))
+                    Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Integer,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    })
                 }
             }
             // UNSIGNED SMALLINT
@@ -966,6 +1054,16 @@ impl MySqlAdapter {
                 }
             }
             "SMALLINT" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Integer,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 let value: i16 = row.try_get(column_index)
                     .map_err(|e| AppError::Database(format!("Failed to get i16: {}", e)))?;
                 Ok(CellValue::integer(value as i64, type_name))
@@ -992,11 +1090,31 @@ impl MySqlAdapter {
                 }
             }
             "MEDIUMINT" | "INT" | "INTEGER" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Integer,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 let value: i32 = row.try_get(column_index)
                     .map_err(|e| AppError::Database(format!("Failed to get i32: {}", e)))?;
                 Ok(CellValue::integer(value as i64, type_name))
             }
             "BIGINT" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Integer,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 let value: i64 = row.try_get(column_index)
                     .map_err(|e| AppError::Database(format!("Failed to get i64: {}", e)))?;
                 Ok(CellValue::integer(value, type_name))
@@ -1004,11 +1122,39 @@ impl MySqlAdapter {
             
             // Floating point types
             "FLOAT" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Decimal,
+                        metadata: Some(CellMetadata {
+                            precision: Some(7),
+                            scale: Some(6),
+                            ..Default::default()
+                        }),
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 let value: f32 = row.try_get(column_index)
                     .map_err(|e| AppError::Database(format!("Failed to get f32: {}", e)))?;
                 Ok(CellValue::decimal(value as f64, type_name, Some(7), Some(6)))
             }
             "DOUBLE" | "REAL" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Decimal,
+                        metadata: Some(CellMetadata {
+                            precision: Some(15),
+                            scale: Some(14),
+                            ..Default::default()
+                        }),
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 let value: f64 = row.try_get(column_index)
                     .map_err(|e| AppError::Database(format!("Failed to get f64: {}", e)))?;
                 Ok(CellValue::decimal(value, type_name, Some(15), Some(14)))
@@ -1016,6 +1162,20 @@ impl MySqlAdapter {
             
             // Decimal types
             "DECIMAL" | "NUMERIC" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Decimal,
+                        metadata: Some(CellMetadata {
+                            precision: Some(28),
+                            scale: Some(0),
+                            ..Default::default()
+                        }),
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 if let Ok(decimal_val) = row.try_get::<Decimal, _>(column_index) {
                     let metadata = CellMetadata {
                         precision: Some(28),
@@ -1026,6 +1186,8 @@ impl MySqlAdapter {
                         element_type: None,
                         srid: None,
                         enum_values: None,
+                        currency_symbol: None,
+                        currency_code: None,
                         attributes: None,
                     };
                     
@@ -1049,6 +1211,16 @@ impl MySqlAdapter {
             
             // Bit type
             "BIT" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Text,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 let value: Vec<u8> = row.try_get(column_index)
                     .map_err(|e| AppError::Database(format!("Failed to get bit: {}", e)))?;
                 let bit_string = value.iter()
@@ -1059,6 +1231,16 @@ impl MySqlAdapter {
             
             // String types
             "CHAR" | "VARCHAR" | "TINYTEXT" | "TEXT" | "MEDIUMTEXT" | "LONGTEXT" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Text,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 let value: String = row.try_get(column_index)
                     .map_err(|e| AppError::Database(format!("Failed to get string: {}", e)))?;
                 
@@ -1081,6 +1263,16 @@ impl MySqlAdapter {
             
             // Binary types
             "BINARY" | "VARBINARY" | "TINYBLOB" | "BLOB" | "MEDIUMBLOB" | "LONGBLOB" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Binary,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 let value: Vec<u8> = row.try_get(column_index)
                     .map_err(|e| AppError::Database(format!("Failed to get binary: {}", e)))?;
                 
@@ -1129,6 +1321,16 @@ impl MySqlAdapter {
                 }
             }
             "DATETIME" | "TIMESTAMP" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::DateTime,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 if let Ok(dt_val) = row.try_get::<NaiveDateTime, _>(column_index) {
                     Ok(CellValue {
                         value: Some(serde_json::Value::String(dt_val.to_string())),
@@ -1148,6 +1350,8 @@ impl MySqlAdapter {
                         element_type: None,
                         srid: None,
                         enum_values: None,
+                        currency_symbol: None,
+                        currency_code: None,
                         attributes: None,
                     };
                     
@@ -1168,6 +1372,16 @@ impl MySqlAdapter {
             
             // JSON type
             "JSON" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Json,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 if let Ok(json_val) = row.try_get::<serde_json::Value, _>(column_index) {
                     Ok(CellValue::json(json_val, type_name))
                 } else if let Ok(json_str) = row.try_get::<String, _>(column_index) {
@@ -1176,13 +1390,30 @@ impl MySqlAdapter {
                         Err(_) => Ok(CellValue::text(json_str, type_name))
                     }
                 } else {
-                    Ok(CellValue::null(type_name))
+                    Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Json,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    })
                 }
             }
             
             // Geometry types
             "GEOMETRY" | "POINT" | "LINESTRING" | "POLYGON" |
             "MULTIPOINT" | "MULTILINESTRING" | "MULTIPOLYGON" | "GEOMETRYCOLLECTION" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Geometry,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 // MySQL geometry types are returned as binary, convert to WKT or GeoJSON
                 if let Ok(geom_bytes) = row.try_get::<Vec<u8>, _>(column_index) {
                     // For now, return as hex representation
@@ -1197,12 +1428,29 @@ impl MySqlAdapter {
                         byte_size: Some(geom_bytes.len()),
                     })
                 } else {
-                    Ok(CellValue::null(type_name))
+                    Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Geometry,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    })
                 }
             }
             
             // ENUM and SET types
             "ENUM" | "SET" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Text,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 let value: String = row.try_get(column_index)
                     .map_err(|e| AppError::Database(format!("Failed to get enum/set: {}", e)))?;
                 
@@ -1218,6 +1466,16 @@ impl MySqlAdapter {
             
             // Default fallback for unknown types
             _ => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Unknown,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 // Try to get as string
                 if let Ok(value) = row.try_get::<String, _>(column_index) {
                     Ok(CellValue {
@@ -1229,7 +1487,14 @@ impl MySqlAdapter {
                         byte_size: None,
                     })
                 } else {
-                    Ok(CellValue::null(type_name))
+                    Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Unknown,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    })
                 }
             }
         }

@@ -37,7 +37,7 @@ export const DataGridEmptyState = memo(function DataGridEmptyState() {
 });
 
 interface DataGridLoadingIndicatorProps {
-  tableWidth: number;
+  tableWidth?: number;
 }
 
 export const DataGridLoadingIndicator = memo(function DataGridLoadingIndicator({
@@ -45,8 +45,7 @@ export const DataGridLoadingIndicator = memo(function DataGridLoadingIndicator({
 }: DataGridLoadingIndicatorProps) {
   return (
     <div
-      className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t"
-      style={{ width: `${tableWidth}px` }}
+      className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t w-full"
     >
       <div className="flex items-center justify-center py-3">
         <Loader2 className="h-4 w-4 animate-spin mr-2" />
