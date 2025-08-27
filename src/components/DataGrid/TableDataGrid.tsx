@@ -99,28 +99,37 @@ export const TableDataGrid = memo(function TableDataGrid({
   const allColumns = tableInstance.getAllColumns();
   const minTableWidth = allColumns.reduce((acc, col) => acc + col.getSize(), 0);
 
-  // Use container width if it's larger than minimum, but ensure minimum width
-  const tableWidth = containerWidth > minTableWidth ? containerWidth : minTableWidth;
+  // Always use container width when available
+  const tableWidth = containerWidth || minTableWidth;
 
   // Helper function to get adjusted column width
-  const getAdjustedColumnWidth = (column: { getSize: () => number }) => {
-    if (containerWidth > minTableWidth && allColumns.length > 0) {
-      // Distribute extra space proportionally across all columns
-      const extraSpace = containerWidth - minTableWidth;
-      const columnShare = column.getSize() / minTableWidth;
-      return Math.floor(column.getSize() + extraSpace * columnShare);
+  const getAdjustedColumnWidth = (column: { getSize: () => number }, columnIndex?: number) => {
+    const isLastColumn = columnIndex === allColumns.length - 1;
+    
+    if (containerWidth > 0) {
+      if (isLastColumn) {
+        // Last column takes all remaining space
+        const otherColumnsWidth = allColumns.slice(0, -1).reduce((acc, col) => acc + col.getSize(), 0);
+        const remainingSpace = containerWidth - otherColumnsWidth;
+        // Ensure the last column has at least its minimum width
+        return Math.max(remainingSpace, column.getSize());
+      }
+      // Other columns keep their original size
+      return column.getSize();
     }
+    
     return column.getSize();
   };
 
   return (
     <div className={cn("h-full overflow-hidden", className)}>
       {/* Single Scroll Container */}
-      <div ref={containerRef} className="h-full overflow-auto" style={{ contain: "strict" }}>
+      <div ref={containerRef} className="h-full w-full overflow-auto">
         <div
           style={{
             height: `${totalSize + 32}px`, // +32px for header height
-            width: `${tableWidth}px`,
+            width: '100%',
+            minWidth: `${tableWidth}px`,
             position: "relative",
           }}
         >

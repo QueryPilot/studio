@@ -39,6 +39,8 @@ pub trait DbAdapter: Send + Sync {
         -> Result<Vec<ColumnMeta>, AppError>;
     async fn table_triggers(&self, database: &str, schema: &str, table: &str) 
         -> Result<Vec<TriggerMeta>, AppError>;
+    async fn table_indexes(&self, database: &str, schema: &str, table: &str) 
+        -> Result<Vec<TableIndex>, AppError>;
     async fn estimate_count(&self, database: &str, schema: &str, table: &str) 
         -> Result<i64, AppError>;
     

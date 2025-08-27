@@ -9,6 +9,8 @@ export interface QueryHistoryEntry {
   executionTime?: number;
   rowCount?: number;
   error?: string;
+  isFavorite?: boolean;
+  name?: string;
 }
 
 class QueryHistoryDB extends Dexie {
@@ -17,7 +19,7 @@ class QueryHistoryDB extends Dexie {
   constructor() {
     super("QueryHistoryDB");
     this.version(1).stores({
-      queryHistory: "++id, connectionId, database, executedAt"
+      queryHistory: "++id, connectionId, database, executedAt, isFavorite"
     });
   }
 }
@@ -81,5 +83,37 @@ export const queryHistoryService = {
 
   async deleteEntry(id: number): Promise<void> {
     await db.queryHistory.delete(id);
+  },
+
+  async toggleFavorite(id: number, name?: string): Promise<void> {
+    const entry = await db.queryHistory.get(id);
+    if (entry) {
+      await db.queryHistory.update(id, {
+        isFavorite: !entry.isFavorite,
+        name: !entry.isFavorite ? name : undefined
+      });
+    }
+  },
+
+  async getFavorites(
+    connectionId: string,
+    database?: string
+  ): Promise<QueryHistoryEntry[]> {
+    let query = db.queryHistory
+      .where("connectionId")
+      .equals(connectionId)
+      .filter(entry => entry.isFavorite === true);
+
+    if (database) {
+      query = query.filter(entry => entry.database === database);
+    }
+
+    return await query
+      .reverse()
+      .toArray();
+  },
+
+  async updateFavoriteName(id: number, name: string): Promise<void> {
+    await db.queryHistory.update(id, { name });
   }
 };

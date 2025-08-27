@@ -220,9 +220,29 @@ impl DbAdapter for PostgresAdapter {
             let is_fk: bool = row.get(10);
             let pg_type_name: String = row.get(11);
             
+            // Use the actual type name for USER-DEFINED types (enums, custom types)
+            let actual_type_name = if data_type == "USER-DEFINED" {
+                // Prefer pg_type_name over udt_name as it's more reliable
+                if !pg_type_name.is_empty() {
+                    pg_type_name.clone()
+                } else {
+                    udt_name.clone()
+                }
+            } else {
+                data_type.clone()
+            };
+            
+            // Get enum values for USER-DEFINED types (enums)
+            let enum_values = if data_type == "USER-DEFINED" {
+                let type_name_for_query = if !pg_type_name.is_empty() { &pg_type_name } else { &udt_name };
+                self.get_enum_values(schema, type_name_for_query).await.ok()
+            } else {
+                None
+            };
+            
             columns.push(ColumnMeta {
                 name: column_name,
-                db_type: data_type,
+                db_type: actual_type_name,
                 nullable: is_nullable.as_str() == "YES",
                 default: column_default,
                 is_pk,
@@ -235,7 +255,7 @@ impl DbAdapter for PostgresAdapter {
                 is_hierarchyid: None,
                 is_spatial: Some(pg_type_name.starts_with("geo")),
                 is_json: Some(["json", "jsonb"].contains(&udt_name.as_str())),
-                enum_values: None, // TODO: Get actual enum values for enum types
+                enum_values,
                 set_values: None,
                 is_virtual: None,
             });
@@ -325,6 +345,71 @@ impl DbAdapter for PostgresAdapter {
         .map_err(|e| AppError::Database(format!("Failed to estimate count: {}", e)))?;
         
         Ok(estimate.flatten().unwrap_or(0.0).round() as i64)
+    }
+
+    async fn table_indexes(&self, _database: &str, schema: &str, table: &str) -> Result<Vec<super::TableIndex>, AppError> {
+        let rows = sqlx::query(
+            r#"SELECT 
+                i.indexname as index_name,
+                i.indexdef,
+                ix.indisunique as is_unique,
+                ix.indisprimary as is_primary,
+                array_to_string(ARRAY(
+                    SELECT a.attname
+                    FROM pg_attribute a
+                    WHERE a.attrelid = ix.indrelid
+                    AND a.attnum = ANY(ix.indkey)
+                    ORDER BY ARRAY_POSITION(ix.indkey, a.attnum)
+                ), ',') as columns
+            FROM pg_indexes i
+            JOIN pg_class t ON t.relname = i.tablename
+            JOIN pg_namespace n ON n.nspname = i.schemaname AND n.oid = t.relnamespace
+            JOIN pg_index ix ON ix.indrelid = t.oid
+            JOIN pg_class ic ON ic.oid = ix.indexrelid AND ic.relname = i.indexname
+            WHERE i.schemaname = $1 AND i.tablename = $2
+            ORDER BY i.indexname"#
+        )
+        .bind(schema)
+        .bind(table)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::Database(format!("Failed to get table indexes: {}", e)))?;
+
+        let mut indexes = Vec::new();
+        for row in rows {
+            let index_name: String = row.get(0);
+            let index_def: String = row.get(1);
+            let is_unique: bool = row.get(2);
+            let is_primary: bool = row.get(3);
+            let columns_str: String = row.get(4);
+            
+            // Extract index type from definition (btree, gin, gist, etc.)
+            let index_type = if index_def.contains("USING btree") {
+                "btree"
+            } else if index_def.contains("USING gin") {
+                "gin"
+            } else if index_def.contains("USING gist") {
+                "gist"
+            } else if index_def.contains("USING hash") {
+                "hash"
+            } else if index_def.contains("USING spgist") {
+                "spgist"
+            } else if index_def.contains("USING brin") {
+                "brin"
+            } else {
+                "btree"
+            }.to_string();
+
+            indexes.push(super::TableIndex {
+                name: index_name,
+                unique: is_unique,
+                primary: is_primary,
+                columns: columns_str.split(',').map(|s| s.trim().to_string()).collect(),
+                index_type,
+            });
+        }
+
+        Ok(indexes)
     }
 
     async fn begin_query(&self, sql: &str, params: Option<Vec<Value>>, opts: QueryOptions) -> Result<QueryCursor, AppError> {
@@ -676,6 +761,31 @@ impl PostgresAdapter {
         )
     }
     
+    /// Get enum values for a PostgreSQL enum type
+    async fn get_enum_values(&self, schema: &str, type_name: &str) -> Result<Vec<String>, AppError> {
+        let query = r#"
+            SELECT e.enumlabel
+            FROM pg_type t
+            JOIN pg_enum e ON t.oid = e.enumtypid
+            JOIN pg_namespace n ON t.typnamespace = n.oid
+            WHERE n.nspname = $1 AND t.typname = $2
+            ORDER BY e.enumsortorder
+        "#;
+        
+        let rows = sqlx::query(query)
+            .bind(schema)
+            .bind(type_name)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| AppError::Database(format!("Failed to get enum values: {}", e)))?;
+        
+        let values: Vec<String> = rows.iter()
+            .map(|row| row.get::<String, _>(0))
+            .collect();
+        
+        Ok(values)
+    }
+    
     /// Convert PostgreSQL value to CellValue with proper type mapping
     fn convert_pg_value_to_cell(&self, row: &PgRow, column: &PgColumn, column_index: usize) -> Result<CellValue, AppError> {
         let type_info = column.type_info();
@@ -684,24 +794,50 @@ impl PostgresAdapter {
             .map_err(|e| AppError::Database(format!("Failed to check null: {}", e)))?
             .is_null();
         
-        if is_null {
-            return Ok(CellValue::null(type_name));
-        }
-        
-        // Handle each PostgreSQL type appropriately
+        // Handle each PostgreSQL type appropriately, including NULL values
         match type_name {
             // Integer types
             "INT2" | "SMALLINT" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Integer,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 let value: i16 = row.try_get(column_index)
                     .map_err(|e| AppError::Database(format!("Failed to get i16: {}", e)))?;
                 Ok(CellValue::integer(value as i64, type_name))
             }
             "INT4" | "INTEGER" | "SERIAL" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Integer,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 let value: i32 = row.try_get(column_index)
                     .map_err(|e| AppError::Database(format!("Failed to get i32: {}", e)))?;
                 Ok(CellValue::integer(value as i64, type_name))
             }
             "INT8" | "BIGINT" | "BIGSERIAL" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Integer,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 let value: i64 = row.try_get(column_index)
                     .map_err(|e| AppError::Database(format!("Failed to get i64: {}", e)))?;
                 Ok(CellValue::integer(value, type_name))
@@ -709,11 +845,39 @@ impl PostgresAdapter {
             
             // Floating point types
             "REAL" | "FLOAT4" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Decimal,
+                        metadata: Some(CellMetadata {
+                            precision: Some(7),
+                            scale: Some(6),
+                            ..Default::default()
+                        }),
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 let value: f32 = row.try_get(column_index)
                     .map_err(|e| AppError::Database(format!("Failed to get f32: {}", e)))?;
                 Ok(CellValue::decimal(value as f64, type_name, Some(7), Some(6)))
             }
             "DOUBLE PRECISION" | "FLOAT8" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Decimal,
+                        metadata: Some(CellMetadata {
+                            precision: Some(15),
+                            scale: Some(14),
+                            ..Default::default()
+                        }),
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 let value: f64 = row.try_get(column_index)
                     .map_err(|e| AppError::Database(format!("Failed to get f64: {}", e)))?;
                 Ok(CellValue::decimal(value, type_name, Some(15), Some(14)))
@@ -721,6 +885,20 @@ impl PostgresAdapter {
             
             // Decimal/Numeric types with precision
             "NUMERIC" | "DECIMAL" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Decimal,
+                        metadata: Some(CellMetadata {
+                            precision: Some(28),
+                            scale: Some(0),
+                            ..Default::default()
+                        }),
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 if let Ok(decimal_val) = row.try_get::<Decimal, _>(column_index) {
                     let metadata = CellMetadata {
                         precision: Some(28), // Rust decimal default precision
@@ -731,6 +909,8 @@ impl PostgresAdapter {
                         element_type: None,
                         srid: None,
                         enum_values: None,
+                        currency_symbol: None,
+                        currency_code: None,
                         attributes: None,
                     };
                     
@@ -755,6 +935,16 @@ impl PostgresAdapter {
             
             // Boolean type
             "BOOL" | "BOOLEAN" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Boolean,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 let value: bool = row.try_get(column_index)
                     .map_err(|e| AppError::Database(format!("Failed to get bool: {}", e)))?;
                 Ok(CellValue::boolean(value, type_name))
@@ -762,6 +952,16 @@ impl PostgresAdapter {
             
             // String types
             "VARCHAR" | "CHAR" | "TEXT" | "NAME" | "BPCHAR" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Text,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 let value: String = row.try_get(column_index)
                     .map_err(|e| AppError::Database(format!("Failed to get string: {}", e)))?;
                 Ok(CellValue::text(value, type_name))
@@ -802,6 +1002,16 @@ impl PostgresAdapter {
                 }
             }
             "TIMESTAMP" | "TIMESTAMPTZ" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::DateTime,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 if let Ok(ts_val) = row.try_get::<NaiveDateTime, _>(column_index) {
                     Ok(CellValue {
                         value: Some(serde_json::Value::String(ts_val.to_string())),
@@ -821,6 +1031,8 @@ impl PostgresAdapter {
                         element_type: None,
                         srid: None,
                         enum_values: None,
+                        currency_symbol: None,
+                        currency_code: None,
                         attributes: None,
                     };
                     
@@ -833,9 +1045,15 @@ impl PostgresAdapter {
                         byte_size: None,
                     })
                 } else {
-                    let value: String = row.try_get(column_index)
-                        .map_err(|e| AppError::Database(format!("Failed to get timestamp: {}", e)))?;
-                    Ok(CellValue::text(value, type_name))
+                    // Fallback to typed NULL for timestamp if all extractions fail
+                    Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::DateTime,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    })
                 }
             }
             
@@ -883,6 +1101,16 @@ impl PostgresAdapter {
             
             // Binary data types
             "BYTEA" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Binary,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 let value: Vec<u8> = row.try_get(column_index)
                     .map_err(|e| AppError::Database(format!("Failed to get bytea: {}", e)))?;
                 
@@ -1207,6 +1435,16 @@ impl PostgresAdapter {
             
             // XML type
             "XML" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Xml,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 let value: String = row.try_get(column_index)
                     .map_err(|e| AppError::Database(format!("Failed to get XML: {}", e)))?;
                 
@@ -1383,17 +1621,33 @@ impl PostgresAdapter {
             
             // Money type
             "MONEY" => {
+                if is_null {
+                    // Return typed NULL for MONEY columns
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Money,
+                        metadata: Some(CellMetadata {
+                            precision: Some(19),
+                            scale: Some(2),
+                            max_length: None,
+                            charset: None,
+                            timezone: None,
+                            element_type: None,
+                            srid: None,
+                            enum_values: None,
+                            currency_symbol: None,
+                            currency_code: None,
+                            attributes: None,
+                        }),
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
+                
                 // PostgreSQL MONEY type needs special handling
                 // sqlx doesn't directly support MONEY to String conversion
                 // We need to use Decimal for proper handling
-                
-                // First check if NULL
-                let value_ref = row.try_get_raw(column_index)
-                    .map_err(|e| AppError::Database(format!("Failed to get raw money value: {}", e)))?;
-                
-                if value_ref.is_null() {
-                    return Ok(CellValue::null(type_name));
-                }
                 
                 // Try to decode as Decimal (which sqlx supports for MONEY type)
                 if let Ok(decimal_val) = row.try_get::<Decimal, _>(column_index) {
@@ -1401,16 +1655,26 @@ impl PostgresAdapter {
                     let value = decimal_val.to_string().parse::<f64>()
                         .unwrap_or(0.0);
                     
-                    Ok(CellValue::decimal(value, type_name, Some(19), Some(2)))
+                    Ok(CellValue::money(value, type_name, Some(19), Some(2)))
                 } else {
                     // Fallback: If Decimal doesn't work, return a default representation
                     // This shouldn't happen with properly configured sqlx
-                    Ok(CellValue::decimal(0.0, type_name, Some(19), Some(2)))
+                    Ok(CellValue::money(0.0, type_name, Some(19), Some(2)))
                 }
             }
             
             // Interval type
             "INTERVAL" => {
+                if is_null {
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: CellValueType::Text,
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
+                }
                 let value: String = row.try_get(column_index)
                     .map_err(|e| AppError::Database(format!("Failed to get interval: {}", e)))?;
                 Ok(CellValue::text(value, type_name))
@@ -1677,7 +1941,14 @@ impl PostgresAdapter {
                     .map_err(|e| AppError::Database(format!("Failed to get raw value for {}: {}", type_name, e)))?;
                 
                 if value_ref.is_null() {
-                    return Ok(CellValue::null(type_name));
+                    return Ok(CellValue {
+                        value: None,
+                        db_type: type_name.to_string(),
+                        value_type: if is_enum { CellValueType::Enum } else { CellValueType::Unknown },
+                        metadata: None,
+                        is_truncated: false,
+                        byte_size: None,
+                    });
                 }
                 
                 // For unknown types, try direct string conversion first

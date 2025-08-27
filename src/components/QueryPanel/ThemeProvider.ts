@@ -12,7 +12,7 @@ export class MonacoThemeProvider {
     return MonacoThemeProvider.instance;
   }
 
-  private getCSSVariable(variable: string): string {
+  private _getCSSVariable(variable: string): string {
     const style = getComputedStyle(document.documentElement);
     const value = style.getPropertyValue(variable).trim();
     
@@ -24,7 +24,7 @@ export class MonacoThemeProvider {
     return value;
   }
 
-  private hexToRgb(hex: string): string {
+  private _hexToRgb(hex: string): string {
     // Remove # if present
     hex = hex.replace('#', '');
     
@@ -40,13 +40,13 @@ export class MonacoThemeProvider {
     return `${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
   }
 
-  private hslToHex(hslStr: string): string {
+  private _hslToHex(hslStr: string): string {
     const match = hslStr.match(/hsl\((\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)%\s+(\d+(?:\.\d+)?)%\)/);
     if (!match) return '#000000';
     
-    const h = parseFloat(match[1]) / 360;
-    const s = parseFloat(match[2]) / 100;
-    const l = parseFloat(match[3]) / 100;
+    const h = parseFloat(match[1] || '0') / 360;
+    const s = parseFloat(match[2] || '0') / 100;
+    const l = parseFloat(match[3] || '0') / 100;
     
     let r, g, b;
     
@@ -77,16 +77,6 @@ export class MonacoThemeProvider {
     return `${toHex(r)}${toHex(g)}${toHex(b)}`;
   }
 
-  private getColorHex(cssVar: string): string {
-    const color = this.getCSSVariable(cssVar);
-    if (color.startsWith('hsl')) {
-      return this.hslToHex(color);
-    }
-    if (color.startsWith('#')) {
-      return this.hexToRgb(color);
-    }
-    return '000000';
-  }
 
   public createTheme(isDark: boolean): monaco.editor.IStandaloneThemeData {
     const base = isDark ? 'vs-dark' : 'vs';
@@ -305,7 +295,9 @@ export class MonacoThemeProvider {
       if (bgColor && bgColor !== 'rgba(0, 0, 0, 0)') {
         const rgb = bgColor.match(/\d+/g);
         if (rgb && rgb.length >= 3) {
-          const [r, g, b] = rgb.map(Number);
+          const r = Number(rgb[0]);
+          const g = Number(rgb[1]);
+          const b = Number(rgb[2]);
           const brightness = (r * 299 + g * 587 + b * 114) / 1000;
           if (brightness < 128) return true;
         }
@@ -336,7 +328,7 @@ export class MonacoThemeProvider {
     
     // Also listen to system theme changes
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleChange = (e: MediaQueryListEvent) => {
+    const handleChange = (_e: MediaQueryListEvent) => {
       const isDark = checkIsDark();
       this.applyTheme(isDark);
     };

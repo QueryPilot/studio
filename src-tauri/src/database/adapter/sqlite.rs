@@ -391,6 +391,50 @@ impl DbAdapter for SqliteAdapter {
         Ok(count)
     }
 
+    async fn table_indexes(&self, _database: &str, _schema: &str, table: &str) -> Result<Vec<super::TableIndex>, AppError> {
+        let rows = sqlx::query("PRAGMA index_list(?)")
+            .bind(table)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| AppError::Database(format!("Failed to get table indexes: {}", e)))?;
+
+        let mut indexes = Vec::new();
+        for row in rows {
+            let seq: i64 = row.get(0);
+            let name: String = row.get(1);
+            let unique: i64 = row.get(2);
+            let origin: String = row.get(3);
+            let partial: i64 = row.get(4);
+
+            // Get columns for this index
+            let column_rows = sqlx::query(&format!("PRAGMA index_info('{}')", name))
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| AppError::Database(format!("Failed to get index columns: {}", e)))?;
+
+            let mut columns = Vec::new();
+            for col_row in column_rows {
+                let seqno: i64 = col_row.get(0);
+                let cid: Option<i64> = col_row.get(1);
+                let column_name: String = col_row.get(2);
+                columns.push(column_name);
+            }
+
+            let is_primary = origin == "pk";
+            let is_unique = unique == 1 || is_primary;
+
+            indexes.push(super::TableIndex {
+                name,
+                unique: is_unique,
+                primary: is_primary,
+                columns,
+                index_type: "btree".to_string(),
+            });
+        }
+
+        Ok(indexes)
+    }
+
     async fn begin_query(&self, sql: &str, params: Option<Vec<Value>>, opts: QueryOptions) -> Result<QueryCursor, AppError> {
         let start = Instant::now();
         
