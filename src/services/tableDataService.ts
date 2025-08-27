@@ -232,6 +232,34 @@ export class TableDataService {
   }
 
   /**
+   * Execute a SQL query and return results
+   */
+  async executeQuery(
+    connectionId: string,
+    database: string,
+    query: string,
+    options: { limit?: number; signal?: AbortSignal } = {}
+  ): Promise<{ columns: string[]; rows: any[][]; error?: string }> {
+    try {
+      const result = await invoke<{
+        columns: string[];
+        rows: any[][];
+        error?: string;
+      }>('execute_query', {
+        connectionId,
+        database,
+        query,
+        limit: options.limit || 1000,
+      });
+
+      return result;
+    } catch (error) {
+      console.error('[TableDataService] Query execution error:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Validate table data parameters
    */
   private validateParams(params: TableDataParams): void {

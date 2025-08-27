@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { useTableStructure } from "@/hooks/useTableStructure";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { AlertCircle, KeyRound, Hash } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -41,18 +42,19 @@ export const TableStructure = memo(function TableStructure({
   }
 
   return (
-    <div className="h-full overflow-auto">
-      <table className="w-full">
+    <TooltipProvider>
+      <div className="h-full overflow-auto">
+        <table className="w-full table-fixed">
         <thead className="sticky top-0 z-10 bg-background border-b">
           <tr className="text-xs font-semibold text-foreground/85 dark:text-foreground/75" style={{ height: "32px" }}>
-            <th className="text-left px-1.5 py-0.5 w-8">#</th>
-            <th className="text-left px-1.5 py-0.5">Column</th>
-            <th className="text-left px-1.5 py-0.5">Type</th>
-            <th className="text-left px-1.5 py-0.5">Nullable</th>
-            <th className="text-left px-1.5 py-0.5">Default</th>
-            <th className="text-left px-1.5 py-0.5">Check</th>
-            <th className="text-left px-1.5 py-0.5">Foreign Key</th>
-            <th className="text-left px-1.5 py-0.5">Comment</th>
+            <th className="text-left px-1.5 py-0.5 w-[40px]">#</th>
+            <th className="text-left px-1.5 py-0.5 w-[150px]">Column</th>
+            <th className="text-left px-1.5 py-0.5 w-[120px]">Type</th>
+            <th className="text-left px-1.5 py-0.5 w-[90px]">Nullable</th>
+            <th className="text-left px-1.5 py-0.5 w-[180px]">Default</th>
+            <th className="text-left px-1.5 py-0.5 w-[80px]">Check</th>
+            <th className="text-left px-1.5 py-0.5 w-[140px]">Foreign Key</th>
+            <th className="text-left px-1.5 py-0.5 w-auto">Comment</th>
           </tr>
         </thead>
         <tbody>
@@ -98,7 +100,22 @@ export const TableStructure = memo(function TableStructure({
                 </span>
               </td>
               <td className="px-1.5 py-0.5 text-foreground/70 dark:text-foreground/60 text-xs">
-                {column.default || "-"}
+                {column.default && column.default.length > 25 ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="truncate cursor-help">
+                        {column.default}
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-[400px] break-all">
+                      <p className="font-mono text-xs">{column.default}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <div className="truncate">
+                    {column.default || "-"}
+                  </div>
+                )}
               </td>
               <td className="px-1.5 py-0.5 text-foreground/70 dark:text-foreground/60 text-xs">
                 -
@@ -121,6 +138,7 @@ export const TableStructure = memo(function TableStructure({
         </tbody>
       </table>
     </div>
+    </TooltipProvider>
   );
 });
 

@@ -819,6 +819,65 @@ impl DbAdapter for SqliteAdapter {
             None
         ))
     }
+    
+    async fn execute_raw_query(
+        &self,
+        _database: &str, // SQLite doesn't have multiple databases in the same connection
+        query: &str,
+        limit: u32,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        // Add LIMIT if not already present (only for SELECT statements)
+        let limited_query = if query.trim().to_uppercase().starts_with("SELECT") 
+            && !query.to_uppercase().contains("LIMIT") {
+            format!("{} LIMIT {}", query, limit)
+        } else {
+            query.to_string()
+        };
+
+        let rows = sqlx::query(&limited_query)
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut columns = Vec::new();
+        let mut result_rows = Vec::new();
+
+        if !rows.is_empty() {
+            // Get column names from the first row
+            let first_row = &rows[0];
+            for column in first_row.columns() {
+                columns.push(column.name().to_string());
+            }
+
+            // Extract data from all rows
+            for row in rows {
+                let mut row_data = Vec::new();
+                for i in 0..columns.len() {
+                    // SQLite stores everything as text, integer, real, or blob
+                    // Try to get value in order of most specific to least specific
+                    let value = if let Ok(v) = row.try_get::<Option<i64>, _>(i) {
+                        serde_json::Value::from(v)
+                    } else if let Ok(v) = row.try_get::<Option<f64>, _>(i) {
+                        serde_json::Value::from(v)
+                    } else if let Ok(v) = row.try_get::<Option<String>, _>(i) {
+                        serde_json::Value::from(v)
+                    } else if let Ok(v) = row.try_get::<Option<Vec<u8>>, _>(i) {
+                        // Convert blob to hex string
+                        v.map(|bytes| serde_json::Value::String(hex::encode(bytes)))
+                            .unwrap_or(serde_json::Value::Null)
+                    } else {
+                        serde_json::Value::Null
+                    };
+                    row_data.push(value);
+                }
+                result_rows.push(row_data);
+            }
+        }
+
+        Ok(serde_json::json!({
+            "columns": columns,
+            "rows": result_rows
+        }))
+    }
 }
 
 #[cfg(test)]

@@ -541,6 +541,72 @@ impl DbAdapter for PostgresAdapter {
             next_cursor: None,
         }, None))
     }
+
+    async fn execute_raw_query(
+        &self,
+        database: &str,
+        query: &str,
+        limit: u32,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        // For PostgreSQL, we'll use the database as the schema name
+        // since PostgreSQL connections are per-database
+        let query_with_schema = if !database.is_empty() && database != "public" {
+            format!("SET search_path TO {}; {}", database, query)
+        } else {
+            query.to_string()
+        };
+
+        // Add LIMIT if not already present (only for SELECT statements)
+        let limited_query = if query.trim().to_uppercase().starts_with("SELECT") 
+            && !query.to_uppercase().contains("LIMIT") {
+            format!("{} LIMIT {}", query_with_schema, limit)
+        } else {
+            query_with_schema
+        };
+
+        let rows = sqlx::query(&limited_query)
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut columns = Vec::new();
+        let mut result_rows = Vec::new();
+
+        if !rows.is_empty() {
+            // Get column names from the first row
+            let first_row = &rows[0];
+            for column in first_row.columns() {
+                columns.push(column.name().to_string());
+            }
+
+            // Extract data from all rows
+            for row in rows {
+                let mut row_data = Vec::new();
+                for i in 0..columns.len() {
+                    // Try to get value as different types
+                    let value = if let Ok(v) = row.try_get::<Option<String>, _>(i) {
+                        serde_json::Value::from(v)
+                    } else if let Ok(v) = row.try_get::<Option<i64>, _>(i) {
+                        serde_json::Value::from(v)
+                    } else if let Ok(v) = row.try_get::<Option<f64>, _>(i) {
+                        serde_json::Value::from(v)
+                    } else if let Ok(v) = row.try_get::<Option<bool>, _>(i) {
+                        serde_json::Value::from(v)
+                    } else if let Ok(v) = row.try_get::<Option<serde_json::Value>, _>(i) {
+                        v.unwrap_or(serde_json::Value::Null)
+                    } else {
+                        serde_json::Value::Null
+                    };
+                    row_data.push(value);
+                }
+                result_rows.push(row_data);
+            }
+        }
+
+        Ok(serde_json::json!({
+            "columns": columns,
+            "rows": result_rows
+        }))
+    }
 }
 
 #[cfg(test)]

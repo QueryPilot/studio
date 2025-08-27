@@ -1,7 +1,13 @@
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Play, ChevronUp, ChevronDown } from "lucide-react";
+import { lazy, Suspense } from "react";
+import { Loader2 } from "lucide-react";
 import type { TabState } from "@/types/workspaceScreen";
+
+// Lazy load the QueryPanel to reduce initial bundle size
+const MonacoQueryPanel = lazy(() => 
+  import("@/components/QueryPanel").then(module => ({ 
+    default: module.QueryPanel 
+  }))
+);
 
 interface QueryPanelProps {
   tab: TabState;
@@ -13,80 +19,34 @@ interface QueryPanelProps {
 
 export function QueryPanel({ 
   tab, 
-  connectionId: _connectionId, 
+  connectionId, 
   isActive: _isActive, 
-  onUpdate, 
+  onUpdate: _onUpdate, 
   onClose: _onClose 
 }: QueryPanelProps) {
-  const [isResultsCollapsed, setIsResultsCollapsed] = useState(false);
-  const [query, setQuery] = useState(tab.payload?.sql || "");
-
-  const handleExecute = () => {
-    // TODO: Execute query
-    console.log("Execute query:", query);
-  };
+  // Extract database info from tab payload
+  const database = tab.payload?.database || tab.context?.database || '';
+  const schema = tab.payload?.schema || tab.context?.schema || 'public';
+  const dbType = tab.payload?.dbType || tab.context?.dbType || 'postgres';
 
   return (
-    <div className="flex flex-col h-full">
-      {/* SQL Editor Area */}
-      <div className={isResultsCollapsed ? "flex-1" : "flex-1 min-h-0"}>
-        <div className="flex flex-col h-full">
-          {/* Toolbar */}
-          <div className="flex items-center justify-between p-2 border-b">
-            <Button
-              size="sm"
-              onClick={handleExecute}
-              className="gap-2"
-            >
-              <Play className="h-4 w-4" />
-              Execute
-            </Button>
-          </div>
-          
-          {/* Editor */}
-          <div className="flex-1 p-4">
-            <textarea
-              className="w-full h-full p-3 font-mono text-sm bg-muted/20 rounded resize-none focus:outline-none focus:ring-2 focus:ring-primary"
-              placeholder="Enter your SQL query here..."
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                onUpdate({ payload: { ...tab.payload, sql: e.target.value } });
-              }}
-            />
-            <p className="text-xs text-muted-foreground mt-2">
-              Monaco Editor will be integrated here
-            </p>
+    <Suspense 
+      fallback={
+        <div className="flex items-center justify-center h-full">
+          <div className="flex flex-col items-center space-y-2">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground">Loading Query Editor...</p>
           </div>
         </div>
-      </div>
-
-      {/* Collapsible Query Results Pane */}
-      <div className={`border-t ${isResultsCollapsed ? "h-10" : "h-80"} transition-all`}>
-        <div className="flex items-center justify-between px-4 h-10 bg-muted/20">
-          <span className="text-sm font-medium">Query Results</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setIsResultsCollapsed(!isResultsCollapsed)}
-          >
-            {isResultsCollapsed ? (
-              <ChevronUp className="h-4 w-4" />
-            ) : (
-              <ChevronDown className="h-4 w-4" />
-            )}
-          </Button>
-        </div>
-        
-        {!isResultsCollapsed && (
-          <div className="p-4 h-[calc(100%-2.5rem)] overflow-auto">
-            <div className="text-center text-muted-foreground py-8">
-              <p className="text-sm">Execute a query to see results</p>
-              <p className="text-xs mt-2">Results will be displayed here</p>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+      }
+    >
+      <MonacoQueryPanel
+        connectionId={connectionId}
+        database={database}
+        schema={schema}
+        dbType={dbType}
+        className="h-full"
+      />
+    </Suspense>
   );
 }
