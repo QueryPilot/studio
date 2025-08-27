@@ -18,6 +18,7 @@ export const CellWithCopy = memo(function CellWithCopy({
 
   const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    console.log("CellWithCopy: handleCopy called with value:", value);
     await copy(value);
   };
 

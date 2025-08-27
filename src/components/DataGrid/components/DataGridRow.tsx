@@ -43,8 +43,7 @@ export const DataGridRow = memo(function DataGridRow({
         <tbody>
           <tr
             className={cn(
-              "hover:bg-primary/10 transition-colors",
-              !isLastRow && "border-b",
+              "hover:bg-primary/10 transition-colors border-b",
               virtualItem.index % 2 === 0 && "bg-muted/10",
             )}
             style={{ height: "28px" }}
@@ -63,18 +62,22 @@ export const DataGridRow = memo(function DataGridRow({
               // Get text value for copy
               const getCopyText = (): string => {
                 if (isNull) {
+                  console.log("Copy: NULL value");
                   return "NULL";
                 }
                 if (typeof cellValue.value === "string") {
+                  console.log("Copy: string value", cellValue.value);
                   return cellValue.value;
                 }
-                return JSON.stringify(cellValue.value);
+                const jsonValue = JSON.stringify(cellValue.value);
+                console.log("Copy: non-string value", jsonValue);
+                return jsonValue;
               };
 
               let cellContent: React.ReactNode;
               if (cellValue && column) {
                 cellContent = (
-                  <CellValueRenderer value={cellValue} column={column} />
+                  <CellValueRenderer cell={cellValue} column={column} />
                 );
               } else if (cellValue) {
                 cellContent = (

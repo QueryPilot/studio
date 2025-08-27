@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { memo } from "react";
 import type { CellValue } from "@/types/cellValue";
 import type { ColumnMeta } from "@/types/database";
@@ -16,72 +17,90 @@ import { GeometryCell, XmlCell, EnumCell } from "./SpecialCells";
 import { MoneyCell } from "./MoneyCell";
 
 interface CellValueRendererProps {
-  value: CellValue;
+  cell: CellValue;
   column?: ColumnMeta;
 }
 
 export const CellValueRenderer = memo(function CellValueRenderer({
-  value,
+  cell,
 }: CellValueRendererProps) {
   // Handle NULL values
-  if (value.value === null || value.value === undefined) {
-    const isNumeric = value.value_type === "Integer" || value.value_type === "Decimal";
+  if (cell.value === null || cell.value === undefined) {
+    console.log(`>>>cell.value`, cell);
+    const isNumeric = ["Integer", "Decimal", "Money"].includes(cell.value_type);
     return <NullCell isNumeric={isNumeric} />;
   }
 
   // Render based on value type
-  switch (value.value_type) {
+  switch (cell.value_type) {
     case "Integer":
-      return <IntegerCell value={value.value as number} />;
+      return <IntegerCell value={cell.value as number} />;
 
     case "Decimal":
       return (
         <DecimalCell
-          value={value.value as number}
-          precision={value.metadata?.precision}
-          scale={value.metadata?.scale}
+          value={cell.value as number}
+          precision={cell.metadata?.precision}
+          scale={cell.metadata?.scale}
         />
       );
 
     case "Boolean":
-      return <BooleanCell value={value.value as boolean} />;
+      return <BooleanCell value={cell.value as boolean} />;
 
     case "Date":
-      return <DateCell value={value.value as string} />;
+      return <DateCell value={cell.value as string} />;
 
     case "DateTime":
-      return <DateTimeCell value={value.value as string} timezone={value.metadata?.timezone} />;
+      return (
+        <DateTimeCell
+          value={cell.value as string}
+          timezone={cell.metadata?.timezone}
+        />
+      );
 
     case "Time":
-      return <TimeCell value={value.value as string} />;
+      return <TimeCell value={cell.value as string} />;
 
     case "Json":
-      return <JsonCell value={value.value} />;
+      return <JsonCell value={cell.value} />;
 
     case "Binary":
-      return <BinaryCell size={value.byte_size || 0} />;
+      return <BinaryCell size={cell.byte_size || 0} />;
 
     case "Uuid":
-      return <UuidCell value={value.value as string} />;
+      return <UuidCell value={cell.value as string} />;
 
     case "Array":
-      return <ArrayCell value={value.value} elementType={value.metadata?.element_type} />;
+      return (
+        <ArrayCell
+          value={cell.value}
+          elementType={cell.metadata?.element_type}
+        />
+      );
 
     case "Geometry":
-      return <GeometryCell value={value.value} srid={value.metadata?.srid} />;
+      return <GeometryCell value={cell.value} srid={cell.metadata?.srid} />;
 
     case "Xml":
-      return <XmlCell value={value.value} />;
+      return <XmlCell value={cell.value} />;
 
     case "Enum":
-      return <EnumCell value={value.value} options={value.metadata?.enum_values} />;
-    
+      return (
+        <EnumCell value={cell.value} options={cell.metadata?.enum_values} />
+      );
+
     case "Money":
-      return <MoneyCell value={value.value as string | number} currency={value.metadata?.currency} />;
+      return (
+        <MoneyCell
+          value={cell.value as string | number}
+          currency={cell.metadata?.currency_symbol}
+        />
+      );
 
     case "Text":
     case "Unknown":
     default:
-      return <TextCell value={value.value as string} />;
+      return <TextCell value={cell.value as string} />;
   }
 });
