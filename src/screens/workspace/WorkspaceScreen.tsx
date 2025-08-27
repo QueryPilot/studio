@@ -4,7 +4,6 @@ import { WorkspaceTitleBar } from "./components/WorkspaceTitleBar";
 import { DatabaseSidebar } from "./components/DatabaseSidebar";
 import { DatabaseSchemaSelector } from "./components/DatabaseSchemaSelector";
 import { AISidebar } from "./components/AISidebar";
-import { WorkspaceStatusBar } from "./components/WorkspaceStatusBar";
 import { WorkspacePanelContainer } from "./components/WorkspacePanelContainer";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import { useSchemaStore } from "@/stores/schemaStore";
@@ -134,8 +133,6 @@ export function WorkspaceScreen() {
         )}
       </ResizablePanelGroup>
 
-      {/* Status Bar */}
-      <WorkspaceStatusBar connectionId={connectionId} />
     </div>
   );
 }

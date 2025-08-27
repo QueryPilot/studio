@@ -91,90 +91,194 @@ export class MonacoThemeProvider {
   public createTheme(isDark: boolean): monaco.editor.IStandaloneThemeData {
     const base = isDark ? 'vs-dark' : 'vs';
     
-    return {
-      base,
-      inherit: true,
-      rules: [
-        // SQL Keywords
-        { token: 'keyword.sql', foreground: this.getColorHex('--primary') },
-        { token: 'keyword', foreground: this.getColorHex('--primary') },
-        
-        // Strings
-        { token: 'string.sql', foreground: '22c55e' },
-        { token: 'string', foreground: '22c55e' },
-        
-        // Comments
-        { token: 'comment.sql', foreground: '6b7280', fontStyle: 'italic' },
-        { token: 'comment', foreground: '6b7280', fontStyle: 'italic' },
-        
-        // Numbers
-        { token: 'number.sql', foreground: 'f97316' },
-        { token: 'number', foreground: 'f97316' },
-        
-        // Operators
-        { token: 'operator.sql', foreground: this.getColorHex('--foreground') },
-        
-        // Functions
-        { token: 'predefined.sql', foreground: '8b5cf6', fontStyle: 'bold' },
-        
-        // Table names
-        { token: 'type.sql', foreground: '06b6d4' },
-        
-        // Column names  
-        { token: 'identifier.sql', foreground: this.getColorHex('--foreground') },
-      ],
-      colors: {
-        'editor.background': '#' + this.getColorHex('--background'),
-        'editor.foreground': '#' + this.getColorHex('--foreground'),
-        'editor.lineHighlightBackground': '#' + this.getColorHex('--accent') + '20',
-        'editor.selectionBackground': '#' + this.getColorHex('--primary') + '30',
-        'editor.inactiveSelectionBackground': '#' + this.getColorHex('--primary') + '20',
-        'editorCursor.foreground': '#' + this.getColorHex('--primary'),
-        'editorWhitespace.foreground': '#' + this.getColorHex('--muted-foreground') + '40',
-        'editorIndentGuide.background': '#' + this.getColorHex('--border'),
-        'editorIndentGuide.activeBackground': '#' + this.getColorHex('--border'),
-        'editor.selectionHighlightBackground': '#' + this.getColorHex('--primary') + '20',
-        'editor.findMatchBackground': '#' + this.getColorHex('--primary') + '40',
-        'editor.findMatchHighlightBackground': '#' + this.getColorHex('--primary') + '20',
-        'editorBracketMatch.background': '#' + this.getColorHex('--primary') + '30',
-        'editorBracketMatch.border': '#' + this.getColorHex('--primary'),
-        
-        // Scrollbar
-        'scrollbar.shadow': '#00000020',
-        'scrollbarSlider.background': '#' + this.getColorHex('--muted-foreground') + '20',
-        'scrollbarSlider.hoverBackground': '#' + this.getColorHex('--muted-foreground') + '30',
-        'scrollbarSlider.activeBackground': '#' + this.getColorHex('--muted-foreground') + '40',
-        
-        // Minimap
-        'minimap.background': '#' + this.getColorHex('--background'),
-        'minimap.selectionHighlight': '#' + this.getColorHex('--primary') + '40',
-        
-        // Line numbers
-        'editorLineNumber.foreground': '#' + this.getColorHex('--muted-foreground') + '80',
-        'editorLineNumber.activeForeground': '#' + this.getColorHex('--foreground'),
-        
-        // Gutter
-        'editorGutter.background': '#' + this.getColorHex('--background'),
-        'editorGutter.addedBackground': '#22c55e40',
-        'editorGutter.deletedBackground': '#ef444440',
-        'editorGutter.modifiedBackground': '#3b82f640',
-        
-        // Widgets
-        'editorWidget.background': '#' + this.getColorHex('--popover'),
-        'editorWidget.foreground': '#' + this.getColorHex('--popover-foreground'),
-        'editorWidget.border': '#' + this.getColorHex('--border'),
-        'editorSuggestWidget.background': '#' + this.getColorHex('--popover'),
-        'editorSuggestWidget.foreground': '#' + this.getColorHex('--popover-foreground'),
-        'editorSuggestWidget.border': '#' + this.getColorHex('--border'),
-        'editorSuggestWidget.highlightForeground': '#' + this.getColorHex('--primary'),
-        'editorSuggestWidget.selectedBackground': '#' + this.getColorHex('--accent'),
-        
-        // Hover
-        'editorHoverWidget.background': '#' + this.getColorHex('--popover'),
-        'editorHoverWidget.foreground': '#' + this.getColorHex('--popover-foreground'),
-        'editorHoverWidget.border': '#' + this.getColorHex('--border'),
-      },
+    // Define our brand colors based on theme-usage.md
+    const colors = {
+      primary: 'FCA311', // Amber/Orange
+      secondary: '14213D', // Dark Navy
+      black: '000000',
+      white: 'FFFFFF',
+      gray: 'E5E5E5',
+      // Dark theme specific
+      darkBg: '0a0a0a', // Near black background
+      darkBgSecondary: '171717', // Slightly lighter for elevated surfaces
+      darkBorder: '262626', // Subtle borders
+      darkMuted: '525252', // Muted text
+      // Light theme specific  
+      lightBg: 'FFFFFF',
+      lightBgSecondary: 'FAFAFA',
+      lightBorder: 'E5E5E5',
+      lightMuted: '737373',
     };
+    
+    if (isDark) {
+      return {
+        base,
+        inherit: true,
+        rules: [
+          // SQL Keywords - Use primary brand color
+          { token: 'keyword.sql', foreground: colors.primary, fontStyle: 'bold' },
+          { token: 'keyword', foreground: colors.primary, fontStyle: 'bold' },
+          
+          // Strings - Green for visibility
+          { token: 'string.sql', foreground: '4ade80' },
+          { token: 'string', foreground: '4ade80' },
+          
+          // Comments - Muted gray
+          { token: 'comment.sql', foreground: colors.darkMuted, fontStyle: 'italic' },
+          { token: 'comment', foreground: colors.darkMuted, fontStyle: 'italic' },
+          
+          // Numbers - Light blue for contrast
+          { token: 'number.sql', foreground: '60a5fa' },
+          { token: 'number', foreground: '60a5fa' },
+          
+          // Operators - Light gray
+          { token: 'operator.sql', foreground: 'a3a3a3' },
+          { token: 'operator', foreground: 'a3a3a3' },
+          
+          // Functions - Purple for distinction
+          { token: 'predefined.sql', foreground: 'c084fc', fontStyle: 'bold' },
+          { token: 'function.sql', foreground: 'c084fc' },
+          
+          // Table names - Cyan
+          { token: 'type.sql', foreground: '67e8f9' },
+          { token: 'table.sql', foreground: '67e8f9' },
+          
+          // Column names - White  
+          { token: 'identifier.sql', foreground: 'e5e5e5' },
+          { token: 'variable.sql', foreground: 'e5e5e5' },
+        ],
+        colors: {
+          'editor.background': `#${colors.darkBg}`,
+          'editor.foreground': `#${colors.gray}`,
+          'editor.lineHighlightBackground': `#${colors.darkBgSecondary}`,
+          'editor.selectionBackground': `#${colors.primary}30`,
+          'editor.inactiveSelectionBackground': `#${colors.primary}20`,
+          'editorCursor.foreground': `#${colors.primary}`,
+          'editorWhitespace.foreground': `#${colors.darkMuted}40`,
+          'editorIndentGuide.background': `#${colors.darkBorder}`,
+          'editorIndentGuide.activeBackground': `#${colors.darkBorder}`,
+          'editor.selectionHighlightBackground': `#${colors.primary}20`,
+          'editor.findMatchBackground': `#${colors.primary}40`,
+          'editor.findMatchHighlightBackground': `#${colors.primary}20`,
+          'editorBracketMatch.background': `#${colors.primary}30`,
+          'editorBracketMatch.border': `#${colors.primary}`,
+          
+          // Scrollbar
+          'scrollbar.shadow': '#00000050',
+          'scrollbarSlider.background': `#${colors.darkMuted}20`,
+          'scrollbarSlider.hoverBackground': `#${colors.darkMuted}30`,
+          'scrollbarSlider.activeBackground': `#${colors.darkMuted}40`,
+          
+          // Minimap
+          'minimap.background': `#${colors.darkBg}`,
+          'minimap.selectionHighlight': `#${colors.primary}40`,
+          
+          // Line numbers
+          'editorLineNumber.foreground': `#${colors.darkMuted}`,
+          'editorLineNumber.activeForeground': `#${colors.gray}`,
+          
+          // Gutter
+          'editorGutter.background': `#${colors.darkBg}`,
+          'editorGutter.addedBackground': '#4ade8040',
+          'editorGutter.deletedBackground': '#ef444440',
+          'editorGutter.modifiedBackground': '#60a5fa40',
+          
+          // Widgets (autocomplete, hover, etc)
+          'editorWidget.background': `#${colors.darkBgSecondary}`,
+          'editorWidget.foreground': `#${colors.gray}`,
+          'editorWidget.border': `#${colors.darkBorder}`,
+          'editorSuggestWidget.background': `#${colors.darkBgSecondary}`,
+          'editorSuggestWidget.foreground': `#${colors.gray}`,
+          'editorSuggestWidget.border': `#${colors.darkBorder}`,
+          'editorSuggestWidget.highlightForeground': `#${colors.primary}`,
+          'editorSuggestWidget.selectedBackground': `#${colors.primary}20`,
+          
+          // Hover
+          'editorHoverWidget.background': `#${colors.darkBgSecondary}`,
+          'editorHoverWidget.foreground': `#${colors.gray}`,
+          'editorHoverWidget.border': `#${colors.darkBorder}`,
+        },
+      };
+    } else {
+      // Light theme
+      return {
+        base,
+        inherit: true,
+        rules: [
+          // SQL Keywords
+          { token: 'keyword.sql', foreground: colors.primary, fontStyle: 'bold' },
+          { token: 'keyword', foreground: colors.primary, fontStyle: 'bold' },
+          
+          // Strings
+          { token: 'string.sql', foreground: '16a34a' },
+          { token: 'string', foreground: '16a34a' },
+          
+          // Comments
+          { token: 'comment.sql', foreground: colors.lightMuted, fontStyle: 'italic' },
+          { token: 'comment', foreground: colors.lightMuted, fontStyle: 'italic' },
+          
+          // Numbers
+          { token: 'number.sql', foreground: '2563eb' },
+          { token: 'number', foreground: '2563eb' },
+          
+          // Operators
+          { token: 'operator.sql', foreground: '525252' },
+          
+          // Functions
+          { token: 'predefined.sql', foreground: '9333ea', fontStyle: 'bold' },
+          
+          // Table names
+          { token: 'type.sql', foreground: '0891b2' },
+          
+          // Column names  
+          { token: 'identifier.sql', foreground: '171717' },
+        ],
+        colors: {
+          'editor.background': `#${colors.lightBg}`,
+          'editor.foreground': `#${colors.secondary}`,
+          'editor.lineHighlightBackground': `#${colors.lightBgSecondary}`,
+          'editor.selectionBackground': `#${colors.primary}20`,
+          'editor.inactiveSelectionBackground': `#${colors.primary}10`,
+          'editorCursor.foreground': `#${colors.primary}`,
+          'editorWhitespace.foreground': `#${colors.lightMuted}40`,
+          'editorIndentGuide.background': `#${colors.lightBorder}`,
+          'editorIndentGuide.activeBackground': `#${colors.lightBorder}`,
+          'editor.selectionHighlightBackground': `#${colors.primary}15`,
+          'editor.findMatchBackground': `#${colors.primary}30`,
+          'editor.findMatchHighlightBackground': `#${colors.primary}15`,
+          'editorBracketMatch.background': `#${colors.primary}20`,
+          'editorBracketMatch.border': `#${colors.primary}`,
+          
+          // Scrollbar
+          'scrollbar.shadow': '#00000010',
+          'scrollbarSlider.background': `#${colors.lightMuted}20`,
+          'scrollbarSlider.hoverBackground': `#${colors.lightMuted}30`,
+          'scrollbarSlider.activeBackground': `#${colors.lightMuted}40`,
+          
+          // Line numbers
+          'editorLineNumber.foreground': `#${colors.lightMuted}`,
+          'editorLineNumber.activeForeground': `#${colors.secondary}`,
+          
+          // Gutter
+          'editorGutter.background': `#${colors.lightBg}`,
+          
+          // Widgets
+          'editorWidget.background': `#${colors.lightBg}`,
+          'editorWidget.foreground': `#${colors.secondary}`,
+          'editorWidget.border': `#${colors.lightBorder}`,
+          'editorSuggestWidget.background': `#${colors.lightBg}`,
+          'editorSuggestWidget.foreground': `#${colors.secondary}`,
+          'editorSuggestWidget.border': `#${colors.lightBorder}`,
+          'editorSuggestWidget.highlightForeground': `#${colors.primary}`,
+          'editorSuggestWidget.selectedBackground': `#${colors.primary}15`,
+          
+          // Hover
+          'editorHoverWidget.background': `#${colors.lightBg}`,
+          'editorHoverWidget.foreground': `#${colors.secondary}`,
+          'editorHoverWidget.border': `#${colors.lightBorder}`,
+        },
+      };
+    }
   }
 
   public applyTheme(isDark: boolean) {
@@ -186,15 +290,40 @@ export class MonacoThemeProvider {
   }
 
   public initTheme() {
-    // Check current theme
-    const isDark = document.documentElement.classList.contains('dark');
+    // More robust theme detection
+    const checkIsDark = () => {
+      // Check multiple indicators for dark mode
+      const htmlClassList = document.documentElement.classList;
+      const isDarkClass = htmlClassList.contains('dark');
+      const colorScheme = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const bgColor = window.getComputedStyle(document.body).backgroundColor;
+      
+      // If we have explicit dark class, use that
+      if (isDarkClass) return true;
+      
+      // Check if background is dark (rgb values low)
+      if (bgColor && bgColor !== 'rgba(0, 0, 0, 0)') {
+        const rgb = bgColor.match(/\d+/g);
+        if (rgb && rgb.length >= 3) {
+          const [r, g, b] = rgb.map(Number);
+          const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+          if (brightness < 128) return true;
+        }
+      }
+      
+      // Fallback to system preference
+      return colorScheme;
+    };
+    
+    // Apply initial theme
+    const isDark = checkIsDark();
     this.applyTheme(isDark);
     
     // Watch for theme changes
     const observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
         if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
-          const isDark = document.documentElement.classList.contains('dark');
+          const isDark = checkIsDark();
           this.applyTheme(isDark);
         }
       });
@@ -205,6 +334,18 @@ export class MonacoThemeProvider {
       attributeFilter: ['class'],
     });
     
-    return () => observer.disconnect();
+    // Also listen to system theme changes
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = (e: MediaQueryListEvent) => {
+      const isDark = checkIsDark();
+      this.applyTheme(isDark);
+    };
+    
+    mediaQuery.addEventListener('change', handleChange);
+    
+    return () => {
+      observer.disconnect();
+      mediaQuery.removeEventListener('change', handleChange);
+    };
   }
 }

@@ -66,8 +66,8 @@ export function DraggableTab({
           "relative flex items-center gap-1.5 px-2 h-8 min-w-[120px] cursor-pointer group transition-colors",
           "border-r border-border/50",
           isActive
-            ? "bg-primary/10 text-primary-foreground"
-            : "bg-muted/30 hover:bg-muted/50",
+            ? "bg-background"
+            : "bg-muted/20 hover:bg-muted/40",
           index === 0 && "border-l",
           isDragging && "z-50 opacity-50",
         )}

@@ -249,17 +249,7 @@ impl MssqlAdapter {
         
         // If none of the above work, assume it's NULL
         // Tiberius will return None for NULL values in the try_get calls above
-        return Ok(CellValue::null(type_name));
-        
-        // Default to unknown
-        Ok(CellValue {
-            value: None,
-            db_type: type_name.to_string(),
-            value_type: CellValueType::Unknown,
-            metadata: None,
-            is_truncated: false,
-            byte_size: None,
-        })
+        Ok(CellValue::null(type_name))
     }
 }
 
@@ -525,8 +515,12 @@ impl DbAdapter for MssqlAdapter {
             let default_value = row.get::<&str, _>(3).map(|s| s.to_string());
             let ordinal = row.get::<i32, _>(4).unwrap_or(0);
             let max_length = row.get::<i32, _>(5);
-            let precision = row.get::<i32, _>(6);
-            let scale = row.get::<i32, _>(7);
+            // NUMERIC_PRECISION and NUMERIC_SCALE can be either TINYINT (u8) or INT (i32) in SQL Server
+            // Try i32 first, then u8 if that fails
+            let precision = row.try_get::<i32, _>(6).ok().flatten()
+                .or_else(|| row.try_get::<u8, _>(6).ok().flatten().map(|v| v as i32));
+            let scale = row.try_get::<i32, _>(7).ok().flatten()
+                .or_else(|| row.try_get::<u8, _>(7).ok().flatten().map(|v| v as i32));
             let is_pk = row.get::<i32, _>(8).map(|v| v == 1).unwrap_or(false);
             let is_fk = row.get::<i32, _>(9).map(|v| v == 1).unwrap_or(false);
             let is_identity = row.get::<i32, _>(10).map(|v| v == 1);
@@ -910,11 +904,40 @@ impl DbAdapter for MssqlAdapter {
         // Build the SQL query
         let mut sql = String::new();
         
-        // Select columns
+        // Select columns - exclude UDT columns to avoid Tiberius panics
         if let Some(ref columns) = request.select {
             sql.push_str(&format!("SELECT {} ", columns.join(", ")));
         } else {
-            sql.push_str("SELECT * ");
+            // When selecting all columns, explicitly exclude UDT types to prevent Tiberius panics
+            let schema_name = request.schema.as_deref().unwrap_or("dbo");
+            let non_udt_columns_query = format!(
+                "SELECT STRING_AGG(QUOTENAME(COLUMN_NAME), ', ') WITHIN GROUP (ORDER BY ORDINAL_POSITION)
+                 FROM INFORMATION_SCHEMA.COLUMNS c
+                 LEFT JOIN sys.types t ON c.DATA_TYPE = t.name
+                 WHERE c.TABLE_SCHEMA = '{}' 
+                   AND c.TABLE_NAME = '{}' 
+                   AND (t.is_user_defined = 0 OR t.is_user_defined IS NULL)
+                   AND c.DATA_TYPE NOT IN ('hierarchyid', 'geography', 'geometry')",
+                schema_name, request.table
+            );
+            
+            let columns_result = conn.simple_query(&non_udt_columns_query).await
+                .map_err(|e| AppError::Database(format!("Failed to get column list: {}", e)))?;
+            
+            let mut columns_str = String::new();
+            if let Ok(rows) = columns_result.into_first_result().await {
+                if let Some(row) = rows.first() {
+                    if let Some(cols) = row.get::<&str, _>(0) {
+                        columns_str = cols.to_string();
+                    }
+                }
+            }
+            
+            if columns_str.is_empty() {
+                columns_str = "*".to_string(); // Fallback to * if we couldn't get column names
+            }
+            
+            sql.push_str(&format!("SELECT {} ", columns_str));
         }
         
         // From clause
@@ -977,14 +1000,33 @@ impl DbAdapter for MssqlAdapter {
         
         sql.push_str(&format!("OFFSET {} ROWS FETCH NEXT {} ROWS ONLY", offset, limit));
         
-        // Execute query
-        let mut stream = conn.simple_query(&sql).await
-            .map_err(|e| AppError::Database(format!("Failed to read table data: {}", e)))?;
+        // Execute query - handle potential UDT (User Defined Type) errors from Tiberius
+        let mut stream = match conn.simple_query(&sql).await {
+            Ok(stream) => stream,
+            Err(e) => {
+                let error_str = e.to_string();
+                if error_str.contains("not yet implemented for Udt") || error_str.contains("Udt") {
+                    return Err(AppError::Database(
+                        "Table contains User Defined Types (UDT) which are not yet supported by the SQL Server adapter. Please use a query that excludes UDT columns or cast them to supported types.".to_string()
+                    ));
+                }
+                return Err(AppError::Database(format!("Failed to read table data: {}", e)));
+            }
+        };
         
-        // Get column metadata
-        let columns_info = stream.columns().await
-            .map_err(|e| AppError::Database(format!("Failed to get column metadata: {}", e)))?
-            .unwrap_or_default();
+        // Get column metadata - handle UDT errors
+        let columns_info = match stream.columns().await {
+            Ok(cols) => cols.unwrap_or_default(),
+            Err(e) => {
+                let error_str = e.to_string();
+                if error_str.contains("not yet implemented for Udt") || error_str.contains("Udt") {
+                    return Err(AppError::Database(
+                        "Table contains User Defined Types (UDT) which are not yet supported by the SQL Server adapter. Please use a query that excludes UDT columns or cast them to supported types.".to_string()
+                    ));
+                }
+                return Err(AppError::Database(format!("Failed to get column metadata: {}", e)));
+            }
+        };
         
         let mut columns = Vec::new();
         let mut selected = Vec::new();
@@ -1045,26 +1087,15 @@ impl DbAdapter for MssqlAdapter {
             }
         }
         
-        // Build response
-        let response = if offset == 0 {
-            TableDataResponse::Meta {
-                table: request.table.clone(),
-                schema: request.schema.clone(),
-                columns,
-                selected,
-                page_size: limit,
-                cursor_key_columns: vec![],
-            }
-        } else {
-            let has_more = rows.len() == limit;
-            TableDataResponse::Rows {
-                rows,
-                next_cursor: if has_more {
-                    Some(format!("{}", offset + limit))
-                } else {
-                    None
-                },
-            }
+        // Build response - always return Rows (metadata is handled by db_table_data command)
+        let has_more = rows.len() == limit;
+        let response = TableDataResponse::Rows {
+            rows,
+            next_cursor: if has_more {
+                Some(format!("{}", offset + limit))
+            } else {
+                None
+            },
         };
         
         Ok((response, None))
