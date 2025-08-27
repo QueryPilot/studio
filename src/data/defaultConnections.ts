@@ -83,7 +83,7 @@ export const defaultConnections: DefaultConnection[] = [
     type: 'sqlite',
     host: '',
     port: 0,
-    database: 'seeds/sqlite/todoapp.db',
+    database: '/Users/hieuvu/Workspaces/devdb-studio/seeds/sqlite/todoapp.db',
     username: '',
     password: '',
     workspace: 'Development',

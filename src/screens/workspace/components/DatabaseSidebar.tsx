@@ -52,8 +52,12 @@ export function DatabaseSidebar({
     functions: [],
   });
 
-  const { getPrimaryPanel, addTabToPanel, setActiveTabInPanel, updateTabInPanel } =
-    usePanelStore();
+  const {
+    getPrimaryPanel,
+    addTabToPanel,
+    setActiveTabInPanel,
+    updateTabInPanel,
+  } = usePanelStore();
 
   // Load schema data when schema changes
   useEffect(() => {
@@ -135,7 +139,10 @@ export function DatabaseSidebar({
     setExpandedNodes(newExpanded);
   };
 
-  const handleTableClick = (table: TableMeta, viewType: "data" | "structure" | "indexes" = "data") => {
+  const handleTableClick = (
+    table: TableMeta,
+    viewType: "data" | "structure" | "indexes" = "data",
+  ) => {
     const primaryPanel = getPrimaryPanel();
     if (!primaryPanel) return;
 
@@ -299,25 +306,27 @@ export function DatabaseSidebar({
                 </button>
               </div>
               {expandedNodes.has("tables") && (
-                <div className="ml-5 mt-0.5 space-y-0.5 px-2 overflow-x-auto">
+                <div className="ml-3.5 mt-0.5 space-y-0.5 px-2 overflow-x-auto">
                   {filterItems(schemaData.tables).map((table) => (
                     <div
                       key={`${table.schema}.${table.name}`}
-                      className="group flex items-center gap-1.5 p-1 hover:bg-muted/50 rounded cursor-pointer min-w-fit"
+                      className="group flex items-center gap-1.5 p-1 hover:bg-muted/50 rounded cursor-pointer min-w-fit overflow-hidden text-ellipsis"
                     >
                       <Table className="h-3.5 w-4 min-w-4 text-blue-500 flex-shrink-0" />
-                      <span 
+                      <span
                         className="text-xs whitespace-nowrap flex-1"
-                        onClick={() => handleTableClick(table, "data")}
+                        onClick={() => {
+                          handleTableClick(table, "data");
+                        }}
                       >
                         {table.name}
                       </span>
                       {!!table.row_estimate && (
-                        <span className="text-xs text-muted-foreground whitespace-nowrap mr-1">
+                        <span className="text-xs text-muted-foreground whitespace-nowrap transition-all duration-200 ease-out">
                           ~{table.row_estimate.toLocaleString()}
                         </span>
                       )}
-                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-0.5 transition-all delay-300 duration-200 ease-out -mr-10 opacity-0 group-hover:opacity-100 group-hover:mr-1">
                         <button
                           className="p-0.5 hover:bg-muted rounded"
                           onClick={(e) => {
@@ -368,20 +377,22 @@ export function DatabaseSidebar({
                 </button>
               </div>
               {expandedNodes.has("views") && (
-                <div className="ml-5 mt-0.5 space-y-0.5 px-2 overflow-x-auto">
+                <div className="ml-3.5 mt-0.5 space-y-0.5 px-2 overflow-x-auto">
                   {filterItems(schemaData.views).map((view) => (
                     <div
                       key={`${view.schema}.${view.name}`}
-                      className="group flex items-center gap-1.5 p-1 hover:bg-muted/50 rounded cursor-pointer min-w-fit"
+                      className="group flex items-center gap-1.5 p-1 hover:bg-muted/50 rounded cursor-pointer min-w-fit overflow-hidden text-ellipsis"
                     >
                       <Eye className="h-4 min-h-4 w-4 min-w-4 text-green-500 flex-shrink-0" />
-                      <span 
+                      <span
                         className="text-xs whitespace-nowrap flex-1"
-                        onClick={() => handleTableClick(view, "data")}
+                        onClick={() => {
+                          handleTableClick(view, "data");
+                        }}
                       >
                         {view.name}
                       </span>
-                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-0.5 transition-all delay-300 duration-200 ease-out -mr-10 opacity-0 group-hover:opacity-100 group-hover:mr-1">
                         <button
                           className="p-0.5 hover:bg-muted rounded"
                           onClick={(e) => {
@@ -432,7 +443,7 @@ export function DatabaseSidebar({
                 </button>
               </div>
               {expandedNodes.has("functions") && (
-                <div className="ml-5 mt-0.5 space-y-0.5 px-2 overflow-x-auto">
+                <div className="ml-3.5 mt-0.5 space-y-0.5 px-2 overflow-x-auto">
                   {filterItems(schemaData.functions).map((func, index) => (
                     <div
                       key={`${func.schema}.${func.name}.${func.arguments.join(

@@ -9,6 +9,10 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react()],
   
+  optimizeDeps: {
+    include: ['monaco-editor'],
+  },
+  
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

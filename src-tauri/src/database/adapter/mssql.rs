@@ -1069,4 +1069,82 @@ impl DbAdapter for MssqlAdapter {
         
         Ok((response, None))
     }
+    
+    async fn execute_raw_query(
+        &self,
+        database: &str,
+        query: &str,
+        limit: u32,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        use futures::{StreamExt, TryStreamExt};
+        
+        let mut client = self.pool.get().await?;
+        
+        // Switch to the specified database
+        let use_db = format!("USE [{}]", database);
+        client.execute(&use_db, &[]).await?;
+
+        // Add TOP clause if not already present (MSSQL uses TOP instead of LIMIT)
+        let limited_query = if query.trim().to_uppercase().starts_with("SELECT") 
+            && !query.to_uppercase().contains("TOP") {
+            // Insert TOP after SELECT
+            let select_pos = query.to_uppercase().find("SELECT").unwrap() + 6;
+            format!("{}TOP {} {}", &query[..select_pos], limit, &query[select_pos..])
+        } else {
+            query.to_string()
+        };
+
+        // Execute the query
+        let stream = client.query(&limited_query, &[]).await?;
+        
+        let mut columns = Vec::new();
+        let mut result_rows = Vec::new();
+        let mut first_row = true;
+        
+        // Process the stream of results
+        let mut rows = stream.try_collect::<Vec<_>>().await?;
+        
+        for row_item in rows {
+            match row_item {
+                tiberius::QueryItem::Row(row) => {
+                    if first_row {
+                        // Extract column names from the first row
+                        for col in row.columns() {
+                            columns.push(col.name().to_string());
+                        }
+                        first_row = false;
+                    }
+                    
+                    // Extract row data
+                    let mut row_data = Vec::new();
+                    for i in 0..columns.len() {
+                        // Try different types in order
+                        let value = if let Some(val) = row.get::<i32, _>(i) {
+                            serde_json::Value::Number(val.into())
+                        } else if let Some(val) = row.get::<i64, _>(i) {
+                            serde_json::Value::Number(val.into())
+                        } else if let Some(val) = row.get::<f32, _>(i) {
+                            serde_json::Value::Number(serde_json::Number::from_f64(val as f64).unwrap_or(serde_json::Number::from(0)))
+                        } else if let Some(val) = row.get::<f64, _>(i) {
+                            serde_json::Value::Number(serde_json::Number::from_f64(val).unwrap_or(serde_json::Number::from(0)))
+                        } else if let Some(val) = row.get::<bool, _>(i) {
+                            serde_json::Value::Bool(val)
+                        } else if let Some(val) = row.get::<&str, _>(i) {
+                            serde_json::Value::String(val.to_string())
+                        } else {
+                            serde_json::Value::Null
+                        };
+                        row_data.push(value);
+                    }
+                    result_rows.push(row_data);
+                }
+                _ => {} // Ignore metadata
+            }
+        }
+
+        Ok(serde_json::json!({
+            "columns": columns,
+            "rows": result_rows
+        }))
+    }
 }

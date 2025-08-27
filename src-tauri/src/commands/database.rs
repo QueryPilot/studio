@@ -331,6 +331,43 @@ pub async fn db_table_indexes(
 }
 
 #[tauri::command]
+pub async fn execute_query(
+    connection_id: String,
+    database: String,
+    query: String,
+    limit: Option<u32>,
+    registry: State<'_, ConnectionRegistry>,
+) -> Result<serde_json::Value, AppError> {
+    println!("[execute_query] Called with connection_id: {}, database: {}, query length: {}", 
+             connection_id, database, query.len());
+    
+    let conn = registry.get(&connection_id).await
+        .ok_or_else(|| {
+            println!("[execute_query] ERROR: Connection not found: {}", connection_id);
+            AppError::ConnectionNotFound(connection_id.clone())
+        })?;
+    
+    // Execute the query using the adapter
+    let result = conn.adapter.execute_raw_query(&database, &query, limit.unwrap_or(1000)).await;
+    
+    match result {
+        Ok(data) => {
+            println!("[execute_query] Success: query executed");
+            Ok(data)
+        },
+        Err(e) => {
+            println!("[execute_query] ERROR: {}", e);
+            // Return error as JSON
+            Ok(serde_json::json!({
+                "columns": [],
+                "rows": [],
+                "error": e.to_string()
+            }))
+        }
+    }
+}
+
+#[tauri::command]
 pub async fn db_table_triggers(
     connection_id: String,
     database: String,

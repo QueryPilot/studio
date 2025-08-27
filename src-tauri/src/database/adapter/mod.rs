@@ -64,4 +64,12 @@ pub trait DbAdapter: Send + Sync {
     // Table data reading with projection and filtering
     async fn read_table_data(&self, request: TableReadRequest) 
         -> Result<(TableDataResponse, Option<String>), AppError>;
+    
+    // Execute raw SQL query (for query editor)
+    async fn execute_raw_query(
+        &self,
+        database: &str,
+        query: &str,
+        limit: u32,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>>;
 }
