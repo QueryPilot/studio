@@ -81,7 +81,7 @@ export const TableTriggers = memo(function TableTriggers({
         <tbody>
           {triggers.map((trigger, i) => (
             <tr
-              key={trigger.name}
+              key={`${trigger.name}-${trigger.event}-${i}`}
               className={cn(
                 "hover:bg-primary/10 transition-colors text-xs border-b",
                 i % 2 === 0 && "bg-muted/10",

@@ -6,7 +6,7 @@ use tokio::task::JoinHandle;
 use uuid::Uuid;
 use sqlx::{postgres::PgPoolOptions, mysql::MySqlPoolOptions, sqlite::SqlitePoolOptions};
 
-use crate::database::adapter::{postgres::PostgresAdapter, mysql::MySqlAdapter, sqlite::SqliteAdapter, mssql::MssqlAdapter, DbAdapter, types::*};
+use crate::database::adapter::{postgres::PostgresAdapter, mysql::MySqlAdapter, sqlite::SqliteAdapter, mssql::MssqlAdapter, mongodb::MongoDbAdapter, DbAdapter, types::*};
 use crate::database::executor::QueryExecutor;
 use crate::error::AppError;
 
@@ -67,6 +67,10 @@ impl ConnectionRegistry {
                 // MariaDB uses MySQL adapter
                 let pool = create_mysql_pool(&config).await?;
                 Box::new(MySqlAdapter::new(pool))
+            }
+            DbType::Mongodb => {
+                let (client, database_name) = create_mongodb_client(&config).await?;
+                Box::new(MongoDbAdapter::new(client, &database_name))
             }
         };
         
@@ -242,6 +246,92 @@ async fn create_sqlite_pool(config: &ConnectionConfig) -> Result<sqlx::SqlitePoo
         .map_err(AppError::from_sqlx)?;
     
     Ok(pool)
+}
+
+async fn create_mongodb_client(config: &ConnectionConfig) -> Result<(mongodb::Client, String), AppError> {
+    // Build MongoDB connection URI
+    let connection_uri = if let Some(uri) = &config.connection_string {
+        uri.clone()
+    } else {
+        let password_part = if let Some(password) = &config.password {
+            if !password.is_empty() {
+                format!(":{}@", password)
+            } else {
+                "@".to_string()
+            }
+        } else {
+            "@".to_string()
+        };
+        
+        let auth_part = if !config.username.is_empty() {
+            format!("{}{}", config.username, password_part)
+        } else {
+            String::new()
+        };
+        
+        let auth_prefix = if !auth_part.is_empty() && !auth_part.ends_with('@') {
+            auth_part
+        } else if auth_part.ends_with('@') {
+            auth_part
+        } else {
+            String::new()
+        };
+        
+        // For root users (like devuser), we need to authenticate against admin database
+        // This is a temporary workaround - ideally authSource should come from the frontend
+        let auth_source_param = if config.username == "devuser" {
+            "?authSource=admin"
+        } else {
+            ""
+        };
+        
+        format!(
+            "mongodb://{}{}:{}/{}{}",
+            auth_prefix,
+            config.host,
+            config.port,
+            config.database,
+            auth_source_param
+        )
+    };
+    
+    println!("[create_mongodb_client] Connecting to MongoDB: {}", 
+        connection_uri.replace(&config.password.clone().unwrap_or_default(), "****"));
+    
+    // Create MongoDB client options
+    let mut client_options = mongodb::options::ClientOptions::parse(&connection_uri)
+        .await
+        .map_err(|e| AppError::Database(format!("Failed to parse MongoDB connection URI: {}", e)))?;
+    
+    // Configure additional options
+    if let Some(timeout) = config.server_selection_timeout_ms {
+        client_options.server_selection_timeout = Some(std::time::Duration::from_millis(timeout));
+    } else {
+        client_options.server_selection_timeout = Some(std::time::Duration::from_millis(config.connection_timeout));
+    }
+    
+    if let Some(replica_set) = &config.replica_set {
+        client_options.repl_set_name = Some(replica_set.clone());
+    }
+    
+    if let Some(direct) = config.direct_connection {
+        client_options.direct_connection = Some(direct);
+    }
+    
+    // Create the MongoDB client
+    let client = mongodb::Client::with_options(client_options)
+        .map_err(|e| AppError::Database(format!("Failed to create MongoDB client: {}", e)))?;
+    
+    // Test connection by pinging the server
+    client
+        .database("admin")
+        .run_command(mongodb::bson::doc! { "ping": 1 }, None)
+        .await
+        .map_err(|e| AppError::Database(format!("Failed to connect to MongoDB: {}", e)))?;
+    
+    println!("[create_mongodb_client] Successfully connected to MongoDB");
+    
+    Ok((client, config.database.clone()))
 }
 
 fn spawn_health_monitor(

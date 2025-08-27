@@ -65,6 +65,7 @@ export interface TableDataRowsEvent {
   type: 'rows';
   rows: TableDataRow[];
   next_cursor?: string;
+  estimated_total?: number;
 }
 
 export interface TableDataDoneEvent {

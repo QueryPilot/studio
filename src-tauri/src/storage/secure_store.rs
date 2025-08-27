@@ -369,12 +369,46 @@ impl SecureStorage {
     
     /// List all connections (without decrypting sensitive data) - backwards compatibility
     pub async fn list_connections(&self) -> Result<Vec<ConnectionConfig>, Box<dyn Error>> {
-        println!("[SecureStorage::list_connections] Fetching all connections (backwards compatibility mode)");
+        println!("[SecureStorage::list_connections] Fetching all connections without limit");
         
-        // Default to first page with 100 items for backwards compatibility
-        let (connections, total) = self.list_connections_paginated(1, 100).await?;
+        // Fetch ALL connections without any limit
+        let mut conn = self.pool.acquire().await?;
+        let rows = sqlx::query(
+            r#"
+            SELECT id, name, host, port, username, 
+                   database_name, connection_type, 
+                   created_at, updated_at
+            FROM connections
+            ORDER BY name
+            "#
+        )
+        .fetch_all(&mut *conn)
+        .await?;
         
-        println!("[SecureStorage::list_connections] Found {} connections (showing first 100)", total);
+        let connections = rows.into_iter().map(|row| {
+            ConnectionConfig {
+                id: Some(row.get("id")),
+                name: row.get("name"),
+                host: row.get("host"),
+                port: row.get("port"),
+                username: row.get("username"),
+                password: None, // Don't decrypt for listing
+                database: row.get("database_name"),
+                ssh_private_key: None,
+                api_key: None,
+                connection_type: row.get("connection_type"),
+                created_at: {
+                    let date_str: Option<String> = row.get("created_at");
+                    date_str.and_then(|s| DateTime::parse_from_rfc3339(&s).ok().map(|dt| dt.with_timezone(&Utc)))
+                },
+                updated_at: {
+                    let date_str: Option<String> = row.get("updated_at");
+                    date_str.and_then(|s| DateTime::parse_from_rfc3339(&s).ok().map(|dt| dt.with_timezone(&Utc)))
+                },
+            }
+        }).collect::<Vec<_>>();
+        
+        println!("[SecureStorage::list_connections] Found {} total connections", connections.len());
         
         for conn in &connections {
             println!("[SecureStorage::list_connections] - Connection: {} (ID: {:?})", conn.name, conn.id);

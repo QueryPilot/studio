@@ -1,4 +1,4 @@
-import { DatabaseConnection, DatabaseType } from '@/types/database';
+import { type DatabaseConnection, type DatabaseType } from "@/types/database";
 
 export interface DefaultConnection {
   name: string;
@@ -11,6 +11,7 @@ export interface DefaultConnection {
   workspace: string;
   tags: Array<{ name: string; color: string }>;
   description?: string;
+  authSource?: string; // MongoDB specific: authentication database
 }
 
 /**
@@ -19,86 +20,105 @@ export interface DefaultConnection {
  */
 export const defaultConnections: DefaultConnection[] = [
   {
-    name: 'PostgreSQL Development',
-    type: 'postgresql',
-    host: 'localhost',
+    name: "PostgreSQL Development",
+    type: "postgresql",
+    host: "localhost",
     port: 15432,
-    database: 'todoapp',
-    username: 'devuser',
-    password: 'devpass123',
-    workspace: 'Development',
+    database: "todoapp",
+    username: "devuser",
+    password: "devpass123",
+    workspace: "Development",
     tags: [
-      { name: 'development', color: '#10B981' },
-      { name: 'postgres', color: '#3B82F6' }
+      { name: "development", color: "#10B981" },
+      { name: "postgres", color: "#3B82F6" },
     ],
-    description: 'PostgreSQL development database with comprehensive test data'
+    description: "PostgreSQL development database with comprehensive test data",
   },
   {
-    name: 'MySQL Development', 
-    type: 'mysql',
-    host: 'localhost',
+    name: "MySQL Development",
+    type: "mysql",
+    host: "localhost",
     port: 13306,
-    database: 'todoapp',
-    username: 'devuser',
-    password: 'devpass123',
-    workspace: 'Development',
+    database: "todoapp",
+    username: "devuser",
+    password: "devpass123",
+    workspace: "Development",
     tags: [
-      { name: 'development', color: '#10B981' },
-      { name: 'mysql', color: '#F59E0B' }
+      { name: "development", color: "#10B981" },
+      { name: "mysql", color: "#F59E0B" },
     ],
-    description: 'MySQL development database with sample todos and users'
+    description: "MySQL development database with sample todos and users",
   },
   {
-    name: 'MariaDB Development',
-    type: 'mariadb', 
-    host: 'localhost',
+    name: "MariaDB Development",
+    type: "mariadb",
+    host: "localhost",
     port: 13307,
-    database: 'todoapp',
-    username: 'devuser',
-    password: 'devpass123',
-    workspace: 'Development',
+    database: "todoapp",
+    username: "devuser",
+    password: "devpass123",
+    workspace: "Development",
     tags: [
-      { name: 'development', color: '#10B981' },
-      { name: 'mariadb', color: '#8B5CF6' }
+      { name: "development", color: "#10B981" },
+      { name: "mariadb", color: "#8B5CF6" },
     ],
-    description: 'MariaDB development database - MySQL compatible'
+    description: "MariaDB development database - MySQL compatible",
   },
   {
-    name: 'SQL Server Development',
-    type: 'mssql',
-    host: 'localhost', 
+    name: "SQL Server Development",
+    type: "mssql",
+    host: "localhost",
     port: 11434,
-    database: 'todoapp',
-    username: 'sa',
-    password: 'DevPass123',
-    workspace: 'Development',
+    database: "todoapp",
+    username: "sa",
+    password: "DevPass123",
+    workspace: "Development",
     tags: [
-      { name: 'development', color: '#10B981' },
-      { name: 'mssql', color: '#EF4444' }
+      { name: "development", color: "#10B981" },
+      { name: "mssql", color: "#EF4444" },
     ],
-    description: 'SQL Server development database with advanced data types'
+    description: "SQL Server development database with advanced data types",
   },
   {
-    name: 'SQLite Development',
-    type: 'sqlite',
-    host: '',
+    name: "SQLite Development",
+    type: "sqlite",
+    host: "",
     port: 0,
-    database: '/Users/hieuvu/Workspaces/devdb-studio/seeds/sqlite/todoapp.db',
-    username: '',
-    password: '',
-    workspace: 'Development',
+    database: "/Users/hieuvu/Workspaces/devdb-studio/seeds/sqlite/todoapp.db",
+    username: "",
+    password: "",
+    workspace: "Development",
     tags: [
-      { name: 'development', color: '#10B981' },
-      { name: 'sqlite', color: '#6B7280' }
+      { name: "development", color: "#10B981" },
+      { name: "sqlite", color: "#6B7280" },
     ],
-    description: 'SQLite file database - lightweight development option'
-  }
+    description: "SQLite file database - lightweight development option",
+  },
+  {
+    name: "MongoDB Development",
+    type: "mongodb",
+    host: "localhost",
+    port: 17017,
+    database: "todoapp",
+    username: "devuser",
+    password: "devpass123",
+    workspace: "Development",
+    tags: [
+      { name: "development", color: "#10B981" },
+      { name: "mongodb", color: "#22C55E" },
+    ],
+    description: "MongoDB NoSQL database with document collections",
+    // MongoDB specific: root user authenticates against admin database
+    authSource: "admin",
+  },
 ];
 
 /**
  * Generate a DatabaseConnection from a DefaultConnection
  */
-export function createConnectionFromDefault(defaultConn: DefaultConnection): Omit<DatabaseConnection, 'id' | 'createdAt' | 'updatedAt'> {
+export function createConnectionFromDefault(
+  defaultConn: DefaultConnection,
+): Omit<DatabaseConnection, "id" | "createdAt" | "updatedAt"> {
   return {
     name: defaultConn.name,
     type: defaultConn.type,
@@ -109,7 +129,7 @@ export function createConnectionFromDefault(defaultConn: DefaultConnection): Omi
     database: defaultConn.database,
     username: defaultConn.username,
     password: defaultConn.password,
-    filepath: defaultConn.type === 'sqlite' ? defaultConn.database : undefined,
+    filepath: defaultConn.type === "sqlite" ? defaultConn.database : undefined,
   };
 }
 
@@ -118,7 +138,7 @@ export function createConnectionFromDefault(defaultConn: DefaultConnection): Omi
  */
 export function isDuplicateConnection(
   existing: DatabaseConnection,
-  newConn: DefaultConnection
+  newConn: DefaultConnection,
 ): boolean {
   return (
     existing.type === newConn.type &&

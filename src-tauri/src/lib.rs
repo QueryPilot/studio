@@ -79,6 +79,7 @@ pub fn run() {
             commands::database::db_estimate_count,
             commands::database::db_test_connection,
             commands::database::db_table_data,
+            commands::database::load_dev_connections,
             // Health monitoring commands
             commands::health::test_connection,
             commands::health::get_connection_health,

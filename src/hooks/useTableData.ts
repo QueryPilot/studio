@@ -25,6 +25,7 @@ interface TableDataState {
   nextCursor: string | null;
   pageSize: number;
   totalLoadedRows: number;
+  estimatedTotal: number | null;
 }
 
 // Return type for the hook
@@ -52,6 +53,7 @@ export function useTableData(): UseTableDataReturn {
     nextCursor: null,
     pageSize: 100,
     totalLoadedRows: 0,
+    estimatedTotal: null,
   });
 
   // Refs for cleanup and current state tracking
@@ -111,6 +113,7 @@ export function useTableData(): UseTableDataReturn {
         hasNextPage: Boolean(rowsEvent.next_cursor),
         nextCursor: rowsEvent.next_cursor || null,
         totalLoadedRows: newRows.length,
+        estimatedTotal: rowsEvent.estimated_total || prev.estimatedTotal,
       };
     });
   }, []); // NO dependencies = stable callback
@@ -178,6 +181,7 @@ export function useTableData(): UseTableDataReturn {
         hasNextPage: false,
         nextCursor: null,
         totalLoadedRows: 0,
+        estimatedTotal: null,
       }));
 
       // Start new stream
@@ -310,6 +314,7 @@ export function useTableData(): UseTableDataReturn {
         hasNextPage: false,
         nextCursor: null,
         totalLoadedRows: 0,
+        estimatedTotal: null,
       }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
