@@ -5,6 +5,7 @@ interface DataGridStatusBarProps {
   loadedRows: number;
   estimatedTotal?: number;
   hasMore?: boolean;
+  selectedRows?: number;
   className?: string;
 }
 
@@ -12,6 +13,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   loadedRows,
   estimatedTotal,
   hasMore,
+  selectedRows = 0,
   className
 }: DataGridStatusBarProps) {
   const getRowCountDisplay = () => {
@@ -31,7 +33,13 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
       "flex items-center justify-between px-3 py-1.5 border-t bg-muted/30 text-xs text-muted-foreground",
       className
     )}>
-      <div className="flex-1" />
+      <div className="flex items-center gap-4">
+        {selectedRows > 0 && (
+          <span className="text-primary">
+            {selectedRows} row{selectedRows !== 1 ? 's' : ''} selected
+          </span>
+        )}
+      </div>
       <div className="flex items-center gap-4">
         <span>{getRowCountDisplay()}</span>
       </div>

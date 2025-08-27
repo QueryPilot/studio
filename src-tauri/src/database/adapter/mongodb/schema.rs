@@ -1,20 +1,37 @@
 use mongodb::{Database, Client, bson::{Document, Bson}};
 use futures::{TryStreamExt, StreamExt};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use crate::error::AppError;
 use crate::database::adapter::ColumnMeta;
 
 pub struct SchemaInferrer {
     database: Database,
     client: Client,
+    // Cache schema for collections to avoid re-scanning
+    schema_cache: Arc<RwLock<HashMap<String, Vec<ColumnMeta>>>>,
 }
 
 impl SchemaInferrer {
     pub fn new(database: Database, client: Client) -> Self {
-        Self { database, client }
+        Self { 
+            database, 
+            client,
+            schema_cache: Arc::new(RwLock::new(HashMap::new())),
+        }
     }
     
     pub async fn infer_collection_schema(&self, database_name: &str, collection_name: &str) -> Result<Vec<ColumnMeta>, AppError> {
+        // Check cache first
+        let cache_key = format!("{}.{}", database_name, collection_name);
+        {
+            let cache = self.schema_cache.read().await;
+            if let Some(cached_schema) = cache.get(&cache_key) {
+                return Ok(cached_schema.clone());
+            }
+        }
+        
         let db = if database_name != self.database.name() {
             self.client.database(database_name)
         } else {
@@ -23,8 +40,8 @@ impl SchemaInferrer {
         
         let collection = db.collection::<Document>(collection_name);
         
-        // Sample documents to infer schema
-        let sample_size = 1000;
+        // Sample documents to infer schema - REDUCED from 1000!
+        let sample_size = 10; // Only sample 10 docs for speed
         let cursor = collection.find(None, None).await
             .map_err(|e| AppError::Database(format!("Failed to query collection: {}", e)))?;
         
@@ -51,6 +68,12 @@ impl SchemaInferrer {
         if let Some(id_pos) = columns.iter().position(|c| c.name == "_id") {
             let id_column = columns.remove(id_pos);
             columns.insert(0, id_column);
+        }
+        
+        // Cache the schema
+        {
+            let mut cache = self.schema_cache.write().await;
+            cache.insert(cache_key, columns.clone());
         }
         
         Ok(columns)

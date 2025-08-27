@@ -403,8 +403,8 @@ impl DbAdapter for SqliteAdapter {
     }
 
     async fn table_indexes(&self, _database: &str, _schema: &str, table: &str) -> Result<Vec<super::TableIndex>, AppError> {
-        let rows = sqlx::query("PRAGMA index_list(?)")
-            .bind(table)
+        let query = format!("PRAGMA index_list(\"{}\")", table);
+        let rows = sqlx::query(&query)
             .fetch_all(&self.pool)
             .await
             .map_err(|e| AppError::Database(format!("Failed to get table indexes: {}", e)))?;
