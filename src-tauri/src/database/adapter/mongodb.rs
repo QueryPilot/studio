@@ -5,7 +5,7 @@ use bson::Document;
 use std::time::{Duration, Instant};
 use std::collections::HashMap;
 use uuid::Uuid;
-use futures::TryStreamExt;
+use futures::{TryStreamExt, StreamExt};
 
 use crate::error::AppError;
 use super::{DbAdapter, TableMeta, FunctionMeta, ColumnMeta, QueryCursor, QueryPage, ExecuteResult, QueryOptions, TransactionId, TableReadRequest, TableDataResponse, DbObjectKind};
@@ -112,7 +112,69 @@ impl DbAdapter for MongoDbAdapter {
     }
 
     async fn table_columns(&self, database: &str, _schema: &str, table: &str) -> Result<Vec<ColumnMeta>, AppError> {
-        self.schema_inferrer.infer_collection_schema(database, table).await
+        // For MongoDB, we'll return a minimal schema to avoid the expensive sampling
+        // The actual fields will be shown when data is loaded
+        Ok(vec![
+            ColumnMeta {
+                name: "_id".to_string(),
+                db_type: "ObjectId".to_string(),
+                nullable: false,
+                default: None,
+                is_pk: true,
+                is_fk: false,
+                ordinal: 0,
+                precision: None,
+                scale: None,
+                is_identity: None,
+                is_computed: None,
+                is_hierarchyid: None,
+                is_spatial: None,
+                is_json: None,
+                enum_values: None,
+                set_values: None,
+                is_virtual: None,
+                mg_is_required: Some(true),
+                mg_is_sparse_index: None,
+                mg_index_type: None,
+                mg_is_text_indexed: None,
+                mg_text_weights: None,
+                mg_bson_type: Some("objectId".to_string()),
+                mg_field_path: Some("_id".to_string()),
+                mg_is_array_element: Some(false),
+                mg_validation_rule: None,
+                mg_encryption: None,
+            },
+            // Add a placeholder for dynamic fields
+            ColumnMeta {
+                name: "*".to_string(),
+                db_type: "Dynamic".to_string(),
+                nullable: true,
+                default: None,
+                is_pk: false,
+                is_fk: false,
+                ordinal: 1,
+                precision: None,
+                scale: None,
+                is_identity: None,
+                is_computed: None,
+                is_hierarchyid: None,
+                is_spatial: None,
+                is_json: None,
+                enum_values: None,
+                set_values: None,
+                is_virtual: None,
+                mg_is_required: Some(false),
+                mg_is_sparse_index: None,
+                mg_index_type: None,
+                mg_is_text_indexed: None,
+                mg_text_weights: None,
+                mg_bson_type: Some("mixed".to_string()),
+                mg_field_path: None,
+                mg_is_array_element: None,
+                mg_validation_rule: None,
+                mg_encryption: None,
+            }
+        ])
     }
 
     async fn table_triggers(&self, _database: &str, _schema: &str, _table: &str) -> Result<Vec<super::TriggerMeta>, AppError> {
@@ -222,65 +284,22 @@ impl DbAdapter for MongoDbAdapter {
     }
 
     async fn read_table_data(&self, request: TableReadRequest) -> Result<(TableDataResponse, Option<String>), AppError> {
-        // MongoDB doesn't have traditional schema.table structure
-        // We'll treat the table name as collection name
-        let db = self.database.clone();
-        let collection = db.collection::<Document>(&request.table);
+        println!("[MongoDB] read_table_data called for table: {}", request.table);
+        let start = std::time::Instant::now();
         
-        // Build MongoDB query from filters
-        let mut filter = Document::new();
-        for filter_spec in &request.filters {
-            // Convert SQL-style filters to MongoDB filters
-            // This is a simplified implementation
-            match filter_spec.operator {
-                super::types::FilterOperator::Equal => {
-                    if let Ok(bson_val) = bson::to_bson(&filter_spec.value) {
-                        filter.insert(&filter_spec.column, bson_val);
-                    }
-                }
-                super::types::FilterOperator::GreaterThan => {
-                    if let Ok(bson_val) = bson::to_bson(&filter_spec.value) {
-                        filter.insert(&filter_spec.column, doc! { "$gt": bson_val });
-                    }
-                }
-                super::types::FilterOperator::LessThan => {
-                    if let Ok(bson_val) = bson::to_bson(&filter_spec.value) {
-                        filter.insert(&filter_spec.column, doc! { "$lt": bson_val });
-                    }
-                }
-                // Add more operators as needed
-                _ => {}
+        // Use timeout for the entire operation
+        let timeout_duration = tokio::time::Duration::from_secs(10);
+        
+        match tokio::time::timeout(timeout_duration, self.read_table_data_impl(request)).await {
+            Ok(result) => {
+                println!("[MongoDB] Total operation completed in {:?}", start.elapsed());
+                result
+            }
+            Err(_) => {
+                println!("[MongoDB] Operation timed out after {:?}", start.elapsed());
+                Err(AppError::Database(format!("MongoDB query timed out after {} seconds", timeout_duration.as_secs())))
             }
         }
-        
-        // Execute query
-        let mut cursor = collection.find(filter, None).await
-            .map_err(|e| AppError::Database(format!("Failed to execute query: {}", e)))?;
-        
-        let mut rows = Vec::new();
-        let limit = 100; // Default limit
-        let mut count = 0;
-        
-        while let Ok(Some(doc)) = cursor.try_next().await {
-            if count >= limit {
-                break;
-            }
-            
-            let mut row = HashMap::new();
-            for (key, value) in doc {
-                let cell_value = self.bson_converter.bson_to_cell_value(&value, &key);
-                row.insert(key, cell_value);
-            }
-            rows.push(row);
-            count += 1;
-        }
-        
-        let response = TableDataResponse::Rows {
-            rows,
-            next_cursor: None, // TODO: Implement cursor pagination
-        };
-        
-        Ok((response, None))
     }
 
     async fn execute_raw_query(
@@ -309,6 +328,127 @@ impl DbAdapter for MongoDbAdapter {
 }
 
 impl MongoDbAdapter {
+    async fn read_table_data_impl(&self, request: TableReadRequest) -> Result<(TableDataResponse, Option<String>), AppError> {
+        let start = std::time::Instant::now();
+        
+        // MongoDB doesn't have traditional schema.table structure
+        // We'll treat the table name as collection name
+        let db = self.database.clone();
+        let collection = db.collection::<Document>(&request.table);
+        println!("[MongoDB] Collection obtained in {:?}", start.elapsed());
+        
+        // Build MongoDB query from filters
+        let mut filter = Document::new();
+        println!("[MongoDB] Processing {} filters", request.filters.len());
+        for filter_spec in &request.filters {
+            // Convert SQL-style filters to MongoDB filters
+            // This is a simplified implementation
+            match filter_spec.operator {
+                super::types::FilterOperator::Equal => {
+                    if let Ok(bson_val) = bson::to_bson(&filter_spec.value) {
+                        filter.insert(&filter_spec.column, bson_val);
+                    }
+                }
+                super::types::FilterOperator::GreaterThan => {
+                    if let Ok(bson_val) = bson::to_bson(&filter_spec.value) {
+                        filter.insert(&filter_spec.column, doc! { "$gt": bson_val });
+                    }
+                }
+                super::types::FilterOperator::LessThan => {
+                    if let Ok(bson_val) = bson::to_bson(&filter_spec.value) {
+                        filter.insert(&filter_spec.column, doc! { "$lt": bson_val });
+                    }
+                }
+                // Add more operators as needed
+                _ => {}
+            }
+        }
+        println!("[MongoDB] Filter document: {:?}", filter);
+        
+        // Apply pagination
+        let (skip, limit) = match &request.pagination {
+            super::types::PaginationMode::Offset { offset, limit } => (*offset as u64, *limit as i64),
+            super::types::PaginationMode::Cursor { .. } => (0, 100),
+        };
+        
+        // Execute query with skip and limit - with a more aggressive timeout
+        println!("[MongoDB] Executing query with skip={}, limit={}", skip, limit);
+        let options = mongodb::options::FindOptions::builder()
+            .skip(Some(skip))
+            .limit(Some(limit))
+            .max_time(Some(std::time::Duration::from_secs(5))) // MongoDB server-side timeout
+            .build();
+        
+        let query_start = std::time::Instant::now();
+        
+        // Try to execute the find operation
+        let cursor_result = collection.find(filter.clone(), options).await;
+        
+        let mut cursor = match cursor_result {
+            Ok(c) => {
+                println!("[MongoDB] Query cursor created successfully in {:?}", query_start.elapsed());
+                c
+            }
+            Err(e) => {
+                println!("[MongoDB] Query failed after {:?}: {}", query_start.elapsed(), e);
+                return Err(AppError::Database(format!("MongoDB query failed: {}", e)));
+            }
+        };
+        
+        let mut rows = Vec::new();
+        let mut doc_count = 0;
+        let fetch_start = std::time::Instant::now();
+        
+        println!("[MongoDB] Starting to fetch documents...");
+        
+        // Use try_next to avoid hanging
+        loop {
+            match cursor.try_next().await {
+                Ok(Some(doc)) => {
+                    doc_count += 1;
+                    println!("[MongoDB] Processing document #{} at {:?}", doc_count, fetch_start.elapsed());
+                    
+                    let mut row = HashMap::new();
+                    for (key, value) in doc {
+                        let cell_value = self.bson_converter.bson_to_cell_value(&value, &key);
+                        row.insert(key, cell_value);
+                    }
+                    rows.push(row);
+                    
+                    // Safety check - break if we hit the limit
+                    if doc_count >= limit as usize {
+                        println!("[MongoDB] Reached limit of {} documents", limit);
+                        break;
+                    }
+                }
+                Ok(None) => {
+                    println!("[MongoDB] No more documents after {} docs", doc_count);
+                    break;
+                }
+                Err(e) => {
+                    println!("[MongoDB] Error reading document #{}: {}", doc_count + 1, e);
+                    if rows.is_empty() {
+                        return Err(AppError::Database(format!("Failed to read documents: {}", e)));
+                    }
+                    // If we have some rows, return what we got
+                    break;
+                }
+            }
+        }
+        
+        println!("[MongoDB] Fetched {} documents in {:?}", doc_count, fetch_start.elapsed());
+        println!("[MongoDB] Total operation time: {:?}", start.elapsed());
+        
+        let row_count = rows.len();
+        let response = TableDataResponse::Rows {
+            rows,
+            next_cursor: None, // TODO: Implement cursor pagination
+        };
+        
+        println!("[MongoDB] Returning response with {} rows", row_count);
+        Ok((response, None))
+    }
+    
     async fn execute_mongo_query(&self, query: MongoQuery, _opts: QueryOptions) -> Result<QueryCursor, AppError> {
         // TODO: Implement MongoDB query execution based on MongoQuery
         let _ = query; // Suppress unused warning for now

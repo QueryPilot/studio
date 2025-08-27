@@ -15,6 +15,13 @@ interface DataGridRowProps {
   columns: ColumnMeta[];
   getAdjustedColumnWidth: (column: { getSize: () => number }, columnIndex?: number) => number;
   isLastRow?: boolean;
+  isRowSelected?: boolean;
+  isCellSelected?: (rowIndex: number, columnIndex: number) => boolean;
+  isCellFocused?: (rowIndex: number, columnIndex: number) => boolean;
+  onCellClick?: (rowIndex: number, columnIndex: number, event: React.MouseEvent) => void;
+  onCellMouseDown?: (rowIndex: number, columnIndex: number, event: React.MouseEvent) => void;
+  onCellMouseEnter?: (rowIndex: number, columnIndex: number) => void;
+  onCellContextMenu?: (rowIndex: number, columnIndex: number, event: React.MouseEvent, cellValue: any) => void;
 }
 
 export const DataGridRow = memo(function DataGridRow({
@@ -24,6 +31,13 @@ export const DataGridRow = memo(function DataGridRow({
   columns,
   getAdjustedColumnWidth,
   isLastRow = false,
+  isRowSelected = false,
+  isCellSelected,
+  isCellFocused,
+  onCellClick,
+  onCellMouseDown,
+  onCellMouseEnter,
+  onCellContextMenu,
 }: DataGridRowProps) {
   if (!row) return null;
 
@@ -44,8 +58,10 @@ export const DataGridRow = memo(function DataGridRow({
         <tbody>
           <tr
             className={cn(
-              "hover:bg-primary/10 transition-colors border-b",
+              "transition-colors border-b",
               virtualItem.index % 2 === 0 && "bg-muted/10",
+              isRowSelected && "bg-primary/20 hover:bg-primary/25",
+              !isRowSelected && "hover:bg-primary/10",
             )}
             style={{ height: "28px" }}
           >
@@ -94,16 +110,28 @@ export const DataGridRow = memo(function DataGridRow({
                 );
               }
 
+              const cellSelected = isCellSelected?.(virtualItem.index, columnIndex) || false;
+              const cellFocused = isCellFocused?.(virtualItem.index, columnIndex) || false;
+
               return (
                 <td
                   key={cell.id}
-                  className="px-1.5 py-0.5 text-xs text-foreground/80 dark:text-foreground/70 border-r last:border-r-0"
+                  className={cn(
+                    "px-1.5 py-0.5 text-xs text-foreground/80 dark:text-foreground/70 border-r last:border-r-0",
+                    "cursor-pointer select-none",
+                    cellSelected && "bg-primary/30",
+                    cellFocused && "ring-2 ring-primary ring-inset",
+                  )}
                   style={{
                     width: adjustedCellWidth,
                     minWidth: adjustedCellWidth,
                     maxWidth: adjustedCellWidth,
                     overflow: "hidden",
                   }}
+                  onClick={(e) => onCellClick?.(virtualItem.index, columnIndex, e)}
+                  onMouseDown={(e) => onCellMouseDown?.(virtualItem.index, columnIndex, e)}
+                  onMouseEnter={() => onCellMouseEnter?.(virtualItem.index, columnIndex)}
+                  onContextMenu={(e) => onCellContextMenu?.(virtualItem.index, columnIndex, e, cellValue)}
                 >
                   {isNull ? (
                     <div
