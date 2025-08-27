@@ -14,6 +14,9 @@ import {
   Sun,
   Moon,
   Monitor,
+  AlertCircle,
+  Loader2,
+  RotateCcw,
 } from "lucide-react";
 import {
   Popover,
@@ -34,7 +37,11 @@ import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { windowManager } from "@/services/windowManager";
-import { databaseService } from "@/services/databaseService";
+import {
+  databaseService,
+  type ConnectionHealth,
+} from "@/services/databaseService";
+import { emit } from "@tauri-apps/api/event";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -62,6 +69,9 @@ export function WorkspaceTitleBar({
   const [openWindows, setOpenWindows] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [serverVersion, setServerVersion] = useState<string | null>(null);
+  const [connectionHealth, setConnectionHealth] =
+    useState<ConnectionHealth | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
   const { theme, setTheme } = useTheme();
 
   // Get panel store state and functions
@@ -103,6 +113,21 @@ export function WorkspaceTitleBar({
     };
   }, [connectionId]);
 
+  // Subscribe to connection health updates
+  useEffect(() => {
+    const unsubscribe = databaseService.onHealthChange(
+      connectionId,
+      (health) => {
+        setConnectionHealth(health);
+        setIsConnecting(false);
+      },
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [connectionId]);
+
   // Track open workspace windows using windowManager
   useEffect(() => {
     const checkOpenWindows = () => {
@@ -120,6 +145,73 @@ export function WorkspaceTitleBar({
       clearInterval(interval);
     };
   }, []);
+
+  const handleReconnect = async () => {
+    setIsConnecting(true);
+    try {
+      await databaseService.connectById(connectionId);
+      // Emit event to refresh sidebar data
+      await emit("database-reconnected", { connectionId });
+    } catch (error) {
+      console.error("Failed to reconnect:", error);
+    }
+  };
+
+  const getStatusColor = () => {
+    if (isConnecting) return "text-yellow-500";
+    if (!connectionHealth) return "text-gray-500";
+
+    switch (connectionHealth.status) {
+      case "ready":
+        return "text-green-500";
+      case "degraded":
+        return "text-yellow-500";
+      case "error":
+        return "text-red-500";
+      default:
+        return "text-gray-500";
+    }
+  };
+
+  const getStatusText = () => {
+    if (isConnecting) return "Connecting";
+    if (!connectionHealth) return "Disconnected";
+
+    switch (connectionHealth.status) {
+      case "ready":
+        return connectionHealth.rttMs
+          ? `${connectionHealth.rttMs}ms`
+          : "Connected";
+      case "degraded":
+        return connectionHealth.rttMs
+          ? `${connectionHealth.rttMs}ms`
+          : "Degraded";
+      case "error":
+        return "Error";
+      default:
+        return "Unknown";
+    }
+  };
+
+  const getStatusIcon = () => {
+    if (isConnecting) {
+      return <Loader2 className="h-2 w-2 animate-spin" />;
+    }
+
+    if (connectionHealth?.status === "error") {
+      return <AlertCircle className="h-3 w-3" />;
+    }
+
+    return (
+      <Circle
+        className={cn(
+          "h-2 w-2 fill-current",
+          getStatusColor(),
+          connectionHealth?.status === "ready" && "animate-pulse",
+        )}
+      />
+    );
+  };
 
   const handleGoHome = async () => {
     try {
@@ -323,26 +415,66 @@ export function WorkspaceTitleBar({
       </div>
 
       {/* Center Section - Absolute positioning for true center */}
-      <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-2 text-xs">
-        <span className="font-medium">{connection?.name || "Loading..."}</span>
-        <span className="text-muted-foreground">|</span>
-        <span className="text-muted-foreground capitalize">
-          {connection ? connection.type.replace("sql", "SQL") : "Database"}
-        </span>
-        {serverVersion && (
-          <>
-            <span className="text-muted-foreground">|</span>
-            <span className="text-muted-foreground">v{serverVersion}</span>
-          </>
-        )}
+      <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-3 text-xs">
+        {/* Database Name with Type */}
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-sm">
+            {connection?.name || "Loading..."}
+          </span>
+          <span className="text-muted-foreground">
+            {connection
+              ? connection.type
+                  .toUpperCase()
+                  .replace("POSTGRESQL", "PostgreSQL")
+                  .replace("MYSQL", "MySQL")
+                  .replace("SQLITE", "SQLite")
+                  .replace("MSSQL", "SQL Server")
+                  .replace("MARIADB", "MariaDB")
+              : ""}
+            {serverVersion && ` ${serverVersion}`}
+          </span>
+        </div>
+
+        {/* Connection Details */}
         {connection?.host && (
           <>
-            <span className="text-muted-foreground">|</span>
+            <div className="h-3 w-px bg-border" />
             <span className="text-muted-foreground">
               {connection.host}:{connection.port}/{connection.database}
             </span>
           </>
         )}
+
+        {/* Connection Status Badge */}
+        <div className="h-3 w-px bg-border" />
+        <div
+          className={cn(
+            "flex items-center gap-1.5 px-2 py-0.5 rounded-full",
+            connectionHealth?.status === "ready" && "bg-green-500/10",
+            connectionHealth?.status === "degraded" && "bg-yellow-500/10",
+            connectionHealth?.status === "error" && "bg-red-500/10",
+            (!connectionHealth || isConnecting) && "bg-gray-500/10",
+          )}
+        >
+          {getStatusIcon()}
+          <span className={cn("font-medium", getStatusColor())}>
+            {getStatusText()}
+          </span>
+        </div>
+
+        {/* Reconnect button for error state */}
+        {(!connectionHealth || connectionHealth.status === "error") &&
+          !isConnecting && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleReconnect}
+              className="h-5 px-2 text-xs gap-1"
+            >
+              <RotateCcw className="h-2.5 w-2.5" />
+              Reconnect
+            </Button>
+          )}
       </div>
 
       {/* Right Section */}

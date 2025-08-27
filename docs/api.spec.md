@@ -14,7 +14,7 @@ All commands are invoked via Tauri's IPC system from the frontend and return Res
 
 ## Implementation Status
 
-**Current State**: PostgreSQL, MSSQL, and SQLite adapters are fully implemented with comprehensive type support. Other database adapters (MySQL, MariaDB) remain as placeholder implementations with TODO markers.
+**Current State**: PostgreSQL, MySQL, MariaDB, SQLite, and Microsoft SQL Server adapters are fully implemented with comprehensive type support. MongoDB adapter specification is complete and ready for implementation. Other NoSQL and cloud database adapters remain in planning phase.
 
 ## Error Handling
 
@@ -53,27 +53,93 @@ All database query results and table data operations now use the standardized `C
 
 ### CellValueType Enumeration
 
-Standardized types for consistent frontend rendering:
+Types are divided into standardized cross-database types and database-specific extensions:
+
+#### Standardized Types (Cross-Database)
+
+Core types supported across all database adapters:
 
 ```typescript
-type CellValueType =
-  | "Null" // SQL NULL - render as empty or "NULL" indicator
-  | "Text" // String data - plain text with selection
-  | "Integer" // Integer numbers - right-align, thousands separators
-  | "Decimal" // Floating/decimal numbers - use precision/scale metadata
-  | "Boolean" // Boolean values - checkboxes or true/false text
-  | "Date" // Date only - locale date formatting
-  | "DateTime" // Date with time - full datetime formatting with timezone
-  | "Time" // Time only - time formatting without date
-  | "Json" // JSON data - syntax highlighting, expand/collapse
-  | "Binary" // Binary data - hex display or download options
-  | "Uuid" // UUID values - formatted with hyphens, copy functionality
-  | "Array" // Array/list values - expandable list with element formatting
-  | "Geometry" // Spatial data - coordinates or map rendering
-  | "Xml" // XML data - syntax highlighting and structure formatting
-  | "Enum" // Enumerated values - show options, validate against enum
-  | "Unknown"; // Unsupported types - fallback to plain text
+type StandardCellValueType =
+  | "Null"      // SQL NULL - render as empty or "NULL" indicator
+  | "Text"      // String data - plain text with selection
+  | "Integer"   // Integer numbers - right-align, thousands separators
+  | "Decimal"   // Floating/decimal numbers - use precision/scale metadata
+  | "Boolean"   // Boolean values - checkboxes or true/false text
+  | "Date"      // Date only - locale date formatting
+  | "DateTime"  // Date with time - full datetime formatting with timezone
+  | "Time"      // Time only - time formatting without date
+  | "Json"      // JSON data - syntax highlighting, expand/collapse
+  | "Binary"    // Binary data - hex display or download options
+  | "Uuid"      // UUID values - formatted with hyphens, copy functionality
+  | "Array"     // Array/list values - expandable list with element formatting
+  | "Unknown";  // Unsupported types - fallback to plain text
 ```
+
+#### Database-Specific Extended Types
+
+Additional types for specialized database features:
+
+```typescript
+type ExtendedCellValueType =
+  // PostgreSQL Extensions
+  | "Geometry"  // PostGIS spatial data - coordinates or map rendering
+  | "Xml"       // XML data - syntax highlighting and structure formatting
+  | "Enum"      // User-defined enumerated types - show options, validate
+  | "Interval"  // Time intervals - duration formatting
+  | "TsVector"  // Full-text search vectors
+  | "TsQuery"   // Full-text search queries
+  | "Range"     // Range types (int4range, daterange, etc.)
+  | "Inet"      // IP addresses - validated formatting
+  | "Cidr"      // Network addresses with CIDR notation
+  | "MacAddr"   // MAC addresses - formatted with colons
+  
+  // MySQL/MariaDB Extensions  
+  | "Set"       // SET type - multiple enum values
+  | "Year"      // YEAR type - 4-digit year display
+  | "Bit"       // BIT type - binary string representation
+  
+  // SQL Server Extensions
+  | "HierarchyId"    // Hierarchical data - tree path display
+  | "Geography"      // Geographic spatial data with SRID
+  | "Money"          // Currency values - locale-aware formatting
+  | "SmallMoney"     // Smaller currency values
+  | "DateTimeOffset" // DateTime with timezone offset
+  
+  // MongoDB Extensions (Planned)
+  | "ObjectId"       // MongoDB ObjectId - 24-char hex with timestamp
+  | "BsonRegex"      // BSON regular expressions
+  | "BsonTimestamp"  // BSON timestamp with increment
+  | "BsonDocument"   // Nested BSON document
+  | "MinKey"         // MongoDB MinKey type
+  | "MaxKey"         // MongoDB MaxKey type
+  
+  // NoSQL/Document Extensions
+  | "Document"       // Nested document structure
+  | "Embedded"       // Embedded object/document
+  
+  // Vector Database Extensions  
+  | "Vector"         // Dense vector embeddings
+  | "SparseVector"   // Sparse vector representation
+  
+  // Graph Database Extensions
+  | "Node"           // Graph node with properties
+  | "Edge"           // Graph edge/relationship
+  | "Path";          // Graph path/traversal
+
+// Complete type union
+type CellValueType = StandardCellValueType | ExtendedCellValueType;
+```
+
+#### Type Detection Strategy
+
+The adapter determines the appropriate CellValueType based on:
+
+1. **Native Type Mapping**: Direct mapping from database type to CellValueType
+2. **Type Affinity**: For databases with flexible typing (SQLite), use affinity rules
+3. **Content Analysis**: For JSON/XML detection in text columns
+4. **Metadata Hints**: Using column metadata to determine specialized types
+5. **Fallback**: Unknown or unsupported types default to "Text" or "Unknown"
 
 ### CellMetadata Structure
 
@@ -95,22 +161,65 @@ Rich metadata for proper value formatting and display:
 
 ### Frontend Rendering Guidelines
 
-Each `CellValueType` provides specific rendering hints:
+#### Standardized Type Rendering
 
-- **Null**: Show as empty cell or "NULL" placeholder
+Core types that must be supported by all database views:
+
+- **Null**: Show as empty cell or italic "NULL" placeholder
 - **Text**: Plain text display with text selection capability
 - **Integer**: Right-aligned with thousands separators (1,234,567)
 - **Decimal**: Use `precision`/`scale` metadata for proper decimal formatting
 - **Boolean**: Checkbox controls or true/false text indicators
-- **Date/DateTime/Time**: Locale-appropriate formatting with timezone awareness
+- **Date**: Locale date formatting (e.g., MM/DD/YYYY or DD/MM/YYYY)
+- **DateTime**: Full datetime with timezone indicator
+- **Time**: Time formatting (HH:MM:SS or 12-hour format)
 - **Json**: Syntax highlighted with expand/collapse for nested structures
 - **Binary**: Hex representation with download/view options
 - **Uuid**: Formatted with hyphens, one-click copy functionality
 - **Array**: Expandable list showing individual elements with proper type formatting
-- **Geometry**: Coordinate display or interactive map rendering
-- **Xml**: Syntax highlighted with proper XML structure formatting
-- **Enum**: Dropdown or validated input with available options
 - **Unknown**: Fallback to plain text representation
+
+#### Database-Specific Type Rendering
+
+Extended types with specialized rendering requirements:
+
+**PostgreSQL Types:**
+- **Geometry**: WKT display with optional map visualization
+- **Xml**: XML syntax highlighting with tree view option
+- **Enum**: Dropdown showing valid enum values
+- **Interval**: Human-readable duration (e.g., "2 days 3:04:05")
+- **Range**: Display as "[lower, upper)" with proper bounds
+- **Inet/Cidr**: Validated IP address formatting
+- **MacAddr**: MAC address with standard colon formatting
+
+**MySQL/MariaDB Types:**
+- **Set**: Multi-select checkbox list or chip display
+- **Year**: 4-digit year display
+- **Bit**: Binary string (e.g., "0b101010")
+
+**SQL Server Types:**
+- **HierarchyId**: Tree path display (e.g., "/1/2/3/")
+- **Geography**: Coordinate display with optional map
+- **Money**: Currency formatting with locale symbols
+- **DateTimeOffset**: DateTime with explicit timezone offset
+
+**MongoDB Types (Planned):**
+- **ObjectId**: Monospace hex with timestamp tooltip
+- **BsonDocument**: Nested JSON viewer
+- **MinKey/MaxKey**: Special value indicators
+
+**Advanced Database Types:**
+- **Vector**: Array of numbers with dimension indicator
+- **Node/Edge**: Graph visualization or property table
+- **Path**: Step-by-step path display
+
+#### Rendering Priority
+
+When a database-specific type is not supported by the frontend:
+1. Check if it extends a standard type (fallback to standard)
+2. Use the `db_type` field to show original type as tooltip
+3. Render as "Text" with type indicator badge
+4. Log unsupported type for future implementation
 
 ---
 
@@ -150,7 +259,7 @@ Establishes a new database connection with auto-generated ID.
 {
   id: string,
   name: string,
-  db_type: "Postgres" | "Mysql" | "Sqlite" | "Mssql" | "Mariadb",
+  db_type: "Postgres" | "Mysql" | "Sqlite" | "Mssql" | "Mariadb" | "Mongodb",
   host: string,
   port: number,
   database: string,
@@ -165,7 +274,15 @@ Establishes a new database connection with auto-generated ID.
   instance_name?: string,
   auth_type?: "windows" | "sql",
   encrypt?: boolean,
-  trust_server_certificate?: boolean
+  trust_server_certificate?: boolean,
+  // MongoDB specific
+  connection_string?: string,      // Full MongoDB URI (alternative to host/port)
+  replica_set?: string,            // Replica set name
+  auth_mechanism?: string,         // SCRAM-SHA-1, SCRAM-SHA-256, MONGODB-X509, etc.
+  tls?: boolean,                   // Enable TLS/SSL
+  tls_ca_file?: string,           // Path to CA certificate
+  direct_connection?: boolean,     // Force direct connection (bypass discovery)
+  server_selection_timeout_ms?: number  // Server selection timeout
 }
 ```
 
@@ -369,12 +486,16 @@ Retrieves column metadata for a table.
   rd_key_type?: string,
 
   // MongoDB specific (mg_*)
-  mg_is_required?: boolean,
-  mg_is_sparse_index?: boolean,
-  mg_index_type?: string,
-  mg_is_text_indexed?: boolean,
-  mg_text_weights?: number,
-  mg_bson_type?: string,
+  mg_is_required?: boolean,              // Field is required in validation schema
+  mg_is_sparse_index?: boolean,          // Field has sparse index
+  mg_index_type?: string,                // Index type (2d, 2dsphere, text, hashed)
+  mg_is_text_indexed?: boolean,          // Field is part of text index
+  mg_text_weights?: number,              // Text search weight
+  mg_bson_type?: string,                 // Original BSON type (ObjectId, Decimal128, etc.)
+  mg_field_path?: string,                // Nested field path (e.g., "address.city")
+  mg_is_array_element?: boolean,         // Field represents array element type
+  mg_validation_rule?: string,           // JSON Schema validation rule
+  mg_encryption?: string,                // Field-level encryption settings
 
   // Cassandra specific (cs_*)
   cs_is_partition_key?: boolean,
@@ -868,13 +989,13 @@ Retrieves detailed connection health metrics.
 | Database              | Prefix | Connection | Queries | Streaming | Metadata | Table Data |
 | --------------------- | ------ | ---------- | ------- | --------- | -------- | ---------- |
 | PostgreSQL            | `pg_`  | ✅         | ✅      | ✅        | ✅       | ✅         |
-| MySQL                 | `my_`  | 🚧         | 🚧      | 🚧        | 🚧       | 🚧         |
-| MariaDB & SingleStore | `ma_`  | 🚧         | 🚧      | 🚧        | 🚧       | 🚧         |
+| MySQL                 | `my_`  | ✅         | ✅      | ✅        | ✅       | ✅         |
+| MariaDB               | `ma_`  | ✅         | ✅      | ✅        | ✅       | ✅         |
 | SQLite                | `sq_`  | ✅         | ✅      | ✅        | ✅       | ✅         |
 | Microsoft SQL Server  | `ms_`  | ✅         | ✅      | ✅        | ✅       | ✅         |
 | Oracle                | `or_`  | 🚧         | 🚧      | 🚧        | 🚧       | 🚧         |
 | Redis                 | `rd_`  | 🚧         | 🚧      | 🚧        | 🚧       | 🚧         |
-| MongoDB               | `mg_`  | 🚧         | 🚧      | 🚧        | 🚧       | 🚧         |
+| MongoDB               | `mg_`  | 📋         | 📋      | 📋        | 📋       | 📋         |
 | Cassandra             | `cs_`  | 🚧         | 🚧      | 🚧        | 🚧       | 🚧         |
 | Amazon Redshift       | `rs_`  | 🚧         | 🚧      | 🚧        | 🚧       | 🚧         |
 | ClickHouse            | `ch_`  | 🚧         | 🚧      | 🚧        | 🚧       | 🚧         |
@@ -890,13 +1011,16 @@ Retrieves detailed connection health metrics.
 **Legend:**
 
 - ✅ Currently supported
+- 📋 Actively planned (specification complete)
 - ⚠️ Temporarily disabled
 - 🚧 Planned/future support
 - Database-specific fields in `ColumnMeta` use the prefix shown above
 
-### PostgreSQL Type Support (Implemented)
+### PostgreSQL Type Support
 
-The PostgreSQL adapter provides comprehensive support for all native PostgreSQL data types:
+The PostgreSQL adapter provides support for most native PostgreSQL data types:
+
+#### Currently Implemented Types
 
 **Numeric Types:**
 
@@ -957,7 +1081,32 @@ The PostgreSQL adapter provides comprehensive support for all native PostgreSQL 
 
 - User-defined types and enums → CellValueType::Enum or CellValueType::Unknown
 
-All types include proper null handling, precision/scale metadata for numeric types, and byte size tracking for large values.
+#### Not Yet Supported (Planned)
+
+**Full-Text Search Types:**
+- `TSVECTOR` → Will map to CellValueType::TsVector (currently falls back to Text)
+- `TSQUERY` → Will map to CellValueType::TsQuery (currently falls back to Text)
+
+**Key-Value Store:**
+- `HSTORE` → Will map to CellValueType::Json or specialized HStore type
+
+**Range Types:**
+- `INT4RANGE`, `INT8RANGE`, `NUMRANGE` → Partial support, needs improvement
+- `TSRANGE`, `TSTZRANGE`, `DATERANGE` → Partial support, needs improvement
+
+**Composite Types:**
+- User-defined composite types → Currently fallback to Text/Unknown
+- Row types → Need specialized handling
+
+**Advanced Extensions:**
+- PostGIS advanced spatial types (beyond basic geometry)
+- `LTREE` - Hierarchical tree-like data
+- `CUBE` - Multi-dimensional cubes
+- `CITEXT` - Case-insensitive text
+- `PG_LSN` - Log Sequence Number
+- Custom domain types with constraints
+
+All implemented types include proper null handling, precision/scale metadata for numeric types, and byte size tracking for large values.
 
 ### SQLite Type Support (Implemented)
 
@@ -995,6 +1144,236 @@ The SQLite adapter provides comprehensive support for SQLite's dynamic type syst
 - Transaction support with proper isolation
 
 All types include proper null handling and automatic type affinity resolution according to SQLite's type system rules.
+
+### MySQL/MariaDB Type Support (Implemented)
+
+The MySQL adapter provides comprehensive support for MySQL and MariaDB data types:
+
+**Numeric Types:**
+- `TINYINT`, `SMALLINT`, `MEDIUMINT`, `INT`, `BIGINT` → CellValueType::Integer
+- `FLOAT`, `DOUBLE` → CellValueType::Decimal
+- `DECIMAL`, `NUMERIC` → CellValueType::Decimal (with precision/scale metadata)
+- `BIT` → CellValueType::Integer
+
+**Text Types:**
+- `CHAR`, `VARCHAR` → CellValueType::Text
+- `TINYTEXT`, `TEXT`, `MEDIUMTEXT`, `LONGTEXT` → CellValueType::Text
+- `ENUM`, `SET` → CellValueType::Enum (with enum_values metadata)
+
+**Date/Time Types:**
+- `DATE` → CellValueType::Date
+- `TIME` → CellValueType::Time
+- `DATETIME`, `TIMESTAMP` → CellValueType::DateTime
+- `YEAR` → CellValueType::Integer
+
+**Binary Types:**
+- `BINARY`, `VARBINARY` → CellValueType::Binary
+- `TINYBLOB`, `BLOB`, `MEDIUMBLOB`, `LONGBLOB` → CellValueType::Binary
+
+**JSON:**
+- `JSON` → CellValueType::Json (MySQL 5.7+ and MariaDB 10.2+)
+
+**Special Features:**
+- Auto-detection of MariaDB vs MySQL for compatibility
+- Support for generated/virtual columns
+- Character set and collation metadata
+- Foreign key relationship detection
+- Index information including unique and fulltext indexes
+- Proper handling of MySQL's strict mode and SQL modes
+
+All types include proper null handling, charset/collation metadata, and automatic conversion to CellValue format.
+
+### Microsoft SQL Server Type Support (Implemented)
+
+The MSSQL adapter provides comprehensive support for SQL Server data types:
+
+**Numeric Types:**
+- `TINYINT`, `SMALLINT`, `INT`, `BIGINT` → CellValueType::Integer
+- `REAL`, `FLOAT` → CellValueType::Decimal
+- `DECIMAL`, `NUMERIC`, `MONEY`, `SMALLMONEY` → CellValueType::Decimal (with precision/scale)
+
+**Text Types:**
+- `CHAR`, `VARCHAR`, `NCHAR`, `NVARCHAR` → CellValueType::Text
+- `TEXT`, `NTEXT` → CellValueType::Text (deprecated but supported)
+
+**Date/Time Types:**
+- `DATE` → CellValueType::Date
+- `TIME` → CellValueType::Time
+- `DATETIME`, `DATETIME2`, `SMALLDATETIME` → CellValueType::DateTime
+- `DATETIMEOFFSET` → CellValueType::DateTime (with timezone metadata)
+
+**Binary Types:**
+- `BINARY`, `VARBINARY` → CellValueType::Binary
+- `IMAGE` → CellValueType::Binary (deprecated but supported)
+
+**Special Types:**
+- `UNIQUEIDENTIFIER` → CellValueType::Uuid
+- `XML` → CellValueType::Xml
+- `HIERARCHYID` → CellValueType::Text
+- `GEOGRAPHY`, `GEOMETRY` → CellValueType::Geometry
+
+**SQL Server Features:**
+- Identity columns with seed and increment metadata
+- Computed columns with expressions
+- Sparse columns support
+- Temporal tables (system-versioned)
+- Column encryption metadata
+- Proper handling of schemas beyond 'dbo'
+
+### MongoDB Type Support (Planned)
+
+The MongoDB adapter will provide comprehensive support for BSON data types with document-oriented features:
+
+**Core BSON Types:**
+- `ObjectId` → CellValueType::Text (24-char hex string)
+- `String` → CellValueType::Text
+- `Int32`, `Int64` → CellValueType::Integer
+- `Double` → CellValueType::Decimal
+- `Decimal128` → CellValueType::Decimal (with precision: 34)
+- `Boolean` → CellValueType::Boolean
+
+**Date/Time Types:**
+- `Date` (BSON DateTime) → CellValueType::DateTime (UTC timezone)
+- `Timestamp` → CellValueType::DateTime (with metadata for increment)
+
+**Complex Types:**
+- `Document` (embedded) → CellValueType::Json
+- `Array` → CellValueType::Array (with element_type metadata)
+- `Binary` → CellValueType::Binary (with subtype metadata)
+
+**Special Types:**
+- `Null` → CellValueType::Null
+- `Regex` → CellValueType::Text (pattern string)
+- `JavaScript` → CellValueType::Text
+- `Symbol` → CellValueType::Text
+- `MinKey`, `MaxKey` → CellValueType::Text (special values)
+
+**MongoDB-Specific Features:**
+- **Schema Inference**: Dynamic schema discovery through document sampling
+- **Query Support**: Both SQL translation and native MQL/aggregation pipelines
+- **Nested Fields**: Dot notation support for nested document access
+- **Collection Metadata**: Document count, index information, validation rules
+- **GridFS Support**: Large binary object storage (future)
+- **Change Streams**: Real-time data monitoring (future)
+
+**Query Translation Examples:**
+```sql
+-- SQL query
+SELECT name, age FROM users WHERE age > 25 ORDER BY created_at DESC LIMIT 10
+
+-- Translates to MongoDB
+db.users.find(
+  { age: { $gt: 25 } },
+  { projection: { name: 1, age: 1 } }
+).sort({ created_at: -1 }).limit(10)
+```
+
+**Connection Configuration:**
+- Connection string format: `mongodb://[username:password@]host[:port][/database][?options]`
+- Support for replica sets and sharded clusters
+- TLS/SSL configuration
+- Various authentication mechanisms (SCRAM, X.509, etc.)
+
+## Currently Unsupported Database Types
+
+The following databases are planned for future support but not yet implemented:
+
+### Oracle Database
+- **Prefix**: `or_`
+- **Challenges**: Oracle-specific SQL extensions (PL/SQL), proprietary data types, licensing
+- **Planned Features**: Support for schemas, packages, stored procedures, Oracle-specific types
+
+### Redis
+- **Prefix**: `rd_`
+- **Challenges**: Key-value paradigm vs tabular display, command syntax differences
+- **Planned Features**: RedisJSON, RedisGraph, RedisSearch module support
+
+### Apache Cassandra
+- **Prefix**: `cs_`
+- **Challenges**: CQL vs SQL, eventual consistency model, partition keys
+- **Planned Features**: Keyspace management, CQL support, partition key handling
+
+### Amazon Redshift
+- **Prefix**: `rs_`
+- **Challenges**: Cloud-specific authentication, distribution keys, sort keys
+- **Planned Features**: Spectrum external tables, distribution strategies
+
+### ClickHouse
+- **Prefix**: `ch_`
+- **Challenges**: Column-oriented storage, specialized SQL dialect
+- **Planned Features**: Materialized views, distributed tables, sampling
+
+### Google BigQuery
+- **Prefix**: `bq_`
+- **Challenges**: Cloud authentication, nested/repeated fields, partitioning
+- **Planned Features**: Standard SQL support, dataset management, partition handling
+
+### LibSQL (Turso)
+- **Prefix**: `ls_`
+- **Challenges**: Edge database features, embedded replicas
+- **Planned Features**: Local-first development, sync capabilities
+
+### Cloudflare D1
+- **Prefix**: `d1_`
+- **Challenges**: Cloudflare API integration, Workers platform specifics
+- **Planned Features**: REST API integration, Workers KV support
+
+### Snowflake
+- **Prefix**: `sf_`
+- **Challenges**: Cloud warehousing concepts, virtual warehouses, stages
+- **Planned Features**: Warehouse management, staged file support, time travel
+
+### DuckDB
+- **Prefix**: `dk_`
+- **Challenges**: In-process analytical database, Parquet file support
+- **Planned Features**: File-based operations, analytical functions, extensions
+
+### CockroachDB
+- **Prefix**: `cr_`
+- **Challenges**: Distributed SQL, multi-region support
+- **Planned Features**: Distributed transactions, region management
+
+### Greenplum
+- **Prefix**: `gp_`
+- **Challenges**: MPP architecture, segment management
+- **Planned Features**: Parallel query execution, distribution policies
+
+### Vertica
+- **Prefix**: `ve_`
+- **Challenges**: Columnar storage, projections instead of indexes
+- **Planned Features**: Projection management, flex tables support
+
+### Additional Databases Under Consideration
+
+**Graph Databases:**
+- Neo4j - Property graph model
+- ArangoDB - Multi-model (document, graph, key-value)
+- Amazon Neptune - Managed graph database
+
+**Time-Series Databases:**
+- InfluxDB - Time-series specific optimizations
+- TimescaleDB - PostgreSQL extension for time-series
+- QuestDB - High-performance time-series
+
+**Search Engines:**
+- Elasticsearch - Full-text search and analytics
+- OpenSearch - Open-source Elasticsearch fork
+- Solr - Enterprise search platform
+
+**Vector Databases:**
+- Pinecone - Vector similarity search
+- Weaviate - Vector search with ML models
+- Qdrant - Vector similarity engine
+
+**Other Databases:**
+- CouchDB - Document database with sync
+- RethinkDB - Real-time push architecture
+- ScyllaDB - C++ Cassandra-compatible database
+- YugabyteDB - Distributed PostgreSQL-compatible
+- PlanetScale - Serverless MySQL-compatible
+- Neon - Serverless PostgreSQL-compatible
+- Supabase - PostgreSQL with real-time features
+- Firebase Realtime/Firestore - Google's NoSQL offerings
 
 ## Performance Considerations
 
