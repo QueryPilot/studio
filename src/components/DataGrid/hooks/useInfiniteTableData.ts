@@ -96,7 +96,7 @@ export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
     count: rows.length,
     getScrollElement: () => containerRef.current,
     estimateSize: useCallback(() => 28, []), // Fixed row height
-    overscan: 5, // Reduced overscan for better performance
+    overscan: 20, // Reduced overscan for better performance
     scrollMargin: 0,
     measureElement: undefined, // Use fixed size for performance
     scrollPaddingStart: 0,
