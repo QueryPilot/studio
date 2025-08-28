@@ -611,11 +611,25 @@ impl DbAdapter for PostgresAdapter {
         
         let sql = format!("SELECT {} FROM {}{}", select_clause, schema_prefix, request.table);
         
+        // Check if pool is closed before attempting query
+        if self.pool.is_closed() {
+            return Err(AppError::Database(
+                "Database connection lost: Connection pool is closed. Please reconnect to the database.".to_string()
+            ));
+        }
+        
         // For now, just execute the basic query
         let rows = sqlx::query(&sql)
             .fetch_all(&self.pool)
             .await
-            .map_err(|e| AppError::Database(format!("Table data read failed: {}", e)))?;
+            .map_err(|e| {
+                // Check if the error is due to a closed pool
+                if e.to_string().contains("closed pool") || e.to_string().contains("broken pipe") {
+                    AppError::Database(format!("Database connection lost: {}. Please reconnect to the database.", e))
+                } else {
+                    AppError::Database(format!("Table data read failed: {}", e))
+                }
+            })?;
         
         if rows.is_empty() {
             return Ok((TableDataResponse::Done, None));

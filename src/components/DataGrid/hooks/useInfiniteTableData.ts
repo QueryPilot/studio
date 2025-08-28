@@ -91,12 +91,16 @@ export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
     },
   });
 
-  // Row virtualizer
+  // Row virtualizer with optimized settings
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => containerRef.current,
     estimateSize: useCallback(() => 28, []), // Fixed row height
-    overscan: 10, // Preload 10 rows outside viewport
+    overscan: 5, // Reduced overscan for better performance
+    scrollMargin: 0,
+    measureElement: undefined, // Use fixed size for performance
+    scrollPaddingStart: 0,
+    scrollPaddingEnd: 0,
   });
 
   // Infinite scroll detection
@@ -133,6 +137,7 @@ export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
     error,
     hasNextPage,
     refresh,
+    loadData,
     columns,
     rows,
     estimatedTotal,

@@ -653,6 +653,13 @@ impl DbAdapter for MySqlAdapter {
     async fn read_table_data(&self, request: TableReadRequest) -> Result<(TableDataResponse, Option<String>), AppError> {
         use super::types::{PaginationMode, FilterOperator, SortDirection};
         
+        // Check if pool is closed before attempting query
+        if self.pool.is_closed() {
+            return Err(AppError::Database(
+                "Database connection lost: Connection pool is closed. Please reconnect to the database.".to_string()
+            ));
+        }
+        
         // Build SELECT query
         let select_clause = if let Some(cols) = &request.select {
             cols.join(", ")

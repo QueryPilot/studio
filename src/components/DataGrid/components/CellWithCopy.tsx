@@ -18,13 +18,12 @@ export const CellWithCopy = memo(function CellWithCopy({
 
   const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    console.log("CellWithCopy: handleCopy called with value:", value);
     await copy(value);
   };
 
   return (
-    <div className={cn("relative group flex items-center", className)}>
-      <div className="flex-1 min-w-0 transition-all duration-200 ease-out">
+    <div className={cn("relative group flex items-center", className)} style={{ pointerEvents: 'none' }}>
+      <div className="flex-1 min-w-0 transition-all duration-200 ease-out" style={{ pointerEvents: 'none' }}>
         {children}
       </div>
       <button
@@ -34,6 +33,7 @@ export const CellWithCopy = memo(function CellWithCopy({
           "transition-all delay-300 duration-200 ease-out",
           "w-6 -mr-6 opacity-0 group-hover:opacity-100 group-hover:-mr-2 overflow-hidden",
         )}
+        style={{ pointerEvents: 'auto' }}
         title={isCopied ? "Copied!" : "Copy to clipboard"}
         tabIndex={-1}
         aria-label={isCopied ? "Copied!" : "Copy to clipboard"}

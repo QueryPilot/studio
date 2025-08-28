@@ -26,7 +26,6 @@ export const CellValueRenderer = memo(function CellValueRenderer({
 }: CellValueRendererProps) {
   // Handle NULL values
   if (cell.value === null || cell.value === undefined) {
-    console.log(`>>>cell.value`, cell);
     const isNumeric = ["Integer", "Decimal", "Money"].includes(cell.value_type);
     return <NullCell isNumeric={isNumeric} />;
   }

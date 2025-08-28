@@ -189,6 +189,7 @@ export function usePerformanceMonitor(enabled = false) {
       gridPerformanceMonitor.start();
       return () => gridPerformanceMonitor.stop();
     }
+    return undefined;
   }, [enabled]);
   
   return gridPerformanceMonitor;
