@@ -14,7 +14,6 @@ export {
 
 // Core components
 export { DataGridHeader } from "./components/DataGridHeader";
-export { DataGridRow } from "./components/DataGridRow";
 export { DataGridSkeleton } from "./components/DataGridSkeleton";
 
 // Hooks
