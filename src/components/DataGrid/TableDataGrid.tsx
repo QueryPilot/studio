@@ -1,10 +1,10 @@
 import { memo, useState, useEffect, useCallback, useMemo } from "react";
 import { useInfiniteTableData } from "./hooks/useInfiniteTableData";
-import { useOptimizedGridSelection } from "./hooks/useOptimizedGridSelection";
+import { useGridSelection } from "./hooks/useGridSelection";
 import { useContextMenu } from "./hooks/useContextMenu";
 import { gridPerformanceMonitor } from "./utils/performanceMonitor";
 import { DataGridHeader } from "./components/DataGridHeader";
-import { OptimizedDataGridRow } from "./components/OptimizedDataGridRow";
+import { DataGridRow } from "./components/DataGridRow";
 import { DataGridSkeleton } from "./components/DataGridSkeleton";
 import { DataGridStatusBar } from "./components/DataGridStatusBar";
 import {
@@ -98,7 +98,7 @@ export const TableDataGrid = memo(function TableDataGrid({
     isRowSelected,
     isCellFocused,
     setFocusedCell,
-  } = useOptimizedGridSelection({
+  } = useGridSelection({
     totalRows: rows.length,
     totalColumns: columns.length,
     visibleRange,
@@ -565,7 +565,7 @@ export const TableDataGrid = memo(function TableDataGrid({
 
           {/* Virtualized Rows with Optimization */}
           {virtualItems.map((virtualItem, index) => (
-            <OptimizedDataGridRow
+            <DataGridRow
               key={virtualItem.key}
               virtualItem={virtualItem}
               row={tableRows[virtualItem.index]}
