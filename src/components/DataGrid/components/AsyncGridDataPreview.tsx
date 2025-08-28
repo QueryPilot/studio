@@ -93,7 +93,7 @@ export const AsyncGridDataPreview = memo(function AsyncGridDataPreview({
       </div>
 
       {/* Header with tabs */}
-      <div className="flex items-center justify-between h-8 border-b px-2 bg-background">
+      <div className="flex items-center justify-between p-1 bg-muted">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full">
           <TabsList className="h-7 p-0.5">
             <TabsTrigger value="preview" className="text-xs px-3 h-6">
@@ -173,14 +173,14 @@ const AsyncPreviewTab = memo(function AsyncPreviewTab({
   // Only render visible columns for performance
 
   return (
-    <div className="overflow-auto">
-      <table className="w-full">
-        <thead className="sticky top-0 bg-background border-b">
+    <div className="overflow-auto h-full">
+      <table className="w-full table-fixed">
+        <thead className="sticky top-0 z-10 bg-background border-b border-border">
           <tr>
-            <th className="text-left px-1.5 py-1 text-xs font-medium text-foreground/80 dark:text-foreground/70 w-[200px] min-w-[150px]">
+            <th className="text-left px-3 py-2 text-xs font-medium text-foreground w-[200px] min-w-[150px]">
               Column
             </th>
-            <th className="text-left px-1.5 py-1 text-xs font-medium text-foreground/80 dark:text-foreground/70">
+            <th className="text-left px-3 py-2 text-xs font-medium text-foreground">
               Value
             </th>
           </tr>
@@ -193,53 +193,59 @@ const AsyncPreviewTab = memo(function AsyncPreviewTab({
               selectedRows.slice(0, 10).some((r) => r[column.name] !== value);
 
             return (
-              <tr key={column.name} className="border-b hover:bg-muted/10">
-                <td className="px-1.5 py-0.5 text-xs">
+              <tr
+                key={column.name}
+                className="border-b border-border hover:bg-muted/40 transition-colors"
+              >
+                <td className="px-3 py-2 text-xs align-top">
                   <div className="flex items-center justify-between">
                     <span
-                      className={column.is_pk ? "font-semibold" : "font-medium"}
+                      className={cn(
+                        "font-medium",
+                        column.is_pk && "text-yellow-600 dark:text-yellow-500",
+                      )}
                     >
                       {column.name}
+                      {column.is_pk && (
+                        <KeyRound className="inline-block h-3 w-3 mr-1" />
+                      )}
                     </span>
                     <div className="flex items-center gap-1">
-                      {column.is_pk && (
-                        <KeyRound className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
-                      )}
                       {column.is_fk && (
                         <Hash className="h-3 w-3 text-blue-600 dark:text-blue-500" />
                       )}
                     </div>
                   </div>
                 </td>
-                <td className="px-1.5 py-0.5 text-xs font-mono text-foreground/80 dark:text-foreground/70">
+                <td className="px-3 py-2 text-xs font-mono align-top">
                   {hasMultipleValues ? (
                     <span className="text-muted-foreground italic">
                       &lt;multiple values&gt;
                     </span>
                   ) : value === null || value === undefined ? (
-                    <span className="text-muted-foreground italic">NULL</span>
+                    <span className="text-muted-foreground italic">null</span>
                   ) : typeof value === "boolean" ? (
                     <span
                       className={
                         value
-                          ? "text-green-600 dark:text-green-400"
-                          : "text-red-600 dark:text-red-400"
+                          ? "text-green-600 dark:text-green-500"
+                          : "text-red-600 dark:text-red-500"
                       }
                     >
-                      {String(value).toUpperCase()}
+                      {String(value).toLowerCase()}
                     </span>
                   ) : typeof value === "number" ? (
-                    <span className="text-blue-600 dark:text-blue-400">
+                    <span className="text-orange-600 dark:text-orange-500">
                       {value}
                     </span>
                   ) : typeof value === "object" ? (
-                    <span className="text-orange-600 dark:text-orange-400">
-                      {typeof value.value !== "undefined"
-                        ? String(value.value)
-                        : JSON.stringify(value)}
+                    <span className="break-all text-foreground">
+                      {JSON.stringify(value)}
                     </span>
                   ) : (
-                    <span className="break-all">{String(value)}</span>
+                    <span className="break-all text-foreground">
+                      {String(value)}
+                    </span>
                   )}
                 </td>
               </tr>
@@ -276,9 +282,10 @@ const AsyncJsonTab = memo(function AsyncJsonTab({
   useEffect(() => {
     // Process JSON in idle callback for performance
     const processJson = () => {
-      requestIdleCallback(() => {
+      void new Promise((resolve) => {
         const json = JSON.stringify(selectedRows, null, 2);
         setJsonString(json);
+        resolve(true);
       });
     };
 
