@@ -76,7 +76,7 @@ export function AISidebar({ connectionId: _connectionId }: AISidebarProps) {
             <Textarea
               placeholder="Ask a question..."
               value={message}
-              onChange={(e) => setMessage(e.target.value)}
+              onChange={(e) => { setMessage(e.target.value); }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();

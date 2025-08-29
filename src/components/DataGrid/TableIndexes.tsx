@@ -2,7 +2,7 @@ import { memo, useEffect, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle, KeyRound, Hash, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { databaseService, TableIndex } from "@/services/databaseService";
+import { databaseService, type TableIndex } from "@/services/databaseService";
 
 interface TableIndexesProps {
   connectionId: string;

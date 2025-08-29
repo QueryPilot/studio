@@ -6,7 +6,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 // Lazy load heavy components
 const TableDataGrid = lazy(() =>
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
   import("@/components/DataGrid").then((m) => ({ default: m.TableDataGrid })),
 );
 const TableStructure = lazy(() =>

@@ -87,43 +87,39 @@ export const DataGridRow = memo(function DataGridRow({
     );
   }, [virtualItem.index, hasSelectedCells]);
 
-  // Memoize row style
-  const rowStyle = useMemo(
-    () => ({
-      position: "absolute" as const,
-      top: virtualItem.start + 32,
-      left: 0,
-      right: 0,
-      width: "100%",
-      height: `${virtualItem.size}px`,
-    }),
-    [virtualItem.start, virtualItem.size],
-  );
+  // Row style now inline for better performance with GPU acceleration
 
   if (!row) return null;
 
   return (
-    <div data-index={virtualItem.index} style={rowStyle}>
-      <table className="table-fixed w-full">
-        <tbody>
-          <tr className={rowClassName} style={{ height: "28px" }}>
-            {row.getVisibleCells().map((cell, columnIndex) => (
-              <OptimizedCell
-                key={cell.id}
-                cell={cell}
-                columnIndex={columnIndex}
-                virtualItemIndex={virtualItem.index}
-                columns={columns}
-                getAdjustedColumnWidth={getAdjustedColumnWidth}
-                isCellSelected={isCellSelected}
-                isCellFocused={isCellFocused}
-                handlers={handlers}
-              />
-            ))}
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <tr 
+      data-index={virtualItem.index} 
+      className={rowClassName}
+      style={{
+        position: "absolute",
+        top: virtualItem.start + 32,
+        left: 0,
+        right: 0,
+        width: "100%",
+        height: "28px",
+        transform: `translateZ(0)`, // Force GPU acceleration
+        willChange: "transform" // Optimize for transforms
+      }}
+    >
+      {row.getVisibleCells().map((cell, columnIndex) => (
+        <OptimizedCell
+          key={cell.id}
+          cell={cell}
+          columnIndex={columnIndex}
+          virtualItemIndex={virtualItem.index}
+          columns={columns}
+          getAdjustedColumnWidth={getAdjustedColumnWidth}
+          isCellSelected={isCellSelected}
+          isCellFocused={isCellFocused}
+          handlers={handlers}
+        />
+      ))}
+    </tr>
   );
 },
 arePropsEqual);
@@ -131,6 +127,17 @@ arePropsEqual);
 /**
  * Optimized cell component
  */
+interface OptimizedCellProps {
+  cell: any;
+  columnIndex: number;
+  virtualItemIndex: number;
+  columns: ColumnMeta[];
+  getAdjustedColumnWidth: (column: { getSize: () => number }, columnIndex?: number) => number;
+  isCellSelected?: (rowIndex: number, columnIndex: number) => boolean;
+  isCellFocused?: (rowIndex: number, columnIndex: number) => boolean;
+  handlers: DataGridRowProps["handlers"];
+}
+
 const OptimizedCell = memo(function OptimizedCell({
   cell,
   columnIndex,
@@ -140,7 +147,7 @@ const OptimizedCell = memo(function OptimizedCell({
   isCellSelected,
   isCellFocused,
   handlers,
-}: any) {
+}: OptimizedCellProps) {
   const [isEditing, setIsEditing] = useState(false);
   const cellValue = cell.getValue() as CellValue | undefined;
   const column = columns.find((col: ColumnMeta) => col.name === cell.column.id);

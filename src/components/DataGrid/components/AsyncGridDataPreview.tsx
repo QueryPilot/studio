@@ -76,7 +76,7 @@ export const AsyncGridDataPreview = memo(function AsyncGridDataPreview({
   return (
     <div
       className={cn(
-        "absolute bottom-0 left-0 right-0 bg-background border-t border-border/50 shadow-lg z-10",
+        "absolute bottom-8 left-0 right-0 bg-background border-t border-border/50 shadow-lg z-10",
         isPending && "opacity-70",
         className,
       )}

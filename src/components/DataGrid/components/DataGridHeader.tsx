@@ -63,7 +63,7 @@ export const DataGridHeader = memo(function DataGridHeader({
                           "h-7 p-0 text-xs font-semibold hover:bg-transparent w-full flex items-center justify-between",
                           isSorted && "text-primary",
                         )}
-                        onClick={() => handleSort(column)}
+                        onClick={() => { handleSort(column); }}
                       >
                         <span className="truncate">
                           {header.isPlaceholder

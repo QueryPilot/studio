@@ -165,7 +165,7 @@ export const ResultViewer = memo(function ResultViewer({
             variant="ghost"
             size="sm"
             className="h-7"
-            onClick={() => handleExport(viewMode === 'json' ? 'json' : 'csv')}
+            onClick={() => { handleExport(viewMode === 'json' ? 'json' : 'csv'); }}
           >
             <Download className="h-3 w-3" />
           </Button>
@@ -174,7 +174,7 @@ export const ResultViewer = memo(function ResultViewer({
 
       {/* Results with tabs */}
       <div className="flex-1 min-h-0">
-        <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as 'table' | 'json')} className="h-full flex flex-col">
+        <Tabs value={viewMode} onValueChange={(value) => { setViewMode(value as 'table' | 'json'); }} className="h-full flex flex-col">
           <TabsList className="grid w-full grid-cols-2 mx-3 mt-2 mb-0">
             <TabsTrigger value="table" className="text-xs">
               Table

@@ -262,7 +262,7 @@ export const useConnectionStore = create<ConnectionStore>()((set, get) => ({
   getWorkspaces: () => {
     const connections = get().connections;
     const workspaces = new Set(
-      connections.map((conn) => conn.workspace as string),
+      connections.map((conn) => conn.workspace),
     );
     return Array.from(workspaces).sort();
   },

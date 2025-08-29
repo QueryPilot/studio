@@ -155,7 +155,7 @@ export const useWorkspaceScreenStore = create<WorkspaceScreenStore>((set, get) =
     });
   },
 
-  setActivePanel: (panelId) => set({ activePanelId: panelId }),
+  setActivePanel: (panelId) => { set({ activePanelId: panelId }); },
 
   // Tab operations
   addTab: (panelId, tabData) => {
@@ -282,23 +282,23 @@ export const useWorkspaceScreenStore = create<WorkspaceScreenStore>((set, get) =
   },
 
   // Sidebar toggles
-  toggleSidebar: (side) => set((state) => ({
+  toggleSidebar: (side) => { set((state) => ({
     sidebars: {
       ...state.sidebars,
       [side]: !state.sidebars[side],
     },
-  })),
+  })); },
 
   // Window management
-  registerWindow: (connectionId, windowLabel) => set((state) => {
+  registerWindow: (connectionId, windowLabel) => { set((state) => {
     const newWindows = new Map(state.windows);
     newWindows.set(connectionId, windowLabel);
     return { windows: newWindows };
-  }),
+  }); },
 
-  unregisterWindow: (connectionId) => set((state) => {
+  unregisterWindow: (connectionId) => { set((state) => {
     const newWindows = new Map(state.windows);
     newWindows.delete(connectionId);
     return { windows: newWindows };
-  }),
+  }); },
 }));

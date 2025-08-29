@@ -1,5 +1,4 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { useDebouncedCallback } from "use-debounce";
 
 export interface CellPosition {
   rowIndex: number;
@@ -19,7 +18,7 @@ interface UseGridSelectionProps {
 }
 
 /**
- * Selection hook with virtualization and async updates
+ * Optimized selection hook with instant updates (no debouncing)
  */
 export function useGridSelection({
   visibleRange,
@@ -35,11 +34,6 @@ export function useGridSelection({
   const selectionMapRef = useRef<Map<number, boolean>>(new Map());
   const dragStartRef = useRef<CellPosition | null>(null);
 
-  // Debounced selection change callback
-  const debouncedOnChange = useDebouncedCallback((selection: Set<number>) => {
-    onSelectionChange?.(selection);
-  }, 100);
-
   // Only track visible selections for performance
   const visibleSelections = useMemo(() => {
     if (!visibleRange) return new Set<number>();
@@ -53,30 +47,27 @@ export function useGridSelection({
     return visible;
   }, [visibleRange, selectionMapRef.current.size]);
 
-  // Optimized selection calculation for rectangular selection
+  // Optimized selection calculation with instant updates
   useEffect(() => {
     if (!selectionRange) {
       selectionMapRef.current.clear();
-      debouncedOnChange(new Set());
+      onSelectionChange?.(new Set());
       return;
     }
 
     const newSelection = new Map<number, boolean>();
+    const { start, end } = selectionRange;
+    const minRow = Math.min(start.rowIndex, end.rowIndex);
+    const maxRow = Math.max(start.rowIndex, end.rowIndex);
 
-    if (selectionRange) {
-      const { start, end } = selectionRange;
-      const minRow = Math.min(start.rowIndex, end.rowIndex);
-      const maxRow = Math.max(start.rowIndex, end.rowIndex);
-
-      // Track all rows in the rectangular selection
-      for (let i = minRow; i <= maxRow; i++) {
-        newSelection.set(i, true);
-      }
+    // Track all rows in the rectangular selection
+    for (let i = minRow; i <= maxRow; i++) {
+      newSelection.set(i, true);
     }
 
     selectionMapRef.current = newSelection;
-    debouncedOnChange(new Set(newSelection.keys()));
-  }, [selectionRange, debouncedOnChange]);
+    onSelectionChange?.(new Set(newSelection.keys()));
+  }, [selectionRange, onSelectionChange]);
 
   // Cleanup selections outside visible range periodically
   useEffect(() => {
@@ -120,7 +111,7 @@ export function useGridSelection({
         }
         setFocusedCell(position);
         setSelectionRange(null);
-        debouncedOnChange(new Set(selectionMapRef.current.keys()));
+        onSelectionChange?.(new Set(selectionMapRef.current.keys()));
       } else {
         // Regular click - always update focused cell and clear selection
         setFocusedCell(position);
@@ -130,10 +121,10 @@ export function useGridSelection({
         });
         selectionMapRef.current.clear();
         selectionMapRef.current.set(rowIndex, true);
-        debouncedOnChange(new Set(selectionMapRef.current.keys()));
+        onSelectionChange?.(new Set(selectionMapRef.current.keys()));
       }
     },
-    [focusedCell, debouncedOnChange],
+    [focusedCell, onSelectionChange],
   );
 
   const handleCellMouseDown = useCallback(
@@ -191,8 +182,8 @@ export function useGridSelection({
     selectionMapRef.current.clear();
     setFocusedCell(null);
     setSelectionRange(null);
-    debouncedOnChange(new Set());
-  }, [debouncedOnChange]);
+    onSelectionChange?.(new Set());
+  }, [onSelectionChange]);
 
   const isRowSelected = useCallback((rowIndex: number) => {
     // Don't show row selection, only cell selection

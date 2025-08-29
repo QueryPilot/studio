@@ -12,6 +12,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTableData } from "@/hooks/useTableData";
 import type { ColumnMeta } from "@/types/database";
 import type { TableDataRow } from "@/services/tableDataTypes";
+import { ScrollVelocityTracker } from "../utils/scrollVelocityTracker";
+import { FastRenderStrategy } from "../utils/fastRenderStrategy";
 
 interface UseInfiniteTableDataParams {
   connectionId: string;
@@ -22,6 +24,7 @@ interface UseInfiniteTableDataParams {
 
 export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const velocityTracker = useRef(new ScrollVelocityTracker());
   const { connectionId, database, table, schema } = params;
 
   const {
@@ -91,18 +94,48 @@ export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
     },
   });
 
-  // Row virtualizer with optimized settings
+  // Dynamic overscan based on scroll velocity
+  const [dynamicOverscan, setDynamicOverscan] = useState(20);
+  
+  // Row virtualizer with optimized settings for fixed height
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => containerRef.current,
-    estimateSize: useCallback(() => 28, []), // Fixed row height
-    overscan: 20, // Reduced overscan for better performance
+    estimateSize: useCallback(() => FastRenderStrategy.ROW_HEIGHT, []), // Fixed row height
+    overscan: dynamicOverscan, // Dynamic overscan based on velocity
     scrollMargin: 0,
-    measureElement: undefined, // Use fixed size for performance
+    measureElement: undefined, // Disable measurement for fixed height
     scrollPaddingStart: 0,
     scrollPaddingEnd: 0,
   });
 
+  // Update overscan based on scroll velocity
+  const handleScroll = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    
+    // Update velocity tracker
+    velocityTracker.current.update(container.scrollTop);
+    
+    // Update dynamic overscan
+    const newOverscan = velocityTracker.current.getOverscan();
+    setDynamicOverscan(prev => {
+      // Only update if significantly different
+      return Math.abs(prev - newOverscan) > 10 ? newOverscan : prev;
+    });
+  }, []);
+  
+  // Attach scroll listener
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+    };
+  }, [handleScroll]);
+  
   // Infinite scroll detection
   useEffect(() => {
     const virtualItems = rowVirtualizer.getVirtualItems();
@@ -125,7 +158,7 @@ export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
     rows.length,
     isLoading,
     isStreaming,
-    rowVirtualizer.getVirtualItems(),
+    rowVirtualizer,
   ]);
 
   return {

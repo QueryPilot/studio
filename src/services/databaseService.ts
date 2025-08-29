@@ -361,7 +361,7 @@ class DatabaseService {
       
       // Notify listeners
       const listeners = this.healthListeners.get(connectionId) || [];
-      listeners.forEach(listener => listener(health));
+      listeners.forEach(listener => { listener(health); });
       
       // Emit global event
       await emit(`connection-health-${connectionId}`, health);
@@ -372,7 +372,7 @@ class DatabaseService {
     // Do immediate health check
     void this.getConnectionHealth(connectionId).then(health => {
       const listeners = this.healthListeners.get(connectionId) || [];
-      listeners.forEach(listener => listener(health));
+      listeners.forEach(listener => { listener(health); });
       void emit(`connection-health-${connectionId}`, health);
     });
   }
@@ -428,7 +428,7 @@ class DatabaseService {
    */
   async cleanup(): Promise<void> {
     // Stop all health monitors
-    this.healthMonitors.forEach((monitor) => clearInterval(monitor));
+    this.healthMonitors.forEach((monitor) => { clearInterval(monitor); });
     this.healthMonitors.clear();
     this.healthListeners.clear();
 

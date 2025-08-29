@@ -2,6 +2,10 @@
  * Performance monitoring utility for DataGrid
  * Tracks FPS, render times, and memory usage
  */
+
+// Set to true only when debugging performance issues
+const DEBUG_PERFORMANCE = false;
+
 export class PerformanceMonitor {
   private fps = 0;
   private frameCount = 0;
@@ -128,7 +132,7 @@ export class PerformanceMonitor {
    * Log metrics to console
    */
   private logMetrics() {
-    if (!this.isMonitoring) return;
+    if (!this.isMonitoring || !DEBUG_PERFORMANCE) return;
     
     const metrics = this.getMetrics();
     
@@ -144,8 +148,10 @@ export class PerformanceMonitor {
     }
     console.groupEnd();
     
-    // Log every 5 seconds
-    setTimeout(() => this.logMetrics(), 5000);
+    // Log every 5 seconds only when debugging
+    if (DEBUG_PERFORMANCE) {
+      setTimeout(() => { this.logMetrics(); }, 5000);
+    }
   }
   
   /**
@@ -187,7 +193,7 @@ export function usePerformanceMonitor(enabled = false) {
   useEffect(() => {
     if (enabled) {
       gridPerformanceMonitor.start();
-      return () => gridPerformanceMonitor.stop();
+      return () => { gridPerformanceMonitor.stop(); };
     }
     return undefined;
   }, [enabled]);
