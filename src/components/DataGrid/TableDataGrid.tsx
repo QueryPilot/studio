@@ -756,7 +756,7 @@ const DataGridRow = memo(function DataGridRow({
 
   return (
     <div data-index={index} className={rowClassName} style={rowStyle}>
-      <table className="table-fixed w-full h-full">
+      <table className="table-fixed w-full h-full" style={{ tableLayout: 'fixed', borderCollapse: 'collapse' }}>
         <tbody>
           <tr style={{ height: `${FastRenderStrategy.ROW_HEIGHT}px` }}>
             {columns.map((column, columnIndex) => (
