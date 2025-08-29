@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { DatabaseConnection } from "@/types/database";
+import { type DatabaseConnection } from "@/types/database";
 
 interface SecureConnection {
   id: string;

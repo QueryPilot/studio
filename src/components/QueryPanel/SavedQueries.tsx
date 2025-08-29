@@ -105,7 +105,7 @@ export function SavedQueries({
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => { setSearchTerm(e.target.value); }}
                 onKeyDown={(e) => e.key === "Enter" && handleSearch()}
                 placeholder="Search favorites..."
                 className="pl-8 h-8"
@@ -142,7 +142,7 @@ export function SavedQueries({
                 <div
                   key={favorite.id}
                   className="group relative p-3 rounded-md border cursor-pointer hover:bg-muted/50 transition-colors"
-                  onClick={() => onSelectQuery(favorite.query)}
+                  onClick={() => { onSelectQuery(favorite.query); }}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
@@ -216,7 +216,7 @@ export function SavedQueries({
               <label className="text-sm font-medium">Name</label>
               <Input
                 value={favoriteName}
-                onChange={(e) => setFavoriteName(e.target.value)}
+                onChange={(e) => { setFavoriteName(e.target.value); }}
                 placeholder="Enter a name for this query..."
                 className="mt-1"
                 onKeyDown={(e) => e.key === "Enter" && handleUpdateName()}

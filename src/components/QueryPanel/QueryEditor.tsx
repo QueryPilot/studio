@@ -1,6 +1,6 @@
 import '@/lib/monaco-config'; // Import first to override clipboard before Monaco loads
 import { useEffect, useRef, memo, Suspense, useLayoutEffect } from 'react';
-import Editor, { OnMount, BeforeMount } from '@monaco-editor/react';
+import Editor, { type OnMount, type BeforeMount } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import { initMonaco } from '@/lib/monaco-loader';
 import { SQLCompletionProvider } from './SQLCompletionProvider';
@@ -144,7 +144,7 @@ export const QueryEditor = memo(function QueryEditor({
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      disposablesRef.current.forEach(d => d.dispose());
+      disposablesRef.current.forEach(d => { d.dispose(); });
       if (themeCleanupRef.current) {
         themeCleanupRef.current();
       }

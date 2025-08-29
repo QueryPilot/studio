@@ -149,11 +149,11 @@ export const useSchemaStore = create<SchemaState>((set, get) => ({
     }
   },
 
-  setSelectedSchema: (schema) => set({ selectedSchema: schema }),
+  setSelectedSchema: (schema) => { set({ selectedSchema: schema }); },
   
-  setSearchQuery: (query) => set({ searchQuery: query }),
+  setSearchQuery: (query) => { set({ searchQuery: query }); },
   
-  toggleNode: (nodeId) => set((state) => {
+  toggleNode: (nodeId) => { set((state) => {
     const newExpanded = new Set(state.expandedNodes);
     if (newExpanded.has(nodeId)) {
       newExpanded.delete(nodeId);
@@ -161,7 +161,7 @@ export const useSchemaStore = create<SchemaState>((set, get) => ({
       newExpanded.add(nodeId);
     }
     return { expandedNodes: newExpanded };
-  }),
+  }); },
 
   refreshAll: async (connectionId) => {
     const state = get();

@@ -53,7 +53,7 @@ const Toast = React.forwardRef<
       const timer = setTimeout(() => {
         onOpenChange?.(false);
       }, 5000);
-      return () => clearTimeout(timer);
+      return () => { clearTimeout(timer); };
     }
     return undefined;
   }, [open, onOpenChange]);

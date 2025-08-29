@@ -84,7 +84,7 @@ export const InlineCellEditor = memo(function InlineCellEditor({
         <input
           type="checkbox"
           checked={editValue === 'true' || editValue === '1'}
-          onChange={(e) => setEditValue(e.target.checked ? 'true' : 'false')}
+          onChange={(e) => { setEditValue(e.target.checked ? 'true' : 'false'); }}
           onKeyDown={handleKeyDown}
           className="focus:ring-2 focus:ring-primary"
           autoFocus
@@ -113,7 +113,7 @@ export const InlineCellEditor = memo(function InlineCellEditor({
         <textarea
           ref={textareaRef}
           value={editValue}
-          onChange={(e) => setEditValue(e.target.value)}
+          onChange={(e) => { setEditValue(e.target.value); }}
           onKeyDown={handleKeyDown}
           onBlur={onCancel}
           className={cn(
@@ -134,7 +134,7 @@ export const InlineCellEditor = memo(function InlineCellEditor({
         ref={inputRef}
         type={type === 'number' ? 'number' : 'text'}
         value={editValue}
-        onChange={(e) => setEditValue(e.target.value)}
+        onChange={(e) => { setEditValue(e.target.value); }}
         onKeyDown={handleKeyDown}
         onBlur={handleSave}
         className={cn(

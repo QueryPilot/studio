@@ -5,13 +5,13 @@ import type { PanelState } from "@/types/workspaceScreen";
 import { usePanelStore } from "@/stores/panelStore";
 import {
   DndContext,
-  DragEndEvent,
+  type DragEndEvent,
   DragOverlay,
-  DragStartEvent,
+  type DragStartEvent,
   PointerSensor,
   useSensor,
   useSensors,
-  DragOverEvent,
+  type DragOverEvent,
   closestCenter,
 } from "@dnd-kit/core";
 import {
@@ -208,8 +208,8 @@ export function DraggableTabBar({
               tabId={tabId}
               panel={panel}
               isActive={panel.activeTabId === tabId}
-              onSelect={() => onTabSelect(tabId)}
-              onClose={() => onTabClose(tabId)}
+              onSelect={() => { onTabSelect(tabId); }}
+              onClose={() => { onTabClose(tabId); }}
             />
           ))}
         </SortableContext>

@@ -116,7 +116,7 @@ export function QueryHistory({ connectionId, database, onSelectQuery }: QueryHis
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => { setSearchTerm(e.target.value); }}
               onKeyDown={(e) => e.key === "Enter" && handleSearch()}
               placeholder="Search query history..."
               className="pl-8 h-8"
@@ -161,7 +161,7 @@ export function QueryHistory({ connectionId, database, onSelectQuery }: QueryHis
                   "group relative p-3 rounded-md border cursor-pointer hover:bg-muted/50 transition-colors",
                   entry.error && "border-destructive/50"
                 )}
-                onClick={() => onSelectQuery(entry.query)}
+                onClick={() => { onSelectQuery(entry.query); }}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
@@ -250,7 +250,7 @@ export function QueryHistory({ connectionId, database, onSelectQuery }: QueryHis
               <label className="text-sm font-medium">Name</label>
               <Input
                 value={favoriteName}
-                onChange={(e) => setFavoriteName(e.target.value)}
+                onChange={(e) => { setFavoriteName(e.target.value); }}
                 placeholder="Enter a name for this query..."
                 className="mt-1"
                 onKeyDown={(e) => e.key === "Enter" && handleSaveFavorite()}

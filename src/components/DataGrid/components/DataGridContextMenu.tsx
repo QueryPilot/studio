@@ -160,8 +160,8 @@ const SubmenuItem = memo(function SubmenuItem({
   return (
     <div
       className="relative"
-      onMouseEnter={() => setShowSubmenu(true)}
-      onMouseLeave={() => setShowSubmenu(false)}
+      onMouseEnter={() => { setShowSubmenu(true); }}
+      onMouseLeave={() => { setShowSubmenu(false); }}
     >
       <button
         className={cn(
