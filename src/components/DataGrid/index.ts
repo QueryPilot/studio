@@ -1,4 +1,5 @@
-export { TableDataGrid } from "./TableDataGrid";
+export { OptimizedVirtualDataGrid } from "./OptimizedVirtualDataGrid";
+export { OptimizedVirtualDataGrid as TableDataGrid } from "./OptimizedVirtualDataGrid"; // Alias for compatibility
 export { QueryDataGrid } from "./QueryDataGrid";
 
 // Cell components
@@ -13,7 +14,8 @@ export {
 } from "./components/DataGridStates";
 
 // Core components
-export { DataGridHeader } from "./components/DataGridHeader";
+export { OptimizedDataGridHeader } from "./components/OptimizedDataGridHeader";
+export { OptimizedDataGridHeader as DataGridHeader } from "./components/OptimizedDataGridHeader"; // Alias for compatibility
 export { DataGridSkeleton } from "./components/DataGridSkeleton";
 
 // Hooks
