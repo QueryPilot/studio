@@ -143,6 +143,13 @@ export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
 
     if (!lastItem) return;
 
+    console.log("[useInfiniteTableData] Scroll check:");
+    console.log("  - Last visible item index:", lastItem.index);
+    console.log("  - Total rows:", rows.length);
+    console.log("  - Has next page:", hasNextPage);
+    console.log("  - Is loading:", isLoading);
+    console.log("  - Is streaming:", isStreaming);
+
     // Check if we're near the bottom
     if (
       lastItem.index >= rows.length - 1 &&
@@ -150,6 +157,7 @@ export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
       !isLoading &&
       !isStreaming
     ) {
+      console.log("[useInfiniteTableData] Triggering loadMore!");
       void loadMore();
     }
   }, [
@@ -171,6 +179,7 @@ export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
     hasNextPage,
     refresh,
     loadData,
+    loadMore,
     columns,
     rows,
     estimatedTotal,

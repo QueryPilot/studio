@@ -246,6 +246,7 @@ export const OptimizedVirtualDataGrid = memo(function OptimizedVirtualDataGrid({
     rows,
     estimatedTotal,
     loadData,
+    loadMore,
   } = useInfiniteTableData({
     connectionId,
     database,
@@ -349,6 +350,20 @@ export const OptimizedVirtualDataGrid = memo(function OptimizedVirtualDataGrid({
         end: rowRange.end,
       });
 
+      // Check if we need to load more data (infinite scroll)
+      if (
+        rowRange.end >= rows.length - 10 && // Near the end (within 10 rows)
+        hasNextPage &&
+        !isLoading &&
+        !isStreaming
+      ) {
+        console.log("[OptimizedVirtualDataGrid] Triggering loadMore - near end of data");
+        console.log("  - Visible end:", rowRange.end);
+        console.log("  - Total rows:", rows.length);
+        console.log("  - Has next page:", hasNextPage);
+        void loadMore();
+      }
+
       // For now, disable horizontal virtualization to fix column visibility
       // We'll render all columns and let CSS handle the clipping
 
@@ -366,7 +381,7 @@ export const OptimizedVirtualDataGrid = memo(function OptimizedVirtualDataGrid({
       lastScrollTopRef.current = scrollTop;
       rafIdRef.current = null;
     });
-  }, [rows.length, columns.length, columnPositions, updateViewport, prefetch]);
+  }, [rows.length, updateViewport, prefetch, hasNextPage, isLoading, isStreaming, loadMore]);
 
   // Setup scroll listener with passive flag
   useEffect(() => {

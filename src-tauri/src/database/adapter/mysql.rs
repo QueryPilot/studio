@@ -764,24 +764,31 @@ impl DbAdapter for MySqlAdapter {
         }
         
         // Add LIMIT and OFFSET based on pagination mode
-        let (limit, offset) = match &request.pagination {
-            PaginationMode::Offset { offset, limit } => (*limit.min(&1000), *offset),
+        let (limit, offset, next_offset) = match &request.pagination {
+            PaginationMode::Offset { offset, limit } => {
+                let actual_limit = (*limit).min(1000);
+                (actual_limit, *offset, offset + actual_limit)
+            }
             PaginationMode::Cursor { cursor } => {
-                // Parse cursor to get offset
+                // Parse cursor to get offset if it's in "offset:N" format
                 if let Some(cursor_str) = cursor {
-                    if cursor_str.starts_with("offset:") {
-                        let offset_str = &cursor_str[7..];
-                        let offset = offset_str.parse::<usize>().unwrap_or(0);
-                        (1000, offset)
+                    if let Some(offset_str) = cursor_str.strip_prefix("offset:") {
+                        if let Ok(offset) = offset_str.parse::<usize>() {
+                            (100, offset, offset + 100)
+                        } else {
+                            (100, 0, 100)
+                        }
                     } else {
-                        (1000, 0)
+                        (100, 0, 100)
                     }
                 } else {
-                    (1000, 0)
+                    (100, 0, 100)
                 }
             }
         };
-        sql.push_str(&format!(" LIMIT {} OFFSET {}", limit, offset));
+        
+        // Fetch one extra row to check if there are more
+        sql.push_str(&format!(" LIMIT {} OFFSET {}", limit + 1, offset));
         
         // Execute query
         let mut query = sqlx::query(&sql);
@@ -792,15 +799,29 @@ impl DbAdapter for MySqlAdapter {
         let rows = query
             .fetch_all(&self.pool)
             .await
-            .map_err(|e| AppError::Database(format!("Table data read failed: {}", e)))?;
+            .map_err(|e| {
+                if e.to_string().contains("closed pool") || e.to_string().contains("broken pipe") {
+                    AppError::Database(format!("Database connection lost: {}. Please reconnect to the database.", e))
+                } else {
+                    AppError::Database(format!("Table data read failed: {}", e))
+                }
+            })?;
         
         if rows.is_empty() {
             return Ok((TableDataResponse::Done, None));
         }
         
+        // Check if there are more rows
+        let has_more = rows.len() > limit;
+        let rows_to_return = if has_more {
+            &rows[..limit]  // Return only the requested limit
+        } else {
+            &rows[..]
+        };
+        
         // Convert to hash map format
         let mut result_rows = Vec::new();
-        for row in &rows {
+        for row in rows_to_return {
             let mut row_map = HashMap::new();
             for (i, column) in row.columns().iter().enumerate() {
                 let cell_value = self.convert_mysql_value_to_cell(row, column, i)?;
@@ -809,17 +830,17 @@ impl DbAdapter for MySqlAdapter {
             result_rows.push(row_map);
         }
         
-        // Generate next cursor if there might be more data
-        let next_cursor = if result_rows.len() == limit {
-            Some(format!("offset:{}", offset + limit))
+        // Generate next cursor if there are more rows
+        let next_cursor = if has_more {
+            Some(format!("offset:{}", next_offset))
         } else {
             None
         };
         
         Ok((TableDataResponse::Rows {
             rows: result_rows,
-            next_cursor,
-        }, None))
+            next_cursor: next_cursor.clone(),
+        }, next_cursor))
     }
     
     async fn execute_raw_query(

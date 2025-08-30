@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::database::cell_value::{CellValue, CellValueType};
-use super::{DbAdapter, TableMeta, FunctionMeta, ColumnMeta, QueryCursor, QueryPage, ExecuteResult, QueryOptions, TransactionId, TableReadRequest, TableDataResponse, DbObjectKind, FilterSpec, FilterOperator, SortDirection, PaginationMode};
+use super::{DbAdapter, TableMeta, FunctionMeta, ColumnMeta, QueryCursor, QueryPage, ExecuteResult, QueryOptions, TransactionId, TableReadRequest, TableDataResponse, DbObjectKind, FilterOperator, SortDirection, PaginationMode};
 
 pub struct SqliteAdapter {
     pool: SqlitePool,
@@ -802,26 +802,33 @@ impl DbAdapter for SqliteAdapter {
         };
         
         // Handle pagination
-        let (limit_clause, offset) = match request.pagination {
+        let (limit, offset, next_offset) = match request.pagination {
             PaginationMode::Offset { offset, limit } => {
-                (format!(" LIMIT {}", limit), offset)
+                let actual_limit = limit.min(1000);
+                (actual_limit, offset, offset + actual_limit)
             }
-            PaginationMode::Cursor { cursor: _ } => {
-                // For simplicity, use offset pagination
-                (" LIMIT 100".to_string(), 0)
+            PaginationMode::Cursor { cursor } => {
+                // Parse cursor to get offset if it's in "offset:N" format
+                if let Some(cursor_str) = cursor {
+                    if let Some(offset_str) = cursor_str.strip_prefix("offset:") {
+                        if let Ok(offset) = offset_str.parse::<usize>() {
+                            (100, offset, offset + 100)
+                        } else {
+                            (100, 0, 100)
+                        }
+                    } else {
+                        (100, 0, 100)
+                    }
+                } else {
+                    (100, 0, 100)
+                }
             }
         };
         
-        let offset_clause = if offset > 0 {
-            format!(" OFFSET {}", offset)
-        } else {
-            String::new()
-        };
-        
-        // Build final query
+        // Build final query with LIMIT + 1 to check for more rows
         let query_sql = format!(
-            "SELECT {} FROM \"{}\"{}{}{}{}",
-            select_clause, table, where_clause, order_clause, limit_clause, offset_clause
+            "SELECT {} FROM \"{}\"{}{}  LIMIT {} OFFSET {}",
+            select_clause, table, where_clause, order_clause, limit + 1, offset
         );
         
         // Execute query
@@ -845,27 +852,25 @@ impl DbAdapter for SqliteAdapter {
         let rows = query
             .fetch_all(&self.pool)
             .await
-            .map_err(|e| AppError::Database(format!("Failed to read table data: {}", e)))?;
+            .map_err(|e| {
+                if e.to_string().contains("closed pool") || e.to_string().contains("broken pipe") {
+                    AppError::Database(format!("Database connection lost: {}. Please reconnect to the database.", e))
+                } else {
+                    AppError::Database(format!("Failed to read table data: {}", e))
+                }
+            })?;
         
         if rows.is_empty() {
-            // Return metadata only
-            let columns = self.table_columns("", "", table).await?;
-            let selected = request.select.clone().unwrap_or_else(|| {
-                columns.iter().map(|c| c.name.clone()).collect()
-            });
-            
-            return Ok((
-                TableDataResponse::Meta {
-                    table: table.clone(),
-                    schema: Some("main".to_string()),
-                    columns,
-                    selected,
-                    page_size: 100,
-                    cursor_key_columns: Vec::new(),
-                },
-                None
-            ));
+            return Ok((TableDataResponse::Done, None));
         }
+        
+        // Check if there are more rows
+        let has_more = rows.len() > limit;
+        let rows_to_return = if has_more {
+            &rows[..limit]  // Return only the requested limit
+        } else {
+            &rows[..]
+        };
         
         // Convert rows to HashMap format
         let first_row = &rows[0];
@@ -875,21 +880,28 @@ impl DbAdapter for SqliteAdapter {
             .collect();
         
         let mut result_rows = Vec::new();
-        for row in rows {
+        for row in rows_to_return {
             let mut row_map = HashMap::new();
-            let cells = Self::row_to_cell_values(&row);
+            let cells = Self::row_to_cell_values(row);
             for (i, cell) in cells.into_iter().enumerate() {
                 row_map.insert(column_names[i].clone(), cell);
             }
             result_rows.push(row_map);
         }
         
+        // Generate next cursor if there are more rows
+        let next_cursor = if has_more {
+            Some(format!("offset:{}", next_offset))
+        } else {
+            None
+        };
+        
         Ok((
             TableDataResponse::Rows {
                 rows: result_rows,
-                next_cursor: None,
+                next_cursor: next_cursor.clone(),
             },
-            None
+            next_cursor
         ))
     }
     
