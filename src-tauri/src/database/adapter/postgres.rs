@@ -595,21 +595,7 @@ impl DbAdapter for PostgresAdapter {
     }
 
     async fn read_table_data(&self, request: TableReadRequest) -> Result<(TableDataResponse, Option<String>), AppError> {
-        // This is a complex method - for now, return a basic implementation
-        // A full implementation would handle all filtering, sorting, and pagination
-        let schema_prefix = if let Some(schema) = &request.schema {
-            format!("{}.", schema)
-        } else {
-            String::new()
-        };
-        
-        let select_clause = if let Some(cols) = &request.select {
-            cols.join(", ")
-        } else {
-            "*".to_string()
-        };
-        
-        let sql = format!("SELECT {} FROM {}{}", select_clause, schema_prefix, request.table);
+        use super::types::{PaginationMode, FilterOperator, SortDirection};
         
         // Check if pool is closed before attempting query
         if self.pool.is_closed() {
@@ -618,12 +604,128 @@ impl DbAdapter for PostgresAdapter {
             ));
         }
         
-        // For now, just execute the basic query
-        let rows = sqlx::query(&sql)
+        // Build SELECT clause
+        let select_clause = if let Some(cols) = &request.select {
+            cols.join(", ")
+        } else {
+            "*".to_string()
+        };
+        
+        // Build FROM clause with schema
+        let schema_prefix = if let Some(schema) = &request.schema {
+            format!("{}.", schema)
+        } else {
+            String::new()
+        };
+        
+        let mut sql = format!("SELECT {} FROM {}{}", select_clause, schema_prefix, request.table);
+        let mut bindings = Vec::new();
+        
+        // Add WHERE clause for filters
+        if !request.filters.is_empty() {
+            let conditions: Vec<String> = request.filters.iter().enumerate().map(|(i, f)| {
+                match f.operator {
+                    FilterOperator::IsNull => format!("{} IS NULL", f.column),
+                    FilterOperator::IsNotNull => format!("{} IS NOT NULL", f.column),
+                    FilterOperator::In => {
+                        if let Some(values) = f.value.as_array() {
+                            let placeholders: Vec<String> = values.iter().enumerate()
+                                .map(|(j, _)| format!("${}", bindings.len() + j + 1))
+                                .collect();
+                            for v in values {
+                                bindings.push(v.clone());
+                            }
+                            format!("{} IN ({})", f.column, placeholders.join(", "))
+                        } else {
+                            bindings.push(f.value.clone());
+                            format!("{} = ${}", f.column, bindings.len())
+                        }
+                    }
+                    FilterOperator::Between => {
+                        if let Some(values) = f.value.as_array() {
+                            if values.len() == 2 {
+                                bindings.push(values[0].clone());
+                                bindings.push(values[1].clone());
+                                format!("{} BETWEEN ${} AND ${}", f.column, bindings.len() - 1, bindings.len())
+                            } else {
+                                bindings.push(f.value.clone());
+                                format!("{} = ${}", f.column, bindings.len())
+                            }
+                        } else {
+                            bindings.push(f.value.clone());
+                            format!("{} = ${}", f.column, bindings.len())
+                        }
+                    }
+                    _ => {
+                        let op = match f.operator {
+                            FilterOperator::Equal => "=",
+                            FilterOperator::NotEqual => "!=",
+                            FilterOperator::GreaterThan => ">",
+                            FilterOperator::GreaterThanOrEqual => ">=",
+                            FilterOperator::LessThan => "<",
+                            FilterOperator::LessThanOrEqual => "<=",
+                            FilterOperator::Like => "LIKE",
+                            FilterOperator::ILike => "ILIKE",
+                            _ => "=",
+                        };
+                        bindings.push(f.value.clone());
+                        format!("{} {} ${}", f.column, op, bindings.len())
+                    }
+                }
+            }).collect();
+            
+            sql.push_str(" WHERE ");
+            sql.push_str(&conditions.join(" AND "));
+        }
+        
+        // Add ORDER BY clause for sorts
+        if !request.sorts.is_empty() {
+            let order_by: Vec<String> = request.sorts.iter().map(|s| {
+                format!("{} {}", 
+                    s.column,
+                    if matches!(s.direction, SortDirection::Desc) { "DESC" } else { "ASC" }
+                )
+            }).collect();
+            sql.push_str(" ORDER BY ");
+            sql.push_str(&order_by.join(", "));
+        }
+        
+        // CRITICAL FIX: Apply pagination
+        let (limit, offset, next_offset) = match &request.pagination {
+            PaginationMode::Offset { offset, limit } => {
+                (*limit, *offset, offset + limit)
+            }
+            PaginationMode::Cursor { cursor } => {
+                // Parse cursor to get offset if it's in "offset:N" format
+                if let Some(cursor_str) = cursor {
+                    if let Some(offset_str) = cursor_str.strip_prefix("offset:") {
+                        if let Ok(offset) = offset_str.parse::<usize>() {
+                            (100, offset, offset + 100)
+                        } else {
+                            (100, 0, 100)
+                        }
+                    } else {
+                        (100, 0, 100)
+                    }
+                } else {
+                    (100, 0, 100)
+                }
+            }
+        };
+        
+        // Add LIMIT and OFFSET to query
+        sql.push_str(&format!(" LIMIT {} OFFSET {}", limit + 1, offset)); // Fetch one extra to check if there's more
+        
+        // Build and execute query with parameters
+        let mut query = sqlx::query(&sql);
+        for param in bindings {
+            query = self.bind_parameter(query, param)?;
+        }
+        
+        let rows = query
             .fetch_all(&self.pool)
             .await
             .map_err(|e| {
-                // Check if the error is due to a closed pool
                 if e.to_string().contains("closed pool") || e.to_string().contains("broken pipe") {
                     AppError::Database(format!("Database connection lost: {}. Please reconnect to the database.", e))
                 } else {
@@ -635,9 +737,17 @@ impl DbAdapter for PostgresAdapter {
             return Ok((TableDataResponse::Done, None));
         }
         
+        // Check if there are more rows
+        let has_more = rows.len() > limit;
+        let rows_to_return = if has_more {
+            &rows[..limit]  // Return only the requested limit
+        } else {
+            &rows[..]
+        };
+        
         // Convert to hash map format expected by TableDataResponse
         let mut result_rows = Vec::new();
-        for row in &rows {
+        for row in rows_to_return {
             let mut row_map = HashMap::new();
             for (i, column) in row.columns().iter().enumerate() {
                 let cell_value = self.convert_pg_value_to_cell(row, column, i)?;
@@ -646,10 +756,17 @@ impl DbAdapter for PostgresAdapter {
             result_rows.push(row_map);
         }
         
+        // Generate next cursor if there are more rows
+        let next_cursor = if has_more {
+            Some(format!("offset:{}", next_offset))
+        } else {
+            None
+        };
+        
         Ok((TableDataResponse::Rows {
             rows: result_rows,
-            next_cursor: None,
-        }, None))
+            next_cursor: next_cursor.clone(),
+        }, next_cursor))
     }
 
     async fn execute_raw_query(

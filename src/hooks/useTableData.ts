@@ -97,15 +97,19 @@ export function useTableData(): UseTableDataReturn {
   // Handle stream data rows - STABLE callback with NO dependencies
   const handleRows = useCallback((rowsEvent: TableDataRowsEvent) => {
     console.log("[useTableData] Received rows:", rowsEvent.rows.length, "rows");
+    console.log("[useTableData] Next cursor:", rowsEvent.next_cursor);
     console.log(">>> rows sample:", rowsEvent.rows[0]);
     if (!isMountedRef.current) return;
 
     setState((prev) => {
-      // Check if we're in the initial load (no cursor) or loading more
-      const isInitialLoad = !prev.nextCursor;
+      // Check if we're in the initial load (rows empty) or loading more
+      const isInitialLoad = prev.rows.length === 0;
       const newRows = isInitialLoad
         ? rowsEvent.rows // Replace all rows on initial load
         : [...prev.rows, ...rowsEvent.rows]; // Append on load more
+
+      console.log("[useTableData] Total rows after update:", newRows.length);
+      console.log("[useTableData] Has next page:", Boolean(rowsEvent.next_cursor));
 
       return {
         ...prev,
@@ -218,6 +222,11 @@ export function useTableData(): UseTableDataReturn {
   const loadMore = useCallback(async () => {
     const currentState = stateRef.current;
 
+    console.log("[useTableData] loadMore called");
+    console.log("[useTableData] Current rows:", currentState.rows.length);
+    console.log("[useTableData] Next cursor:", currentState.nextCursor);
+    console.log("[useTableData] Has next page:", currentState.hasNextPage);
+
     // Prevent multiple concurrent loadMore calls
     if (isLoadingMoreRef.current) {
       console.log("[useTableData] loadMore already in progress, skipping");
@@ -231,6 +240,11 @@ export function useTableData(): UseTableDataReturn {
       currentState.isStreaming ||
       !isMountedRef.current
     ) {
+      console.log("[useTableData] loadMore blocked - conditions not met");
+      console.log("  - has params:", !!currentParamsRef.current);
+      console.log("  - has cursor:", !!currentState.nextCursor);
+      console.log("  - not loading:", !currentState.isLoading);
+      console.log("  - not streaming:", !currentState.isStreaming);
       return;
     }
 
