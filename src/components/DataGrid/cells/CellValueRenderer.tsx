@@ -19,10 +19,12 @@ import { MoneyCell } from "./MoneyCell";
 interface CellValueRendererProps {
   cell: CellValue;
   column?: ColumnMeta;
+  columnName?: string;
 }
 
 export const CellValueRenderer = memo(function CellValueRenderer({
   cell,
+  columnName,
 }: CellValueRendererProps) {
   // Handle NULL values
   if (cell.value === null || cell.value === undefined) {
@@ -62,7 +64,7 @@ export const CellValueRenderer = memo(function CellValueRenderer({
       return <TimeCell value={cell.value as string} />;
 
     case "Json":
-      return <JsonCell value={cell.value} />;
+      return <JsonCell value={cell.value} columnName={columnName} />;
 
     case "Binary":
       return <BinaryCell size={cell.byte_size || 0} />;
@@ -75,6 +77,7 @@ export const CellValueRenderer = memo(function CellValueRenderer({
         <ArrayCell
           value={cell.value}
           elementType={cell.metadata?.element_type}
+          columnName={columnName}
         />
       );
 
@@ -100,6 +103,6 @@ export const CellValueRenderer = memo(function CellValueRenderer({
     case "Text":
     case "Unknown":
     default:
-      return <TextCell value={cell.value as string} />;
+      return <TextCell value={cell.value as string} columnName={columnName} />;
   }
 });

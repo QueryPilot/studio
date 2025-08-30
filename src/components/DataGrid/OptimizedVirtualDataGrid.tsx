@@ -5,10 +5,10 @@ import { useContextMenu } from "./hooks/useContextMenu";
 import { FastRenderStrategy } from "./utils/fastRenderStrategy";
 import { ScrollVelocityTracker } from "./utils/scrollVelocityTracker";
 import { useTripleBuffer } from "./utils/tripleBufferManager";
-import { useRowPool } from "./utils/rowComponentPool";
 import { OptimizedDataGridHeader } from "./components/OptimizedDataGridHeader";
 import { DataGridSkeleton } from "./components/DataGridSkeleton";
 import { DataGridStatusBar } from "./components/DataGridStatusBar";
+import { CellValueRenderer } from "./cells/CellValueRenderer";
 import type { CellValue } from "@/types/cellValue";
 import {
   DataGridContextMenu,
@@ -44,154 +44,169 @@ interface OptimizedVirtualDataGridProps {
 }
 
 // Memoized Cell Component with proper comparison
-const VirtualCell = memo(function VirtualCell({
-  value,
-  columnIndex,
-  rowIndex,
-  isSelected,
-  isFocused,
-  onCellClick,
-  onCellDoubleClick,
-  onContextMenu,
-}: {
-  value: CellValue | undefined;
-  columnName: string;
-  columnIndex: number;
-  rowIndex: number;
-  isSelected: boolean;
-  isFocused: boolean;
-  onCellClick: (rowIndex: number, columnIndex: number) => void;
-  onCellDoubleClick: (rowIndex: number, columnIndex: number) => void;
-  onContextMenu: (e: React.MouseEvent, rowIndex: number, columnIndex: number) => void;
-}) {
-  const handleClick = useCallback(() => {
-    onCellClick(rowIndex, columnIndex);
-  }, [onCellClick, rowIndex, columnIndex]);
+const VirtualCell = memo(
+  function VirtualCell({
+    value,
+    columnName,
+    columnIndex,
+    rowIndex,
+    isSelected,
+    isFocused,
+    onCellClick,
+    onCellDoubleClick,
+    onContextMenu,
+  }: {
+    value: CellValue | undefined;
+    columnName: string;
+    columnIndex: number;
+    rowIndex: number;
+    isSelected: boolean;
+    isFocused: boolean;
+    onCellClick: (rowIndex: number, columnIndex: number) => void;
+    onCellDoubleClick: (rowIndex: number, columnIndex: number) => void;
+    onContextMenu: (
+      e: React.MouseEvent,
+      rowIndex: number,
+      columnIndex: number,
+    ) => void;
+  }) {
+    const handleClick = useCallback(() => {
+      onCellClick(rowIndex, columnIndex);
+    }, [onCellClick, rowIndex, columnIndex]);
 
-  const handleDoubleClick = useCallback(() => {
-    onCellDoubleClick(rowIndex, columnIndex);
-  }, [onCellDoubleClick, rowIndex, columnIndex]);
+    const handleDoubleClick = useCallback(() => {
+      onCellDoubleClick(rowIndex, columnIndex);
+    }, [onCellDoubleClick, rowIndex, columnIndex]);
 
-  const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    onContextMenu(e, rowIndex, columnIndex);
-  }, [onContextMenu, rowIndex, columnIndex]);
+    const handleContextMenu = useCallback(
+      (e: React.MouseEvent) => {
+        onContextMenu(e, rowIndex, columnIndex);
+      },
+      [onContextMenu, rowIndex, columnIndex],
+    );
 
-  const displayValue = useMemo(() => {
-    const val = value?.value ?? value;
-    if (val == null) return "-";
-    if (typeof val === "object") return JSON.stringify(val);
-    return String(val);
-  }, [value]);
-
-  return (
-    <div
-      className={cn(
-        "virtual-cell px-2 py-1 text-xs border-r last:border-r-0",
-        "cursor-pointer select-none relative overflow-hidden",
-        isSelected && "bg-primary/20",
-        isFocused && "ring-1 ring-primary ring-inset z-10",
-      )}
-      style={{
-        borderColor: 'hsl(var(--border) / 0.3)',
-        contain: 'layout style paint',
-      }}
-      role="gridcell"
-      aria-colindex={columnIndex + 1}
-      tabIndex={isFocused ? 0 : -1}
-      onClick={handleClick}
-      onDoubleClick={handleDoubleClick}
-      onContextMenu={handleContextMenu}
-    >
-      <div className="truncate">{displayValue}</div>
-    </div>
-  );
-}, (prevProps, nextProps) => {
-  // Custom comparison - only re-render if these change
-  return (
-    prevProps.value === nextProps.value &&
-    prevProps.isSelected === nextProps.isSelected &&
-    prevProps.isFocused === nextProps.isFocused &&
-    prevProps.rowIndex === nextProps.rowIndex &&
-    prevProps.columnIndex === nextProps.columnIndex
-  );
-});
+    return (
+      <div
+        className={cn(
+          "virtual-cell px-2 py-1 text-xs border-r last:border-r-0",
+          "cursor-pointer select-none relative overflow-hidden",
+          isSelected && "bg-primary/20",
+          isFocused && "ring-1 ring-primary ring-inset z-10",
+        )}
+        style={{
+          borderColor: "hsl(var(--border) / 0.3)",
+          contain: "layout style paint",
+        }}
+        role="gridcell"
+        aria-colindex={columnIndex + 1}
+        tabIndex={isFocused ? 0 : -1}
+        onClick={handleClick}
+        onDoubleClick={handleDoubleClick}
+        onContextMenu={handleContextMenu}
+      >
+        {value ? (
+          <CellValueRenderer cell={value} columnName={columnName} />
+        ) : (
+          <span className="text-foreground/40">-</span>
+        )}
+      </div>
+    );
+  },
+  (prevProps, nextProps) => {
+    // Custom comparison - only re-render if these change
+    return (
+      prevProps.value === nextProps.value &&
+      prevProps.isSelected === nextProps.isSelected &&
+      prevProps.isFocused === nextProps.isFocused &&
+      prevProps.rowIndex === nextProps.rowIndex &&
+      prevProps.columnIndex === nextProps.columnIndex
+    );
+  },
+);
 
 // Optimized Virtual Row with pooling support
-const VirtualRow = memo(function VirtualRow({
-  index,
-  data,
-  columns,
-  style,
-  gridTemplateColumns,
-  isRowSelected,
-  isCellSelected,
-  isCellFocused,
-  onCellClick,
-  onCellDoubleClick,
-  onCellContextMenu,
-}: {
-  index: number;
-  data: TableDataRow;
-  columns: any[];
-  style: React.CSSProperties;
-  gridTemplateColumns: string;
-  isRowSelected: boolean;
-  isCellSelected: (rowIndex: number, columnIndex: number) => boolean;
-  isCellFocused: (rowIndex: number, columnIndex: number) => boolean;
-  onCellClick: (rowIndex: number, columnIndex: number) => void;
-  onCellDoubleClick: (rowIndex: number, columnIndex: number) => void;
-  onCellContextMenu: (e: React.MouseEvent, rowIndex: number, columnIndex: number) => void;
-}) {
-
-  return (
-    <div
-      className={cn(
-        "virtual-row absolute left-0",
-        index % 2 === 0 && "bg-muted/5",
-        isRowSelected && "bg-primary/10",
-        !isRowSelected && "hover:bg-primary/5"
-      )}
-      style={{
-        ...style,
-        display: 'grid',
-        gridTemplateColumns,
-        borderBottom: '1px solid hsl(var(--border) / 0.3)',
-        height: FastRenderStrategy.ROW_HEIGHT,
-        width: 'max-content', // Allow row to extend to full width
-        minWidth: '100%', // But at least fill viewport
-        contain: 'layout style paint',
-      }}
-      role="row"
-      aria-rowindex={index + 1}
-      data-row-index={index}
-    >
-      {columns.map((column, columnIndex) => {
-        return (
-          <VirtualCell
-            key={`${index}-${columnIndex}`}
-            value={data[column.name]}
-            columnIndex={columnIndex}
-            rowIndex={index}
-            isSelected={isCellSelected(index, columnIndex)}
-            isFocused={isCellFocused(index, columnIndex)}
-            onCellClick={onCellClick}
-            onCellDoubleClick={onCellDoubleClick}
-            onContextMenu={onCellContextMenu}
-          />
-        );
-      })}
-    </div>
-  );
-}, (prevProps, nextProps) => {
-  // Optimize re-renders - only if critical props change
-  return (
-    prevProps.index === nextProps.index &&
-    prevProps.data === nextProps.data &&
-    prevProps.isRowSelected === nextProps.isRowSelected &&
-    prevProps.style.transform === nextProps.style.transform &&
-    prevProps.gridTemplateColumns === nextProps.gridTemplateColumns
-  );
-});
+const VirtualRow = memo(
+  function VirtualRow({
+    index,
+    data,
+    columns,
+    style,
+    gridTemplateColumns,
+    isRowSelected,
+    isCellSelected,
+    isCellFocused,
+    onCellClick,
+    onCellDoubleClick,
+    onCellContextMenu,
+  }: {
+    index: number;
+    data: TableDataRow;
+    columns: any[];
+    style: React.CSSProperties;
+    gridTemplateColumns: string;
+    isRowSelected: boolean;
+    isCellSelected: (rowIndex: number, columnIndex: number) => boolean;
+    isCellFocused: (rowIndex: number, columnIndex: number) => boolean;
+    onCellClick: (rowIndex: number, columnIndex: number) => void;
+    onCellDoubleClick: (rowIndex: number, columnIndex: number) => void;
+    onCellContextMenu: (
+      e: React.MouseEvent,
+      rowIndex: number,
+      columnIndex: number,
+    ) => void;
+  }) {
+    return (
+      <div
+        className={cn(
+          "virtual-row absolute left-0",
+          index % 2 === 0 && "bg-muted/5",
+          isRowSelected && "bg-primary/10",
+          !isRowSelected && "hover:bg-primary/5",
+        )}
+        style={{
+          ...style,
+          display: "grid",
+          gridTemplateColumns,
+          borderBottom: "1px solid hsl(var(--border) / 0.3)",
+          height: FastRenderStrategy.ROW_HEIGHT,
+          width: "max-content", // Allow row to extend to full width
+          minWidth: "100%", // But at least fill viewport
+          contain: "layout style paint",
+        }}
+        role="row"
+        aria-rowindex={index + 1}
+        data-row-index={index}
+      >
+        {columns.map((column, columnIndex) => {
+          return (
+            <VirtualCell
+              key={`${index}-${columnIndex}`}
+              value={data[column.name]}
+              columnName={column.name}
+              columnIndex={columnIndex}
+              rowIndex={index}
+              isSelected={isCellSelected(index, columnIndex)}
+              isFocused={isCellFocused(index, columnIndex)}
+              onCellClick={onCellClick}
+              onCellDoubleClick={onCellDoubleClick}
+              onContextMenu={onCellContextMenu}
+            />
+          );
+        })}
+      </div>
+    );
+  },
+  (prevProps, nextProps) => {
+    // Optimize re-renders - only if critical props change
+    return (
+      prevProps.index === nextProps.index &&
+      prevProps.data === nextProps.data &&
+      prevProps.isRowSelected === nextProps.isRowSelected &&
+      prevProps.style.transform === nextProps.style.transform &&
+      prevProps.gridTemplateColumns === nextProps.gridTemplateColumns
+    );
+  },
+);
 
 export const OptimizedVirtualDataGrid = memo(function OptimizedVirtualDataGrid({
   connectionId,
@@ -216,7 +231,7 @@ export const OptimizedVirtualDataGrid = memo(function OptimizedVirtualDataGrid({
   // Hooks
   const { copy } = useCopy();
   const { toast } = useToast();
-  
+
   // Performance optimization hooks
   // const rowPool = useRowPool(300); // TODO: Integrate row pooling
 
@@ -248,16 +263,17 @@ export const OptimizedVirtualDataGrid = memo(function OptimizedVirtualDataGrid({
 
   // Pre-calculate grid template columns once
   const gridTemplateColumns = useMemo(() => {
-    if (!columns.length) return '';
-    return columns.map(col => `${col.getSize?.() || 150}px`).join(' ');
+    if (!columns.length) return "";
+    // Use fixed width of 150px per column for now
+    return columns.map(() => `150px`).join(" ");
   }, [columns]);
 
   // Pre-calculate column positions for horizontal scrolling
   const columnPositions = useMemo(() => {
     let pos = 0;
-    return columns.map(col => {
+    return columns.map(() => {
       const start = pos;
-      const width = col.getSize?.() || 150;
+      const width = 150;
       pos += width;
       return { start, width, end: pos };
     });
@@ -279,8 +295,12 @@ export const OptimizedVirtualDataGrid = memo(function OptimizedVirtualDataGrid({
   });
 
   const { menuPosition, closeMenu, handleContextMenu } = useContextMenu({
-    onShowPreview: () => setShowPreview(true),
-    onDelete: (rowIndices) => console.log("Delete rows:", rowIndices),
+    onShowPreview: () => {
+      setShowPreview(true);
+    },
+    onDelete: (rowIndices) => {
+      console.log("Delete rows:", rowIndices);
+    },
   });
 
   // Optimized scroll handler with frame budgeting
@@ -321,7 +341,7 @@ export const OptimizedVirtualDataGrid = memo(function OptimizedVirtualDataGrid({
         containerHeight,
         rows.length,
         overscan,
-        velocity > 0 ? 'down' : velocity < 0 ? 'up' : 'none'
+        velocity > 0 ? "down" : velocity < 0 ? "up" : "none",
       );
 
       setVisibleRange({
@@ -365,34 +385,46 @@ export const OptimizedVirtualDataGrid = memo(function OptimizedVirtualDataGrid({
   }, [handleScroll]);
 
   // Cell handlers with memoization
-  const handleCellClickOptimized = useCallback((rowIndex: number, columnIndex: number) => {
-    handleCellClick(rowIndex, columnIndex, {} as any);
-  }, [handleCellClick]);
+  const handleCellClickOptimized = useCallback(
+    (rowIndex: number, columnIndex: number) => {
+      handleCellClick(rowIndex, columnIndex, {} as any);
+    },
+    [handleCellClick],
+  );
 
-  const handleCellDoubleClick = useCallback((rowIndex: number, columnIndex: number) => {
-    // TODO: Implement inline editing
-    console.log('Double click on cell:', rowIndex, columnIndex);
-  }, []);
+  const handleCellDoubleClick = useCallback(
+    (rowIndex: number, columnIndex: number) => {
+      // TODO: Implement inline editing
+      console.log("Double click on cell:", rowIndex, columnIndex);
+    },
+    [],
+  );
 
-  const handleCellContextMenuOptimized = useCallback((e: React.MouseEvent, rowIndex: number, columnIndex: number) => {
-    const row = getRow(rowIndex);
-    if (row) {
-      const value = row[columns[columnIndex]?.name];
-      handleContextMenu(e, rowIndex, columnIndex, value);
-    }
-  }, [columns, getRow, handleContextMenu]);
+  const handleCellContextMenuOptimized = useCallback(
+    (e: React.MouseEvent, rowIndex: number, columnIndex: number) => {
+      const row = getRow(rowIndex);
+      const columnName = columns[columnIndex]?.name;
+      if (row && columnName) {
+        const value = row[columnName];
+        handleContextMenu(e, rowIndex, columnIndex, value);
+      }
+    },
+    [columns, getRow, handleContextMenu],
+  );
 
   // Get selected row data
   const selectedRowData = useMemo(() => {
     return Array.from(selectedRows)
-      .map(index => getRow(index))
+      .map((index) => getRow(index))
       .filter((row): row is TableDataRow => row !== null);
   }, [selectedRows, getRow]);
 
   // Copy handlers
   const menuItems = useMemo(() => {
     return createDataGridMenuItems({
-      onShowPreview: () => setShowPreview(true),
+      onShowPreview: () => {
+        setShowPreview(true);
+      },
       onCopyCellValue: () => {
         if (focusedCell) {
           const row = getRow(focusedCell.rowIndex);
@@ -403,26 +435,51 @@ export const OptimizedVirtualDataGrid = memo(function OptimizedVirtualDataGrid({
           }
         }
       },
-      onCopyRows: () => selectedRowData.length > 0 && void copy(copyRows(selectedRowData, columns)),
-      onCopyAsJson: () => selectedRowData.length > 0 && void copy(formatRowsAsJson(selectedRowData)),
-      onCopyAsCsv: () => selectedRowData.length > 0 && void copy(formatRowsAsCsv(selectedRowData, columns)),
-      onCopyAsMarkdown: () => selectedRowData.length > 0 && void copy(formatRowsAsMarkdown(selectedRowData, columns)),
-      onCopyAsSql: () => selectedRowData.length > 0 && void copy(formatRowsAsSql(selectedRowData, columns, table)),
-      onDelete: () => console.log("Delete selected rows:", selectedRowData),
+      onCopyRows: () =>
+        selectedRowData.length > 0 &&
+        void copy(copyRows(selectedRowData, columns)),
+      onCopyAsJson: () =>
+        selectedRowData.length > 0 &&
+        void copy(formatRowsAsJson(selectedRowData)),
+      onCopyAsCsv: () =>
+        selectedRowData.length > 0 &&
+        void copy(formatRowsAsCsv(selectedRowData, columns)),
+      onCopyAsMarkdown: () =>
+        selectedRowData.length > 0 &&
+        void copy(formatRowsAsMarkdown(selectedRowData, columns)),
+      onCopyAsSql: () =>
+        selectedRowData.length > 0 &&
+        void copy(formatRowsAsSql(selectedRowData, columns, table)),
+      onDelete: () => {
+        console.log("Delete selected rows:", selectedRowData);
+      },
       hasSelection: selectedRowCount > 0,
       hasCellFocus: !!focusedCell,
     });
-  }, [selectedRowData, columns, table, selectedRowCount, focusedCell, copy, getRow]);
+  }, [
+    selectedRowData,
+    columns,
+    table,
+    selectedRowCount,
+    focusedCell,
+    copy,
+    getRow,
+  ]);
 
   // Error handling
   useEffect(() => {
     if (error && error !== dismissedError) {
-      const isConnectionError = error.toLowerCase().includes("connection") || 
-                                error.toLowerCase().includes("closed pool");
+      const isConnectionError =
+        error.toLowerCase().includes("connection") ||
+        error.toLowerCase().includes("closed pool");
       if (isConnectionError) {
         setShowErrorDialog(true);
       } else {
-        toast({ title: "Database Error", description: error, variant: "destructive" });
+        toast({
+          title: "Database Error",
+          description: error,
+          variant: "destructive",
+        });
         setDismissedError(error);
       }
     }
@@ -431,7 +488,13 @@ export const OptimizedVirtualDataGrid = memo(function OptimizedVirtualDataGrid({
   // Early returns for loading/error states
   if (isLoading && !columns.length && !error) return <DataGridSkeleton />;
   if (error && !rows.length) return <DataGridErrorState error={error} />;
-  if (!isLoading && !isStreaming && !rows.length && columns.length > 0 && !error) {
+  if (
+    !isLoading &&
+    !isStreaming &&
+    !rows.length &&
+    columns.length > 0 &&
+    !error
+  ) {
     return <DataGridEmptyState />;
   }
   // Show skeleton while streaming initial data
@@ -439,13 +502,17 @@ export const OptimizedVirtualDataGrid = memo(function OptimizedVirtualDataGrid({
     return <DataGridSkeleton />;
   }
 
-  // Calculate virtual container dimensions  
+  // Calculate virtual container dimensions
   const totalHeight = rows.length * FastRenderStrategy.ROW_HEIGHT;
   const totalWidth = columnPositions[columnPositions.length - 1]?.end || 0;
 
   // Get visible rows with buffer data
   const visibleRows = [];
-  for (let i = visibleRange.start; i <= visibleRange.end && i < rows.length; i++) {
+  for (
+    let i = visibleRange.start;
+    i <= visibleRange.end && i < rows.length;
+    i++
+  ) {
     const row = getRow(i);
     if (row) {
       visibleRows.push({
@@ -453,8 +520,10 @@ export const OptimizedVirtualDataGrid = memo(function OptimizedVirtualDataGrid({
         data: row,
         style: {
           // Position rows directly after header (no gap)
-          transform: `translate3d(0, ${i * FastRenderStrategy.ROW_HEIGHT}px, 0)`,
-          willChange: 'transform',
+          transform: `translate3d(0, ${
+            i * FastRenderStrategy.ROW_HEIGHT
+          }px, 0)`,
+          willChange: "transform",
         },
       });
     }
@@ -474,20 +543,22 @@ export const OptimizedVirtualDataGrid = memo(function OptimizedVirtualDataGrid({
       {/* Performance stats in development */}
       {process.env.NODE_ENV === "development" && bufferStats && (
         <div className="absolute top-2 right-2 z-50 text-xs bg-black text-white p-2 rounded opacity-75">
-          Hit: {Math.round(bufferStats.hitRate * 100)}% | 
-          Rows: {visibleRows.length}/{rows.length} | 
-          Cols: {columns.length}
+          Hit: {Math.round(bufferStats.hitRate * 100)}% | Rows:{" "}
+          {visibleRows.length}/{rows.length} | Cols: {columns.length}
         </div>
       )}
 
       {/* Virtual Scroll Container */}
       <div
         ref={scrollContainerRef}
-        className={cn("flex-1 overflow-auto relative", showPreview && "pb-[200px]")}
+        className={cn(
+          "flex-1 overflow-auto relative",
+          showPreview && "pb-[200px]",
+        )}
         style={{
-          transform: 'translateZ(0)',
-          willChange: 'scroll-position',
-          contain: 'strict',
+          transform: "translateZ(0)",
+          willChange: "scroll-position",
+          contain: "strict",
         }}
       >
         {/* Header inside scroll container to sync horizontal scroll */}
@@ -497,14 +568,14 @@ export const OptimizedVirtualDataGrid = memo(function OptimizedVirtualDataGrid({
           isScrolled={isScrolled}
           gridTemplateColumns={gridTemplateColumns}
         />
-        
+
         {/* Virtual spacer for scrollbar */}
         <div
           style={{
             height: totalHeight,
             width: totalWidth,
-            position: 'relative',
-            paddingTop: '32px', // Reserve space for header
+            position: "relative",
+            // paddingTop: '32px', // Reserve space for header
           }}
         >
           {/* Rendered Rows */}
@@ -542,7 +613,9 @@ export const OptimizedVirtualDataGrid = memo(function OptimizedVirtualDataGrid({
       {showPreview && (
         <AsyncGridDataPreview
           isOpen={showPreview}
-          onClose={() => setShowPreview(false)}
+          onClose={() => {
+            setShowPreview(false);
+          }}
           selectedRows={selectedRowData}
           columns={columns}
         />
