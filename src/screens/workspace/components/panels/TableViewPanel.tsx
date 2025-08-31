@@ -5,8 +5,8 @@ import { Table, Bolt, BookMarked, Zap, Download } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 // Lazy load heavy components
-const OptimizedVirtualDataGrid = lazy(() =>
-  import("@/components/DataGrid/OptimizedVirtualDataGrid").then((m) => ({ default: m.OptimizedVirtualDataGrid })),
+const TableDataGrid = lazy(() =>
+  import("@/components/DataGrid").then((m) => ({ default: m.TableDataGrid })),
 );
 const TableStructure = lazy(() =>
   import("@/components/DataGrid/TableStructure").then((m) => ({
@@ -141,7 +141,7 @@ export const TableViewPanel = memo(function TableViewPanel({
       <div className="flex-1 min-h-0 overflow-hidden">
         <Suspense fallback={<TabLoadingSkeleton />}>
           {activeTab === "data" && (
-            <OptimizedVirtualDataGrid
+            <TableDataGrid
               connectionId={connectionId}
               database={database}
               table={tableName}
