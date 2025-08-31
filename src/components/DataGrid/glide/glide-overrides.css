@@ -1,0 +1,18 @@
+/* Glide Data Grid Overrides for Text Ellipsis */
+
+/* Force text cells to show ellipsis */
+.dvn-underlay canvas {
+  font-feature-settings: normal;
+}
+
+/* Ensure text cells truncate properly */
+[data-testid="data-grid-canvas"] {
+  text-overflow: ellipsis;
+}
+
+/* Override default cell text rendering */
+.gdg-text-cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
