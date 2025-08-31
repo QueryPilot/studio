@@ -1,11 +1,17 @@
-import { memo, useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Copy, Download, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
-import { QueryDataGrid } from '@/components/DataGrid/QueryDataGrid';
-import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
+import { memo, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Copy,
+  Download,
+  AlertCircle,
+  CheckCircle2,
+  XCircle,
+} from "lucide-react";
+import { QueryDataGrid } from "@/components/DataGrid";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 interface QueryResult {
   columns: string[];
@@ -27,76 +33,97 @@ export const ResultViewer = memo(function ResultViewer({
   result,
   isLoading = false,
   className,
-  connectionId = '',
+  connectionId = "",
 }: ResultViewerProps) {
-  const [viewMode, setViewMode] = useState<'table' | 'json'>('table');
+  const [viewMode, setViewMode] = useState<"table" | "json">("table");
 
   const handleCopyToClipboard = () => {
     if (!result || result.error) return;
 
-    const data = viewMode === 'json' 
-      ? JSON.stringify(result.rows.map(row => {
-          const obj: Record<string, unknown> = {};
-          result.columns.forEach((col, i) => {
-            obj[col] = row[i];
-          });
-          return obj;
-        }), null, 2)
-      : result.rows.map(row => row.map(cell => String(cell ?? '')).join('\t')).join('\n');
+    const data =
+      viewMode === "json"
+        ? JSON.stringify(
+            result.rows.map((row) => {
+              const obj: Record<string, unknown> = {};
+              result.columns.forEach((col, i) => {
+                obj[col] = row[i];
+              });
+              return obj;
+            }),
+            null,
+            2,
+          )
+        : result.rows
+            .map((row) => row.map((cell) => String(cell ?? "")).join("\t"))
+            .join("\n");
 
-    navigator.clipboard.writeText(data).then(() => {
-      toast.success('Copied to clipboard');
-    }).catch(() => {
-      toast.error('Failed to copy to clipboard');
-    });
+    navigator.clipboard
+      .writeText(data)
+      .then(() => {
+        toast.success("Copied to clipboard");
+      })
+      .catch(() => {
+        toast.error("Failed to copy to clipboard");
+      });
   };
 
-  const handleExport = (format: 'json' | 'csv') => {
+  const handleExport = (format: "json" | "csv") => {
     if (!result || result.error) return;
 
     let data: string;
     let mimeType: string;
     let filename: string;
 
-    if (format === 'json') {
-      data = JSON.stringify(result.rows.map(row => {
-        const obj: Record<string, unknown> = {};
-        result.columns.forEach((col, i) => {
-          obj[col] = row[i];
-        });
-        return obj;
-      }), null, 2);
-      mimeType = 'application/json';
+    if (format === "json") {
+      data = JSON.stringify(
+        result.rows.map((row) => {
+          const obj: Record<string, unknown> = {};
+          result.columns.forEach((col, i) => {
+            obj[col] = row[i];
+          });
+          return obj;
+        }),
+        null,
+        2,
+      );
+      mimeType = "application/json";
       filename = `query-result-${Date.now()}.json`;
     } else {
       // CSV format
       const csvRows = [
-        result.columns.map(col => `"${col}"`).join(','),
-        ...result.rows.map(row => 
-          row.map(cell => {
-            if (cell === null) return '';
-            if (typeof cell === 'string' && (cell.includes(',') || cell.includes('"') || cell.includes('\n'))) {
-              return `"${cell.replace(/"/g, '""')}"`;
-            }
-            return cell;
-          }).join(',')
+        result.columns.map((col) => `"${col}"`).join(","),
+        ...result.rows.map((row) =>
+          row
+            .map((cell) => {
+              if (cell === null) return "";
+              if (
+                typeof cell === "string" &&
+                (cell.includes(",") ||
+                  cell.includes('"') ||
+                  cell.includes("\n"))
+              ) {
+                return `"${cell.replace(/"/g, '""')}"`;
+              }
+              return cell;
+            })
+            .join(","),
         ),
       ];
-      data = csvRows.join('\n');
-      mimeType = 'text/csv';
+      data = csvRows.join("\n");
+      mimeType = "text/csv";
       filename = `query-result-${Date.now()}.csv`;
     }
 
     const blob = new Blob([data], { type: mimeType });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
+    const link = document.createElement("a");
     link.href = url;
     link.download = filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    
+
     toast.success(`Exported as ${format.toUpperCase()}`);
   };
 
@@ -113,7 +140,12 @@ export const ResultViewer = memo(function ResultViewer({
 
   if (!result) {
     return (
-      <div className={cn("flex items-center justify-center bg-muted/10 h-full", className)}>
+      <div
+        className={cn(
+          "flex items-center justify-center bg-muted/10 h-full",
+          className,
+        )}
+      >
         <div className="flex flex-col items-center space-y-2 text-muted-foreground">
           <AlertCircle className="h-8 w-8" />
           <p className="text-sm">No results to display</p>
@@ -125,11 +157,18 @@ export const ResultViewer = memo(function ResultViewer({
 
   if (result.error) {
     return (
-      <div className={cn("flex items-center justify-center bg-destructive/10 h-full", className)}>
+      <div
+        className={cn(
+          "flex items-center justify-center bg-destructive/10 h-full",
+          className,
+        )}
+      >
         <div className="flex flex-col items-center space-y-2 p-4">
           <XCircle className="h-8 w-8 text-destructive" />
           <p className="text-sm font-semibold text-destructive">Query Error</p>
-          <p className="text-xs text-destructive/80 text-center max-w-md">{result.error}</p>
+          <p className="text-xs text-destructive/80 text-center max-w-md">
+            {result.error}
+          </p>
         </div>
       </div>
     );
@@ -150,7 +189,7 @@ export const ResultViewer = memo(function ResultViewer({
             </span>
           )}
         </div>
-        
+
         <div className="flex items-center space-x-2">
           <Button
             variant="ghost"
@@ -160,12 +199,14 @@ export const ResultViewer = memo(function ResultViewer({
           >
             <Copy className="h-3 w-3" />
           </Button>
-          
+
           <Button
             variant="ghost"
             size="sm"
             className="h-7"
-            onClick={() => { handleExport(viewMode === 'json' ? 'json' : 'csv'); }}
+            onClick={() => {
+              handleExport(viewMode === "json" ? "json" : "csv");
+            }}
           >
             <Download className="h-3 w-3" />
           </Button>
@@ -174,7 +215,13 @@ export const ResultViewer = memo(function ResultViewer({
 
       {/* Results with tabs */}
       <div className="flex-1 min-h-0">
-        <Tabs value={viewMode} onValueChange={(value) => { setViewMode(value as 'table' | 'json'); }} className="h-full flex flex-col">
+        <Tabs
+          value={viewMode}
+          onValueChange={(value) => {
+            setViewMode(value as "table" | "json");
+          }}
+          className="h-full flex flex-col"
+        >
           <TabsList className="grid w-full grid-cols-2 mx-3 mt-2 mb-0">
             <TabsTrigger value="table" className="text-xs">
               Table
@@ -183,21 +230,25 @@ export const ResultViewer = memo(function ResultViewer({
               JSON
             </TabsTrigger>
           </TabsList>
-          
+
           <TabsContent value="table" className="flex-1 mt-2 mx-0">
             <QueryDataGrid
               connectionId={connectionId}
               query=""
-              data={result && !result.error ? { columns: result.columns, rows: result.rows } : undefined}
+              data={
+                result && !result.error
+                  ? { columns: result.columns, rows: result.rows }
+                  : undefined
+              }
               className="h-full"
             />
           </TabsContent>
-          
+
           <TabsContent value="json" className="flex-1 mt-2 mx-0">
             <ScrollArea className="h-full">
               <pre className="p-4 text-xs font-mono overflow-x-auto">
                 {JSON.stringify(
-                  result.rows.map(row => {
+                  result.rows.map((row) => {
                     const obj: Record<string, unknown> = {};
                     result.columns.forEach((col, i) => {
                       obj[col] = row[i];
@@ -205,7 +256,7 @@ export const ResultViewer = memo(function ResultViewer({
                     return obj;
                   }),
                   null,
-                  2
+                  2,
                 )}
               </pre>
             </ScrollArea>
