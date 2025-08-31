@@ -34,13 +34,31 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
 
   // Track column widths
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  
+  // Track column order
+  const [columnOrder, setColumnOrder] = useState<number[]>([]);
 
-  // Convert columns to Glide format
+  // Initialize column order when columns change
+  useEffect(() => {
+    if (tableColumns && tableColumns.length > 0 && columnOrder.length === 0) {
+      setColumnOrder(tableColumns.map((_, index) => index));
+    }
+  }, [tableColumns, columnOrder.length]);
+
+  // Convert columns to Glide format with reordering
   const columns = useMemo<DataGridColumn[]>(() => {
     if (!tableColumns || tableColumns.length === 0) return [];
     
-    return tableColumns.map((col, index) => {
-      const colId = col.name || `col_${index}`;
+    // Use column order if available, otherwise use default order
+    const orderedIndices = columnOrder.length > 0 
+      ? columnOrder 
+      : tableColumns.map((_, index) => index);
+    
+    return orderedIndices.map(originalIndex => {
+      const col = tableColumns[originalIndex];
+      if (!col) return null;
+      
+      const colId = col.name || `col_${originalIndex}`;
       const baseWidth = Math.max(80, Math.min(200, col.name.length * 7 + 40));
       return {
         id: colId,
@@ -53,8 +71,8 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
           bgIconHeader: col.isPrimaryKey ? "rgba(59, 130, 246, 0.1)" : undefined,
         },
       };
-    });
-  }, [tableColumns, columnWidths]);
+    }).filter(Boolean) as DataGridColumn[];
+  }, [tableColumns, columnWidths, columnOrder]);
 
   // Get cell content callback
   const getCellContent = useCallback(
@@ -81,6 +99,32 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
     [rows, columns]
   );
 
+  // Calculate optimal column width based on content
+  const calculateOptimalWidth = useCallback(
+    (colIndex: number): number => {
+      if (!columns[colIndex]) return 150;
+      
+      const column = columns[colIndex];
+      const headerWidth = column.name.length * 8 + 40; // Header text width
+      
+      // Sample first 100 rows to find max content width
+      let maxContentWidth = headerWidth;
+      const sampleSize = Math.min(100, rows.length);
+      
+      for (let i = 0; i < sampleSize; i++) {
+        const value = rows[i][column.name];
+        const displayValue = value?.displayValue || value?.value || value;
+        const textLength = String(displayValue || "").length;
+        const contentWidth = textLength * 7 + 20; // Approximate char width
+        maxContentWidth = Math.max(maxContentWidth, contentWidth);
+      }
+      
+      // Cap at 500px max
+      return Math.min(maxContentWidth, 500);
+    },
+    [columns, rows]
+  );
+
   // Handle column resize
   const handleColumnResize = useCallback(
     (column: GridColumn, newSize: number, colIndex: number) => {
@@ -93,6 +137,39 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
       }
     },
     [columns]
+  );
+
+  // Handle column move (drag and drop)
+  const handleColumnMoved = useCallback(
+    (startIndex: number, endIndex: number) => {
+      if (startIndex === endIndex) return;
+      
+      setColumnOrder(prev => {
+        const newOrder = [...prev];
+        const [movedColumn] = newOrder.splice(startIndex, 1);
+        newOrder.splice(endIndex, 0, movedColumn);
+        return newOrder;
+      });
+    },
+    []
+  );
+
+  // Handle column resize end (double-click to auto-size)
+  const handleColumnResizeEnd = useCallback(
+    (column: GridColumn, newSize: number, colIndex: number) => {
+      // Check if this is a double-click (size is -1 or very small change)
+      if (newSize < 0 || Math.abs(newSize - column.width) < 5) {
+        const optimalWidth = calculateOptimalWidth(colIndex);
+        if (columns[colIndex]?.id) {
+          const colId = columns[colIndex].id;
+          setColumnWidths(prev => ({
+            ...prev,
+            [colId]: optimalWidth,
+          }));
+        }
+      }
+    },
+    [columns, calculateOptimalWidth]
   );
 
   // Get raw cell value for popup
@@ -164,6 +241,8 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
           getCellValue={getCellValue}
           onCellClicked={handleCellClicked}
           onColumnResize={handleColumnResize}
+          onColumnResizeEnd={handleColumnResizeEnd}
+          onColumnMoved={handleColumnMoved}
           onVisibleRegionChanged={handleVisibleRegionChanged}
           className="h-full w-full"
           showSearch={false}

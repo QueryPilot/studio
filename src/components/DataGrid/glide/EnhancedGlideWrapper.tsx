@@ -52,6 +52,12 @@ interface EnhancedGlideWrapperProps {
     newSize: number,
     colIndex: number,
   ) => void;
+  onColumnResizeEnd?: (
+    column: GridColumn,
+    newSize: number,
+    colIndex: number,
+  ) => void;
+  onColumnMoved?: (startIndex: number, endIndex: number) => void;
   onRowAppended?: () => void;
   onVisibleRegionChanged?: (range: Rectangle) => void;
   className?: string;
@@ -72,6 +78,8 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
   onCellDoubleClick,
   onCellEdited,
   onColumnResize,
+  onColumnResizeEnd,
+  onColumnMoved,
   onRowAppended,
   onVisibleRegionChanged,
   className,
@@ -149,8 +157,8 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
       bgHeader: isDark ? "#0A0A0A" : "#F5F5F5",
       bgHeaderHasFocus: isDark ? "#0A0A0A" : "#F5F5F5",
       bgHeaderHovered: isDark
-        ? "rgba(20, 33, 61, 0.5)"
-        : "rgba(229, 229, 229, 0.5)",
+        ? "rgba(255, 255, 255, 0.05)"
+        : "rgba(0, 0, 0, 0.05)",
 
       // Other backgrounds
       bgBubble: isDark ? "#14213D" : "#F5F5F5",
@@ -468,6 +476,12 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
               onCellActivated={handleCellDoubleClick}
               onCellEdited={onCellEdited}
               onColumnResize={onColumnResize}
+              onColumnResizeEnd={onColumnResizeEnd}
+              onColumnMoved={onColumnMoved}
+              onHeaderMenuClick={(col, bounds) => {
+                // Handle header menu if needed
+                console.log("Header menu clicked", col, bounds);
+              }}
               onRowAppended={onRowAppended}
               getCellsForSelection={getCellsForSelection}
               onPaste={onPaste}

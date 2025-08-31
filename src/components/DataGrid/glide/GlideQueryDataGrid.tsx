@@ -15,12 +15,30 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
   // Track column widths
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   
-  // Convert columns to Glide format
+  // Track column order
+  const [columnOrder, setColumnOrder] = useState<number[]>([]);
+  
+  // Initialize column order when columns change
+  useEffect(() => {
+    if (data?.columns && data.columns.length > 0 && columnOrder.length === 0) {
+      setColumnOrder(data.columns.map((_, index) => index));
+    }
+  }, [data?.columns, columnOrder.length]);
+
+  // Convert columns to Glide format with reordering
   const columns = useMemo<DataGridColumn[]>(() => {
     if (!data?.columns || data.columns.length === 0) return [];
     
-    return data.columns.map((col, index) => {
-      const colId = col || `col_${index}`;
+    // Use column order if available, otherwise use default order
+    const orderedIndices = columnOrder.length > 0 
+      ? columnOrder 
+      : data.columns.map((_, index) => index);
+    
+    return orderedIndices.map(originalIndex => {
+      const col = data.columns[originalIndex];
+      if (!col) return null;
+      
+      const colId = col || `col_${originalIndex}`;
       const baseWidth = Math.max(80, Math.min(200, col.length * 7 + 30));
       return {
         id: colId,
@@ -29,8 +47,8 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
         width: columnWidths[colId] || baseWidth,
         grow: 0, // Allow manual resizing
       };
-    });
-  }, [data?.columns, columnWidths]);
+    }).filter(Boolean) as DataGridColumn[];
+  }, [data?.columns, columnWidths, columnOrder]);
 
   // Detect data type from value
   const detectCellKind = useCallback((value: unknown): GridCellKind => {
@@ -106,7 +124,9 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
       }
       
       const column = columns[col];
-      const value = data.rows[row][col];
+      // Map to original column index for data access
+      const originalColIndex = columnOrder.length > 0 ? columnOrder[col] : col;
+      const value = data.rows[row][originalColIndex];
       const cellKind = detectCellKind(value);
       
       switch (cellKind) {
@@ -168,6 +188,34 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
     console.log(`Query result cell clicked: [${col}, ${row}]`);
   }, []);
   
+  // Calculate optimal column width based on content
+  const calculateOptimalWidth = useCallback(
+    (colIndex: number): number => {
+      if (!columns[colIndex] || !data?.rows) return 150;
+      
+      const column = columns[colIndex];
+      const headerWidth = column.name.length * 8 + 40; // Header text width
+      
+      // Sample first 100 rows to find max content width
+      let maxContentWidth = headerWidth;
+      const sampleSize = Math.min(100, data.rows.length);
+      
+      // Map to original column index for data access
+      const originalColIndex = columnOrder.length > 0 ? columnOrder[colIndex] : colIndex;
+      
+      for (let i = 0; i < sampleSize; i++) {
+        const value = data.rows[i][originalColIndex];
+        const textLength = String(value || "").length;
+        const contentWidth = textLength * 7 + 20; // Approximate char width
+        maxContentWidth = Math.max(maxContentWidth, contentWidth);
+      }
+      
+      // Cap at 500px max
+      return Math.min(maxContentWidth, 500);
+    },
+    [columns, data?.rows, columnOrder]
+  );
+
   // Handle column resize
   const handleColumnResize = useCallback(
     (column: GridColumn, newSize: number, colIndex: number) => {
@@ -180,6 +228,39 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
       }
     },
     [columns]
+  );
+
+  // Handle column resize end (double-click to auto-size)
+  const handleColumnResizeEnd = useCallback(
+    (column: GridColumn, newSize: number, colIndex: number) => {
+      // Check if this is a double-click (size is -1 or very small change)
+      if (newSize < 0 || Math.abs(newSize - column.width) < 5) {
+        const optimalWidth = calculateOptimalWidth(colIndex);
+        if (columns[colIndex]?.id) {
+          const colId = columns[colIndex].id;
+          setColumnWidths(prev => ({
+            ...prev,
+            [colId]: optimalWidth,
+          }));
+        }
+      }
+    },
+    [columns, calculateOptimalWidth]
+  );
+
+  // Handle column move (drag and drop)
+  const handleColumnMoved = useCallback(
+    (startIndex: number, endIndex: number) => {
+      if (startIndex === endIndex) return;
+      
+      setColumnOrder(prev => {
+        const newOrder = [...prev];
+        const [movedColumn] = newOrder.splice(startIndex, 1);
+        newOrder.splice(endIndex, 0, movedColumn);
+        return newOrder;
+      });
+    },
+    []
   );
 
   // Empty state
@@ -204,6 +285,8 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
           getCellValue={getCellValue}
           onCellClicked={handleCellClicked}
           onColumnResize={handleColumnResize}
+          onColumnResizeEnd={handleColumnResizeEnd}
+          onColumnMoved={handleColumnMoved}
           className="h-full"
           height={undefined} // Use parent height
           showSearch={false}
