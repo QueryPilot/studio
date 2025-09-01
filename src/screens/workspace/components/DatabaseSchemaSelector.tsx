@@ -63,7 +63,7 @@ export function DatabaseSchemaSelector({
   // Listen for database reconnection events
   useEffect(() => {
     let cleanup: (() => void) | null = null;
-    
+
     const setupListener = async () => {
       cleanup = await safeListen<{ connectionId: string }>(
         "database-reconnected",
@@ -79,7 +79,7 @@ export function DatabaseSchemaSelector({
         },
       );
     };
-    
+
     void setupListener();
 
     return () => {
@@ -168,7 +168,7 @@ export function DatabaseSchemaSelector({
           </SelectTrigger>
           <SelectContent>
             {schemas.map((schema) => (
-              <SelectItem key={schema} value={schema}>
+              <SelectItem key={schema} value={schema} className="text-xs">
                 {schema}
               </SelectItem>
             ))}
