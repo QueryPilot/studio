@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePanelStore } from "@/stores/panelStore";
+import useWorkbenchStore from "@/stores/workbenchStore";
 import {
   databaseService,
   type TableMeta,
@@ -148,6 +149,39 @@ export function DatabaseSidebar({
     table: TableMeta,
     viewType: "data" | "structure" | "indexes" = "data",
   ) => {
+    // Use workbench panel system
+    const { focusedPanelId, addTab, panelContents, focusPanel } =
+      useWorkbenchStore.getState();
+
+    // Determine which panel to use
+    let targetPanelId = focusedPanelId;
+
+    if (!targetPanelId && panelContents.size > 0) {
+      // No focused panel, pick the first available panel
+      const firstPanelId = Array.from(panelContents.keys())[0];
+      if (firstPanelId) {
+        targetPanelId = firstPanelId;
+        // Focus the panel we're going to use
+        focusPanel(targetPanelId);
+      }
+    }
+
+    if (targetPanelId) {
+      const tabId = `table-${table.schema}-${table.name}`;
+      addTab(targetPanelId, tabId, {
+        type: "table",
+        title: table.name,
+        connectionId,
+        database: selectedDatabase,
+        schema: table.schema,
+        table: table.name,
+        isView: table.kind !== "Table",
+        viewType,
+      });
+      return;
+    }
+
+    // Fallback to old panel system
     const primaryPanel = getPrimaryPanel();
     if (!primaryPanel) return;
 
@@ -281,7 +315,7 @@ export function DatabaseSidebar({
   return (
     <div className="flex flex-col h-full">
       {/* Search Input and Refresh */}
-      <div className="p-1 border-b h-8">
+      <div className="p-1 border-y h-8">
         <div className="flex gap-1">
           <div className="relative flex-1">
             <Search className="absolute left-1.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -365,11 +399,12 @@ export function DatabaseSidebar({
                         <span className="text-xs whitespace-nowrap flex-1">
                           {table.name}
                         </span>
-                        {table.row_estimate != null && table.row_estimate > 0 && (
-                          <span className="text-xs text-muted-foreground whitespace-nowrap transition-all duration-200 ease-out">
-                            ~{table.row_estimate.toLocaleString()}
-                          </span>
-                        )}
+                        {table.row_estimate != null &&
+                          table.row_estimate > 0 && (
+                            <span className="text-xs text-muted-foreground whitespace-nowrap transition-all duration-200 ease-out">
+                              ~{table.row_estimate.toLocaleString()}
+                            </span>
+                          )}
                         <div className="flex items-center gap-0.5 transition-all delay-150 duration-200 ease-out -mr-10 opacity-0 group-hover:opacity-100 group-hover:mr-1">
                           <button
                             className="p-0.5 hover:bg-muted rounded"

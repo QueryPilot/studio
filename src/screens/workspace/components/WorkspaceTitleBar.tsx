@@ -313,7 +313,7 @@ export function WorkspaceTitleBar({
 
   return (
     <div
-      className="relative flex items-center justify-between h-10 border-b bg-background/95 backdrop-blur"
+      className="relative flex items-center justify-between h-10 bg-background/95 backdrop-blur"
       data-tauri-drag-region
     >
       {/* Left Section - Add padding for macOS traffic lights */}
@@ -481,16 +481,6 @@ export function WorkspaceTitleBar({
 
       {/* Right Section */}
       <div className="flex items-center gap-2 pr-3">
-        <Button
-          variant="ghost"
-          size="sm"
-          className={cn("h-7 w-7 p-0", splitMode !== "none" && "text-primary")}
-          onClick={handleToggleSplitPanel}
-          title={splitMode !== "none" ? "Close split panel" : "Split panel"}
-        >
-          <Columns2 className="h-3.5 w-3.5" />
-        </Button>
-
         <Button
           variant="ghost"
           size="sm"

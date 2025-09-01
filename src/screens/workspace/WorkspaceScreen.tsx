@@ -4,7 +4,7 @@ import { WorkspaceTitleBar } from "./components/WorkspaceTitleBar";
 import { DatabaseSidebar } from "./components/DatabaseSidebar";
 import { DatabaseSchemaSelector } from "./components/DatabaseSchemaSelector";
 import { AISidebar } from "./components/AISidebar";
-import { WorkspacePanelContainer } from "./components/WorkspacePanelContainer";
+import { WorkbenchLayout } from "@/components/Workbench";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import { useSchemaStore } from "@/stores/schemaStore";
 import { usePanelStore } from "@/stores/panelStore";
@@ -106,13 +106,13 @@ export function WorkspaceScreen() {
           </>
         )}
 
-        {/* Central Content - Split Panels */}
+        {/* Central Content - Workbench Layout */}
         <ResizablePanel 
           id="main-content"
           order={2}
           defaultSize={sidebars.left ? (sidebars.right ? 59 : 82) : (sidebars.right ? 77 : 100)}
         >
-          <WorkspacePanelContainer connectionId={connectionId} />
+          <WorkbenchLayout className="h-full" />
         </ResizablePanel>
 
         {/* Right Sidebar - AI Assistant */}
