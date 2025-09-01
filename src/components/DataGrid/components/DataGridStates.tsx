@@ -40,22 +40,20 @@ interface DataGridLoadingIndicatorProps {
   tableWidth?: number;
 }
 
-export const DataGridLoadingIndicator = memo(function DataGridLoadingIndicator({
-  tableWidth,
-}: DataGridLoadingIndicatorProps) {
-  return (
-    <div
-      className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t w-full"
-    >
-      <div className="flex items-center justify-center py-3">
-        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-        <span className="text-sm text-muted-foreground">
-          Loading more rows...
-        </span>
+export const DataGridLoadingIndicator = memo(
+  function DataGridLoadingIndicator({}: DataGridLoadingIndicatorProps) {
+    return (
+      <div className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t w-full">
+        <div className="flex items-center justify-center py-3">
+          <Loader2 className="h-4 w-4 animate-spin mr-2" />
+          <span className="text-xs text-muted-foreground">
+            Loading more rows...
+          </span>
+        </div>
       </div>
-    </div>
-  );
-});
+    );
+  },
+);
 
 interface DataGridEndOfDataProps {
   rowCount: number;

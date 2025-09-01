@@ -22,7 +22,7 @@ export function MainScreen() {
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
-  const { loadDefaultConnections, loadConnections, clearAllConnections } =
+  const { loadConnections, clearAllConnections } =
     useConnectionStore();
 
   // Load connections from backend on startup
@@ -30,33 +30,28 @@ export function MainScreen() {
     void loadConnections();
   }, [loadConnections]);
 
-  const handleLoadDefaultConnections = async () => {
+  const handleLoadPostgreSQLDev = async () => {
     setIsLoadingDefaults(true);
     try {
-      const result = await loadDefaultConnections();
+      // First, check if Docker is running and PostgreSQL is available
+      const { loadPostgreSQLDev } = useConnectionStore.getState();
+      const result = await loadPostgreSQLDev();
 
       if (result.added > 0) {
         toast({
-          title: "Default Connections Loaded",
-          description: `Added ${result.added} new connections${
-            result.skipped > 0 ? `, skipped ${result.skipped} duplicates` : ""
-          }.`,
+          title: "PostgreSQL Dev Added",
+          description: "PostgreSQL development database connection has been added successfully.",
         });
       } else if (result.skipped > 0) {
         toast({
-          title: "No New Connections",
-          description: `All ${result.skipped} default connections already exist.`,
-        });
-      } else {
-        toast({
-          title: "Default Connections Loaded",
-          description: "All default connections are already available.",
+          title: "Connection Already Exists",
+          description: "PostgreSQL Dev connection is already in your connection list.",
         });
       }
-    } catch {
+    } catch (error) {
       toast({
-        title: "Error Loading Connections",
-        description: "Failed to load default database connections.",
+        title: "Error Loading Connection",
+        description: "Failed to add PostgreSQL Dev connection. Make sure Docker is running: make docker-up",
         variant: "destructive",
       });
     } finally {
@@ -113,11 +108,11 @@ export function MainScreen() {
                 variant="secondary"
                 className="w-full justify-start"
                 size="default"
-                onClick={handleLoadDefaultConnections}
+                onClick={handleLoadPostgreSQLDev}
                 disabled={isLoadingDefaults}
               >
                 <Download className="mr-2 h-4 w-4" />
-                {isLoadingDefaults ? "Loading..." : "Load Dev Databases"}
+                {isLoadingDefaults ? "Loading..." : "Load PostgreSQL Dev"}
               </Button>
 
               <Button

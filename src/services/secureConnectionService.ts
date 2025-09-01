@@ -1,5 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
 import { type DatabaseConnection } from "@/types/database";
+import { isTauri, safeInvoke } from "@/utils/tauri";
 
 interface SecureConnection {
   id: string;
@@ -8,9 +8,7 @@ interface SecureConnection {
   port: number;
   username: string;
   password?: string;
-  database?: string;
-  ssh_private_key?: string;
-  api_key?: string;
+  database: string;
   connection_type: string;
   created_at?: string;
   updated_at?: string;
@@ -18,6 +16,7 @@ interface SecureConnection {
 
 class SecureConnectionService {
   private static instance: SecureConnectionService;
+  private connectionsCache: Map<string, DatabaseConnection> = new Map();
 
   private constructor() {}
 
@@ -33,29 +32,31 @@ class SecureConnectionService {
    */
   async saveConnection(connection: DatabaseConnection): Promise<void> {
     try {
-      // For SQLite, use filepath as host
-      const host = connection.type === 'sqlite' ? (connection.filepath || '') : (connection.host || 'localhost');
-      const port = connection.type === 'sqlite' ? 0 : (connection.port || 5432);
-      const username = connection.type === 'sqlite' ? 'sqlite' : (connection.username || '');
+      // Save to in-memory cache
+      this.connectionsCache.set(connection.id, connection);
       
-      const secureConnection: SecureConnection = {
-        id: connection.id,
-        name: connection.name,
-        host: host,
-        port: port,
-        username: username,
-        password: connection.password,
-        database: connection.database,
-        connection_type: connection.type.toLowerCase(),
-        created_at: connection.createdAt.toISOString(),
-        updated_at: connection.updatedAt.toISOString(),
-      };
-
-      await invoke("store_connection", {
-        connection: secureConnection,
-      });
+      // Save to backend secure storage if in Tauri
+      if (isTauri()) {
+        const profile = {
+          id: connection.id,
+          name: connection.name,
+          db_type: connection.type === 'postgresql' ? 'PostgreSQL' : 
+                   connection.type === 'mysql' ? 'MySQL' : 
+                   connection.type === 'sqlite' ? 'SQLite' : 
+                   connection.type === 'mssql' ? 'SQLServer' : 'PostgreSQL',
+          host: connection.host || 'localhost',
+          port: connection.port || 5432,
+          database: connection.database || '',
+          username: connection.username || '',
+          password: connection.password,
+          ssl_mode: undefined,
+          options: {},
+        };
+        
+        await safeInvoke("store_connection", { connection: profile });
+      }
     } catch (error) {
-      console.error("Failed to save connection to secure storage:", error);
+      console.error("Failed to save connection:", error);
       throw error;
     }
   }
@@ -72,41 +73,15 @@ class SecureConnectionService {
    * Get all connections from secure storage
    */
   async getAllConnections(): Promise<DatabaseConnection[]> {
-    try {
-      const connections = await invoke<SecureConnection[]>("list_connections");
-      
-      return connections.map((conn) => {
-        // Determine if it's SQLite based on connection_type
-        const isSqlite = conn.connection_type === 'sqlite';
-        
-        return {
-          id: conn.id,
-          name: conn.name,
-          workspace: 'default', // Backend doesn't store workspace, use default
-          type: conn.connection_type as DatabaseConnection["type"],
-          host: isSqlite ? undefined : conn.host,
-          port: isSqlite ? undefined : conn.port,
-          database: conn.database,
-          username: isSqlite ? undefined : conn.username,
-          password: conn.password,
-          filepath: isSqlite ? conn.host : undefined, // SQLite uses host field for filepath
-          sslMode: undefined,
-          sslCa: undefined,
-          sslCert: undefined,
-          sslKey: undefined,
-          instanceName: undefined,
-          authType: undefined,
-          encrypt: undefined,
-          trustServerCertificate: undefined,
-          tags: [],
-          createdAt: conn.created_at ? new Date(conn.created_at) : new Date(),
-          updatedAt: conn.updated_at ? new Date(conn.updated_at) : new Date(),
-        };
-      });
-    } catch (error) {
-      console.error("Failed to get connections from secure storage:", error);
-      return [];
-    }
+    // Return connections from in-memory cache
+    return Array.from(this.connectionsCache.values());
+  }
+
+  /**
+   * Get a single connection by ID
+   */
+  async getConnection(id: string): Promise<DatabaseConnection | undefined> {
+    return this.connectionsCache.get(id);
   }
 
   /**
@@ -114,11 +89,15 @@ class SecureConnectionService {
    */
   async deleteConnection(id: string): Promise<void> {
     try {
-      await invoke("delete_connection", {
-        connectionId: id,  // Use camelCase for Tauri conversion to snake_case
-      });
+      // Remove from in-memory cache
+      this.connectionsCache.delete(id);
+      
+      // Delete from backend if in Tauri
+      if (isTauri()) {
+        await safeInvoke("delete_connection", { connectionId: id });
+      }
     } catch (error) {
-      console.error("Failed to delete connection from secure storage:", error);
+      console.error("Failed to delete connection:", error);
       throw error;
     }
   }

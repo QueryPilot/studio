@@ -15,10 +15,12 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
   className,
 }: GlideTableDataGridProps) {
   const [visibleRange, setVisibleRange] = useState({ start: 0, end: 100 });
+  const [selectedRowCount, setSelectedRowCount] = useState(0);
   
   // Fetch table data using existing hook
   const {
     isLoading,
+    isLoadingMore,
     error,
     columns: tableColumns,
     rows,
@@ -65,10 +67,11 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
         name: col.name,
         title: col.name,
         width: columnWidths[colId] || baseWidth,
-        type: col.type,
+        type: col.db_type,
         grow: 0, // Set to 0 to allow manual resizing
+        hasMenu: false,
         themeOverride: {
-          bgIconHeader: col.isPrimaryKey ? "rgba(59, 130, 246, 0.1)" : undefined,
+          bgIconHeader: col.primary_key ? "rgba(59, 130, 246, 0.1)" : undefined,
         },
       };
     }).filter(Boolean) as DataGridColumn[];
@@ -91,10 +94,29 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
       
       const column = columns[col];
       const rowData = rows[row];
-      const value = rowData[column.name];
+      
+      // Debug: Log first row structure
+      if (row === 0 && col === 0) {
+        console.log("=== DEBUG: First row data ===");
+        console.log("rowData type:", typeof rowData);
+        console.log("rowData:", rowData);
+        console.log("Is array?", Array.isArray(rowData));
+        console.log("rowData[0]:", rowData[0]);
+        console.log("rowData.id:", rowData.id);
+        console.log("rowData keys:", Object.keys(rowData || {}));
+      }
+      
+      // rowData is now always an object with column names as keys (TableDataRow)
+      let value;
+      if (typeof rowData === 'object' && rowData !== null) {
+        // Access value by column name
+        value = rowData[column.name];
+      } else {
+        value = null;
+      }
       
       // Pass column width for text truncation
-      return cellValueToGridCell(value, column.type, column.width);
+      return cellValueToGridCell(value, column.db_type, column.width);
     },
     [rows, columns]
   );
@@ -112,8 +134,8 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
       const sampleSize = Math.min(100, rows.length);
       
       for (let i = 0; i < sampleSize; i++) {
-        const value = rows[i][column.name];
-        const displayValue = value?.displayValue || value?.value || value;
+        const cellValue = rows[i]?.[column.name];
+        const displayValue = cellValue?.value || cellValue;
         const textLength = String(displayValue || "").length;
         const contentWidth = textLength * 7 + 20; // Approximate char width
         maxContentWidth = Math.max(maxContentWidth, contentWidth);
@@ -183,9 +205,11 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
       
       const column = columns[col];
       const rowData = rows[row];
+      // rowData is now an object with column names as keys
       const value = rowData[column.name];
       
-      return value?.value !== undefined ? value.value : value;
+      // Return the actual CellValue structure (value property contains the data)
+      return value?.value || value;
     },
     [rows, columns]
   );
@@ -200,18 +224,36 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
   const handleVisibleRegionChanged = useCallback((range: Rectangle) => {
     // Use RAF for smooth updates
     requestAnimationFrame(() => {
-      setVisibleRange({ start: range.y, end: range.y + range.height });
+      const newRange = { start: range.y, end: range.y + range.height };
+      console.log('[GlideTableDataGrid] Visible range changed:', newRange);
+      console.log('[GlideTableDataGrid] Total rows loaded:', rows.length);
+      console.log('[GlideTableDataGrid] Has next page:', hasNextPage);
+      setVisibleRange(newRange);
     });
+  }, [rows.length, hasNextPage]);
+  
+  // Handle selection change
+  const handleSelectionChange = useCallback((count: number) => {
+    setSelectedRowCount(count);
   }, []);
 
   useEffect(() => {
     const endRow = visibleRange.end;
-    const buffer = 100; // Load more when within 100 rows of the end
+    const buffer = 500; // Load more when within 500 rows of the end
+    const threshold = rows.length - buffer;
     
-    if (hasNextPage && endRow > rows.length - buffer) {
+    console.log('[GlideTableDataGrid] Checking load more:');
+    console.log('  - End row:', endRow);
+    console.log('  - Total rows:', rows.length);
+    console.log('  - Threshold:', threshold);
+    console.log('  - Has next page:', hasNextPage);
+    console.log('  - Should load more:', hasNextPage && endRow > threshold && !isLoadingMore);
+    
+    if (hasNextPage && endRow > threshold && !isLoadingMore) {
+      console.log('[GlideTableDataGrid] Triggering loadMore!');
       loadMore();
     }
-  }, [visibleRange.end, rows.length, hasNextPage, loadMore]);
+  }, [visibleRange.end, rows.length, hasNextPage, isLoadingMore, loadMore]);
 
   // Error state
   if (error) {
@@ -244,15 +286,14 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
           onColumnResizeEnd={handleColumnResizeEnd}
           onColumnMoved={handleColumnMoved}
           onVisibleRegionChanged={handleVisibleRegionChanged}
+          onSelectionChange={handleSelectionChange}
           className="h-full w-full"
-          showSearch={false}
           freezeColumns={0}
-          smoothScrollX={true}
-          smoothScrollY={true}
           rowMarkers="none"
           headerHeight={28}
           rowHeight={28}
           isLoading={isLoading}
+          isLoadingMore={isLoadingMore}
           estimatedTotal={estimatedTotal || undefined}
         />
       </div>
@@ -260,8 +301,7 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
       <DataGridStatusBar
         loadedRows={rows.length}
         estimatedTotal={estimatedTotal}
-        selectedRowCount={0}
-        isStreaming={false}
+        selectedRows={selectedRowCount}
       />
     </div>
   );

@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { safeInvoke } from "@/utils/tauri";
 
 export interface SecureConnectionConfig {
   id?: string;
@@ -36,7 +36,7 @@ class SecureStorageService {
         ? { ...connection, id: connectionId }
         : connection;
 
-      const resultId = await invoke<string>("store_connection", {
+      const resultId = await safeInvoke<string>("store_connection", {
         connection: connectionToStore,
       });
       return resultId;
@@ -51,7 +51,7 @@ class SecureStorageService {
    */
   async getConnection(connectionId: string): Promise<SecureConnectionConfig> {
     try {
-      const connection = await invoke<SecureConnectionConfig>(
+      const connection = await safeInvoke<SecureConnectionConfig>(
         "get_connection",
         {
           connectionId,
@@ -69,7 +69,7 @@ class SecureStorageService {
    */
   async listConnections(): Promise<SecureConnectionConfig[]> {
     try {
-      const connections = await invoke<SecureConnectionConfig[]>(
+      const connections = await safeInvoke<SecureConnectionConfig[]>(
         "list_connections",
       );
       return connections;
@@ -87,7 +87,7 @@ class SecureStorageService {
     connection: SecureConnectionConfig,
   ): Promise<void> {
     try {
-      await invoke("update_connection", {
+      await safeInvoke("update_connection", {
         connectionId,
         connection,
       });
@@ -102,7 +102,7 @@ class SecureStorageService {
    */
   async deleteConnection(connectionId: string): Promise<void> {
     try {
-      await invoke("delete_connection", {
+      await safeInvoke("delete_connection", {
         connectionId,
       });
     } catch (error) {
@@ -116,7 +116,7 @@ class SecureStorageService {
    */
   async setSecure(key: string, value: string): Promise<void> {
     try {
-      await invoke("secure_set", {
+      await safeInvoke("secure_set", {
         key,
         value,
       });
@@ -131,7 +131,7 @@ class SecureStorageService {
    */
   async getSecure(key: string): Promise<string | null> {
     try {
-      const value = await invoke<string | null>("secure_get", {
+      const value = await safeInvoke<string | null>("secure_get", {
         key,
       });
       return value;
@@ -146,7 +146,7 @@ class SecureStorageService {
    */
   async deleteSecure(key: string): Promise<void> {
     try {
-      await invoke("secure_delete", {
+      await safeInvoke("secure_delete", {
         key,
       });
     } catch (error) {
@@ -160,7 +160,7 @@ class SecureStorageService {
    */
   async listSecureKeys(prefix?: string): Promise<string[]> {
     try {
-      const keys = await invoke<string[]>("secure_list_keys", {
+      const keys = await safeInvoke<string[]>("secure_list_keys", {
         prefix,
       });
       return keys;
@@ -178,7 +178,7 @@ class SecureStorageService {
       throw new Error("Invalid confirmation");
     }
     try {
-      await invoke("clear_all_storage", {
+      await safeInvoke("clear_all_storage", {
         confirmation,
       });
     } catch (error) {

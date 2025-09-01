@@ -3,7 +3,7 @@
  * Clears all application configuration and data
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { safeInvoke } from '@/utils/tauri';
 
 // Legacy function for backward compatibility
 export function clearCorruptedConnections() {
@@ -288,12 +288,12 @@ export class StorageCleaner {
     
     try {
       // Delete all connections from secure storage
-      await invoke('delete_all_connections');
+      await safeInvoke('delete_all_connections');
       console.log('[StorageCleaner] ✅ Deleted all connections from secure storage');
       
       // Try to clear all secure storage if available
       try {
-        await invoke('clear_all_storage', { confirmation: 'CONFIRM_DELETE_ALL' });
+        await safeInvoke('clear_all_storage', { confirmation: 'CONFIRM_DELETE_ALL' });
         console.log('[StorageCleaner] ✅ Backend storage cleared');
       } catch (storageError) {
         console.warn('[StorageCleaner] Full storage clear not available:', storageError);

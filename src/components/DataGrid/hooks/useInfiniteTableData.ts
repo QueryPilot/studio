@@ -14,6 +14,7 @@ export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
   // Get the table data hook
   const {
     isLoading,
+    isLoadingMore,
     error,
     columns,
     rows,
@@ -35,12 +36,13 @@ export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
 
   return {
     isLoading,
+    isLoadingMore,
     error,
     columns,
     rows,
     estimatedTotal,
     loadMore,
     hasNextPage,
-    isFetchingNextPage: isLoading,
+    isFetchingNextPage: isLoadingMore,
   };
 }

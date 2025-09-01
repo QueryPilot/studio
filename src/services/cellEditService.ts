@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { safeInvoke, isTauri } from "@/utils/tauri";
 import type { ColumnMeta } from "@/types/database";
 
 export interface CellEditRequest {
@@ -70,11 +70,24 @@ export class CellEditService {
       const query = `UPDATE ${fullTableName} SET ${column} = ${updateValue} WHERE ${whereConditions}`;
 
       // Execute the update query
-      const result = await invoke<any>('execute_query', {
-        connectionId,
-        database,
-        query,
-        limit: 1,
+      if (!isTauri()) {
+        console.warn('Cell edit operations require Tauri runtime');
+        return {
+          success: false,
+          error: 'Cell editing is not available in browser mode',
+        };
+      }
+      
+      const handle = await safeInvoke<any>('execute_query', {
+        connId: connectionId,
+        sql: query,
+      });
+      
+      // Fetch the result
+      const result = await safeInvoke<any>('fetch_results', {
+        connId: connectionId,
+        queryHandle: handle,
+        maxRows: 1,
       });
 
       // Check for errors in the result

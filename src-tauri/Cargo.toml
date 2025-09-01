@@ -1,88 +1,60 @@
 [package]
 name = "devdb-studio"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[lib]
-# The `_lib` suffix may seem redundant but it is necessary
-# to make the lib name unique and wouldn't conflict with the bin name.
-# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "devdb_studio_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+# Tauri
 tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-opener = "2"
-tauri-plugin-sql = { version = "2", features = ["sqlite", "postgres", "mysql"] }
 tauri-plugin-clipboard-manager = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["full"] }
-sqlx = { version = "0.8", features = [
-    "runtime-tokio-native-tls", 
-    "postgres", 
-    "mysql", 
-    "sqlite", 
-    "chrono",     # For date/time types
-    "uuid",       # For UUID type
-    "json",       # For JSON/JSONB
-    "rust_decimal", # For DECIMAL/NUMERIC with precision
-    "ipnetwork",  # For INET/CIDR in PostgreSQL
-    "mac_address", # For MACADDR type
-    "bigdecimal", # For precise numeric types
-    "bit-vec",    # For bit types
-    "time"        # Additional time support
-] }
-# MSSQL support - using rustls for TLS instead of native-tls
-tiberius = { version = "0.12", default-features = false, features = ["rustls", "chrono", "rust_decimal"] }
-bb8 = "0.9"
-bb8-tiberius = "0.16"
-# Spatial data support
-geo-types = "0.7"
-geojson = "0.24"
-wkt = "0.10"
-# Secure storage dependencies
-keyring = { version = "3.0", features = ["apple-native", "windows-native", "sync-secret-service"] }
-argon2 = "0.5"
-aes-gcm = "0.10"
-chacha20poly1305 = "0.10"
-hkdf = "0.12"
-constant_time_eq = "0.3"
-base64 = "0.22"
-rand = "0.8"
-zeroize = { version = "1.7", features = ["derive"] }
-uuid = { version = "1.7", features = ["v4", "serde"] }
-chrono = { version = "0.4", features = ["serde"] }
-dirs = "5.0"
-pbkdf2 = "0.12"
-hmac = "0.12"
-sha2 = "0.10"
-hex = "0.4"
-# New architecture dependencies
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
 async-trait = "0.1"
+
+# PostgreSQL
+tokio-postgres = { version = "0.7", features = [
+    "with-serde_json-1",
+    "with-uuid-1",
+    "with-chrono-0_4",
+    "with-bit-vec-0_6",
+    "with-time-0_3"
+] }
+postgres-types = { version = "0.2", features = ["derive", "with-serde_json-1"] }
+postgres-protocol = "0.6"
+native-tls = "0.2"
+postgres-native-tls = "0.5"
+
+# Data types
+uuid = { version = "1.6", features = ["serde", "v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+bigdecimal = { version = "0.4", features = ["serde"] }
+bit-vec = "0.6"
+time = { version = "0.3", features = ["serde"] }
+base64 = "0.21"
+
+# Utilities
+dashmap = "5.5"
 thiserror = "1.0"
-tokio-util = { version = "0.7", features = ["compat"] }
-futures = "0.3"
-rust_decimal = "1.35"
-# MongoDB support
-mongodb = { version = "2.8", default-features = false, features = ["tokio-runtime"] }
-bson = { version = "2.9", features = ["chrono", "serde_with"] }
-# Performance optimization
-rayon = "1.10"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Security (for later phases)
+aes-gcm = "0.10"
+argon2 = "0.5"
+keyring = "2.0"
+zeroize = "1.7"
 
 [features]
-default = ["postgres", "mysql", "sqlite", "mssql", "mariadb", "mongodb"]
-postgres = []
-mysql = []
-sqlite = []
-mssql = []
-mariadb = []
-mongodb = []
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
 
+[dev-dependencies]
+pretty_assertions = "1.4"

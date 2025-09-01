@@ -21,7 +21,7 @@ import {
 } from "@/services/databaseService";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { listen } from "@tauri-apps/api/event";
+import { safeListen } from "@/utils/tauri";
 
 interface DatabaseSidebarProps {
   connectionId: string;
@@ -69,23 +69,27 @@ export function DatabaseSidebar({
 
   // Listen for database reconnection events
   useEffect(() => {
-    const unlisten = listen<{ connectionId: string }>(
-      "database-reconnected",
-      (event) => {
-        if (
-          event.payload.connectionId === connectionId &&
-          selectedSchema &&
-          selectedDatabase
-        ) {
-          void loadSchemaData();
-        }
-      },
-    );
+    let cleanup: (() => void) | null = null;
+
+    const setupListener = async () => {
+      cleanup = await safeListen<{ connectionId: string }>(
+        "database-reconnected",
+        (event) => {
+          if (
+            event.payload.connectionId === connectionId &&
+            selectedSchema &&
+            selectedDatabase
+          ) {
+            void loadSchemaData();
+          }
+        },
+      );
+    };
+
+    void setupListener();
 
     return () => {
-      void unlisten.then((fn) => {
-        fn();
-      });
+      if (cleanup) cleanup();
     };
   }, [connectionId, selectedSchema, selectedDatabase]);
 
@@ -229,30 +233,34 @@ export function DatabaseSidebar({
   // Check if a table/view is currently active in any panel
   const isTableActive = (tableName: string, schema: string): boolean => {
     const allPanels = Array.from(panels.values());
-    
-    return allPanels.some(panel => {
+
+    return allPanels.some((panel) => {
       if (!panel.activeTabId) return false;
-      
+
       const activeTab = panel.tabs.get(panel.activeTabId);
-      if (!activeTab || activeTab.type !== 'table') return false;
-      
-      return activeTab.payload.tableName === tableName && 
-             activeTab.payload.schema === schema;
+      if (!activeTab || activeTab.type !== "table") return false;
+
+      return (
+        activeTab.payload.tableName === tableName &&
+        activeTab.payload.schema === schema
+      );
     });
   };
 
   // Check if a function is currently active in any panel
   const isFunctionActive = (functionName: string, schema: string): boolean => {
     const allPanels = Array.from(panels.values());
-    
-    return allPanels.some(panel => {
+
+    return allPanels.some((panel) => {
       if (!panel.activeTabId) return false;
-      
+
       const activeTab = panel.tabs.get(panel.activeTabId);
-      if (!activeTab || activeTab.type !== 'function') return false;
-      
-      return activeTab.payload.functionName === functionName && 
-             activeTab.payload.schema === schema;
+      if (!activeTab || activeTab.type !== "function") return false;
+
+      return (
+        activeTab.payload.functionName === functionName &&
+        activeTab.payload.schema === schema
+      );
     });
   };
 
@@ -341,50 +349,50 @@ export function DatabaseSidebar({
                   {filterItems(schemaData.tables).map((table) => {
                     const isActive = isTableActive(table.name, table.schema);
                     return (
-                    <div
-                      key={`${table.schema}.${table.name}`}
-                      className={cn(
-                        "group flex items-center gap-1.5 p-1 hover:bg-muted/50 cursor-pointer min-w-fit overflow-hidden text-ellipsis",
-                        isActive ? "bg-primary/10 border-l-2 border-l-primary rounded-r" : "rounded"
-                      )}
-                    >
-                      <Table className="h-3.5 w-4 min-w-4 text-blue-500 flex-shrink-0" />
-                      <span
-                        className="text-xs whitespace-nowrap flex-1"
+                      <div
+                        key={`${table.schema}.${table.name}`}
+                        className={cn(
+                          "group flex items-center gap-1.5 p-1 hover:bg-muted/50 cursor-pointer min-w-fit overflow-hidden text-ellipsis",
+                          isActive
+                            ? "bg-primary/10 border-l-2 border-l-primary rounded-r"
+                            : "rounded",
+                        )}
                         onClick={() => {
                           handleTableClick(table, "data");
                         }}
                       >
-                        {table.name}
-                      </span>
-                      {!!table.row_estimate && (
-                        <span className="text-xs text-muted-foreground whitespace-nowrap transition-all duration-200 ease-out">
-                          ~{table.row_estimate.toLocaleString()}
+                        <Table className="h-3.5 w-4 min-w-4 text-blue-500 flex-shrink-0" />
+                        <span className="text-xs whitespace-nowrap flex-1">
+                          {table.name}
                         </span>
-                      )}
-                      <div className="flex items-center gap-0.5 transition-all delay-150 duration-200 ease-out -mr-10 opacity-0 group-hover:opacity-100 group-hover:mr-1">
-                        <button
-                          className="p-0.5 hover:bg-muted rounded"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleTableClick(table, "structure");
-                          }}
-                          title="View Structure"
-                        >
-                          <Bolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
-                        </button>
-                        <button
-                          className="p-0.5 hover:bg-muted rounded"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleTableClick(table, "indexes");
-                          }}
-                          title="View Indexes"
-                        >
-                          <BookMarked className="h-3 w-3 text-muted-foreground hover:text-foreground" />
-                        </button>
+                        {table.row_estimate != null && table.row_estimate > 0 && (
+                          <span className="text-xs text-muted-foreground whitespace-nowrap transition-all duration-200 ease-out">
+                            ~{table.row_estimate.toLocaleString()}
+                          </span>
+                        )}
+                        <div className="flex items-center gap-0.5 transition-all delay-150 duration-200 ease-out -mr-10 opacity-0 group-hover:opacity-100 group-hover:mr-1">
+                          <button
+                            className="p-0.5 hover:bg-muted rounded"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleTableClick(table, "structure");
+                            }}
+                            title="View Structure"
+                          >
+                            <Bolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                          </button>
+                          <button
+                            className="p-0.5 hover:bg-muted rounded"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleTableClick(table, "indexes");
+                            }}
+                            title="View Indexes"
+                          >
+                            <BookMarked className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                          </button>
+                        </div>
                       </div>
-                    </div>
                     );
                   })}
                 </div>
@@ -418,45 +426,47 @@ export function DatabaseSidebar({
                   {filterItems(schemaData.views).map((view) => {
                     const isActive = isTableActive(view.name, view.schema);
                     return (
-                    <div
-                      key={`${view.schema}.${view.name}`}
-                      className={cn(
-                        "group flex items-center gap-1.5 p-1 hover:bg-muted/50 cursor-pointer min-w-fit overflow-hidden text-ellipsis",
-                        isActive ? "bg-primary/10 border-l-2 border-l-primary rounded-r" : "rounded"
-                      )}
-                    >
-                      <Eye className="h-4 min-h-4 w-4 min-w-4 text-green-500 flex-shrink-0" />
-                      <span
-                        className="text-xs whitespace-nowrap flex-1"
-                        onClick={() => {
-                          handleTableClick(view, "data");
-                        }}
+                      <div
+                        key={`${view.schema}.${view.name}`}
+                        className={cn(
+                          "group flex items-center gap-1.5 p-1 hover:bg-muted/50 cursor-pointer min-w-fit overflow-hidden text-ellipsis border-l-2",
+                          isActive
+                            ? "bg-primary/10 border-l-primary rounded-r"
+                            : "rounded border-l-transparent",
+                        )}
                       >
-                        {view.name}
-                      </span>
-                      <div className="flex items-center gap-0.5 transition-all delay-300 duration-200 ease-out -mr-10 opacity-0 group-hover:opacity-100 group-hover:mr-1">
-                        <button
-                          className="p-0.5 hover:bg-muted rounded"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleTableClick(view, "structure");
+                        <Eye className="h-4 min-h-4 w-4 min-w-4 text-green-500 flex-shrink-0" />
+                        <span
+                          className="text-xs whitespace-nowrap flex-1"
+                          onClick={() => {
+                            handleTableClick(view, "data");
                           }}
-                          title="View Structure"
                         >
-                          <Bolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
-                        </button>
-                        <button
-                          className="p-0.5 hover:bg-muted rounded"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleTableClick(view, "indexes");
-                          }}
-                          title="View Indexes"
-                        >
-                          <BookMarked className="h-3 w-3 text-muted-foreground hover:text-foreground" />
-                        </button>
+                          {view.name}
+                        </span>
+                        <div className="flex items-center gap-0.5 transition-all delay-300 duration-200 ease-out -mr-10 opacity-0 group-hover:opacity-100 group-hover:mr-1">
+                          <button
+                            className="p-0.5 hover:bg-muted rounded"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleTableClick(view, "structure");
+                            }}
+                            title="View Structure"
+                          >
+                            <Bolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                          </button>
+                          <button
+                            className="p-0.5 hover:bg-muted rounded"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleTableClick(view, "indexes");
+                            }}
+                            title="View Indexes"
+                          >
+                            <BookMarked className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                          </button>
+                        </div>
                       </div>
-                    </div>
                     );
                   })}
                 </div>
@@ -490,23 +500,25 @@ export function DatabaseSidebar({
                   {filterItems(schemaData.functions).map((func, index) => {
                     const isActive = isFunctionActive(func.name, func.schema);
                     return (
-                    <div
-                      key={`${func.schema}.${func.name}.${func.arguments.join(
-                        ",",
-                      )}.${index}`}
-                      className={cn(
-                        "flex items-center gap-1.5 p-1 hover:bg-muted/50 cursor-pointer min-w-fit",
-                        isActive ? "bg-primary/10 border-l-2 border-l-primary rounded-r" : "rounded"
-                      )}
-                      onClick={() => {
-                        handleFunctionClick(func);
-                      }}
-                    >
-                      <FunctionSquare className="h-3.5 w-4 min-w-4 text-purple-500 flex-shrink-0" />
-                      <span className="text-xs whitespace-nowrap">
-                        {func.name}
-                      </span>
-                    </div>
+                      <div
+                        key={`${func.schema}.${func.name}.${func.arguments.join(
+                          ",",
+                        )}.${index}`}
+                        className={cn(
+                          "flex items-center gap-1.5 p-1 hover:bg-muted/50 cursor-pointer min-w-fit",
+                          isActive
+                            ? "bg-primary/10 border-l-2 border-l-primary rounded-r"
+                            : "rounded",
+                        )}
+                        onClick={() => {
+                          handleFunctionClick(func);
+                        }}
+                      >
+                        <FunctionSquare className="h-3.5 w-4 min-w-4 text-purple-500 flex-shrink-0" />
+                        <span className="text-xs whitespace-nowrap">
+                          {func.name}
+                        </span>
+                      </div>
                     );
                   })}
                 </div>

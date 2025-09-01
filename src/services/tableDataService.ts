@@ -1,235 +1,123 @@
 /**
- * TableDataService - Service for loading table data using db_table_data command
+ * TableDataService - Service for loading table data using new streaming backend
  * Provides type-safe streaming interface for table data operations
  */
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { isTauri, safeInvoke } from '@/utils/tauri';
 import type {
   TableDataParams,
   TableDataCallbacks,
-  TableDataStream,
-  TableDataEvent,
-  TableDataServiceError,
-  StreamState,
+  TableDataRow,
 } from './tableDataTypes';
+import { BackendAPI } from './backend';
 
 export class TableDataService {
-  private activeStreams = new Map<string, StreamState>();
-  private readonly TIMEOUT_MS = 30000; // 30 second timeout
 
   /**
-   * Start streaming table data with the provided parameters
-   * Returns a stream control object that can be used to stop the stream
+   * Load table data with the provided parameters
+   * Calls callbacks directly with results
    */
-  async startTableDataStream(
+  async loadTableData(
     params: TableDataParams,
     callbacks: TableDataCallbacks
-  ): Promise<TableDataStream> {
-    console.log('[TableDataService] Starting stream with params:', params);
+  ): Promise<void> {
+    console.log('[TableDataService] Loading data with params:', params);
     
     try {
       // Validate parameters
       this.validateParams(params);
       console.log('[TableDataService] Parameters validated');
 
-      // Invoke db_table_data command to start the stream
-      // Note: Tauri expects camelCase and converts to snake_case for Rust
-      const invokeParams = {
-        connectionId: params.connectionId,
-        database: params.database,
+      if (!isTauri()) {
+        console.warn('[TableDataService] Not in Tauri context, simulating completion');
+        // Simulate immediate completion for browser mode
+        setTimeout(() => {
+          callbacks.onDone();
+        }, 100);
+        return;
+      }
+      
+      // Use proper offset-based pagination API
+      console.log('[TableDataService] Starting table data fetch');
+      console.log('  - Table:', params.table);
+      console.log('  - Schema:', params.schema || 'public');
+      console.log('  - Limit:', params.limit || 1000);
+      console.log('  - Offset:', params.offset || 0);
+      
+      // Get backend connection ID  
+      const { databaseService } = await import('./databaseService');
+      const backendConnectionId = databaseService.getBackendConnectionId?.(params.connectionId) || params.connectionId;
+      
+      // Use proper getTableData API with offset-based pagination
+      const result = await BackendAPI.getTableData(
+        backendConnectionId,
+        params.schema || 'public',
+        params.table,
+        params.limit || 1000,
+        params.offset || 0
+      );
+      
+      // Get total count if it's the first page
+      let estimatedTotal: number | undefined;
+      if (!params.offset || params.offset === 0) {
+        try {
+          estimatedTotal = await BackendAPI.getTableCount(
+            backendConnectionId,
+            params.schema || 'public',
+            params.table
+          );
+          console.log('[TableDataService] Table total count:', estimatedTotal);
+        } catch (err) {
+          console.warn('[TableDataService] Failed to get table count:', err);
+        }
+      }
+
+      // Send meta information first
+      callbacks.onMeta({
+        type: 'meta',
         table: params.table,
         schema: params.schema,
-        select: params.select,
-        sorts: params.sorts,
-        filters: params.filters,
-        search: params.search,
-        cursor: params.cursor,
-        offset: params.offset,
-        limit: params.limit,
-      };
-      
-      console.log('[TableDataService] Invoking db_table_data with:', invokeParams);
-      
-      const streamId = await invoke<string>('db_table_data', invokeParams);
-      
-      console.log('[TableDataService] Received stream ID:', streamId);
-
-      if (typeof streamId !== 'string' || streamId.length === 0) {
-        throw new Error('Invalid stream ID returned from db_table_data');
-      }
-
-      // Set up event listener for the stream
-      const eventName = `table-data-${streamId}`;
-      console.log('[TableDataService] Setting up listener for event:', eventName);
-      
-      const unlisten = await listen<TableDataEvent>(eventName, (event) => {
-        console.log('[TableDataService] Received event:', event.payload.type, event.payload);
-        this.handleStreamEvent(streamId, event.payload, callbacks);
+        columns: result.columns,
+        selected: result.columns.map(col => col.name),
+        page_size: params.limit || 1000,
+        cursor_key_columns: []
       });
-      
-      console.log('[TableDataService] Event listener set up successfully');
 
-      // Create stream state
-      const streamState: StreamState = {
-        streamId,
-        isActive: true,
-        callbacks,
-        unlisten,
-        startTime: Date.now(),
-      };
-
-      // Store active stream
-      this.activeStreams.set(streamId, streamState);
-
-      // Set up timeout for the stream
-      this.setupStreamTimeout(streamId);
-
-      // Return stream control interface
-      return {
-        streamId,
-        isActive: true,
-        stop: () => this.stopStream(streamId),
-      };
-    } catch (error) {
-      console.error('[TableDataService] Error starting stream:', error);
-      
-      const serviceError: TableDataServiceError = {
-        type: 'stream',
-        message: error instanceof Error ? error.message : 'Failed to start table data stream',
-        originalError: error,
-      };
-      
-      callbacks.onError({
-        type: 'error',
-        code: 'STREAM_START_FAILED',
-        message: serviceError.message,
-      });
-      
-      throw serviceError;
-    }
-  }
-
-  /**
-   * Stop an active stream and clean up resources
-   */
-  async stopStream(streamId: string): Promise<void> {
-    const streamState = this.activeStreams.get(streamId);
-    if (!streamState) {
-      return; // Stream already stopped or doesn't exist
-    }
-
-    try {
-      // Mark as inactive
-      streamState.isActive = false;
-
-      // Clean up event listener
-      if (streamState.unlisten) {
-        streamState.unlisten();
-      }
-
-      // Remove from active streams
-      this.activeStreams.delete(streamId);
-
-      // Note: We don't need to call a Tauri command to stop the stream
-      // since the stream will complete naturally or can be cleaned up
-      // by the Rust backend when the event listener is removed
-    } catch (error) {
-      console.error(`Error stopping stream ${streamId}:`, error);
-    }
-  }
-
-  /**
-   * Stop all active streams
-   */
-  async stopAllStreams(): Promise<void> {
-    const streamIds = Array.from(this.activeStreams.keys());
-    await Promise.all(streamIds.map((id) => this.stopStream(id)));
-  }
-
-  /**
-   * Get list of active stream IDs
-   */
-  getActiveStreams(): string[] {
-    return Array.from(this.activeStreams.keys()).filter((id) => {
-      const stream = this.activeStreams.get(id);
-      return stream?.isActive ?? false;
-    });
-  }
-
-  /**
-   * Handle stream events and route them to appropriate callbacks
-   */
-  private handleStreamEvent(
-    streamId: string,
-    event: TableDataEvent,
-    callbacks: TableDataCallbacks
-  ): void {
-    const streamState = this.activeStreams.get(streamId);
-    if (!streamState || !streamState.isActive) {
-      return; // Stream is no longer active
-    }
-
-    try {
-      switch (event.type) {
-        case 'meta':
-          callbacks.onMeta(event);
-          break;
-
-        case 'rows':
-          callbacks.onRows(event);
-          break;
-
-        case 'done':
-          callbacks.onDone();
-          // Automatically clean up completed stream
-          this.stopStream(streamId);
-          break;
-
-        case 'error':
-          callbacks.onError(event);
-          // Stop stream on error
-          this.stopStream(streamId);
-          break;
-
-        default:
-          // TypeScript should ensure this never happens with proper discriminated union
-          console.warn(`Unknown event type:`, event);
-          break;
-      }
-    } catch (error) {
-      console.error(`Error handling stream event for ${streamId}:`, error);
-      callbacks.onError({
-        type: 'error',
-        code: 'EVENT_HANDLER_ERROR',
-        message: error instanceof Error ? error.message : 'Unknown error in event handler',
-      });
-      this.stopStream(streamId);
-    }
-  }
-
-  /**
-   * Set up timeout for stream to prevent hanging streams
-   */
-  private setupStreamTimeout(streamId: string): void {
-    setTimeout(() => {
-      const streamState = this.activeStreams.get(streamId);
-      if (streamState && streamState.isActive) {
-        const timeoutError: TableDataServiceError = {
-          type: 'timeout',
-          message: `Stream ${streamId} timed out after ${this.TIMEOUT_MS}ms`,
-          code: 'STREAM_TIMEOUT',
-        };
-
-        streamState.callbacks.onError({
-          type: 'error',
-          code: 'STREAM_TIMEOUT',
-          message: timeoutError.message,
+      // Transform data to expected format
+      const transformedRows: TableDataRow[] = result.rows.map(row => {
+        const rowObj: TableDataRow = {};
+        result.columns.forEach((col, index) => {
+          const cellValue = row[index];
+          rowObj[col.name] = {
+            value: cellValue?.display_value || null,
+            db_type: col.db_type || 'text',
+            value_type: cellValue?.value_type || 'Text',
+            is_truncated: false,
+          };
         });
+        return rowObj;
+      });
 
-        this.stopStream(streamId);
-      }
-    }, this.TIMEOUT_MS);
+      // Send rows with proper next page indication from backend
+      callbacks.onRows({
+        type: 'rows',
+        rows: transformedRows,
+        next_cursor: result.has_more ? 'has_more' : undefined,
+        estimated_total: estimatedTotal,
+      });
+
+      // Mark as completed
+      callbacks.onDone();
+
+    } catch (error) {
+      console.error('[TableDataService] Error fetching table data:', error);
+      callbacks.onError({
+        type: 'error',
+        code: 'FETCH_ERROR',
+        message: error instanceof Error ? error.message : 'Failed to fetch table data',
+      });
+    }
   }
+
 
   /**
    * Execute a SQL query and return results
@@ -241,7 +129,7 @@ export class TableDataService {
     options: { limit?: number; signal?: AbortSignal } = {}
   ): Promise<{ columns: string[]; rows: any[][]; error?: string }> {
     try {
-      const result = await invoke<{
+      const result = await safeInvoke<{
         columns: string[];
         rows: any[][];
         error?: string;

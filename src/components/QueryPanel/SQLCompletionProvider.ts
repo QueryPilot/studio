@@ -194,7 +194,9 @@ export class SQLCompletionProvider implements monaco.languages.CompletionItemPro
       label: table.name,
       kind: monaco.languages.CompletionItemKind.Class,
       insertText: table.name,
-      detail: `${table.kind} (${table.row_estimate || 0} rows)`,
+      detail: table.row_estimate && table.row_estimate > 0 
+        ? `${table.kind} (~${table.row_estimate.toLocaleString()} rows)`
+        : table.kind,
       documentation: table.schema ? `Schema: ${table.schema}` : undefined,
       range,
       sortText: '2' + table.name,

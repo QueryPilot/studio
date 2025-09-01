@@ -9,6 +9,7 @@ import DataEditor, {
   type DataEditorRef,
   type Theme,
   CompactSelection,
+  type GridMouseEventArgs,
 } from "@glideapps/glide-data-grid";
 import "@glideapps/glide-data-grid/dist/index.css";
 import { cn } from "@/lib/utils";
@@ -22,7 +23,11 @@ interface GlideDataGridWrapperProps {
   getCellContent: (cell: Item) => GridCell;
   onCellClicked?: (cell: Item) => void;
   onCellEdited?: (cell: Item, newValue: GridCell) => void;
-  onColumnResize?: (column: GridColumn, newSize: number, colIndex: number) => void;
+  onColumnResize?: (
+    column: GridColumn,
+    newSize: number,
+    colIndex: number,
+  ) => void;
   onRowAppended?: () => void;
   className?: string;
   height?: number;
@@ -59,7 +64,7 @@ export function GlideDataGridWrapper({
   const { copy } = useCopy();
   const { toast } = useToast();
   const gridRef = useRef<DataEditorRef>(null);
-  
+
   const [gridSelection, setGridSelection] = useState<GridSelection>({
     columns: CompactSelection.empty(),
     rows: CompactSelection.empty(),
@@ -68,63 +73,82 @@ export function GlideDataGridWrapper({
   // Create theme based on app theme
   const theme = useMemo<Partial<Theme>>(() => {
     const isDark = appTheme === "dark";
-    
+
     return {
       accentColor: isDark ? "#3b82f6" : "#2563eb",
-      accentLight: isDark ? "rgba(59, 130, 246, 0.1)" : "rgba(37, 99, 235, 0.1)",
+      accentLight: isDark
+        ? "rgba(59, 130, 246, 0.1)"
+        : "rgba(37, 99, 235, 0.1)",
       accentFg: "#ffffff",
-      
+
       textDark: isDark ? "#f3f4f6" : "#111827",
       textMedium: isDark ? "#9ca3af" : "#6b7280",
       textLight: isDark ? "#6b7280" : "#9ca3af",
       textBubble: isDark ? "#f3f4f6" : "#111827",
-      
+
       bgIconHeader: isDark ? "#1f2937" : "#f9fafb",
-      fgIconHeader: isDark ? "#9ca3af" : "#6b7280",
-      textHeader: isDark ? "#d1d5db" : "#374151",
-      textHeaderSelected: "#ffffff",
-      
+      fgIconHeader: isDark ? "#D1D5DB" : "#111827",
+      textHeader: isDark ? "#D1D5DB" : "#111827",
+      textHeaderSelected: isDark ? "#F3F4F6" : "#111827",
+
       bgCell: isDark ? "#111827" : "#ffffff",
       bgCellMedium: isDark ? "#1f2937" : "#f9fafb",
       bgHeader: isDark ? "#1f2937" : "#f3f4f6",
       bgHeaderHasFocus: isDark ? "#374151" : "#e5e7eb",
       bgHeaderHovered: isDark ? "#374151" : "#e5e7eb",
-      
+
       bgBubble: isDark ? "#374151" : "#f3f4f6",
       bgBubbleSelected: isDark ? "#3b82f6" : "#2563eb",
-      
+
       bgSearchResult: isDark ? "#fbbf24" : "#fef3c7",
-      
-      borderColor: isDark ? "rgba(75, 85, 99, 0.4)" : "rgba(209, 213, 219, 0.4)",
-      horizontalBorderColor: isDark ? "rgba(75, 85, 99, 0.2)" : "rgba(209, 213, 219, 0.2)",
-      drilldownBorder: isDark ? "rgba(75, 85, 99, 0.4)" : "rgba(209, 213, 219, 0.4)",
-      
+
+      borderColor: isDark
+        ? "rgba(75, 85, 99, 0.4)"
+        : "rgba(209, 213, 219, 0.4)",
+      horizontalBorderColor: isDark
+        ? "rgba(75, 85, 99, 0.2)"
+        : "rgba(209, 213, 219, 0.2)",
+      drilldownBorder: isDark
+        ? "rgba(75, 85, 99, 0.4)"
+        : "rgba(209, 213, 219, 0.4)",
+
       linkColor: isDark ? "#60a5fa" : "#3b82f6",
-      
+
       cellHorizontalPadding: 8,
       cellVerticalPadding: 3,
-      
-      headerFontStyle: "600 13px",
-      baseFontStyle: "13px",
+
+      headerFontStyle: "600 12px",
+      baseFontStyle: "400 12px",
       editorFontSize: "13px",
       lineHeight: 1.5,
-      
-      fontFamily: "ui-monospace, SFMono-Regular, 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace",
+
+      fontFamily: [
+        "Noto Sans",
+        "-apple-system",
+        "BlinkMacSystemFont",
+        "Segoe UI",
+        "Helvetica",
+        "Arial",
+        "sans-serif",
+      ].join(", "),
     };
   }, [appTheme]);
 
   // Handle cell selection for copy
-  const handleSelectionChange = useCallback((newSelection: GridSelection | undefined) => {
-    if (newSelection) {
-      setGridSelection(newSelection);
-    }
-  }, []);
+  const handleSelectionChange = useCallback(
+    (newSelection: GridSelection | undefined) => {
+      if (newSelection) {
+        setGridSelection(newSelection);
+      }
+    },
+    [],
+  );
 
   // Handle copy operation
   const getCellsForSelection = useCallback(
     (selection: Rectangle): (readonly GridCell[])[] => {
       const result: GridCell[][] = [];
-      
+
       for (let y = selection.y; y < selection.y + selection.height; y++) {
         const row: GridCell[] = [];
         for (let x = selection.x; x < selection.x + selection.width; x++) {
@@ -132,70 +156,78 @@ export function GlideDataGridWrapper({
         }
         result.push(row);
       }
-      
+
       return result;
     },
-    [getCellContent]
+    [getCellContent],
   );
 
   // Handle paste operation
   const onPaste = useCallback(
     (target: Item, values: readonly (readonly string[])[]): boolean => {
       if (!onCellEdited) return false;
-      
+
       // For now, just paste the first value to the target cell
-      if (values.length > 0 && values[0].length > 0) {
+      if (values.length > 0 && values[0]?.length > 0) {
         const newCell = getCellContent(target);
         if (newCell.kind === GridCellKind.Text) {
-          onCellEdited(target, { ...newCell, data: values[0][0] });
+          onCellEdited(target, { ...newCell, data: values[0][0] ?? "" });
           return true;
         }
       }
       return false;
     },
-    [getCellContent, onCellEdited]
+    [getCellContent, onCellEdited],
   );
 
   // Handle keyboard shortcuts
-  const onKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    // Ctrl/Cmd + F for search
-    if ((event.ctrlKey || event.metaKey) && event.key === 'f') {
-      event.preventDefault();
-      // The showSearch prop already handles this
-    }
-  }, []);
+  const onKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      // Ctrl/Cmd + F for search
+      if ((event.ctrlKey || event.metaKey) && event.key === "f") {
+        event.preventDefault();
+        // The showSearch prop already handles this
+      }
+    },
+    [],
+  );
 
   // Handle cell context menu
   const onCellContextMenu = useCallback(
-    (cell: Item, event: React.MouseEvent<HTMLDivElement>) => {
-      event.preventDefault();
-      
+    (cell: Item, event: GridMouseEventArgs) => {
+      if ("preventDefault" in event) {
+        (event as any).preventDefault();
+      }
+
       const cellContent = getCellContent(cell);
-      const cellData = cellContent.displayData || cellContent.data;
-      
+      const cellData =
+        (cellContent as any).displayData || (cellContent as any).data;
+
       // Simple copy to clipboard on right-click
       if (cellData) {
         copy(String(cellData));
         toast({
           title: "Copied to clipboard",
           description: `Cell value copied`,
-          duration: 2000,
         });
       }
     },
-    [getCellContent, copy, toast]
+    [getCellContent, copy, toast],
   );
 
   if (isLoading) {
     return (
-      <div className={cn("flex items-center justify-center", className)} style={{ height }}>
+      <div
+        className={cn("flex items-center justify-center", className)}
+        style={{ height }}
+      >
         <div className="text-muted-foreground">Loading data...</div>
       </div>
     );
   }
 
   return (
-    <div 
+    <div
       className={cn("glide-data-grid-wrapper relative", className)}
       style={{ height }}
       onKeyDown={onKeyDown}
@@ -230,7 +262,6 @@ export function GlideDataGridWrapper({
         columnSelect="multi"
         rowSelect="multi"
         fillHandle={true}
-        allowResize={true}
         maxColumnWidth={500}
         minColumnWidth={50}
         keybindings={{

@@ -16,11 +16,11 @@ export interface DefaultConnection {
 
 /**
  * Default database connections based on Docker Compose setup
- * These match the development database containers
+ * These match the development database containers from README_DATABASES.md
  */
 export const defaultConnections: DefaultConnection[] = [
   {
-    name: "PostgreSQL Development",
+    name: "PostgreSQL Dev (Docker)",
     type: "postgresql",
     host: "localhost",
     port: 15432,
@@ -31,8 +31,9 @@ export const defaultConnections: DefaultConnection[] = [
     tags: [
       { name: "development", color: "#10B981" },
       { name: "postgres", color: "#3B82F6" },
+      { name: "docker", color: "#0EA5E9" },
     ],
-    description: "PostgreSQL development database with comprehensive test data",
+    description: "PostgreSQL 16 with 100 users, 50-200 todos per user, advanced types (JSONB, arrays, full-text search)",
   },
   {
     name: "MySQL Development",
@@ -84,7 +85,7 @@ export const defaultConnections: DefaultConnection[] = [
     type: "sqlite",
     host: "",
     port: 0,
-    database: "/Users/hieuvu/Workspaces/devdb-studio/seeds/sqlite/todoapp.db",
+    database: "seeds/sqlite/todoapp.db", // Relative path from project root
     username: "",
     password: "",
     workspace: "Development",
