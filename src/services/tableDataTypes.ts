@@ -113,6 +113,9 @@ export interface StreamState {
   streamId: string;
   isActive: boolean;
   callbacks: TableDataCallbacks;
-  unlisten?: (() => void);
+  unlisten?: (() => void) | (() => Promise<void>) | null;
   startTime: number;
+  metadata?: {
+    columns: ColumnMeta[];
+  };
 }

@@ -28,6 +28,7 @@ interface ConnectionStore {
 
   // Load connections from backend
   loadConnections: () => Promise<void>;
+  loadPostgreSQLDev: () => Promise<{ added: number; skipped: number; message: string }>;
   loadDefaultConnections: () => Promise<{ added: number; skipped: number }>;
   clearAllConnections: () => Promise<void>;
   reorderConnections: (connections: DatabaseConnection[]) => Promise<void>;
@@ -157,6 +158,58 @@ export const useConnectionStore = create<ConnectionStore>()((set, get) => ({
     } catch (error) {
       console.error("Failed to load connections:", error);
       set({ isLoading: false });
+    }
+  },
+
+  loadPostgreSQLDev: async () => {
+    try {
+      // Get current connections from backend
+      const backendConnections = await secureConnectionService.getAllConnections();
+      
+      // Get only PostgreSQL connection from defaults
+      const pgConnection = defaultConnections[0]; // PostgreSQL is first in array
+      if (!pgConnection) {
+        throw new Error("PostgreSQL connection not found in defaults");
+      }
+      
+      // Check if already exists
+      const isDuplicate = backendConnections.some((existing) =>
+        isDuplicateConnection(existing, pgConnection),
+      );
+      
+      if (isDuplicate) {
+        return { added: 0, skipped: 1, message: "PostgreSQL Dev connection already exists" };
+      }
+      
+      // Create and save the connection
+      const connectionData = createConnectionFromDefault(pgConnection);
+      const id = crypto.randomUUID();
+      const now = new Date();
+      
+      const connection: DatabaseConnection = {
+        ...connectionData,
+        id,
+        createdAt: now,
+        updatedAt: now,
+      };
+      
+      // Save to backend using new API
+      await secureConnectionService.saveConnection(connection);
+      
+      // Save metadata
+      connectionMetadataService.saveMetadata(id, {
+        order: backendConnections.length,
+        workspace: connection.workspace ?? "Development",
+        tags: connection.tags ?? [],
+      });
+      
+      // Reload connections to update UI
+      await get().loadConnections();
+      
+      return { added: 1, skipped: 0, message: "PostgreSQL Dev connection added successfully" };
+    } catch (error) {
+      console.error("Failed to load PostgreSQL Dev connection:", error);
+      throw error;
     }
   },
 

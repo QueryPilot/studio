@@ -60,12 +60,14 @@ interface EnhancedGlideWrapperProps {
   onColumnMoved?: (startIndex: number, endIndex: number) => void;
   onRowAppended?: () => void;
   onVisibleRegionChanged?: (range: Rectangle) => void;
+  onSelectionChange?: (selectedRowCount: number) => void;
   className?: string;
   freezeColumns?: number;
   rowMarkers?: "none" | "number" | "checkbox" | "both";
   headerHeight?: number;
   rowHeight?: number;
   isLoading?: boolean;
+  isLoadingMore?: boolean;
   estimatedTotal?: number;
 }
 
@@ -82,12 +84,14 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
   onColumnMoved,
   onRowAppended,
   onVisibleRegionChanged,
+  onSelectionChange,
   className,
   freezeColumns = 0,
   rowMarkers = "none",
   headerHeight = 28,
   rowHeight = 28,
   isLoading = false,
+  isLoadingMore = false,
   estimatedTotal,
 }: EnhancedGlideWrapperProps) {
   const { theme: appTheme } = useTheme();
@@ -136,29 +140,27 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
       // Accent colors using our brand colors
       accentColor: "#FCA311", // Primary brand color
       accentLight: "rgba(252, 163, 17, 0.1)",
-      accentFg: "#000000",
+      accentFg: "#09090B",
 
       // Text colors matching our theme
-      textDark: isDark ? "#E5E5E5" : "#000000",
+      textDark: isDark ? "#AEACA8" : "#09090B",
       textMedium: isDark ? "rgba(229, 229, 229, 0.7)" : "rgba(0, 0, 0, 0.7)",
       textLight: isDark ? "rgba(229, 229, 229, 0.5)" : "rgba(0, 0, 0, 0.5)",
-      textBubble: isDark ? "#E5E5E5" : "#000000",
+      textBubble: isDark ? "#AEACA8" : "#09090B",
 
       // Header colors
       bgIconHeader: isDark ? "#14213D" : "#F5F5F5",
-      fgIconHeader: isDark ? "#E5E5E5" : "#000000",
-      textHeader: isDark ? "#E5E5E5" : "#000000",
-      textHeaderSelected: isDark ? "#E5E5E5" : "#000000",
+      fgIconHeader: isDark ? "#D1D5DB" : "#111827",
+      textHeader: isDark ? "#D1D5DB" : "#111827",
+      textHeaderSelected: isDark ? "#F3F4F6" : "#111827",
       bgHeaderSelected: "transparent",
 
       // Cell backgrounds matching our surface colors
-      bgCell: isDark ? "#000000" : "#FFFFFF",
+      bgCell: isDark ? "#09090B" : "#FFFFFF",
       bgCellMedium: isDark ? "#0A0A0A" : "#FAFAFA",
-      bgHeader: isDark ? "#0A0A0A" : "#F5F5F5",
-      bgHeaderHasFocus: isDark ? "#0A0A0A" : "#F5F5F5",
-      bgHeaderHovered: isDark
-        ? "rgba(255, 255, 255, 0.05)"
-        : "rgba(0, 0, 0, 0.05)",
+      bgHeader: isDark ? "#1C1C21" : "#F5F5F5",
+      bgHeaderHasFocus: isDark ? "#1C1C21" : "#F5F5F5",
+      bgHeaderHovered: isDark ? "#2A2A30" : "#E8E8E8",
 
       // Other backgrounds
       bgBubble: isDark ? "#14213D" : "#F5F5F5",
@@ -188,13 +190,20 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
       cellHorizontalPadding: 6,
       cellVerticalPadding: 3,
 
-      headerFontStyle: "500 12px",
-      baseFontStyle: "12px",
+      headerFontStyle: "600 12px",
+      baseFontStyle: "400 12px",
       editorFontSize: "12px",
       lineHeight: 1.5,
 
-      fontFamily:
-        "ui-monospace, SFMono-Regular, 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace",
+      fontFamily: [
+        "Noto Sans",
+        "-apple-system",
+        "BlinkMacSystemFont",
+        "Segoe UI",
+        "Helvetica",
+        "Arial",
+        "sans-serif",
+      ].join(", "),
     };
   }, [appTheme]);
 
@@ -222,9 +231,13 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
           rows: updatedRowSelection,
         };
         setGridSelection(updatedSelection);
+
+        // Notify parent of selection count change
+        const selectedCount = updatedRowSelection.length;
+        onSelectionChange?.(selectedCount);
       }
     },
-    [],
+    [onSelectionChange],
   );
 
   // Handle cell double click - show popup
@@ -374,10 +387,13 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
       if (!onCellEdited) return false;
 
       // For now, just paste the first value to the target cell
-      if (values.length > 0 && values[0].length > 0) {
+      if (values.length > 0 && values[0]?.length > 0) {
         const newCell = getCellContent(target);
         if (newCell.kind === GridCellKind.Text) {
-          onCellEdited(target, { ...newCell, data: values[0][0] } as GridCell);
+          onCellEdited(target, {
+            ...newCell,
+            data: values[0][0] ?? "",
+          } as GridCell);
           return true;
         }
       }
@@ -433,7 +449,8 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
     };
   }, []);
 
-  if (isLoading) {
+  // Show full loading screen only for initial load (when no data exists)
+  if (isLoading && rows === 0) {
     return (
       <div
         className={cn(
@@ -530,6 +547,16 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
             />
           </div>
         </ContextMenuTrigger>
+
+        {/* Load more indicator - show skeleton at bottom when loading more */}
+        {isLoadingMore && (
+          <div className="absolute bottom-0 left-0 right-0 bg-background/80 backdrop-blur-sm border-t p-2">
+            <div className="flex items-center justify-center space-x-2 text-muted-foreground text-xs">
+              <div className="animate-spin rounded-full h-4 w-4 border-b border-primary"></div>
+              <span>Loading more rows...</span>
+            </div>
+          </div>
+        )}
 
         <ContextMenuContent>
           <ContextMenuItem

@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState, useEffect } from "react";
 import { type GridCell, type Item, GridCellKind, type GridColumn } from "@glideapps/glide-data-grid";
 import { EnhancedGlideWrapper } from "./EnhancedGlideWrapper";
 import { type GlideQueryDataGridProps, type DataGridColumn } from "./types";
@@ -17,6 +17,9 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
   
   // Track column order
   const [columnOrder, setColumnOrder] = useState<number[]>([]);
+  
+  // Track selected rows count
+  const [selectedRowCount, setSelectedRowCount] = useState(0);
   
   // Initialize column order when columns change
   useEffect(() => {
@@ -46,6 +49,7 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
         title: col,
         width: columnWidths[colId] || baseWidth,
         grow: 0, // Allow manual resizing
+        hasMenu: false,
       };
     }).filter(Boolean) as DataGridColumn[];
   }, [data?.columns, columnWidths, columnOrder]);
@@ -262,6 +266,11 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
     },
     []
   );
+  
+  // Handle selection change
+  const handleSelectionChange = useCallback((count: number) => {
+    setSelectedRowCount(count);
+  }, []);
 
   // Empty state
   if (!data || !data.rows || data.rows.length === 0) {
@@ -287,12 +296,9 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
           onColumnResize={handleColumnResize}
           onColumnResizeEnd={handleColumnResizeEnd}
           onColumnMoved={handleColumnMoved}
+          onSelectionChange={handleSelectionChange}
           className="h-full"
-          height={undefined} // Use parent height
-          showSearch={false}
           freezeColumns={0}
-          smoothScrollX={true}
-          smoothScrollY={true}
           rowMarkers="none"
           headerHeight={28}
           rowHeight={28}
@@ -302,6 +308,7 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
       
       <DataGridStatusBar
         loadedRows={data.rows.length}
+        selectedRows={selectedRowCount}
       />
     </div>
   );

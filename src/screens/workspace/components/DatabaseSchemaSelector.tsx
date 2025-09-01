@@ -10,7 +10,7 @@ import {
 import { databaseService } from "@/services/databaseService";
 import { useConnectionStore } from "@/stores/connectionStore";
 import { cn } from "@/lib/utils";
-import { listen } from "@tauri-apps/api/event";
+import { safeListen } from "@/utils/tauri";
 
 interface DatabaseSchemaSelectorProps {
   connectionId: string;
@@ -62,24 +62,28 @@ export function DatabaseSchemaSelector({
 
   // Listen for database reconnection events
   useEffect(() => {
-    const unlisten = listen<{ connectionId: string }>(
-      "database-reconnected",
-      (event) => {
-        if (event.payload.connectionId === connectionId) {
-          // Reload databases and schemas on reconnect
-          void loadDatabases().then(() => {
-            if (selectedDatabase) {
-              void loadSchemas();
-            }
-          });
-        }
-      },
-    );
+    let cleanup: (() => void) | null = null;
+    
+    const setupListener = async () => {
+      cleanup = await safeListen<{ connectionId: string }>(
+        "database-reconnected",
+        (event) => {
+          if (event.payload.connectionId === connectionId) {
+            // Reload databases and schemas on reconnect
+            void loadDatabases().then(() => {
+              if (selectedDatabase) {
+                void loadSchemas();
+              }
+            });
+          }
+        },
+      );
+    };
+    
+    void setupListener();
 
     return () => {
-      void unlisten.then((fn) => {
-        fn();
-      });
+      if (cleanup) cleanup();
     };
   }, [connectionId, selectedDatabase]);
 

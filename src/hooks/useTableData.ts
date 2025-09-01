@@ -10,13 +10,13 @@ import type {
   TableDataMetaEvent,
   TableDataRowsEvent,
   TableDataErrorEvent,
-  TableDataStream,
 } from "@/services/tableDataTypes";
 import type { ColumnMeta } from "@/types/database";
 
 // State interface for the hook
 interface TableDataState {
   isLoading: boolean;
+  isLoadingMore: boolean;
   isStreaming: boolean;
   error: string | null;
   columns: ColumnMeta[];
@@ -45,6 +45,7 @@ export function useTableData(): UseTableDataReturn {
   // State management
   const [state, setState] = useState<TableDataState>({
     isLoading: false,
+    isLoadingMore: false,
     isStreaming: false,
     error: null,
     columns: [],
@@ -56,8 +57,7 @@ export function useTableData(): UseTableDataReturn {
     estimatedTotal: null,
   });
 
-  // Refs for cleanup and current state tracking
-  const currentStreamRef = useRef<TableDataStream | null>(null);
+  // Refs for current state tracking
   const currentParamsRef = useRef<TableDataParams | null>(null);
   const isMountedRef = useRef(true);
   const stateRef = useRef(state);
@@ -73,9 +73,6 @@ export function useTableData(): UseTableDataReturn {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
-      if (currentStreamRef.current) {
-        void currentStreamRef.current.stop();
-      }
     };
   }, []);
 
@@ -89,6 +86,7 @@ export function useTableData(): UseTableDataReturn {
       columns: meta.columns,
       pageSize: meta.page_size,
       isLoading: false,
+      isLoadingMore: false,
       isStreaming: true,
       error: null,
     }));
@@ -98,6 +96,7 @@ export function useTableData(): UseTableDataReturn {
   const handleRows = useCallback((rowsEvent: TableDataRowsEvent) => {
     console.log("[useTableData] Received rows:", rowsEvent.rows.length, "rows");
     console.log("[useTableData] Next cursor:", rowsEvent.next_cursor);
+    console.log("[useTableData] Estimated total:", rowsEvent.estimated_total);
     console.log(">>> rows sample:", rowsEvent.rows[0]);
     if (!isMountedRef.current) return;
 
@@ -108,13 +107,15 @@ export function useTableData(): UseTableDataReturn {
         ? rowsEvent.rows // Replace all rows on initial load
         : [...prev.rows, ...rowsEvent.rows]; // Append on load more
 
+      const hasMore = Boolean(rowsEvent.next_cursor);
       console.log("[useTableData] Total rows after update:", newRows.length);
-      console.log("[useTableData] Has next page:", Boolean(rowsEvent.next_cursor));
+      console.log("[useTableData] Has next page:", hasMore);
+      console.log("[useTableData] Next cursor value:", rowsEvent.next_cursor);
 
       return {
         ...prev,
         rows: newRows,
-        hasNextPage: Boolean(rowsEvent.next_cursor),
+        hasNextPage: hasMore,
         nextCursor: rowsEvent.next_cursor || null,
         totalLoadedRows: newRows.length,
         estimatedTotal: rowsEvent.estimated_total || prev.estimatedTotal,
@@ -130,10 +131,10 @@ export function useTableData(): UseTableDataReturn {
     setState((prev) => ({
       ...prev,
       isLoading: false,
+      isLoadingMore: false,
       isStreaming: false,
-      hasNextPage: false,
+      // Keep hasNextPage from previous state - it was set correctly by handleRows
     }));
-    currentStreamRef.current = null;
   }, []); // NO dependencies = stable callback
 
   // Handle stream errors - STABLE callback with NO dependencies
@@ -144,20 +145,12 @@ export function useTableData(): UseTableDataReturn {
     setState((prev) => ({
       ...prev,
       isLoading: false,
+      isLoadingMore: false,
       isStreaming: false,
       error: `${error.code}: ${error.message}`,
       hasNextPage: false,
     }));
-    currentStreamRef.current = null;
   }, []); // NO dependencies = stable callback
-
-  // Stop current stream if active - STABLE callback
-  const stopCurrentStream = useCallback(async () => {
-    if (currentStreamRef.current) {
-      await currentStreamRef.current.stop();
-      currentStreamRef.current = null;
-    }
-  }, []);
 
   // Load data with new parameters - STABLE callback with NO dependencies
   const loadData = useCallback(async (params: TableDataParams) => {
@@ -165,20 +158,15 @@ export function useTableData(): UseTableDataReturn {
     if (!isMountedRef.current) return;
 
     try {
-      // Stop any existing stream
-      if (currentStreamRef.current) {
-        await currentStreamRef.current.stop();
-        currentStreamRef.current = null;
-      }
-
       // Store current parameters for refresh/pagination
       currentParamsRef.current = params;
 
-      // Reset state
+      // Reset state for initial load
       console.log("[useTableData] Resetting state");
       setState((prev) => ({
         ...prev,
         isLoading: true,
+        isLoadingMore: false,
         isStreaming: false,
         error: null,
         rows: [],
@@ -188,20 +176,17 @@ export function useTableData(): UseTableDataReturn {
         estimatedTotal: null,
       }));
 
-      // Start new stream
-      console.log("[useTableData] Starting new stream");
-      const stream = await tableDataService.startTableDataStream(params, {
+      // Load data with offset 0 for initial load
+      const paramsWithOffset = { ...params, offset: 0 };
+      console.log("[useTableData] Loading data");
+      await tableDataService.loadTableData(paramsWithOffset, {
         onMeta: handleMeta,
         onRows: handleRows,
         onDone: handleDone,
         onError: handleError,
       });
 
-      currentStreamRef.current = stream;
-      console.log(
-        "[useTableData] Stream started successfully:",
-        stream.streamId,
-      );
+      console.log("[useTableData] Data loaded successfully");
     } catch (error) {
       console.error("[useTableData] Error loading data:", error);
       const errorMessage =
@@ -237,14 +222,15 @@ export function useTableData(): UseTableDataReturn {
       !currentParamsRef.current ||
       !currentState.nextCursor ||
       currentState.isLoading ||
-      currentState.isStreaming ||
+      currentState.isLoadingMore ||
       !isMountedRef.current
     ) {
       console.log("[useTableData] loadMore blocked - conditions not met");
       console.log("  - has params:", !!currentParamsRef.current);
       console.log("  - has cursor:", !!currentState.nextCursor);
       console.log("  - not loading:", !currentState.isLoading);
-      console.log("  - not streaming:", !currentState.isStreaming);
+      console.log("  - not loading more:", !currentState.isLoadingMore);
+      console.log("  - is mounted:", isMountedRef.current);
       return;
     }
 
@@ -252,20 +238,18 @@ export function useTableData(): UseTableDataReturn {
 
     const nextParams: TableDataParams = {
       ...currentParamsRef.current,
-      cursor: currentState.nextCursor,
+      offset: currentState.totalLoadedRows, // Use current row count as offset
     };
 
     try {
-      setState((prev) => ({ ...prev, isLoading: true, error: null }));
+      setState((prev) => ({ ...prev, isLoadingMore: true, error: null }));
 
-      const stream = await tableDataService.startTableDataStream(nextParams, {
+      await tableDataService.loadTableData(nextParams, {
         onMeta: handleMeta,
         onRows: handleRows,
         onDone: handleDone,
         onError: handleError,
       });
-
-      currentStreamRef.current = stream;
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Failed to load more data";
@@ -273,12 +257,13 @@ export function useTableData(): UseTableDataReturn {
       if (isMountedRef.current) {
         setState((prev) => ({
           ...prev,
-          isLoading: false,
+          isLoadingMore: false,
           error: errorMessage,
         }));
       }
     } finally {
       isLoadingMoreRef.current = false;
+      setState((prev) => ({ ...prev, isLoadingMore: false }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // NO dependencies = stable callback
@@ -300,13 +285,13 @@ export function useTableData(): UseTableDataReturn {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // NO dependencies = stable callback
 
-  // Stop current stream - STABLE callback
+  // Stop loading - STABLE callback
   const stop = useCallback(async () => {
-    await stopCurrentStream();
     if (isMountedRef.current) {
       setState((prev) => ({
         ...prev,
         isLoading: false,
+        isLoadingMore: false,
         isStreaming: false,
       }));
     }
@@ -315,12 +300,12 @@ export function useTableData(): UseTableDataReturn {
 
   // Clear all data - STABLE callback
   const clearData = useCallback(() => {
-    void stopCurrentStream();
     currentParamsRef.current = null;
     if (isMountedRef.current) {
       setState((prev) => ({
         ...prev,
         isLoading: false,
+        isLoadingMore: false,
         isStreaming: false,
         error: null,
         columns: [],

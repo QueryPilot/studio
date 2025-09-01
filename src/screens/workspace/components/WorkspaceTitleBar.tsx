@@ -41,7 +41,7 @@ import {
   databaseService,
   type ConnectionHealth,
 } from "@/services/databaseService";
-import { emit } from "@tauri-apps/api/event";
+import { safeEmit } from "@/utils/tauri";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -151,9 +151,11 @@ export function WorkspaceTitleBar({
     try {
       await databaseService.connectById(connectionId);
       // Emit event to refresh sidebar data
-      await emit("database-reconnected", { connectionId });
+      await safeEmit("database-reconnected", { connectionId });
     } catch (error) {
       console.error("Failed to reconnect:", error);
+    } finally {
+      setIsConnecting(false);
     }
   };
 

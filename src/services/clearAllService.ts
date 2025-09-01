@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { isTauri, safeInvoke } from "@/utils/tauri";
 
 class ClearAllService {
   private static instance: ClearAllService;
@@ -18,13 +18,14 @@ class ClearAllService {
   private async disconnectAllDatabaseConnections(): Promise<void> {
     try {
       // Get list of active database connections
-      const activeConnections = await invoke<string[]>("db_list_connections");
+      // TODO: Implement getting active connections from ConnectionManager
+      const activeConnections: string[] = [];
       console.log("Active database connections:", activeConnections);
       
       // Disconnect each active connection
       for (const connId of activeConnections) {
         try {
-          await invoke("db_disconnect", { connectionId: connId });
+          await safeInvoke("disconnect", { connId });
           console.log(`Disconnected database connection: ${connId}`);
         } catch (error) {
           console.error(`Failed to disconnect database connection ${connId}:`, error);
@@ -57,11 +58,10 @@ class ClearAllService {
         }
       }
 
-      // Call backend to clear secure storage
-      // Note: The backend command expects "CONFIRM_DELETE_ALL" as confirmation
-      await invoke("clear_all_storage", {
-        confirmation: "CONFIRM_DELETE_ALL"
-      });
+      // TODO: Implement clear_all_storage command in backend
+      // await safeInvoke("clear_all_storage", {
+      //   confirmation: "CONFIRM_DELETE_ALL"
+      // });
 
     } catch (error) {
       console.error("Failed to clear all data:", error);
@@ -72,19 +72,25 @@ class ClearAllService {
 
   /**
    * Clear only connections from secure storage
+   * TODO: Re-enable when secure storage is implemented in backend
    */
   async clearConnections(): Promise<void> {
-    try {
-      // First disconnect all active database connections
-      await this.disconnectAllDatabaseConnections();
-      
-      // Then delete all stored connections
-      const deletedCount = await invoke<number>("delete_all_connections");
-      console.log(`Successfully deleted ${deletedCount} stored connections`);
-    } catch (error) {
-      console.error("Failed to delete all connections:", error);
-      throw error;
+    // Temporarily disabled - will use new API when ready
+    console.log("Clear connections - temporarily using local storage only");
+    
+    // Clear local storage for now
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem("connections");
+      localStorage.removeItem("connectionMetadata");
     }
+    
+    // When backend is ready, uncomment:
+    // if (!isTauri()) {
+    //   console.warn("Cannot clear connections - not running in Tauri context");
+    //   return;
+    // }
+    // await this.disconnectAllDatabaseConnections();
+    // await safeInvoke("clear_connections");
   }
 }
 

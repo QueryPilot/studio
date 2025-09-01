@@ -1,5 +1,13 @@
 import { Button } from "@/components/ui/button";
-import { Plus, X, Table, Code, Database, FunctionSquare, GripVertical } from "lucide-react";
+import {
+  Plus,
+  X,
+  Table,
+  Code,
+  Database,
+  FunctionSquare,
+  GripVertical,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PanelState } from "@/types/workspaceScreen";
 import { usePanelStore } from "@/stores/panelStore";
@@ -38,7 +46,13 @@ interface SortableTabProps {
   onClose: () => void;
 }
 
-function SortableTab({ tabId, panel, isActive, onSelect, onClose }: SortableTabProps) {
+function SortableTab({
+  tabId,
+  panel,
+  isActive,
+  onSelect,
+  onClose,
+}: SortableTabProps) {
   const tab = panel.tabs.get(tabId);
   if (!tab) return null;
 
@@ -78,11 +92,11 @@ function SortableTab({ tabId, panel, isActive, onSelect, onClose }: SortableTabP
       style={style}
       className={cn(
         "flex items-center gap-1 px-2 h-8 rounded-t cursor-pointer group",
-        "border-b-2 transition-colors select-none",
-        isActive 
-          ? "bg-background border-primary" 
+        "border-b transition-colors select-none",
+        isActive
+          ? "bg-background border-primary"
           : "hover:bg-muted/50 border-transparent",
-        isDragging && "cursor-grabbing"
+        isDragging && "cursor-grabbing",
       )}
       onClick={onSelect}
     >
@@ -94,9 +108,7 @@ function SortableTab({ tabId, panel, isActive, onSelect, onClose }: SortableTabP
         <GripVertical className="h-3 w-3 text-muted-foreground" />
       </div>
       {getTabIcon(tab.type)}
-      <span className="text-sm max-w-[120px] truncate">
-        {tab.title}
-      </span>
+      <span className="text-sm max-w-[120px] truncate">{tab.title}</span>
       <button
         className="opacity-0 group-hover:opacity-100 transition-opacity ml-auto"
         onClick={(e) => {
@@ -110,22 +122,23 @@ function SortableTab({ tabId, panel, isActive, onSelect, onClose }: SortableTabP
   );
 }
 
-export function DraggableTabBar({ 
-  panel, 
-  onTabSelect, 
-  onTabClose, 
+export function DraggableTabBar({
+  panel,
+  onTabSelect,
+  onTabClose,
   onNewTab,
   onSplitPanel,
 }: DraggableTabBarProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
-  const { moveTabBetweenPanels, panels, setSplitMode, createPanel } = usePanelStore();
-  
+  const { moveTabBetweenPanels, panels, setSplitMode, createPanel } =
+    usePanelStore();
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
         distance: 8,
       },
-    })
+    }),
   );
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -137,11 +150,11 @@ export function DraggableTabBar({
     setActiveId(null);
 
     if (!over) return;
-    
+
     // Get the panel that the tab was dropped on
     const droppedPanelId = over.data.current?.panelId || panel.id;
     const activeTabId = active.id as string;
-    
+
     if (droppedPanelId !== panel.id) {
       // Moving to a different panel
       moveTabBetweenPanels(activeTabId, panel.id, droppedPanelId);
@@ -149,7 +162,7 @@ export function DraggableTabBar({
       // Reordering within the same panel
       const oldIndex = panel.tabOrder.indexOf(activeTabId);
       const newIndex = panel.tabOrder.indexOf(over.id as string);
-      
+
       if (oldIndex !== -1 && newIndex !== -1) {
         const newOrder = [...panel.tabOrder];
         newOrder.splice(oldIndex, 1);
@@ -161,21 +174,23 @@ export function DraggableTabBar({
 
   const handleDragOver = (event: DragOverEvent) => {
     const { active, over } = event;
-    
+
     if (!over) return;
-    
+
     // Check if dragging over a different panel
     const overPanelId = over.data.current?.panelId;
-    
+
     if (overPanelId && overPanelId !== panel.id) {
       // Check if we need to create a split view
-      const secondaryPanel = Array.from(panels.values()).find(p => p.type === "secondary");
-      
+      const secondaryPanel = Array.from(panels.values()).find(
+        (p) => p.type === "secondary",
+      );
+
       if (!secondaryPanel) {
         // Create secondary panel and enable split view
         const newPanelId = createPanel("secondary");
         setSplitMode("horizontal");
-        
+
         // Move the tab to the new panel
         setTimeout(() => {
           moveTabBetweenPanels(active.id as string, panel.id, newPanelId);
@@ -194,7 +209,7 @@ export function DraggableTabBar({
       onDragEnd={handleDragEnd}
       onDragOver={handleDragOver}
     >
-      <div 
+      <div
         className="flex items-center h-10 border-b bg-muted/20 px-2 gap-1 overflow-x-auto"
         data-panel-id={panel.id}
       >
@@ -208,12 +223,16 @@ export function DraggableTabBar({
               tabId={tabId}
               panel={panel}
               isActive={panel.activeTabId === tabId}
-              onSelect={() => { onTabSelect(tabId); }}
-              onClose={() => { onTabClose(tabId); }}
+              onSelect={() => {
+                onTabSelect(tabId);
+              }}
+              onClose={() => {
+                onTabClose(tabId);
+              }}
             />
           ))}
         </SortableContext>
-        
+
         {/* New Tab Button */}
         <Button
           variant="ghost"
@@ -239,13 +258,13 @@ export function DraggableTabBar({
               stroke="currentColor"
               viewBox="0 0 24 24"
             >
-              <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth="2"/>
-              <line x1="12" y1="3" x2="12" y2="21" strokeWidth="2"/>
+              <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth="2" />
+              <line x1="12" y1="3" x2="12" y2="21" strokeWidth="2" />
             </svg>
           </Button>
         )}
       </div>
-      
+
       <DragOverlay>
         {activeTab && (
           <div className="flex items-center gap-2 px-3 h-8 rounded bg-background border shadow-lg">

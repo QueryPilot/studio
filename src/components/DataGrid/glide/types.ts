@@ -108,38 +108,72 @@ export const cellValueToGridCell = (
     };
   }
 
+  // Debug log the value structure
+  if (typeof value === 'object' && value !== null && 'display_value' in value) {
+    console.log("CellValue structure:", value);
+  }
+  
+  // Handle CellValue structure from types/cellValue.ts
+  let displayText = "";
+  
+  if (typeof value === 'object' && value !== null) {
+    // Check for frontend CellValue structure (has 'value' property)
+    if ('value' in value) {
+      displayText = String(value.value);
+    } else if ('display_value' in value) {
+      // Fallback for backend CellValue structure
+      displayText = String(value.display_value);
+    } else {
+      // If it's an object without expected properties, convert to string
+      displayText = JSON.stringify(value);
+    }
+  } else {
+    // For primitive values or other types
+    displayText = String(value || "");
+  }
+
   switch (kind) {
     case GridCellKind.Number:
+      // Try to extract numeric value from various formats
+      let numericValue = 0;
+      if (typeof value === 'number') {
+        numericValue = value;
+      } else if (value?.value !== undefined) {
+        numericValue = Number(value.value);
+      } else if (displayText) {
+        const parsed = parseFloat(displayText);
+        numericValue = isNaN(parsed) ? 0 : parsed;
+      }
+      
       return {
         kind: GridCellKind.Number,
-        data:
-          "type" in value && value.type === "number" && "value" in value
-            ? Number(value.value)
-            : 0,
-        displayData:
-          "displayValue" in value
-            ? String(value.displayValue)
-            : String("value" in value ? value.value : value),
+        data: numericValue,
+        displayData: displayText,
         allowOverlay: false,
         readonly: true,
         contentAlign: "right", // Align numbers to the right
       };
 
     case GridCellKind.Boolean:
+      // Handle boolean values
+      let boolValue = false;
+      if (typeof value === 'boolean') {
+        boolValue = value;
+      } else if (value?.value !== undefined) {
+        boolValue = Boolean(value.value);
+      } else if (displayText) {
+        boolValue = displayText.toLowerCase() === 'true' || displayText === '1';
+      }
+      
       return {
         kind: GridCellKind.Boolean,
-        data:
-          "type" in value && value.type === "boolean" && "value" in value
-            ? Boolean(value.value)
-            : false,
+        data: boolValue,
         allowOverlay: false,
         readonly: true,
       };
 
     default: {
-      const textValue = String("value" in value ? value.value : value);
-      let displayValue =
-        "displayValue" in value ? String(value.displayValue) : textValue;
+      let displayValue = displayText;
 
       // Apply manual truncation if column width is provided
       if (columnWidth) {
@@ -148,7 +182,7 @@ export const cellValueToGridCell = (
 
       return {
         kind: GridCellKind.Text,
-        data: textValue,
+        data: displayText,
         displayData: displayValue,
         allowOverlay: true, // Allow overlay for full text view
         readonly: true,
