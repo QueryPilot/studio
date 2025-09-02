@@ -32,10 +32,11 @@ const DraggableTab: React.FC<DraggableTabProps> = ({
   onClose,
 }) => {
   const draggableId = `tab-${panelId}-${tabId}`;
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: draggableId,
-    data: { tabId, panelId },
-  });
+  const { attributes, listeners, setNodeRef, transform, isDragging } =
+    useDraggable({
+      id: draggableId,
+      data: { tabId, panelId },
+    });
 
   const style = {
     transform: CSS.Translate.toString(transform),
@@ -51,7 +52,7 @@ const DraggableTab: React.FC<DraggableTabProps> = ({
       className={cn(
         "px-3 py-1 text-sm rounded-md transition-colors flex items-center gap-1 cursor-move",
         isActive ? "bg-background border" : "hover:bg-muted/50",
-        isDragging && "opacity-50"
+        isDragging && "opacity-50",
       )}
       onClick={(e) => {
         e.stopPropagation();
@@ -78,7 +79,11 @@ interface DroppableZoneProps {
   isVisible: boolean;
 }
 
-const DroppableZone: React.FC<DroppableZoneProps> = ({ panelId, position, isVisible }) => {
+const DroppableZone: React.FC<DroppableZoneProps> = ({
+  panelId,
+  position,
+  isVisible,
+}) => {
   const droppableId = `drop-${panelId}-${position}`;
   const { isOver, setNodeRef } = useDroppable({
     id: droppableId,
@@ -110,7 +115,9 @@ const DroppableZone: React.FC<DroppableZoneProps> = ({ panelId, position, isVisi
         positionStyles[position],
         "bg-primary/20 border-2 border-primary border-dashed rounded-md z-50",
         "flex items-center justify-center group cursor-pointer transition-all duration-200",
-        isOver ? "opacity-100 bg-primary/30 border-solid" : "opacity-50 hover:opacity-100"
+        isOver
+          ? "opacity-100 bg-primary/30 border-solid"
+          : "opacity-50 hover:opacity-100",
       )}
     >
       <div className="text-primary-foreground font-medium text-sm bg-primary/90 px-3 py-1 rounded shadow-lg group-hover:scale-105 transition-transform pointer-events-none">
@@ -137,9 +144,13 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
   } = useWorkbenchStore();
 
   // Subscribe to drag state
-  const draggedTab = useWorkbenchStore((state) => state.dragDropContext.draggedTab);
+  const draggedTab = useWorkbenchStore(
+    (state) => state.dragDropContext.draggedTab,
+  );
   const panelCount = useWorkbenchStore((state) => state.panelContents.size);
-  const isDragActive = draggedTab !== null;
+  const isDragActive = useWorkbenchStore(
+    (state) => state.dragDropContext.draggedTab !== null,
+  );
   const isSourcePanel = draggedTab?.panelId === content.id;
   // Show drop zones if dragging and either not source panel OR only one panel exists
   const showDropZones = isDragActive && (!isSourcePanel || panelCount === 1);
@@ -153,9 +164,16 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
       showDropZones,
       draggedTab,
       panelCount,
-      contentId: content.id
+      contentId: content.id,
     });
-  }, [isDragActive, isSourcePanel, showDropZones, draggedTab, panelCount, content.id]);
+  }, [
+    isDragActive,
+    isSourcePanel,
+    showDropZones,
+    draggedTab,
+    panelCount,
+    content.id,
+  ]);
 
   const handleClick = useCallback(() => {
     focusPanel(content.id);
@@ -169,7 +187,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
         splitRatio: 0.5,
       });
     },
-    [splitPanelAction, content.id]
+    [splitPanelAction, content.id],
   );
 
   return (
@@ -177,7 +195,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
       className={cn(
         "panel flex flex-col bg-background h-full overflow-hidden relative border border-border",
         isFocused && "ring-1 ring-primary/50 border-primary/50",
-        className
+        className,
       )}
       onClick={handleClick}
     >
@@ -198,8 +216,13 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                 panelId={content.id}
                 displayName={displayName}
                 isActive={content.activeTabId === tabId}
-                onActivate={() => setActiveTab(content.id, tabId)}
-                onClose={() => removeTab(content.id, tabId)}
+                onActivate={() => {
+                  setActiveTab(content.id, tabId);
+                  focusPanel(content.id);
+                }}
+                onClose={() => {
+                  removeTab(content.id, tabId);
+                }}
               />
             );
           })}
@@ -219,16 +242,32 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => handleSplit("right")}>
+              <DropdownMenuItem
+                onClick={() => {
+                  handleSplit("right");
+                }}
+              >
                 Split Right
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleSplit("down")}>
+              <DropdownMenuItem
+                onClick={() => {
+                  handleSplit("down");
+                }}
+              >
                 Split Down
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleSplit("left")}>
+              <DropdownMenuItem
+                onClick={() => {
+                  handleSplit("left");
+                }}
+              >
                 Split Left
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleSplit("up")}>
+              <DropdownMenuItem
+                onClick={() => {
+                  handleSplit("up");
+                }}
+              >
                 Split Up
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -265,11 +304,31 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
         )}
 
         {/* Drop Zones */}
-        <DroppableZone panelId={content.id} position="top" isVisible={showDropZones} />
-        <DroppableZone panelId={content.id} position="bottom" isVisible={showDropZones} />
-        <DroppableZone panelId={content.id} position="left" isVisible={showDropZones} />
-        <DroppableZone panelId={content.id} position="right" isVisible={showDropZones} />
-        <DroppableZone panelId={content.id} position="center" isVisible={showDropZones} />
+        <DroppableZone
+          panelId={content.id}
+          position="top"
+          isVisible={showDropZones}
+        />
+        <DroppableZone
+          panelId={content.id}
+          position="bottom"
+          isVisible={showDropZones}
+        />
+        <DroppableZone
+          panelId={content.id}
+          position="left"
+          isVisible={showDropZones}
+        />
+        <DroppableZone
+          panelId={content.id}
+          position="right"
+          isVisible={showDropZones}
+        />
+        <DroppableZone
+          panelId={content.id}
+          position="center"
+          isVisible={showDropZones}
+        />
       </div>
     </div>
   );

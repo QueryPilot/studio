@@ -11,7 +11,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PanelContentRenderer } from "./PanelContentRenderer";
-import { DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
+import {
+  DndContext,
+  DragOverlay,
+  useDraggable,
+  useDroppable,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 
 interface DraggableTabProps {
@@ -31,10 +39,11 @@ const DraggableTab: React.FC<DraggableTabProps> = ({
   onActivate,
   onClose,
 }) => {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: `${panelId}-${tabId}`,
-    data: { tabId, panelId },
-  });
+  const { attributes, listeners, setNodeRef, transform, isDragging } =
+    useDraggable({
+      id: `${panelId}-${tabId}`,
+      data: { tabId, panelId },
+    });
 
   const style = {
     transform: CSS.Translate.toString(transform),
@@ -50,7 +59,7 @@ const DraggableTab: React.FC<DraggableTabProps> = ({
       className={cn(
         "px-3 py-1 text-sm rounded-md transition-colors flex items-center gap-1 cursor-move",
         isActive ? "bg-background border" : "hover:bg-muted/50",
-        isDragging && "opacity-50"
+        isDragging && "opacity-50",
       )}
       onClick={(e) => {
         e.stopPropagation();
@@ -77,7 +86,11 @@ interface DroppableZoneProps {
   onDrop: (position: DropPosition) => void;
 }
 
-const DroppableZone: React.FC<DroppableZoneProps> = ({ panelId, position, onDrop }) => {
+const DroppableZone: React.FC<DroppableZoneProps> = ({
+  panelId,
+  position,
+  onDrop,
+}) => {
   const { isOver, setNodeRef } = useDroppable({
     id: `${panelId}-drop-${position}`,
     data: { panelId, position },
@@ -106,7 +119,7 @@ const DroppableZone: React.FC<DroppableZoneProps> = ({ panelId, position, onDrop
         positionStyles[position],
         "bg-primary/20 border-2 border-primary border-dashed rounded-md z-50",
         "flex items-center justify-center group cursor-pointer transition-all duration-200",
-        isOver ? "opacity-100 bg-primary/30" : "opacity-50 hover:opacity-100"
+        isOver ? "opacity-100 bg-primary/30" : "opacity-50 hover:opacity-100",
       )}
     >
       <div className="text-primary-foreground font-medium text-sm bg-primary/90 px-3 py-1 rounded shadow-lg group-hover:scale-105 transition-transform pointer-events-none">
@@ -141,7 +154,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
       activationConstraint: {
         distance: 8,
       },
-    })
+    }),
   );
 
   const isFocused = focusedPanelId === content.id;
@@ -158,7 +171,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
         splitRatio: 0.5,
       });
     },
-    [splitPanelAction, content.id]
+    [splitPanelAction, content.id],
   );
 
   const handleDragStart = (event: any) => {
@@ -172,7 +185,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
     const { active, over } = event;
     setActiveId(null);
     setIsDragActive(false);
-    
+
     console.log(`🏁 Drag ended`, { active, over });
 
     if (!over) return;
@@ -185,14 +198,19 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
     const { tabId, panelId: sourcePanelId } = activeData;
     const { panelId: targetPanelId, position } = overData;
 
-    console.log(`💧 Dropping ${tabId} from ${sourcePanelId} to ${targetPanelId} at ${position}`);
+    console.log(
+      `💧 Dropping ${tabId} from ${sourcePanelId} to ${targetPanelId} at ${position}`,
+    );
 
     if (position === "center") {
       // Move tab to existing panel
       moveTab(tabId, sourcePanelId, targetPanelId);
     } else {
       // Create new panel with tab
-      const directionMap: Record<DropPosition, "up" | "down" | "left" | "right"> = {
+      const directionMap: Record<
+        DropPosition,
+        "up" | "down" | "left" | "right"
+      > = {
         top: "up",
         bottom: "down",
         left: "left",
@@ -227,7 +245,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
   };
 
   // Check if this panel is the source of the drag
-  const draggedData = activeId ? activeId.split('-')[0] === content.id : false;
+  const draggedData = activeId ? activeId.split("-")[0] === content.id : false;
   const showDropZones = isDragActive && !draggedData;
 
   return (
@@ -241,7 +259,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
         className={cn(
           "panel flex flex-col bg-background h-full overflow-hidden relative border border-border",
           isFocused && "ring-1 ring-primary/50 border-primary/50",
-          className
+          className,
         )}
         onClick={handleClick}
       >
@@ -262,8 +280,12 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                   panelId={content.id}
                   displayName={displayName}
                   isActive={content.activeTabId === tabId}
-                  onActivate={() => setActiveTab(content.id, tabId)}
-                  onClose={() => removeTab(content.id, tabId)}
+                  onActivate={() => {
+                    setActiveTab(content.id, tabId);
+                  }}
+                  onClose={() => {
+                    removeTab(content.id, tabId);
+                  }}
                 />
               );
             })}
@@ -283,16 +305,32 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => handleSplit("right")}>
+                <DropdownMenuItem
+                  onClick={() => {
+                    handleSplit("right");
+                  }}
+                >
                   Split Right
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleSplit("down")}>
+                <DropdownMenuItem
+                  onClick={() => {
+                    handleSplit("down");
+                  }}
+                >
                   Split Down
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleSplit("left")}>
+                <DropdownMenuItem
+                  onClick={() => {
+                    handleSplit("left");
+                  }}
+                >
                   Split Left
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleSplit("up")}>
+                <DropdownMenuItem
+                  onClick={() => {
+                    handleSplit("up");
+                  }}
+                >
                   Split Up
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -331,11 +369,31 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
           {/* Drop Zones */}
           {showDropZones && (
             <>
-              <DroppableZone panelId={content.id} position="top" onDrop={() => {}} />
-              <DroppableZone panelId={content.id} position="bottom" onDrop={() => {}} />
-              <DroppableZone panelId={content.id} position="left" onDrop={() => {}} />
-              <DroppableZone panelId={content.id} position="right" onDrop={() => {}} />
-              <DroppableZone panelId={content.id} position="center" onDrop={() => {}} />
+              <DroppableZone
+                panelId={content.id}
+                position="top"
+                onDrop={() => {}}
+              />
+              <DroppableZone
+                panelId={content.id}
+                position="bottom"
+                onDrop={() => {}}
+              />
+              <DroppableZone
+                panelId={content.id}
+                position="left"
+                onDrop={() => {}}
+              />
+              <DroppableZone
+                panelId={content.id}
+                position="right"
+                onDrop={() => {}}
+              />
+              <DroppableZone
+                panelId={content.id}
+                position="center"
+                onDrop={() => {}}
+              />
             </>
           )}
         </div>

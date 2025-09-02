@@ -38,13 +38,12 @@ export interface SplitAction {
 }
 
 export interface WorkbenchConstraints {
-  MAX_HORIZONTAL_PANELS: number;
-  MAX_VERTICAL_PANELS: number;
+  MAX_COLUMNS: number;
+  MAX_ROWS: number;
   MIN_PANEL_WIDTH: number;
   MIN_PANEL_HEIGHT: number;
   MIN_SPLIT_RATIO: number;
   MAX_SPLIT_RATIO: number;
-  MAX_TREE_DEPTH: number;
 }
 
 export interface DragDropContext {
