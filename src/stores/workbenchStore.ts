@@ -15,6 +15,7 @@ import {
   createLeafNode,
   getAllPanels,
   getAdjacentPanel,
+  findNodePath,
 } from "@/utils/workbenchTree";
 
 interface WorkbenchStore {
@@ -53,7 +54,8 @@ interface WorkbenchStore {
 }
 
 const useWorkbenchStore = create<WorkbenchStore>()(
-  persist(
+  // TEMPORARILY DISABLED PERSIST DUE TO ID MISMATCH ISSUES
+  // persist(
     (set, get) => ({
       layoutTree: null,
       focusedPanelId: null,
@@ -68,11 +70,26 @@ const useWorkbenchStore = create<WorkbenchStore>()(
       },
 
       initializeLayout: () => {
+        // ALWAYS clear corrupted state on init
+        localStorage.removeItem('workbench-layout');
+        localStorage.removeItem('workbench-layout-backup');
+        
         const defaultPanel = createLeafNode({
           type: "editor",
           tabIds: [],
           activeTabId: "",
         });
+
+        console.log('🔄 Initializing fresh layout with panel:', defaultPanel.id);
+        console.log('Panel content ID:', defaultPanel.content?.id);
+
+        // Ensure consistency
+        if (defaultPanel.id !== defaultPanel.content?.id) {
+          console.error('❌ ID MISMATCH in createLeafNode!', {
+            nodeId: defaultPanel.id,
+            contentId: defaultPanel.content?.id
+          });
+        }
 
         set({
           layoutTree: defaultPanel,
@@ -85,8 +102,12 @@ const useWorkbenchStore = create<WorkbenchStore>()(
 
       splitPanelAction: (action) => {
         const { layoutTree, layoutHistory, historyIndex } = get();
-        if (!layoutTree) return;
+        if (!layoutTree) {
+          console.error('❌ splitPanelAction: No layout tree');
+          return;
+        }
 
+        console.log('🔧 splitPanelAction called:', action);
         const newTree = splitPanel(
           layoutTree,
           action.targetPanelId,
@@ -96,6 +117,7 @@ const useWorkbenchStore = create<WorkbenchStore>()(
         );
 
         if (newTree) {
+          console.log('✅ Split successful, new tree created');
           const newHistory = layoutHistory.slice(0, historyIndex + 1);
           newHistory.push(newTree);
 
@@ -107,6 +129,12 @@ const useWorkbenchStore = create<WorkbenchStore>()(
             panelContents: newContents,
             layoutHistory: newHistory,
             historyIndex: newHistory.length - 1,
+          });
+        } else {
+          console.error('❌ splitPanel returned null - split failed!', {
+            targetPanelId: action.targetPanelId,
+            direction: action.direction,
+            layoutTree
           });
         }
       },
@@ -196,7 +224,18 @@ const useWorkbenchStore = create<WorkbenchStore>()(
       },
 
       focusPanel: (panelId) => {
-        set({ focusedPanelId: panelId });
+        const { layoutTree } = get();
+        // Verify the panel exists in the tree
+        if (layoutTree && findNodePath(layoutTree, panelId) !== null) {
+          set({ focusedPanelId: panelId });
+        } else {
+          console.warn(`❌ Cannot focus panel ${panelId} - not found in tree. Tree ID: ${layoutTree?.id}`);
+          // If we can't find the panel, focus the tree root if it's a leaf
+          if (layoutTree?.type === 'leaf') {
+            console.log(`🔄 Auto-focusing root panel: ${layoutTree.id}`);
+            set({ focusedPanelId: layoutTree.id });
+          }
+        }
       },
 
       focusAdjacentPanel: (direction) => {
@@ -390,21 +429,69 @@ const useWorkbenchStore = create<WorkbenchStore>()(
           panelContents: newContents,
         });
       },
-    }),
-    {
-      name: "workbench-layout",
-      storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({
-        layoutTree: state.layoutTree,
-        panelContents: Array.from(state.panelContents.entries()),
-      }),
-      onRehydrateStorage: () => (state) => {
-        if (state && Array.isArray(state.panelContents)) {
-          state.panelContents = new Map(state.panelContents);
-        }
-      },
-    },
-  ),
+    })
+    // PERSIST DISABLED - REMOVE COMMENTS TO RE-ENABLE
+    // ,{
+    //   name: "workbench-layout",
+    //   storage: createJSONStorage(() => localStorage),
+    //   partialize: (state) => ({
+    //     layoutTree: state.layoutTree,
+    //     panelContents: Array.from(state.panelContents.entries()),
+    //   }),
+    //   onRehydrateStorage: () => (state) => {
+    //     if (state) {
+    //       // Convert array back to Map if needed
+    //       if (Array.isArray(state.panelContents)) {
+    //         state.panelContents = new Map(state.panelContents);
+    //       }
+    //       
+    //       // CRITICAL: Ensure panelContents is synced with layoutTree
+    //       if (state.layoutTree) {
+    //         const panels = getAllPanels(state.layoutTree);
+    //         const syncedContents = new Map(panels.map(p => [p.id, p]));
+    //         
+    //         // Check for mismatches
+    //         const treeIds = panels.map(p => p.id).sort();
+    //         const mapIds = Array.from(state.panelContents.keys()).sort();
+    //         
+    //         if (JSON.stringify(treeIds) !== JSON.stringify(mapIds)) {
+    //           console.error('❌ CRITICAL: Panel ID mismatch detected!', {
+    //             treeIds,
+    //             mapIds
+    //           });
+    //           
+    //           // Force complete reset on mismatch
+    //           console.log('🔄 Forcing fresh initialization due to ID mismatch');
+    //           localStorage.removeItem('workbench-layout');
+    //           localStorage.removeItem('workbench-layout-backup');
+    //           
+    //           // Create fresh panel
+    //           const freshPanel = createLeafNode({
+    //             type: "editor",
+    //             tabIds: [],
+    //             activeTabId: "",
+    //           });
+    //           
+    //           state.layoutTree = freshPanel;
+    //           state.panelContents = new Map([[freshPanel.id, freshPanel.content!]]);
+    //           state.focusedPanelId = freshPanel.id;
+    //           state.layoutHistory = [freshPanel];
+    //           state.historyIndex = 0;
+    //           
+    //           console.log('✅ Fresh state initialized with panel:', freshPanel.id);
+    //           return;
+    //         }
+    //         
+    //         // Update focusedPanelId if it's invalid
+    //         if (state.focusedPanelId && !syncedContents.has(state.focusedPanelId)) {
+    //           state.focusedPanelId = panels[0]?.id || null;
+    //           console.log('🔄 Reset focusedPanelId to:', state.focusedPanelId);
+    //         }
+    //       }
+    //     }
+    //   },
+    // },
+  // ),
 );
 
 function updatePanelContents(

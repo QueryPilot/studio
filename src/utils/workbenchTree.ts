@@ -7,13 +7,13 @@ import type {
 } from "@/types/workbench";
 
 export const CONSTRAINTS: WorkbenchConstraints = {
-  MAX_HORIZONTAL_PANELS: 4,
-  MAX_VERTICAL_PANELS: 2, // Increased since we now use per-branch constraints
+  MAX_COLUMNS: 5, // Maximum 5 columns
+  MAX_ROWS: 3,    // Maximum 3 rows
   MIN_PANEL_WIDTH: 200,
   MIN_PANEL_HEIGHT: 150,
   MIN_SPLIT_RATIO: 0.1,
   MAX_SPLIT_RATIO: 0.9,
-  MAX_TREE_DEPTH: 5,
+  // Tree depth removed - using row/column constraints instead
 };
 
 export function generateId(): string {
@@ -21,17 +21,23 @@ export function generateId(): string {
 }
 
 export function createLeafNode(content?: Partial<PanelContent>): GridNode {
-  const id = generateId();
+  // If content has an ID, use it for both node and content
+  // Otherwise generate a new one
+  const id = content?.id || generateId();
+  
+  // Ensure both node.id and content.id are the same
+  const finalContent = {
+    type: "editor" as const,
+    tabIds: [],
+    activeTabId: "",
+    ...content,
+    id, // This MUST be last to ensure consistency
+  };
+  
   return {
     id,
     type: "leaf",
-    content: {
-      id,
-      type: "editor",
-      tabIds: [],
-      activeTabId: "",
-      ...content,
-    },
+    content: finalContent,
   };
 }
 
@@ -133,17 +139,7 @@ export function updateNodeAtPath(
   };
 }
 
-export function getTreeDepth(tree: GridNode, depth = 0): number {
-  if (tree.type === "leaf") return depth;
-
-  if (tree.children) {
-    return Math.max(
-      ...tree.children.map((child) => getTreeDepth(child, depth + 1)),
-    );
-  }
-
-  return depth;
-}
+// Tree depth is no longer used - we use row/column constraints instead
 
 export function countPanelsInDirection(
   tree: GridNode,
@@ -224,6 +220,53 @@ function countVerticalPanelsInColumn(tree: GridNode, targetPanelId: string): num
   return count;
 }
 
+function countHorizontalPanelsInRow(tree: GridNode, targetPanelId: string): number {
+  const path = findNodePath(tree, targetPanelId);
+  if (!path) return 1;
+
+  // Find the row root by traversing up to the first vertical parent
+  let rowRoot = tree;
+  let rowPath: number[] = [];
+  
+  for (let i = 0; i < path.length; i++) {
+    const currentPath = path.slice(0, i);
+    const currentNode = getNodeByPath(tree, currentPath);
+    
+    if (currentNode?.type === "branch" && currentNode.orientation === "vertical") {
+      // Found vertical parent, the row is the child at path[i]
+      rowPath = path.slice(0, i + 1);
+      rowRoot = getNodeByPath(tree, rowPath) || tree;
+      break;
+    }
+  }
+  
+  // If no vertical parent found, the entire tree is the row
+  if (rowPath.length === 0) {
+    rowRoot = tree;
+  }
+  
+  // Count horizontal panels in this row
+  function countHorizontalPanels(node: GridNode): number {
+    if (node.type === "leaf") return 1;
+    
+    if (node.type === "branch" && node.orientation === "horizontal") {
+      // Horizontal split - sum the panels in both children
+      const leftCount = node.children?.[0] ? countHorizontalPanels(node.children[0]) : 0;
+      const rightCount = node.children?.[1] ? countHorizontalPanels(node.children[1]) : 0;
+      return leftCount + rightCount;
+    } else if (node.type === "branch" && node.orientation === "vertical") {
+      // Vertical split within row - take the max of both sides
+      const topCount = node.children?.[0] ? countHorizontalPanels(node.children[0]) : 0;
+      const bottomCount = node.children?.[1] ? countHorizontalPanels(node.children[1]) : 0;
+      return Math.max(topCount, bottomCount);
+    }
+    
+    return 1;
+  }
+  
+  return countHorizontalPanels(rowRoot);
+}
+
 // New function for localized constraint checking
 export function getSplitDepthAlongPath(
   tree: GridNode,
@@ -234,30 +277,8 @@ export function getSplitDepthAlongPath(
     return countVerticalPanelsInColumn(tree, targetPanelId);
   }
   
-  // For horizontal splits, use the original logic
-  const path = findNodePath(tree, targetPanelId);
-  if (!path) return 0;
-
-  let currentDepth = 0;
-  let currentNode = tree;
-
-  for (const index of path) {
-    if (
-      currentNode.type !== "branch" ||
-      !currentNode.children ||
-      !currentNode.children[index]
-    ) {
-      break;
-    }
-    if (currentNode.orientation === splitOrientation) {
-      currentDepth++;
-    } else {
-      currentDepth = 0;
-    }
-    currentNode = currentNode.children[index];
-  }
-
-  return currentDepth + 1;
+  // For horizontal splits, count actual panels in the row
+  return countHorizontalPanelsInRow(tree, targetPanelId);
 }
 
 export function canSplitPanel(
@@ -268,40 +289,32 @@ export function canSplitPanel(
   const splitOrientation: Orientation = ["left", "right"].includes(direction)
     ? "horizontal"
     : "vertical";
-  const maxCount =
-    splitOrientation === "horizontal"
-      ? CONSTRAINTS.MAX_HORIZONTAL_PANELS
-      : CONSTRAINTS.MAX_VERTICAL_PANELS;
 
-  // Global tree depth check
-  if (getTreeDepth(tree) >= CONSTRAINTS.MAX_TREE_DEPTH) {
-    console.log(`❌ Split blocked: Tree depth ${getTreeDepth(tree)} >= ${CONSTRAINTS.MAX_TREE_DEPTH}`);
-    return false;
-  }
-
-  // Use localized constraint checking per branch
-  const currentDepth = getSplitDepthAlongPath(
-    tree,
-    targetPanelId,
-    splitOrientation,
-  );
-  
-  // For vertical splits, currentDepth is the current panel count, adding 1 would exceed if >= maxCount
-  // For horizontal splits, currentDepth is the depth that would be created, so <= is correct
-  const canSplit = splitOrientation === "vertical" 
-    ? currentDepth < maxCount 
-    : currentDepth <= maxCount;
+  if (splitOrientation === "horizontal") {
+    // Check column constraint
+    const currentColumns = countHorizontalPanelsInRow(tree, targetPanelId);
+    const canSplit = currentColumns < CONSTRAINTS.MAX_COLUMNS;
     
-  console.log(`🔍 Split check for ${direction} (${splitOrientation}):`, {
-    targetPanelId,
-    currentDepth,
-    maxCount,
-    wouldExceed: splitOrientation === "vertical" ? currentDepth >= maxCount : currentDepth > maxCount,
-    canSplit,
-    treeDepth: getTreeDepth(tree)
-  });
-  
-  return canSplit;
+    if (!canSplit) {
+      console.log(`❌ Cannot split: Already at max ${CONSTRAINTS.MAX_COLUMNS} columns in this row`);
+    } else {
+      console.log(`✅ Can split: ${currentColumns}/${CONSTRAINTS.MAX_COLUMNS} columns`);
+    }
+    
+    return canSplit;
+  } else {
+    // Check row constraint
+    const currentRows = countVerticalPanelsInColumn(tree, targetPanelId);
+    const canSplit = currentRows < CONSTRAINTS.MAX_ROWS;
+    
+    if (!canSplit) {
+      console.log(`❌ Cannot split: Already at max ${CONSTRAINTS.MAX_ROWS} rows in this column`);
+    } else {
+      console.log(`✅ Can split: ${currentRows}/${CONSTRAINTS.MAX_ROWS} rows`);
+    }
+    
+    return canSplit;
+  }
 }
 
 function countHorizontalColumns(tree: GridNode): number {
@@ -359,16 +372,24 @@ export function splitPanel(
   newPanelContent?: Partial<PanelContent>,
   splitRatio = 0.5,
 ): GridNode | null {
+  console.log('🔍 splitPanel called:', { targetPanelId, direction, tree });
+  
   const path = findNodePath(tree, targetPanelId);
-  if (!path) return null;
+  if (path === null) {
+    console.error('❌ splitPanel: findNodePath returned null for', targetPanelId);
+    return null;
+  }
+  console.log('✅ Found path:', path);
 
   const orientation: Orientation = ["left", "right"].includes(direction)
     ? "horizontal"
     : "vertical";
 
   if (!canSplitPanel(tree, targetPanelId, direction)) {
+    console.error('❌ splitPanel: canSplitPanel returned false');
     return null;
   }
+  console.log('✅ Can split panel');
 
   const targetNode = getNodeByPath(tree, path);
   if (!targetNode) return null;
