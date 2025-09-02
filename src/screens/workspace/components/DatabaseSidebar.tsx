@@ -315,7 +315,7 @@ export function DatabaseSidebar({
   return (
     <div className="flex flex-col h-full">
       {/* Search Input and Refresh */}
-      <div className="p-1 border-y h-8">
+      <div className="p-1 border-b h-8">
         <div className="flex gap-1">
           <div className="relative flex-1">
             <Search className="absolute left-1.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />

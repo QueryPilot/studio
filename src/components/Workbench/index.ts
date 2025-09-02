@@ -1,4 +1,4 @@
-export { WorkbenchLayout } from './WorkbenchLayout';
+export { WorkbenchLayout } from './WorkbenchLayoutWithDnd';
 export { GridRenderer } from './GridRenderer';
-export { Panel } from './Panel';
+export { Panel } from './PanelDnd';
 export { SplitHandle } from './SplitHandle';

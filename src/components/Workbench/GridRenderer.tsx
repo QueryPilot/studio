@@ -1,7 +1,7 @@
 import React, { useCallback, useRef, useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { GridNode } from '@/types/workbench';
-import { Panel } from './Panel';
+import { Panel } from './PanelDnd';
 import { SplitHandle } from './SplitHandle';
 import useWorkbenchStore from '@/stores/workbenchStore';
 
