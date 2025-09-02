@@ -14,12 +14,20 @@ export interface GridNode {
   maxSize?: { width: number; height: number };
 }
 
+export interface TabMetadata {
+  title?: string;
+  table?: string;
+  schema?: string;
+  type?: string;
+  [key: string]: unknown;
+}
+
 export interface PanelContent {
   id: string;
   type: PanelType;
   tabIds: string[];
   activeTabId: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, TabMetadata>;
 }
 
 export interface SplitAction {

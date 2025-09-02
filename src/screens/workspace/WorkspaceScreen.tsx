@@ -30,9 +30,10 @@ export function WorkspaceScreen() {
       setIsLoading(true);
       initWorkspace(connectionId);
       initializePanels(connectionId);
-      
+
       // Connect to the database
-      void databaseService.connectById(connectionId)
+      void databaseService
+        .connectById(connectionId)
         .then(() => {
           // Load schemas after successful connection
           return loadSchemas(connectionId);
@@ -64,7 +65,7 @@ export function WorkspaceScreen() {
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-background">
       {/* Title Bar */}
-      <WorkspaceTitleBar 
+      <WorkspaceTitleBar
         connectionId={connectionId}
         onToggleSidebar={toggleSidebar}
       />
@@ -74,16 +75,16 @@ export function WorkspaceScreen() {
         {/* Left Sidebar - Database Explorer */}
         {sidebars.left && (
           <>
-            <ResizablePanel 
+            <ResizablePanel
               id="sidebar-left"
               order={1}
-              defaultSize={18} 
-              minSize={12} 
+              defaultSize={18}
+              minSize={12}
               maxSize={30}
               className="bg-muted/20 flex flex-col"
             >
               {/* Database/Schema Selector aligned with tabs */}
-              <div className="h-8 border-b bg-background flex items-center">
+              <div className="h-8 border-y bg-background flex items-center overflow-hidden">
                 <DatabaseSchemaSelector
                   connectionId={connectionId}
                   selectedDatabase={selectedDatabase}
@@ -94,7 +95,7 @@ export function WorkspaceScreen() {
               </div>
               {/* Database Sidebar */}
               <div className="flex-1 overflow-hidden">
-                <DatabaseSidebar 
+                <DatabaseSidebar
                   connectionId={connectionId}
                   isLoading={isLoading}
                   selectedDatabase={selectedDatabase}
@@ -107,10 +108,18 @@ export function WorkspaceScreen() {
         )}
 
         {/* Central Content - Workbench Layout */}
-        <ResizablePanel 
+        <ResizablePanel
           id="main-content"
           order={2}
-          defaultSize={sidebars.left ? (sidebars.right ? 59 : 82) : (sidebars.right ? 77 : 100)}
+          defaultSize={
+            sidebars.left
+              ? sidebars.right
+                ? 59
+                : 82
+              : sidebars.right
+              ? 77
+              : 100
+          }
         >
           <WorkbenchLayout className="h-full" />
         </ResizablePanel>
@@ -119,11 +128,11 @@ export function WorkspaceScreen() {
         {sidebars.right && (
           <>
             <ResizableHandle withHandle />
-            <ResizablePanel 
+            <ResizablePanel
               id="sidebar-right"
               order={3}
-              defaultSize={23} 
-              minSize={15} 
+              defaultSize={23}
+              minSize={15}
               maxSize={40}
               className="bg-muted/20"
             >
@@ -132,7 +141,6 @@ export function WorkspaceScreen() {
           </>
         )}
       </ResizablePanelGroup>
-
     </div>
   );
 }
