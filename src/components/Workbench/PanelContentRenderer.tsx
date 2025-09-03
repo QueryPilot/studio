@@ -1,19 +1,22 @@
-import React from "react";
+import React, { useState } from "react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Table, Bolt, BookMarked, Zap, Download } from "lucide-react";
+import { GlideTableDataGrid } from "@/components/DataGrid/glide/GlideTableDataGrid";
+import { TableStructure } from "@/components/DataGrid/TableStructure";
+import { TableIndexes } from "@/components/DataGrid/TableIndexes";
 
 interface PanelContentRendererProps {
   tabId: string;
   metadata?: any;
 }
 
-import { GlideTableDataGrid } from "@/components/DataGrid/glide/GlideTableDataGrid";
-import { TableStructure } from "@/components/DataGrid/TableStructure";
-import { TableIndexes } from "@/components/DataGrid/TableIndexes";
-
 export const PanelContentRenderer: React.FC<PanelContentRendererProps> = ({
   tabId,
   metadata,
 }) => {
   const [type] = tabId.split("-");
+  const [activeView, setActiveView] = useState(metadata?.viewType || "data");
 
   if (type === "query") {
     return (
@@ -30,41 +33,95 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = ({
   }
 
   if (type === "table" && metadata) {
-    const viewType = metadata.viewType || "data";
+    return (
+      <div className="flex flex-col h-full">
+        {/* Table Toolbar */}
+        <div className="flex-none border-b bg-background h-8">
+          <div className="flex items-center justify-between px-1 h-full">
+            <Tabs value={activeView} onValueChange={setActiveView}>
+              <TabsList className="h-6 p-0.5">
+                <TabsTrigger
+                  value="data"
+                  className="gap-1 text-xs h-5 px-2 py-0"
+                >
+                  <Table className="h-3 w-3" />
+                  Data
+                </TabsTrigger>
+                <TabsTrigger
+                  value="structure"
+                  className="gap-1 text-xs h-5 px-2 py-0"
+                >
+                  <Bolt className="h-3 w-3" />
+                  Structure
+                </TabsTrigger>
+                <TabsTrigger
+                  value="indexes"
+                  className="gap-1 text-xs h-5 px-2 py-0"
+                >
+                  <BookMarked className="h-3 w-3" />
+                  Indexes
+                </TabsTrigger>
+                <TabsTrigger
+                  value="triggers"
+                  className="gap-1 text-xs h-5 px-2 py-0"
+                >
+                  <Zap className="h-3 w-3" />
+                  Triggers
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 text-xs px-2 py-0"
+              onClick={() => {}}
+            >
+              <Download className="h-3 w-3 mr-1" />
+              Export
+            </Button>
+          </div>
+        </div>
 
-    if (viewType === "data") {
-      return (
-        <GlideTableDataGrid
-          connectionId={metadata.connectionId}
-          database={metadata.database}
-          schema={metadata.schema}
-          table={metadata.table}
-          className="h-full"
-        />
-      );
-    }
+        {/* Content Area */}
+        <div className="flex-1 min-h-0 overflow-hidden">
+          {activeView === "data" && (
+            <GlideTableDataGrid
+              connectionId={metadata.connectionId}
+              database={metadata.database}
+              schema={metadata.schema}
+              table={metadata.table}
+              className="h-full"
+            />
+          )}
 
-    if (viewType === "structure") {
-      return (
-        <TableStructure
-          connectionId={metadata.connectionId}
-          database={metadata.database}
-          schema={metadata.schema}
-          table={metadata.table}
-        />
-      );
-    }
+          {activeView === "structure" && (
+            <TableStructure
+              connectionId={metadata.connectionId}
+              database={metadata.database}
+              schema={metadata.schema}
+              table={metadata.table}
+            />
+          )}
 
-    if (viewType === "indexes") {
-      return (
-        <TableIndexes
-          connectionId={metadata.connectionId}
-          database={metadata.database}
-          schema={metadata.schema}
-          table={metadata.table}
-        />
-      );
-    }
+          {activeView === "indexes" && (
+            <TableIndexes
+              connectionId={metadata.connectionId}
+              database={metadata.database}
+              schema={metadata.schema}
+              table={metadata.table}
+            />
+          )}
+
+          {activeView === "triggers" && (
+            <div className="p-4">
+              <p className="text-muted-foreground">
+                Triggers view coming soon...
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
   }
 
   return (

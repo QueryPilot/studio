@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { type PanelContent, type DropPosition } from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
@@ -22,6 +22,7 @@ interface DraggableTabProps {
   isFocused: boolean;
   isLast: boolean;
   tabType?: string;
+  isNextActive?: boolean;
   onActivate: () => void;
   onClose: () => void;
 }
@@ -34,6 +35,7 @@ const DraggableTab: React.FC<DraggableTabProps> = ({
   isFocused,
   isLast,
   tabType = "table",
+  isNextActive = false,
   onActivate,
   onClose,
 }) => {
@@ -75,9 +77,9 @@ const DraggableTab: React.FC<DraggableTabProps> = ({
         className={cn(
           "px-2 py-1 text-xs h-8 transition-colors flex items-center gap-1.5 cursor-move relative group",
           isActive && isFocused
-            ? "bg-primary text-primary-foreground font-medium"
+            ? "bg-primary/50 text-foreground font-medium"
             : isActive
-            ? "bg-background"
+            ? "bg-primary/10"
             : "hover:bg-muted/30",
           isDragging && "opacity-50",
         )}
@@ -85,8 +87,12 @@ const DraggableTab: React.FC<DraggableTabProps> = ({
           e.stopPropagation();
           onActivate();
         }}
-        onMouseEnter={() => { setIsHovered(true); }}
-        onMouseLeave={() => { setIsHovered(false); }}
+        onMouseEnter={() => {
+          setIsHovered(true);
+        }}
+        onMouseLeave={() => {
+          setIsHovered(false);
+        }}
       >
         <div className="h-4 w-4 flex items-center justify-center flex-shrink-0">
           {isHovered ? (
@@ -105,8 +111,8 @@ const DraggableTab: React.FC<DraggableTabProps> = ({
         </div>
         <span className="max-w-[120px] truncate">{displayName}</span>
       </div>
-      {!isLast && (
-        <div className="h-5 w-px bg-border self-center" />
+      {!isLast && !isActive && !isNextActive && (
+        <div className="h-5 w-px bg-muted-foreground/30 self-center" />
       )}
     </>
   );
@@ -182,6 +188,8 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
     removeTab,
   } = useWorkbenchStore();
 
+  const tabsContainerRef = useRef<HTMLDivElement>(null);
+
   // Subscribe to drag state
   const draggedTab = useWorkbenchStore(
     (state) => state.dragDropContext.draggedTab,
@@ -195,6 +203,24 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
   const showDropZones = isDragActive && (!isSourcePanel || panelCount === 1);
 
   const isFocused = focusedPanelId === content.id;
+
+  // Auto-scroll to active tab when it changes
+  useEffect(() => {
+    if (tabsContainerRef.current && content.activeTabId) {
+      const activeIndex = content.tabIds.indexOf(content.activeTabId);
+      if (activeIndex >= 0) {
+        const tabElements = tabsContainerRef.current.children;
+        const activeTabElement = tabElements[activeIndex * 2]; // *2 because of dividers
+        if (activeTabElement) {
+          activeTabElement.scrollIntoView({
+            behavior: "smooth",
+            block: "nearest",
+            inline: "center",
+          });
+        }
+      }
+    }
+  }, [content.activeTabId, content.tabIds]);
 
   useEffect(() => {
     console.log(`Panel ${content.id} - Drag state:`, {
@@ -232,13 +258,16 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
   return (
     <div
       className={cn(
-        "panel flex flex-col bg-background h-full overflow-hidden relative border border-border",
+        "panel flex flex-col bg-background h-full overflow-hidden relative border border-border ",
         className,
       )}
       onClick={handleClick}
     >
-      <div className="panel-header flex items-center justify-between h-8 bg-muted/20 border-b">
-        <div className="flex items-center overflow-x-auto">
+      <div className="panel-header flex items-center justify-between bg-muted/20 border-b">
+        <div
+          ref={tabsContainerRef}
+          className="flex items-center overflow-x-auto scrollbar-tabs"
+        >
           {content.tabIds.map((tabId, index) => {
             const metadata = content.metadata?.[tabId];
             const displayName =
@@ -246,6 +275,11 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
               metadata?.table ||
               tabId.split("-").pop() ||
               tabId;
+
+            const nextTabId = content.tabIds[index + 1];
+            const isNextActive = nextTabId
+              ? content.activeTabId === nextTabId
+              : false;
 
             return (
               <DraggableTab
@@ -257,6 +291,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                 isFocused={isFocused}
                 isLast={index === content.tabIds.length - 1}
                 tabType={metadata?.type || "table"}
+                isNextActive={isNextActive}
                 onActivate={() => {
                   setActiveTab(content.id, tabId);
                   focusPanel(content.id);
