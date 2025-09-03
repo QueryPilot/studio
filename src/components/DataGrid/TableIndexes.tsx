@@ -62,28 +62,28 @@ export const TableIndexes = memo(function TableIndexes({
 
   return (
     <div className="h-full overflow-auto">
-      <table className="w-full">
-        <thead className="sticky top-0 z-10 bg-muted/50 border-b">
+      <table className="min-w-full">
+        <thead className="sticky top-0 z-10 bg-muted border-b">
           <tr className="text-xs" style={{ height: "28px" }}>
             <th className="text-left px-2 py-1 w-10 border-r font-normal text-foreground/70">
               #
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
+            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[150px]">
               Index Name
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
+            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[200px]">
               Columns
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
+            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[100px]">
               Type
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
+            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[80px]">
               Unique
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
+            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[150px]">
               Condition
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
+            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[100px]">
               Size
             </th>
           </tr>

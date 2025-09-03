@@ -1,6 +1,6 @@
 import { memo, useState, useEffect } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertCircle, Clock, Play, Pause } from "lucide-react";
+import { AlertCircle, Clock, Play, Pause, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { databaseService, type TriggerMeta } from "@/services/databaseService";
 
@@ -64,33 +64,45 @@ export const TableTriggers = memo(function TableTriggers({
     );
   }
 
+  if (triggers.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full p-8">
+        <Zap className="h-12 w-12 text-muted-foreground/50 mb-4" />
+        <h3 className="text-lg font-semibold mb-2 text-foreground/70">No triggers found</h3>
+        <p className="text-sm text-muted-foreground max-w-md text-center">
+          This table doesn't have any triggers defined.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full overflow-auto">
-      <table className="w-full">
-        <thead className="sticky top-0 z-10 bg-muted/50 border-b">
+      <table className="min-w-full">
+        <thead className="sticky top-0 z-10 bg-muted border-b">
           <tr className="text-xs" style={{ height: "28px" }}>
             <th className="text-left px-2 py-1 w-10 border-r font-normal text-foreground/70">
               #
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
+            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[150px]">
               Trigger Name
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
+            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[100px]">
               Event
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
+            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[100px]">
               Timing
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
+            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[80px]">
               Level
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
+            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[100px]">
               Status
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
+            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[150px]">
               Function
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
+            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[150px]">
               Condition
             </th>
           </tr>
