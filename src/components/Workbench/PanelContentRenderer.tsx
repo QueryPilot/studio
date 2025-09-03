@@ -5,6 +5,7 @@ import { Table, Bolt, BookMarked, Zap, Download } from "lucide-react";
 import { GlideTableDataGrid } from "@/components/DataGrid/glide/GlideTableDataGrid";
 import { TableStructure } from "@/components/DataGrid/TableStructure";
 import { TableIndexes } from "@/components/DataGrid/TableIndexes";
+import { TableTriggers } from "@/components/DataGrid/TableTriggers";
 
 interface PanelContentRendererProps {
   tabId: string;
@@ -113,11 +114,12 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = ({
           )}
 
           {activeView === "triggers" && (
-            <div className="p-4">
-              <p className="text-muted-foreground">
-                Triggers view coming soon...
-              </p>
-            </div>
+            <TableTriggers
+              connectionId={metadata.connectionId}
+              database={metadata.database}
+              schema={metadata.schema}
+              table={metadata.table}
+            />
           )}
         </div>
       </div>
