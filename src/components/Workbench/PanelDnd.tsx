@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { type PanelContent, type DropPosition } from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
-import { X, Plus } from "lucide-react";
+import { X, Plus, Table2, Eye, FunctionSquare, Database } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -19,6 +19,9 @@ interface DraggableTabProps {
   panelId: string;
   displayName: string;
   isActive: boolean;
+  isFocused: boolean;
+  isLast: boolean;
+  tabType?: string;
   onActivate: () => void;
   onClose: () => void;
 }
@@ -28,9 +31,13 @@ const DraggableTab: React.FC<DraggableTabProps> = ({
   panelId,
   displayName,
   isActive,
+  isFocused,
+  isLast,
+  tabType = "table",
   onActivate,
   onClose,
 }) => {
+  const [isHovered, setIsHovered] = useState(false);
   const draggableId = `tab-${panelId}-${tabId}`;
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
@@ -43,33 +50,65 @@ const DraggableTab: React.FC<DraggableTabProps> = ({
     opacity: isDragging ? 0.5 : 1,
   };
 
+  const getIcon = () => {
+    switch (tabType) {
+      case "view":
+        return Eye;
+      case "function":
+        return FunctionSquare;
+      case "query":
+        return Database;
+      default:
+        return Table2;
+    }
+  };
+
+  const Icon = getIcon();
+
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      {...listeners}
-      {...attributes}
-      className={cn(
-        "px-3 py-1 text-sm rounded-md transition-colors flex items-center gap-1 cursor-move",
-        isActive ? "bg-background border" : "hover:bg-muted/50",
-        isDragging && "opacity-50",
-      )}
-      onClick={(e) => {
-        e.stopPropagation();
-        onActivate();
-      }}
-    >
-      <span className="max-w-[120px] truncate">{displayName}</span>
-      <button
-        className="hover:bg-destructive/20 rounded p-0.5"
+    <>
+      <div
+        ref={setNodeRef}
+        style={style}
+        {...listeners}
+        {...attributes}
+        className={cn(
+          "px-2 py-1 text-xs h-8 transition-colors flex items-center gap-1.5 cursor-move relative group",
+          isActive && isFocused
+            ? "bg-primary text-primary-foreground font-medium"
+            : isActive
+            ? "bg-background"
+            : "hover:bg-muted/30",
+          isDragging && "opacity-50",
+        )}
         onClick={(e) => {
           e.stopPropagation();
-          onClose();
+          onActivate();
         }}
+        onMouseEnter={() => { setIsHovered(true); }}
+        onMouseLeave={() => { setIsHovered(false); }}
       >
-        <X className="h-3 w-3" />
-      </button>
-    </div>
+        <div className="h-4 w-4 flex items-center justify-center flex-shrink-0">
+          {isHovered ? (
+            <button
+              className="hover:bg-destructive/20 rounded p-0.5 transition-colors h-4 w-4 flex items-center justify-center"
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          ) : (
+            <Icon className="h-3.5 w-3.5" />
+          )}
+        </div>
+        <span className="max-w-[120px] truncate">{displayName}</span>
+      </div>
+      {!isLast && (
+        <div className="h-5 w-px bg-border self-center" />
+      )}
+    </>
   );
 };
 
@@ -194,14 +233,13 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
     <div
       className={cn(
         "panel flex flex-col bg-background h-full overflow-hidden relative border border-border",
-        isFocused && "ring-1 ring-primary/50 border-primary/50",
         className,
       )}
       onClick={handleClick}
     >
-      <div className="panel-header flex items-center justify-between h-8 px-2 bg-muted/20 border-b">
-        <div className="flex items-center gap-1 overflow-x-auto">
-          {content.tabIds.map((tabId) => {
+      <div className="panel-header flex items-center justify-between h-8 bg-muted/20 border-b">
+        <div className="flex items-center overflow-x-auto">
+          {content.tabIds.map((tabId, index) => {
             const metadata = content.metadata?.[tabId];
             const displayName =
               metadata?.title ||
@@ -216,6 +254,9 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                 panelId={content.id}
                 displayName={displayName}
                 isActive={content.activeTabId === tabId}
+                isFocused={isFocused}
+                isLast={index === content.tabIds.length - 1}
+                tabType={metadata?.type || "table"}
                 onActivate={() => {
                   setActiveTab(content.id, tabId);
                   focusPanel(content.id);
