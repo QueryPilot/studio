@@ -2,13 +2,26 @@ import React, { useCallback, useEffect, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { type PanelContent, type DropPosition } from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
-import { X, Plus, Table2, Eye, FunctionSquare, Database } from "lucide-react";
+import {
+  X,
+  Plus,
+  Table2,
+  Eye,
+  FunctionSquare,
+  Database,
+  PanelRight,
+  PanelBottom,
+  PanelLeft,
+  PanelTop,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
 } from "@/components/ui/dropdown-menu";
 import { PanelContentRenderer } from "./PanelContentRenderer";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
@@ -317,49 +330,57 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                 <Plus className="h-3 w-3" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuItem
                 onClick={() => {
                   handleSplit("right");
                 }}
               >
+                <PanelRight className="mr-2 h-4 w-4" />
                 Split Right
+                <DropdownMenuShortcut>⌘\</DropdownMenuShortcut>
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => {
                   handleSplit("down");
                 }}
               >
+                <PanelBottom className="mr-2 h-4 w-4" />
                 Split Down
+                <DropdownMenuShortcut>⌘⇧\</DropdownMenuShortcut>
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => {
                   handleSplit("left");
                 }}
               >
+                <PanelLeft className="mr-2 h-4 w-4" />
                 Split Left
+                <DropdownMenuShortcut>⌘⌥←</DropdownMenuShortcut>
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => {
                   handleSplit("up");
                 }}
               >
+                <PanelTop className="mr-2 h-4 w-4" />
                 Split Up
+                <DropdownMenuShortcut>⌘⌥↑</DropdownMenuShortcut>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  closePanelAction(content.id);
+                }}
+                className="text-destructive focus:text-destructive"
+              >
+                <X className="mr-2 h-4 w-4" />
+                Close Panel
+                <DropdownMenuShortcut>⌘⇧W</DropdownMenuShortcut>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={(e) => {
-              e.stopPropagation();
-              closePanelAction(content.id);
-            }}
-          >
-            <X className="h-3 w-3" />
-          </Button>
         </div>
       </div>
 

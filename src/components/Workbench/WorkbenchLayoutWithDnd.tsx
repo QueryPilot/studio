@@ -59,6 +59,7 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
 
       if (!modKey) return;
 
+      // Cmd+\ for split right, Cmd+Shift+\ for split down
       if (e.key === "\\") {
         console.log(`⌨️ Backslash key pressed, focusedPanelId: ${focusedPanelId}, shift: ${e.shiftKey}`);
         if (focusedPanelId) {
@@ -79,6 +80,44 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
         }
       }
 
+      // Cmd+Alt+Left for split left
+      if (e.key === "ArrowLeft" && e.altKey && focusedPanelId) {
+        e.preventDefault();
+        splitPanelAction({
+          targetPanelId: focusedPanelId,
+          direction: "left",
+          splitRatio: 0.5,
+        });
+      }
+
+      // Cmd+Alt+Up for split up
+      if (e.key === "ArrowUp" && e.altKey && focusedPanelId) {
+        e.preventDefault();
+        splitPanelAction({
+          targetPanelId: focusedPanelId,
+          direction: "up",
+          splitRatio: 0.5,
+        });
+      }
+
+      // Cmd+W to close current tab
+      if (e.key === "w" && !e.shiftKey && focusedPanelId) {
+        e.preventDefault();
+        const state = useWorkbenchStore.getState();
+        const panel = state.panelContents.get(focusedPanelId);
+        if (panel && panel.activeTabId) {
+          state.removeTab(focusedPanelId, panel.activeTabId);
+        }
+      }
+
+      // Cmd+Shift+W to close panel
+      if (e.key === "w" && e.shiftKey && focusedPanelId) {
+        e.preventDefault();
+        const state = useWorkbenchStore.getState();
+        state.closePanelAction(focusedPanelId);
+      }
+
+      // Undo/Redo
       if (e.key === "z" && !e.shiftKey) {
         e.preventDefault();
         undo();
