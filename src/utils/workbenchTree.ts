@@ -165,9 +165,58 @@ export function countPanelsInDirection(
   return 1;
 }
 
+// Helper to count max vertical panels in any column of the tree
+function countVerticalPanelsInTree(node: GridNode): number {
+  if (node.type === "leaf") return 1;
+  
+  if (node.type === "branch" && node.orientation === "vertical") {
+    // Vertical split - sum the panels
+    const top = node.children?.[0] ? countVerticalPanelsInTree(node.children[0]) : 0;
+    const bottom = node.children?.[1] ? countVerticalPanelsInTree(node.children[1]) : 0;
+    return top + bottom;
+  } else if (node.type === "branch" && node.orientation === "horizontal") {
+    // Horizontal split - take the max of both sides
+    const left = node.children?.[0] ? countVerticalPanelsInTree(node.children[0]) : 0;
+    const right = node.children?.[1] ? countVerticalPanelsInTree(node.children[1]) : 0;
+    return Math.max(left, right);
+  }
+  
+  return 1;
+}
+
+// Helper to count max horizontal panels in any row of the tree
+function countHorizontalPanelsInTree(node: GridNode): number {
+  if (node.type === "leaf") return 1;
+  
+  if (node.type === "branch" && node.orientation === "horizontal") {
+    // Horizontal split - sum the panels
+    const left = node.children?.[0] ? countHorizontalPanelsInTree(node.children[0]) : 0;
+    const right = node.children?.[1] ? countHorizontalPanelsInTree(node.children[1]) : 0;
+    return left + right;
+  } else if (node.type === "branch" && node.orientation === "vertical") {
+    // Vertical split - take the max of both sides
+    const top = node.children?.[0] ? countHorizontalPanelsInTree(node.children[0]) : 0;
+    const bottom = node.children?.[1] ? countHorizontalPanelsInTree(node.children[1]) : 0;
+    return Math.max(top, bottom);
+  }
+  
+  return 1;
+}
+
 function countVerticalPanelsInColumn(tree: GridNode, targetPanelId: string): number {
   const path = findNodePath(tree, targetPanelId);
-  if (!path) return 1;
+  console.log(`🔍 countVerticalPanelsInColumn: path for ${targetPanelId}:`, path);
+  if (path === null) {
+    console.warn(`⚠️ Panel ${targetPanelId} not found in tree, returning 1`);
+    return 1;
+  }
+  
+  // If path is empty array, this is the root panel
+  if (path.length === 0) {
+    console.log(`📍 Target is root panel, counting all vertical panels in tree`);
+    // For root panel, count all vertical panels in the tree
+    return countVerticalPanelsInTree(tree);
+  }
 
   // Find the column root by traversing up to the first horizontal parent
   let columnRoot = tree;
@@ -222,7 +271,18 @@ function countVerticalPanelsInColumn(tree: GridNode, targetPanelId: string): num
 
 function countHorizontalPanelsInRow(tree: GridNode, targetPanelId: string): number {
   const path = findNodePath(tree, targetPanelId);
-  if (!path) return 1;
+  console.log(`🔍 countHorizontalPanelsInRow: path for ${targetPanelId}:`, path);
+  if (path === null) {
+    console.warn(`⚠️ Panel ${targetPanelId} not found in tree, returning 1`);
+    return 1;
+  }
+  
+  // If path is empty array, this is the root panel
+  if (path.length === 0) {
+    console.log(`📍 Target is root panel, counting all horizontal panels in tree`);
+    // For root panel, count all horizontal panels in the tree
+    return countHorizontalPanelsInTree(tree);
+  }
 
   // Find the row root by traversing up to the first vertical parent
   let rowRoot = tree;
@@ -236,6 +296,7 @@ function countHorizontalPanelsInRow(tree: GridNode, targetPanelId: string): numb
       // Found vertical parent, the row is the child at path[i]
       rowPath = path.slice(0, i + 1);
       rowRoot = getNodeByPath(tree, rowPath) || tree;
+      console.log(`📍 Found row root at path [${rowPath.join(',')}] for panel ${targetPanelId}`);
       break;
     }
   }
@@ -243,6 +304,7 @@ function countHorizontalPanelsInRow(tree: GridNode, targetPanelId: string): numb
   // If no vertical parent found, the entire tree is the row
   if (rowPath.length === 0) {
     rowRoot = tree;
+    console.log(`📍 Using entire tree as row root for panel ${targetPanelId}`);
   }
   
   // Count horizontal panels in this row
@@ -253,18 +315,24 @@ function countHorizontalPanelsInRow(tree: GridNode, targetPanelId: string): numb
       // Horizontal split - sum the panels in both children
       const leftCount = node.children?.[0] ? countHorizontalPanels(node.children[0]) : 0;
       const rightCount = node.children?.[1] ? countHorizontalPanels(node.children[1]) : 0;
-      return leftCount + rightCount;
+      const total = leftCount + rightCount;
+      console.log(`🔢 Horizontal branch: left=${leftCount}, right=${rightCount}, total=${total}`);
+      return total;
     } else if (node.type === "branch" && node.orientation === "vertical") {
       // Vertical split within row - take the max of both sides
       const topCount = node.children?.[0] ? countHorizontalPanels(node.children[0]) : 0;
       const bottomCount = node.children?.[1] ? countHorizontalPanels(node.children[1]) : 0;
-      return Math.max(topCount, bottomCount);
+      const max = Math.max(topCount, bottomCount);
+      console.log(`🔢 Vertical branch in row: top=${topCount}, bottom=${bottomCount}, max=${max}`);
+      return max;
     }
     
     return 1;
   }
   
-  return countHorizontalPanels(rowRoot);
+  const count = countHorizontalPanels(rowRoot);
+  console.log(`📊 Total horizontal panels in row for ${targetPanelId}: ${count}`);
+  return count;
 }
 
 // New function for localized constraint checking
@@ -286,6 +354,8 @@ export function canSplitPanel(
   targetPanelId: string,
   direction: Direction,
 ): boolean {
+  console.log(`🔍 canSplitPanel called for ${targetPanelId} direction: ${direction}`);
+  
   const splitOrientation: Orientation = ["left", "right"].includes(direction)
     ? "horizontal"
     : "vertical";
@@ -295,10 +365,10 @@ export function canSplitPanel(
     const currentColumns = countHorizontalPanelsInRow(tree, targetPanelId);
     const canSplit = currentColumns < CONSTRAINTS.MAX_COLUMNS;
     
+    console.log(`📊 Column check: ${currentColumns} columns in row, max: ${CONSTRAINTS.MAX_COLUMNS}, can split: ${canSplit}`);
+    
     if (!canSplit) {
       console.log(`❌ Cannot split: Already at max ${CONSTRAINTS.MAX_COLUMNS} columns in this row`);
-    } else {
-      console.log(`✅ Can split: ${currentColumns}/${CONSTRAINTS.MAX_COLUMNS} columns`);
     }
     
     return canSplit;
@@ -307,10 +377,10 @@ export function canSplitPanel(
     const currentRows = countVerticalPanelsInColumn(tree, targetPanelId);
     const canSplit = currentRows < CONSTRAINTS.MAX_ROWS;
     
+    console.log(`📊 Row check: ${currentRows} rows in column, max: ${CONSTRAINTS.MAX_ROWS}, can split: ${canSplit}`);
+    
     if (!canSplit) {
       console.log(`❌ Cannot split: Already at max ${CONSTRAINTS.MAX_ROWS} rows in this column`);
-    } else {
-      console.log(`✅ Can split: ${currentRows}/${CONSTRAINTS.MAX_ROWS} rows`);
     }
     
     return canSplit;
