@@ -1,5 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useTableData } from "@/hooks/useTableData";
+import { databaseService } from "@/services/databaseService";
 
 interface UseInfiniteTableDataParams {
   connectionId: string;
@@ -10,6 +11,8 @@ interface UseInfiniteTableDataParams {
 
 export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
   const { connectionId, database, table, schema } = params;
+  const [isConnected, setIsConnected] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
   // Get the table data hook
   const {
@@ -22,27 +25,59 @@ export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
     estimatedTotal,
     loadData,
     loadMore,
+    clearData,
   } = useTableData();
 
-  // Load initial data when component mounts or params change
+  // Check connection status and listen for changes
   useEffect(() => {
-    void loadData({
-      connectionId,
-      database,
-      table,
-      schema,
-    });
-  }, [connectionId, database, table, schema, loadData]);
+    // Check if connection is active
+    const checkConnection = () => {
+      const activeConnection = databaseService.getActiveConnection(connectionId);
+      if (activeConnection) {
+        setIsConnected(true);
+        setConnectionError(null);
+      } else {
+        setIsConnected(false);
+        setConnectionError("Not connected to database");
+        clearData(); // Clear any existing data
+      }
+    };
+
+    // Initial check
+    checkConnection();
+
+    // Periodically check connection status
+    const interval = setInterval(() => {
+      checkConnection();
+    }, 5000); // Check every 5 seconds
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [connectionId, clearData]);
+
+  // Load initial data only when connected
+  useEffect(() => {
+    if (isConnected) {
+      void loadData({
+        connectionId,
+        database,
+        table,
+        schema,
+      });
+    }
+  }, [isConnected, connectionId, database, table, schema, loadData]);
 
   return {
     isLoading,
     isLoadingMore,
-    error,
+    error: connectionError || error,
     columns,
     rows,
     estimatedTotal,
     loadMore,
     hasNextPage,
     isFetchingNextPage: isLoadingMore,
+    isConnected,
   };
 }
