@@ -12,6 +12,7 @@ import DataEditor, {
   type Theme,
   type GridMouseEventArgs,
   CompactSelection,
+  type DrawCellCallback,
 } from "@glideapps/glide-data-grid";
 import "@glideapps/glide-data-grid/dist/index.css";
 import "./glide-overrides.css";
@@ -95,6 +96,79 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
   estimatedTotal,
 }: EnhancedGlideWrapperProps) {
   const { theme: appTheme } = useTheme();
+
+  // Custom text cell renderer with optimized ellipsis
+  const drawTextCell: DrawCellCallback = useCallback((args, cell, drawContent) => {
+    // Only handle text cells
+    if (cell.kind !== GridCellKind.Text) return false;
+    
+    const { ctx, rect, theme } = args;
+    const { x, y, width, height } = rect;
+    const text = String(cell.displayData || cell.data || "");
+    
+    // Don't render empty text
+    if (!text || text === "NULL") {
+      // Use default renderer for NULL values
+      return false;
+    }
+    
+    // Save context state
+    ctx.save();
+    
+    // Clear the cell area first
+    ctx.fillStyle = theme.bgCell;
+    ctx.fillRect(x, y, width, height);
+    
+    // Set up text rendering
+    ctx.fillStyle = theme.textDark;
+    ctx.font = `${theme.baseFontStyle} ${theme.fontFamily}`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    
+    // Calculate text position
+    const padding = 8;
+    const textX = x + padding;
+    const textY = y + height / 2;
+    const maxWidth = width - (padding * 2);
+    
+    // Measure text
+    const textMetrics = ctx.measureText(text);
+    
+    if (textMetrics.width <= maxWidth) {
+      // Text fits - render normally
+      ctx.fillText(text, textX, textY);
+    } else {
+      // Text overflows - add ellipsis
+      const ellipsis = '\u2026';
+      const ellipsisWidth = ctx.measureText(ellipsis).width;
+      const availableWidth = maxWidth - ellipsisWidth;
+      
+      // Binary search for truncation point
+      let left = 0;
+      let right = text.length;
+      
+      while (left < right) {
+        const mid = Math.ceil((left + right) / 2);
+        const testText = text.substring(0, mid);
+        const testWidth = ctx.measureText(testText).width;
+        
+        if (testWidth <= availableWidth) {
+          left = mid;
+        } else {
+          right = mid - 1;
+        }
+      }
+      
+      // Draw truncated text with ellipsis
+      const truncatedText = text.substring(0, left);
+      ctx.fillText(truncatedText + ellipsis, textX, textY);
+    }
+    
+    // Restore context
+    ctx.restore();
+    
+    return true;
+  }, []);
   const { copy } = useCopy();
   const { toast } = useToast();
   const gridRef = useRef<DataEditorRef>(null);
@@ -517,6 +591,7 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
               rowMarkers={rowMarkers}
               headerHeight={headerHeight}
               rowHeight={rowHeight}
+              // drawCell={drawTextCell} // Disabled - custom renderer breaks text display
               overscrollX={0}
               overscrollY={0}
               rangeSelect="rect"

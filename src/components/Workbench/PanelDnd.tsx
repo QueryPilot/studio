@@ -317,7 +317,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
           })}
 
           {content.tabIds.length === 0 && (
-            <span className="text-muted-foreground text-sm px-2">
+            <span className="text-muted-foreground px-2 h-8 flex items-center text-xs font-bold">
               Empty Panel
             </span>
           )}

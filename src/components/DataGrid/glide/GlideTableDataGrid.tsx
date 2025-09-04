@@ -9,6 +9,7 @@ import { EnhancedGlideWrapper } from "./EnhancedGlideWrapper";
 import { useInfiniteTableData } from "../hooks/useInfiniteTableData";
 import {
   cellValueToGridCell,
+  shouldUseFullWidth,
   type GlideTableDataGridProps,
   type DataGridColumn,
 } from "./types";
@@ -75,7 +76,29 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
         if (!col) return null;
 
         const colId = col.name || `col_${originalIndex}`;
-        const baseWidth = Math.max(80, Math.min(200, col.name.length * 7 + 40));
+        
+        // Calculate base width - use full content width for date/time/number columns
+        let baseWidth;
+        if (shouldUseFullWidth(col.db_type)) {
+          // For date/time/number columns, calculate based on typical content length
+          if (col.db_type?.toLowerCase().includes("timestamp")) {
+            // Timestamps like "2025-08-31T10:44:52" need ~160px
+            baseWidth = 180;
+          } else if (col.db_type?.toLowerCase().includes("date")) {
+            // Dates like "2025-08-31" need ~100px
+            baseWidth = 120;
+          } else if (col.db_type?.toLowerCase().includes("time")) {
+            // Times like "10:44:52" need ~80px
+            baseWidth = 100;
+          } else {
+            // Numbers - use header width or minimum 100px
+            baseWidth = Math.max(100, col.name.length * 8 + 40);
+          }
+        } else {
+          // Text columns - use standard calculation
+          baseWidth = Math.max(80, Math.min(200, col.name.length * 7 + 40));
+        }
+        
         return {
           id: colId,
           name: col.name,
@@ -112,16 +135,6 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
       const column = columns[col];
       const rowData = rows[row];
 
-      // Debug: Log first row structure
-      if (row === 0 && col === 0) {
-        console.log("=== DEBUG: First row data ===");
-        console.log("rowData type:", typeof rowData);
-        console.log("rowData:", rowData);
-        console.log("Is array?", Array.isArray(rowData));
-        console.log("rowData[0]:", rowData[0]);
-        console.log("rowData.id:", rowData.id);
-        console.log("rowData keys:", Object.keys(rowData || {}));
-      }
 
       // rowData is now always an object with column names as keys (TableDataRow)
       let value;
@@ -131,9 +144,8 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
       } else {
         value = null;
       }
-      console.log(">>>", "column", column);
-      // Convert cell value to grid cell
-      return cellValueToGridCell(value, column.db_type);
+      // Convert cell value to grid cell with column width for proper truncation
+      return cellValueToGridCell(value, column.type, 'width' in column ? column.width : undefined);
     },
     [rows, columns],
   );
@@ -146,27 +158,38 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
       const column = columns[colIndex];
       const headerWidth = column.name.length * 8 + 40; // Header text width
 
-      // Sample first 100 rows to find max content width
+      // Create a canvas for accurate text measurement
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return headerWidth;
+      
+      // Use the same font as the grid
+      ctx.font = '400 12px Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif';
+
+      // Sample all rows (or up to 1000 for performance)
       let maxContentWidth = headerWidth;
-      const sampleSize = Math.min(100, rows.length);
+      const sampleSize = Math.min(1000, rows.length);
 
       for (let i = 0; i < sampleSize; i++) {
         const cellValue = rows[i]?.[column.name];
         const displayValue = cellValue?.value || cellValue;
-        const textLength = String(displayValue || "").length;
-        const contentWidth = textLength * 7 + 20; // Approximate char width
+        const textValue = String(displayValue || "");
+        
+        // Measure actual text width
+        const textWidth = ctx.measureText(textValue).width;
+        const contentWidth = textWidth + 16; // Add padding
         maxContentWidth = Math.max(maxContentWidth, contentWidth);
       }
 
-      // Cap at 500px max
-      return Math.min(maxContentWidth, 500);
+      // Cap at 800px max for readability
+      return Math.min(maxContentWidth, 800);
     },
     [columns, rows],
   );
 
   // Handle column resize
   const handleColumnResize = useCallback(
-    (column: GridColumn, newSize: number, colIndex: number) => {
+    (_column: GridColumn, newSize: number, colIndex: number) => {
       if (columns[colIndex]?.id) {
         const colId = columns[colIndex].id;
         setColumnWidths((prev) => ({
@@ -195,9 +218,9 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
 
   // Handle column resize end (double-click to auto-size)
   const handleColumnResizeEnd = useCallback(
-    (column: GridColumn, newSize: number, colIndex: number) => {
-      // Check if this is a double-click (size is -1 or very small change)
-      if (newSize < 0 || Math.abs(newSize - column.width) < 5) {
+    (_column: GridColumn, newSize: number, colIndex: number) => {
+      // Check if this is a double-click (size is -1 indicates auto-size request)
+      if (newSize < 0) {
         const optimalWidth = calculateOptimalWidth(colIndex);
         if (columns[colIndex]?.id) {
           const colId = columns[colIndex].id;
@@ -207,6 +230,7 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
           }));
         }
       }
+      // For normal resize end, the width is already set by handleColumnResize
     },
     [columns, calculateOptimalWidth],
   );

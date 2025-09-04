@@ -5,6 +5,75 @@ import {
 } from "@glideapps/glide-data-grid";
 import type { CellValue } from "@/types/cellValue";
 
+// Create a singleton canvas context for text measurement
+let measurementCanvas: HTMLCanvasElement | null = null;
+let measurementCtx: CanvasRenderingContext2D | null = null;
+
+const getMeasurementContext = (): CanvasRenderingContext2D | null => {
+  if (typeof document === "undefined") {
+    return null;
+  }
+  
+  if (!measurementCtx) {
+    try {
+      measurementCanvas = document.createElement("canvas");
+      measurementCtx = measurementCanvas.getContext("2d");
+    } catch (e) {
+      console.warn("Failed to create canvas context for text measurement:", e);
+      return null;
+    }
+  }
+  return measurementCtx;
+};
+
+// Measure text width and truncate with ellipsis if needed
+const truncateTextToWidth = (
+  text: string,
+  maxWidth: number,
+  font: string = "400 12px Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif"
+): string => {
+  if (!text) return text;
+  
+  const ctx = getMeasurementContext();
+  if (!ctx) {
+    // Fallback to character-based truncation if canvas not available
+    const avgCharWidth = 7;
+    const maxChars = Math.floor(maxWidth / avgCharWidth);
+    if (text.length > maxChars) {
+      return text.substring(0, maxChars - 3) + "...";
+    }
+    return text;
+  }
+  
+  ctx.font = font;
+  
+  const ellipsis = "...";
+  const textWidth = ctx.measureText(text).width;
+  
+  if (textWidth <= maxWidth) {
+    return text;
+  }
+  
+  // Binary search for optimal truncation point
+  let left = 0;
+  let right = text.length;
+  let truncated = text;
+  
+  while (left < right) {
+    const mid = Math.floor((left + right + 1) / 2);
+    truncated = text.substring(0, mid);
+    const truncatedWidth = ctx.measureText(truncated + ellipsis).width;
+    
+    if (truncatedWidth <= maxWidth) {
+      left = mid;
+    } else {
+      right = mid - 1;
+    }
+  }
+  
+  return text.substring(0, left) + ellipsis;
+};
+
 export interface GlideDataGridProps {
   connectionId: string;
   database: string;
@@ -32,7 +101,7 @@ export type DataGridColumn = GridColumn & {
 
 export interface DataGridState {
   columns: DataGridColumn[];
-  rows: any[];
+  rows: unknown[];
   isLoading: boolean;
   error: Error | null;
   totalRows: number;
@@ -71,10 +140,32 @@ export const getGridCellKind = (type?: string): GridCellKind => {
   return GridCellKind.Text;
 };
 
+// Helper to check if column should have full width by default
+export const shouldUseFullWidth = (type?: string): boolean => {
+  if (!type) return false;
+  
+  const lowerType = type.toLowerCase();
+  
+  // Use full width for numbers, dates, times, and timestamps
+  return (
+    lowerType.includes("int") ||
+    lowerType.includes("numeric") ||
+    lowerType.includes("decimal") ||
+    lowerType.includes("float") ||
+    lowerType.includes("double") ||
+    lowerType.includes("real") ||
+    lowerType.includes("date") ||
+    lowerType.includes("time") ||
+    lowerType.includes("timestamp") ||
+    lowerType.includes("timestamptz")
+  );
+};
+
 // Convert CellValue to GridCell
 export const cellValueToGridCell = (
   value: CellValue | undefined | null,
   columnType?: string,
+  columnWidth?: number,
 ): GridCell => {
   const kind = getGridCellKind(columnType);
 
@@ -101,9 +192,6 @@ export const cellValueToGridCell = (
     // Check for frontend CellValue structure (has 'value' property)
     if ("value" in value) {
       displayText = String(value.value);
-    } else if ("display_value" in value) {
-      // Fallback for backend CellValue structure
-      displayText = String((value as CellValue).display_value);
     } else {
       // If it's an object without expected properties, convert to string
       displayText = JSON.stringify(value);
@@ -119,7 +207,7 @@ export const cellValueToGridCell = (
       let numericValue = 0;
       if (typeof value === "number") {
         numericValue = value;
-      } else if (value.value !== undefined) {
+      } else if (typeof value === "object" && "value" in value) {
         numericValue = Number(value.value);
       } else if (displayText) {
         const parsed = parseFloat(displayText);
@@ -129,7 +217,7 @@ export const cellValueToGridCell = (
       return {
         kind: GridCellKind.Number,
         data: numericValue,
-        displayData: displayText,
+        displayData: displayText, // Full width for numbers - no truncation
         allowOverlay: false,
         readonly: true,
         contentAlign: "right", // Align numbers to the right
@@ -141,7 +229,7 @@ export const cellValueToGridCell = (
       let boolValue = false;
       if (typeof value === "boolean") {
         boolValue = value;
-      } else if (value.value !== undefined) {
+      } else if (typeof value === "object" && "value" in value) {
         boolValue = Boolean(value.value);
       } else if (displayText) {
         boolValue = displayText.toLowerCase() === "true" || displayText === "1";
@@ -156,14 +244,23 @@ export const cellValueToGridCell = (
     }
 
     default: {
+      // Dynamic truncation based on column width (always apply)
+      let truncatedText = displayText;
+      
+      if (columnWidth && columnWidth > 0) {
+        // Account for minimal padding (8px total for left and right)
+        const availableWidth = columnWidth - 8;
+        truncatedText = truncateTextToWidth(displayText, availableWidth);
+      }
+      
       return {
         kind: GridCellKind.Text,
-        data: displayText,
-        displayData: displayText, // Glide will handle text clipping and ellipsis
+        data: displayText, // Full text for copy/overlay
+        displayData: truncatedText, // Truncated text for display
         allowOverlay: true, // Allow overlay for full text view
         readonly: true,
         contentAlign: "left",
-        allowWrapping: false, // Ensure single line with ellipsis
+        allowWrapping: false,
       };
     }
   }

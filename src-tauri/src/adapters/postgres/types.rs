@@ -363,15 +363,15 @@ impl PostgresTypeConverter {
             };
         
         let display_value = if is_tsvector_type && matches!(*pg_type, Type::TEXT | Type::VARCHAR) {
-            eprintln!("DEBUG: TsVector/TsQuery cast to TEXT detected at column {}", idx);
+            // eprintln!("DEBUG: TsVector/TsQuery cast to TEXT detected at column {}", idx);
             // This was cast to text in the query, so get it as a string
             match row.try_get::<_, Option<String>>(idx) {
                 Ok(Some(val)) => {
-                    eprintln!("DEBUG: Got tsvector value as text: {:?}", val);
+                    // eprintln!("DEBUG: Got tsvector value as text: {:?}", val);
                     val
                 },
                 Ok(None) => {
-                    eprintln!("DEBUG: TsVector column {} is NULL", idx);
+                    // eprintln!("DEBUG: TsVector column {} is NULL", idx);
                     return Ok(CellValue::null());
                 },
                 Err(e) => {
