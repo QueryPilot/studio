@@ -10,6 +10,7 @@ import DataEditor, {
   type Theme,
   CompactSelection,
   type GridMouseEventArgs,
+  type DrawCellCallback,
 } from "@glideapps/glide-data-grid";
 import "@glideapps/glide-data-grid/dist/index.css";
 import { cn } from "@/lib/utils";
@@ -134,6 +135,70 @@ export function GlideDataGridWrapper({
     };
   }, [appTheme]);
 
+  // Custom text cell renderer with ellipsis using optimized binary search
+  const drawTextCell: DrawCellCallback = useCallback((args, cell) => {
+    // Only handle text cells
+    if (cell.kind !== GridCellKind.Text) return false;
+    
+    const { ctx, rect, theme } = args;
+    const { x, y, width, height } = rect;
+    const text = String(cell.displayData || cell.data || "");
+    
+    // Set font first to get accurate measurements
+    ctx.font = theme.baseFontStyle || "12px Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+    
+    // Clear the cell area first
+    ctx.fillStyle = theme.bgCell;
+    ctx.fillRect(x, y, width, height);
+    
+    // Setup text rendering
+    ctx.fillStyle = theme.textDark;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    
+    // Calculate available width with padding
+    const padding = 8;
+    const maxWidth = width - (padding * 2);
+    const textY = y + height / 2;
+    const textX = x + padding;
+    
+    // Measure full text width
+    const fullTextWidth = ctx.measureText(text).width;
+    
+    // If text fits, render normally
+    if (fullTextWidth <= maxWidth) {
+      ctx.fillText(text, textX, textY);
+      return true;
+    }
+    
+    // Text overflows - use binary search to find truncation point
+    const ellipsis = '…'; // Use single character ellipsis
+    const ellipsisWidth = ctx.measureText(ellipsis).width;
+    const availableWidth = maxWidth - ellipsisWidth;
+    
+    // Binary search for the maximum substring that fits
+    let left = 0;
+    let right = text.length;
+    
+    while (left < right) {
+      const mid = Math.floor((left + right + 1) / 2);
+      const substr = text.substring(0, mid);
+      const substrWidth = ctx.measureText(substr).width;
+      
+      if (substrWidth <= availableWidth) {
+        left = mid;
+      } else {
+        right = mid - 1;
+      }
+    }
+    
+    // Render truncated text with ellipsis
+    const truncated = text.substring(0, left);
+    ctx.fillText(truncated + ellipsis, textX, textY);
+    
+    return true;
+  }, []);
+
   // Handle cell selection for copy
   const handleSelectionChange = useCallback(
     (newSelection: GridSelection | undefined) => {
@@ -257,7 +322,7 @@ export function GlideDataGridWrapper({
         rowMarkers={rowMarkers}
         headerHeight={headerHeight}
         rowHeight={rowHeight}
-        drawCell={undefined}
+        drawCell={drawTextCell}
         rangeSelect="rect"
         columnSelect="multi"
         rowSelect="multi"

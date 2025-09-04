@@ -183,29 +183,40 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
       const column = columns[colIndex];
       const headerWidth = column.name.length * 8 + 40; // Header text width
       
-      // Sample first 100 rows to find max content width
+      // Create a canvas for accurate text measurement
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return headerWidth;
+      
+      // Use the same font as the grid
+      ctx.font = '400 12px Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif';
+      
+      // Sample all rows (or up to 1000 for performance)
       let maxContentWidth = headerWidth;
-      const sampleSize = Math.min(100, data.rows.length);
+      const sampleSize = Math.min(1000, data.rows.length);
       
       // Map to original column index for data access
       const originalColIndex = columnOrder.length > 0 ? columnOrder[colIndex] : colIndex;
       
       for (let i = 0; i < sampleSize; i++) {
-        const value = data.rows[i][originalColIndex];
-        const textLength = String(value || "").length;
-        const contentWidth = textLength * 7 + 20; // Approximate char width
+        const value = data.rows[i]?.[originalColIndex];
+        const textValue = String(value || "");
+        
+        // Measure actual text width
+        const textWidth = ctx.measureText(textValue).width;
+        const contentWidth = textWidth + 16; // Add padding
         maxContentWidth = Math.max(maxContentWidth, contentWidth);
       }
       
-      // Cap at 500px max
-      return Math.min(maxContentWidth, 500);
+      // Cap at 800px max for readability
+      return Math.min(maxContentWidth, 800);
     },
     [columns, data?.rows, columnOrder]
   );
 
   // Handle column resize
   const handleColumnResize = useCallback(
-    (column: GridColumn, newSize: number, colIndex: number) => {
+    (_column: GridColumn, newSize: number, colIndex: number) => {
       if (columns[colIndex]?.id) {
         const colId = columns[colIndex].id;
         setColumnWidths(prev => ({
@@ -219,9 +230,9 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
 
   // Handle column resize end (double-click to auto-size)
   const handleColumnResizeEnd = useCallback(
-    (column: GridColumn, newSize: number, colIndex: number) => {
-      // Check if this is a double-click (size is -1 or very small change)
-      if (newSize < 0 || Math.abs(newSize - column.width) < 5) {
+    (_column: GridColumn, newSize: number, colIndex: number) => {
+      // Check if this is a double-click (size is -1 indicates auto-size request)
+      if (newSize < 0) {
         const optimalWidth = calculateOptimalWidth(colIndex);
         if (columns[colIndex]?.id) {
           const colId = columns[colIndex].id;
@@ -231,6 +242,7 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
           }));
         }
       }
+      // For normal resize end, the width is already set by handleColumnResize
     },
     [columns, calculateOptimalWidth]
   );
