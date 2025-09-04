@@ -68,22 +68,22 @@ export const TableIndexes = memo(function TableIndexes({
             <th className="text-left px-2 py-1 w-10 border-r font-normal text-foreground/70">
               #
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[150px]">
+            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
               Index Name
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[200px]">
+            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
               Columns
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[100px]">
+            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
               Type
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[80px]">
+            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
               Unique
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[150px]">
+            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
               Condition
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[100px]">
+            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
               Size
             </th>
           </tr>
@@ -101,8 +101,8 @@ export const TableIndexes = memo(function TableIndexes({
               <td className="px-1.5 py-0.5 border-r text-muted-foreground">
                 {i + 1}
               </td>
-              <td className="px-1.5 py-0.5 border-r font-medium text-foreground/80 dark:text-foreground/70">
-                <div className="flex items-center justify-between">
+              <td className="px-1.5 py-0.5 border-r font-medium text-foreground/80 dark:text-foreground/70 whitespace-nowrap">
+                <div className="flex items-center gap-1">
                   <span className={index.primary ? "font-semibold" : ""}>
                     {index.name}
                   </span>
@@ -116,18 +116,18 @@ export const TableIndexes = memo(function TableIndexes({
                   </div>
                 </div>
               </td>
-              <td className="px-1.5 py-0.5 border-r text-foreground/80 dark:text-foreground/65 font-mono text-xs">
+              <td className="px-1.5 py-0.5 border-r text-foreground/80 dark:text-foreground/65 font-mono text-xs whitespace-nowrap">
                 {index.columns.join(", ")}
               </td>
-              <td className="px-1.5 py-0.5 border-r text-foreground/80 dark:text-foreground/65">
-                <div className="flex items-center justify-between">
+              <td className="px-1.5 py-0.5 border-r text-foreground/80 dark:text-foreground/65 whitespace-nowrap">
+                <div className="flex items-center gap-1">
                   <span className="font-mono text-xs">{index.index_type}</span>
                   {index.index_type === "btree" && (
                     <TrendingUp className="h-3 w-3 text-green-600 dark:text-green-500 opacity-70" />
                   )}
                 </div>
               </td>
-              <td className="px-1.5 py-0.5 border-r">
+              <td className="px-1.5 py-0.5 border-r whitespace-nowrap">
                 <span
                   className={cn(
                     "inline-flex px-1.5 py-0 rounded text-xs",
@@ -139,10 +139,10 @@ export const TableIndexes = memo(function TableIndexes({
                   {index.unique ? "UNIQUE" : "NO"}
                 </span>
               </td>
-              <td className="px-1.5 py-0.5 border-r text-foreground/60 dark:text-foreground/50 text-xs italic">
+              <td className="px-1.5 py-0.5 border-r text-foreground/60 dark:text-foreground/50 text-xs italic whitespace-nowrap">
                 -
               </td>
-              <td className="px-1.5 py-0.5 border-r text-foreground/70 dark:text-foreground/60 text-xs text-right font-mono">
+              <td className="px-1.5 py-0.5 border-r text-foreground/70 dark:text-foreground/60 text-xs text-right font-mono whitespace-nowrap">
                 -
               </td>
             </tr>

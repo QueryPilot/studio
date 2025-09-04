@@ -35,6 +35,7 @@ postgres-native-tls = "0.5"
 uuid = { version = "1.6", features = ["serde", "v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 bigdecimal = { version = "0.4", features = ["serde"] }
+rust_decimal = { version = "1.33", features = ["db-postgres", "serde"] }
 bit-vec = "0.6"
 time = { version = "0.3", features = ["serde"] }
 base64 = "0.21"

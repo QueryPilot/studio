@@ -71,29 +71,10 @@ export const getGridCellKind = (type?: string): GridCellKind => {
   return GridCellKind.Text;
 };
 
-// Helper to truncate text based on column width
-const truncateText = (text: string, columnWidth: number): string => {
-  // Approximate character width in pixels (for 12px font)
-  const charWidth = 7;
-  const padding = 16; // Balanced padding for borders
-  const ellipsisWidth = 21; // Width for "..."
-
-  const availableWidth = columnWidth - padding;
-  const maxChars = Math.floor((availableWidth - ellipsisWidth) / charWidth);
-
-  if (text.length <= maxChars || maxChars <= 0) {
-    return text;
-  }
-
-  // Trim whitespace before adding ellipsis
-  return text.substring(0, maxChars).trimEnd() + "...";
-};
-
 // Convert CellValue to GridCell
 export const cellValueToGridCell = (
   value: CellValue | undefined | null,
   columnType?: string,
-  columnWidth?: number,
 ): GridCell => {
   const kind = getGridCellKind(columnType);
 
@@ -109,42 +90,42 @@ export const cellValueToGridCell = (
   }
 
   // Debug log the value structure
-  if (typeof value === 'object' && value !== null && 'display_value' in value) {
+  if (typeof value === "object" && "display_value" in value) {
     console.log("CellValue structure:", value);
   }
-  
+
   // Handle CellValue structure from types/cellValue.ts
   let displayText = "";
-  
-  if (typeof value === 'object' && value !== null) {
+
+  if (typeof value === "object") {
     // Check for frontend CellValue structure (has 'value' property)
-    if ('value' in value) {
+    if ("value" in value) {
       displayText = String(value.value);
-    } else if ('display_value' in value) {
+    } else if ("display_value" in value) {
       // Fallback for backend CellValue structure
-      displayText = String(value.display_value);
+      displayText = String((value as CellValue).display_value);
     } else {
       // If it's an object without expected properties, convert to string
       displayText = JSON.stringify(value);
     }
   } else {
     // For primitive values or other types
-    displayText = String(value || "");
+    displayText = String(value);
   }
 
   switch (kind) {
-    case GridCellKind.Number:
+    case GridCellKind.Number: {
       // Try to extract numeric value from various formats
       let numericValue = 0;
-      if (typeof value === 'number') {
+      if (typeof value === "number") {
         numericValue = value;
-      } else if (value?.value !== undefined) {
+      } else if (value.value !== undefined) {
         numericValue = Number(value.value);
       } else if (displayText) {
         const parsed = parseFloat(displayText);
         numericValue = isNaN(parsed) ? 0 : parsed;
       }
-      
+
       return {
         kind: GridCellKind.Number,
         data: numericValue,
@@ -153,40 +134,36 @@ export const cellValueToGridCell = (
         readonly: true,
         contentAlign: "right", // Align numbers to the right
       };
+    }
 
-    case GridCellKind.Boolean:
+    case GridCellKind.Boolean: {
       // Handle boolean values
       let boolValue = false;
-      if (typeof value === 'boolean') {
+      if (typeof value === "boolean") {
         boolValue = value;
-      } else if (value?.value !== undefined) {
+      } else if (value.value !== undefined) {
         boolValue = Boolean(value.value);
       } else if (displayText) {
-        boolValue = displayText.toLowerCase() === 'true' || displayText === '1';
+        boolValue = displayText.toLowerCase() === "true" || displayText === "1";
       }
-      
+
       return {
         kind: GridCellKind.Boolean,
         data: boolValue,
         allowOverlay: false,
         readonly: true,
       };
+    }
 
     default: {
-      let displayValue = displayText;
-
-      // Apply manual truncation if column width is provided
-      if (columnWidth) {
-        displayValue = truncateText(displayValue, columnWidth);
-      }
-
       return {
         kind: GridCellKind.Text,
         data: displayText,
-        displayData: displayValue,
+        displayData: displayText, // Glide will handle text clipping and ellipsis
         allowOverlay: true, // Allow overlay for full text view
         readonly: true,
         contentAlign: "left",
+        allowWrapping: false, // Ensure single line with ellipsis
       };
     }
   }

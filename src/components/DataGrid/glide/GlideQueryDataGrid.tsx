@@ -95,22 +95,6 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
     return String(value);
   }, []);
 
-  // Helper to truncate text based on column width
-  const truncateText = useCallback((text: string, columnWidth: number): string => {
-    const charWidth = 7;
-    const padding = 16; // Balanced padding
-    const ellipsisWidth = 21;
-    
-    const availableWidth = columnWidth - padding;
-    const maxChars = Math.floor((availableWidth - ellipsisWidth) / charWidth);
-    
-    if (text.length <= maxChars || maxChars <= 0) {
-      return text;
-    }
-    
-    // Trim whitespace before adding ellipsis
-    return text.substring(0, maxChars).trimEnd() + "...";
-  }, []);
 
   // Get cell content callback
   const getCellContent = useCallback(
@@ -154,12 +138,11 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
           
         default: {
           const textValue = formatDisplayValue(value);
-          const displayValue = truncateText(textValue, column.width);
           
           return {
             kind: GridCellKind.Text,
             data: textValue,
-            displayData: displayValue,
+            displayData: textValue, // Let CSS handle overflow ellipsis
             allowOverlay: true,
             readonly: true,
             themeOverride: value === null ? {
@@ -169,7 +152,7 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
         }
       }
     },
-    [data, columns, detectCellKind, formatDisplayValue, truncateText]
+    [data, columns, detectCellKind, formatDisplayValue]
   );
 
   // Get raw cell value for popup
