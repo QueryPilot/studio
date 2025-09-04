@@ -60,8 +60,10 @@ export const TextCellRenderer = {
       }
 
       truncated = text.substring(0, left) + ellipsis;
+      console.log(">>>", "truncated", truncated);
       ctx.fillText(truncated, x + padding, y + height / 2);
     } else {
+      console.log(">>>", "textonly", text);
       // No overflow - render normally
       ctx.fillText(text, x + padding, y + height / 2);
     }

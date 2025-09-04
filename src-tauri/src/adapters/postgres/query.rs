@@ -72,25 +72,58 @@ impl PostgresQueryExecutor {
             });
         }
         
-        // For SELECT queries, we'll use portal-based streaming
-        // First, prepare the statement to get column metadata
+        // For SELECT queries, check if we need to build a modified query with casts
+        // to handle types that tokio-postgres cannot deserialize
+        let needs_casting = sql.to_uppercase().contains("SELECT");
+        
+        // First, prepare the original statement to get column metadata
         let stmt = self.client.prepare(sql).await?;
         
-        let columns = stmt.columns().iter().map(|col| {
-            ColumnMeta {
+        let mut columns = Vec::new();
+        let mut original_columns = Vec::new();
+        
+        for col in stmt.columns() {
+            let cell_type = PostgresTypeConverter::type_to_cell_type(col.type_());
+            let db_type_name = col.type_().name();
+            
+            // Check if this needs casting - including custom types that are actually tsvector/tsquery
+            let needs_cast = matches!(cell_type, 
+                CellValueType::Range(_) | 
+                CellValueType::Multirange(_) |
+                CellValueType::TsVector |
+                CellValueType::TsQuery) || 
+                (if let CellValueType::CustomType(_) = cell_type {
+                    db_type_name == "tsvector" || db_type_name == "tsquery"
+                } else {
+                    false
+                });
+            
+            // Store the original column info for type hints
+            original_columns.push(ColumnMeta {
                 name: col.name().to_string(),
-                data_type: PostgresTypeConverter::type_to_cell_type(col.type_()),
-                nullable: true, // Would need to query pg_catalog for actual nullability
-                primary_key: false, // Would need constraint info
+                data_type: cell_type.clone(),
+                nullable: true,
+                primary_key: false,
                 db_type: col.type_().name().to_string(),
                 type_oid: Some(col.type_().oid()),
-            }
-        }).collect::<Vec<_>>();
+            });
+            
+            // For display, if we'll cast to text, show it as the original type
+            // but we'll handle it specially in value conversion
+            columns.push(ColumnMeta {
+                name: col.name().to_string(),
+                data_type: cell_type,
+                nullable: true,
+                primary_key: false,
+                db_type: col.type_().name().to_string(),
+                type_oid: Some(col.type_().oid()),
+            });
+        }
         
-        // Store portal state (we'll create the actual portal on first fetch)
+        // Store portal state with original column info
         let portal_state = PortalState {
             portal_name: format!("portal_{}", handle_id),
-            column_info: columns.clone(),
+            column_info: original_columns,
             created_at: Instant::now(),
             rows_fetched: 0,
             original_sql: sql.to_string(),
@@ -134,13 +167,61 @@ impl PostgresQueryExecutor {
         // Build paginated query - avoid wrapping aggregate queries
         let offset = portal.rows_fetched;
         let needs_wrapping = !is_aggregate_query(&portal.original_sql);
+        
+        // Build query with type casting for range types
         let query = if needs_wrapping {
-            format!(
-                "SELECT * FROM ({}) AS subquery LIMIT {} OFFSET {}",
-                portal.original_sql,
-                max_rows,
-                offset
-            )
+            // Check if we need to cast range columns to text
+            let columns_with_casts = portal.column_info.iter()
+                .enumerate()
+                .map(|(idx, col)| {
+                    // Check if this is a type that needs casting to text
+                    if matches!(col.data_type, 
+                        CellValueType::Range(_) | 
+                        CellValueType::Multirange(_) |
+                        CellValueType::TsVector |
+                        CellValueType::TsQuery) || 
+                        (if let CellValueType::CustomType(ref t) = col.data_type {
+                            t == "tsvector" || t == "tsquery"
+                        } else {
+                            false
+                        }) {
+                        // Cast these types to text for proper display
+                        // Use double quotes to handle special characters in column names
+                        format!("subquery.\"{}\"::text AS \"{}\"", col.name, col.name)
+                    } else {
+                        format!("subquery.\"{}\"", col.name)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            
+            // If we have columns that need casting, use custom SELECT list, otherwise use *
+            if portal.column_info.iter().any(|col| 
+                matches!(col.data_type, 
+                    CellValueType::Range(_) | 
+                    CellValueType::Multirange(_) |
+                    CellValueType::TsVector |
+                    CellValueType::TsQuery) ||
+                    (if let CellValueType::CustomType(ref t) = col.data_type {
+                        t == "tsvector" || t == "tsquery"
+                    } else {
+                        false
+                    })) {
+                format!(
+                    "SELECT {} FROM ({}) AS subquery LIMIT {} OFFSET {}",
+                    columns_with_casts,
+                    portal.original_sql,
+                    max_rows,
+                    offset
+                )
+            } else {
+                format!(
+                    "SELECT * FROM ({}) AS subquery LIMIT {} OFFSET {}",
+                    portal.original_sql,
+                    max_rows,
+                    offset
+                )
+            }
         } else {
             // Execute aggregate queries directly without wrapping
             if offset > 0 {
@@ -151,6 +232,11 @@ impl PostgresQueryExecutor {
                 portal.original_sql.clone()
             }
         };
+        
+        // Debug: Log the query being executed
+        if !query.is_empty() {
+            eprintln!("DEBUG: Executing query: {}", query);
+        }
         
         let rows = if query.is_empty() {
             // Empty query means we're fetching beyond the first page of an aggregate query
@@ -164,10 +250,36 @@ impl PostgresQueryExecutor {
         // Convert rows to CellValues
         let mut result_rows = Vec::with_capacity(rows.len());
         
+        // Check if we cast any columns - if so, we need to use the original types
+        let columns_were_cast = portal.column_info.iter().any(|col| 
+            matches!(col.data_type, 
+                CellValueType::Range(_) | 
+                CellValueType::Multirange(_) |
+                CellValueType::TsVector |
+                CellValueType::TsQuery) ||
+                (if let CellValueType::CustomType(ref t) = col.data_type {
+                    t == "tsvector" || t == "tsquery"
+                } else {
+                    false
+                }));
+        
+        // Debug: Log column types
+        for (idx, col) in portal.column_info.iter().enumerate() {
+            eprintln!("DEBUG: Column {}: {} - Type: {:?}", idx, col.name, col.data_type);
+        }
+        
         for row in &rows {
             let mut cells = Vec::with_capacity(portal.column_info.len());
             for idx in 0..portal.column_info.len() {
-                cells.push(PostgresTypeConverter::value_to_cell(&row, idx)?);
+                // If we cast columns to text, use the original type info for conversion
+                if columns_were_cast {
+                    let original_type = &portal.column_info[idx].data_type;
+                    cells.push(PostgresTypeConverter::value_to_cell_with_type_hint(
+                        &row, idx, Some(original_type)
+                    )?);
+                } else {
+                    cells.push(PostgresTypeConverter::value_to_cell(&row, idx)?);
+                }
             }
             result_rows.push(cells);
         }
