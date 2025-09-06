@@ -59,7 +59,10 @@ export function DatabaseSidebar({
     setActiveTabInPanel,
     updateTabInPanel,
     panels,
+    activePanelId,
   } = usePanelStore();
+  
+  const { focusedPanelId, panelContents } = useWorkbenchStore();
 
   // Load schema data when schema changes
   useEffect(() => {
@@ -176,6 +179,7 @@ export function DatabaseSidebar({
         schema: table.schema,
         table: table.name,
         isView: table.kind !== "Table",
+        kind: table.kind,
         viewType,
       });
       return;
@@ -196,11 +200,12 @@ export function DatabaseSidebar({
     if (existingTab) {
       // If tab exists, just activate it and set the view type
       setActiveTabInPanel(primaryPanel.id, existingTab.id);
-      // Update the tab's active view
+      // Update the tab's active view and kind
       updateTabInPanel(primaryPanel.id, existingTab.id, {
         payload: {
           ...existingTab.payload,
           activeView: viewType,
+          kind: table.kind,
         },
       });
     } else {
@@ -214,6 +219,7 @@ export function DatabaseSidebar({
           schema: table.schema,
           tableName: table.name,
           isView: table.kind !== "Table",
+          kind: table.kind,
           activeView: viewType,
         },
       });
@@ -264,38 +270,59 @@ export function DatabaseSidebar({
     );
   };
 
-  // Check if a table/view is currently active in any panel
+  // Check if a table/view is currently active in the active panel
   const isTableActive = (tableName: string, schema: string): boolean => {
-    const allPanels = Array.from(panels.values());
+    // First check workbench store (new system)
+    if (focusedPanelId) {
+      const focusedPanel = panelContents.get(focusedPanelId);
+      if (focusedPanel && focusedPanel.activeTabId) {
+        const metadata = focusedPanel.metadata?.[focusedPanel.activeTabId];
+        if (metadata?.type === "table" && metadata.table === tableName && metadata.schema === schema) {
+          return true;
+        }
+      }
+    }
+    
+    // Fallback to panel store (old system)
+    const activePanel = panels.get(activePanelId);
+    if (!activePanel || !activePanel.activeTabId) return false;
 
-    return allPanels.some((panel) => {
-      if (!panel.activeTabId) return false;
+    const activeTab = activePanel.tabs.get(activePanel.activeTabId);
+    if (!activeTab || activeTab.type !== "table") return false;
 
-      const activeTab = panel.tabs.get(panel.activeTabId);
-      if (!activeTab || activeTab.type !== "table") return false;
-
-      return (
-        activeTab.payload.tableName === tableName &&
-        activeTab.payload.schema === schema
-      );
-    });
+    return (
+      activeTab.payload.tableName === tableName &&
+      activeTab.payload.schema === schema
+    );
   };
 
-  // Check if a function is currently active in any panel
+  // Check if a function is currently active in the active panel
   const isFunctionActive = (functionName: string, schema: string): boolean => {
-    const allPanels = Array.from(panels.values());
+    // First check workbench store (new system)
+    if (focusedPanelId) {
+      const focusedPanel = panelContents.get(focusedPanelId);
+      if (focusedPanel && focusedPanel.activeTabId) {
+        const [type, ...parts] = focusedPanel.activeTabId.split("-");
+        if (type === "function") {
+          const metadata = focusedPanel.metadata?.[focusedPanel.activeTabId];
+          if (metadata?.schema === schema && parts.includes(functionName)) {
+            return true;
+          }
+        }
+      }
+    }
+    
+    // Fallback to panel store (old system)
+    const activePanel = panels.get(activePanelId);
+    if (!activePanel || !activePanel.activeTabId) return false;
 
-    return allPanels.some((panel) => {
-      if (!panel.activeTabId) return false;
+    const activeTab = activePanel.tabs.get(activePanel.activeTabId);
+    if (!activeTab || activeTab.type !== "function") return false;
 
-      const activeTab = panel.tabs.get(panel.activeTabId);
-      if (!activeTab || activeTab.type !== "function") return false;
-
-      return (
-        activeTab.payload.functionName === functionName &&
-        activeTab.payload.schema === schema
-      );
-    });
+    return (
+      activeTab.payload.functionName === functionName &&
+      activeTab.payload.schema === schema
+    );
   };
 
   if (initialLoading) {
@@ -470,7 +497,10 @@ export function DatabaseSidebar({
                             : "rounded border-l-transparent",
                         )}
                       >
-                        <Eye className="h-4 min-h-4 w-4 min-w-4 text-green-500 flex-shrink-0" />
+                        <Eye className={cn(
+                          "h-4 min-h-4 w-4 min-w-4 flex-shrink-0",
+                          view.kind === "MaterializedView" ? "text-purple-500" : "text-green-500"
+                        )} />
                         <span
                           className="text-xs whitespace-nowrap flex-1"
                           onClick={() => {

@@ -4,6 +4,7 @@ import {
   type Item,
   type GridColumn,
   type Rectangle,
+  GridCellKind,
 } from "@glideapps/glide-data-grid";
 import { EnhancedGlideWrapper } from "./EnhancedGlideWrapper";
 import { useInfiniteTableData } from "../hooks/useInfiniteTableData";
@@ -52,7 +53,7 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
 
   // Track column order
   const [columnOrder, setColumnOrder] = useState<number[]>([]);
-
+  
   // Initialize column order when columns change
   useEffect(() => {
     if (tableColumns && tableColumns.length > 0 && columnOrder.length === 0) {
@@ -62,6 +63,7 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
 
   // Convert columns to Glide format with reordering
   const columns = useMemo<DataGridColumn[]>(() => {
+    console.log(`[GlideTableDataGrid] Converting ${tableColumns?.length || 0} columns to Glide format`);
     if (!tableColumns || tableColumns.length === 0) return [];
 
     // Use column order if available, otherwise use default order
@@ -108,7 +110,7 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
           grow: 0, // Set to 0 to allow manual resizing
           hasMenu: false,
           themeOverride: {
-            bgIconHeader: col.primary_key
+            bgIconHeader: (col as any).primary_key
               ? "rgba(59, 130, 246, 0.1)"
               : undefined,
           },
@@ -124,7 +126,7 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
 
       if (!rows[row] || !columns[col]) {
         return {
-          kind: 0, // GridCellKind.Text
+          kind: GridCellKind.Text,
           data: "",
           displayData: "",
           allowOverlay: false,
@@ -135,15 +137,8 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
       const column = columns[col];
       const rowData = rows[row];
 
-
-      // rowData is now always an object with column names as keys (TableDataRow)
-      let value;
-      if (typeof rowData === "object" && rowData !== null) {
-        // Access value by column name
-        value = rowData[column.name];
-      } else {
-        value = null;
-      }
+      // Access value by column name
+      const value = rowData[column.name];
       // Convert cell value to grid cell with column width for proper truncation
       return cellValueToGridCell(value, column.type, 'width' in column ? column.width : undefined);
     },
@@ -250,7 +245,7 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
       const value = rowData[column.name];
 
       // Return the actual CellValue structure (value property contains the data)
-      return value?.value || value;
+      return value?.value ?? value;
     },
     [rows, columns],
   );
@@ -267,13 +262,10 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
       // Use RAF for smooth updates
       requestAnimationFrame(() => {
         const newRange = { start: range.y, end: range.y + range.height };
-        console.log("[GlideTableDataGrid] Visible range changed:", newRange);
-        console.log("[GlideTableDataGrid] Total rows loaded:", rows.length);
-        console.log("[GlideTableDataGrid] Has next page:", hasNextPage);
         setVisibleRange(newRange);
       });
     },
-    [rows.length, hasNextPage],
+    [],
   );
 
   // Handle selection change
@@ -286,19 +278,8 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
     const buffer = 500; // Load more when within 500 rows of the end
     const threshold = rows.length - buffer;
 
-    console.log("[GlideTableDataGrid] Checking load more:");
-    console.log("  - End row:", endRow);
-    console.log("  - Total rows:", rows.length);
-    console.log("  - Threshold:", threshold);
-    console.log("  - Has next page:", hasNextPage);
-    console.log(
-      "  - Should load more:",
-      hasNextPage && endRow > threshold && !isLoadingMore,
-    );
-
     if (hasNextPage && endRow > threshold && !isLoadingMore) {
-      console.log("[GlideTableDataGrid] Triggering loadMore!");
-      loadMore();
+      void loadMore();
     }
   }, [visibleRange.end, rows.length, hasNextPage, isLoadingMore, loadMore]);
 
@@ -347,7 +328,7 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
 
       <DataGridStatusBar
         loadedRows={rows.length}
-        estimatedTotal={estimatedTotal}
+        estimatedTotal={estimatedTotal || undefined}
         selectedRows={selectedRowCount}
       />
     </div>

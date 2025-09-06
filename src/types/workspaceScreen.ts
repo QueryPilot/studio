@@ -16,6 +16,7 @@ export interface TabPayload {
   schema?: string;
   tableName?: string;
   isView?: boolean;
+  kind?: "Table" | "View" | "MaterializedView";
   activeView?: "data" | "structure" | "indexes" | "triggers";
   filters?: Array<{
     column: string;

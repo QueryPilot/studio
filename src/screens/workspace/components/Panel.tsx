@@ -83,10 +83,19 @@ export function Panel({ panel, connectionId, isActive }: PanelProps) {
         }}
       />
 
-      {/* Panel Content */}
-      <div className="flex-1 overflow-hidden">
-        {activeTab ? (
-          renderPanelContent(activeTab)
+      {/* Panel Content - Render all tabs but only show the active one */}
+      <div className="flex-1 overflow-hidden relative">
+        {panel.tabs.size > 0 ? (
+          Array.from(panel.tabs.values()).map((tab) => (
+            <div
+              key={tab.id}
+              className={`absolute inset-0 ${
+                tab.id === panel.activeTabId ? "block" : "hidden"
+              }`}
+            >
+              {renderPanelContent(tab)}
+            </div>
+          ))
         ) : (
           <div className="flex items-center justify-center h-full">
             <div className="text-center space-y-4">

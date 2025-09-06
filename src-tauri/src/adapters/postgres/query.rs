@@ -82,21 +82,19 @@ impl PostgresQueryExecutor {
         let mut columns = Vec::new();
         let mut original_columns = Vec::new();
         
+        eprintln!("DEBUG: Statement has {} columns", stmt.columns().len());
+        
         for col in stmt.columns() {
             let cell_type = PostgresTypeConverter::type_to_cell_type(col.type_());
             let db_type_name = col.type_().name();
             
-            // Check if this needs casting - including custom types that are actually tsvector/tsquery
+            // Check if this needs casting - including ALL custom types (enums, etc.)
             let needs_cast = matches!(cell_type, 
                 CellValueType::Range(_) | 
                 CellValueType::Multirange(_) |
                 CellValueType::TsVector |
-                CellValueType::TsQuery) || 
-                (if let CellValueType::CustomType(_) = cell_type {
-                    db_type_name == "tsvector" || db_type_name == "tsquery"
-                } else {
-                    false
-                });
+                CellValueType::TsQuery |
+                CellValueType::CustomType(_));
             
             // Store the original column info for type hints
             original_columns.push(ColumnMeta {
@@ -175,16 +173,13 @@ impl PostgresQueryExecutor {
                 .enumerate()
                 .map(|(idx, col)| {
                     // Check if this is a type that needs casting to text
+                    // This includes ranges, text search types, and ALL custom types (including enums)
                     if matches!(col.data_type, 
                         CellValueType::Range(_) | 
                         CellValueType::Multirange(_) |
                         CellValueType::TsVector |
-                        CellValueType::TsQuery) || 
-                        (if let CellValueType::CustomType(ref t) = col.data_type {
-                            t == "tsvector" || t == "tsquery"
-                        } else {
-                            false
-                        }) {
+                        CellValueType::TsQuery |
+                        CellValueType::CustomType(_)) {
                         // Cast these types to text for proper display
                         // Use double quotes to handle special characters in column names
                         format!("subquery.\"{}\"::text AS \"{}\"", col.name, col.name)
@@ -201,12 +196,8 @@ impl PostgresQueryExecutor {
                     CellValueType::Range(_) | 
                     CellValueType::Multirange(_) |
                     CellValueType::TsVector |
-                    CellValueType::TsQuery) ||
-                    (if let CellValueType::CustomType(ref t) = col.data_type {
-                        t == "tsvector" || t == "tsquery"
-                    } else {
-                        false
-                    })) {
+                    CellValueType::TsQuery |
+                    CellValueType::CustomType(_))) {
                 format!(
                     "SELECT {} FROM ({}) AS subquery LIMIT {} OFFSET {}",
                     columns_with_casts,
@@ -256,12 +247,8 @@ impl PostgresQueryExecutor {
                 CellValueType::Range(_) | 
                 CellValueType::Multirange(_) |
                 CellValueType::TsVector |
-                CellValueType::TsQuery) ||
-                (if let CellValueType::CustomType(ref t) = col.data_type {
-                    t == "tsvector" || t == "tsquery"
-                } else {
-                    false
-                }));
+                CellValueType::TsQuery |
+                CellValueType::CustomType(_)));
         
         // Debug: Log column types
         for (idx, col) in portal.column_info.iter().enumerate() {

@@ -342,13 +342,23 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
           }
         }}
       >
-        {content.activeTabId && (
-          <PanelContentRenderer
-            tabId={content.activeTabId}
-            metadata={content.metadata?.[content.activeTabId]}
-          />
-        )}
-        {!content.activeTabId && (
+        {/* Render all tab contents but only show the active one */}
+        {content.tabIds.length > 0 ? (
+          content.tabIds.map((tabId) => (
+            <div
+              key={tabId}
+              className={cn(
+                "absolute inset-0",
+                content.activeTabId === tabId ? "block" : "hidden"
+              )}
+            >
+              <PanelContentRenderer
+                tabId={tabId}
+                metadata={content.metadata?.[tabId]}
+              />
+            </div>
+          ))
+        ) : (
           <div className="h-full flex items-center justify-center text-muted-foreground p-4">
             <div className="text-center">
               <p className="text-sm">Empty Panel</p>

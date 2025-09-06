@@ -8,6 +8,7 @@ use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use uuid::Uuid;
 use std::collections::HashMap;
 use std::net::IpAddr;
+use super::parser::PostgresTypeParser;
 
 pub struct PostgresTypeConverter;
 
@@ -67,7 +68,7 @@ impl PostgresTypeConverter {
             Type::FLOAT4 => CellValueType::Decimal,
             Type::FLOAT8 => CellValueType::Decimal,
             Type::NUMERIC => CellValueType::Decimal,
-            Type::MONEY => CellValueType::Text, // Money needs special handling
+            Type::MONEY => CellValueType::Money,
             
             // String types
             Type::TEXT => CellValueType::Text,
@@ -534,9 +535,134 @@ impl PostgresTypeConverter {
                 }
             },
             
-            // Geometric types
-            Type::POINT | Type::LINE | Type::LSEG | Type::BOX | 
-            Type::PATH | Type::POLYGON | Type::CIRCLE => {
+            // Geometric types with parsing
+            Type::POINT => {
+                if let Ok(Some(s)) = row.try_get::<_, Option<String>>(idx) {
+                    match PostgresTypeParser::parse_point(&s) {
+                        Ok(parsed) => {
+                            return Ok(CellValue {
+                                value_type: CellValueType::Geometry,
+                                raw_value: Some(parsed.to_string().into_bytes()),
+                                display_value: s,
+                                db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                    oid: pg_type.oid(),
+                                    type_name: pg_type.name().to_string(),
+                                    type_modifier: -1,
+                                })),
+                            });
+                        },
+                        Err(_) => s
+                    }
+                } else {
+                    return Ok(CellValue::null());
+                }
+            },
+            Type::LSEG => {
+                if let Ok(Some(s)) = row.try_get::<_, Option<String>>(idx) {
+                    match PostgresTypeParser::parse_lseg(&s) {
+                        Ok(parsed) => {
+                            return Ok(CellValue {
+                                value_type: CellValueType::Geometry,
+                                raw_value: Some(parsed.to_string().into_bytes()),
+                                display_value: s,
+                                db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                    oid: pg_type.oid(),
+                                    type_name: pg_type.name().to_string(),
+                                    type_modifier: -1,
+                                })),
+                            });
+                        },
+                        Err(_) => s
+                    }
+                } else {
+                    return Ok(CellValue::null());
+                }
+            },
+            Type::BOX => {
+                if let Ok(Some(s)) = row.try_get::<_, Option<String>>(idx) {
+                    match PostgresTypeParser::parse_box(&s) {
+                        Ok(parsed) => {
+                            return Ok(CellValue {
+                                value_type: CellValueType::Box2d,
+                                raw_value: Some(parsed.to_string().into_bytes()),
+                                display_value: s,
+                                db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                    oid: pg_type.oid(),
+                                    type_name: pg_type.name().to_string(),
+                                    type_modifier: -1,
+                                })),
+                            });
+                        },
+                        Err(_) => s
+                    }
+                } else {
+                    return Ok(CellValue::null());
+                }
+            },
+            Type::PATH => {
+                if let Ok(Some(s)) = row.try_get::<_, Option<String>>(idx) {
+                    match PostgresTypeParser::parse_path(&s) {
+                        Ok(parsed) => {
+                            return Ok(CellValue {
+                                value_type: CellValueType::Path,
+                                raw_value: Some(parsed.to_string().into_bytes()),
+                                display_value: s,
+                                db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                    oid: pg_type.oid(),
+                                    type_name: pg_type.name().to_string(),
+                                    type_modifier: -1,
+                                })),
+                            });
+                        },
+                        Err(_) => s
+                    }
+                } else {
+                    return Ok(CellValue::null());
+                }
+            },
+            Type::POLYGON => {
+                if let Ok(Some(s)) = row.try_get::<_, Option<String>>(idx) {
+                    match PostgresTypeParser::parse_polygon(&s) {
+                        Ok(parsed) => {
+                            return Ok(CellValue {
+                                value_type: CellValueType::Polygon,
+                                raw_value: Some(parsed.to_string().into_bytes()),
+                                display_value: s,
+                                db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                    oid: pg_type.oid(),
+                                    type_name: pg_type.name().to_string(),
+                                    type_modifier: -1,
+                                })),
+                            });
+                        },
+                        Err(_) => s
+                    }
+                } else {
+                    return Ok(CellValue::null());
+                }
+            },
+            Type::CIRCLE => {
+                if let Ok(Some(s)) = row.try_get::<_, Option<String>>(idx) {
+                    match PostgresTypeParser::parse_circle(&s) {
+                        Ok(parsed) => {
+                            return Ok(CellValue {
+                                value_type: CellValueType::Circle,
+                                raw_value: Some(parsed.to_string().into_bytes()),
+                                display_value: s,
+                                db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                    oid: pg_type.oid(),
+                                    type_name: pg_type.name().to_string(),
+                                    type_modifier: -1,
+                                })),
+                            });
+                        },
+                        Err(_) => s
+                    }
+                } else {
+                    return Ok(CellValue::null());
+                }
+            },
+            Type::LINE => {
                 if let Ok(Some(s)) = row.try_get::<_, Option<String>>(idx) {
                     s
                 } else {
@@ -562,10 +688,24 @@ impl PostgresTypeConverter {
                 }
             },
             
-            // Interval type
+            // Interval type with parsing
             Type::INTERVAL => {
                 if let Ok(Some(s)) = row.try_get::<_, Option<String>>(idx) {
-                    s
+                    match PostgresTypeParser::parse_interval(&s) {
+                        Ok(parsed) => {
+                            return Ok(CellValue {
+                                value_type: CellValueType::Interval,
+                                raw_value: Some(parsed.to_string().into_bytes()),
+                                display_value: s,
+                                db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                    oid: pg_type.oid(),
+                                    type_name: pg_type.name().to_string(),
+                                    type_modifier: -1,
+                                })),
+                            });
+                        },
+                        Err(_) => s
+                    }
                 } else {
                     return Ok(CellValue::null());
                 }
@@ -637,11 +777,26 @@ impl PostgresTypeConverter {
                 }
             },
             
-            // Handle MONEY type
+            // Handle MONEY type with proper parsing
             Type::MONEY => {
                 // Try to get as string first (Postgres may return formatted)
                 if let Ok(Some(val)) = row.try_get::<_, Option<String>>(idx) {
-                    val
+                    // Parse money to extract numeric value
+                    match PostgresTypeParser::parse_money(&val) {
+                        Ok(parsed) => {
+                            return Ok(CellValue {
+                                value_type: CellValueType::Money,
+                                raw_value: Some(parsed.to_string().into_bytes()),
+                                display_value: val,
+                                db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                    oid: pg_type.oid(),
+                                    type_name: pg_type.name().to_string(),
+                                    type_modifier: -1,
+                                })),
+                            });
+                        },
+                        Err(_) => val
+                    }
                 } else if let Ok(Some(val)) = row.try_get::<_, Option<i64>>(idx) {
                     // Convert cents to dollars if returned as i64
                     format!("${:.2}", val as f64 / 100.0)
@@ -650,22 +805,109 @@ impl PostgresTypeConverter {
                 }
             },
             
-            // Handle Range types
-            Type::INT4_RANGE | Type::INT8_RANGE | Type::NUM_RANGE | 
-            Type::TS_RANGE | Type::TSTZ_RANGE | Type::DATE_RANGE => {
-                // Range types need special handling - PostgreSQL stores them in a binary format
-                // We need to get them as text representation
-                // Unfortunately, tokio-postgres doesn't have built-in range type support
-                // without additional crates, so we need to handle this specially
-                
-                // Try to get the value as a String - this will work if the column
-                // was explicitly cast to text in the query
+            // Handle Range types with proper parsing
+            Type::INT4_RANGE => {
                 if let Ok(Some(val)) = row.try_get::<_, Option<String>>(idx) {
-                    val
+                    match PostgresTypeParser::parse_range(&val, &CellValueType::Integer) {
+                        Ok(parsed) => {
+                            return Ok(CellValue {
+                                value_type: CellValueType::Range(Box::new(CellValueType::Integer)),
+                                raw_value: Some(parsed.to_string().into_bytes()),
+                                display_value: val,
+                                db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                    oid: pg_type.oid(),
+                                    type_name: pg_type.name().to_string(),
+                                    type_modifier: -1,
+                                })),
+                            });
+                        },
+                        Err(_) => val
+                    }
                 } else {
-                    // If direct string conversion doesn't work, the value is either NULL
-                    // or needs special handling. For now, we'll need to modify queries
-                    // to cast range types to text
+                    return Ok(CellValue::null());
+                }
+            },
+            Type::INT8_RANGE => {
+                if let Ok(Some(val)) = row.try_get::<_, Option<String>>(idx) {
+                    match PostgresTypeParser::parse_range(&val, &CellValueType::Integer) {
+                        Ok(parsed) => {
+                            return Ok(CellValue {
+                                value_type: CellValueType::Range(Box::new(CellValueType::Integer)),
+                                raw_value: Some(parsed.to_string().into_bytes()),
+                                display_value: val,
+                                db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                    oid: pg_type.oid(),
+                                    type_name: pg_type.name().to_string(),
+                                    type_modifier: -1,
+                                })),
+                            });
+                        },
+                        Err(_) => val
+                    }
+                } else {
+                    return Ok(CellValue::null());
+                }
+            },
+            Type::NUM_RANGE => {
+                if let Ok(Some(val)) = row.try_get::<_, Option<String>>(idx) {
+                    match PostgresTypeParser::parse_range(&val, &CellValueType::Decimal) {
+                        Ok(parsed) => {
+                            return Ok(CellValue {
+                                value_type: CellValueType::Range(Box::new(CellValueType::Decimal)),
+                                raw_value: Some(parsed.to_string().into_bytes()),
+                                display_value: val,
+                                db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                    oid: pg_type.oid(),
+                                    type_name: pg_type.name().to_string(),
+                                    type_modifier: -1,
+                                })),
+                            });
+                        },
+                        Err(_) => val
+                    }
+                } else {
+                    return Ok(CellValue::null());
+                }
+            },
+            Type::TS_RANGE | Type::TSTZ_RANGE => {
+                if let Ok(Some(val)) = row.try_get::<_, Option<String>>(idx) {
+                    match PostgresTypeParser::parse_range(&val, &CellValueType::DateTime) {
+                        Ok(parsed) => {
+                            return Ok(CellValue {
+                                value_type: CellValueType::Range(Box::new(CellValueType::DateTime)),
+                                raw_value: Some(parsed.to_string().into_bytes()),
+                                display_value: val,
+                                db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                    oid: pg_type.oid(),
+                                    type_name: pg_type.name().to_string(),
+                                    type_modifier: -1,
+                                })),
+                            });
+                        },
+                        Err(_) => val
+                    }
+                } else {
+                    return Ok(CellValue::null());
+                }
+            },
+            Type::DATE_RANGE => {
+                if let Ok(Some(val)) = row.try_get::<_, Option<String>>(idx) {
+                    match PostgresTypeParser::parse_range(&val, &CellValueType::Date) {
+                        Ok(parsed) => {
+                            return Ok(CellValue {
+                                value_type: CellValueType::Range(Box::new(CellValueType::Date)),
+                                raw_value: Some(parsed.to_string().into_bytes()),
+                                display_value: val,
+                                db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                    oid: pg_type.oid(),
+                                    type_name: pg_type.name().to_string(),
+                                    type_modifier: -1,
+                                })),
+                            });
+                        },
+                        Err(_) => val
+                    }
+                } else {
                     return Ok(CellValue::null());
                 }
             },
@@ -675,12 +917,26 @@ impl PostgresTypeConverter {
                 let type_name = pg_type.name();
                 let type_oid = pg_type.oid();
                 
-                // Handle special custom types
+                // Handle special custom types with parsing
                 match type_name {
                     "hstore" => {
                         // Hstore is usually returned as a string of key-value pairs
                         if let Ok(Some(val)) = row.try_get::<_, Option<String>>(idx) {
-                            val
+                            match PostgresTypeParser::parse_hstore(&val) {
+                                Ok(parsed) => {
+                                    return Ok(CellValue {
+                                        value_type: CellValueType::Hstore,
+                                        raw_value: Some(parsed.to_string().into_bytes()),
+                                        display_value: val,
+                                        db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                            oid: type_oid,
+                                            type_name: type_name.to_string(),
+                                            type_modifier: -1,
+                                        })),
+                                    });
+                                },
+                                Err(_) => val
+                            }
                         } else if let Ok(Some(map)) = row.try_get::<_, Option<HashMap<String, Option<String>>>>(idx) {
                             // If returned as HashMap, format it as hstore string
                             let pairs: Vec<String> = map.iter()
@@ -696,14 +952,88 @@ impl PostgresTypeConverter {
                             return Ok(CellValue::null());
                         }
                     },
-                    "tsvector" | "tsquery" => {
-                        // Text search types - get as string representation
-                        // PostgreSQL returns these in a special format like 'word1':positions 'word2':positions
-                        // First try direct string conversion
+                    "tsvector" => {
+                        // Text search types - parse into structured format
                         if let Ok(Some(val)) = row.try_get::<_, Option<String>>(idx) {
-                            val
+                            match PostgresTypeParser::parse_tsvector(&val) {
+                                Ok(parsed) => {
+                                    return Ok(CellValue {
+                                        value_type: CellValueType::TsVector,
+                                        raw_value: Some(parsed.to_string().into_bytes()),
+                                        display_value: val,
+                                        db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                            oid: type_oid,
+                                            type_name: type_name.to_string(),
+                                            type_modifier: -1,
+                                        })),
+                                    });
+                                },
+                                Err(_) => val
+                            }
                         } else {
-                            // If that fails, the value is NULL
+                            return Ok(CellValue::null());
+                        }
+                    },
+                    "tsquery" => {
+                        if let Ok(Some(val)) = row.try_get::<_, Option<String>>(idx) {
+                            match PostgresTypeParser::parse_tsquery(&val) {
+                                Ok(parsed) => {
+                                    return Ok(CellValue {
+                                        value_type: CellValueType::TsQuery,
+                                        raw_value: Some(parsed.to_string().into_bytes()),
+                                        display_value: val,
+                                        db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                            oid: type_oid,
+                                            type_name: type_name.to_string(),
+                                            type_modifier: -1,
+                                        })),
+                                    });
+                                },
+                                Err(_) => val
+                            }
+                        } else {
+                            return Ok(CellValue::null());
+                        }
+                    },
+                    "ltree" => {
+                        if let Ok(Some(val)) = row.try_get::<_, Option<String>>(idx) {
+                            match PostgresTypeParser::parse_ltree(&val) {
+                                Ok(parsed) => {
+                                    return Ok(CellValue {
+                                        value_type: CellValueType::Ltree,
+                                        raw_value: Some(parsed.to_string().into_bytes()),
+                                        display_value: val,
+                                        db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                            oid: type_oid,
+                                            type_name: type_name.to_string(),
+                                            type_modifier: -1,
+                                        })),
+                                    });
+                                },
+                                Err(_) => val
+                            }
+                        } else {
+                            return Ok(CellValue::null());
+                        }
+                    },
+                    "cube" => {
+                        if let Ok(Some(val)) = row.try_get::<_, Option<String>>(idx) {
+                            match PostgresTypeParser::parse_cube(&val) {
+                                Ok(parsed) => {
+                                    return Ok(CellValue {
+                                        value_type: CellValueType::Cube,
+                                        raw_value: Some(parsed.to_string().into_bytes()),
+                                        display_value: val,
+                                        db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                            oid: type_oid,
+                                            type_name: type_name.to_string(),
+                                            type_modifier: -1,
+                                        })),
+                                    });
+                                },
+                                Err(_) => val
+                            }
+                        } else {
                             return Ok(CellValue::null());
                         }
                     },
@@ -711,20 +1041,71 @@ impl PostgresTypeConverter {
                     // Standard PostgreSQL types are in pg_catalog schema, 
                     // but many built-in types don't have the schema prefix in their name
                     _ if !is_standard_postgres_type(type_name) => {
-                        // This is likely a custom type/enum
-                        if let Ok(Some(val)) = row.try_get::<_, Option<String>>(idx) {
-                            val
-                        } else {
-                            return Ok(CellValue {
-                                value_type: CellValueType::CustomType(type_name.to_string()),
-                                raw_value: None,
-                                display_value: "unsupported type".to_string(),
-                                db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
-                                    oid: type_oid,
-                                    type_name: type_name.to_string(),
-                                    type_modifier: -1,
-                                })),
-                            });
+                        // This is likely a custom type/enum or composite type
+                        // Try to get the value as string first
+                        match row.try_get::<_, Option<String>>(idx) {
+                            Ok(Some(val)) => {
+                                // Check if it looks like a composite type (starts with '(')
+                                if val.starts_with('(') && val.ends_with(')') {
+                                    // Try parsing as composite
+                                    match PostgresTypeParser::parse_composite(&val) {
+                                        Ok(parsed) => {
+                                            return Ok(CellValue {
+                                                value_type: CellValueType::Composite(vec![]),
+                                                raw_value: Some(parsed.to_string().into_bytes()),
+                                                display_value: val,
+                                                db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                                    oid: type_oid,
+                                                    type_name: type_name.to_string(),
+                                                    type_modifier: -1,
+                                                })),
+                                            });
+                                        },
+                                        Err(_) => {
+                                            // Not a composite, treat as enum or other custom type
+                                            return Ok(CellValue {
+                                                value_type: CellValueType::Enum(type_name.to_string()),
+                                                raw_value: None,
+                                                display_value: val,
+                                                db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                                    oid: type_oid,
+                                                    type_name: type_name.to_string(),
+                                                    type_modifier: -1,
+                                                })),
+                                            });
+                                        }
+                                    }
+                                } else {
+                                    // Likely an enum value
+                                    return Ok(CellValue {
+                                        value_type: CellValueType::Enum(type_name.to_string()),
+                                        raw_value: None,
+                                        display_value: val,
+                                        db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                            oid: type_oid,
+                                            type_name: type_name.to_string(),
+                                            type_modifier: -1,
+                                        })),
+                                    });
+                                }
+                            },
+                            Ok(None) => return Ok(CellValue::null()),
+                            Err(e) => {
+                                // Try alternative methods for complex types
+                                eprintln!("DEBUG: Failed to get custom type '{}' as string: {:?}", type_name, e);
+                                
+                                // Return a more informative message
+                                return Ok(CellValue {
+                                    value_type: CellValueType::CustomType(type_name.to_string()),
+                                    raw_value: None,
+                                    display_value: format!("({} value)", type_name),
+                                    db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                        oid: type_oid,
+                                        type_name: type_name.to_string(),
+                                        type_modifier: -1,
+                                    })),
+                                });
+                            }
                         }
                     },
                     _ => {
@@ -761,7 +1142,7 @@ impl PostgresTypeConverter {
         matches!(oid, 
             1000 | 1001 | 1002 | 1005 | 1007 | 1009 | 1014 | 1015 | 1016 |
             1021 | 1022 | 1028 | 1040 | 1041 | 1115 | 1182 | 1183 | 1185 |
-            1187 | 1231 | 1263 | 1270 | 199 | 3807 | 2951 | 651 | 1040
+            1187 | 1231 | 1263 | 1270 | 199 | 3807 | 2951 | 651
         )
     }
     

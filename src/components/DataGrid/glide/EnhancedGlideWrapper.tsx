@@ -447,7 +447,8 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
     },
     [
       gridSelection,
-      getCellsForSelection,
+      columns,
+      getCellContent,
       formatCellsAsCsv,
       formatCellsAsJson,
       copy,
@@ -633,70 +634,74 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
           </div>
         )}
 
-        <ContextMenuContent>
+        <ContextMenuContent className="text-xs">
           <ContextMenuItem
+            className="text-xs py-1 px-2 h-7"
             onClick={() => {
               handleCopyWithFormat("text");
             }}
           >
-            <Copy className="mr-2 h-4 w-4" />
+            <Copy className="mr-2 h-3 w-3" />
             Copy
-            <ContextMenuShortcut>⌘C</ContextMenuShortcut>
+            <ContextMenuShortcut className="text-[10px]">⌘C</ContextMenuShortcut>
           </ContextMenuItem>
 
           <ContextMenuItem
+            className="text-xs py-1 px-2 h-7"
             onClick={() => {
               handleCopyWithFormat("csv");
             }}
           >
-            <Table className="mr-2 h-4 w-4" />
+            <Table className="mr-2 h-3 w-3" />
             Copy as CSV
           </ContextMenuItem>
 
           <ContextMenuItem
+            className="text-xs py-1 px-2 h-7"
             onClick={() => {
               handleCopyWithFormat("json");
             }}
           >
-            <FileJson className="mr-2 h-4 w-4" />
+            <FileJson className="mr-2 h-3 w-3" />
             Copy as JSON
           </ContextMenuItem>
 
-          <ContextMenuSeparator />
+          <ContextMenuSeparator className="my-0.5" />
 
           {getCellValue && contextMenuState.cell && (
             <ContextMenuItem
+              className="text-xs py-1 px-2 h-7"
               onClick={() => {
                 if (contextMenuState.cell) {
                   handleCellDoubleClick(contextMenuState.cell);
                 }
               }}
             >
-              <Eye className="mr-2 h-4 w-4" />
+              <Eye className="mr-2 h-3 w-3" />
               View Cell Value
             </ContextMenuItem>
           )}
 
-          <ContextMenuSeparator />
+          <ContextMenuSeparator className="my-0.5" />
 
-          <ContextMenuItem disabled>
-            <Search className="mr-2 h-4 w-4" />
+          <ContextMenuItem disabled className="text-xs py-1 px-2 h-7">
+            <Search className="mr-2 h-3 w-3" />
             Search in Column
-            <ContextMenuShortcut>⌘F</ContextMenuShortcut>
+            <ContextMenuShortcut className="text-[10px]">⌘F</ContextMenuShortcut>
           </ContextMenuItem>
 
-          <ContextMenuItem disabled>
-            <Filter className="mr-2 h-4 w-4" />
+          <ContextMenuItem disabled className="text-xs py-1 px-2 h-7">
+            <Filter className="mr-2 h-3 w-3" />
             Filter Column
           </ContextMenuItem>
 
-          <ContextMenuItem disabled>
-            <SortAsc className="mr-2 h-4 w-4" />
+          <ContextMenuItem disabled className="text-xs py-1 px-2 h-7">
+            <SortAsc className="mr-2 h-3 w-3" />
             Sort Ascending
           </ContextMenuItem>
 
-          <ContextMenuItem disabled>
-            <SortDesc className="mr-2 h-4 w-4" />
+          <ContextMenuItem disabled className="text-xs py-1 px-2 h-7">
+            <SortDesc className="mr-2 h-3 w-3" />
             Sort Descending
           </ContextMenuItem>
         </ContextMenuContent>
