@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { databaseService } from "@/services/databaseService";
 import { cn } from "@/lib/utils";
 import Editor from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
-import { initMonaco } from "@/lib/monaco-loader";
+import { initMonaco, DatabaseType } from "@/lib/monaco-loader";
+import { useConnectionStore } from "@/stores/connectionStore";
 
 interface ObjectDefinitionProps {
   connectionId: string;
@@ -27,14 +28,70 @@ export const ObjectDefinition: React.FC<ObjectDefinitionProps> = React.memo(({
   const [definition, setDefinition] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [theme, setTheme] = useState<'devdb-dark' | 'devdb-light'>(() => {
+    const isDark = document.documentElement.classList.contains('dark') || 
+                   window.matchMedia('(prefers-color-scheme: dark)').matches;
+    return isDark ? 'devdb-dark' : 'devdb-light';
+  });
+  const connections = useConnectionStore(state => state.connections);
+  
+  // Determine database type from connection
+  const databaseType = useMemo<DatabaseType>(() => {
+    const connection = connections.find(c => c.id === connectionId);
+    if (!connection) return 'postgresql';
+    
+    switch (connection.type) {
+      case 'postgresql':
+        return 'postgresql';
+      case 'mysql':
+        return 'mysql';
+      case 'mssql':
+        return 'sqlserver';
+      case 'sqlite':
+        return 'sqlite';
+      default:
+        return 'postgresql';
+    }
+  }, [connectionId, connections]);
 
   useEffect(() => {
-    initMonaco().then(() => {
-      const isDark = document.documentElement.classList.contains('dark') || 
-                     window.matchMedia('(prefers-color-scheme: dark)').matches;
-      monaco.editor.setTheme(isDark ? 'devdb-dark' : 'devdb-light');
+    initMonaco(databaseType).then(() => {
+      const updateTheme = () => {
+        const isDark = document.documentElement.classList.contains('dark') || 
+                       window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const newTheme = isDark ? 'devdb-dark' : 'devdb-light';
+        monaco.editor.setTheme(newTheme);
+        setTheme(newTheme);
+      };
+      
+      // Set initial theme
+      updateTheme();
+      
+      // Watch for theme changes
+      const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+            updateTheme();
+          }
+        });
+      });
+      
+      observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class']
+      });
+      
+      // Also listen for system theme changes
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const handleChange = () => updateTheme();
+      mediaQuery.addEventListener('change', handleChange);
+      
+      return () => {
+        observer.disconnect();
+        mediaQuery.removeEventListener('change', handleChange);
+      };
     });
-  }, []);
+  }, [databaseType]);
 
   useEffect(() => {
     const fetchDefinition = async () => {
@@ -84,7 +141,7 @@ export const ObjectDefinition: React.FC<ObjectDefinitionProps> = React.memo(({
       <Editor
           value={definition}
           language="sql"
-          theme={document.documentElement.classList.contains('dark') ? 'devdb-dark' : 'devdb-light'}
+          theme={theme}
           options={{
             readOnly: true,
             minimap: { enabled: false },

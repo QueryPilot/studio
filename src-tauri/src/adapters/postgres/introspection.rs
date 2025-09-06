@@ -4,6 +4,7 @@ use std::sync::Arc;
 use crate::error::{AppError, Result};
 use crate::types::*;
 use super::types::PostgresTypeConverter;
+use super::parser::quote_index_definition;
 
 pub struct PostgresIntrospector {
     client: Arc<Client>,
@@ -12,6 +13,34 @@ pub struct PostgresIntrospector {
 impl PostgresIntrospector {
     pub fn new(client: Arc<Client>) -> Self {
         Self { client }
+    }
+    
+    /// Convert PostgreSQL type names to their shorthand forms
+    fn format_type_shorthand(type_name: &str) -> String {
+        // Replace common verbose type names with their shorthand equivalents
+        let result = type_name
+            .replace("character varying", "varchar")
+            .replace("CHARACTER VARYING", "VARCHAR")
+            .replace("character", "char")
+            .replace("CHARACTER", "CHAR")
+            .replace("integer", "int")
+            .replace("INTEGER", "INT")
+            .replace("boolean", "bool")
+            .replace("BOOLEAN", "BOOL")
+            .replace("double precision", "float8")
+            .replace("DOUBLE PRECISION", "FLOAT8")
+            .replace("real", "float4")
+            .replace("REAL", "FLOAT4")
+            .replace("time without time zone", "time")
+            .replace("TIME WITHOUT TIME ZONE", "TIME")
+            .replace("time with time zone", "timetz")
+            .replace("TIME WITH TIME ZONE", "TIMETZ")
+            .replace("timestamp without time zone", "timestamp")
+            .replace("TIMESTAMP WITHOUT TIME ZONE", "TIMESTAMP")
+            .replace("timestamp with time zone", "timestamptz")
+            .replace("TIMESTAMP WITH TIME ZONE", "TIMESTAMPTZ");
+        
+        result
     }
     
     pub async fn get_databases(&self) -> Result<Vec<Database>> {
@@ -453,7 +482,7 @@ impl PostgresIntrospector {
         
         let columns = self.client.query(columns_sql, &[&schema, &table_name]).await?;
         
-        let mut definition = format!("CREATE TABLE {}.{} (\n", schema, table_name);
+        let mut definition = format!("CREATE TABLE \"{}\".\"{}\" (\n", schema, table_name);
         
         for (i, row) in columns.iter().enumerate() {
             let col_name: String = row.get(0);
@@ -463,11 +492,11 @@ impl PostgresIntrospector {
             let _base_type_name: String = row.get(4);
             let type_category: Option<String> = row.get(5);
             
-            definition.push_str(&format!("    {} ", col_name));
+            definition.push_str(&format!("    \"{}\" ", col_name));
             
-            // Use the formatted type directly from pg_catalog.format_type
-            // It already includes proper formatting for varchar(n), numeric(p,s), etc.
-            definition.push_str(&data_type.to_uppercase());
+            // Convert to shorthand and uppercase
+            let formatted_type = Self::format_type_shorthand(&data_type);
+            definition.push_str(&formatted_type.to_uppercase());
             
             // Add NOT NULL
             if !is_nullable {
@@ -499,7 +528,8 @@ impl PostgresIntrospector {
             definition.push_str("-- Indexes\n");
             for row in indexes.iter() {
                 let indexdef: String = row.get(0);
-                definition.push_str(&format!("{};\n", indexdef));
+                let quoted_indexdef = quote_index_definition(&indexdef);
+                definition.push_str(&format!("{};\n", quoted_indexdef));
             }
             definition.push_str("\n");
         }
@@ -510,7 +540,7 @@ impl PostgresIntrospector {
                 conname,
                 pg_get_constraintdef(oid)
             FROM pg_constraint
-            WHERE conrelid = ($1 || '.' || $2)::regclass
+            WHERE conrelid = ('"' || $1 || '"."' || $2 || '"')::regclass
                 AND contype IN ('f', 'c', 'u')
         "#;
         
@@ -521,7 +551,7 @@ impl PostgresIntrospector {
             for row in constraints.iter() {
                 let conname: String = row.get(0);
                 let condef: String = row.get(1);
-                definition.push_str(&format!("ALTER TABLE {}.{} ADD CONSTRAINT {} {};\n", 
+                definition.push_str(&format!("ALTER TABLE \"{}\".\"{}\" ADD CONSTRAINT \"{}\" {};\n", 
                     schema, table_name, conname, condef));
             }
             definition.push_str("\n");
@@ -569,14 +599,14 @@ impl PostgresIntrospector {
                 if type_type_char == 'e' {
                     // Enum type
                     if let Some(values) = type_def {
-                        definition.push_str(&format!("-- CREATE TYPE {}.{} AS ENUM ({});\n", 
+                        definition.push_str(&format!("-- CREATE TYPE \"{}\".\"{}\" AS ENUM ({});\n", 
                             type_schema, type_name, 
                             values.split(", ").map(|v| format!("'{}'", v)).collect::<Vec<_>>().join(", ")));
                     }
                 } else if type_type_char == 'd' {
                     // Domain type
                     if let Some(base_type) = type_def {
-                        definition.push_str(&format!("-- CREATE DOMAIN {}.{} AS {};\n", 
+                        definition.push_str(&format!("-- CREATE DOMAIN \"{}\".\"{}\" AS {};\n", 
                             type_schema, type_name, base_type));
                     }
                 }
@@ -601,7 +631,7 @@ impl PostgresIntrospector {
         }
         
         let viewdef: String = rows[0].get(0);
-        Ok(format!("CREATE VIEW {}.{} AS\n{}", schema, view_name, viewdef))
+        Ok(format!("CREATE VIEW \"{}\".\"{}\" AS\n{}", schema, view_name, viewdef))
     }
     
     async fn get_materialized_view_definition(&self, schema: &str, view_name: &str) -> Result<String> {
@@ -619,7 +649,7 @@ impl PostgresIntrospector {
         }
         
         let viewdef: String = rows[0].get(0);
-        let mut definition = format!("CREATE MATERIALIZED VIEW {}.{} AS\n{}", schema, view_name, viewdef);
+        let mut definition = format!("CREATE MATERIALIZED VIEW \"{}\".\"{}\" AS\n{}", schema, view_name, viewdef);
         
         // Get indexes on materialized view
         let indexes_sql = "SELECT indexdef FROM pg_indexes WHERE schemaname = $1 AND tablename = $2";
@@ -629,7 +659,8 @@ impl PostgresIntrospector {
             definition.push_str("\n\n-- Indexes\n");
             for row in indexes.iter() {
                 let indexdef: String = row.get(0);
-                definition.push_str(&format!("{};\n", indexdef));
+                let quoted_indexdef = quote_index_definition(&indexdef);
+                definition.push_str(&format!("{};\n", quoted_indexdef));
             }
         }
         

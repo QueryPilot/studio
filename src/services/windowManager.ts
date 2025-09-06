@@ -31,11 +31,10 @@ class WindowManager {
       window.location.href = `/workspace/${connectionId}`;
       return `workspace-${connectionId}`;
     }
-    
+
     // Dynamic imports for Tauri APIs
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-    const { LogicalPosition } = await import("@tauri-apps/api/window");
-    
+
     // Check if window already exists for this connection
     const existingWindow = this.getWindowByConnectionId(connectionId);
     if (existingWindow) {
@@ -59,7 +58,9 @@ class WindowManager {
 
     // Create new window with transparent title bar
     const label = `workspace-${connectionId}`;
-    const webview = new WebviewWindow(label, {
+    // Create window options with traffic light position
+    // TypeScript types for trafficLightPosition might not be updated yet
+    const windowOptions: Record<string, unknown> = {
       url: `/workspace/${connectionId}`,
       title: `${connectionName} - DevDB Studio`,
       width: 1400,
@@ -76,10 +77,15 @@ class WindowManager {
       titleBarStyle: "overlay",
       hiddenTitle: true,
       skipTaskbar: false,
-      // Set traffic light position for macOS
-      // TODO: trafficLightPosition is not available in Tauri v2 - find alternative
-      // trafficLightPosition: new LogicalPosition(12, 18),
-    });
+      // Traffic light position for macOS (available in Tauri v2.8+)
+      // This will be ignored on other platforms
+      trafficLightPosition: { x: 16, y: 18 },
+    };
+
+    const webview = new WebviewWindow(
+      label,
+      windowOptions as ConstructorParameters<typeof WebviewWindow>[1],
+    );
 
     // Register window
     this.windows.set(label, {
@@ -110,12 +116,12 @@ class WindowManager {
   async closeWorkspace(connectionId: string): Promise<void> {
     if (!isTauri()) {
       // In browser mode, just navigate back
-      globalThis.window.location.href = '/';
+      globalThis.window.location.href = "/";
       return;
     }
-    
+
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-    
+
     const workspaceWindow = this.getWindowByConnectionId(connectionId);
     if (workspaceWindow) {
       const webview = await WebviewWindow.getByLabel(workspaceWindow.label);
@@ -141,9 +147,9 @@ class WindowManager {
     if (!isTauri()) {
       return;
     }
-    
+
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-    
+
     const window = this.getWindowByConnectionId(connectionId);
     if (window) {
       const webview = await WebviewWindow.getByLabel(window.label);
@@ -174,9 +180,9 @@ class WindowManager {
     if (!isTauri()) {
       return;
     }
-    
+
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-    
+
     for (const [label] of this.windows) {
       const webview = await WebviewWindow.getByLabel(label);
       if (webview) {

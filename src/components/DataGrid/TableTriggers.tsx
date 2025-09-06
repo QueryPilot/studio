@@ -68,7 +68,9 @@ export const TableTriggers = memo(function TableTriggers({
     return (
       <div className="flex flex-col items-center justify-center h-full p-8">
         <Zap className="h-12 w-12 text-muted-foreground/50 mb-4" />
-        <h3 className="text-lg font-semibold mb-2 text-foreground/70">No triggers found</h3>
+        <h3 className="text-lg font-semibold mb-2 text-foreground/70">
+          No triggers found
+        </h3>
         <p className="text-sm text-muted-foreground max-w-md text-center">
           This table doesn't have any triggers defined.
         </p>
@@ -127,10 +129,10 @@ export const TableTriggers = memo(function TableTriggers({
                   {trigger.name}
                 </span>
               </td>
-              <td className="px-1.5 py-0.5 border-r whitespace-nowrap">
+              <td className="px-1.5 py-0.5 border-r whitespace-nowrap text-foreground/90 dark:text-foreground/70">
                 <span
                   className={cn(
-                    "inline-flex px-1.5 py-0 rounded text-xs font-mono",
+                    "inline-flex px-1.5 py-0 rounded text-xs ",
                     trigger.event === "INSERT" &&
                       "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
                     trigger.event === "UPDATE" &&
@@ -146,13 +148,13 @@ export const TableTriggers = memo(function TableTriggers({
               </td>
               <td className="px-1.5 py-0.5 border-r text-foreground/80 dark:text-foreground/65 whitespace-nowrap">
                 <div className="flex items-center gap-1">
-                  <span className="font-mono text-xs">{trigger.timing}</span>
+                  <span className="text-xs">{trigger.timing}</span>
                   {trigger.timing === "BEFORE" && (
                     <Clock className="h-3 w-3 text-blue-600 dark:text-blue-500 opacity-70" />
                   )}
                 </div>
               </td>
-              <td className="px-1.5 py-0.5 border-r text-foreground/80 dark:text-foreground/65 font-mono text-xs whitespace-nowrap">
+              <td className="px-1.5 py-0.5 border-r text-foreground/80 dark:text-foreground/65 text-xs whitespace-nowrap">
                 {trigger.level}
               </td>
               <td className="px-1.5 py-0.5 border-r whitespace-nowrap">
@@ -174,7 +176,7 @@ export const TableTriggers = memo(function TableTriggers({
                   )}
                 </div>
               </td>
-              <td className="px-1.5 py-0.5 border-r text-foreground/70 dark:text-foreground/60 font-mono text-xs whitespace-nowrap">
+              <td className="px-1.5 py-0.5 border-r text-foreground/70 dark:text-foreground/60 text-xs whitespace-nowrap">
                 {trigger.function}
               </td>
               <td className="px-1.5 py-0.5 border-r text-foreground/60 dark:text-foreground/50 text-xs italic whitespace-nowrap">

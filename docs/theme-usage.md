@@ -7,8 +7,10 @@ The app uses a modern, minimal color scheme with your specified colors:
 - **Primary Brand**: #FCA311 (Amber/Orange)
 - **Secondary Brand**: #14213D (Dark Navy)
 - **Black**: #000000
-- **Grays**: #E5E5E5 (Light gray)
-- **White**: #FFFFFF
+- **Grays**: 
+  - Light mode: #E5E5E5 (Light gray)
+  - Dark mode: #D4D4D4 (Softer white, less eye strain)
+- **White**: #FFFFFF (Light mode) / #E5E5E5 (Dark mode - softer)
 
 ## Available Color Classes
 
@@ -30,7 +32,7 @@ The app uses a modern, minimal color scheme with your specified colors:
 
 ### Text
 
-- `text-text-primary` - Primary text
+- `text-text-primary` - Primary text (90% white in dark mode for less eye strain)
 - `text-text-secondary` - Secondary text
 - `text-text-tertiary` - Tertiary text
 - `text-text-disabled` - Disabled text

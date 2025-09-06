@@ -1,0 +1,556 @@
+import * as monaco from 'monaco-editor';
+
+export type DatabaseType = 'postgresql' | 'mysql' | 'sqlserver' | 'sqlite';
+
+// PostgreSQL keywords including DDL, DML, DCL
+const postgresKeywords = [
+  'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'FULL',
+  'ON', 'AS', 'AND', 'OR', 'NOT', 'NULL', 'IS', 'IN', 'EXISTS', 'BETWEEN',
+  'LIKE', 'ILIKE', 'ORDER', 'BY', 'GROUP', 'HAVING', 'LIMIT', 'OFFSET',
+  'UNION', 'ALL', 'DISTINCT', 'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET',
+  'DELETE', 'CREATE', 'ALTER', 'DROP', 'TABLE', 'INDEX', 'VIEW', 'SEQUENCE',
+  'DATABASE', 'SCHEMA', 'GRANT', 'REVOKE', 'COMMIT', 'ROLLBACK', 'BEGIN',
+  'TRANSACTION', 'CONSTRAINT', 'PRIMARY', 'KEY', 'FOREIGN', 'REFERENCES',
+  'UNIQUE', 'CHECK', 'DEFAULT', 'CASCADE', 'RESTRICT', 'NO', 'ACTION',
+  'TRIGGER', 'FUNCTION', 'PROCEDURE', 'RETURN', 'RETURNS', 'LANGUAGE',
+  'IF', 'THEN', 'ELSE', 'ELSIF', 'END', 'CASE', 'WHEN', 'WITH', 'RECURSIVE',
+  'MATERIALIZED', 'REFRESH', 'CONCURRENTLY', 'ANALYZE', 'VACUUM', 'EXPLAIN',
+  'USING', 'RETURNING', 'CONFLICT', 'DO', 'NOTHING', 'EXCLUDED', 'LATERAL',
+  'CROSS', 'NATURAL', 'ASC', 'DESC', 'NULLS', 'FIRST', 'LAST', 'FILTER',
+  'WITHIN', 'OVER', 'PARTITION', 'WINDOW', 'RANGE', 'ROWS', 'UNBOUNDED',
+  'PRECEDING', 'FOLLOWING', 'CURRENT', 'ROW', 'EXCLUDE', 'TIES', 'GROUPS',
+  'COPY', 'TO', 'STDIN', 'STDOUT', 'CSV', 'HEADER', 'DELIMITER', 'QUOTE',
+  'ESCAPE', 'FORCE', 'FREEZE', 'VERBOSE', 'ENCODING', 'TABLESPACE', 'OWNER',
+  'INHERITS', 'OIDS', 'WITHOUT', 'INCLUDING', 'EXCLUDING', 'DEFAULTS',
+  'CONSTRAINTS', 'INDEXES', 'STORAGE', 'COMMENTS', 'STATISTICS', 'ALL',
+  'PRIVILEGES', 'PUBLIC', 'USER', 'ROLE', 'SESSION', 'LOCAL', 'GLOBAL',
+  'TEMPORARY', 'TEMP', 'UNLOGGED', 'LOGGED', 'OF', 'NOTHING', 'IDENTITY',
+  'GENERATED', 'ALWAYS', 'BY', 'STORED', 'VIRTUAL', 'USING', 'DEFERRABLE',
+  'INITIALLY', 'DEFERRED', 'IMMEDIATE', 'MATCH', 'SIMPLE', 'PARTIAL',
+  'CLUSTER', 'REINDEX', 'LISTEN', 'NOTIFY', 'UNLISTEN', 'LOAD', 'RESET',
+  'SHOW', 'EXTENSION', 'AGGREGATE', 'OPERATOR', 'TYPE', 'DOMAIN', 'COLLATION',
+  'CONVERSION', 'CAST', 'RULE', 'POLICY', 'EVENT', 'SERVER', 'PUBLICATION',
+  'SUBSCRIPTION', 'FETCH', 'MOVE', 'CLOSE', 'DECLARE', 'CURSOR', 'FOR',
+  'SHARE', 'NOWAIT', 'SKIP', 'LOCKED', 'ABORT', 'CHECKPOINT', 'DEALLOCATE',
+  'DISCARD', 'EXECUTE', 'PREPARE', 'REASSIGN', 'REFRESH', 'REINDEX', 'RELEASE',
+  'SAVEPOINT', 'SECURITY', 'START', 'TRUNCATE', 'UNLISTEN', 'WORK'
+];
+
+// PostgreSQL data types
+const postgresTypes = [
+  // Numeric types
+  'SMALLINT', 'INTEGER', 'BIGINT', 'DECIMAL', 'NUMERIC', 'REAL', 'DOUBLE',
+  'PRECISION', 'SMALLSERIAL', 'SERIAL', 'BIGSERIAL', 'INT', 'INT2', 'INT4',
+  'INT8', 'FLOAT', 'FLOAT4', 'FLOAT8', 'MONEY',
+  // Character types
+  'CHARACTER', 'CHAR', 'VARCHAR', 'TEXT', 'NAME', 'BPCHAR',
+  // Date/Time types
+  'TIMESTAMP', 'DATE', 'TIME', 'TIMETZ', 'TIMESTAMPTZ', 'INTERVAL', 'ZONE',
+  // Boolean type
+  'BOOLEAN', 'BOOL',
+  // Binary types
+  'BYTEA', 'BIT', 'VARBIT',
+  // UUID type
+  'UUID',
+  // JSON types
+  'JSON', 'JSONB', 'JSONPATH',
+  // Geometric types
+  'POINT', 'LINE', 'LSEG', 'BOX', 'PATH', 'POLYGON', 'CIRCLE',
+  // Network types
+  'CIDR', 'INET', 'MACADDR', 'MACADDR8',
+  // Text search types
+  'TSVECTOR', 'TSQUERY',
+  // Range types
+  'INT4RANGE', 'INT8RANGE', 'NUMRANGE', 'TSRANGE', 'TSTZRANGE', 'DATERANGE',
+  // Array indicator
+  'ARRAY',
+  // Other types
+  'XML', 'HSTORE', 'LTREE', 'CITEXT', 'CUBE', 'PG_LSN', 'TXID_SNAPSHOT',
+  'REGCLASS', 'REGPROC', 'REGPROCEDURE', 'REGOPER', 'REGOPERATOR',
+  'REGNAMESPACE', 'REGROLE', 'REGTYPE', 'REGCONFIG', 'REGDICTIONARY',
+  'OID', 'TID', 'XID', 'CID', 'VOID', 'RECORD', 'TRIGGER', 'EVENT_TRIGGER',
+  'PG_DDL_COMMAND', 'ANYELEMENT', 'ANYARRAY', 'ANYNONARRAY', 'ANYENUM',
+  'ANYRANGE', 'CSTRING', 'INTERNAL', 'LANGUAGE_HANDLER', 'FDW_HANDLER',
+  'INDEX_AM_HANDLER', 'TSM_HANDLER', 'UNKNOWN'
+];
+
+// PostgreSQL built-in functions
+const postgresFunctions = [
+  // Aggregate functions
+  'COUNT', 'SUM', 'AVG', 'MAX', 'MIN', 'ARRAY_AGG', 'STRING_AGG', 'JSONB_AGG',
+  'JSON_AGG', 'XMLAGG', 'BIT_AND', 'BIT_OR', 'BOOL_AND', 'BOOL_OR', 'EVERY',
+  'STDDEV', 'STDDEV_POP', 'STDDEV_SAMP', 'VARIANCE', 'VAR_POP', 'VAR_SAMP',
+  'CORR', 'COVAR_POP', 'COVAR_SAMP', 'REGR_AVGX', 'REGR_AVGY', 'REGR_COUNT',
+  'REGR_INTERCEPT', 'REGR_R2', 'REGR_SLOPE', 'REGR_SXX', 'REGR_SXY', 'REGR_SYY',
+  'MODE', 'PERCENTILE_CONT', 'PERCENTILE_DISC',
+  // Window functions
+  'ROW_NUMBER', 'RANK', 'DENSE_RANK', 'PERCENT_RANK', 'CUME_DIST', 'NTILE',
+  'LAG', 'LEAD', 'FIRST_VALUE', 'LAST_VALUE', 'NTH_VALUE',
+  // String functions
+  'CONCAT', 'CONCAT_WS', 'FORMAT', 'LENGTH', 'CHAR_LENGTH', 'CHARACTER_LENGTH',
+  'BIT_LENGTH', 'OCTET_LENGTH', 'LOWER', 'UPPER', 'INITCAP', 'LEFT', 'RIGHT',
+  'SUBSTRING', 'SUBSTR', 'POSITION', 'STRPOS', 'OVERLAY', 'TRIM', 'LTRIM',
+  'RTRIM', 'BTRIM', 'REPEAT', 'REPLACE', 'TRANSLATE', 'REVERSE', 'SPLIT_PART',
+  'REGEXP_REPLACE', 'REGEXP_MATCH', 'REGEXP_MATCHES', 'REGEXP_SPLIT_TO_ARRAY',
+  'REGEXP_SPLIT_TO_TABLE', 'ASCII', 'CHR', 'MD5', 'SHA224', 'SHA256', 'SHA384',
+  'SHA512', 'ENCODE', 'DECODE', 'CONVERT', 'CONVERT_FROM', 'CONVERT_TO',
+  'TO_ASCII', 'TO_HEX', 'QUOTE_IDENT', 'QUOTE_LITERAL', 'QUOTE_NULLABLE',
+  // Date/Time functions
+  'NOW', 'CURRENT_DATE', 'CURRENT_TIME', 'CURRENT_TIMESTAMP', 'LOCALTIME',
+  'LOCALTIMESTAMP', 'TIMEOFDAY', 'AGE', 'CLOCK_TIMESTAMP', 'DATE_PART',
+  'DATE_TRUNC', 'EXTRACT', 'ISFINITE', 'JUSTIFY_DAYS', 'JUSTIFY_HOURS',
+  'JUSTIFY_INTERVAL', 'MAKE_DATE', 'MAKE_TIME', 'MAKE_TIMESTAMP',
+  'MAKE_TIMESTAMPTZ', 'MAKE_INTERVAL', 'TO_TIMESTAMP', 'TO_DATE', 'TO_CHAR',
+  'TO_NUMBER', 'AT',
+  // Mathematical functions
+  'ABS', 'CBRT', 'CEIL', 'CEILING', 'DEGREES', 'DIV', 'EXP', 'FLOOR', 'LN',
+  'LOG', 'LOG10', 'MOD', 'PI', 'POWER', 'RADIANS', 'ROUND', 'SCALE', 'SIGN',
+  'SQRT', 'TRUNC', 'WIDTH_BUCKET', 'ACOS', 'ACOSD', 'ASIN', 'ASIND', 'ATAN',
+  'ATAND', 'ATAN2', 'ATAN2D', 'COS', 'COSD', 'COT', 'COTD', 'SIN', 'SIND',
+  'TAN', 'TAND', 'SINH', 'COSH', 'TANH', 'ASINH', 'ACOSH', 'ATANH',
+  'GREATEST', 'LEAST', 'RANDOM', 'SETSEED',
+  // Array functions
+  'ARRAY_APPEND', 'ARRAY_CAT', 'ARRAY_DIMS', 'ARRAY_FILL', 'ARRAY_LENGTH',
+  'ARRAY_LOWER', 'ARRAY_NDIMS', 'ARRAY_POSITION', 'ARRAY_POSITIONS',
+  'ARRAY_PREPEND', 'ARRAY_REMOVE', 'ARRAY_REPLACE', 'ARRAY_TO_STRING',
+  'ARRAY_UPPER', 'CARDINALITY', 'STRING_TO_ARRAY', 'UNNEST',
+  // JSON functions
+  'JSON_BUILD_ARRAY', 'JSON_BUILD_OBJECT', 'JSON_OBJECT', 'JSON_ARRAY_ELEMENTS',
+  'JSON_ARRAY_ELEMENTS_TEXT', 'JSON_ARRAY_LENGTH', 'JSON_EACH', 'JSON_EACH_TEXT',
+  'JSON_EXTRACT_PATH', 'JSON_EXTRACT_PATH_TEXT', 'JSON_OBJECT_KEYS',
+  'JSON_POPULATE_RECORD', 'JSON_POPULATE_RECORDSET', 'JSON_TO_RECORD',
+  'JSON_TO_RECORDSET', 'JSON_STRIP_NULLS', 'TO_JSON', 'TO_JSONB',
+  'JSONB_BUILD_ARRAY', 'JSONB_BUILD_OBJECT', 'JSONB_OBJECT', 'JSONB_ARRAY_ELEMENTS',
+  'JSONB_ARRAY_ELEMENTS_TEXT', 'JSONB_ARRAY_LENGTH', 'JSONB_EACH', 'JSONB_EACH_TEXT',
+  'JSONB_EXTRACT_PATH', 'JSONB_EXTRACT_PATH_TEXT', 'JSONB_OBJECT_KEYS',
+  'JSONB_POPULATE_RECORD', 'JSONB_POPULATE_RECORDSET', 'JSONB_TO_RECORD',
+  'JSONB_TO_RECORDSET', 'JSONB_STRIP_NULLS', 'JSONB_SET', 'JSONB_INSERT',
+  'JSONB_PRETTY', 'JSONB_PATH_EXISTS', 'JSONB_PATH_MATCH', 'JSONB_PATH_QUERY',
+  'JSONB_PATH_QUERY_ARRAY', 'JSONB_PATH_QUERY_FIRST',
+  // Type conversion functions
+  'CAST', 'COALESCE', 'NULLIF', 'NUM_NULLS', 'NUM_NONNULLS',
+  // Sequence functions
+  'NEXTVAL', 'CURRVAL', 'LASTVAL', 'SETVAL',
+  // System functions
+  'CURRENT_CATALOG', 'CURRENT_DATABASE', 'CURRENT_QUERY', 'CURRENT_SCHEMA',
+  'CURRENT_SCHEMAS', 'CURRENT_USER', 'CURRENT_ROLE', 'SESSION_USER',
+  'USER', 'VERSION', 'HAS_DATABASE_PRIVILEGE', 'HAS_SCHEMA_PRIVILEGE',
+  'HAS_TABLE_PRIVILEGE', 'HAS_COLUMN_PRIVILEGE', 'HAS_SEQUENCE_PRIVILEGE',
+  'HAS_FUNCTION_PRIVILEGE', 'HAS_TYPE_PRIVILEGE', 'PG_BACKEND_PID',
+  'PG_CONF_LOAD_TIME', 'PG_IS_IN_RECOVERY', 'PG_LAST_COMMITTED_XACT',
+  'PG_MY_TEMP_SCHEMA', 'PG_IS_OTHER_TEMP_SCHEMA', 'PG_POSTMASTER_START_TIME',
+  'PG_TRIGGER_DEPTH', 'PG_TYPEOF', 'PG_GET_VIEWDEF', 'PG_GET_FUNCTIONDEF',
+  'PG_GET_FUNCTION_ARGUMENTS', 'PG_GET_FUNCTION_IDENTITY_ARGUMENTS',
+  'PG_GET_FUNCTION_RESULT', 'PG_GET_CONSTRAINTDEF', 'PG_GET_INDEXDEF',
+  'PG_GET_RULEDEF', 'PG_GET_TRIGGERDEF', 'PG_GET_USERBYID', 'OBJ_DESCRIPTION',
+  'COL_DESCRIPTION', 'SHOBJ_DESCRIPTION',
+  // Other functions
+  'GENERATE_SERIES', 'GENERATE_SUBSCRIPTS', 'XMLPARSE', 'XMLSERIALIZE',
+  'XMLCOMMENT', 'XMLCONCAT', 'XMLELEMENT', 'XMLFOREST', 'XMLPI', 'XMLROOT',
+  'XMLEXISTS', 'XML_IS_WELL_FORMED', 'XPATH', 'XPATH_EXISTS', 'TABLE_TO_XML',
+  'CURSOR_TO_XML'
+];
+
+// MySQL specific keywords (in addition to standard SQL)
+const mysqlKeywords = [
+  'ACCESSIBLE', 'ANALYZE', 'ASENSITIVE', 'BEFORE', 'BIGINT', 'BINARY', 'BLOB',
+  'BOTH', 'CALL', 'CHANGE', 'CONDITION', 'DATABASE', 'DATABASES', 'DAY_HOUR',
+  'DAY_MICROSECOND', 'DAY_MINUTE', 'DAY_SECOND', 'DELAYED', 'DESCRIBE',
+  'DETERMINISTIC', 'DISTINCTROW', 'DIV', 'DUAL', 'EACH', 'ELSEIF', 'ENCLOSED',
+  'ESCAPED', 'EXIT', 'EXPLAIN', 'FLOAT4', 'FLOAT8', 'FORCE', 'FULLTEXT',
+  'HIGH_PRIORITY', 'HOUR_MICROSECOND', 'HOUR_MINUTE', 'HOUR_SECOND', 'IF',
+  'IGNORE', 'INFILE', 'INOUT', 'INT1', 'INT2', 'INT3', 'INT4', 'INT8',
+  'ITERATE', 'KEYS', 'KILL', 'LEAVE', 'LIMIT', 'LINEAR', 'LINES', 'LOAD',
+  'LOCALTIME', 'LOCALTIMESTAMP', 'LOCK', 'LONG', 'LONGBLOB', 'LONGTEXT',
+  'LOOP', 'LOW_PRIORITY', 'MASTER_SSL_VERIFY_SERVER_CERT', 'MATCH',
+  'MEDIUMBLOB', 'MEDIUMINT', 'MEDIUMTEXT', 'MIDDLEINT', 'MINUTE_MICROSECOND',
+  'MINUTE_SECOND', 'MOD', 'MODIFIES', 'NO_WRITE_TO_BINLOG', 'OPTIMIZE',
+  'OPTIONALLY', 'OUT', 'OUTFILE', 'PURGE', 'RANGE', 'READS', 'READ_WRITE',
+  'REGEXP', 'RELEASE', 'RENAME', 'REPEAT', 'REPLACE', 'REQUIRE', 'RESIGNAL',
+  'RESTRICT', 'RETURN', 'RLIKE', 'SCHEMAS', 'SECOND_MICROSECOND', 'SENSITIVE',
+  'SEPARATOR', 'SHOW', 'SIGNAL', 'SPATIAL', 'SPECIFIC', 'SQL_BIG_RESULT',
+  'SQL_CALC_FOUND_ROWS', 'SQL_SMALL_RESULT', 'SSL', 'STARTING', 'STRAIGHT_JOIN',
+  'TERMINATED', 'TINYBLOB', 'TINYINT', 'TINYTEXT', 'TRIGGER', 'UNDO', 'UNLOCK',
+  'UNSIGNED', 'USAGE', 'USE', 'UTC_DATE', 'UTC_TIME', 'UTC_TIMESTAMP',
+  'VARBINARY', 'VARCHARACTER', 'WHILE', 'X509', 'XOR', 'YEAR_MONTH', 'ZEROFILL',
+  ...postgresKeywords.filter(k => !['COPY', 'VACUUM', 'ANALYZE', 'CLUSTER', 'REINDEX'].includes(k))
+];
+
+// MySQL data types
+const mysqlTypes = [
+  'BIT', 'TINYINT', 'SMALLINT', 'MEDIUMINT', 'INT', 'INTEGER', 'BIGINT',
+  'DECIMAL', 'DEC', 'NUMERIC', 'FLOAT', 'DOUBLE', 'DOUBLE PRECISION', 'REAL',
+  'BOOLEAN', 'BOOL', 'DATE', 'DATETIME', 'TIMESTAMP', 'TIME', 'YEAR',
+  'CHAR', 'VARCHAR', 'BINARY', 'VARBINARY', 'TINYBLOB', 'TINYTEXT', 'BLOB',
+  'TEXT', 'MEDIUMBLOB', 'MEDIUMTEXT', 'LONGBLOB', 'LONGTEXT', 'ENUM', 'SET',
+  'JSON', 'GEOMETRY', 'POINT', 'LINESTRING', 'POLYGON', 'MULTIPOINT',
+  'MULTILINESTRING', 'MULTIPOLYGON', 'GEOMETRYCOLLECTION'
+];
+
+// MySQL functions
+const mysqlFunctions = [
+  'ABS', 'ACOS', 'ADDDATE', 'ADDTIME', 'AES_DECRYPT', 'AES_ENCRYPT', 'ASCII',
+  'ASIN', 'ATAN', 'ATAN2', 'AVG', 'BENCHMARK', 'BIN', 'BIT_AND', 'BIT_COUNT',
+  'BIT_LENGTH', 'BIT_OR', 'BIT_XOR', 'CAST', 'CEIL', 'CEILING', 'CHAR',
+  'CHARACTER_LENGTH', 'CHARSET', 'COALESCE', 'COERCIBILITY', 'COLLATION',
+  'COMPRESS', 'CONCAT', 'CONCAT_WS', 'CONNECTION_ID', 'CONV', 'CONVERT',
+  'COS', 'COT', 'COUNT', 'CRC32', 'CURDATE', 'CURRENT_DATE', 'CURRENT_TIME',
+  'CURRENT_TIMESTAMP', 'CURRENT_USER', 'CURTIME', 'DATABASE', 'DATE',
+  'DATE_ADD', 'DATE_FORMAT', 'DATE_SUB', 'DATEDIFF', 'DAY', 'DAYNAME',
+  'DAYOFMONTH', 'DAYOFWEEK', 'DAYOFYEAR', 'DECODE', 'DEFAULT', 'DEGREES',
+  'DES_DECRYPT', 'DES_ENCRYPT', 'ELT', 'ENCODE', 'ENCRYPT', 'EXP', 'EXPORT_SET',
+  'EXTRACTVALUE', 'FIELD', 'FIND_IN_SET', 'FLOOR', 'FORMAT', 'FOUND_ROWS',
+  'FROM_BASE64', 'FROM_DAYS', 'FROM_UNIXTIME', 'GET_FORMAT', 'GET_LOCK',
+  'GREATEST', 'GROUP_CONCAT', 'HEX', 'HOUR', 'IF', 'IFNULL', 'INET_ATON',
+  'INET_NTOA', 'INSERT', 'INSTR', 'INTERVAL', 'IS_FREE_LOCK', 'IS_USED_LOCK',
+  'ISNULL', 'JSON_ARRAY', 'JSON_ARRAYAGG', 'JSON_CONTAINS', 'JSON_EXTRACT',
+  'JSON_INSERT', 'JSON_KEYS', 'JSON_LENGTH', 'JSON_MERGE', 'JSON_OBJECT',
+  'JSON_OBJECTAGG', 'JSON_QUOTE', 'JSON_REMOVE', 'JSON_REPLACE', 'JSON_SEARCH',
+  'JSON_SET', 'JSON_TYPE', 'JSON_UNQUOTE', 'JSON_VALID', 'LAST_DAY',
+  'LAST_INSERT_ID', 'LCASE', 'LEAST', 'LEFT', 'LENGTH', 'LIKE', 'LN', 'LOAD_FILE',
+  'LOCALTIME', 'LOCALTIMESTAMP', 'LOCATE', 'LOG', 'LOG10', 'LOG2', 'LOWER',
+  'LPAD', 'LTRIM', 'MAKE_SET', 'MAKEDATE', 'MAKETIME', 'MASTER_POS_WAIT',
+  'MATCH', 'MAX', 'MD5', 'MICROSECOND', 'MID', 'MIN', 'MINUTE', 'MOD', 'MONTH',
+  'MONTHNAME', 'NOW', 'NULLIF', 'OCT', 'OCTET_LENGTH', 'OLD_PASSWORD', 'ORD',
+  'PASSWORD', 'PERIOD_ADD', 'PERIOD_DIFF', 'PI', 'POSITION', 'POW', 'POWER',
+  'QUARTER', 'QUOTE', 'RADIANS', 'RAND', 'RANDOM', 'REGEXP', 'RELEASE_LOCK',
+  'REPEAT', 'REPLACE', 'REVERSE', 'RIGHT', 'RLIKE', 'ROUND', 'ROW_COUNT',
+  'RPAD', 'RTRIM', 'SCHEMA', 'SEC_TO_TIME', 'SECOND', 'SESSION_USER', 'SHA',
+  'SHA1', 'SHA2', 'SIGN', 'SIN', 'SLEEP', 'SOUNDEX', 'SPACE', 'SQRT', 'STD',
+  'STDDEV', 'STDDEV_POP', 'STDDEV_SAMP', 'STR_TO_DATE', 'STRCMP', 'SUBDATE',
+  'SUBSTR', 'SUBSTRING', 'SUBSTRING_INDEX', 'SUBTIME', 'SUM', 'SYSDATE',
+  'SYSTEM_USER', 'TAN', 'TIME', 'TIME_FORMAT', 'TIME_TO_SEC', 'TIMEDIFF',
+  'TIMESTAMP', 'TIMESTAMPADD', 'TIMESTAMPDIFF', 'TO_BASE64', 'TO_DAYS',
+  'TO_SECONDS', 'TRIM', 'TRUNCATE', 'UCASE', 'UNCOMPRESS', 'UNCOMPRESSED_LENGTH',
+  'UNHEX', 'UNIX_TIMESTAMP', 'UPDATEXML', 'UPPER', 'USER', 'UTC_DATE',
+  'UTC_TIME', 'UTC_TIMESTAMP', 'UUID', 'UUID_SHORT', 'VALUES', 'VAR_POP',
+  'VAR_SAMP', 'VARIANCE', 'VERSION', 'WEEK', 'WEEKDAY', 'WEEKOFYEAR',
+  'WEIGHT_STRING', 'YEAR', 'YEARWEEK'
+];
+
+// SQL Server specific keywords
+const sqlServerKeywords = [
+  'ADD', 'ALL', 'ALTER', 'AND', 'ANY', 'AS', 'ASC', 'AUTHORIZATION', 'BACKUP',
+  'BEGIN', 'BETWEEN', 'BREAK', 'BROWSE', 'BULK', 'BY', 'CASCADE', 'CASE',
+  'CHECK', 'CHECKPOINT', 'CLOSE', 'CLUSTERED', 'COALESCE', 'COLLATE', 'COLUMN',
+  'COMMIT', 'COMPUTE', 'CONSTRAINT', 'CONTAINS', 'CONTAINSTABLE', 'CONTINUE',
+  'CONVERT', 'CREATE', 'CROSS', 'CURRENT', 'CURRENT_DATE', 'CURRENT_TIME',
+  'CURRENT_TIMESTAMP', 'CURRENT_USER', 'CURSOR', 'DATABASE', 'DBCC', 'DEALLOCATE',
+  'DECLARE', 'DEFAULT', 'DELETE', 'DENY', 'DESC', 'DISK', 'DISTINCT',
+  'DISTRIBUTED', 'DOUBLE', 'DROP', 'DUMP', 'ELSE', 'END', 'ERRLVL', 'ESCAPE',
+  'EXCEPT', 'EXEC', 'EXECUTE', 'EXISTS', 'EXIT', 'EXTERNAL', 'FETCH', 'FILE',
+  'FILLFACTOR', 'FOR', 'FOREIGN', 'FREETEXT', 'FREETEXTTABLE', 'FROM', 'FULL',
+  'FUNCTION', 'GOTO', 'GRANT', 'GROUP', 'HAVING', 'HOLDLOCK', 'IDENTITY',
+  'IDENTITY_INSERT', 'IDENTITYCOL', 'IF', 'IN', 'INDEX', 'INNER', 'INSERT',
+  'INTERSECT', 'INTO', 'IS', 'JOIN', 'KEY', 'KILL', 'LEFT', 'LIKE', 'LINENO',
+  'LOAD', 'MERGE', 'NATIONAL', 'NOCHECK', 'NONCLUSTERED', 'NOT', 'NULL',
+  'NULLIF', 'OF', 'OFF', 'OFFSETS', 'ON', 'OPEN', 'OPENDATASOURCE', 'OPENQUERY',
+  'OPENROWSET', 'OPENXML', 'OPTION', 'OR', 'ORDER', 'OUTER', 'OVER', 'PERCENT',
+  'PIVOT', 'PLAN', 'PRECISION', 'PRIMARY', 'PRINT', 'PROC', 'PROCEDURE',
+  'PUBLIC', 'RAISERROR', 'READ', 'READTEXT', 'RECONFIGURE', 'REFERENCES',
+  'REPLICATION', 'RESTORE', 'RESTRICT', 'RETURN', 'REVERT', 'REVOKE', 'RIGHT',
+  'ROLLBACK', 'ROWCOUNT', 'ROWGUIDCOL', 'RULE', 'SAVE', 'SCHEMA', 'SECURITYAUDIT',
+  'SELECT', 'SEMANTICKEYPHRASETABLE', 'SEMANTICSIMILARITYDETAILSTABLE',
+  'SEMANTICSIMILARITYTABLE', 'SESSION_USER', 'SET', 'SETUSER', 'SHUTDOWN',
+  'SOME', 'STATISTICS', 'SYSTEM_USER', 'TABLE', 'TABLESAMPLE', 'TEXTSIZE',
+  'THEN', 'TO', 'TOP', 'TRAN', 'TRANSACTION', 'TRIGGER', 'TRUNCATE', 'TRY',
+  'TSEQUAL', 'UNION', 'UNIQUE', 'UNPIVOT', 'UPDATE', 'UPDATETEXT', 'USE',
+  'USER', 'VALUES', 'VARYING', 'VIEW', 'WAITFOR', 'WHEN', 'WHERE', 'WHILE',
+  'WITH', 'WITHIN', 'WRITETEXT', 'THROW', 'TRY_CAST', 'TRY_CONVERT', 'TRY_PARSE'
+];
+
+// SQL Server data types
+const sqlServerTypes = [
+  'BIGINT', 'NUMERIC', 'BIT', 'SMALLINT', 'DECIMAL', 'SMALLMONEY', 'INT',
+  'TINYINT', 'MONEY', 'FLOAT', 'REAL', 'DATE', 'DATETIMEOFFSET', 'DATETIME2',
+  'SMALLDATETIME', 'DATETIME', 'TIME', 'CHAR', 'VARCHAR', 'TEXT', 'NCHAR',
+  'NVARCHAR', 'NTEXT', 'BINARY', 'VARBINARY', 'IMAGE', 'CURSOR', 'ROWVERSION',
+  'HIERARCHYID', 'UNIQUEIDENTIFIER', 'SQL_VARIANT', 'XML', 'TABLE', 'GEOGRAPHY',
+  'GEOMETRY'
+];
+
+// SQL Server functions
+const sqlServerFunctions = [
+  'ABS', 'ACOS', 'APP_NAME', 'ASCII', 'ASIN', 'ASSEMBLYPROPERTY', 'ATAN',
+  'ATN2', 'AVG', 'BINARY_CHECKSUM', 'CAST', 'CEILING', 'CHARINDEX', 'CHECKSUM',
+  'CHECKSUM_AGG', 'CHOOSE', 'COALESCE', 'COL_LENGTH', 'COL_NAME', 'COLUMNPROPERTY',
+  'COMPRESS', 'CONCAT', 'CONCAT_WS', 'CONNECTIONPROPERTY', 'CONTEXT_INFO',
+  'CONVERT', 'COS', 'COT', 'COUNT', 'COUNT_BIG', 'CUME_DIST', 'CURRENT_REQUEST_ID',
+  'CURRENT_TIMESTAMP', 'CURRENT_TRANSACTION_ID', 'CURRENT_USER', 'CURSOR_STATUS',
+  'DATABASE_PRINCIPAL_ID', 'DATABASEPROPERTYEX', 'DATEADD', 'DATEDIFF',
+  'DATEDIFF_BIG', 'DATEFROMPARTS', 'DATENAME', 'DATEPART', 'DATETIME2FROMPARTS',
+  'DATETIMEFROMPARTS', 'DATETIMEOFFSETFROMPARTS', 'DAY', 'DB_ID', 'DB_NAME',
+  'DECOMPRESS', 'DEGREES', 'DENSE_RANK', 'DIFFERENCE', 'EOMONTH', 'ERROR_LINE',
+  'ERROR_MESSAGE', 'ERROR_NUMBER', 'ERROR_PROCEDURE', 'ERROR_SEVERITY',
+  'ERROR_STATE', 'EXP', 'FILE_ID', 'FILE_IDEX', 'FILE_NAME', 'FILEGROUP_ID',
+  'FILEGROUP_NAME', 'FILEGROUPPROPERTY', 'FILEPROPERTY', 'FIRST_VALUE',
+  'FLOOR', 'FORMAT', 'FORMATMESSAGE', 'FULLTEXTCATALOGPROPERTY',
+  'FULLTEXTSERVICEPROPERTY', 'GETANSINULL', 'GETDATE', 'GETUTCDATE',
+  'GROUPING', 'GROUPING_ID', 'HAS_PERMS_BY_NAME', 'HOST_ID', 'HOST_NAME',
+  'IDENT_CURRENT', 'IDENT_INCR', 'IDENT_SEED', 'IIF', 'INDEX_COL',
+  'INDEXKEY_PROPERTY', 'INDEXPROPERTY', 'IS_MEMBER', 'IS_ROLEMEMBER',
+  'IS_SRVROLEMEMBER', 'ISDATE', 'ISJSON', 'ISNULL', 'ISNUMERIC', 'JSON_MODIFY',
+  'JSON_QUERY', 'JSON_VALUE', 'LAG', 'LAST_VALUE', 'LEAD', 'LEFT', 'LEN',
+  'LOG', 'LOG10', 'LOWER', 'LTRIM', 'MAX', 'MIN', 'MONTH', 'NCHAR', 'NEWID',
+  'NEWSEQUENTIALID', 'NTILE', 'NULLIF', 'OBJECT_DEFINITION', 'OBJECT_ID',
+  'OBJECT_NAME', 'OBJECT_SCHEMA_NAME', 'OBJECTPROPERTY', 'OBJECTPROPERTYEX',
+  'OPENDATASOURCE', 'OPENQUERY', 'OPENROWSET', 'OPENXML', 'ORIGINAL_DB_NAME',
+  'ORIGINAL_LOGIN', 'PARSE', 'PARSENAME', 'PARTITION', 'PATINDEX', 'PERCENT_RANK',
+  'PERCENTILE_CONT', 'PERCENTILE_DISC', 'PERMISSIONS', 'PI', 'POWER', 'PWDCOMPARE',
+  'PWDENCRYPT', 'QUOTENAME', 'RADIANS', 'RAND', 'RANK', 'REPLACE', 'REPLICATE',
+  'REVERSE', 'RIGHT', 'ROUND', 'ROW_NUMBER', 'ROWCOUNT_BIG', 'RTRIM', 'SCHEMA_ID',
+  'SCHEMA_NAME', 'SCOPE_IDENTITY', 'SERVERPROPERTY', 'SESSION_CONTEXT',
+  'SESSION_USER', 'SESSIONPROPERTY', 'SIGN', 'SIN', 'SMALLDATETIMEFROMPARTS',
+  'SOUNDEX', 'SP_HELPLANGUAGE', 'SPACE', 'SQL_VARIANT_PROPERTY', 'SQRT',
+  'SQUARE', 'STATS_DATE', 'STDEV', 'STDEVP', 'STR', 'STRING_AGG', 'STRING_ESCAPE',
+  'STRING_SPLIT', 'STUFF', 'SUBSTRING', 'SUM', 'SUSER_ID', 'SUSER_NAME',
+  'SUSER_SID', 'SUSER_SNAME', 'SWITCHOFFSET', 'SYSDATETIME', 'SYSDATETIMEOFFSET',
+  'SYSTEM_USER', 'SYSUTCDATETIME', 'TAN', 'TEXTPTR', 'TEXTVALID', 'TIMEFROMPARTS',
+  'TODATETIMEOFFSET', 'TRANSLATE', 'TRIM', 'TYPE_ID', 'TYPE_NAME', 'TYPEPROPERTY',
+  'UNICODE', 'UPPER', 'USER_ID', 'USER_NAME', 'VAR', 'VARP', 'XACT_STATE',
+  'YEAR'
+];
+
+// Function to get database-specific configuration
+function getDatabaseConfig(databaseType: DatabaseType) {
+  switch (databaseType) {
+    case 'mysql':
+      return {
+        keywords: mysqlKeywords,
+        typeKeywords: mysqlTypes,
+        builtinFunctions: mysqlFunctions,
+      };
+    case 'sqlserver':
+      return {
+        keywords: sqlServerKeywords,
+        typeKeywords: sqlServerTypes,
+        builtinFunctions: sqlServerFunctions,
+      };
+    case 'sqlite':
+      // SQLite uses a subset of standard SQL
+      return {
+        keywords: postgresKeywords.filter(k => 
+          !['COPY', 'VACUUM', 'CLUSTER', 'REINDEX', 'LISTEN', 'NOTIFY', 'UNLISTEN'].includes(k)
+        ),
+        typeKeywords: ['INTEGER', 'REAL', 'TEXT', 'BLOB', 'NULL', 'NUMERIC', 'BOOLEAN', 'DATE', 'DATETIME'],
+        builtinFunctions: [
+          'ABS', 'CHANGES', 'CHAR', 'COALESCE', 'GLOB', 'HEX', 'IFNULL', 'INSTR',
+          'LAST_INSERT_ROWID', 'LENGTH', 'LIKE', 'LIKELIHOOD', 'LIKELY', 'LOAD_EXTENSION',
+          'LOWER', 'LTRIM', 'MAX', 'MIN', 'NULLIF', 'PRINTF', 'QUOTE', 'RANDOM',
+          'RANDOMBLOB', 'REPLACE', 'ROUND', 'RTRIM', 'SOUNDEX', 'SQLITE_COMPILEOPTION_GET',
+          'SQLITE_COMPILEOPTION_USED', 'SQLITE_OFFSET', 'SQLITE_SOURCE_ID', 'SQLITE_VERSION',
+          'SUBSTR', 'TOTAL_CHANGES', 'TRIM', 'TYPEOF', 'UNICODE', 'UNLIKELY', 'UPPER',
+          'ZEROBLOB', 'DATE', 'TIME', 'DATETIME', 'JULIANDAY', 'STRFTIME', 'AVG',
+          'COUNT', 'GROUP_CONCAT', 'MAX', 'MIN', 'SUM', 'TOTAL'
+        ],
+      };
+    case 'postgresql':
+    default:
+      return {
+        keywords: postgresKeywords,
+        typeKeywords: postgresTypes,
+        builtinFunctions: postgresFunctions,
+      };
+  }
+}
+
+export function registerEnhancedSQLLanguage(databaseType: DatabaseType = 'postgresql') {
+  const config = getDatabaseConfig(databaseType);
+  
+  // Register an enhanced tokenizer for SQL
+  monaco.languages.setMonarchTokensProvider('sql', {
+    defaultToken: '',
+    tokenPostfix: '.sql',
+    ignoreCase: true,
+
+    keywords: config.keywords,
+    typeKeywords: config.typeKeywords,
+    operators: [
+      '=', '>', '<', '!', '~', '?', ':', '==', '<=', '>=', '!=', '<>',
+      '&&', '||', '++', '--', '+', '-', '*', '/', '&', '|', '^', '%',
+      '<<', '>>', '>>>', '+=', '-=', '*=', '/=', '&=', '|=', '^=',
+      '%=', '<<=', '>>=', '>>>=', '->', '::', '@', '#', '@@', '@>', '<@',
+      '?&', '?|', '#-', '@-@', '||/', '|/', '#>', '#>>', '##'
+    ],
+
+    builtinFunctions: config.builtinFunctions,
+    
+    tokenizer: {
+      root: [
+        // SQL comments
+        { include: '@comments' },
+        
+        // Whitespace
+        { include: '@whitespace' },
+        
+        // JSON
+        { include: '@json' },
+        
+        // Numbers
+        { include: '@numbers' },
+        
+        // Strings
+        { include: '@strings' },
+        
+        // Type casts
+        [/::[a-zA-Z_][\w]*(\[\])?/, 'type.cast'],
+        
+        // Identifiers with schema prefix (schema.table, schema.function)
+        [/[a-zA-Z_][\w]*\.[a-zA-Z_][\w]*/, 'identifier.qualified'],
+        
+        // Check for keywords, types, and functions
+        [/[a-zA-Z_][\w]*/, {
+          cases: {
+            '@keywords': 'keyword',
+            '@typeKeywords': 'type',
+            '@builtinFunctions': 'predefined',
+            '@default': 'identifier'
+          }
+        }],
+        
+        // Delimiters and operators
+        [/[()]/, '@brackets'],
+        [/[<>](?!@)/, 'delimiter'],
+        [/@[a-zA-Z_][\w]*/, 'variable'],
+        [/[{}]/, 'delimiter.curly'],
+        [/[[\]]/, 'delimiter.square'],
+        [/[;,.]/, 'delimiter'],
+        [/"/, 'identifier.quote', '@quotedIdentifier'],
+        
+        // MySQL backtick identifiers
+        [/`/, 'identifier.quote', '@backtickIdentifier'],
+        
+        // SQL Server square bracket identifiers
+        [/\[/, 'identifier.quote', '@bracketIdentifier'],
+        
+        // Operators
+        [/[<>=!%&+\-*/|~^]/, 'operator'],
+      ],
+      
+      whitespace: [
+        [/\s+/, 'white'],
+      ],
+      
+      comments: [
+        [/--.*$/, 'comment'],
+        [/\/\*/, 'comment', '@comment'],
+        [/#.*$/, 'comment'], // MySQL style comment
+      ],
+      
+      comment: [
+        [/[^/*]+/, 'comment'],
+        [/\*\//, 'comment', '@pop'],
+        [/[/*]/, 'comment'],
+      ],
+      
+      numbers: [
+        [/0[xX][0-9a-fA-F]*/, 'number.hex'],
+        [/[$][+-]*\d*(\.\d*)?/, 'number.money'],
+        [/(((\d+(\.\d*)?)|(\.\d+))([eE][\-+]?\d+)?)/, 'number'],
+      ],
+      
+      strings: [
+        [/N'/, 'string', '@string'],
+        [/'/, 'string', '@string'],
+        [/\$\$/, 'string', '@dollarString'],
+        [/\$[a-zA-Z_][\w]*\$/, 'string.tag', '@taggedString'],
+      ],
+      
+      string: [
+        [/[^']+/, 'string'],
+        [/''/, 'string'],
+        [/'/, 'string', '@pop'],
+      ],
+      
+      dollarString: [
+        [/[^$]+/, 'string'],
+        [/\$\$/, 'string', '@pop'],
+        [/\$/, 'string'],
+      ],
+      
+      taggedString: [
+        [/[^$]+/, 'string'],
+        [/\$[a-zA-Z_][\w]*\$/, 'string.tag', '@pop'],
+        [/\$/, 'string'],
+      ],
+      
+      quotedIdentifier: [
+        [/[^"]+/, 'identifier.quoted.sql'],
+        [/""/, 'identifier.quoted.sql'],
+        [/"/, 'identifier.quoted.sql', '@pop'],
+      ],
+      
+      backtickIdentifier: [
+        [/[^`]+/, 'identifier.quoted.sql'],
+        [/``/, 'identifier.quoted.sql'],
+        [/`/, 'identifier.quoted.sql', '@pop'],
+      ],
+      
+      bracketIdentifier: [
+        [/[^\]]+/, 'identifier.quoted.sql'],
+        [/\]\]/, 'identifier.quoted.sql'],
+        [/\]/, 'identifier.quoted.sql', '@pop'],
+      ],
+      
+      json: [
+        [/\{[^}]*\}/, 'string.json'],
+        [/\[[^\]]*\]/, 'string.json'],
+      ],
+    },
+  });
+
+  // Register completion item provider
+  monaco.languages.registerCompletionItemProvider('sql', {
+    provideCompletionItems: (model, position) => {
+      const word = model.getWordUntilPosition(position);
+      const range = {
+        startLineNumber: position.lineNumber,
+        endLineNumber: position.lineNumber,
+        startColumn: word.startColumn,
+        endColumn: word.endColumn,
+      };
+
+      const suggestions = [];
+
+      // Add keywords
+      config.keywords.forEach(keyword => {
+        suggestions.push({
+          label: keyword,
+          kind: monaco.languages.CompletionItemKind.Keyword,
+          insertText: keyword,
+          range: range,
+          sortText: '1' + keyword,
+        });
+      });
+
+      // Add types
+      config.typeKeywords.forEach(type => {
+        suggestions.push({
+          label: type,
+          kind: monaco.languages.CompletionItemKind.Class,
+          insertText: type,
+          range: range,
+          sortText: '2' + type,
+        });
+      });
+
+      // Add functions
+      config.builtinFunctions.forEach(func => {
+        suggestions.push({
+          label: func,
+          kind: monaco.languages.CompletionItemKind.Function,
+          insertText: func + '()',
+          range: range,
+          sortText: '3' + func,
+        });
+      });
+
+      return { suggestions };
+    },
+  });
+}
+
+// Legacy export for backward compatibility
+export function registerPostgreSQLLanguage() {
+  registerEnhancedSQLLanguage('postgresql');
+}
