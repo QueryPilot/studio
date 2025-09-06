@@ -7,6 +7,7 @@ import { TableStructure } from "@/components/DataGrid/TableStructure";
 import { TableIndexes } from "@/components/DataGrid/TableIndexes";
 import { TableTriggers } from "@/components/DataGrid/TableTriggers";
 import { ObjectDefinition } from "@/components/DataGrid/ObjectDefinition";
+import { QueryPanel } from "@/components/QueryPanel";
 
 interface PanelContentRendererProps {
   tabId: string;
@@ -33,15 +34,13 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = ({
 
   if (type === "query") {
     return (
-      <div className="p-4 h-full">
-        <h3 className="text-lg font-semibold mb-2">Query Editor</h3>
-        <p className="text-muted-foreground">Query panel placeholder</p>
-        {metadata?.query && (
-          <pre className="mt-4 p-2 bg-muted rounded text-sm">
-            {metadata.query}
-          </pre>
-        )}
-      </div>
+      <QueryPanel
+        connectionId={metadata?.connectionId || ""}
+        database={metadata?.database || ""}
+        schema={metadata?.schema}
+        dbType={metadata?.dbType}
+        className="h-full"
+      />
     );
   }
 

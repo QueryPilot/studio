@@ -8,6 +8,7 @@ export interface SchemaData {
 }
 
 export class SQLCompletionProvider implements monaco.languages.CompletionItemProvider {
+  public readonly triggerCharacters = ['.', ' ', '(', ','];
   private schemaCache = new Map<string, SchemaData>();
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
   
@@ -21,7 +22,7 @@ export class SQLCompletionProvider implements monaco.languages.CompletionItemPro
   async provideCompletionItems(
     model: monaco.editor.ITextModel,
     position: monaco.Position,
-    _context: monaco.languages.CompletionContext,
+    context: monaco.languages.CompletionContext,
     _token: monaco.CancellationToken
   ): Promise<monaco.languages.CompletionList> {
     const word = model.getWordUntilPosition(position);
@@ -39,93 +40,164 @@ export class SQLCompletionProvider implements monaco.languages.CompletionItemPro
       endColumn: position.column,
     });
 
+    // Don't provide suggestions if triggered by certain characters that shouldn't show completions
+    if (context.triggerKind === monaco.languages.CompletionTriggerKind.TriggerCharacter) {
+      const triggerChar = context.triggerCharacter;
+      // Skip suggestions for certain triggers
+      if (triggerChar === '(' || triggerChar === ')' || triggerChar === ';') {
+        return { suggestions: [], incomplete: false };
+      }
+    }
+
     const suggestions: monaco.languages.CompletionItem[] = [];
+    const currentWord = word.word.toLowerCase();
 
-    // Add SQL keywords based on database type
-    suggestions.push(...this.getSQLKeywords(range));
+    // Determine what type of suggestions to show based on context
+    const shouldShowKeywords = this.shouldShowKeywords(textBeforeCursor);
+    const shouldShowFunctions = this.shouldShowFunctions(textBeforeCursor);
+    const shouldShowTables = this.shouldShowTables(textBeforeCursor);
+    const shouldShowColumns = this.shouldShowColumns(textBeforeCursor);
 
-    // Add database-specific functions
-    suggestions.push(...this.getDatabaseFunctions(range));
+    // Add SQL keywords if appropriate
+    if (shouldShowKeywords) {
+      const keywords = this.getSQLKeywords(range);
+      // Filter based on current word
+      const filtered = currentWord 
+        ? keywords.filter(k => k.label.toLowerCase().startsWith(currentWord))
+        : keywords;
+      suggestions.push(...filtered);
+    }
+
+    // Add database-specific functions if appropriate
+    if (shouldShowFunctions) {
+      const functions = this.getDatabaseFunctions(range);
+      const filtered = currentWord
+        ? functions.filter(f => f.label.toLowerCase().startsWith(currentWord))
+        : functions;
+      suggestions.push(...filtered);
+    }
 
     // Add schema objects
     const schemaData = await this.getSchemaData();
     if (schemaData) {
-      suggestions.push(...this.getTableSuggestions(schemaData, range, textBeforeCursor));
-      suggestions.push(...this.getColumnSuggestions(schemaData, range, textBeforeCursor));
+      if (shouldShowTables) {
+        const tables = this.getTableSuggestions(schemaData, range, textBeforeCursor);
+        const filtered = currentWord
+          ? tables.filter(t => t.label.toString().toLowerCase().startsWith(currentWord))
+          : tables;
+        suggestions.push(...filtered);
+      }
+      
+      if (shouldShowColumns) {
+        const columns = this.getColumnSuggestions(schemaData, range, textBeforeCursor);
+        const filtered = currentWord
+          ? columns.filter(c => c.label.toString().toLowerCase().startsWith(currentWord))
+          : columns;
+        suggestions.push(...filtered);
+      }
     }
 
-    return { suggestions };
+    // Remove exact duplicates by label
+    const seen = new Set<string>();
+    const uniqueSuggestions = suggestions.filter(item => {
+      const label = typeof item.label === 'string' ? item.label : item.label.label;
+      if (seen.has(label)) {
+        return false;
+      }
+      seen.add(label);
+      return true;
+    });
+
+    return { 
+      suggestions: uniqueSuggestions,
+      incomplete: false
+    };
+  }
+
+  private shouldShowKeywords(textBeforeCursor: string): boolean {
+    // Show keywords at the beginning or after certain patterns
+    const patterns = [
+      /^\s*$/,  // Beginning of query
+      /;\s*$/,  // After semicolon
+      /\)\s+$/,  // After closing parenthesis
+      /\s+$/,  // After space
+    ];
+    return patterns.some(p => p.test(textBeforeCursor));
+  }
+
+  private shouldShowFunctions(textBeforeCursor: string): boolean {
+    // Show functions after SELECT, WHERE, etc.
+    const patterns = [
+      /SELECT\s+/i,
+      /WHERE\s+/i,
+      /HAVING\s+/i,
+      /,\s*$/,  // After comma in SELECT list
+    ];
+    return patterns.some(p => p.test(textBeforeCursor));
+  }
+
+  private shouldShowTables(textBeforeCursor: string): boolean {
+    // Show tables after FROM, JOIN, etc.
+    const patterns = [
+      /FROM\s+/i,
+      /JOIN\s+/i,
+      /INTO\s+/i,
+      /UPDATE\s+/i,
+      /TABLE\s+/i,
+    ];
+    return patterns.some(p => p.test(textBeforeCursor));
+  }
+
+  private shouldShowColumns(textBeforeCursor: string): boolean {
+    // Show columns in SELECT, WHERE, etc.
+    const patterns = [
+      /SELECT\s+/i,
+      /WHERE\s+/i,
+      /ON\s+/i,
+      /SET\s+/i,
+      /ORDER\s+BY\s+/i,
+      /GROUP\s+BY\s+/i,
+    ];
+    return patterns.some(p => p.test(textBeforeCursor));
   }
 
   private getSQLKeywords(range: monaco.IRange): monaco.languages.CompletionItem[] {
+    // PostgreSQL-specific keywords only
     const keywords = [
       'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER',
       'ON', 'AS', 'AND', 'OR', 'NOT', 'IN', 'EXISTS', 'BETWEEN', 'LIKE',
       'GROUP', 'BY', 'HAVING', 'ORDER', 'ASC', 'DESC', 'LIMIT', 'OFFSET',
       'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE', 'CREATE',
-      'TABLE', 'ALTER', 'DROP', 'INDEX', 'VIEW', 'TRIGGER', 'FUNCTION',
-      'PROCEDURE', 'BEGIN', 'END', 'COMMIT', 'ROLLBACK', 'TRANSACTION',
-      'UNION', 'ALL', 'DISTINCT', 'COUNT', 'SUM', 'AVG', 'MIN', 'MAX',
-      'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'NULL', 'IS', 'CAST', 'AS'
+      'TABLE', 'ALTER', 'DROP', 'INDEX', 'VIEW', 'WITH', 'UNION', 'ALL',
+      'DISTINCT', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'NULL', 'IS',
+      'BEGIN', 'COMMIT', 'ROLLBACK', 'TRANSACTION'
     ];
-
+    
     return keywords.map(keyword => ({
       label: keyword,
       kind: monaco.languages.CompletionItemKind.Keyword,
       insertText: keyword,
       range,
-      sortText: '0' + keyword, // Keywords appear first
+      sortText: 'a' + keyword,
     }));
   }
 
   private getDatabaseFunctions(range: monaco.IRange): monaco.languages.CompletionItem[] {
-    let functions: string[] = [];
-
-    switch (this.dbType.toLowerCase()) {
-      case 'postgres':
-        functions = [
-          'now()', 'current_timestamp', 'current_date', 'current_time',
-          'date_part()', 'extract()', 'to_char()', 'to_date()', 'to_timestamp()',
-          'coalesce()', 'nullif()', 'greatest()', 'least()', 'random()',
-          'generate_series()', 'array_agg()', 'string_agg()', 'json_agg()',
-          'jsonb_agg()', 'row_to_json()', 'json_build_object()', 'regexp_matches()',
-          'regexp_replace()', 'regexp_split_to_array()', 'uuid_generate_v4()'
-        ];
-        break;
-      case 'mysql':
-      case 'mariadb':
-        functions = [
-          'NOW()', 'CURDATE()', 'CURTIME()', 'DATE_FORMAT()', 'STR_TO_DATE()',
-          'CONCAT()', 'CONCAT_WS()', 'SUBSTRING()', 'LENGTH()', 'REPLACE()',
-          'IFNULL()', 'COALESCE()', 'IF()', 'CASE', 'UUID()', 'RAND()',
-          'GROUP_CONCAT()', 'JSON_OBJECT()', 'JSON_ARRAY()', 'JSON_EXTRACT()'
-        ];
-        break;
-      case 'mssql':
-        functions = [
-          'GETDATE()', 'GETUTCDATE()', 'DATEPART()', 'DATENAME()', 'DATEADD()',
-          'DATEDIFF()', 'FORMAT()', 'CONVERT()', 'CAST()', 'ISNULL()', 'COALESCE()',
-          'IIF()', 'CHOOSE()', 'NEWID()', 'RAND()', 'STRING_AGG()', 'STUFF()',
-          'FOR JSON PATH', 'FOR JSON AUTO', 'OPENJSON()', 'JSON_VALUE()'
-        ];
-        break;
-      case 'sqlite':
-        functions = [
-          'date()', 'time()', 'datetime()', 'julianday()', 'strftime()',
-          'substr()', 'length()', 'upper()', 'lower()', 'trim()', 'ltrim()',
-          'rtrim()', 'replace()', 'ifnull()', 'coalesce()', 'nullif()',
-          'random()', 'abs()', 'round()', 'max()', 'min()', 'avg()', 'sum()',
-          'count()', 'group_concat()', 'json()', 'json_array()', 'json_object()'
-        ];
-        break;
-    }
+    // Only the most common PostgreSQL functions
+    const functions = [
+      'count()', 'sum()', 'avg()', 'min()', 'max()',
+      'now()', 'current_timestamp', 'current_date',
+      'coalesce()', 'nullif()', 'cast()',
+      'concat()', 'length()', 'lower()', 'upper()',
+      'substring()', 'replace()', 'trim()',
+    ];
 
     return functions.map(func => ({
       label: func,
       kind: monaco.languages.CompletionItemKind.Function,
       insertText: func,
       range,
-      sortText: '1' + func,
+      sortText: 'b' + func,
     }));
   }
 
@@ -183,23 +255,13 @@ export class SQLCompletionProvider implements monaco.languages.CompletionItemPro
     range: monaco.IRange,
     textBeforeCursor: string
   ): monaco.languages.CompletionItem[] {
-    // Check if we're in a context where tables should be suggested
-    const shouldSuggestTables = /\b(FROM|JOIN|INTO|UPDATE|TABLE)\s+\S*$/i.test(textBeforeCursor);
-    
-    if (!shouldSuggestTables) {
-      return [];
-    }
-
     return schemaData.tables.map(table => ({
       label: table.name,
       kind: monaco.languages.CompletionItemKind.Class,
       insertText: table.name,
-      detail: table.row_estimate && table.row_estimate > 0 
-        ? `${table.kind} (~${table.row_estimate.toLocaleString()} rows)`
-        : table.kind,
-      documentation: table.schema ? `Schema: ${table.schema}` : undefined,
+      detail: table.kind,
       range,
-      sortText: '2' + table.name,
+      sortText: 'c' + table.name,
     }));
   }
 
@@ -208,13 +270,6 @@ export class SQLCompletionProvider implements monaco.languages.CompletionItemPro
     range: monaco.IRange,
     textBeforeCursor: string
   ): monaco.languages.CompletionItem[] {
-    // Check if we're in a context where columns should be suggested
-    const shouldSuggestColumns = /\b(SELECT|WHERE|ON|SET|ORDER\s+BY|GROUP\s+BY)\s+\S*$/i.test(textBeforeCursor);
-    
-    if (!shouldSuggestColumns) {
-      return [];
-    }
-
     const suggestions: monaco.languages.CompletionItem[] = [];
 
     // Try to detect table context from the query
@@ -222,31 +277,16 @@ export class SQLCompletionProvider implements monaco.languages.CompletionItemPro
     const tableName = tableMatch ? tableMatch[1] : null;
 
     if (tableName && schemaData.columns.has(tableName)) {
-      // Suggest columns from specific table
+      // Suggest columns from specific table only
       const columns = schemaData.columns.get(tableName)!;
       columns.forEach(col => {
         suggestions.push({
           label: col.name,
           kind: monaco.languages.CompletionItemKind.Field,
           insertText: col.name,
-          detail: `${col.db_type}${col.nullable ? ' NULL' : ' NOT NULL'}`,
-          documentation: col.default ? `Default: ${col.default}` : undefined,
+          detail: col.db_type,
           range,
-          sortText: '3' + col.name,
-        });
-      });
-    } else {
-      // Suggest all columns with table prefix
-      schemaData.columns.forEach((columns, tableName) => {
-        columns.forEach(col => {
-          suggestions.push({
-            label: `${tableName}.${col.name}`,
-            kind: monaco.languages.CompletionItemKind.Field,
-            insertText: `${tableName}.${col.name}`,
-            detail: col.db_type,
-            range,
-            sortText: '4' + tableName + col.name,
-          });
+          sortText: 'd' + col.name,
         });
       });
     }
