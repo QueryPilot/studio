@@ -19,6 +19,11 @@ export interface TabMetadata {
   table?: string;
   schema?: string;
   type?: string;
+  isView?: boolean;
+  kind?: "Table" | "View" | "MaterializedView";
+  database?: string;
+  connectionId?: string;
+  viewType?: string;
   [key: string]: unknown;
 }
 

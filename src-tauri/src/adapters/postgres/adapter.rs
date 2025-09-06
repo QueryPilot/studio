@@ -303,8 +303,11 @@ impl DbAdapter for PostgresAdapter {
             schema, table, limit, offset
         );
         
+        eprintln!("DEBUG: get_table_data executing query: {}", query);
+        
         // Open query to get columns
         let handle = executor.open_query(&query).await?;
+        eprintln!("DEBUG: Query handle has {} columns", handle.columns.len());
         
         // Fetch the page
         let chunk = executor.fetch_page(&handle, limit).await?;

@@ -35,6 +35,8 @@ interface DraggableTabProps {
   isFocused: boolean;
   isLast: boolean;
   tabType?: string;
+  isView?: boolean;
+  kind?: "Table" | "View" | "MaterializedView";
   isNextActive?: boolean;
   onActivate: () => void;
   onClose: () => void;
@@ -48,6 +50,8 @@ const DraggableTab: React.FC<DraggableTabProps> = ({
   isFocused,
   isLast,
   tabType = "table",
+  isView,
+  kind,
   isNextActive = false,
   onActivate,
   onClose,
@@ -67,6 +71,11 @@ const DraggableTab: React.FC<DraggableTabProps> = ({
 
   const getIcon = () => {
     switch (tabType) {
+      case "table":
+        if (isView) {
+          return Eye;
+        }
+        return Table2;
       case "view":
         return Eye;
       case "function":
@@ -79,6 +88,20 @@ const DraggableTab: React.FC<DraggableTabProps> = ({
   };
 
   const Icon = getIcon();
+  
+  // Determine icon color based on type
+  const getIconClass = () => {
+    if (tabType === "table" && isView) {
+      if (kind === "MaterializedView") {
+        return cn("h-3.5 w-3.5", isActive && isFocused ? "text-purple-500" : "text-purple-500/60");
+      }
+      return cn("h-3.5 w-3.5", isActive && isFocused ? "text-green-500" : "text-green-500/60");
+    }
+    if (tabType === "table") {
+      return cn("h-3.5 w-3.5", isActive && isFocused ? "text-blue-500" : "text-blue-500/60");
+    }
+    return "h-3.5 w-3.5";
+  };
 
   return (
     <>
@@ -119,7 +142,7 @@ const DraggableTab: React.FC<DraggableTabProps> = ({
               <X className="h-3.5 w-3.5" />
             </button>
           ) : (
-            <Icon className="h-3.5 w-3.5" />
+            <Icon className={getIconClass()} />
           )}
         </div>
         <span className="max-w-[120px] truncate">{displayName}</span>
@@ -293,7 +316,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
             const isNextActive = nextTabId
               ? content.activeTabId === nextTabId
               : false;
-
+            console.log(">>>", "tab", metadata);
             return (
               <DraggableTab
                 key={tabId}
@@ -304,6 +327,8 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                 isFocused={isFocused}
                 isLast={index === content.tabIds.length - 1}
                 tabType={metadata?.type || "table"}
+                isView={metadata?.isView}
+                kind={metadata?.kind}
                 isNextActive={isNextActive}
                 onActivate={() => {
                   setActiveTab(content.id, tabId);

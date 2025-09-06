@@ -18,7 +18,7 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
   // Track column order
   const [columnOrder, setColumnOrder] = useState<number[]>([]);
   
-  // Track selected rows count
+  // Track selected rows
   const [selectedRowCount, setSelectedRowCount] = useState(0);
   
   // Initialize column order when columns change
@@ -111,10 +111,9 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
         };
       }
       
-      const column = columns[col];
       // Map to original column index for data access
       const originalColIndex = columnOrder.length > 0 ? columnOrder[col] : col;
-      const value = data.rows[row][originalColIndex];
+      const value = originalColIndex !== undefined ? data.rows[row][originalColIndex] : null;
       const cellKind = detectCellKind(value);
       
       switch (cellKind) {

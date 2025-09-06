@@ -39,6 +39,9 @@ pub enum AppError {
     
     #[error("Invalid input: {0}")]
     InvalidInput(String),
+    
+    #[error("Parse error: {0}")]
+    ParseError(String),
 }
 
 impl AppError {
@@ -56,6 +59,7 @@ impl AppError {
             AppError::Internal(_) => "E_INTERNAL",
             AppError::Unsupported(_) => "E_UNSUPPORTED",
             AppError::InvalidInput(_) => "E_INVALID_INPUT",
+            AppError::ParseError(_) => "E_PARSE_ERROR",
         }
     }
     

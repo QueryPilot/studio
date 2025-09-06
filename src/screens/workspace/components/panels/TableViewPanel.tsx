@@ -31,6 +31,7 @@ interface TableTabPayload {
   schema: string;
   database: string;
   isView?: boolean;
+  kind?: "Table" | "View" | "MaterializedView";
   activeView?: "data" | "structure" | "indexes" | "triggers";
 }
 
@@ -138,43 +139,44 @@ export const TableViewPanel = memo(function TableViewPanel({
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-hidden relative">
         <Suspense fallback={<TabLoadingSkeleton />}>
-          {activeTab === "data" && (
+          {/* Render all tab contents but only show the active one */}
+          <div className={`absolute inset-0 ${activeTab === "data" ? "block" : "hidden"}`}>
             <TableDataGrid
               connectionId={connectionId}
               database={database}
               table={tableName}
               schema={schema}
             />
-          )}
+          </div>
 
-          {activeTab === "structure" && (
+          <div className={`absolute inset-0 ${activeTab === "structure" ? "block" : "hidden"}`}>
             <TableStructure
               connectionId={connectionId}
               database={database}
               table={tableName}
               schema={schema}
             />
-          )}
+          </div>
 
-          {activeTab === "indexes" && (
+          <div className={`absolute inset-0 ${activeTab === "indexes" ? "block" : "hidden"}`}>
             <TableIndexes
               connectionId={connectionId}
               database={database}
               table={tableName}
               schema={schema}
             />
-          )}
+          </div>
 
-          {activeTab === "triggers" && (
+          <div className={`absolute inset-0 ${activeTab === "triggers" ? "block" : "hidden"}`}>
             <TableTriggers
               connectionId={connectionId}
               database={database}
               table={tableName}
               schema={schema}
             />
-          )}
+          </div>
         </Suspense>
       </div>
     </div>

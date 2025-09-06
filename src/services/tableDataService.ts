@@ -72,6 +72,9 @@ export class TableDataService {
       }
 
       // Send meta information first
+      console.log(`[tableDataService] Received ${result.columns.length} columns for table ${params.table}`);
+      console.log('[tableDataService] Column names:', result.columns.map(c => c.name));
+      
       callbacks.onMeta({
         type: 'meta',
         table: params.table,

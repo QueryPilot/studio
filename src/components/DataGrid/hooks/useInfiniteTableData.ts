@@ -13,8 +13,12 @@ export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
   const { connectionId, database, table, schema } = params;
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
-
-  // Get the table data hook
+  const [hasInitialized, setHasInitialized] = useState(false);
+  
+  // Create a unique key for this table to ensure data isolation
+  const tableKey = `${connectionId}:${database}:${schema || 'public'}:${table}`;
+  
+  // Get the table data hook - each table gets its own instance
   const {
     isLoading,
     isLoadingMore,
@@ -22,6 +26,7 @@ export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
     columns,
     rows,
     hasNextPage,
+    nextCursor,
     estimatedTotal,
     loadData,
     loadMore,
@@ -40,6 +45,7 @@ export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
         setIsConnected(false);
         setConnectionError("Not connected to database");
         clearData(); // Clear any existing data
+        setHasInitialized(false);
       }
     };
 
@@ -56,9 +62,24 @@ export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
     };
   }, [connectionId, clearData]);
 
-  // Load initial data only when connected
+  // Track the current table key to detect changes
+  const [currentTableKey, setCurrentTableKey] = useState<string | null>(null);
+  
+  // Clear data when table changes
   useEffect(() => {
-    if (isConnected) {
+    if (currentTableKey && currentTableKey !== tableKey) {
+      console.log(`[useInfiniteTableData] Table changed from ${currentTableKey} to ${tableKey}, clearing data`);
+      clearData();
+      setHasInitialized(false);
+    }
+    setCurrentTableKey(tableKey);
+  }, [tableKey, currentTableKey, clearData]);
+
+  // Load data when connected
+  useEffect(() => {
+    if (isConnected && !hasInitialized && !isLoading) {
+      console.log(`[useInfiniteTableData] Loading data for table ${table} (key: ${tableKey})`);
+      setHasInitialized(true);
       void loadData({
         connectionId,
         database,
@@ -66,7 +87,7 @@ export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
         schema,
       });
     }
-  }, [isConnected, connectionId, database, table, schema, loadData]);
+  }, [isConnected, hasInitialized, isLoading, connectionId, database, table, schema, loadData, tableKey]);
 
   return {
     isLoading,
@@ -77,6 +98,7 @@ export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
     estimatedTotal,
     loadMore,
     hasNextPage,
+    nextCursor,
     isFetchingNextPage: isLoadingMore,
     isConnected,
   };

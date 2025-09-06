@@ -28,9 +28,19 @@ interface TableDataState {
   estimatedTotal: number | null;
 }
 
+// Initial state interface for the hook
+export interface UseTableDataInitialState {
+  rows?: TableDataRow[];
+  columns?: ColumnMeta[];
+  nextCursor?: string | null;
+  hasNextPage?: boolean;
+  totalLoadedRows?: number;
+  estimatedTotal?: number | null;
+}
+
 // Return type for the hook
 interface UseTableDataReturn extends TableDataState {
-  loadData: (params: TableDataParams) => Promise<void>;
+  loadData: (params: TableDataParams, initialState?: UseTableDataInitialState) => Promise<void>;
   loadMore: () => Promise<void>;
   refresh: () => Promise<void>;
   stop: () => Promise<void>;
@@ -41,20 +51,26 @@ interface UseTableDataReturn extends TableDataState {
  * Hook for managing table data loading with streaming support
  * Redesigned with stable callbacks and proper state management
  */
-export function useTableData(): UseTableDataReturn {
-  // State management
+export function useTableData(initialState?: UseTableDataInitialState): UseTableDataReturn {
+  // State management - if we have initial state with data, don't show loading
+  const hasInitialData = initialState?.rows && initialState.rows.length > 0;
+  
+  if (hasInitialData) {
+    console.log(`[useTableData] Initializing with cached data: ${initialState.rows?.length} rows`);
+  }
+  
   const [state, setState] = useState<TableDataState>({
-    isLoading: false,
+    isLoading: false,  // Never show loading if we have cached data
     isLoadingMore: false,
     isStreaming: false,
     error: null,
-    columns: [],
-    rows: [],
-    hasNextPage: false,
-    nextCursor: null,
+    columns: initialState?.columns || [],
+    rows: initialState?.rows || [],
+    hasNextPage: initialState?.hasNextPage || false,
+    nextCursor: initialState?.nextCursor || null,
     pageSize: 100,
-    totalLoadedRows: 0,
-    estimatedTotal: null,
+    totalLoadedRows: initialState?.totalLoadedRows || initialState?.rows?.length || 0,
+    estimatedTotal: initialState?.estimatedTotal || null,
   });
 
   // Refs for current state tracking
@@ -79,6 +95,7 @@ export function useTableData(): UseTableDataReturn {
   // Handle stream metadata - STABLE callback with NO dependencies
   const handleMeta = useCallback((meta: TableDataMetaEvent) => {
     console.log("[useTableData] Received metadata:", meta);
+    console.log(`[useTableData] Number of columns: ${meta.columns?.length || 0}`);
     if (!isMountedRef.current) return;
 
     setState((prev) => ({
@@ -153,13 +170,32 @@ export function useTableData(): UseTableDataReturn {
   }, []); // NO dependencies = stable callback
 
   // Load data with new parameters - STABLE callback with NO dependencies
-  const loadData = useCallback(async (params: TableDataParams) => {
+  const loadData = useCallback(async (params: TableDataParams, loadInitialState?: UseTableDataInitialState) => {
     console.log("[useTableData] loadData called with params:", params);
     if (!isMountedRef.current) return;
 
     try {
       // Store current parameters for refresh/pagination
       currentParamsRef.current = params;
+
+      // If initial state provided, use it instead of loading
+      if (loadInitialState?.rows && loadInitialState.rows.length > 0) {
+        console.log("[useTableData] Using initial state with", loadInitialState.rows.length, "rows");
+        setState((prev) => ({
+          ...prev,
+          isLoading: false,
+          isLoadingMore: false,
+          isStreaming: false,
+          error: null,
+          columns: loadInitialState.columns || prev.columns,
+          rows: loadInitialState.rows,
+          hasNextPage: loadInitialState.hasNextPage || false,
+          nextCursor: loadInitialState.nextCursor || null,
+          totalLoadedRows: loadInitialState.totalLoadedRows || loadInitialState.rows.length,
+          estimatedTotal: loadInitialState.estimatedTotal || null,
+        }));
+        return; // Skip actual data loading
+      }
 
       // Reset state for initial load
       console.log("[useTableData] Resetting state");
