@@ -13,6 +13,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePanelStore } from "@/stores/panelStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { CustomScrollbar } from "@/components/CustomScrollbar";
 import {
   databaseService,
   type TableMeta,
@@ -90,10 +91,19 @@ export function DatabaseSidebar({
         (t) => t.kind === "View" || t.kind === "MaterializedView",
       );
 
+      // Deduplicate functions based on schema and name only (ignore overloads)
+      const uniqueFunctions = functions.reduce((acc, func) => {
+        const key = `${func.schema}.${func.name}`;
+        if (!acc.some(f => `${f.schema}.${f.name}` === key)) {
+          acc.push(func);
+        }
+        return acc;
+      }, [] as FunctionMeta[]);
+
       setSchemaData({
         tables: tableList,
         views: viewList,
-        functions,
+        functions: uniqueFunctions,
       });
 
       // Auto-expand tables if there are items
@@ -421,7 +431,7 @@ export function DatabaseSidebar({
       )}
 
       {/* Object Tree */}
-      <div className="flex-1 overflow-auto relative min-h-0">
+      <CustomScrollbar className="flex-1 relative min-h-0">
         <div className="pb-2 min-w-0">
           {/* Tables Section */}
           {(schemaData.tables.length > 0 || isLoadingData) && (
@@ -534,11 +544,9 @@ export function DatabaseSidebar({
               onToggle={() => { toggleNode("functions"); }}
               stickyClass="sticky top-0 bg-background z-10"
             >
-              {filterItems(schemaData.functions).map((func, index) => (
+              {filterItems(schemaData.functions).map((func) => (
                 <SidebarItem
-                  key={`${func.schema}.${func.name}.${func.arguments.join(
-                    ",",
-                  )}.${index}`}
+                  key={`${func.schema}.${func.name}`}
                   icon={
                     <FunctionSquare className="h-3.5 w-4 min-w-4 text-purple-500 flex-shrink-0" />
                   }
@@ -562,7 +570,7 @@ export function DatabaseSidebar({
               </div>
             )}
         </div>
-      </div>
+      </CustomScrollbar>
     </div>
   );
 }

@@ -175,7 +175,7 @@ impl PostgresIntrospector {
     
     pub async fn get_functions(&self, schema: &str) -> Result<Vec<Function>> {
         let sql = r#"
-            SELECT 
+            SELECT DISTINCT ON (n.nspname, p.proname, pg_get_function_identity_arguments(p.oid))
                 n.nspname as schema_name,
                 p.proname as function_name,
                 pg_get_function_identity_arguments(p.oid) as arguments,
@@ -190,7 +190,7 @@ impl PostgresIntrospector {
             JOIN pg_language l ON l.oid = p.prolang
             WHERE n.nspname = $1
                 AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-            ORDER BY p.proname
+            ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid)
         "#;
         
         let rows = self.client.query(sql, &[&schema]).await?;

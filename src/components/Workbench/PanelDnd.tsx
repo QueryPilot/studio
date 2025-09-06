@@ -122,9 +122,9 @@ const DraggableTab: React.FC<DraggableTabProps> = ({
         className={cn(
           "px-2 py-1 text-xs h-8 transition-colors flex items-center gap-1.5 cursor-move relative group",
           isActive && isFocused
-            ? "bg-primary/50 text-foreground font-medium"
+            ? "bg-primary/30 text-foreground font-medium z-10 sticky left-0 right-0 backdrop-blur-lg"
             : isActive
-            ? "bg-primary/10"
+            ? "bg-primary/10 z-10 sticky left-0 right-0 backdrop-blur-lg"
             : "hover:bg-muted/30",
           isDragging && "opacity-50",
         )}
@@ -249,23 +249,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
 
   const isFocused = focusedPanelId === content.id;
 
-  // Auto-scroll to active tab when it changes
-  useEffect(() => {
-    if (tabsContainerRef.current && content.activeTabId) {
-      const activeIndex = content.tabIds.indexOf(content.activeTabId);
-      if (activeIndex >= 0) {
-        const tabElements = tabsContainerRef.current.children;
-        const activeTabElement = tabElements[activeIndex * 2]; // *2 because of dividers
-        if (activeTabElement) {
-          activeTabElement.scrollIntoView({
-            behavior: "smooth",
-            block: "nearest",
-            inline: "center",
-          });
-        }
-      }
-    }
-  }, [content.activeTabId, content.tabIds]);
+  // Removed auto-scroll logic - using sticky positioning instead
 
   useEffect(() => {
     console.log(`Panel ${content.id} - Drag state:`, {
@@ -309,52 +293,51 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
       onClick={handleClick}
     >
       <div className="panel-header flex items-center justify-between bg-muted/20 border-b">
-        <div
-          ref={tabsContainerRef}
-          className="flex items-center overflow-x-auto scrollbar-tabs"
-        >
-          {content.tabIds.map((tabId, index) => {
-            const metadata = content.metadata?.[tabId];
-            const displayName =
-              metadata?.title ||
-              metadata?.table ||
-              tabId.split("-").pop() ||
-              tabId;
+        <div className="flex-1 overflow-x-auto relative scrollbar-none">
+          <div ref={tabsContainerRef} className="flex items-center relative">
+            {content.tabIds.map((tabId, index) => {
+              const metadata = content.metadata?.[tabId];
+              const displayName =
+                metadata?.title ||
+                metadata?.table ||
+                tabId.split("-").pop() ||
+                tabId;
 
-            const nextTabId = content.tabIds[index + 1];
-            const isNextActive = nextTabId
-              ? content.activeTabId === nextTabId
-              : false;
+              const nextTabId = content.tabIds[index + 1];
+              const isNextActive = nextTabId
+                ? content.activeTabId === nextTabId
+                : false;
 
-            return (
-              <DraggableTab
-                key={tabId}
-                tabId={tabId}
-                panelId={content.id}
-                displayName={displayName}
-                isActive={content.activeTabId === tabId}
-                isFocused={isFocused}
-                isLast={index === content.tabIds.length - 1}
-                tabType={metadata?.type || "table"}
-                isView={metadata?.isView}
-                kind={metadata?.kind}
-                isNextActive={isNextActive}
-                onActivate={() => {
-                  setActiveTab(content.id, tabId);
-                  focusPanel(content.id);
-                }}
-                onClose={() => {
-                  removeTab(content.id, tabId);
-                }}
-              />
-            );
-          })}
+              return (
+                <DraggableTab
+                  key={tabId}
+                  tabId={tabId}
+                  panelId={content.id}
+                  displayName={displayName}
+                  isActive={content.activeTabId === tabId}
+                  isFocused={isFocused}
+                  isLast={index === content.tabIds.length - 1}
+                  tabType={metadata?.type || "table"}
+                  isView={metadata?.isView}
+                  kind={metadata?.kind}
+                  isNextActive={isNextActive}
+                  onActivate={() => {
+                    setActiveTab(content.id, tabId);
+                    focusPanel(content.id);
+                  }}
+                  onClose={() => {
+                    removeTab(content.id, tabId);
+                  }}
+                />
+              );
+            })}
 
-          {content.tabIds.length === 0 && (
-            <span className="text-muted-foreground px-2 h-8 flex items-center text-xs font-bold">
-              Empty Panel
-            </span>
-          )}
+            {content.tabIds.length === 0 && (
+              <span className="text-muted-foreground px-2 h-8 flex items-center text-xs font-bold">
+                Empty Panel
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center gap-1">
