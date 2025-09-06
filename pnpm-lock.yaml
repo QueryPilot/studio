@@ -128,6 +128,12 @@ importers:
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
+      overlayscrollbars:
+        specifier: ^2.12.0
+        version: 2.12.0
+      overlayscrollbars-react:
+        specifier: ^0.5.6
+        version: 0.5.6(overlayscrollbars@2.12.0)(react@19.1.1)
       react:
         specifier: ^19.1.1
         version: 19.1.1
@@ -2212,6 +2218,15 @@ packages:
   optionator@0.9.4:
     resolution: {integrity: sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g==}
     engines: {node: '>= 0.8.0'}
+
+  overlayscrollbars-react@0.5.6:
+    resolution: {integrity: sha512-E5To04bL5brn9GVCZ36SnfGanxa2I2MDkWoa4Cjo5wol7l+diAgi4DBc983V7l2nOk/OLJ6Feg4kySspQEGDBw==}
+    peerDependencies:
+      overlayscrollbars: ^2.0.0
+      react: '>=16.8.0'
+
+  overlayscrollbars@2.12.0:
+    resolution: {integrity: sha512-mWJ5MOkcZ/ljHwfLw8+bN0V9ziGCoNoqULcp994j5DTGNQvnkWKWkA7rnO29Kyew5AoHxUnJ4Ndqfcl0HSQjXg==}
 
   p-limit@3.1.0:
     resolution: {integrity: sha512-TYOanM3wGwNGsZN2cVTYPArw454xnXj5qmWF1bEoAc4+cU/ol7GVh7odevjp1FNHduHc3KZMcFduxU5Xc6uJRQ==}
@@ -4652,6 +4667,13 @@ snapshots:
       prelude-ls: 1.2.1
       type-check: 0.4.0
       word-wrap: 1.2.5
+
+  overlayscrollbars-react@0.5.6(overlayscrollbars@2.12.0)(react@19.1.1):
+    dependencies:
+      overlayscrollbars: 2.12.0
+      react: 19.1.1
+
+  overlayscrollbars@2.12.0: {}
 
   p-limit@3.1.0:
     dependencies:
