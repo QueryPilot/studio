@@ -182,7 +182,8 @@ export class MonacoThemeProvider {
           { token: "number", foreground: "2563eb" },
 
           // Operators
-          { token: "operator.sql", foreground: "525252" },
+          { token: "operator.sql", foreground: "171717" },
+          { token: "operator", foreground: "171717" },
 
           // Functions
           {
@@ -197,10 +198,11 @@ export class MonacoThemeProvider {
           // Column names and quoted identifiers - Darker blue
           { token: "identifier.sql", foreground: "06A67E" },
           { token: "identifier.quote", foreground: "06A67E" },
+          { token: "variable.sql", foreground: "171717" },
         ],
         colors: {
           "editor.background": `#${colors.lightBg}`,
-          "editor.foreground": `#${colors.secondary}`,
+          "editor.foreground": "#171717",
           "editor.lineHighlightBackground": `#${colors.lightBgSecondary}`,
           "editor.selectionBackground": `#${colors.primary}20`,
           "editor.inactiveSelectionBackground": `#${colors.primary}10`,
@@ -229,17 +231,18 @@ export class MonacoThemeProvider {
 
           // Widgets
           "editorWidget.background": `#${colors.lightBg}`,
-          "editorWidget.foreground": `#${colors.secondary}`,
+          "editorWidget.foreground": "#171717",
           "editorWidget.border": `#${colors.lightBorder}`,
           "editorSuggestWidget.background": `#${colors.lightBg}`,
-          "editorSuggestWidget.foreground": `#${colors.secondary}`,
+          "editorSuggestWidget.foreground": "#171717",
           "editorSuggestWidget.border": `#${colors.lightBorder}`,
-          "editorSuggestWidget.highlightForeground": `#${colors.primary}`,
-          "editorSuggestWidget.selectedBackground": `#${colors.primary}15`,
+          "editorSuggestWidget.highlightForeground": `#${colors.secondary}`,
+          "editorSuggestWidget.selectedBackground": `#${colors.primary}20`,
+          "editorSuggestWidget.selectedForeground": "#171717",
 
           // Hover
           "editorHoverWidget.background": `#${colors.lightBg}`,
-          "editorHoverWidget.foreground": `#${colors.secondary}`,
+          "editorHoverWidget.foreground": "#171717",
           "editorHoverWidget.border": `#${colors.lightBorder}`,
         },
       };

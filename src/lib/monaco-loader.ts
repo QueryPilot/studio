@@ -8,12 +8,20 @@ import {
 // Configure the Monaco loader to use the local Monaco instance
 loader.config({ monaco });
 
+// Track if SQL language has been registered to prevent duplicates
+let sqlLanguageRegistered = false;
+
 // Initialize and get Monaco instance
 export const initMonaco = async (databaseType: DatabaseType = "postgresql") => {
   const monacoInstance = await loader.init();
 
-  // Register enhanced SQL language configuration for the specific database
-  registerEnhancedSQLLanguage(databaseType);
+  // Only register SQL language once to prevent duplicate configurations
+  if (!sqlLanguageRegistered) {
+    // Register enhanced SQL language configuration for PostgreSQL only
+    // This provides tokenization for syntax highlighting
+    registerEnhancedSQLLanguage("postgresql");
+    sqlLanguageRegistered = true;
+  }
 
   // Define our custom themes immediately when Monaco loads
   const isDark = document.documentElement.classList.contains("dark");

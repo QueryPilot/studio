@@ -650,8 +650,8 @@ const postgresFunctions = [
   "CURSOR_TO_XML",
 ];
 
-// MySQL specific keywords (in addition to standard SQL)
-const mysqlKeywords = [
+// MySQL specific keywords - DISABLED (only PostgreSQL supported)
+// const mysqlKeywords = [
   "ACCESSIBLE",
   "ANALYZE",
   "ASENSITIVE",
@@ -777,13 +777,13 @@ const mysqlKeywords = [
   "XOR",
   "YEAR_MONTH",
   "ZEROFILL",
-  ...postgresKeywords.filter(
-    (k) => !["COPY", "VACUUM", "ANALYZE", "CLUSTER", "REINDEX"].includes(k),
-  ),
-];
+  // ...postgresKeywords.filter(
+  //   (k) => !["COPY", "VACUUM", "ANALYZE", "CLUSTER", "REINDEX"].includes(k),
+  // ),
+// ];
 
-// MySQL data types
-const mysqlTypes = [
+// MySQL data types - DISABLED
+// const mysqlTypes = [
   "BIT",
   "TINYINT",
   "SMALLINT",
@@ -828,10 +828,10 @@ const mysqlTypes = [
   "MULTILINESTRING",
   "MULTIPOLYGON",
   "GEOMETRYCOLLECTION",
-];
+// ];
 
-// MySQL functions
-const mysqlFunctions = [
+// MySQL functions - DISABLED
+// const mysqlFunctions = [
   "ABS",
   "ACOS",
   "ADDDATE",
@@ -1064,10 +1064,10 @@ const mysqlFunctions = [
   "WEIGHT_STRING",
   "YEAR",
   "YEARWEEK",
-];
+// ];
 
-// SQL Server specific keywords
-const sqlServerKeywords = [
+// SQL Server specific keywords - DISABLED
+// const sqlServerKeywords = [
   "ADD",
   "ALL",
   "ALTER",
@@ -1257,10 +1257,10 @@ const sqlServerKeywords = [
   "TRY_CAST",
   "TRY_CONVERT",
   "TRY_PARSE",
-];
+// ];
 
-// SQL Server data types
-const sqlServerTypes = [
+// SQL Server data types - DISABLED
+// const sqlServerTypes = [
   "BIGINT",
   "NUMERIC",
   "BIT",
@@ -1296,10 +1296,10 @@ const sqlServerTypes = [
   "TABLE",
   "GEOGRAPHY",
   "GEOMETRY",
-];
+// ];
 
-// SQL Server functions
-const sqlServerFunctions = [
+// SQL Server functions - DISABLED
+// const sqlServerFunctions = [
   "ABS",
   "ACOS",
   "APP_NAME",
@@ -1506,118 +1506,49 @@ const sqlServerFunctions = [
   "VARP",
   "XACT_STATE",
   "YEAR",
-];
+// ];
 
 // Function to get database-specific configuration
 function getDatabaseConfig(databaseType: DatabaseType) {
-  switch (databaseType) {
-    case "mysql":
-      return {
-        keywords: mysqlKeywords,
-        typeKeywords: mysqlTypes,
-        builtinFunctions: mysqlFunctions,
-      };
-    case "sqlserver":
-      return {
-        keywords: sqlServerKeywords,
-        typeKeywords: sqlServerTypes,
-        builtinFunctions: sqlServerFunctions,
-      };
-    case "sqlite":
-      // SQLite uses a subset of standard SQL
-      return {
-        keywords: postgresKeywords.filter(
-          (k) =>
-            ![
-              "COPY",
-              "VACUUM",
-              "CLUSTER",
-              "REINDEX",
-              "LISTEN",
-              "NOTIFY",
-              "UNLISTEN",
-            ].includes(k),
-        ),
-        typeKeywords: [
-          "INTEGER",
-          "REAL",
-          "TEXT",
-          "BLOB",
-          "NULL",
-          "NUMERIC",
-          "BOOLEAN",
-          "DATE",
-          "DATETIME",
-        ],
-        builtinFunctions: [
-          "ABS",
-          "CHANGES",
-          "CHAR",
-          "COALESCE",
-          "GLOB",
-          "HEX",
-          "IFNULL",
-          "INSTR",
-          "LAST_INSERT_ROWID",
-          "LENGTH",
-          "LIKE",
-          "LIKELIHOOD",
-          "LIKELY",
-          "LOAD_EXTENSION",
-          "LOWER",
-          "LTRIM",
-          "MAX",
-          "MIN",
-          "NULLIF",
-          "PRINTF",
-          "QUOTE",
-          "RANDOM",
-          "RANDOMBLOB",
-          "REPLACE",
-          "ROUND",
-          "RTRIM",
-          "SOUNDEX",
-          "SQLITE_COMPILEOPTION_GET",
-          "SQLITE_COMPILEOPTION_USED",
-          "SQLITE_OFFSET",
-          "SQLITE_SOURCE_ID",
-          "SQLITE_VERSION",
-          "SUBSTR",
-          "TOTAL_CHANGES",
-          "TRIM",
-          "TYPEOF",
-          "UNICODE",
-          "UNLIKELY",
-          "UPPER",
-          "ZEROBLOB",
-          "DATE",
-          "TIME",
-          "DATETIME",
-          "JULIANDAY",
-          "STRFTIME",
-          "AVG",
-          "COUNT",
-          "GROUP_CONCAT",
-          "MAX",
-          "MIN",
-          "SUM",
-          "TOTAL",
-        ],
-      };
-    case "postgresql":
-    default:
-      return {
-        keywords: postgresKeywords,
-        typeKeywords: postgresTypes,
-        builtinFunctions: postgresFunctions,
-      };
-  }
+  // For now, only PostgreSQL is supported
+  // Remove all references to other databases to prevent any confusion
+  return {
+    keywords: postgresKeywords,
+    typeKeywords: postgresTypes,
+    builtinFunctions: postgresFunctions,
+  };
 }
 
 export function registerEnhancedSQLLanguage(
   databaseType: DatabaseType = "postgresql",
 ) {
-  const config = getDatabaseConfig(databaseType);
+  // Force PostgreSQL configuration for now
+  const config = getDatabaseConfig("postgresql");
+
+  // First, set language configuration to disable built-in suggestions
+  monaco.languages.setLanguageConfiguration("sql", {
+    wordPattern: /(-?\d*\.\d\w*)|([^\`\~\!\@\#\%\^\&\*\(\)\-\=\+\[\{\]\}\\\|\;\:\'\"\,\.\<\>\/\?\s]+)/g,
+    comments: {
+      lineComment: "--",
+      blockComment: ["/*", "*/"],
+    },
+    brackets: [
+      ["[", "]"],
+      ["(", ")"],
+    ],
+    autoClosingPairs: [
+      { open: "[", close: "]" },
+      { open: "(", close: ")" },
+      { open: "'", close: "'" },
+      { open: '"', close: '"' },
+    ],
+    surroundingPairs: [
+      { open: "[", close: "]" },
+      { open: "(", close: ")" },
+      { open: "'", close: "'" },
+      { open: '"', close: '"' },
+    ],
+  });
 
   // Register an enhanced tokenizer for SQL
   monaco.languages.setMonarchTokensProvider("sql", {
@@ -1811,55 +1742,8 @@ export function registerEnhancedSQLLanguage(
     },
   });
 
-  // Register completion item provider
-  monaco.languages.registerCompletionItemProvider("sql", {
-    provideCompletionItems: (model, position) => {
-      const word = model.getWordUntilPosition(position);
-      const range = {
-        startLineNumber: position.lineNumber,
-        endLineNumber: position.lineNumber,
-        startColumn: word.startColumn,
-        endColumn: word.endColumn,
-      };
-
-      const suggestions = [];
-
-      // Add keywords
-      config.keywords.forEach((keyword) => {
-        suggestions.push({
-          label: keyword,
-          kind: monaco.languages.CompletionItemKind.Keyword,
-          insertText: keyword,
-          range: range,
-          sortText: "1" + keyword,
-        });
-      });
-
-      // Add types
-      config.typeKeywords.forEach((type) => {
-        suggestions.push({
-          label: type,
-          kind: monaco.languages.CompletionItemKind.Class,
-          insertText: type,
-          range: range,
-          sortText: "2" + type,
-        });
-      });
-
-      // Add functions
-      config.builtinFunctions.forEach((func) => {
-        suggestions.push({
-          label: func,
-          kind: monaco.languages.CompletionItemKind.Function,
-          insertText: func + "()",
-          range: range,
-          sortText: "3" + func,
-        });
-      });
-
-      return { suggestions };
-    },
-  });
+  // Completion provider removed - handled by SQLCompletionProvider in QueryEditor
+  // This prevents duplicate suggestions
 }
 
 // Legacy export for backward compatibility

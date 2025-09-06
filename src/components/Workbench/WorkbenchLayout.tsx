@@ -16,10 +16,14 @@ import {
 
 interface WorkbenchLayoutProps {
   className?: string;
+  connectionId?: string;
+  database?: string;
 }
 
 export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
   className,
+  connectionId,
+  database,
 }) => {
   const {
     layoutTree,
@@ -102,6 +106,20 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
         });
       }
 
+      // Cmd+T to open new query tab in current panel
+      if (e.key === "t" && focusedPanelId) {
+        e.preventDefault();
+        const state = useWorkbenchStore.getState();
+        const tabId = `query-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+        state.addTab(focusedPanelId, tabId, {
+          type: "query",
+          title: "New Query",
+          isQuery: true,
+          connectionId,
+          database,
+        });
+      }
+
       // Cmd+W to close current tab
       if (e.key === "w" && !e.shiftKey && focusedPanelId) {
         e.preventDefault();
@@ -159,7 +177,7 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [focusedPanelId, splitPanelAction, focusAdjacentPanel, undo, redo]);
+  }, [focusedPanelId, splitPanelAction, focusAdjacentPanel, undo, redo, connectionId, database]);
 
   const handleDragStart = (event: DragStartEvent) => {
     const { active } = event;

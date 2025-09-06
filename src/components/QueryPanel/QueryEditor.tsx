@@ -20,6 +20,10 @@ interface QueryEditorProps {
   readOnly?: boolean;
 }
 
+// Global tracking for SQL completion provider to prevent duplicates
+let globalCompletionProvider: SQLCompletionProvider | null = null;
+let globalCompletionDisposable: monaco.IDisposable | null = null;
+
 export const QueryEditor = memo(function QueryEditor({
   connectionId,
   database,
@@ -31,7 +35,6 @@ export const QueryEditor = memo(function QueryEditor({
   readOnly = false,
 }: QueryEditorProps) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
-  const completionProviderRef = useRef<SQLCompletionProvider | null>(null);
   const disposablesRef = useRef<monaco.IDisposable[]>([]);
   const themeCleanupRef = useRef<(() => void) | null>(null);
 
@@ -64,30 +67,34 @@ export const QueryEditor = memo(function QueryEditor({
       themeProvider.applyTheme(isDark);
     }, 0);
 
-    // Create and register completion provider
-    completionProviderRef.current = new SQLCompletionProvider(
-      connectionId,
-      database,
-      schema,
-      dbType
-    );
+    // Auto-focus the editor
+    editor.focus();
 
-    const completionDisposable = monaco.languages.registerCompletionItemProvider('sql', {
-      provideCompletionItems: (model, position, context, token) => {
-        if (completionProviderRef.current) {
-          return completionProviderRef.current.provideCompletionItems(
-            model,
-            position,
-            context,
-            token
-          );
-        }
-        return { suggestions: [] };
-      },
-      triggerCharacters: ['.', ' ', '(', ','],
-    });
+    // Dispose any existing completion provider before registering new one
+    if (globalCompletionDisposable) {
+      globalCompletionDisposable.dispose();
+      globalCompletionDisposable = null;
+    }
+    
+    // Create or update global completion provider
+    if (!globalCompletionProvider) {
+      globalCompletionProvider = new SQLCompletionProvider(
+        connectionId,
+        database,
+        schema,
+        dbType
+      );
+    } else {
+      globalCompletionProvider.updateConnectionInfo(
+        connectionId,
+        database,
+        schema,
+        dbType
+      );
+    }
 
-    disposablesRef.current.push(completionDisposable);
+    // Register our custom completion provider
+    globalCompletionDisposable = monaco.languages.registerCompletionItemProvider('sql', globalCompletionProvider);
 
     // Add keyboard shortcuts
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
@@ -101,36 +108,12 @@ export const QueryEditor = memo(function QueryEditor({
     editor.onDidPaste(() => {
       editor.getAction('editor.action.formatDocument')?.run();
     });
-
-    // Configure SQL language defaults
-    monaco.languages.setLanguageConfiguration('sql', {
-      comments: {
-        lineComment: '--',
-        blockComment: ['/*', '*/'],
-      },
-      brackets: [
-        ['[', ']'],
-        ['(', ')'],
-      ],
-      autoClosingPairs: [
-        { open: '[', close: ']' },
-        { open: '(', close: ')' },
-        { open: "'", close: "'" },
-        { open: '"', close: '"' },
-      ],
-      surroundingPairs: [
-        { open: '[', close: ']' },
-        { open: '(', close: ')' },
-        { open: "'", close: "'" },
-        { open: '"', close: '"' },
-      ],
-    });
   };
 
   // Update completion provider when connection info changes
   useEffect(() => {
-    if (completionProviderRef.current) {
-      completionProviderRef.current.updateConnectionInfo(
+    if (globalCompletionProvider) {
+      globalCompletionProvider.updateConnectionInfo(
         connectionId,
         database,
         schema,
@@ -151,25 +134,40 @@ export const QueryEditor = memo(function QueryEditor({
 
   const editorOptions: monaco.editor.IStandaloneEditorConstructionOptions = {
     minimap: { enabled: false },
-    fontSize: 13,
-    fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace",
+    fontSize: 12,
+    lineHeight: 16,
+    fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'monospace'",
     fontLigatures: true,
     lineNumbers: 'on',
-    renderLineHighlight: 'all',
+    lineNumbersMinChars: 3,
+    renderLineHighlight: 'none',
     scrollBeyondLastLine: false,
     automaticLayout: true,
     suggestOnTriggerCharacters: true,
     quickSuggestions: {
-      other: true,
+      other: 'inline' as any,
       comments: false,
       strings: false,
+    },
+    suggest: {
+      filterGraceful: true,
+      snippetsPreventQuickSuggestions: false,
+      showWords: false,
+      showSnippets: false,
+      showIcons: true,
+      maxVisibleSuggestions: 12,
+      showStatusBar: false,
+      showInlineDetails: true,
+      showDeprecated: true,
     },
     parameterHints: {
       enabled: true,
     },
-    wordBasedSuggestions: 'off',
+    wordBasedSuggestions: false as any,
     suggestSelection: 'first',
     tabCompletion: 'on',
+    // Disable quick suggestions for strings and comments to avoid duplicates
+    quickSuggestionsDelay: 10,
     copyWithSyntaxHighlighting: false,
     suggest: {
       filterGraceful: true,
@@ -179,12 +177,10 @@ export const QueryEditor = memo(function QueryEditor({
     },
     readOnly,
     wordWrap: 'on',
-    wrappingStrategy: 'advanced',
+    wrappingIndent: 'indent',
     scrollbar: {
       vertical: 'auto',
       horizontal: 'auto',
-      verticalScrollbarSize: 10,
-      horizontalScrollbarSize: 10,
     },
     padding: {
       top: 8,

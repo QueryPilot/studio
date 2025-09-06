@@ -121,7 +121,11 @@ export function WorkspaceScreen() {
               : 100
           }
         >
-          <WorkbenchLayout className="h-full" />
+          <WorkbenchLayout 
+            className="h-full" 
+            connectionId={connectionId}
+            database={selectedDatabase}
+          />
         </ResizablePanel>
 
         {/* Right Sidebar - AI Assistant */}
