@@ -4,7 +4,7 @@ import { type PanelContent, type DropPosition } from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import {
   X,
-  Plus,
+  LayoutGrid,
   Table2,
   Eye,
   FunctionSquare,
@@ -344,10 +344,10 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="h-6 w-6">
-                <Plus className="h-3 w-3" />
+                <LayoutGrid className="h-3 w-3" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuContent align="end" className="w-48 text-xs">
               <DropdownMenuItem
                 onClick={() => {
                   handleSplit("right");
@@ -392,9 +392,9 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                 }}
                 className="text-destructive focus:text-destructive"
               >
-                <X className="mr-2 h-4 w-4" />
+                <X className="mr-2 h-4 w-4 text-destructive" />
                 Close Panel
-                <DropdownMenuShortcut>⌘⇧W</DropdownMenuShortcut>
+                <DropdownMenuShortcut className="text-destructive">⌘⇧W</DropdownMenuShortcut>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
