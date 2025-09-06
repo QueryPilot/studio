@@ -5,8 +5,6 @@ import {
   Table,
   Eye,
   FunctionSquare,
-  ChevronDown,
-  ChevronRight,
   RefreshCw,
   AlertCircle,
   Bolt,
@@ -23,6 +21,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { safeListen } from "@/utils/tauri";
+import {
+  SidebarSection,
+  SidebarItem,
+  ActionButton,
+} from "./DatabaseSidebarItem";
 
 interface DatabaseSidebarProps {
   connectionId: string;
@@ -61,41 +64,8 @@ export function DatabaseSidebar({
     panels,
     activePanelId,
   } = usePanelStore();
-  
+
   const { focusedPanelId, panelContents } = useWorkbenchStore();
-
-  // Load schema data when schema changes
-  useEffect(() => {
-    if (selectedSchema && selectedDatabase) {
-      void loadSchemaData();
-    }
-  }, [selectedSchema, selectedDatabase]);
-
-  // Listen for database reconnection events
-  useEffect(() => {
-    let cleanup: (() => void) | null = null;
-
-    const setupListener = async () => {
-      cleanup = await safeListen<{ connectionId: string }>(
-        "database-reconnected",
-        (event) => {
-          if (
-            event.payload.connectionId === connectionId &&
-            selectedSchema &&
-            selectedDatabase
-          ) {
-            void loadSchemaData();
-          }
-        },
-      );
-    };
-
-    void setupListener();
-
-    return () => {
-      if (cleanup) cleanup();
-    };
-  }, [connectionId, selectedSchema, selectedDatabase]);
 
   const loadSchemaData = useCallback(async () => {
     try {
@@ -128,7 +98,9 @@ export function DatabaseSidebar({
 
       // Auto-expand tables if there are items
       if (tableList.length > 0) {
-        setExpandedNodes((prev) => new Set([...prev, "tables"]));
+        setExpandedNodes(
+          (prev) => new Set([...prev, "tables", "views", "functions"]),
+        );
       }
     } catch (err) {
       console.error("Failed to load schema data:", err);
@@ -137,6 +109,39 @@ export function DatabaseSidebar({
       setIsLoadingData(false);
     }
   }, [connectionId, selectedDatabase, selectedSchema]);
+
+  // Load schema data when schema changes
+  useEffect(() => {
+    if (selectedSchema && selectedDatabase) {
+      void loadSchemaData();
+    }
+  }, [selectedSchema, selectedDatabase, loadSchemaData]);
+
+  // Listen for database reconnection events
+  useEffect(() => {
+    let cleanup: (() => void) | null = null;
+
+    const setupListener = async () => {
+      cleanup = await safeListen<{ connectionId: string }>(
+        "database-reconnected",
+        (event) => {
+          if (
+            event.payload.connectionId === connectionId &&
+            selectedSchema &&
+            selectedDatabase
+          ) {
+            void loadSchemaData();
+          }
+        },
+      );
+    };
+
+    void setupListener();
+
+    return () => {
+      if (cleanup) cleanup();
+    };
+  }, [connectionId, selectedSchema, selectedDatabase, loadSchemaData]);
 
   const toggleNode = (nodeId: string) => {
     const newExpanded = new Set(expandedNodes);
@@ -230,7 +235,7 @@ export function DatabaseSidebar({
     // Try new workbench system first
     const { focusedPanelId, addTab, panelContents, focusPanel } =
       useWorkbenchStore.getState();
-    
+
     // Determine target panel
     let targetPanelId = focusedPanelId;
     if (!targetPanelId) {
@@ -307,12 +312,16 @@ export function DatabaseSidebar({
       const focusedPanel = panelContents.get(focusedPanelId);
       if (focusedPanel && focusedPanel.activeTabId) {
         const metadata = focusedPanel.metadata?.[focusedPanel.activeTabId];
-        if (metadata?.type === "table" && metadata.table === tableName && metadata.schema === schema) {
+        if (
+          metadata?.type === "table" &&
+          metadata.table === tableName &&
+          metadata.schema === schema
+        ) {
           return true;
         }
       }
     }
-    
+
     // Fallback to panel store (old system)
     const activePanel = panels.get(activePanelId);
     if (!activePanel || !activePanel.activeTabId) return false;
@@ -341,7 +350,7 @@ export function DatabaseSidebar({
         }
       }
     }
-    
+
     // Fallback to panel store (old system)
     const activePanel = panels.get(activePanelId);
     if (!activePanel || !activePanel.activeTabId) return false;
@@ -416,209 +425,129 @@ export function DatabaseSidebar({
         <div className="pb-2 min-w-0">
           {/* Tables Section */}
           {(schemaData.tables.length > 0 || isLoadingData) && (
-            <div>
-              <div className="sticky top-0 bg-background z-30">
-                <button
-                  className="flex items-center gap-1.5 w-full text-left bg-muted/50 p-1.5 rounded text-xs backdrop-blur-md"
-                  onClick={() => {
-                    toggleNode("tables");
-                  }}
-                >
-                  {expandedNodes.has("tables") ? (
-                    <ChevronDown className="h-4 w-4" />
-                  ) : (
-                    <ChevronRight className="h-4 w-4" />
-                  )}
-                  <span className="font-medium text-xs">Tables</span>
-                  <span className="text-xs text-muted-foreground ml-auto">
-                    {schemaData.tables.length}
-                  </span>
-                </button>
-              </div>
-              {expandedNodes.has("tables") && (
-                <div className="ml-3.5 mt-0.5 space-y-0.5 px-2 overflow-x-auto">
-                  {filterItems(schemaData.tables).map((table) => {
-                    const isActive = isTableActive(table.name, table.schema);
-                    return (
-                      <div
-                        key={`${table.schema}.${table.name}`}
-                        className={cn(
-                          "group flex items-center gap-1.5 p-1 hover:bg-muted/50 cursor-pointer min-w-fit overflow-hidden text-ellipsis",
-                          isActive
-                            ? "bg-primary/10 border-l-2 border-l-primary rounded-r"
-                            : "rounded",
-                        )}
-                        onClick={() => {
-                          handleTableClick(table, "data");
+            <SidebarSection
+              title="Tables"
+              count={schemaData.tables.length}
+              isExpanded={expandedNodes.has("tables")}
+              onToggle={() => { toggleNode("tables"); }}
+              stickyClass="sticky top-0 bg-background z-30"
+            >
+              {filterItems(schemaData.tables).map((table) => (
+                <SidebarItem
+                  key={`${table.schema}.${table.name}`}
+                  icon={
+                    <Table className="h-3.5 w-4 min-w-4 text-blue-500 flex-shrink-0" />
+                  }
+                  name={table.name}
+                  isActive={isTableActive(table.name, table.schema)}
+                  onClick={() => { handleTableClick(table, "data"); }}
+                  rowCount={table.row_estimate}
+                  actions={
+                    <>
+                      <ActionButton
+                        icon={
+                          <Bolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                        }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleTableClick(table, "structure");
                         }}
-                      >
-                        <Table className="h-3.5 w-4 min-w-4 text-blue-500 flex-shrink-0" />
-                        <span className="text-xs whitespace-nowrap flex-1">
-                          {table.name}
-                        </span>
-                        {table.row_estimate != null &&
-                          table.row_estimate > 0 && (
-                            <span className="text-xs text-muted-foreground whitespace-nowrap transition-all duration-200 ease-out">
-                              ~{table.row_estimate.toLocaleString()}
-                            </span>
-                          )}
-                        <div className="flex items-center gap-0.5 transition-all delay-150 duration-200 ease-out -mr-10 opacity-0 group-hover:opacity-100 group-hover:mr-1">
-                          <button
-                            className="p-0.5 hover:bg-muted rounded"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleTableClick(table, "structure");
-                            }}
-                            title="View Structure"
-                          >
-                            <Bolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
-                          </button>
-                          <button
-                            className="p-0.5 hover:bg-muted rounded"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleTableClick(table, "indexes");
-                            }}
-                            title="View Indexes"
-                          >
-                            <BookMarked className="h-3 w-3 text-muted-foreground hover:text-foreground" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+                        title="View Structure"
+                      />
+                      <ActionButton
+                        icon={
+                          <BookMarked className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                        }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleTableClick(table, "indexes");
+                        }}
+                        title="View Indexes"
+                      />
+                    </>
+                  }
+                />
+              ))}
+            </SidebarSection>
           )}
 
           {/* Views Section */}
           {schemaData.views.length > 0 && (
-            <div>
-              <div className="sticky top-0 bg-background z-20">
-                <button
-                  className="flex items-center gap-1.5 w-full text-left bg-muted/50 p-1.5 rounded text-xs backdrop-blur-md"
-                  onClick={() => {
-                    toggleNode("views");
-                  }}
-                >
-                  {expandedNodes.has("views") ? (
-                    <ChevronDown className="h-4 w-4" />
-                  ) : (
-                    <ChevronRight className="h-4 w-4" />
-                  )}
-                  <span className="font-medium text-xs">Views</span>
-                  <span className="text-xs text-muted-foreground ml-auto">
-                    {schemaData.views.length}
-                  </span>
-                </button>
-              </div>
-              {expandedNodes.has("views") && (
-                <div className="ml-3.5 mt-0.5 space-y-0.5 px-2 overflow-x-auto">
-                  {filterItems(schemaData.views).map((view) => {
-                    const isActive = isTableActive(view.name, view.schema);
-                    return (
-                      <div
-                        key={`${view.schema}.${view.name}`}
-                        className={cn(
-                          "group flex items-center gap-1.5 p-1 hover:bg-muted/50 cursor-pointer min-w-fit overflow-hidden text-ellipsis border-l-2",
-                          isActive
-                            ? "bg-primary/10 border-l-primary rounded-r"
-                            : "rounded border-l-transparent",
-                        )}
-                      >
-                        <Eye className={cn(
-                          "h-4 min-h-4 w-4 min-w-4 flex-shrink-0",
-                          view.kind === "MaterializedView" ? "text-purple-500" : "text-green-500"
-                        )} />
-                        <span
-                          className="text-xs whitespace-nowrap flex-1"
-                          onClick={() => {
-                            handleTableClick(view, "data");
-                          }}
-                        >
-                          {view.name}
-                        </span>
-                        <div className="flex items-center gap-0.5 transition-all delay-300 duration-200 ease-out -mr-10 opacity-0 group-hover:opacity-100 group-hover:mr-1">
-                          <button
-                            className="p-0.5 hover:bg-muted rounded"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleTableClick(view, "structure");
-                            }}
-                            title="View Structure"
-                          >
-                            <Bolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
-                          </button>
-                          <button
-                            className="p-0.5 hover:bg-muted rounded"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleTableClick(view, "indexes");
-                            }}
-                            title="View Indexes"
-                          >
-                            <BookMarked className="h-3 w-3 text-muted-foreground hover:text-foreground" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            <SidebarSection
+              title="Views"
+              count={schemaData.views.length}
+              isExpanded={expandedNodes.has("views")}
+              onToggle={() => { toggleNode("views"); }}
+            >
+              {filterItems(schemaData.views).map((view) => (
+                <SidebarItem
+                  key={`${view.schema}.${view.name}`}
+                  icon={
+                    <Eye
+                      className={cn(
+                        "h-4 min-h-4 w-4 min-w-4 flex-shrink-0",
+                        view.kind === "MaterializedView"
+                          ? "text-purple-500"
+                          : "text-green-500",
+                      )}
+                    />
+                  }
+                  name={view.name}
+                  isActive={isTableActive(view.name, view.schema)}
+                  onClick={() => { handleTableClick(view, "data"); }}
+                  className="border-l-2 border-l-transparent"
+                  actions={
+                    <>
+                      <ActionButton
+                        icon={
+                          <Bolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                        }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleTableClick(view, "structure");
+                        }}
+                        title="View Structure"
+                      />
+                      <ActionButton
+                        icon={
+                          <BookMarked className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                        }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleTableClick(view, "indexes");
+                        }}
+                        title="View Indexes"
+                      />
+                    </>
+                  }
+                />
+              ))}
+            </SidebarSection>
           )}
 
           {/* Functions Section */}
           {schemaData.functions.length > 0 && (
-            <div>
-              <div className="sticky top-0 bg-background z-10">
-                <button
-                  className="flex items-center gap-1.5 w-full text-left bg-muted/50 p-1.5 rounded text-xs backdrop-blur-md"
-                  onClick={() => {
-                    toggleNode("functions");
-                  }}
-                >
-                  {expandedNodes.has("functions") ? (
-                    <ChevronDown className="h-4 w-4" />
-                  ) : (
-                    <ChevronRight className="h-4 w-4" />
-                  )}
-                  <span className="font-medium text-xs">Functions</span>
-                  <span className="text-xs text-muted-foreground ml-auto">
-                    {schemaData.functions.length}
-                  </span>
-                </button>
-              </div>
-              {expandedNodes.has("functions") && (
-                <div className="ml-3.5 mt-0.5 space-y-0.5 px-2 overflow-x-auto">
-                  {filterItems(schemaData.functions).map((func, index) => {
-                    const isActive = isFunctionActive(func.name, func.schema);
-                    return (
-                      <div
-                        key={`${func.schema}.${func.name}.${func.arguments.join(
-                          ",",
-                        )}.${index}`}
-                        className={cn(
-                          "flex items-center gap-1.5 p-1 hover:bg-muted/50 cursor-pointer min-w-fit",
-                          isActive
-                            ? "bg-primary/10 border-l-2 border-l-primary rounded-r"
-                            : "rounded",
-                        )}
-                        onClick={() => {
-                          handleFunctionClick(func);
-                        }}
-                      >
-                        <FunctionSquare className="h-3.5 w-4 min-w-4 text-purple-500 flex-shrink-0" />
-                        <span className="text-xs whitespace-nowrap">
-                          {func.name}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            <SidebarSection
+              title="Functions"
+              count={schemaData.functions.length}
+              isExpanded={expandedNodes.has("functions")}
+              onToggle={() => { toggleNode("functions"); }}
+              stickyClass="sticky top-0 bg-background z-10"
+            >
+              {filterItems(schemaData.functions).map((func, index) => (
+                <SidebarItem
+                  key={`${func.schema}.${func.name}.${func.arguments.join(
+                    ",",
+                  )}.${index}`}
+                  icon={
+                    <FunctionSquare className="h-3.5 w-4 min-w-4 text-purple-500 flex-shrink-0" />
+                  }
+                  name={func.name}
+                  isActive={isFunctionActive(func.name, func.schema)}
+                  onClick={() => { handleFunctionClick(func); }}
+                />
+              ))}
+            </SidebarSection>
           )}
 
           {/* Empty state */}

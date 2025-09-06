@@ -12,31 +12,31 @@
   .scrollbar-none::-webkit-scrollbar {
     display: none;
   }
-  
+
   /* Custom thin scrollbar for tabs */
   .scrollbar-tabs {
     scrollbar-width: thin;
     scrollbar-color: transparent transparent;
   }
-  
+
   .scrollbar-tabs:hover {
     scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
   }
-  
+
   .scrollbar-tabs::-webkit-scrollbar {
     height: 4px;
     width: 4px;
   }
-  
+
   .scrollbar-tabs::-webkit-scrollbar-track {
     background: transparent;
   }
-  
+
   .scrollbar-tabs::-webkit-scrollbar-thumb {
     background-color: transparent;
     border-radius: 2px;
   }
-  
+
   .scrollbar-tabs:hover::-webkit-scrollbar-thumb {
     background-color: hsl(var(--muted-foreground) / 0.3);
   }
@@ -83,28 +83,28 @@
   .dark {
     /* Dark Mode - True black with proper layers */
     --background: 240 10% 3.9%; /* #0A0A0B - True black background */
-    --foreground: 0 0% 98%; /* #FAFAFA - White text */
+    --foreground: 0 0% 90%; /* #E5E5E5 - Softer white text, less bright */
 
     --card: 240 10% 7%; /* #111113 - Elevated card */
-    --card-foreground: 0 0% 98%;
+    --card-foreground: 0 0% 90%;
 
     --popover: 240 10% 7%;
-    --popover-foreground: 0 0% 98%;
+    --popover-foreground: 0 0% 90%;
 
     --primary: 37 97% 53%; /* #FCA311 - Brand amber */
     --primary-foreground: 240 10% 3.9%;
 
     --secondary: 240 10% 12%; /* #1A1A1D - Secondary background for tabs list */
-    --secondary-foreground: 0 0% 98%;
+    --secondary-foreground: 0 0% 90%;
 
     --muted: 240 10% 12%; /* Same as secondary for tabs container */
-    --muted-foreground: 240 5% 64.9%; /* Muted text */
+    --muted-foreground: 240 5% 60%; /* Muted text, slightly softer */
 
     --accent: 240 10% 12%;
-    --accent-foreground: 0 0% 98%;
+    --accent-foreground: 0 0% 90%;
 
     --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
+    --destructive-foreground: 0 0% 90%;
 
     --border: 240 10% 16%; /* #27272A - Visible borders */
     --input: 240 10% 16%;

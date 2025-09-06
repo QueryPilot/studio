@@ -2,6 +2,7 @@ use crate::types::CellValueType;
 use crate::error::{AppError, Result};
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
+use regex::Regex;
 
 pub struct PostgresTypeParser;
 
@@ -424,6 +425,137 @@ impl PostgresTypeParser {
                 .map(|s| s.trim_matches('\''))
                 .collect::<Vec<_>>()
         }))
+    }
+}
+
+// Index definition quoting functions
+
+/// Quote a PostgreSQL identifier if needed
+pub fn quote_identifier(identifier: &str) -> String {
+    // Check if already quoted
+    if identifier.starts_with('"') && identifier.ends_with('"') {
+        return identifier.to_string();
+    }
+    
+    // Always quote to ensure case sensitivity
+    format!("\"{}\"", identifier)
+}
+
+/// Parse and quote index definition from pg_indexes
+pub fn quote_index_definition(indexdef: &str) -> String {
+    // Pattern: CREATE [UNIQUE] INDEX index_name ON schema.table [USING method] (columns)
+    let re = Regex::new(
+        r"(?i)(CREATE\s+(?:UNIQUE\s+)?INDEX)\s+(\S+)\s+(ON)\s+(?:(\S+)\.)?(\S+)\s+(USING\s+\S+)?\s*\(([^)]+)\)"
+    ).unwrap();
+    
+    if let Some(captures) = re.captures(indexdef) {
+        let create_clause = &captures[1];
+        let index_name = &captures[2];
+        let on_keyword = &captures[3];
+        let schema = captures.get(4).map(|m| m.as_str());
+        let table_name = &captures[5];
+        let using_clause = captures.get(6).map(|m| m.as_str()).unwrap_or("");
+        let columns = &captures[7];
+        
+        // Quote identifiers
+        let quoted_index = quote_identifier(index_name);
+        let quoted_table = if let Some(s) = schema {
+            format!("{}.{}", quote_identifier(s), quote_identifier(table_name))
+        } else {
+            quote_identifier(table_name)
+        };
+        
+        // Parse and quote column names while preserving expressions
+        let quoted_columns = quote_column_list(columns);
+        
+        // Reconstruct the index definition
+        format!("{} {} {} {} {} ({})",
+            create_clause,
+            quoted_index,
+            on_keyword,
+            quoted_table,
+            using_clause,
+            quoted_columns
+        )
+    } else {
+        // If parsing fails, return original
+        indexdef.to_string()
+    }
+}
+
+/// Quote column list in index definition, preserving expressions
+fn quote_column_list(columns: &str) -> String {
+    let parts: Vec<String> = columns
+        .split(',')
+        .map(|col| {
+            let trimmed = col.trim();
+            // Check if it's a simple column name or an expression
+            if trimmed.contains('(') || trimmed.contains(' ') {
+                // It's an expression, parse it more carefully
+                quote_column_expression(trimmed)
+            } else {
+                // Simple column name
+                quote_identifier(trimmed)
+            }
+        })
+        .collect();
+    
+    parts.join(", ")
+}
+
+/// Quote column expressions in index definitions
+fn quote_column_expression(expr: &str) -> String {
+    // Handle expressions like "lower(column_name)" or "column_name DESC"
+    
+    // Check for function calls
+    if let Some(paren_pos) = expr.find('(') {
+        let func_part = &expr[..paren_pos];
+        let rest = &expr[paren_pos..];
+        
+        // Extract column name from function arguments
+        if let Some(close_paren) = rest.rfind(')') {
+            let args = &rest[1..close_paren];
+            let after_func = &rest[close_paren + 1..];
+            
+            // Quote the column name inside function
+            let quoted_args = if args.contains(',') {
+                // Multiple arguments
+                args.split(',')
+                    .map(|arg| {
+                        let trimmed = arg.trim();
+                        if trimmed.starts_with('\'') || trimmed.chars().all(|c| c.is_numeric() || c == '.') {
+                            // It's a literal, don't quote
+                            trimmed.to_string()
+                        } else {
+                            quote_identifier(trimmed)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            } else {
+                // Single argument
+                let trimmed = args.trim();
+                if trimmed.starts_with('\'') || trimmed.chars().all(|c| c.is_numeric() || c == '.') {
+                    trimmed.to_string()
+                } else {
+                    quote_identifier(trimmed)
+                }
+            };
+            
+            format!("{}({}){}",func_part, quoted_args, after_func)
+        } else {
+            expr.to_string()
+        }
+    } else if expr.contains(' ') {
+        // Handle "column_name DESC" or "column_name ASC"
+        let parts: Vec<&str> = expr.split_whitespace().collect();
+        if parts.len() == 2 && (parts[1].to_uppercase() == "ASC" || parts[1].to_uppercase() == "DESC") {
+            format!("{} {}", quote_identifier(parts[0]), parts[1])
+        } else {
+            expr.to_string()
+        }
+    } else {
+        quote_identifier(expr)
     }
 }
 

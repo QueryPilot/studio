@@ -1076,6 +1076,7 @@ dependencies = [
  "postgres-protocol",
  "postgres-types",
  "pretty_assertions",
+ "regex",
  "rust_decimal",
  "serde",
  "serde_json",

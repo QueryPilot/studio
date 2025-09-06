@@ -278,7 +278,7 @@ impl DbAdapter for PostgresAdapter {
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
         
         let query = format!(
-            "SELECT COUNT(*) FROM {}.{}",
+            "SELECT COUNT(*) FROM \"{}\".\"{}\"",
             schema, table
         );
         
@@ -306,7 +306,7 @@ impl DbAdapter for PostgresAdapter {
         
         // Build query with proper escaping
         let query = format!(
-            "SELECT * FROM {}.{} LIMIT {} OFFSET {}",
+            "SELECT * FROM \"{}\".\"{}\" LIMIT {} OFFSET {}",
             schema, table, limit, offset
         );
         

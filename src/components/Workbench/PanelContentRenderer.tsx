@@ -7,7 +7,6 @@ import { TableStructure } from "@/components/DataGrid/TableStructure";
 import { TableIndexes } from "@/components/DataGrid/TableIndexes";
 import { TableTriggers } from "@/components/DataGrid/TableTriggers";
 import { ObjectDefinition } from "@/components/DataGrid/ObjectDefinition";
-import { databaseService } from "@/services/databaseService";
 
 interface PanelContentRendererProps {
   tabId: string;
@@ -31,7 +30,6 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = ({
       }
     }
   };
-
 
   if (type === "query") {
     return (
@@ -211,10 +209,10 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = ({
               schema={metadata.schema}
               objectName={metadata.table}
               objectType={
-                isMaterializedView 
-                  ? "materialized_view" 
-                  : isView 
-                  ? "view" 
+                isMaterializedView
+                  ? "materialized_view"
+                  : isView
+                  ? "view"
                   : "table"
               }
               className="h-full"
