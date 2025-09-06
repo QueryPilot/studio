@@ -91,13 +91,13 @@ export function DatabaseSidebar({
       );
 
       // Deduplicate functions based on schema and name only (ignore overloads)
-      const uniqueFunctions = functions.reduce((acc, func) => {
+      const uniqueFunctions = functions.reduce<FunctionMeta[]>((acc, func) => {
         const key = `${func.schema}.${func.name}`;
-        if (!acc.some(f => `${f.schema}.${f.name}` === key)) {
+        if (!acc.some((f) => `${f.schema}.${f.name}` === key)) {
           acc.push(func);
         }
         return acc;
-      }, [] as FunctionMeta[]);
+      }, []);
 
       setSchemaData({
         tables: tableList,
@@ -438,7 +438,9 @@ export function DatabaseSidebar({
               title="Tables"
               count={schemaData.tables.length}
               isExpanded={expandedNodes.has("tables")}
-              onToggle={() => { toggleNode("tables"); }}
+              onToggle={() => {
+                toggleNode("tables");
+              }}
               stickyClass="sticky top-0 bg-background z-30"
             >
               {filterItems(schemaData.tables).map((table) => (
@@ -449,7 +451,9 @@ export function DatabaseSidebar({
                   }
                   name={table.name}
                   isActive={isTableActive(table.name, table.schema)}
-                  onClick={() => { handleTableClick(table, "data"); }}
+                  onClick={() => {
+                    handleTableClick(table, "data");
+                  }}
                   rowCount={table.row_estimate}
                   actions={
                     <>
@@ -486,7 +490,9 @@ export function DatabaseSidebar({
               title="Views"
               count={schemaData.views.length}
               isExpanded={expandedNodes.has("views")}
-              onToggle={() => { toggleNode("views"); }}
+              onToggle={() => {
+                toggleNode("views");
+              }}
             >
               {filterItems(schemaData.views).map((view) => (
                 <SidebarItem
@@ -503,7 +509,9 @@ export function DatabaseSidebar({
                   }
                   name={view.name}
                   isActive={isTableActive(view.name, view.schema)}
-                  onClick={() => { handleTableClick(view, "data"); }}
+                  onClick={() => {
+                    handleTableClick(view, "data");
+                  }}
                   className="border-l-2 border-l-transparent"
                   actions={
                     <>
@@ -540,7 +548,9 @@ export function DatabaseSidebar({
               title="Functions"
               count={schemaData.functions.length}
               isExpanded={expandedNodes.has("functions")}
-              onToggle={() => { toggleNode("functions"); }}
+              onToggle={() => {
+                toggleNode("functions");
+              }}
               stickyClass="sticky top-0 bg-background z-10"
             >
               {filterItems(schemaData.functions).map((func) => (
@@ -551,7 +561,9 @@ export function DatabaseSidebar({
                   }
                   name={func.name}
                   isActive={isFunctionActive(func.name, func.schema)}
-                  onClick={() => { handleFunctionClick(func); }}
+                  onClick={() => {
+                    handleFunctionClick(func);
+                  }}
                 />
               ))}
             </SidebarSection>
