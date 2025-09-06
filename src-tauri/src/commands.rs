@@ -188,6 +188,22 @@ pub async fn get_triggers(
 }
 
 #[tauri::command]
+pub async fn get_object_definition(
+    conn_id: String,
+    database: String,
+    schema: String,
+    object_name: String,
+    object_type: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<String, String> {
+    let conn = manager.get_connection(&conn_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+    
+    conn.adapter.get_object_definition(&database, &schema, &object_name, &object_type).await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn get_table_data(
     conn_id: String,
     schema: String,

@@ -88,17 +88,26 @@ const DraggableTab: React.FC<DraggableTabProps> = ({
   };
 
   const Icon = getIcon();
-  
+
   // Determine icon color based on type
   const getIconClass = () => {
     if (tabType === "table" && isView) {
       if (kind === "MaterializedView") {
-        return cn("h-3.5 w-3.5", isActive && isFocused ? "text-purple-500" : "text-purple-500/60");
+        return cn(
+          "h-3.5 w-3.5",
+          isActive && isFocused ? "text-purple-500" : "text-purple-500/60",
+        );
       }
-      return cn("h-3.5 w-3.5", isActive && isFocused ? "text-green-500" : "text-green-500/60");
+      return cn(
+        "h-3.5 w-3.5",
+        isActive && isFocused ? "text-green-500" : "text-green-500/60",
+      );
     }
     if (tabType === "table") {
-      return cn("h-3.5 w-3.5", isActive && isFocused ? "text-blue-500" : "text-blue-500/60");
+      return cn(
+        "h-3.5 w-3.5",
+        isActive && isFocused ? "text-blue-500" : "text-blue-500/60",
+      );
     }
     return "h-3.5 w-3.5";
   };
@@ -316,7 +325,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
             const isNextActive = nextTabId
               ? content.activeTabId === nextTabId
               : false;
-            console.log(">>>", "tab", metadata);
+
             return (
               <DraggableTab
                 key={tabId}

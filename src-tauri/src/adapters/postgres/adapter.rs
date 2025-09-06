@@ -293,6 +293,13 @@ impl DbAdapter for PostgresAdapter {
         introspector.get_triggers(schema, table).await
     }
     
+    async fn get_object_definition(&self, _database: &str, schema: &str, object_name: &str, object_type: &str) -> Result<String> {
+        let introspector = self.introspector.as_ref()
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+        
+        introspector.get_object_definition(schema, object_name, object_type).await
+    }
+    
     async fn get_table_data(&self, schema: &str, table: &str, limit: usize, offset: usize) -> Result<TableDataResult> {
         let executor = self.query_executor.as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;

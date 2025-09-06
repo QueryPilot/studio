@@ -1,11 +1,13 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Table, Bolt, BookMarked, Zap, Download } from "lucide-react";
+import { Table, Bolt, BookMarked, Zap, Code, Copy } from "lucide-react";
 import { GlideTableDataGrid } from "@/components/DataGrid/glide/GlideTableDataGrid";
 import { TableStructure } from "@/components/DataGrid/TableStructure";
 import { TableIndexes } from "@/components/DataGrid/TableIndexes";
 import { TableTriggers } from "@/components/DataGrid/TableTriggers";
+import { ObjectDefinition } from "@/components/DataGrid/ObjectDefinition";
+import { databaseService } from "@/services/databaseService";
 
 interface PanelContentRendererProps {
   tabId: string;
@@ -18,6 +20,18 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = ({
 }) => {
   const [type] = tabId.split("-");
   const [activeView, setActiveView] = useState(metadata?.viewType || "data");
+  const definitionRef = useRef<string>("");
+
+  const handleCopy = async () => {
+    if (activeView === "definition" && definitionRef.current) {
+      try {
+        await navigator.clipboard.writeText(definitionRef.current);
+      } catch (err) {
+        console.error("Failed to copy to clipboard:", err);
+      }
+    }
+  };
+
 
   if (type === "query") {
     return (
@@ -33,7 +47,27 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = ({
     );
   }
 
+  if (type === "function" && metadata) {
+    return (
+      <ObjectDefinition
+        connectionId={metadata.connectionId}
+        database={metadata.database}
+        schema={metadata.schema}
+        objectName={metadata.functionName}
+        objectType="function"
+        className="h-full"
+        onDefinitionLoad={(def) => {
+          definitionRef.current = def;
+        }}
+      />
+    );
+  }
+
   if (type === "table" && metadata) {
+    const isView = metadata.isView || false;
+    const isMaterializedView = metadata.kind === "MaterializedView";
+    const isRegularView = isView && !isMaterializedView;
+
     return (
       <div className="flex flex-col h-full">
         {/* Table Toolbar */}
@@ -55,31 +89,79 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = ({
                   <Bolt className="h-3 w-3" />
                   Structure
                 </TabsTrigger>
-                <TabsTrigger
-                  value="indexes"
-                  className="gap-1 text-xs h-5 px-2 py-0"
-                >
-                  <BookMarked className="h-3 w-3" />
-                  Indexes
-                </TabsTrigger>
-                <TabsTrigger
-                  value="triggers"
-                  className="gap-1 text-xs h-5 px-2 py-0"
-                >
-                  <Zap className="h-3 w-3" />
-                  Triggers
-                </TabsTrigger>
+
+                {/* Regular views: only show Definition tab */}
+                {isRegularView && (
+                  <TabsTrigger
+                    value="definition"
+                    className="gap-1 text-xs h-5 px-2 py-0"
+                  >
+                    <Code className="h-3 w-3" />
+                    Definition
+                  </TabsTrigger>
+                )}
+
+                {/* Tables: show Indexes, Triggers and Definition */}
+                {!isView && (
+                  <>
+                    <TabsTrigger
+                      value="indexes"
+                      className="gap-1 text-xs h-5 px-2 py-0"
+                    >
+                      <BookMarked className="h-3 w-3" />
+                      Indexes
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="triggers"
+                      className="gap-1 text-xs h-5 px-2 py-0"
+                    >
+                      <Zap className="h-3 w-3" />
+                      Triggers
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="definition"
+                      className="gap-1 text-xs h-5 px-2 py-0"
+                    >
+                      <Code className="h-3 w-3" />
+                      Definition
+                    </TabsTrigger>
+                  </>
+                )}
+
+                {/* Materialized Views: show Indexes only (no triggers) */}
+                {isMaterializedView && (
+                  <TabsTrigger
+                    value="indexes"
+                    className="gap-1 text-xs h-5 px-2 py-0"
+                  >
+                    <BookMarked className="h-3 w-3" />
+                    Indexes
+                  </TabsTrigger>
+                )}
+
+                {/* Materialized views also get Definition tab */}
+                {isMaterializedView && (
+                  <TabsTrigger
+                    value="definition"
+                    className="gap-1 text-xs h-5 px-2 py-0"
+                  >
+                    <Code className="h-3 w-3" />
+                    Definition
+                  </TabsTrigger>
+                )}
               </TabsList>
             </Tabs>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-6 text-xs px-2 py-0"
-              onClick={() => {}}
-            >
-              <Download className="h-3 w-3 mr-1" />
-              Export
-            </Button>
+            {activeView === "definition" && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 text-xs px-2 py-0"
+                onClick={handleCopy}
+              >
+                <Copy className="h-3 w-3 mr-1" />
+                Copy
+              </Button>
+            )}
           </div>
         </div>
 
@@ -119,6 +201,26 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = ({
               database={metadata.database}
               schema={metadata.schema}
               table={metadata.table}
+            />
+          )}
+
+          {activeView === "definition" && (
+            <ObjectDefinition
+              connectionId={metadata.connectionId}
+              database={metadata.database}
+              schema={metadata.schema}
+              objectName={metadata.table}
+              objectType={
+                isMaterializedView 
+                  ? "materialized_view" 
+                  : isView 
+                  ? "view" 
+                  : "table"
+              }
+              className="h-full"
+              onDefinitionLoad={(def) => {
+                definitionRef.current = def;
+              }}
             />
           )}
         </div>
