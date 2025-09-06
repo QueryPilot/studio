@@ -39,8 +39,7 @@ export const QueryEditor = memo(function QueryEditor({
   useLayoutEffect(() => {
     initMonaco().then(() => {
       // Monaco is now initialized with themes
-      const isDark = document.documentElement.classList.contains('dark') || 
-                     window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const isDark = document.documentElement.classList.contains('dark');
       monaco.editor.setTheme(isDark ? 'devdb-dark' : 'devdb-light');
     });
   }, []);
@@ -48,8 +47,7 @@ export const QueryEditor = memo(function QueryEditor({
   const handleEditorWillMount: BeforeMount = async (monaco) => {
     // Ensure Monaco is initialized with our themes
     await initMonaco();
-    const isDark = document.documentElement.classList.contains('dark') || 
-                   window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const isDark = document.documentElement.classList.contains('dark');
     monaco.editor.setTheme(isDark ? 'devdb-dark' : 'devdb-light');
   };
 

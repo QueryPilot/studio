@@ -280,31 +280,10 @@ export class MonacoThemeProvider {
   }
 
   public initTheme() {
-    // More robust theme detection
+    // Only check for the dark class on document element - respect user preference
     const checkIsDark = () => {
-      // Check multiple indicators for dark mode
-      const htmlClassList = document.documentElement.classList;
-      const isDarkClass = htmlClassList.contains('dark');
-      const colorScheme = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      const bgColor = window.getComputedStyle(document.body).backgroundColor;
-      
-      // If we have explicit dark class, use that
-      if (isDarkClass) return true;
-      
-      // Check if background is dark (rgb values low)
-      if (bgColor && bgColor !== 'rgba(0, 0, 0, 0)') {
-        const rgb = bgColor.match(/\d+/g);
-        if (rgb && rgb.length >= 3) {
-          const r = Number(rgb[0]);
-          const g = Number(rgb[1]);
-          const b = Number(rgb[2]);
-          const brightness = (r * 299 + g * 587 + b * 114) / 1000;
-          if (brightness < 128) return true;
-        }
-      }
-      
-      // Fallback to system preference
-      return colorScheme;
+      // Only check the explicit dark class set by user preference
+      return document.documentElement.classList.contains('dark');
     };
     
     // Apply initial theme
@@ -326,18 +305,10 @@ export class MonacoThemeProvider {
       attributeFilter: ['class'],
     });
     
-    // Also listen to system theme changes
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleChange = (_e: MediaQueryListEvent) => {
-      const isDark = checkIsDark();
-      this.applyTheme(isDark);
-    };
-    
-    mediaQuery.addEventListener('change', handleChange);
+    // Don't listen to system theme changes - only respect user preference
     
     return () => {
       observer.disconnect();
-      mediaQuery.removeEventListener('change', handleChange);
     };
   }
 }
