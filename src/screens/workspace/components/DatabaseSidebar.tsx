@@ -13,7 +13,6 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePanelStore } from "@/stores/panelStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
-import { CustomScrollbar } from "@/components/CustomScrollbar";
 import {
   databaseService,
   type TableMeta,
@@ -431,8 +430,8 @@ export function DatabaseSidebar({
       )}
 
       {/* Object Tree */}
-      <CustomScrollbar className="flex-1 relative min-h-0 overflow-x-hidden">
-        <div className="pb-2 min-w-0 overflow-x-hidden">
+      <div className="flex-1 relative min-h-0 overflow-auto">
+        <div className="pb-2 min-w-0">
           {/* Tables Section */}
           {(schemaData.tables.length > 0 || isLoadingData) && (
             <SidebarSection
@@ -570,7 +569,7 @@ export function DatabaseSidebar({
               </div>
             )}
         </div>
-      </CustomScrollbar>
+      </div>
     </div>
   );
 }
