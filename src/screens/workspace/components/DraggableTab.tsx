@@ -101,7 +101,7 @@ export function DraggableTab({
         return null;
     }
   };
-  console.log(">>>", "tab", tab);
+
   return (
     <TabContextMenu tab={tab}>
       <div

@@ -596,6 +596,41 @@ class DatabaseService {
   }
 
   /**
+   * Get SQL definition for a database object (table, view, materialized view)
+   */
+  async getObjectDefinition(
+    connectionId: string,
+    database: string,
+    schema: string,
+    objectName: string,
+    objectType: 'table' | 'view' | 'materialized_view' | 'function' | 'procedure'
+  ): Promise<string> {
+    try {
+      const backendConnId = this.getBackendConnectionId(connectionId);
+      
+      // Map frontend object type to backend format
+      const backendObjectType = objectType.replace('_', '');
+      
+      const definition = await BackendAPI.getObjectDefinition(
+        backendConnId,
+        database,
+        schema,
+        objectName,
+        backendObjectType
+      );
+      
+      return definition;
+    } catch (error) {
+      console.error('Failed to get object definition:', error);
+      throw new Error(
+        `Failed to get definition for ${objectType} ${schema}.${objectName}: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
+      );
+    }
+  }
+
+  /**
    * Start health monitoring for a connection
    */
   private startHealthMonitoring(connectionId: string): void {

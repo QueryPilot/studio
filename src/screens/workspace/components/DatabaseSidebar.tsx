@@ -227,6 +227,36 @@ export function DatabaseSidebar({
   };
 
   const handleFunctionClick = (func: FunctionMeta) => {
+    // Try new workbench system first
+    const { focusedPanelId, addTab, panelContents, focusPanel } =
+      useWorkbenchStore.getState();
+    
+    // Determine target panel
+    let targetPanelId = focusedPanelId;
+    if (!targetPanelId) {
+      // If no focused panel, find the first panel
+      const firstPanel = Array.from(panelContents.entries())[0];
+      if (firstPanel) {
+        targetPanelId = firstPanel[0];
+        // Focus the panel we're going to use
+        focusPanel(targetPanelId);
+      }
+    }
+
+    if (targetPanelId) {
+      const tabId = `function-${func.schema}-${func.name}`;
+      addTab(targetPanelId, tabId, {
+        type: "function",
+        title: func.name,
+        connectionId,
+        database: selectedDatabase,
+        schema: func.schema,
+        functionName: func.name,
+      });
+      return;
+    }
+
+    // Fallback to old panel system
     const primaryPanel = getPrimaryPanel();
     if (!primaryPanel) return;
 

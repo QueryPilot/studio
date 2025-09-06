@@ -393,4 +393,289 @@ impl PostgresIntrospector {
         
         Ok(triggers)
     }
+    
+    pub async fn get_object_definition(&self, schema: &str, object_name: &str, object_type: &str) -> Result<String> {
+        let definition = match object_type.to_lowercase().as_str() {
+            "table" => {
+                // Get table definition
+                self.get_table_definition(schema, object_name).await?
+            },
+            "view" => {
+                // Get view definition
+                self.get_view_definition(schema, object_name).await?
+            },
+            "materialized_view" | "materializedview" => {
+                // Get materialized view definition
+                self.get_materialized_view_definition(schema, object_name).await?
+            },
+            "function" => {
+                // Get function definition
+                self.get_function_definition(schema, object_name).await?
+            },
+            "procedure" => {
+                // Get procedure definition
+                self.get_procedure_definition(schema, object_name).await?
+            },
+            _ => {
+                return Err(AppError::Unsupported(format!("Unsupported object type: {}", object_type)));
+            }
+        };
+        
+        Ok(definition)
+    }
+    
+    async fn get_table_definition(&self, schema: &str, table_name: &str) -> Result<String> {
+        // Get table columns using pg_catalog for accurate type names
+        let columns_sql = r#"
+            SELECT 
+                a.attname as column_name,
+                pg_catalog.format_type(a.atttypid, a.atttypmod) as data_type,
+                NOT a.attnotnull as is_nullable,
+                pg_get_expr(d.adbin, d.adrelid) as column_default,
+                t.typname as base_type_name,
+                CASE 
+                    WHEN t.typtype = 'd' THEN 'domain'
+                    WHEN t.typtype = 'e' THEN 'enum'
+                    WHEN t.typtype = 'c' THEN 'composite'
+                    ELSE NULL
+                END as type_category
+            FROM pg_attribute a
+            JOIN pg_class c ON c.oid = a.attrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_type t ON t.oid = a.atttypid
+            LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+            WHERE n.nspname = $1 
+                AND c.relname = $2 
+                AND a.attnum > 0 
+                AND NOT a.attisdropped
+            ORDER BY a.attnum
+        "#;
+        
+        let columns = self.client.query(columns_sql, &[&schema, &table_name]).await?;
+        
+        let mut definition = format!("CREATE TABLE {}.{} (\n", schema, table_name);
+        
+        for (i, row) in columns.iter().enumerate() {
+            let col_name: String = row.get(0);
+            let data_type: String = row.get(1);
+            let is_nullable: bool = row.get(2);
+            let column_default: Option<String> = row.get(3);
+            let _base_type_name: String = row.get(4);
+            let type_category: Option<String> = row.get(5);
+            
+            definition.push_str(&format!("    {} ", col_name));
+            
+            // Use the formatted type directly from pg_catalog.format_type
+            // It already includes proper formatting for varchar(n), numeric(p,s), etc.
+            definition.push_str(&data_type.to_uppercase());
+            
+            // Add NOT NULL
+            if !is_nullable {
+                definition.push_str(" NOT NULL");
+            }
+            
+            // Add default
+            if let Some(default) = column_default {
+                definition.push_str(&format!(" DEFAULT {}", default));
+            }
+            
+            if i < columns.len() - 1 {
+                definition.push_str(",\n");
+            }
+            
+            // If this is a custom type (enum, domain, composite), we'll add its definition later
+            if type_category.is_some() {
+                // TODO: Add custom type definitions as comments or separate CREATE TYPE statements
+            }
+        }
+        
+        definition.push_str("\n);\n\n");
+        
+        // Get indexes
+        let indexes_sql = "SELECT indexdef FROM pg_indexes WHERE schemaname = $1 AND tablename = $2";
+        let indexes = self.client.query(indexes_sql, &[&schema, &table_name]).await?;
+        
+        if !indexes.is_empty() {
+            definition.push_str("-- Indexes\n");
+            for row in indexes.iter() {
+                let indexdef: String = row.get(0);
+                definition.push_str(&format!("{};\n", indexdef));
+            }
+            definition.push_str("\n");
+        }
+        
+        // Get constraints
+        let constraints_sql = r#"
+            SELECT 
+                conname,
+                pg_get_constraintdef(oid)
+            FROM pg_constraint
+            WHERE conrelid = ($1 || '.' || $2)::regclass
+                AND contype IN ('f', 'c', 'u')
+        "#;
+        
+        let constraints = self.client.query(constraints_sql, &[&schema, &table_name]).await?;
+        
+        if !constraints.is_empty() {
+            definition.push_str("-- Constraints\n");
+            for row in constraints.iter() {
+                let conname: String = row.get(0);
+                let condef: String = row.get(1);
+                definition.push_str(&format!("ALTER TABLE {}.{} ADD CONSTRAINT {} {};\n", 
+                    schema, table_name, conname, condef));
+            }
+            definition.push_str("\n");
+        }
+        
+        // Get custom type definitions used by this table
+        let custom_types_sql = r#"
+            SELECT DISTINCT 
+                t.typname,
+                t.typtype,
+                n.nspname as type_schema,
+                CASE 
+                    WHEN t.typtype = 'e' THEN 
+                        (SELECT string_agg(e.enumlabel, ', ' ORDER BY e.enumsortorder)
+                         FROM pg_enum e 
+                         WHERE e.enumtypid = t.oid)
+                    WHEN t.typtype = 'd' THEN 
+                        pg_catalog.format_type(t.typbasetype, t.typtypmod)
+                    ELSE NULL
+                END as type_definition
+            FROM pg_attribute a
+            JOIN pg_class c ON c.oid = a.attrelid
+            JOIN pg_namespace cn ON cn.oid = c.relnamespace
+            JOIN pg_type t ON t.oid = a.atttypid
+            JOIN pg_namespace n ON n.oid = t.typnamespace
+            WHERE cn.nspname = $1 
+                AND c.relname = $2
+                AND a.attnum > 0
+                AND NOT a.attisdropped
+                AND t.typtype IN ('e', 'd')  -- enum or domain types
+                AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+        "#;
+        
+        let custom_types = self.client.query(custom_types_sql, &[&schema, &table_name]).await?;
+        
+        if !custom_types.is_empty() {
+            definition.push_str("-- Custom Types Used\n");
+            for row in custom_types.iter() {
+                let type_name: String = row.get(0);
+                let type_type: i8 = row.get(1);  // PostgreSQL char type maps to i8
+                let type_type_char = (type_type as u8) as char;
+                let type_schema: String = row.get(2);
+                let type_def: Option<String> = row.get(3);
+                
+                if type_type_char == 'e' {
+                    // Enum type
+                    if let Some(values) = type_def {
+                        definition.push_str(&format!("-- CREATE TYPE {}.{} AS ENUM ({});\n", 
+                            type_schema, type_name, 
+                            values.split(", ").map(|v| format!("'{}'", v)).collect::<Vec<_>>().join(", ")));
+                    }
+                } else if type_type_char == 'd' {
+                    // Domain type
+                    if let Some(base_type) = type_def {
+                        definition.push_str(&format!("-- CREATE DOMAIN {}.{} AS {};\n", 
+                            type_schema, type_name, base_type));
+                    }
+                }
+            }
+        }
+        
+        Ok(definition)
+    }
+    
+    async fn get_view_definition(&self, schema: &str, view_name: &str) -> Result<String> {
+        let sql = r#"
+            SELECT pg_get_viewdef(c.oid, true)
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'v'
+        "#;
+        
+        let rows = self.client.query(sql, &[&schema, &view_name]).await?;
+        
+        if rows.is_empty() {
+            return Err(AppError::NotFound(format!("View {}.{} not found", schema, view_name)));
+        }
+        
+        let viewdef: String = rows[0].get(0);
+        Ok(format!("CREATE VIEW {}.{} AS\n{}", schema, view_name, viewdef))
+    }
+    
+    async fn get_materialized_view_definition(&self, schema: &str, view_name: &str) -> Result<String> {
+        let sql = r#"
+            SELECT pg_get_viewdef(c.oid, true)
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'm'
+        "#;
+        
+        let rows = self.client.query(sql, &[&schema, &view_name]).await?;
+        
+        if rows.is_empty() {
+            return Err(AppError::NotFound(format!("Materialized view {}.{} not found", schema, view_name)));
+        }
+        
+        let viewdef: String = rows[0].get(0);
+        let mut definition = format!("CREATE MATERIALIZED VIEW {}.{} AS\n{}", schema, view_name, viewdef);
+        
+        // Get indexes on materialized view
+        let indexes_sql = "SELECT indexdef FROM pg_indexes WHERE schemaname = $1 AND tablename = $2";
+        let indexes = self.client.query(indexes_sql, &[&schema, &view_name]).await?;
+        
+        if !indexes.is_empty() {
+            definition.push_str("\n\n-- Indexes\n");
+            for row in indexes.iter() {
+                let indexdef: String = row.get(0);
+                definition.push_str(&format!("{};\n", indexdef));
+            }
+        }
+        
+        Ok(definition)
+    }
+    
+    async fn get_function_definition(&self, schema: &str, function_name: &str) -> Result<String> {
+        // Get function definition including signature
+        let sql = r#"
+            SELECT 
+                pg_get_functiondef(p.oid)
+            FROM pg_proc p
+            JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = $1 AND p.proname = $2
+            LIMIT 1
+        "#;
+        
+        let rows = self.client.query(sql, &[&schema, &function_name]).await?;
+        
+        if rows.is_empty() {
+            return Err(AppError::NotFound(format!("Function {}.{} not found", schema, function_name)));
+        }
+        
+        let funcdef: String = rows[0].get(0);
+        Ok(funcdef)
+    }
+    
+    async fn get_procedure_definition(&self, schema: &str, procedure_name: &str) -> Result<String> {
+        // PostgreSQL 11+ procedures - same as functions but with different kind
+        let sql = r#"
+            SELECT 
+                pg_get_functiondef(p.oid)
+            FROM pg_proc p
+            JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = $1 AND p.proname = $2 AND p.prokind = 'p'
+            LIMIT 1
+        "#;
+        
+        let rows = self.client.query(sql, &[&schema, &procedure_name]).await?;
+        
+        if rows.is_empty() {
+            // Try as function if procedure not found (for older PostgreSQL versions)
+            return self.get_function_definition(schema, procedure_name).await;
+        }
+        
+        let procdef: String = rows[0].get(0);
+        Ok(procdef)
+    }
 }

@@ -351,6 +351,22 @@ export class BackendAPI {
     return invoke("get_triggers", { connId, schema, table });
   }
 
+  static async getObjectDefinition(
+    connId: string,
+    database: string,
+    schema: string,
+    objectName: string,
+    objectType: string,
+  ): Promise<string> {
+    return invoke("get_object_definition", { 
+      connId, 
+      database, 
+      schema, 
+      objectName, 
+      objectType 
+    });
+  }
+
   // Table operations
   static async getTableData(
     connId: string,
