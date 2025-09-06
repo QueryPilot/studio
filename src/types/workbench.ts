@@ -1,11 +1,16 @@
-export type Orientation = 'horizontal' | 'vertical';
-export type PanelType = 'editor' | 'terminal' | 'output' | 'problems' | 'custom';
-export type Direction = 'up' | 'down' | 'left' | 'right';
-export type DropPosition = 'center' | 'top' | 'bottom' | 'left' | 'right';
+export type Orientation = "horizontal" | "vertical";
+export type PanelType =
+  | "editor"
+  | "terminal"
+  | "output"
+  | "problems"
+  | "custom";
+export type Direction = "up" | "down" | "left" | "right";
+export type DropPosition = "center" | "top" | "bottom" | "left" | "right";
 
 export interface GridNode {
   id: string;
-  type: 'branch' | 'leaf';
+  type: "branch" | "leaf";
   orientation?: Orientation;
   splitRatio?: number;
   children?: GridNode[];
@@ -32,7 +37,7 @@ export interface PanelContent {
   type: PanelType;
   tabIds: string[];
   activeTabId: string;
-  metadata?: Record<string, TabMetadata>;
+  metadata?: Record<string, TabMetadata | undefined>;
 }
 
 export interface SplitAction {
