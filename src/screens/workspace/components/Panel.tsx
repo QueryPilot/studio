@@ -22,10 +22,6 @@ export function Panel({ panel, connectionId, isActive }: PanelProps) {
     updateTabInPanel,
     addTabToPanel,
   } = usePanelStore();
-  // Get active tab
-  const activeTab = panel.activeTabId
-    ? panel.tabs.get(panel.activeTabId)
-    : undefined;
 
   const renderPanelContent = (tab: TabState) => {
     const props = {
