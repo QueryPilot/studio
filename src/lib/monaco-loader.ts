@@ -13,8 +13,7 @@ export const initMonaco = async (databaseType: DatabaseType = 'postgresql') => {
   registerEnhancedSQLLanguage(databaseType);
   
   // Define our custom themes immediately when Monaco loads
-  const isDark = document.documentElement.classList.contains('dark') || 
-                 window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const isDark = document.documentElement.classList.contains('dark');
   
   // Define DevDB Dark Theme - Inherits from vs-dark for comprehensive coverage
   monacoInstance.editor.defineTheme('devdb-dark', {

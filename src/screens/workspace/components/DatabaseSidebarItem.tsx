@@ -36,7 +36,7 @@ export function SidebarSection({
         </button>
       </div>
       {isExpanded && (
-        <div className="ml-3.5 mt-0.5 space-y-0.5 px-2 overflow-x-auto">
+        <div className="ml-3.5 mt-0.5 space-y-0.5 px-2 overflow-x-hidden">
           {children}
         </div>
       )}
@@ -66,7 +66,7 @@ export function SidebarItem({
   return (
     <div
       className={cn(
-        "group flex items-center gap-1.5 p-1 hover:bg-muted/50 cursor-pointer min-w-fit overflow-hidden text-ellipsis",
+        "group flex items-center gap-1.5 p-1 hover:bg-muted/50 cursor-pointer overflow-hidden",
         isActive
           ? "bg-primary/10 border-l-2 border-l-primary rounded-r"
           : "rounded",
@@ -75,16 +75,16 @@ export function SidebarItem({
       onClick={onClick}
     >
       {icon}
-      <span className="text-xs whitespace-nowrap flex-1 text-foreground/80 dark:text-foreground/70">
+      <span className="text-xs truncate flex-1 min-w-0 text-foreground/80 dark:text-foreground/70">
         {name}
       </span>
       {rowCount != null && rowCount > 0 && (
-        <span className="text-xs text-muted-foreground whitespace-nowrap transition-all duration-200 ease-out">
+        <span className="text-xs text-muted-foreground flex-shrink-0 transition-all duration-200 ease-out">
           ~{rowCount.toLocaleString()}
         </span>
       )}
       {actions && (
-        <div className="flex items-center gap-0.5 transition-all delay-150 duration-200 ease-out -mr-10 opacity-0 group-hover:opacity-100 group-hover:mr-1">
+        <div className="flex items-center gap-0.5 flex-shrink-0 transition-all delay-150 duration-200 ease-out -mr-10 opacity-0 group-hover:opacity-100 group-hover:mr-1">
           {actions}
         </div>
       )}

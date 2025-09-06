@@ -431,8 +431,8 @@ export function DatabaseSidebar({
       )}
 
       {/* Object Tree */}
-      <CustomScrollbar className="flex-1 relative min-h-0">
-        <div className="pb-2 min-w-0">
+      <CustomScrollbar className="flex-1 relative min-h-0 overflow-x-hidden">
+        <div className="pb-2 min-w-0 overflow-x-hidden">
           {/* Tables Section */}
           {(schemaData.tables.length > 0 || isLoadingData) && (
             <SidebarSection

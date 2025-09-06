@@ -29,8 +29,7 @@ export const ObjectDefinition: React.FC<ObjectDefinitionProps> = React.memo(({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [theme, setTheme] = useState<'devdb-dark' | 'devdb-light'>(() => {
-    const isDark = document.documentElement.classList.contains('dark') || 
-                   window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const isDark = document.documentElement.classList.contains('dark');
     return isDark ? 'devdb-dark' : 'devdb-light';
   });
   const connections = useConnectionStore(state => state.connections);
@@ -57,8 +56,7 @@ export const ObjectDefinition: React.FC<ObjectDefinitionProps> = React.memo(({
   useEffect(() => {
     initMonaco(databaseType).then(() => {
       const updateTheme = () => {
-        const isDark = document.documentElement.classList.contains('dark') || 
-                       window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const isDark = document.documentElement.classList.contains('dark');
         const newTheme = isDark ? 'devdb-dark' : 'devdb-light';
         monaco.editor.setTheme(newTheme);
         setTheme(newTheme);
