@@ -346,6 +346,89 @@ pub struct TableDataResult {
     pub total_count: Option<i64>,
 }
 
+// Filter and Sort types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilterConfig {
+    pub root: FilterNode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FilterNode {
+    Condition(FilterCondition),
+    Group(FilterGroup),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilterCondition {
+    pub column: String,
+    pub operator: FilterOperator,
+    pub value: serde_json::Value,
+    #[serde(default)]
+    pub case_sensitive: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilterGroup {
+    pub logic: LogicOperator,
+    pub conditions: Vec<FilterNode>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogicOperator {
+    And,
+    Or,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FilterOperator {
+    Equals,
+    NotEquals,
+    Contains,
+    NotContains,
+    StartsWith,
+    EndsWith,
+    GreaterThan,
+    LessThan,
+    GreaterThanOrEqual,
+    LessThanOrEqual,
+    Between,
+    In,
+    NotIn,
+    IsNull,
+    IsNotNull,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SortConfig {
+    pub column: String,
+    pub direction: SortDirection,
+    #[serde(default)]
+    pub nulls_position: NullsPosition,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SortDirection {
+    Asc,
+    Desc,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NullsPosition {
+    First,
+    Last,
+}
+
+impl Default for NullsPosition {
+    fn default() -> Self {
+        NullsPosition::Last
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum StreamEvent {

@@ -66,10 +66,10 @@ export function SidebarItem({
   return (
     <div
       className={cn(
-        "group flex items-center gap-1.5 p-1 hover:bg-muted/50 cursor-pointer overflow-hidden",
+        "group flex items-center gap-1.5 p-1 hover:bg-muted/50 cursor-pointer overflow-hidden border-l-2",
         isActive
-          ? "bg-primary/10 border-l-2 border-l-primary rounded-r"
-          : "rounded",
+          ? "bg-primary/10 border-l-primary rounded-r"
+          : "rounded border-l-transparent",
         className,
       )}
       onClick={onClick}

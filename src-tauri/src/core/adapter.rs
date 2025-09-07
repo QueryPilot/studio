@@ -34,6 +34,7 @@ pub trait DbAdapter: Send + Sync {
     async fn get_triggers(&self, schema: &str, table: &str) -> Result<Vec<Trigger>>;
     async fn get_object_definition(&self, database: &str, schema: &str, object_name: &str, object_type: &str) -> Result<String>;
     async fn get_table_data(&self, schema: &str, table: &str, limit: usize, offset: usize) -> Result<TableDataResult>;
+    async fn get_table_data_filtered(&self, schema: &str, table: &str, limit: usize, offset: usize, filters: Option<crate::types::FilterConfig>, sorts: Option<Vec<crate::types::SortConfig>>) -> Result<TableDataResult>;
     async fn get_table_count(&self, schema: &str, table: &str) -> Result<i64>;
     
     // Database-specific features

@@ -4,33 +4,12 @@
 import type { CellValue } from '@/types/cellValue';
 import type { ColumnMeta } from '@/types/database';
 
-// Sort specification for db_table_data
-export interface SortSpec {
-  column: string;
-  direction: 'asc' | 'desc';
-}
+// Re-export for backwards compatibility
+export type SortSpec = SortConfig;
+export type FilterSpec = FilterConfig;
 
-// Filter specification with discriminated union for type safety
-export type FilterSpec =
-  | {
-      column: string;
-      operator: '=' | '!=' | '<' | '<=' | '>' | '>=' | 'LIKE' | 'ILIKE';
-      value: string | number | boolean | null;
-    }
-  | {
-      column: string;
-      operator: 'IN';
-      value: (string | number | boolean)[];
-    }
-  | {
-      column: string;
-      operator: 'IS NULL' | 'IS NOT NULL';
-    }
-  | {
-      column: string;
-      operator: 'BETWEEN';
-      value: [string | number, string | number];
-    };
+// Import filter types from the main filter types file
+import type { FilterConfig, SortConfig } from '@/types/filter';
 
 // Parameters for db_table_data command
 export interface TableDataParams {
@@ -39,8 +18,8 @@ export interface TableDataParams {
   table: string;
   schema?: string;
   select?: string[];
-  sorts?: SortSpec[];
-  filters?: FilterSpec[];
+  sorts?: SortConfig[];
+  filters?: FilterConfig;
   search?: string;
   cursor?: string;
   offset?: number;

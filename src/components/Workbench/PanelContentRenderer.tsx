@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, memo, useCallback } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Table, Bolt, BookMarked, Zap, Code, Copy } from "lucide-react";
@@ -8,19 +8,25 @@ import { TableIndexes } from "@/components/DataGrid/TableIndexes";
 import { TableTriggers } from "@/components/DataGrid/TableTriggers";
 import { ObjectDefinition } from "@/components/DataGrid/ObjectDefinition";
 import { QueryPanel } from "@/components/QueryPanel";
+import { useConnectionStore } from "@/stores/connectionStore";
 
 interface PanelContentRendererProps {
   tabId: string;
   metadata?: any;
 }
 
-export const PanelContentRenderer: React.FC<PanelContentRendererProps> = ({
+export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(({
   tabId,
   metadata,
 }) => {
+  const activeConnectionId = useConnectionStore(state => state.activeConnectionId);
   const [type] = tabId.split("-");
   const [activeView, setActiveView] = useState(metadata?.viewType || "data");
   const definitionRef = useRef<string>("");
+
+  const handleDefinitionLoad = useCallback((def: string) => {
+    definitionRef.current = def;
+  }, []);
 
   const handleCopy = async () => {
     if (activeView === "definition" && definitionRef.current) {
@@ -148,17 +154,19 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = ({
                 )}
               </TabsList>
             </Tabs>
-            {activeView === "definition" && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-6 text-xs px-2 py-0"
-                onClick={handleCopy}
-              >
-                <Copy className="h-3 w-3 mr-1" />
-                Copy
-              </Button>
-            )}
+            <div className="flex items-center gap-1">
+              {activeView === "definition" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 text-xs px-2 py-0"
+                  onClick={handleCopy}
+                >
+                  <Copy className="h-3 w-3 mr-1" />
+                  Copy
+                </Button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -166,7 +174,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = ({
         <div className="flex-1 min-h-0 overflow-hidden">
           {activeView === "data" && (
             <GlideTableDataGrid
-              connectionId={metadata.connectionId}
+              connectionId={activeConnectionId || metadata.connectionId}
               database={metadata.database}
               schema={metadata.schema}
               table={metadata.table}
@@ -176,7 +184,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = ({
 
           {activeView === "structure" && (
             <TableStructure
-              connectionId={metadata.connectionId}
+              connectionId={activeConnectionId || metadata.connectionId}
               database={metadata.database}
               schema={metadata.schema}
               table={metadata.table}
@@ -185,7 +193,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = ({
 
           {activeView === "indexes" && (
             <TableIndexes
-              connectionId={metadata.connectionId}
+              connectionId={activeConnectionId || metadata.connectionId}
               database={metadata.database}
               schema={metadata.schema}
               table={metadata.table}
@@ -194,7 +202,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = ({
 
           {activeView === "triggers" && (
             <TableTriggers
-              connectionId={metadata.connectionId}
+              connectionId={activeConnectionId || metadata.connectionId}
               database={metadata.database}
               schema={metadata.schema}
               table={metadata.table}
@@ -203,7 +211,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = ({
 
           {activeView === "definition" && (
             <ObjectDefinition
-              connectionId={metadata.connectionId}
+              connectionId={activeConnectionId || metadata.connectionId}
               database={metadata.database}
               schema={metadata.schema}
               objectName={metadata.table}
@@ -215,9 +223,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = ({
                   : "table"
               }
               className="h-full"
-              onDefinitionLoad={(def) => {
-                definitionRef.current = def;
-              }}
+              onDefinitionLoad={handleDefinitionLoad}
             />
           )}
         </div>
@@ -233,4 +239,6 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = ({
       </div>
     </div>
   );
-};
+});
+
+PanelContentRenderer.displayName = "PanelContentRenderer";

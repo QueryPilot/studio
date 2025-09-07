@@ -1,7 +1,22 @@
-import { memo, useState, lazy, Suspense, useTransition, useEffect } from "react";
+import {
+  memo,
+  useState,
+  lazy,
+  Suspense,
+  useTransition,
+  useEffect,
+} from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Table, Bolt, BookMarked, Zap, Download } from "lucide-react";
+import {
+  Table,
+  Bolt,
+  BookMarked,
+  Zap,
+  Download,
+  Filter,
+  ArrowUpDown,
+} from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 // Lazy load heavy components
@@ -64,16 +79,18 @@ export const TableViewPanel = memo(function TableViewPanel({
   onUpdate,
   onClose: _onClose,
 }: TableViewPanelProps) {
+  console.log(">>> TableViewPanel rendered", tab.type, tab.payload);
+  
   const payload = tab.payload as TableTabPayload;
   const [activeTab, setActiveTab] = useState(payload.activeView || "data");
   const [isPending, startTransition] = useTransition();
-  
+
   // Update active tab when payload changes
   useEffect(() => {
     if (payload.activeView && payload.activeView !== activeTab) {
       setActiveTab(payload.activeView);
     }
-  }, [payload.activeView]);
+  }, [payload.activeView, activeTab]);
 
   const tableName = payload.tableName || "Unknown Table";
   const schema = payload.schema || "public";
@@ -93,6 +110,8 @@ export const TableViewPanel = memo(function TableViewPanel({
       });
     });
   };
+  
+  console.log(">>> activeTab:", activeTab, "tableName:", tableName);
 
   return (
     <div className="flex flex-col h-full">
@@ -127,22 +146,55 @@ export const TableViewPanel = memo(function TableViewPanel({
               </TabsTrigger>
             </TabsList>
           </Tabs>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-6 text-xs px-2 py-0"
-            onClick={() => {}}
-          >
-            <Download className="h-3 w-3 mr-1" />
-            Export
-          </Button>
+          <div className="flex items-center gap-1">
+            {/* Only show filter/sort buttons when on data tab */}
+            {activeTab === "data" && (
+              <>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 text-xs px-2 py-0"
+                  onClick={() => {
+                    console.log("Filter clicked");
+                  }}
+                >
+                  <Filter className="h-3 w-3 mr-1" />
+                  Filter
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 text-xs px-2 py-0"
+                  onClick={() => {
+                    console.log("Sort clicked");
+                  }}
+                >
+                  <ArrowUpDown className="h-3 w-3 mr-1" />
+                  Sort
+                </Button>
+              </>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 text-xs px-2 py-0"
+              onClick={() => {}}
+            >
+              <Download className="h-3 w-3 mr-1" />
+              Export
+            </Button>
+          </div>
         </div>
       </div>
 
       <div className="flex-1 min-h-0 overflow-hidden relative">
         <Suspense fallback={<TabLoadingSkeleton />}>
           {/* Render all tab contents but only show the active one */}
-          <div className={`absolute inset-0 ${activeTab === "data" ? "block" : "hidden"}`}>
+          <div
+            className={`absolute inset-0 ${
+              activeTab === "data" ? "block" : "hidden"
+            }`}
+          >
             <TableDataGrid
               connectionId={connectionId}
               database={database}
@@ -151,7 +203,11 @@ export const TableViewPanel = memo(function TableViewPanel({
             />
           </div>
 
-          <div className={`absolute inset-0 ${activeTab === "structure" ? "block" : "hidden"}`}>
+          <div
+            className={`absolute inset-0 ${
+              activeTab === "structure" ? "block" : "hidden"
+            }`}
+          >
             <TableStructure
               connectionId={connectionId}
               database={database}
@@ -160,7 +216,11 @@ export const TableViewPanel = memo(function TableViewPanel({
             />
           </div>
 
-          <div className={`absolute inset-0 ${activeTab === "indexes" ? "block" : "hidden"}`}>
+          <div
+            className={`absolute inset-0 ${
+              activeTab === "indexes" ? "block" : "hidden"
+            }`}
+          >
             <TableIndexes
               connectionId={connectionId}
               database={database}
@@ -169,7 +229,11 @@ export const TableViewPanel = memo(function TableViewPanel({
             />
           </div>
 
-          <div className={`absolute inset-0 ${activeTab === "triggers" ? "block" : "hidden"}`}>
+          <div
+            className={`absolute inset-0 ${
+              activeTab === "triggers" ? "block" : "hidden"
+            }`}
+          >
             <TableTriggers
               connectionId={connectionId}
               database={database}

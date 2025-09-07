@@ -12,6 +12,7 @@ import type {
   TableDataErrorEvent,
 } from "@/services/tableDataTypes";
 import type { ColumnMeta } from "@/types/database";
+import type { FilterConfig, SortConfig } from "@/types/filter";
 
 // State interface for the hook
 interface TableDataState {
@@ -36,6 +37,8 @@ export interface UseTableDataInitialState {
   hasNextPage?: boolean;
   totalLoadedRows?: number;
   estimatedTotal?: number | null;
+  filter?: FilterConfig;
+  sorts?: SortConfig[];
 }
 
 // Return type for the hook
