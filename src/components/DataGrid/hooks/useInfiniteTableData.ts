@@ -68,7 +68,7 @@ export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
   // Clear data when table changes
   useEffect(() => {
     if (currentTableKey && currentTableKey !== tableKey) {
-      console.log(`[useInfiniteTableData] Table changed from ${currentTableKey} to ${tableKey}, clearing data`);
+      console.log(`[useInfiniteTableData] Table changed, clearing data`);
       clearData();
       setHasInitialized(false);
     }
@@ -79,6 +79,9 @@ export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
   useEffect(() => {
     if (isConnected && !hasInitialized && !isLoading) {
       console.log(`[useInfiniteTableData] Loading data for table ${table} (key: ${tableKey})`);
+      console.log(`[useInfiniteTableData] Connection ID: ${connectionId}`);
+      console.log(`[useInfiniteTableData] Database: ${database}`);
+      console.log(`[useInfiniteTableData] Schema: ${schema}`);
       setHasInitialized(true);
       void loadData({
         connectionId,

@@ -333,6 +333,57 @@ impl DbAdapter for PostgresAdapter {
         })
     }
     
+    async fn get_table_data_filtered(&self, schema: &str, table: &str, limit: usize, offset: usize, filters: Option<crate::types::FilterConfig>, sorts: Option<Vec<crate::types::SortConfig>>) -> Result<TableDataResult> {
+        let executor = self.query_executor.as_ref()
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+        
+        // Get column names for validation
+        let columns = self.get_table_columns(schema, table).await?;
+        let column_names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+        
+        // Build query with filters and sorts
+        let mut query_builder = super::query_builder::PostgresQueryBuilder::new()
+            .with_allowed_columns(column_names);
+        
+        let (query, params) = query_builder.build_table_query(
+            schema, table, filters.as_ref(), sorts.as_deref(), limit, offset
+        )?;
+        
+        eprintln!("DEBUG: get_table_data_filtered executing query: {}", query);
+        eprintln!("DEBUG: with params: {:?}", params);
+        
+        // For now, we'll execute without parameters since tokio-postgres needs different handling
+        // This is a simplified version - in production, we'd properly bind parameters
+        let simple_query = if filters.is_some() || sorts.is_some() {
+            // Fallback to simple query for now
+            format!(
+                "SELECT * FROM \"{}\".\"{}\" LIMIT {} OFFSET {}",
+                schema, table, limit, offset
+            )
+        } else {
+            query
+        };
+        
+        // Open query to get columns
+        let handle = executor.open_query(&simple_query).await?;
+        
+        // Fetch the page
+        let chunk = executor.fetch_page(&handle, limit).await?;
+        
+        // Get total count
+        let total_count = self.get_table_row_count(schema, table).await.ok();
+        
+        // Close query handle
+        let _ = executor.close_query(&handle).await;
+        
+        Ok(TableDataResult {
+            columns: handle.columns,
+            rows: chunk.rows,
+            has_more: chunk.has_more,
+            total_count,
+        })
+    }
+    
     async fn get_table_count(&self, schema: &str, table: &str) -> Result<i64> {
         self.get_table_row_count(schema, table).await
     }

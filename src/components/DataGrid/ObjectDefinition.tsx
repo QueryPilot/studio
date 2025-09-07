@@ -1,9 +1,8 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, memo } from "react";
 import { databaseService } from "@/services/databaseService";
 import { cn } from "@/lib/utils";
-import Editor from "@monaco-editor/react";
-import * as monaco from "monaco-editor";
-import { initMonaco, DatabaseType } from "@/lib/monaco-loader";
+import { CodeEditor } from "@/components/CodeEditor";
+import type { SqlDialect } from "@/components/CodeEditor";
 import { useConnectionStore } from "@/stores/connectionStore";
 
 interface ObjectDefinitionProps {
@@ -28,14 +27,10 @@ export const ObjectDefinition: React.FC<ObjectDefinitionProps> = React.memo(({
   const [definition, setDefinition] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [theme, setTheme] = useState<'devdb-dark' | 'devdb-light'>(() => {
-    const isDark = document.documentElement.classList.contains('dark');
-    return isDark ? 'devdb-dark' : 'devdb-light';
-  });
   const connections = useConnectionStore(state => state.connections);
   
-  // Determine database type from connection
-  const databaseType = useMemo<DatabaseType>(() => {
+  // Determine database dialect from connection
+  const dialect = useMemo<SqlDialect>(() => {
     const connection = connections.find(c => c.id === connectionId);
     if (!connection) return 'postgresql';
     
@@ -44,52 +39,15 @@ export const ObjectDefinition: React.FC<ObjectDefinitionProps> = React.memo(({
         return 'postgresql';
       case 'mysql':
         return 'mysql';
-      case 'mssql':
-        return 'sqlserver';
       case 'sqlite':
         return 'sqlite';
+      case 'mssql':
+        // CodeEditor doesn't support mssql yet, default to postgresql
+        return 'postgresql';
       default:
         return 'postgresql';
     }
   }, [connectionId, connections]);
-
-  useEffect(() => {
-    initMonaco(databaseType).then(() => {
-      const updateTheme = () => {
-        const isDark = document.documentElement.classList.contains('dark');
-        const newTheme = isDark ? 'devdb-dark' : 'devdb-light';
-        monaco.editor.setTheme(newTheme);
-        setTheme(newTheme);
-      };
-      
-      // Set initial theme
-      updateTheme();
-      
-      // Watch for theme changes
-      const observer = new MutationObserver((mutations) => {
-        mutations.forEach((mutation) => {
-          if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
-            updateTheme();
-          }
-        });
-      });
-      
-      observer.observe(document.documentElement, {
-        attributes: true,
-        attributeFilter: ['class']
-      });
-      
-      // Also listen for system theme changes
-      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-      const handleChange = () => updateTheme();
-      mediaQuery.addEventListener('change', handleChange);
-      
-      return () => {
-        observer.disconnect();
-        mediaQuery.removeEventListener('change', handleChange);
-      };
-    });
-  }, [databaseType]);
 
   useEffect(() => {
     const fetchDefinition = async () => {
@@ -116,7 +74,7 @@ export const ObjectDefinition: React.FC<ObjectDefinitionProps> = React.memo(({
     };
 
     void fetchDefinition();
-  }, [connectionId, database, schema, objectName, objectType]); // Remove onDefinitionLoad from deps to prevent re-fetching
+  }, [connectionId, database, schema, objectName, objectType, onDefinitionLoad]);
 
   if (loading) {
     return (
@@ -136,30 +94,18 @@ export const ObjectDefinition: React.FC<ObjectDefinitionProps> = React.memo(({
 
   return (
     <div className={cn("h-full overflow-hidden", className)}>
-      <Editor
-          value={definition}
-          language="sql"
-          theme={theme}
-          options={{
-            readOnly: true,
-            minimap: { enabled: false },
-            fontSize: 12,
-            lineHeight: 16,
-            fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'monospace'",
-            lineNumbers: 'on',
-            lineNumbersMinChars: 3,
-            scrollBeyondLastLine: false,
-            wordWrap: 'on',
-            wrappingIndent: 'indent',
-            automaticLayout: true,
-            padding: { top: 8, bottom: 8 },
-            renderLineHighlight: 'none',
-            scrollbar: {
-              vertical: 'auto',
-              horizontal: 'auto',
-            },
-          }}
+      <CodeEditor
+        value={definition}
+        language="sql"
+        dialect={dialect}
+        readOnly={true}
+        height="100%"
+        theme="auto"
+        lineNumbers={true}
+        autoFocus={false}
       />
     </div>
   );
 });
+
+ObjectDefinition.displayName = "ObjectDefinition";

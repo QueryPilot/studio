@@ -47,14 +47,28 @@ export class TableDataService {
       const { databaseService } = await import('./databaseService');
       const backendConnectionId = databaseService.getBackendConnectionId?.(params.connectionId) || params.connectionId;
       
-      // Use proper getTableData API with offset-based pagination
-      const result = await BackendAPI.getTableData(
-        backendConnectionId,
-        params.schema || 'public',
-        params.table,
-        params.limit || 1000,
-        params.offset || 0
-      );
+      // Use filtered API if filters or sorts are present
+      const hasFilters = params.filters && params.filters.root && params.filters.root.conditions && params.filters.root.conditions.length > 0;
+      const hasSorts = params.sorts && params.sorts.length > 0;
+      console.log('[TableDataService] Filter/sort status:', { hasFilters, hasSorts, filters: params.filters, sorts: params.sorts });
+      
+      const result = (hasFilters || hasSorts) 
+        ? await BackendAPI.getTableDataFiltered(
+            backendConnectionId,
+            params.schema || 'public',
+            params.table,
+            params.limit || 1000,
+            params.offset || 0,
+            params.filters || undefined,
+            params.sorts || undefined
+          )
+        : await BackendAPI.getTableData(
+            backendConnectionId,
+            params.schema || 'public',
+            params.table,
+            params.limit || 1000,
+            params.offset || 0
+          );
       
       // Get total count if it's the first page
       let estimatedTotal: number | undefined;
@@ -188,14 +202,10 @@ export class TableDataService {
 
     // Validate filter specifications
     if (params.filters) {
-      for (const filter of params.filters) {
-        if (!filter.column || typeof filter.column !== 'string') {
-          throw new Error('Filter column name is required and must be a string');
-        }
-        
-        // Additional validation based on filter type would be done here
-        // The discriminated union ensures type safety at compile time
+      if (!params.filters.root) {
+        throw new Error('Filter must have a root node');
       }
+      // Additional validation could be done recursively on the filter tree
     }
 
     // Validate column selection
