@@ -10,44 +10,84 @@ import {
 import { useToast } from "@/hooks/use-toast";
 
 import { ThemeToggle } from "@/components/theme-toggle";
-import { ConnectionList } from "@/components/ConnectionList";
 import { Database, Settings, Search, Trash2, Download } from "lucide-react";
 import { useRef, useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import logo from "@/assets/logo.png";
-import { useConnectionStore } from "@/stores/connectionStore";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { useConnectionSync } from "@/hooks/useConnectionSync";
+import { useWindowConnection } from "@/hooks/useWindowConnection";
+import { ConnectionProfile, DbType, SslMode } from "@/types/connection";
+import { windowManager } from "@/services/windowManager";
 
 export function MainScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoadingDefaults, setIsLoadingDefaults] = useState(false);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate();
   const { toast } = useToast();
-  const { loadConnections, clearAllConnections } =
-    useConnectionStore();
+  const { 
+    fetchConnections, 
+    saveConnection, 
+    deleteConnection,
+    connections 
+  } = useConnectionStore();
+  
+  // Use window connection hook
+  const { activeConnectionId, setActiveConnection } = useWindowConnection();
+  
+  // Enable cross-window sync
+  useConnectionSync();
 
   // Load connections from backend on startup
   useEffect(() => {
-    void loadConnections();
-  }, [loadConnections]);
+    void fetchConnections();
+  }, [fetchConnections]);
 
   const handleLoadPostgreSQLDev = async () => {
     setIsLoadingDefaults(true);
     try {
-      // First, check if Docker is running and PostgreSQL is available
-      const { loadPostgreSQLDev } = useConnectionStore.getState();
-      const result = await loadPostgreSQLDev();
-
-      if (result.added > 0) {
-        toast({
-          title: "PostgreSQL Dev Added",
-          description: "PostgreSQL development database connection has been added successfully.",
-        });
-      } else if (result.skipped > 0) {
+      // Check if PostgreSQL Dev already exists
+      const existingPg = connections.find(conn => 
+        conn.profile.name === "PostgreSQL Dev" && 
+        conn.profile.host === "localhost" &&
+        conn.profile.port === 15432
+      );
+      
+      if (existingPg) {
         toast({
           title: "Connection Already Exists",
           description: "PostgreSQL Dev connection is already in your connection list.",
         });
+        setIsLoadingDefaults(false);
+        return;
       }
+      
+      // Create PostgreSQL Dev connection profile
+      const pgProfile: ConnectionProfile = {
+        id: "",
+        name: "PostgreSQL Dev",
+        db_type: DbType.PostgreSQL,
+        host: "localhost",
+        port: 15432,
+        database: "todoapp",
+        username: "devuser",
+        password: "devpass123",
+        ssl_mode: SslMode.Disable,
+        options: {},
+      };
+      
+      // Save to backend
+      const id = await saveConnection(pgProfile);
+      
+      toast({
+        title: "PostgreSQL Dev Added",
+        description: "PostgreSQL development database connection has been added successfully.",
+      });
+      
+      // Set as active connection for this window
+      await setActiveConnection(id);
     } catch (error) {
       toast({
         title: "Error Loading Connection",
@@ -131,13 +171,15 @@ export function MainScreen() {
                     console.log(
                       "Step 2: Clearing all connections from backend...",
                     );
-                    // Clear all connections from backend
-                    await clearAllConnections();
-                    console.log("✓ clearAllConnections() completed");
+                    // Clear all connections one by one
+                    for (const conn of connections) {
+                      await deleteConnection(conn.profile.id);
+                    }
+                    console.log("✓ All connections deleted");
 
                     console.log("Step 3: Reloading connections list...");
                     // Reload connections to reflect the change
-                    await loadConnections();
+                    await fetchConnections();
                     console.log("✓ Connections reloaded");
 
                     console.log("=====================================");
@@ -214,8 +256,58 @@ export function MainScreen() {
             </div>
           </div>
 
+
           {/* Connection List */}
-          <ConnectionList searchQuery={searchQuery} />
+          <div className="flex-1 overflow-y-auto px-4 pb-4">
+            {connections.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-center p-8">
+                <Database className="h-12 w-12 text-muted-foreground mb-4" />
+                <h3 className="text-lg font-semibold mb-2">No connections yet</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Click "Load PostgreSQL Dev" to add development connections,
+                  <br />
+                  or create a new connection to get started.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {connections
+                  .filter(conn => 
+                    searchQuery === "" || 
+                    conn.profile.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    conn.profile.host.toLowerCase().includes(searchQuery.toLowerCase())
+                  )
+                  .map((conn) => (
+                    <div
+                      key={conn.profile.id}
+                      className="p-3 rounded-lg border bg-card hover:bg-accent cursor-pointer transition-colors"
+                      onClick={async () => {
+                        console.log("Connection clicked:", conn.profile.name, conn.profile.id);
+                        
+                        // Set as active connection for this window
+                        await setActiveConnection(conn.profile.id);
+                        
+                        // Navigate to workspace with the connection ID
+                        navigate(`/workspace/${conn.profile.id}`);
+                      }}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Database className="h-4 w-4 text-blue-600" />
+                          <span className="font-medium">{conn.profile.name}</span>
+                        </div>
+                        {conn.profile.id === activeConnectionId && (
+                          <Badge variant="secondary" className="text-xs">Active</Badge>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {conn.profile.host}:{conn.profile.port}/{conn.profile.database}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

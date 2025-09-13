@@ -1,9 +1,8 @@
-use tauri::{State, Emitter};
+use tauri::{State, Emitter, Window, AppHandle, Manager};
 use std::sync::Arc;
 
 use crate::core::ConnectionManager;
 use crate::types::*;
-use crate::error::Result;
 
 #[tauri::command]
 pub async fn connect(
@@ -460,4 +459,147 @@ pub async fn update_connection(
 ) -> std::result::Result<(), String> {
     storage.update_connection(&connection_id, profile).await
         .map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// Window-Aware Connection Commands
+// ============================================================================
+
+#[tauri::command]
+pub async fn set_active_connection(
+    window: Window,
+    connection_id: String,
+    state: State<'_, crate::state::AppState>,
+    app_handle: AppHandle,
+) -> std::result::Result<(), String> {
+    let window_label = window.label().to_string();
+    
+    // Set the active connection for this window
+    state.window_states.set_active_connection(window_label.clone(), connection_id.clone())
+        .map_err(|e| e.to_string())?;
+    
+    // Focus the window
+    window.set_focus()
+        .map_err(|e| format!("Failed to focus window: {}", e))?;
+    
+    // Emit event for other windows to know about the change
+    app_handle.emit("active_connection_changed", serde_json::json!({
+        "window": window_label,
+        "connection_id": connection_id
+    }))
+    .map_err(|e| format!("Failed to emit event: {}", e))?;
+    
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_active_connection(
+    window: Window,
+    state: State<'_, crate::state::AppState>,
+) -> std::result::Result<Option<String>, String> {
+    let window_label = window.label();
+    Ok(state.window_states.get_active_connection(window_label))
+}
+
+#[tauri::command]
+pub async fn switch_to_connection_window(
+    connection_id: String,
+    state: State<'_, crate::state::AppState>,
+    app_handle: AppHandle,
+) -> std::result::Result<(), String> {
+    // Find window with this connection
+    if let Some(window_label) = state.window_states.get_window_for_connection(&connection_id) {
+        if let Some(window) = app_handle.get_webview_window(&window_label) {
+            window.set_focus()
+                .map_err(|e| format!("Failed to focus window: {}", e))?;
+            return Ok(());
+        }
+    }
+    
+    Err(format!("No window found with connection {}", connection_id))
+}
+
+#[tauri::command]
+pub async fn get_window_states(
+    state: State<'_, crate::state::AppState>,
+) -> std::result::Result<serde_json::Value, String> {
+    let states = state.window_states.get_all_states()
+        .map_err(|e| e.to_string())?;
+    
+    serde_json::to_value(&states)
+        .map_err(|e| format!("Failed to serialize window states: {}", e))
+}
+
+#[tauri::command]
+pub async fn remove_window_connection(
+    window: Window,
+    state: State<'_, crate::state::AppState>,
+) -> std::result::Result<(), String> {
+    let window_label = window.label();
+    state.window_states.remove_window(window_label)
+        .map_err(|e| e.to_string())
+}
+
+// Enhanced storage commands with event emission
+#[tauri::command]
+pub async fn store_connection_with_event(
+    connection: ConnectionProfile,
+    storage: State<'_, Arc<crate::storage::SecureStorage>>,
+    app_handle: AppHandle,
+) -> std::result::Result<String, String> {
+    let id = storage.store_connection(connection).await
+        .map_err(|e| e.to_string())?;
+    
+    // Emit event to all windows
+    app_handle.emit("connections_changed", ())
+        .map_err(|e| format!("Failed to emit event: {}", e))?;
+    
+    Ok(id)
+}
+
+#[tauri::command]
+pub async fn delete_connection_with_event(
+    connection_id: String,
+    storage: State<'_, Arc<crate::storage::SecureStorage>>,
+    state: State<'_, crate::state::AppState>,
+    app_handle: AppHandle,
+) -> std::result::Result<(), String> {
+    // Delete the connection
+    storage.delete_connection(&connection_id).await
+        .map_err(|e| e.to_string())?;
+    
+    // Clear from any windows using this connection
+    let affected_windows = state.window_states.clear_connection(&connection_id)
+        .map_err(|e| e.to_string())?;
+    
+    // Emit events
+    app_handle.emit("connections_changed", ())
+        .map_err(|e| format!("Failed to emit event: {}", e))?;
+    
+    if !affected_windows.is_empty() {
+        app_handle.emit("connection_deleted", serde_json::json!({
+            "connection_id": connection_id,
+            "affected_windows": affected_windows
+        }))
+        .map_err(|e| format!("Failed to emit event: {}", e))?;
+    }
+    
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn update_connection_with_event(
+    connection_id: String,
+    profile: ConnectionProfile,
+    storage: State<'_, Arc<crate::storage::SecureStorage>>,
+    app_handle: AppHandle,
+) -> std::result::Result<(), String> {
+    storage.update_connection(&connection_id, profile).await
+        .map_err(|e| e.to_string())?;
+    
+    // Emit event to all windows
+    app_handle.emit("connections_changed", ())
+        .map_err(|e| format!("Failed to emit event: {}", e))?;
+    
+    Ok(())
 }

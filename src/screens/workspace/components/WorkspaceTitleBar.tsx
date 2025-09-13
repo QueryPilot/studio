@@ -217,26 +217,36 @@ export function WorkspaceTitleBar({
 
   const handleGoHome = async () => {
     try {
-      console.log("Going home, closing workspace:", connectionId);
-      // Import WebviewWindow to close current window
-      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+      console.log("Going home from workspace:", connectionId);
 
-      // Get the current window
-      const currentWindow = WebviewWindow.getCurrent();
-
-      // Show main window first
-      const mainWindow = await WebviewWindow.getByLabel("main");
-      if (mainWindow) {
-        await mainWindow.show();
-        await mainWindow.setFocus();
+      // Disconnect from the current database
+      if (connectionId && databaseService.isConnectionActive(connectionId)) {
+        await databaseService.disconnect(connectionId);
       }
 
-      // Close current workspace window
-      await currentWindow.close();
+      // Check if we're in a separate window or the main window
+      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+      const currentWindow = WebviewWindow.getCurrent();
+      const windowLabel = currentWindow.label;
+
+      if (windowLabel === "main") {
+        // We're in the main window, just navigate
+        navigate("/");
+      } else {
+        // We're in a separate workspace window
+        // Show main window first
+        const mainWindow = await WebviewWindow.getByLabel("main");
+        if (mainWindow) {
+          await mainWindow.show();
+          await mainWindow.setFocus();
+        }
+        // Close current workspace window
+        await currentWindow.close();
+      }
     } catch (error) {
-      console.error("Failed to close workspace window:", error);
+      console.error("Failed to go home:", error);
       // Fallback: navigate using React Router
-      void navigate("/");
+      navigate("/");
     }
   };
 

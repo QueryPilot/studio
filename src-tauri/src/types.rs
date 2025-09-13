@@ -12,7 +12,7 @@ pub struct ConnectionProfile {
     pub port: u16,
     pub database: String,
     pub username: String,
-    #[serde(skip_serializing)]
+    // TODO: Encrypt passwords before storing in production
     pub password: Option<String>,
     pub ssl_mode: Option<SslMode>,
     pub options: HashMap<String, String>,
