@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BackendAPI, ColumnMeta } from '@/services/backend';
+import { BackendAPI, type ColumnMeta } from '@/services/backend';
 
 interface UseColumnsParams {
   connectionId: string;

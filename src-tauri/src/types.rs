@@ -15,6 +15,8 @@ pub struct ConnectionProfile {
     // TODO: Encrypt passwords before storing in production
     pub password: Option<String>,
     pub ssl_mode: Option<SslMode>,
+    pub ssl_config: Option<SslConfig>,
+    pub ssh_tunnel: Option<SshTunnelConfig>,
     pub options: HashMap<String, String>,
 }
 
@@ -46,6 +48,27 @@ pub enum SslMode {
     Require,
     VerifyCa,
     VerifyFull,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SslConfig {
+    pub key_file: Option<String>,
+    pub cert_file: Option<String>,
+    pub ca_file: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SshTunnelConfig {
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    pub auth: SshAuthMethod,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SshAuthMethod {
+    Password(String),
+    KeyFile { path: String, passphrase: Option<String> },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

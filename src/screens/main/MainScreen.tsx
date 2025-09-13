@@ -17,26 +17,25 @@ import logo from "@/assets/logo.png";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useConnectionSync } from "@/hooks/useConnectionSync";
 import { useWindowConnection } from "@/hooks/useWindowConnection";
-import { ConnectionProfile, DbType, SslMode } from "@/types/connection";
+import { type ConnectionProfile, DbType, SslMode } from "@/types/connection";
 import { windowManager } from "@/services/windowManager";
+import { ConnectionDialog } from "@/components/ConnectionDialog";
+import { ConnectionList } from "@/components/ConnectionList";
 
 export function MainScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoadingDefaults, setIsLoadingDefaults] = useState(false);
+  const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { 
-    fetchConnections, 
-    saveConnection, 
-    deleteConnection,
-    connections 
-  } = useConnectionStore();
-  
+  const { fetchConnections, saveConnection, deleteConnection, connections } =
+    useConnectionStore();
+
   // Use window connection hook
   const { activeConnectionId, setActiveConnection } = useWindowConnection();
-  
+
   // Enable cross-window sync
   useConnectionSync();
 
@@ -45,25 +44,44 @@ export function MainScreen() {
     void fetchConnections();
   }, [fetchConnections]);
 
+  const handleConnectToDatabase = async (connectionId: string) => {
+    try {
+      // Navigate to workspace with the new connection
+      await navigate(`/workspace/${connectionId}`);
+    } catch (error) {
+      console.error("Failed to connect to database:", error);
+      toast({
+        title: "Connection Error",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Failed to connect to database",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleLoadPostgreSQLDev = async () => {
     setIsLoadingDefaults(true);
     try {
       // Check if PostgreSQL Dev already exists
-      const existingPg = connections.find(conn => 
-        conn.profile.name === "PostgreSQL Dev" && 
-        conn.profile.host === "localhost" &&
-        conn.profile.port === 15432
+      const existingPg = connections.find(
+        (conn) =>
+          conn.profile.name === "PostgreSQL Dev" &&
+          conn.profile.host === "localhost" &&
+          conn.profile.port === 15432,
       );
-      
+
       if (existingPg) {
         toast({
           title: "Connection Already Exists",
-          description: "PostgreSQL Dev connection is already in your connection list.",
+          description:
+            "PostgreSQL Dev connection is already in your connection list.",
         });
         setIsLoadingDefaults(false);
         return;
       }
-      
+
       // Create PostgreSQL Dev connection profile
       const pgProfile: ConnectionProfile = {
         id: "",
@@ -77,21 +95,23 @@ export function MainScreen() {
         ssl_mode: SslMode.Disable,
         options: {},
       };
-      
+
       // Save to backend
       const id = await saveConnection(pgProfile);
-      
+
       toast({
         title: "PostgreSQL Dev Added",
-        description: "PostgreSQL development database connection has been added successfully.",
+        description:
+          "PostgreSQL development database connection has been added successfully.",
       });
-      
+
       // Set as active connection for this window
       await setActiveConnection(id);
     } catch (error) {
       toast({
         title: "Error Loading Connection",
-        description: "Failed to add PostgreSQL Dev connection. Make sure Docker is running: make docker-up",
+        description:
+          "Failed to add PostgreSQL Dev connection. Make sure Docker is running: make docker-up",
         variant: "destructive",
       });
     } finally {
@@ -109,7 +129,10 @@ export function MainScreen() {
 
       <div className="flex-1 flex overflow-hidden">
         {/* Left Panel - 1/3 width */}
-        <div className="w-1/3 max-w-[380px] flex-shrink-0 bg-muted/40 flex flex-col select-none">
+        <div
+          className="w-1/3 max-w-[380px] flex-shrink-0 bg-muted/40 flex flex-col select-none"
+          onContextMenu={(e) => e.preventDefault()}
+        >
           <div className="flex-1 flex flex-col items-center justify-center px-6 py-4">
             {/* Logo */}
             <div className="mb-4">
@@ -137,7 +160,7 @@ export function MainScreen() {
                 className="w-full justify-start"
                 size="default"
                 onClick={() => {
-                  // TODO: Open connection dialog
+                  setConnectionDialogOpen(true);
                 }}
               >
                 <Database className="mr-2 h-4 w-4" />
@@ -256,60 +279,20 @@ export function MainScreen() {
             </div>
           </div>
 
-
           {/* Connection List */}
-          <div className="flex-1 overflow-y-auto px-4 pb-4">
-            {connections.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-center p-8">
-                <Database className="h-12 w-12 text-muted-foreground mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No connections yet</h3>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Click "Load PostgreSQL Dev" to add development connections,
-                  <br />
-                  or create a new connection to get started.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {connections
-                  .filter(conn => 
-                    searchQuery === "" || 
-                    conn.profile.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    conn.profile.host.toLowerCase().includes(searchQuery.toLowerCase())
-                  )
-                  .map((conn) => (
-                    <div
-                      key={conn.profile.id}
-                      className="p-3 rounded-lg border bg-card hover:bg-accent cursor-pointer transition-colors"
-                      onClick={async () => {
-                        console.log("Connection clicked:", conn.profile.name, conn.profile.id);
-                        
-                        // Set as active connection for this window
-                        await setActiveConnection(conn.profile.id);
-                        
-                        // Navigate to workspace with the connection ID
-                        navigate(`/workspace/${conn.profile.id}`);
-                      }}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Database className="h-4 w-4 text-blue-600" />
-                          <span className="font-medium">{conn.profile.name}</span>
-                        </div>
-                        {conn.profile.id === activeConnectionId && (
-                          <Badge variant="secondary" className="text-xs">Active</Badge>
-                        )}
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-1">
-                        {conn.profile.host}:{conn.profile.port}/{conn.profile.database}
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            )}
-          </div>
+          <ConnectionList
+            searchQuery={searchQuery}
+            onAddConnection={() => { setConnectionDialogOpen(true); }}
+          />
         </div>
       </div>
+
+      {/* Connection Dialog */}
+      <ConnectionDialog
+        open={connectionDialogOpen}
+        onOpenChange={setConnectionDialogOpen}
+        onConnect={handleConnectToDatabase}
+      />
     </div>
   );
 }

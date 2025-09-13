@@ -94,7 +94,7 @@ class SecureConnectionService {
             const connection: DatabaseConnection = {
               id: stored.profile.id,
               name: stored.profile.name,
-              type: stored.profile.db_type.toLowerCase() as any,
+              type: stored.profile.db_type.toLowerCase(),
               host: stored.profile.host,
               port: stored.profile.port,
               database: stored.profile.database,

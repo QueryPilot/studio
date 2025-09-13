@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import useWorkbenchStore from '@/stores/workbenchStore';
 import { usePanelStore } from '@/stores/panelStore';
-import { PanelType } from '@/types/workbench';
+import { type PanelType } from '@/types/workbench';
 
 export function useWorkbenchIntegration(connectionId: string) {
   const { 

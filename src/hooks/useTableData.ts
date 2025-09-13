@@ -334,7 +334,7 @@ export function useTableData(initialState?: UseTableDataInitialState): UseTableD
         isStreaming: false,
       }));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []); // NO dependencies = stable callback
 
   // Clear all data - STABLE callback
@@ -355,7 +355,7 @@ export function useTableData(initialState?: UseTableDataInitialState): UseTableD
         estimatedTotal: null,
       }));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []); // NO dependencies = stable callback
 
   return {

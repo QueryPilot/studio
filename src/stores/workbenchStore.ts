@@ -25,10 +25,11 @@ interface WorkbenchStore {
   layoutHistory: GridNode[];
   historyIndex: number;
   dragDropContext: DragDropContext;
+  preventAutoInit: boolean;
 
   initializeLayout: () => void;
   splitPanelAction: (action: SplitAction) => void;
-  closePanelAction: (panelId: string) => void;
+  closePanelAction: (panelId: string, preventAutoInit?: boolean) => void;
   resizePanelAction: (path: number[], ratio: number) => void;
   moveTab: (
     tabId: string,
@@ -62,6 +63,7 @@ const useWorkbenchStore = create<WorkbenchStore>()(
     panelContents: new Map(),
     layoutHistory: [],
     historyIndex: -1,
+    preventAutoInit: false,
     dragDropContext: {
       draggedTab: null,
       draggedPanel: null,
@@ -139,11 +141,29 @@ const useWorkbenchStore = create<WorkbenchStore>()(
       }
     },
 
-    closePanelAction: (panelId) => {
+    closePanelAction: (panelId, preventAutoInit = false) => {
+      console.log('🗑️ [STORE DEBUG] closePanelAction called:', {
+        panelId,
+        preventAutoInit,
+        currentPreventAutoInit: get().preventAutoInit
+      });
+
       const { layoutTree, layoutHistory, historyIndex } = get();
-      if (!layoutTree) return;
+      if (!layoutTree) {
+        console.log('❌ [STORE DEBUG] No layoutTree, returning early');
+        return;
+      }
+
+      if (preventAutoInit) {
+        console.log('🚫 [STORE DEBUG] Setting preventAutoInit to true');
+        set({ preventAutoInit: true });
+      }
 
       const newTree = closePanel(layoutTree, panelId);
+      console.log('🌳 [STORE DEBUG] closePanel result:', {
+        newTreeExists: !!newTree,
+        originalPanelCount: get().panelContents.size
+      });
 
       if (newTree) {
         const newHistory = layoutHistory.slice(0, historyIndex + 1);
@@ -151,6 +171,11 @@ const useWorkbenchStore = create<WorkbenchStore>()(
 
         const panels = getAllPanels(newTree);
         const newContents = new Map(panels.map((p) => [p.id, p]));
+
+        console.log('✅ [STORE DEBUG] Setting new tree with panels:', {
+          panelCount: panels.length,
+          panelIds: panels.map(p => p.id)
+        });
 
         set({
           layoutTree: newTree,
@@ -160,8 +185,37 @@ const useWorkbenchStore = create<WorkbenchStore>()(
           focusedPanelId: panels[0]?.id || null,
         });
       } else {
-        get().initializeLayout();
+        console.log('🔥 [STORE DEBUG] newTree is null - last panel closed!');
+        // Only auto-initialize if not preventing it
+        const shouldPreventInit = get().preventAutoInit || preventAutoInit;
+        console.log('🤔 [STORE DEBUG] Should prevent auto-init?', {
+          preventAutoInitParam: preventAutoInit,
+          storePreventAutoInit: get().preventAutoInit,
+          shouldPreventInit
+        });
+
+        if (!shouldPreventInit) {
+          console.log('🔄 [STORE DEBUG] Auto-initializing layout');
+          get().initializeLayout();
+        } else {
+          console.log('🗑️ [STORE DEBUG] Clearing layout completely (no auto-init)');
+          // Clear the layout completely when preventing auto-init
+          set({
+            layoutTree: null,
+            panelContents: new Map(),
+            focusedPanelId: null
+          });
+        }
       }
+
+      // Log final state
+      const finalState = get();
+      console.log('📊 [STORE DEBUG] Final state after closePanelAction:', {
+        layoutTreeExists: !!finalState.layoutTree,
+        panelCount: finalState.panelContents.size,
+        focusedPanelId: finalState.focusedPanelId,
+        preventAutoInit: finalState.preventAutoInit
+      });
     },
 
     resizePanelAction: (path, ratio) => {

@@ -98,7 +98,7 @@ const errorMappings: Partial<Record<ErrorCode, (error: BackendError) => ErrorDis
     variant: "destructive",
     action: {
       label: "Retry",
-      onClick: () => window.location.reload(),
+      onClick: () => { window.location.reload(); },
     },
   }),
 

@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
-import { listen, UnlistenFn } from '@tauri-apps/api/event';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useConnectionStore } from '@/stores/connectionStoreNew';
-import { ConnectionDeletedEvent } from '@/types/connection';
+import { type ConnectionDeletedEvent } from '@/types/connection';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export function useConnectionSync() {
