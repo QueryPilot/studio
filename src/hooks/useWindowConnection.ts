@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { listen, UnlistenFn } from '@tauri-apps/api/event';
-import { ConnectionChangedEvent } from '@/types/connection';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { type ConnectionChangedEvent } from '@/types/connection';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export function useWindowConnection() {

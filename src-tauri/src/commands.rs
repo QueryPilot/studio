@@ -544,16 +544,23 @@ pub async fn remove_window_connection(
 #[tauri::command]
 pub async fn store_connection_with_event(
     connection: ConnectionProfile,
+    tags: Option<Vec<String>>,
     storage: State<'_, Arc<crate::storage::SecureStorage>>,
     app_handle: AppHandle,
 ) -> std::result::Result<String, String> {
     let id = storage.store_connection(connection).await
         .map_err(|e| e.to_string())?;
-    
+
+    // Add tags if provided
+    if let Some(tags) = tags {
+        storage.update_tags(&id, tags).await
+            .map_err(|e| e.to_string())?;
+    }
+
     // Emit event to all windows
     app_handle.emit("connections_changed", ())
         .map_err(|e| format!("Failed to emit event: {}", e))?;
-    
+
     Ok(id)
 }
 
@@ -591,15 +598,31 @@ pub async fn delete_connection_with_event(
 pub async fn update_connection_with_event(
     connection_id: String,
     profile: ConnectionProfile,
+    tags: Option<Vec<String>>,
     storage: State<'_, Arc<crate::storage::SecureStorage>>,
     app_handle: AppHandle,
 ) -> std::result::Result<(), String> {
+    println!("DEBUG: Starting update_connection_with_event for {}", connection_id);
+
+    println!("DEBUG: Updating connection profile...");
     storage.update_connection(&connection_id, profile).await
         .map_err(|e| e.to_string())?;
-    
+    println!("DEBUG: Connection profile updated successfully");
+
+    // Update tags if provided
+    if let Some(tags) = tags {
+        println!("DEBUG: Updating tags: {:?}", tags);
+        storage.update_tags(&connection_id, tags).await
+            .map_err(|e| e.to_string())?;
+        println!("DEBUG: Tags updated successfully");
+    }
+
     // Emit event to all windows
+    println!("DEBUG: Emitting connections_changed event");
     app_handle.emit("connections_changed", ())
         .map_err(|e| format!("Failed to emit event: {}", e))?;
-    
+    println!("DEBUG: Event emitted successfully");
+
+    println!("DEBUG: update_connection_with_event completed successfully");
     Ok(())
 }

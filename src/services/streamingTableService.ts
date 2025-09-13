@@ -1,5 +1,5 @@
-import { UnlistenFn } from '@tauri-apps/api/event';
-import { BackendAPI, StreamEvent, CellValue, ColumnMeta, TableDataResult } from './backend';
+import { type UnlistenFn } from '@tauri-apps/api/event';
+import { BackendAPI, type StreamEvent, type CellValue, type ColumnMeta, type TableDataResult } from './backend';
 
 export interface StreamingTableOptions {
   connectionId: string;

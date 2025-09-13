@@ -1,4 +1,4 @@
-import { memo, useState, useCallback, useEffect } from "react";
+import { memo, useState, useCallback } from "react";
 import { QueryEditor } from "./QueryEditor";
 import { ResultViewer } from "./ResultViewer";
 import { QueryHistory } from "./QueryHistory";
@@ -15,6 +15,15 @@ import { toast } from "sonner";
 import { tableDataService } from "@/services/tableDataService";
 import { queryHistoryService } from "@/services/queryHistoryService";
 import { cn } from "@/lib/utils";
+import {
+  useShortcut,
+  useKeybindingHint,
+  KeyboardScope,
+} from "@/services/keyboard";
+import {
+  useSyncQueryState,
+  useSyncEditorState,
+} from "@/services/keyboard/integration/storeIntegration";
 
 interface QueryPanelProps {
   connectionId: string;
@@ -45,6 +54,11 @@ export const QueryPanel = memo(function QueryPanel({
   const [abortController, setAbortController] =
     useState<AbortController | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [hasSelection] = useState(false);
+
+  // Sync state with keyboard context
+  useSyncQueryState(isExecuting, !!result);
+  useSyncEditorState(hasSelection, query !== "", false);
 
   const handleExecute = useCallback(
     async (queryToExecute?: string) => {
@@ -98,7 +112,8 @@ export const QueryPanel = memo(function QueryPanel({
           return;
         } else {
           executionTime = Date.now() - startTime;
-          errorMessage = error instanceof Error ? error.message : "Failed to execute query";
+          errorMessage =
+            error instanceof Error ? error.message : "Failed to execute query";
           setResult({
             columns: [],
             rows: [],
@@ -164,162 +179,171 @@ export const QueryPanel = memo(function QueryPanel({
     toast.success("Query formatted");
   }, [query]);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Cmd+Enter (Mac) or Ctrl+Enter (Windows/Linux) to execute
-      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-        e.preventDefault();
-        if (!isExecuting && query.trim()) {
-          void handleExecute();
-        }
-      }
-      // Option+F (Mac) or Alt+F (Windows/Linux) to beautify
-      else if (e.altKey && e.key === "f") {
-        e.preventDefault();
-        if (query.trim()) {
-          handleBeautify();
-        }
-      }
-      // Option+H (Mac) or Alt+H (Windows/Linux) to toggle history
-      else if (e.altKey && e.key === "h") {
-        e.preventDefault();
-        setShowHistory((prev) => !prev);
-      }
-    };
+  // Register keyboard shortcuts using the new system
+  useShortcut("cmd+enter", handleExecute, {
+    when: "queryEditor.focus && !isExecuting && query",
+    preventDefault: true,
+    description: "Execute query",
+  });
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [query, isExecuting, handleExecute, handleBeautify]);
+  useShortcut("alt+f", handleBeautify, {
+    when: "queryEditor.focus && query",
+    preventDefault: true,
+    description: "Format SQL",
+  });
+
+  useShortcut(
+    "alt+h",
+    () => {
+      setShowHistory((prev) => !prev);
+    },
+    {
+      when: "queryEditor.focus",
+      preventDefault: true,
+      description: "Toggle history",
+    },
+  );
+
+  // Get keybinding hints for UI
+  const executeHint = useKeybindingHint("query.execute");
+  const beautifyHint = useKeybindingHint("query.beautify");
 
   return (
-    <div className={cn("flex flex-col h-full", className)}>
-      {/* Main Content */}
-      <div className="flex-1 min-h-0 overflow-hidden">
-        <ResizablePanelGroup direction="horizontal" className="h-full">
-          {/* Editor and Results */}
-          <ResizablePanel defaultSize={showHistory ? 70 : 100} minSize={30}>
-            <ResizablePanelGroup direction="vertical" className="h-full">
-              {/* Editor */}
-              <ResizablePanel defaultSize={50} minSize={20}>
-                <QueryEditor
-                  connectionId={connectionId}
-                  database={database}
-                  schema={schema}
-                  dbType={dbType}
-                  value={query}
-                  onChange={(value) => {
-                    setQuery(value || "");
-                  }}
-                  onExecute={handleExecute}
-                  height="100%"
-                />
-              </ResizablePanel>
+    <KeyboardScope context="queryEditor">
+      <div className={cn("flex flex-col h-full", className)}>
+        {/* Main Content */}
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <ResizablePanelGroup direction="horizontal" className="h-full">
+            {/* Editor and Results */}
+            <ResizablePanel defaultSize={showHistory ? 70 : 100} minSize={30}>
+              <ResizablePanelGroup direction="vertical" className="h-full">
+                {/* Editor */}
+                <ResizablePanel defaultSize={50} minSize={20}>
+                  <QueryEditor
+                    connectionId={connectionId}
+                    database={database}
+                    schema={schema}
+                    dbType={dbType}
+                    value={query}
+                    onChange={(value) => {
+                      setQuery(value || "");
+                    }}
+                    onExecute={handleExecute}
+                    height="100%"
+                  />
+                </ResizablePanel>
 
-              {/* Toolbar - Compact and cozy */}
-              <div className="flex items-center justify-end gap-1 px-2 py-1 border-y bg-muted/20 flex-shrink-0">
-                <Button
-                  size="sm"
-                  variant={isExecuting ? "destructive" : "default"}
-                  onClick={isExecuting ? handleCancel : () => handleExecute()}
-                  disabled={!query.trim() && !isExecuting}
-                  className="h-7 text-xs"
-                  title={
-                    isExecuting ? "Cancel execution" : "Execute query (⌘+Enter)"
-                  }
-                >
-                  {isExecuting ? (
-                    <>
-                      <StopCircle className="h-3.5 w-3.5 mr-1" />
-                      Cancel
-                    </>
-                  ) : (
-                    <>
-                      <Play className="h-3.5 w-3.5 mr-1" />
-                      Execute
-                    </>
-                  )}
-                </Button>
+                {/* Toolbar - Compact and cozy */}
+                <div className="flex items-center justify-end gap-1 px-2 py-1 border-y bg-muted/20 flex-shrink-0">
+                  <Button
+                    size="sm"
+                    variant={isExecuting ? "destructive" : "default"}
+                    onClick={isExecuting ? handleCancel : () => handleExecute()}
+                    disabled={!query.trim() && !isExecuting}
+                    className="h-7 text-xs"
+                    title={
+                      isExecuting
+                        ? "Cancel execution"
+                        : executeHint
+                        ? `Execute query (${executeHint})`
+                        : "Execute query"
+                    }
+                  >
+                    {isExecuting ? (
+                      <>
+                        <StopCircle className="h-3.5 w-3.5 mr-1" />
+                        Cancel
+                      </>
+                    ) : (
+                      <>
+                        <Play className="h-3.5 w-3.5 mr-1" />
+                        Execute
+                      </>
+                    )}
+                  </Button>
 
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={handleBeautify}
-                  disabled={isExecuting || !query.trim()}
-                  className="h-7 text-xs"
-                  title="Format SQL (⌥+F)"
-                >
-                  Beautify
-                </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleBeautify}
+                    disabled={isExecuting || !query.trim()}
+                    className="h-7 text-xs"
+                    title={
+                      beautifyHint
+                        ? `Format SQL (${beautifyHint})`
+                        : "Format SQL"
+                    }
+                  >
+                    Beautify
+                  </Button>
 
-                <div className="w-px h-4 bg-border mx-1" />
+                  <div className="w-px h-4 bg-border mx-1" />
 
-                <Button
-                  size="sm"
-                  variant={showHistory ? "secondary" : "ghost"}
-                  onClick={() => {
-                    setShowHistory(!showHistory);
-                  }}
-                  className="h-7 text-xs"
-                  title="Toggle history panel (⌥+H)"
-                >
-                  <History className="h-3.5 w-3.5 mr-1" />
-                  History
-                </Button>
-              </div>
+                  <Button
+                    size="sm"
+                    variant={showHistory ? "secondary" : "ghost"}
+                    onClick={() => {
+                      setShowHistory(!showHistory);
+                    }}
+                    className="h-7 text-xs"
+                    title="Toggle history panel (⌥+H)"
+                  >
+                    <History className="h-3.5 w-3.5 mr-1" />
+                    History
+                  </Button>
+                </div>
 
-              {/* Results */}
-              <ResizablePanel defaultSize={50} minSize={20}>
-                <ResultViewer
-                  result={result}
-                  isLoading={isExecuting}
-                  connectionId={connectionId}
-                  height="100%"
-                />
-              </ResizablePanel>
-            </ResizablePanelGroup>
-          </ResizablePanel>
+                {/* Results */}
+                <ResizablePanel defaultSize={50} minSize={20}>
+                  <ResultViewer
+                    result={result}
+                    isLoading={isExecuting}
+                    connectionId={connectionId}
+                    height="100%"
+                  />
+                </ResizablePanel>
+              </ResizablePanelGroup>
+            </ResizablePanel>
 
-          {showHistory && (
-            <>
-              <ResizableHandle withHandle />
+            {showHistory && (
+              <>
+                <ResizableHandle withHandle />
 
-              {/* History and Saved Queries */}
-              <ResizablePanel defaultSize={30} minSize={20}>
-                <Tabs defaultValue="history" className="h-full flex flex-col">
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="history" className="text-xs">
-                      <History className="h-3 w-3 mr-1" />
-                      History
-                    </TabsTrigger>
-                    <TabsTrigger value="saved" className="text-xs">
-                      <Star className="h-3 w-3 mr-1" />
-                      Saved
-                    </TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="history" className="flex-1 mt-0">
-                    <QueryHistory
-                      connectionId={connectionId}
-                      database={database}
-                      onSelectQuery={handleSelectQuery}
-                    />
-                  </TabsContent>
-                  <TabsContent value="saved" className="flex-1 mt-0">
-                    <SavedQueries
-                      connectionId={connectionId}
-                      database={database}
-                      currentQuery={query}
-                      onSelectQuery={handleSelectQuery}
-                    />
-                  </TabsContent>
-                </Tabs>
-              </ResizablePanel>
-            </>
-          )}
-        </ResizablePanelGroup>
+                {/* History and Saved Queries */}
+                <ResizablePanel defaultSize={30} minSize={20}>
+                  <Tabs defaultValue="history" className="h-full flex flex-col">
+                    <TabsList className="grid w-full grid-cols-2">
+                      <TabsTrigger value="history" className="text-xs">
+                        <History className="h-3 w-3 mr-1" />
+                        History
+                      </TabsTrigger>
+                      <TabsTrigger value="saved" className="text-xs">
+                        <Star className="h-3 w-3 mr-1" />
+                        Saved
+                      </TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="history" className="flex-1 mt-0">
+                      <QueryHistory
+                        connectionId={connectionId}
+                        database={database}
+                        onSelectQuery={handleSelectQuery}
+                      />
+                    </TabsContent>
+                    <TabsContent value="saved" className="flex-1 mt-0">
+                      <SavedQueries
+                        connectionId={connectionId}
+                        database={database}
+                        currentQuery={query}
+                        onSelectQuery={handleSelectQuery}
+                      />
+                    </TabsContent>
+                  </Tabs>
+                </ResizablePanel>
+              </>
+            )}
+          </ResizablePanelGroup>
+        </div>
       </div>
-    </div>
+    </KeyboardScope>
   );
 });

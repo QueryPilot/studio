@@ -1,0 +1,201 @@
+{
+  "version": "1.0.0",
+  "keybindings": [
+    {
+      "command": "query.execute",
+      "key": "cmd+enter",
+      "when": "queryEditor.focus",
+      "description": "Execute query"
+    },
+    {
+      "command": "query.save",
+      "key": "cmd+s",
+      "when": "queryEditor.focus",
+      "description": "Save query"
+    },
+    {
+      "command": "query.beautify",
+      "key": "alt+f",
+      "when": "queryEditor.focus",
+      "description": "Format SQL"
+    },
+    {
+      "command": "query.toggleHistory",
+      "key": "alt+h",
+      "when": "queryEditor.focus",
+      "description": "Toggle query history"
+    },
+    {
+      "command": "panel.splitRight",
+      "key": "cmd+\\",
+      "when": "workbench",
+      "description": "Split panel right"
+    },
+    {
+      "command": "panel.splitDown",
+      "key": "cmd+shift+\\",
+      "when": "workbench",
+      "description": "Split panel down"
+    },
+    {
+      "command": "panel.splitLeft",
+      "key": "cmd+alt+left",
+      "when": "workbench",
+      "description": "Split panel left"
+    },
+    {
+      "command": "panel.splitUp",
+      "key": "cmd+alt+up",
+      "when": "workbench",
+      "description": "Split panel up"
+    },
+    {
+      "command": "panel.focusNext",
+      "key": "cmd+right",
+      "when": "workbench",
+      "description": "Focus next panel"
+    },
+    {
+      "command": "panel.focusPrevious",
+      "key": "cmd+left",
+      "when": "workbench",
+      "description": "Focus previous panel"
+    },
+    {
+      "command": "edit.undo",
+      "key": "cmd+z",
+      "description": "Undo"
+    },
+    {
+      "command": "edit.redo",
+      "key": "cmd+shift+z",
+      "description": "Redo"
+    },
+    {
+      "command": "edit.copy",
+      "key": "cmd+c",
+      "when": "hasSelection",
+      "description": "Copy"
+    },
+    {
+      "command": "edit.paste",
+      "key": "cmd+v",
+      "description": "Paste"
+    },
+    {
+      "command": "edit.cut",
+      "key": "cmd+x",
+      "when": "hasSelection",
+      "description": "Cut"
+    },
+    {
+      "command": "edit.selectAll",
+      "key": "cmd+a",
+      "description": "Select all"
+    },
+    {
+      "command": "table.editCell",
+      "key": "enter",
+      "when": "tableView && cellSelected",
+      "description": "Edit cell"
+    },
+    {
+      "command": "table.editCell",
+      "key": "f2",
+      "when": "tableView && cellSelected",
+      "description": "Edit cell"
+    },
+    {
+      "command": "table.saveEdit",
+      "key": "cmd+s",
+      "when": "tableView && isEditing",
+      "description": "Save cell edit"
+    },
+    {
+      "command": "table.cancelEdit",
+      "key": "escape",
+      "when": "tableView && isEditing",
+      "description": "Cancel cell edit"
+    },
+    {
+      "command": "table.deleteRow",
+      "key": "cmd+delete",
+      "when": "tableView && rowSelected",
+      "description": "Delete row"
+    },
+    {
+      "command": "table.insertRow",
+      "key": "cmd+i",
+      "when": "tableView",
+      "description": "Insert row"
+    },
+    {
+      "command": "table.find",
+      "key": "cmd+f",
+      "when": "tableView",
+      "description": "Find in table"
+    },
+    {
+      "command": "view.commandPalette",
+      "key": "cmd+k",
+      "description": "Open command palette"
+    },
+    {
+      "command": "view.quickTableSearch",
+      "key": "cmd+p",
+      "description": "Quick table search"
+    },
+    {
+      "command": "view.toggleSidebar",
+      "key": "cmd+b",
+      "description": "Toggle sidebar"
+    },
+    {
+      "command": "view.focusEditor",
+      "key": "cmd+1",
+      "description": "Focus editor"
+    },
+    {
+      "command": "view.focusResults",
+      "key": "cmd+2",
+      "description": "Focus results"
+    },
+    {
+      "command": "view.focusSchema",
+      "key": "cmd+3",
+      "description": "Focus schema"
+    },
+    {
+      "command": "file.newTab",
+      "key": "cmd+t",
+      "description": "New tab"
+    },
+    {
+      "command": "file.closeTab",
+      "key": "cmd+w",
+      "description": "Close tab"
+    },
+    {
+      "command": "file.nextTab",
+      "key": "cmd+alt+right",
+      "description": "Next tab"
+    },
+    {
+      "command": "file.previousTab",
+      "key": "cmd+alt+left",
+      "description": "Previous tab"
+    },
+    {
+      "command": "database.refresh",
+      "key": "cmd+r",
+      "when": "schemaView",
+      "description": "Refresh schema"
+    },
+    {
+      "command": "database.export",
+      "key": "cmd+e",
+      "when": "resultView || tableView",
+      "description": "Export data"
+    }
+  ]
+}

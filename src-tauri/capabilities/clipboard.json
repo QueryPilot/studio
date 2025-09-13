@@ -3,5 +3,9 @@
   "identifier": "clipboard-capability",
   "description": "Capability for clipboard operations",
   "windows": ["main"],
-  "permissions": []
+  "permissions": [
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
+    "clipboard-manager:allow-clear"
+  ]
 }

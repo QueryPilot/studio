@@ -9,6 +9,8 @@ export interface ConnectionProfile {
   username: string;
   password?: string;
   ssl_mode?: SslMode;
+  ssl_config?: SslConfig;
+  ssh_tunnel?: SshTunnelConfig;
   options: Record<string, string>;
 }
 
@@ -25,6 +27,23 @@ export enum SslMode {
   VerifyCa = "VerifyCa",
   VerifyFull = "VerifyFull",
 }
+
+export interface SslConfig {
+  key_file?: string;
+  cert_file?: string;
+  ca_file?: string;
+}
+
+export interface SshTunnelConfig {
+  host: string;
+  port: number;
+  user: string;
+  auth: SshAuthMethod;
+}
+
+export type SshAuthMethod =
+  | { Password: string }
+  | { KeyFile: { path: string; passphrase?: string } };
 
 export interface StoredConnection {
   profile: ConnectionProfile;

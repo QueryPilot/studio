@@ -190,6 +190,70 @@ class WindowManager {
       }
     }
   }
+
+  async closeCurrentWindow(): Promise<void> {
+    console.log('🪟 [WINDOW DEBUG] closeCurrentWindow called');
+
+    if (!isTauri()) {
+      console.log('🌐 [WINDOW DEBUG] Browser mode - calling window.close()');
+      // In browser mode, close the tab/window
+      window.close();
+      return;
+    }
+
+    console.log('🖥️ [WINDOW DEBUG] Tauri mode - getting current window');
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const currentWindow = getCurrentWindow();
+      console.log('🔗 [WINDOW DEBUG] Current window obtained, calling close()');
+      await currentWindow.close();
+      console.log('✅ [WINDOW DEBUG] Window close completed successfully');
+    } catch (error) {
+      console.error('❌ [WINDOW DEBUG] Error closing window:', error);
+      throw error;
+    }
+  }
+
+  async openNewMainWindow(): Promise<void> {
+    if (!isTauri()) {
+      // In browser mode, open in new tab
+      window.open('/', '_blank');
+      return;
+    }
+
+    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+
+    // Create a unique label for the new window
+    const timestamp = Date.now();
+    const label = `main-${timestamp}`;
+
+    // Create new main window with same style as original
+    const windowOptions: Record<string, unknown> = {
+      url: '/',
+      title: 'DevDB Studio',
+      width: 900,
+      height: 650,
+      minWidth: 900,
+      minHeight: 650,
+      center: true,
+      resizable: true,
+      maximizable: true,
+      minimizable: true,
+      closable: true,
+      decorations: true,
+      transparent: false,
+      titleBarStyle: "overlay",
+      hiddenTitle: true,
+      skipTaskbar: false,
+      // Traffic light position for macOS
+      trafficLightPosition: { x: 16, y: 18 },
+    };
+
+    new WebviewWindow(
+      label,
+      windowOptions as ConstructorParameters<typeof WebviewWindow>[1],
+    );
+  }
 }
 
 export const windowManager = WindowManager.getInstance();

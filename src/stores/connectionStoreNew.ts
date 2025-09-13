@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { invoke } from '@tauri-apps/api/core';
-import { StoredConnection, ConnectionProfile } from "@/types/connection";
+import { type StoredConnection, type ConnectionProfile } from "@/types/connection";
 
 interface ConnectionStore {
   // State

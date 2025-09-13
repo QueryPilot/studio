@@ -99,22 +99,27 @@ impl SecureStorage {
     }
     
     fn save_to_file(&self) -> Result<()> {
+        println!("DEBUG: save_to_file started, collecting connections...");
         let connections: HashMap<String, StoredConnection> = self.connections
             .iter()
             .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect();
-        
+
+        println!("DEBUG: Collected {} connections, serializing...", connections.len());
         let content = serde_json::to_string_pretty(&connections)
             .map_err(|e| AppError::internal(&format!("Failed to serialize connections: {}", e)))?;
-        
+
+        println!("DEBUG: Serialized successfully, writing to temp file...");
         // Atomic write: write to temp file then rename
         let temp_path = self.storage_path.with_extension("json.tmp");
         fs::write(&temp_path, content)
             .map_err(|e| AppError::internal(&format!("Failed to write temp file: {}", e)))?;
-        
+
+        println!("DEBUG: Temp file written, renaming to final location...");
         fs::rename(&temp_path, &self.storage_path)
             .map_err(|e| AppError::internal(&format!("Failed to save connections: {}", e)))?;
-        
+
+        println!("DEBUG: File saved successfully to {:?}", self.storage_path);
         Ok(())
     }
     
@@ -151,16 +156,22 @@ impl SecureStorage {
     }
     
     pub async fn update_connection(&self, id: &str, profile: ConnectionProfile) -> Result<()> {
-        if let Some(mut entry) = self.connections.get_mut(id) {
+        // Update the connection and drop the mutable reference before saving
+        let found = if let Some(mut entry) = self.connections.get_mut(id) {
             entry.profile = profile;
             entry.metadata.last_used = Some(chrono::Utc::now());
             entry.metadata.use_count += 1;
+            true
         } else {
-            return Err(AppError::not_found(&format!("Connection {} not found", id)));
+            false
+        };
+
+        if found {
+            self.save_to_file()?;
+            Ok(())
+        } else {
+            Err(AppError::not_found(&format!("Connection {} not found", id)))
         }
-        
-        self.save_to_file()?;
-        Ok(())
     }
     
     pub async fn delete_connection(&self, id: &str) -> Result<()> {
@@ -179,64 +190,117 @@ impl SecureStorage {
     }
     
     pub async fn update_metadata(&self, id: &str, metadata: ConnectionMetadata) -> Result<()> {
-        if let Some(mut entry) = self.connections.get_mut(id) {
+        // Update the metadata and drop the mutable reference before saving
+        let found = if let Some(mut entry) = self.connections.get_mut(id) {
             entry.metadata = metadata;
+            true
         } else {
-            return Err(AppError::not_found(&format!("Connection {} not found", id)));
+            false
+        };
+
+        if found {
+            self.save_to_file()?;
+            Ok(())
+        } else {
+            Err(AppError::not_found(&format!("Connection {} not found", id)))
         }
-        
-        self.save_to_file()?;
-        Ok(())
     }
     
     pub async fn mark_as_used(&self, id: &str) -> Result<()> {
-        if let Some(mut entry) = self.connections.get_mut(id) {
+        // Update the usage data and drop the mutable reference before saving
+        let found = if let Some(mut entry) = self.connections.get_mut(id) {
             entry.metadata.last_used = Some(chrono::Utc::now());
             entry.metadata.use_count += 1;
+            true
         } else {
-            return Err(AppError::not_found(&format!("Connection {} not found", id)));
+            false
+        };
+
+        if found {
+            self.save_to_file()?;
+            Ok(())
+        } else {
+            Err(AppError::not_found(&format!("Connection {} not found", id)))
         }
-        
-        self.save_to_file()?;
-        Ok(())
     }
     
     pub async fn toggle_favorite(&self, id: &str) -> Result<bool> {
-        let is_favorite = if let Some(mut entry) = self.connections.get_mut(id) {
+        // Toggle favorite and drop the mutable reference before saving
+        let result = if let Some(mut entry) = self.connections.get_mut(id) {
             entry.metadata.is_favorite = !entry.metadata.is_favorite;
-            entry.metadata.is_favorite
+            Some(entry.metadata.is_favorite)
         } else {
-            return Err(AppError::not_found(&format!("Connection {} not found", id)));
+            None
         };
-        
-        self.save_to_file()?;
-        Ok(is_favorite)
+
+        if let Some(is_favorite) = result {
+            self.save_to_file()?;
+            Ok(is_favorite)
+        } else {
+            Err(AppError::not_found(&format!("Connection {} not found", id)))
+        }
     }
     
     pub async fn add_tag(&self, id: &str, tag: String) -> Result<()> {
-        if let Some(mut entry) = self.connections.get_mut(id) {
+        // Add tag and drop the mutable reference before saving
+        let found = if let Some(mut entry) = self.connections.get_mut(id) {
             if !entry.metadata.tags.contains(&tag) {
                 entry.metadata.tags.push(tag);
             }
+            true
         } else {
-            return Err(AppError::not_found(&format!("Connection {} not found", id)));
+            false
+        };
+
+        if found {
+            self.save_to_file()?;
+            Ok(())
+        } else {
+            Err(AppError::not_found(&format!("Connection {} not found", id)))
         }
-        
-        self.save_to_file()?;
-        Ok(())
     }
     
     pub async fn remove_tag(&self, id: &str, tag: &str) -> Result<()> {
-        if let Some(mut entry) = self.connections.get_mut(id) {
+        // Remove tag and drop the mutable reference before saving
+        let found = if let Some(mut entry) = self.connections.get_mut(id) {
             entry.metadata.tags.retain(|t| t != tag);
+            true
         } else {
-            return Err(AppError::not_found(&format!("Connection {} not found", id)));
+            false
+        };
+
+        if found {
+            self.save_to_file()?;
+            Ok(())
+        } else {
+            Err(AppError::not_found(&format!("Connection {} not found", id)))
         }
-        
-        self.save_to_file()?;
-        Ok(())
     }
-    
+
+    pub async fn update_tags(&self, id: &str, tags: Vec<String>) -> Result<()> {
+        println!("DEBUG: update_tags called for connection {}", id);
+
+        // Update the tags and drop the mutable reference before saving
+        let found = if let Some(mut entry) = self.connections.get_mut(id) {
+            println!("DEBUG: Found connection, updating tags to {:?}", tags);
+            entry.metadata.tags = tags;
+            entry.metadata.last_used = Some(chrono::Utc::now());
+            true
+        } else {
+            false
+        };
+
+        if found {
+            println!("DEBUG: About to save to file...");
+            self.save_to_file()?;
+            println!("DEBUG: File saved successfully");
+            Ok(())
+        } else {
+            println!("DEBUG: Connection {} not found", id);
+            Err(AppError::not_found(&format!("Connection {} not found", id)))
+        }
+    }
+
     pub async fn search(&self, query: &str) -> Result<Vec<StoredConnection>> {
         let query_lower = query.to_lowercase();
         
