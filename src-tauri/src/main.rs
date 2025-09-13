@@ -9,8 +9,11 @@ mod core;
 mod adapters;
 mod commands;
 mod storage;
+mod window_state;
+mod state;
 
 use std::sync::Arc;
+use state::AppState;
 
 fn main() {
     // Initialize tracing
@@ -27,10 +30,19 @@ fn main() {
     // Create secure storage
     let storage = Arc::new(storage::SecureStorage::new());
     
+    // Create window state manager
+    let window_states = Arc::new(window_state::WindowStateManager::new());
+    
+    // Create app state
+    let app_state = AppState {
+        window_states: window_states.clone(),
+    };
+    
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(manager)
         .manage(storage)
+        .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             commands::connect,
             commands::disconnect,
@@ -59,6 +71,16 @@ fn main() {
             commands::list_connections,
             commands::delete_connection,
             commands::update_connection,
+            // Window-aware commands
+            commands::set_active_connection,
+            commands::get_active_connection,
+            commands::switch_to_connection_window,
+            commands::get_window_states,
+            commands::remove_window_connection,
+            // Enhanced storage commands with events
+            commands::store_connection_with_event,
+            commands::delete_connection_with_event,
+            commands::update_connection_with_event,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

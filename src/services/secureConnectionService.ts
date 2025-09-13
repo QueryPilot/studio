@@ -28,6 +28,16 @@ class SecureConnectionService {
   }
 
   /**
+   * Refresh connections cache from backend
+   */
+  async refreshCache(): Promise<void> {
+    if (isTauri()) {
+      this.connectionsCache.clear();
+      await this.getAllConnections(); // This will reload from backend
+    }
+  }
+
+  /**
    * Save a connection to secure storage
    */
   async saveConnection(connection: DatabaseConnection): Promise<void> {
@@ -73,6 +83,37 @@ class SecureConnectionService {
    * Get all connections from secure storage
    */
   async getAllConnections(): Promise<DatabaseConnection[]> {
+    // Load connections from backend if in Tauri and cache is empty
+    if (isTauri() && this.connectionsCache.size === 0) {
+      try {
+        const storedConnections = await safeInvoke<any[]>("list_connections", {});
+
+        if (storedConnections && Array.isArray(storedConnections)) {
+          // Convert backend connections to frontend format and populate cache
+          storedConnections.forEach(stored => {
+            const connection: DatabaseConnection = {
+              id: stored.profile.id,
+              name: stored.profile.name,
+              type: stored.profile.db_type.toLowerCase() as any,
+              host: stored.profile.host,
+              port: stored.profile.port,
+              database: stored.profile.database,
+              username: stored.profile.username,
+              password: stored.profile.password,
+              filepath: stored.profile.filepath,
+              createdAt: stored.metadata?.created_at ? new Date(stored.metadata.created_at) : new Date(),
+              updatedAt: stored.metadata?.last_used ? new Date(stored.metadata.last_used) : new Date(),
+              workspace: 'default',
+              order: 0,
+            };
+            this.connectionsCache.set(connection.id, connection);
+          });
+        }
+      } catch (error) {
+        console.error("Failed to load connections from backend:", error);
+      }
+    }
+
     // Return connections from in-memory cache
     return Array.from(this.connectionsCache.values());
   }
