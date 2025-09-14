@@ -148,9 +148,28 @@ class DatabaseService {
       // Map the local connection ID to the backend connection ID
       this.connectionIdMap.set(connectionId, backendResponse.id);
       this.startHealthMonitoring(connectionId);
+
+      // Emit successful connection health
+      const health: ConnectionHealth = {
+        connectionId,
+        status: "ready",
+        healthy: true,
+      };
+      this.notifyHealthListeners(connectionId, health);
+
       return response;
     } catch (error) {
       console.error("Failed to connect to database:", error);
+
+      // Emit error health status
+      const health: ConnectionHealth = {
+        connectionId,
+        status: "error",
+        healthy: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+      this.notifyHealthListeners(connectionId, health);
+
       throw error;
     }
   }
@@ -640,27 +659,29 @@ class DatabaseService {
     // Monitor health every 5 seconds
     const monitor = setInterval(async () => {
       const health = await this.getConnectionHealth(connectionId);
-
-      // Notify listeners
-      const listeners = this.healthListeners.get(connectionId) || [];
-      listeners.forEach((listener) => {
-        listener(health);
-      });
-
-      // Emit global event
-      await safeEmit(`connection-health-${connectionId}`, health);
+      this.notifyHealthListeners(connectionId, health);
     }, 5000);
 
     this.healthMonitors.set(connectionId, monitor);
 
     // Do immediate health check
     void this.getConnectionHealth(connectionId).then((health) => {
-      const listeners = this.healthListeners.get(connectionId) || [];
-      listeners.forEach((listener) => {
-        listener(health);
-      });
-      void safeEmit(`connection-health-${connectionId}`, health);
+      this.notifyHealthListeners(connectionId, health);
     });
+  }
+
+  /**
+   * Notify all health listeners for a connection
+   */
+  private notifyHealthListeners(
+    connectionId: string,
+    health: ConnectionHealth,
+  ): void {
+    const listeners = this.healthListeners.get(connectionId) || [];
+    listeners.forEach((listener) => {
+      listener(health);
+    });
+    void safeEmit(`connection-health-${connectionId}`, health);
   }
 
   /**
