@@ -122,9 +122,9 @@ const DraggableTab: React.FC<DraggableTabProps> = ({
         className={cn(
           "px-2 py-1 text-xs h-8 transition-colors flex items-center gap-1.5 cursor-move relative group",
           isActive && isFocused
-            ? "bg-primary/30 text-foreground font-medium z-10 sticky left-0 right-0 backdrop-blur-lg"
+            ? "bg-muted-foreground/15 text-foreground font-medium z-10 sticky left-0 right-0 backdrop-blur-md"
             : isActive
-            ? "bg-primary/10 z-10 sticky left-0 right-0 backdrop-blur-lg"
+            ? "bg-muted-foreground/10 z-10 sticky left-0 right-0 backdrop-blur-lg"
             : "hover:bg-muted/30",
           isDragging && "opacity-50",
         )}
@@ -394,7 +394,9 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
               >
                 <X className="mr-2 h-4 w-4 text-destructive" />
                 Close Panel
-                <DropdownMenuShortcut className="text-destructive">⌘⇧W</DropdownMenuShortcut>
+                <DropdownMenuShortcut className="text-destructive">
+                  ⌘⇧W
+                </DropdownMenuShortcut>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

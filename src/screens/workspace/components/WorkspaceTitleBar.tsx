@@ -53,6 +53,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useTheme } from "@/components/theme-provider";
+import { toast } from "@/hooks/use-toast";
 
 interface WorkspaceTitleBarProps {
   connectionId: string;
@@ -115,11 +116,29 @@ export function WorkspaceTitleBar({
 
   // Subscribe to connection health updates
   useEffect(() => {
+    let previousHealth: ConnectionHealth | null = null;
+
     const unsubscribe = databaseService.onHealthChange(
       connectionId,
       (health) => {
         setConnectionHealth(health);
         setIsConnecting(false);
+
+        // Show toast on error status change
+        if (health.status === "error" && previousHealth?.status !== "error") {
+          toast({
+            title: "Connection Failed",
+            description: health.error || "Unable to connect to the database. Please check your connection settings.",
+            variant: "destructive",
+          });
+        } else if (health.status === "ready" && previousHealth?.status === "error") {
+          toast({
+            title: "Connection Restored",
+            description: "Successfully reconnected to the database.",
+          });
+        }
+
+        previousHealth = health;
       },
     );
 
@@ -152,8 +171,17 @@ export function WorkspaceTitleBar({
       await databaseService.connectById(connectionId);
       // Emit event to refresh sidebar data
       await safeEmit("database-reconnected", { connectionId });
+      toast({
+        title: "Reconnection Successful",
+        description: "Successfully reconnected to the database.",
+      });
     } catch (error) {
       console.error("Failed to reconnect:", error);
+      toast({
+        title: "Reconnection Failed",
+        description: error instanceof Error ? error.message : "Failed to reconnect to the database.",
+        variant: "destructive",
+      });
     } finally {
       setIsConnecting(false);
     }
@@ -169,7 +197,7 @@ export function WorkspaceTitleBar({
       case "degraded":
         return "text-yellow-500";
       case "error":
-        return "text-red-500";
+        return "text-red-500 font-semibold";
       default:
         return "text-gray-500";
     }
@@ -189,7 +217,7 @@ export function WorkspaceTitleBar({
           ? `${connectionHealth.rttMs}ms`
           : "Degraded";
       case "error":
-        return "Error";
+        return "Connection Failed";
       default:
         return "Unknown";
     }
@@ -461,12 +489,13 @@ export function WorkspaceTitleBar({
         <div className="h-3 w-px bg-border" />
         <div
           className={cn(
-            "flex items-center gap-1.5 px-2 py-0.5 rounded-full",
+            "flex items-center gap-1.5 px-2 py-0.5 rounded-full transition-all",
             connectionHealth?.status === "ready" && "bg-green-500/10",
             connectionHealth?.status === "degraded" && "bg-yellow-500/10",
-            connectionHealth?.status === "error" && "bg-red-500/10",
+            connectionHealth?.status === "error" && "bg-red-500/20 border border-red-500/30 animate-pulse",
             (!connectionHealth || isConnecting) && "bg-gray-500/10",
           )}
+          title={connectionHealth?.error || "Connection status"}
         >
           {getStatusIcon()}
           <span className={cn("font-medium", getStatusColor())}>
@@ -481,7 +510,7 @@ export function WorkspaceTitleBar({
               variant="ghost"
               size="sm"
               onClick={handleReconnect}
-              className="h-5 px-2 text-xs gap-1"
+              className="h-5 px-2 text-xs gap-1 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/20"
             >
               <RotateCcw className="h-2.5 w-2.5" />
               Reconnect

@@ -21,6 +21,7 @@ export function WorkspaceScreen() {
   const { loadSchemas } = useSchemaStore();
   const { initialize: initializePanels } = usePanelStore();
   const [isLoading, setIsLoading] = useState(true);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [selectedDatabase, setSelectedDatabase] = useState("");
   const [selectedSchema, setSelectedSchema] = useState("");
 
@@ -35,11 +36,14 @@ export function WorkspaceScreen() {
       void databaseService
         .connectById(connectionId)
         .then(() => {
+          setConnectionError(null);
           // Load schemas after successful connection
           return loadSchemas(connectionId);
         })
         .catch((error) => {
           console.error("Failed to connect to database:", error);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          setConnectionError(errorMessage);
         })
         .finally(() => {
           setIsLoading(false);

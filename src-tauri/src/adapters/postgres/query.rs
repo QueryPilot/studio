@@ -89,11 +89,12 @@ impl PostgresQueryExecutor {
             let db_type_name = col.type_().name();
             
             // Check if this needs casting - including ALL custom types (enums, etc.)
-            let needs_cast = matches!(cell_type, 
-                CellValueType::Range(_) | 
+            let needs_cast = matches!(cell_type,
+                CellValueType::Range(_) |
                 CellValueType::Multirange(_) |
                 CellValueType::TsVector |
                 CellValueType::TsQuery |
+                CellValueType::Money |
                 CellValueType::CustomType(_));
             
             // Store the original column info for type hints
@@ -173,12 +174,13 @@ impl PostgresQueryExecutor {
                 .enumerate()
                 .map(|(idx, col)| {
                     // Check if this is a type that needs casting to text
-                    // This includes ranges, text search types, and ALL custom types (including enums)
-                    if matches!(col.data_type, 
-                        CellValueType::Range(_) | 
+                    // This includes ranges, text search types, money, and ALL custom types (including enums)
+                    if matches!(col.data_type,
+                        CellValueType::Range(_) |
                         CellValueType::Multirange(_) |
                         CellValueType::TsVector |
                         CellValueType::TsQuery |
+                        CellValueType::Money |
                         CellValueType::CustomType(_)) {
                         // Cast these types to text for proper display
                         // Use double quotes to handle special characters in column names
@@ -191,12 +193,13 @@ impl PostgresQueryExecutor {
                 .join(", ");
             
             // If we have columns that need casting, use custom SELECT list, otherwise use *
-            if portal.column_info.iter().any(|col| 
-                matches!(col.data_type, 
-                    CellValueType::Range(_) | 
+            if portal.column_info.iter().any(|col|
+                matches!(col.data_type,
+                    CellValueType::Range(_) |
                     CellValueType::Multirange(_) |
                     CellValueType::TsVector |
                     CellValueType::TsQuery |
+                    CellValueType::Money |
                     CellValueType::CustomType(_))) {
                 format!(
                     "SELECT {} FROM ({}) AS subquery LIMIT {} OFFSET {}",

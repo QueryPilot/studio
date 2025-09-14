@@ -380,6 +380,28 @@ impl PostgresTypeConverter {
                     return Ok(CellValue::null());
                 }
             }
+        } else if matches!(cell_type, CellValueType::Money) && matches!(*pg_type, Type::TEXT | Type::VARCHAR) {
+            // Money type cast to text
+            if let Ok(Some(val)) = row.try_get::<_, Option<String>>(idx) {
+                // Parse money to extract numeric value for raw_value
+                match PostgresTypeParser::parse_money(&val) {
+                    Ok(parsed) => {
+                        return Ok(CellValue {
+                            value_type: CellValueType::Money,
+                            raw_value: Some(parsed.to_string().into_bytes()),
+                            display_value: val,
+                            db_specific: Some(DbSpecificValue::PostgreSQL(PostgresValue {
+                                oid: 790, // MONEY type OID
+                                type_name: "money".to_string(),
+                                type_modifier: -1,
+                            })),
+                        });
+                    },
+                    Err(_) => val
+                }
+            } else {
+                return Ok(CellValue::null());
+            }
         } else if matches!(cell_type, CellValueType::Range(_) | CellValueType::Multirange(_))
             && matches!(*pg_type, Type::TEXT | Type::VARCHAR) {
             // Range types cast to text
@@ -777,9 +799,10 @@ impl PostgresTypeConverter {
                 }
             },
             
-            // Handle MONEY type with proper parsing
+            // Handle MONEY type - this should never be reached now as money is cast to text in query
             Type::MONEY => {
-                // Try to get as string first (Postgres may return formatted)
+                // This branch shouldn't be reached as MONEY is cast to text in query.rs
+                // But keep it for backward compatibility
                 if let Ok(Some(val)) = row.try_get::<_, Option<String>>(idx) {
                     // Parse money to extract numeric value
                     match PostgresTypeParser::parse_money(&val) {
@@ -797,9 +820,6 @@ impl PostgresTypeConverter {
                         },
                         Err(_) => val
                     }
-                } else if let Ok(Some(val)) = row.try_get::<_, Option<i64>>(idx) {
-                    // Convert cents to dollars if returned as i64
-                    format!("${:.2}", val as f64 / 100.0)
                 } else {
                     return Ok(CellValue::null());
                 }
