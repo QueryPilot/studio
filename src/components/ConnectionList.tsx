@@ -3,7 +3,7 @@ import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useNavigate } from "react-router-dom";
-import type { StoredConnection } from "@/types/connection";
+import type { ConnectionProfile, StoredConnection } from "@/types/connection";
 import { DbType } from "@/types/connection";
 import {
   Database,
@@ -113,34 +113,32 @@ function ConnectionItem({
               {connection.profile.database}
             </div>
             <div className="flex flex-wrap gap-1 mt-1 items-center">
-              {connection.metadata?.tags &&
-                connection.metadata.tags.length > 0 &&
-                connection.metadata.tags
-                  .filter((tag) =>
-                    ["local", "dev", "staging", "prod", "test"].includes(tag),
-                  )
-                  .map((tag) => {
-                    const tagColor =
-                      tag === "local"
-                        ? "bg-gray-500"
-                        : tag === "dev"
-                        ? "bg-blue-500"
-                        : tag === "staging"
-                        ? "bg-yellow-500"
-                        : tag === "prod"
-                        ? "bg-red-500"
-                        : "bg-green-500";
+              {connection.metadata.tags
+                .filter((tag) =>
+                  ["local", "dev", "staging", "prod", "test"].includes(tag),
+                )
+                .map((tag) => {
+                  const tagColor =
+                    tag === "local"
+                      ? "bg-gray-500"
+                      : tag === "dev"
+                      ? "bg-blue-500"
+                      : tag === "staging"
+                      ? "bg-yellow-500"
+                      : tag === "prod"
+                      ? "bg-red-500"
+                      : "bg-green-500";
 
-                    return (
-                      <Badge
-                        key={tag}
-                        variant="secondary"
-                        className={`text-xs px-1.5 py-0 h-4 ${tagColor} text-white`}
-                      >
-                        {tag}
-                      </Badge>
-                    );
-                  })}
+                  return (
+                    <Badge
+                      key={tag}
+                      variant="secondary"
+                      className={`text-xs px-1.5 py-0 h-4 ${tagColor} text-white`}
+                    >
+                      {tag}
+                    </Badge>
+                  );
+                })}
               <Badge
                 variant="secondary"
                 className={`text-[10px] px-1.5 py-0 h-4 font-medium border-0 ${colorClass}`}
@@ -316,7 +314,7 @@ export function ConnectionList({
     const envTags = ["local", "dev", "staging", "prod", "test"];
 
     filteredConnections.forEach((connection) => {
-      const tags = connection.metadata?.tags || [];
+      const tags = connection.metadata.tags;
 
       // Find the first non-environment tag to use as the group
       const groupTag = tags.find((tag) => !envTags.includes(tag));
@@ -377,7 +375,7 @@ export function ConnectionList({
 
   const handleConnectionClick = (connection: StoredConnection) => {
     setActiveConnectionId(connection.profile.id);
-    navigate(`/workspace/${connection.profile.id}`);
+    void navigate(`/workspace/${connection.profile.id}`);
   };
 
   const handleEdit = (connection: StoredConnection) => {
@@ -461,7 +459,7 @@ export function ConnectionList({
             {
               ...editingConnection.profile,
               metadata: editingConnection.metadata,
-            } as any
+            } as ConnectionProfile
           }
         />
       )}

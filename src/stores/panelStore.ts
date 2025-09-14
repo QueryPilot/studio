@@ -35,6 +35,8 @@ interface PanelStore {
   getPrimaryPanel: () => PanelState | undefined;
   getSecondaryPanel: () => PanelState | undefined;
   getPanel: (panelId: string) => PanelState | undefined;
+  getCurrentTab: () => TabState | undefined;
+  updateTabUI: (tabId: string, uiUpdates: Partial<TabState["ui"]>) => void;
 
   // Initialize
   initialize: (connectionId: string) => void;
@@ -334,6 +336,42 @@ export const usePanelStore = create<PanelStore>((set, get) => ({
 
   getPanel: (panelId) => {
     return get().panels.get(panelId);
+  },
+
+  getCurrentTab: () => {
+    const { panels, activePanelId } = get();
+    const activePanel = panels.get(activePanelId);
+    if (!activePanel || !activePanel.activeTabId) return undefined;
+    return activePanel.tabs.get(activePanel.activeTabId);
+  },
+
+  updateTabUI: (tabId, uiUpdates) => {
+    const { panels } = get();
+
+    // Find the panel containing this tab
+    for (const [panelId, panel] of panels) {
+      const tab = panel.tabs.get(tabId);
+      if (tab) {
+        const updatedTab = {
+          ...tab,
+          ui: { ...tab.ui, ...uiUpdates },
+          lastAccessedAt: new Date()
+        };
+
+        const newPanel = {
+          ...panel,
+          tabs: new Map(panel.tabs)
+        };
+        newPanel.tabs.set(tabId, updatedTab);
+
+        set((state) => {
+          const newPanels = new Map(state.panels);
+          newPanels.set(panelId, newPanel);
+          return { panels: newPanels };
+        });
+        break;
+      }
+    }
   },
 
   initialize: (connectionId) => {

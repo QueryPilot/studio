@@ -30,7 +30,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { toast } from "sonner";
-import type { DatabaseConnection } from "@/types/database";
+
 import { type ConnectionProfile, DbType, SslMode } from "@/types/connection";
 import {
   Popover,
@@ -49,7 +49,7 @@ import {
 interface ConnectionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  connection?: DatabaseConnection;
+  connection?: ConnectionProfile;
   onConnect?: (connectionId: string) => void;
 }
 
@@ -121,7 +121,7 @@ export function ConnectionDialog({
         return dbTypeMap[connection.db_type] || "postgresql";
       }
       // Otherwise it's a DatabaseConnection (has type field)
-      const type = connection.type?.toLowerCase();
+      const type = connection.type.toLowerCase();
       if (type === "mariadb") return "mysql";
       if (type && ["postgresql", "mysql", "sqlite", "mssql"].includes(type)) {
         return type as DatabaseType;
@@ -159,7 +159,7 @@ export function ConnectionDialog({
   const [useSSH, setUseSSH] = useState(!!connection?.ssh_tunnel);
   const [sshHost, setSshHost] = useState(connection?.ssh_tunnel?.host || "");
   const [sshPort, setSshPort] = useState(
-    connection?.ssh_tunnel?.port?.toString() || "22",
+    connection?.ssh_tunnel?.port.toString() || "22",
   );
   const [sshUser, setSshUser] = useState(connection?.ssh_tunnel?.user || "");
   const [sshPassword, setSshPassword] = useState(
@@ -690,7 +690,7 @@ export function ConnectionDialog({
       console.log("Profile:", JSON.stringify(profile, null, 2));
 
       try {
-        if (isEditMode && connection?.id) {
+        if (isEditMode && connection.id) {
           // Use the raw invoke to pass tags directly
           const { invoke } = await import("@tauri-apps/api/core");
           console.log(

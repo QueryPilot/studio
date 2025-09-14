@@ -131,7 +131,7 @@ export function MainScreen() {
         {/* Left Panel - 1/3 width */}
         <div
           className="w-1/3 max-w-[380px] flex-shrink-0 bg-muted/40 flex flex-col select-none"
-          onContextMenu={(e) => e.preventDefault()}
+          onContextMenu={(e) => { e.preventDefault(); }}
         >
           <div className="flex-1 flex flex-col items-center justify-center px-6 py-4">
             {/* Logo */}

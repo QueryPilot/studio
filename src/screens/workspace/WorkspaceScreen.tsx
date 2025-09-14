@@ -14,12 +14,14 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from "@/components/ui/resizable";
+import { CommandPalette, useCommandPalette } from "@/components/CommandPalette";
 
 export function WorkspaceScreen() {
   const { connectionId } = useParams<{ connectionId: string }>();
   const { sidebars, toggleSidebar, initWorkspace } = useWorkspaceScreenStore();
   const { loadSchemas } = useSchemaStore();
   const { initialize: initializePanels } = usePanelStore();
+  const commandPalette = useCommandPalette();
   const [isLoading, setIsLoading] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [selectedDatabase, setSelectedDatabase] = useState("");
@@ -149,6 +151,13 @@ export function WorkspaceScreen() {
           </>
         )}
       </ResizablePanelGroup>
+
+      {/* Command Palette */}
+      <CommandPalette
+        open={commandPalette.isOpen}
+        onOpenChange={commandPalette.setOpen}
+        initialMode={commandPalette.mode}
+      />
     </div>
   );
 }
