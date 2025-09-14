@@ -20,6 +20,7 @@ import {
   DataGridErrorState,
   DataGridEmptyState,
 } from "../components/DataGridStates";
+import { usePanelStore } from "@/stores/panelStore";
 
 export const GlideTableDataGrid = memo(function GlideTableDataGrid({
   connectionId,
@@ -30,6 +31,10 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
 }: GlideTableDataGridProps) {
   const [visibleRange, setVisibleRange] = useState({ start: 0, end: 100 });
   const [selectedRowCount, setSelectedRowCount] = useState(0);
+
+  // Get current tab and panel store
+  const { getCurrentTab, updateTabUI } = usePanelStore();
+  const currentTab = getCurrentTab();
 
   // Fetch table data using existing hook
   const {
@@ -48,18 +53,30 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
     schema,
   });
 
-  // Track column widths
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  // Use tab-specific column state from store
+  const columnWidths = currentTab?.ui.columnWidths || {};
+  const tabColumnOrder = currentTab?.ui.columnOrder || [];
 
-  // Track column order
-  const [columnOrder, setColumnOrder] = useState<number[]>([]);
-  
-  // Initialize column order when columns change
-  useEffect(() => {
-    if (tableColumns && tableColumns.length > 0 && columnOrder.length === 0) {
-      setColumnOrder(tableColumns.map((_, index) => index));
+  // Initialize column order when columns change or tab changes
+  const columnOrder = useMemo(() => {
+    if (!tableColumns || tableColumns.length === 0) return [];
+
+    // If tab has saved order and matches column count, use it
+    if (tabColumnOrder.length === tableColumns.length) {
+      return tabColumnOrder.map(name =>
+        tableColumns.findIndex(col => col.name === name)
+      ).filter(idx => idx !== -1);
     }
-  }, [tableColumns, columnOrder.length]);
+
+    // Otherwise use default order and save it
+    const defaultOrder = tableColumns.map((_, index) => index);
+    if (currentTab) {
+      updateTabUI(currentTab.id, {
+        columnOrder: tableColumns.map(col => col.name)
+      });
+    }
+    return defaultOrder;
+  }, [tableColumns, tabColumnOrder, currentTab, updateTabUI]);
 
   // Convert columns to Glide format with reordering
   const columns = useMemo<DataGridColumn[]>(() => {
@@ -185,49 +202,57 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
   // Handle column resize
   const handleColumnResize = useCallback(
     (_column: GridColumn, newSize: number, colIndex: number) => {
-      if (columns[colIndex]?.id) {
+      if (columns[colIndex]?.id && currentTab) {
         const colId = columns[colIndex].id;
-        setColumnWidths((prev) => ({
-          ...prev,
-          [colId]: newSize,
-        }));
+        updateTabUI(currentTab.id, {
+          columnWidths: {
+            ...columnWidths,
+            [colId]: newSize,
+          }
+        });
       }
     },
-    [columns],
+    [columns, currentTab, updateTabUI, columnWidths],
   );
 
   // Handle column move (drag and drop)
   const handleColumnMoved = useCallback(
     (startIndex: number, endIndex: number) => {
-      if (startIndex === endIndex) return;
+      if (startIndex === endIndex || !currentTab || !tableColumns) return;
 
-      setColumnOrder((prev) => {
-        const newOrder = [...prev];
-        const [movedColumn] = newOrder.splice(startIndex, 1);
-        newOrder.splice(endIndex, 0, movedColumn);
-        return newOrder;
+      const newOrder = [...columnOrder];
+      const [movedColumn] = newOrder.splice(startIndex, 1);
+      newOrder.splice(endIndex, 0, movedColumn);
+
+      // Convert indices back to column names
+      const newColumnOrder = newOrder.map(idx => tableColumns[idx]?.name).filter(Boolean);
+
+      updateTabUI(currentTab.id, {
+        columnOrder: newColumnOrder
       });
     },
-    [],
+    [columnOrder, currentTab, updateTabUI, tableColumns],
   );
 
   // Handle column resize end (double-click to auto-size)
   const handleColumnResizeEnd = useCallback(
     (_column: GridColumn, newSize: number, colIndex: number) => {
       // Check if this is a double-click (size is -1 indicates auto-size request)
-      if (newSize < 0) {
+      if (newSize < 0 && currentTab) {
         const optimalWidth = calculateOptimalWidth(colIndex);
         if (columns[colIndex]?.id) {
           const colId = columns[colIndex].id;
-          setColumnWidths((prev) => ({
-            ...prev,
-            [colId]: optimalWidth,
-          }));
+          updateTabUI(currentTab.id, {
+            columnWidths: {
+              ...columnWidths,
+              [colId]: optimalWidth,
+            }
+          });
         }
       }
       // For normal resize end, the width is already set by handleColumnResize
     },
-    [columns, calculateOptimalWidth],
+    [columns, calculateOptimalWidth, currentTab, updateTabUI, columnWidths],
   );
 
   // Get raw cell value for popup

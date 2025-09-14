@@ -1,3 +1,4 @@
+import React from 'react';
 import { KeyboardManager } from '../KeyboardManager';
 import type { ViewContext } from '../types';
 
@@ -87,29 +88,33 @@ function deriveViewContext(panelId: string): ViewContext {
 export function useSyncConnectionState(connectionId?: string): void {
   const manager = KeyboardManager.getInstance();
 
-  // Update connection state in keyboard context
-  if (connectionId) {
-    manager.updateContext({
-      isConnected: true,
-      // Other connection-related state can be added here
-    });
-  } else {
-    manager.updateContext({
-      isConnected: false,
-      queryRunning: false,
-      hasResults: false,
-    });
-  }
+  React.useEffect(() => {
+    // Update connection state in keyboard context
+    if (connectionId) {
+      manager.updateContext({
+        isConnected: true,
+        // Other connection-related state can be added here
+      });
+    } else {
+      manager.updateContext({
+        isConnected: false,
+        queryRunning: false,
+        hasResults: false,
+      });
+    }
+  }, [manager, connectionId]);
 }
 
 // Hook to sync query execution state
 export function useSyncQueryState(isExecuting: boolean, hasResults: boolean): void {
   const manager = KeyboardManager.getInstance();
 
-  manager.updateContext({
-    queryRunning: isExecuting,
-    hasResults,
-  });
+  React.useEffect(() => {
+    manager.updateContext({
+      queryRunning: isExecuting,
+      hasResults,
+    });
+  }, [manager, isExecuting, hasResults]);
 }
 
 // Hook to sync editor state
@@ -120,20 +125,25 @@ export function useSyncEditorState(
 ): void {
   const manager = KeyboardManager.getInstance();
 
-  manager.updateContext({
-    hasSelection,
-    isDirty,
-    isEditing,
-  });
+  React.useEffect(() => {
+    manager.updateContext({
+      hasSelection,
+      isDirty,
+      isEditing,
+    });
+  }, [manager, hasSelection, isDirty, isEditing]);
 }
 
 // Hook to sync workbench state
 export function useSyncWorkbenchState(hasFocusedPanel: boolean, _panelCount: number): void {
   const manager = KeyboardManager.getInstance();
 
-  manager.updateContext({
-    focusedPanel: hasFocusedPanel,
-    // Add more workbench-specific state as needed
-    // panelCount could be used for context like 'multiplePanel' when: 'panelCount > 1'
-  });
+  // Use useEffect to avoid setState during render
+  React.useEffect(() => {
+    manager.updateContext({
+      focusedPanel: hasFocusedPanel,
+      // Add more workbench-specific state as needed
+      // panelCount could be used for context like 'multiplePanel' when: 'panelCount > 1'
+    });
+  }, [manager, hasFocusedPanel, _panelCount]);
 }
