@@ -1,6 +1,6 @@
-export type CodeEditorLanguage = 'sql' | 'json' | 'text';
-export type SqlDialect = 'postgresql' | 'mysql' | 'sqlite';
-export type EditorTheme = 'light' | 'dark' | 'auto';
+export type CodeEditorLanguage = "sql" | "json" | "text";
+export type SqlDialect = "postgresql" | "mysql" | "sqlite";
+export type EditorTheme = "light" | "dark" | "auto";
 
 export interface CodeEditorProps {
   value: string;
@@ -8,6 +8,9 @@ export interface CodeEditorProps {
   onExecute?: () => void;
   language?: CodeEditorLanguage;
   dialect?: SqlDialect;
+  connectionId?: string;
+  database?: string;
+  schema?: string;
   readOnly?: boolean;
   height?: string;
   theme?: EditorTheme;

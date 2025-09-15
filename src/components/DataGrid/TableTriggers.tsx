@@ -80,31 +80,31 @@ export const TableTriggers = memo(function TableTriggers({
 
   return (
     <div className="h-full overflow-auto">
-      <table className="min-w-full">
-        <thead className="sticky top-0 z-10 bg-muted border-b">
+      <table className="min-w-full border-separate border-spacing-0">
+        <thead className="sticky top-0 z-10 bg-muted">
           <tr className="text-xs" style={{ height: "28px" }}>
-            <th className="text-left px-2 py-1 w-10 border-r font-normal text-foreground/70">
+            <th className="text-left px-2 py-1 w-10 border-r border-b border-border font-semibold text-foreground/80">
               #
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
+            <th className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80">
               Trigger Name
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
+            <th className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80">
               Event
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
+            <th className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80">
               Timing
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
+            <th className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80">
               Level
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
+            <th className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80">
               Status
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
+            <th className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80">
               Function
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
+            <th className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80">
               Condition
             </th>
           </tr>
@@ -119,17 +119,17 @@ export const TableTriggers = memo(function TableTriggers({
               )}
               style={{ height: "28px" }}
             >
-              <td className="px-1.5 py-0.5 border-r text-muted-foreground">
+              <td className="px-1.5 py-0.5 border-b border-r text-muted-foreground">
                 {i + 1}
               </td>
-              <td className="px-1.5 py-0.5 border-r font-medium text-foreground/80 dark:text-foreground/70 whitespace-nowrap">
+              <td className="px-1.5 py-0.5 border-b border-r font-medium text-foreground/80 dark:text-foreground/70 whitespace-nowrap">
                 <span
                   className={!trigger.enabled ? "line-through opacity-60" : ""}
                 >
                   {trigger.name}
                 </span>
               </td>
-              <td className="px-1.5 py-0.5 border-r whitespace-nowrap text-foreground/90 dark:text-foreground/70">
+              <td className="px-1.5 py-0.5 border-b border-r whitespace-nowrap text-foreground/90 dark:text-foreground/70">
                 <span
                   className={cn(
                     "inline-flex px-1.5 py-0 rounded text-xs ",
@@ -146,7 +146,7 @@ export const TableTriggers = memo(function TableTriggers({
                   {trigger.event}
                 </span>
               </td>
-              <td className="px-1.5 py-0.5 border-r text-foreground/80 dark:text-foreground/65 whitespace-nowrap">
+              <td className="px-1.5 py-0.5 border-b border-r text-foreground/80 dark:text-foreground/65 whitespace-nowrap">
                 <div className="flex items-center gap-1">
                   <span className="text-xs">{trigger.timing}</span>
                   {trigger.timing === "BEFORE" && (
@@ -154,10 +154,10 @@ export const TableTriggers = memo(function TableTriggers({
                   )}
                 </div>
               </td>
-              <td className="px-1.5 py-0.5 border-r text-foreground/80 dark:text-foreground/65 text-xs whitespace-nowrap">
+              <td className="px-1.5 py-0.5 border-b border-r text-foreground/80 dark:text-foreground/65 text-xs whitespace-nowrap">
                 {trigger.level}
               </td>
-              <td className="px-1.5 py-0.5 border-r whitespace-nowrap">
+              <td className="px-1.5 py-0.5 border-b border-r whitespace-nowrap">
                 <div className="flex items-center gap-1">
                   <span
                     className={cn(
@@ -176,10 +176,10 @@ export const TableTriggers = memo(function TableTriggers({
                   )}
                 </div>
               </td>
-              <td className="px-1.5 py-0.5 border-r text-foreground/70 dark:text-foreground/60 text-xs whitespace-nowrap">
+              <td className="px-1.5 py-0.5 border-b border-r text-foreground/70 dark:text-foreground/60 text-xs whitespace-nowrap">
                 {trigger.function}
               </td>
-              <td className="px-1.5 py-0.5 border-r text-foreground/60 dark:text-foreground/50 text-xs italic whitespace-nowrap">
+              <td className="px-1.5 py-0.5 border-b border-r text-foreground/60 dark:text-foreground/50 text-xs italic whitespace-nowrap">
                 {trigger.condition || "-"}
               </td>
             </tr>

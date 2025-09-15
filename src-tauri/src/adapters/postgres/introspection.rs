@@ -251,32 +251,69 @@ impl PostgresIntrospector {
     }
 
     pub async fn get_index_usage_stats(&self, table: &str) -> Result<Vec<IndexUsageStats>> {
-        let sql = r#"
-            SELECT
-                s.indexrelname AS index_name,
-                s.idx_scan AS scan_count,
-                s.idx_tup_read AS rows_read,
-                s.idx_tup_fetch AS rows_returned,
-                pg_size_pretty(pg_relation_size(s.indexrelid)) AS size_pretty,
-                pg_relation_size(s.indexrelid) AS size_bytes,
-                CASE
-                    WHEN s.idx_scan = 0 THEN true
-                    ELSE false
-                END AS is_unused,
-                CASE
-                    WHEN io.idx_blks_read + io.idx_blks_hit = 0 THEN NULL
-                    ELSE (io.idx_blks_hit::float / (io.idx_blks_read + io.idx_blks_hit)) * 100
-                END AS cache_hit_ratio
-            FROM
-                pg_stat_all_indexes s
-                LEFT JOIN pg_statio_all_indexes io
-                    ON s.indexrelid = io.indexrelid
-            WHERE
-                s.relname = $1
-                AND s.schemaname NOT IN ('pg_catalog', 'information_schema')
-            ORDER BY
-                s.idx_scan DESC
-        "#;
+        // First check PostgreSQL version to see if last_idx_scan is available (PG 16+)
+        let version_sql = "SELECT current_setting('server_version_num')::int";
+        let version_row = self.client.query_one(version_sql, &[]).await?;
+        let version_num: i32 = version_row.get(0);
+        let has_last_idx_scan = version_num >= 160000; // PostgreSQL 16.0+
+
+        let sql = if has_last_idx_scan {
+            r#"
+                SELECT
+                    s.indexrelname AS index_name,
+                    s.idx_scan AS scan_count,
+                    s.idx_tup_read AS rows_read,
+                    s.idx_tup_fetch AS rows_returned,
+                    pg_size_pretty(pg_relation_size(s.indexrelid)) AS size_pretty,
+                    pg_relation_size(s.indexrelid) AS size_bytes,
+                    CASE
+                        WHEN s.idx_scan = 0 THEN true
+                        ELSE false
+                    END AS is_unused,
+                    CASE
+                        WHEN io.idx_blks_read + io.idx_blks_hit = 0 THEN NULL
+                        ELSE (io.idx_blks_hit::float / (io.idx_blks_read + io.idx_blks_hit)) * 100
+                    END AS cache_hit_ratio,
+                    s.last_idx_scan AT TIME ZONE 'UTC' AS last_idx_scan
+                FROM
+                    pg_stat_all_indexes s
+                    LEFT JOIN pg_statio_all_indexes io
+                        ON s.indexrelid = io.indexrelid
+                WHERE
+                    s.relname = $1
+                    AND s.schemaname NOT IN ('pg_catalog', 'information_schema')
+                ORDER BY
+                    s.idx_scan DESC
+            "#
+        } else {
+            r#"
+                SELECT
+                    s.indexrelname AS index_name,
+                    s.idx_scan AS scan_count,
+                    s.idx_tup_read AS rows_read,
+                    s.idx_tup_fetch AS rows_returned,
+                    pg_size_pretty(pg_relation_size(s.indexrelid)) AS size_pretty,
+                    pg_relation_size(s.indexrelid) AS size_bytes,
+                    CASE
+                        WHEN s.idx_scan = 0 THEN true
+                        ELSE false
+                    END AS is_unused,
+                    CASE
+                        WHEN io.idx_blks_read + io.idx_blks_hit = 0 THEN NULL
+                        ELSE (io.idx_blks_hit::float / (io.idx_blks_read + io.idx_blks_hit)) * 100
+                    END AS cache_hit_ratio,
+                    NULL::timestamp AS last_idx_scan
+                FROM
+                    pg_stat_all_indexes s
+                    LEFT JOIN pg_statio_all_indexes io
+                        ON s.indexrelid = io.indexrelid
+                WHERE
+                    s.relname = $1
+                    AND s.schemaname NOT IN ('pg_catalog', 'information_schema')
+                ORDER BY
+                    s.idx_scan DESC
+            "#
+        };
 
         let rows = self.client.query(sql, &[&table]).await?;
 
@@ -303,12 +340,20 @@ impl PostgresIntrospector {
                 _ => None,
             };
 
+            let last_used = if has_last_idx_scan {
+                row.get::<_, Option<chrono::NaiveDateTime>>(8)
+                    .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S.%fZ").to_string())
+            } else {
+                None
+            };
+
             IndexUsageStats {
                 index_name: row.get(0),
                 scan_count: row.get(1),
                 rows_read: row.get(2),
                 rows_returned: row.get(3),
-                last_accessed: None, // PostgreSQL doesn't track this directly
+                last_accessed: None, // Legacy field, kept for compatibility
+                last_used, // New field for PG16+ last_idx_scan
                 cache_hit_ratio: row.get(7),
                 size_pretty: row.get(4),
                 size_bytes: row.get(5),

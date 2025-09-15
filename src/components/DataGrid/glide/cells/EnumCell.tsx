@@ -84,14 +84,14 @@ export const EnumCell: CustomRenderer<EnumCustomCell> = {
       }
     }
 
-    // dropdown glyph
-    ctx.fillStyle = theme.textLight as string;
-    const gx = rect.x + rect.width - 14;
-    const gy = rect.y + rect.height / 2;
+    // dropdown glyph (lucide-like chevron)
+    ctx.fillStyle = theme.textDark as string;
+    const gx = rect.x + rect.width - 12;
+    const gy = rect.y + rect.height / 2 + 0.5;
     ctx.beginPath();
     ctx.moveTo(gx - 4, gy - 2);
-    ctx.lineTo(gx + 4, gy - 2);
     ctx.lineTo(gx, gy + 2);
+    ctx.lineTo(gx + 4, gy - 2);
     ctx.closePath();
     ctx.fill();
     return true;

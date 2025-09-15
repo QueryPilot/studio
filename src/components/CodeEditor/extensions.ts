@@ -23,6 +23,8 @@ import {
   search,
 } from "@codemirror/search";
 import type { SqlDialect, CodeEditorLanguage } from "./types";
+import { createSqlAutocomplete } from "./autocomplete";
+import { createSmartTriggers } from "./autocomplete/triggers";
 
 // Enhanced SQL folding service using syntax tree for better nested support
 const sqlFoldService = foldService.of((state, from) => {
@@ -118,7 +120,6 @@ const sqlFoldService = foldService.of((state, from) => {
   if (
     lineTextUpper === "LOOP" ||
     lineTextUpper.startsWith("FOR ") ||
-    lineTextUpper.startsWith("FOREACH ") ||
     lineTextUpper.startsWith("WHILE ")
   ) {
     const endPos = findBlockEnd(line.number, "LOOP", ["END LOOP"]);
@@ -200,6 +201,12 @@ const sqlFoldService = foldService.of((state, from) => {
   return null;
 });
 
+// Helper to get active connection id without using any
+function getActiveConnectionId(): string {
+  const w = window as unknown as { __activeConnectionId?: string };
+  return w.__activeConnectionId ?? "default";
+}
+
 // Map our dialect types to CodeMirror SQL dialects
 const getDialect = (dialect?: SqlDialect) => {
   switch (dialect) {
@@ -256,6 +263,7 @@ export const getEditorExtensions = (
   readOnly = false,
   showLineNumbers = true,
   onExecute?: () => void,
+  connectionId?: string,
 ): Extension[] => {
   const extensions: Extension[] = [
     // Basic setup
@@ -279,7 +287,7 @@ export const getEditorExtensions = (
       literal: false,
       regexp: false,
       wholeWord: false,
-      createPanel: (view) => {
+      createPanel: (_view) => {
         const dom = document.createElement("div");
         dom.className = "cm-search-panel";
         return { dom, top: true };
@@ -373,7 +381,7 @@ export const getEditorExtensions = (
   if (readOnly) {
     extensions.push(
       EditorView.editable.of(false),
-      EditorView.contentAttributes.of({ tabindex: "0" }) // Allow focus and selection
+      EditorView.contentAttributes.of({ tabindex: "0" }), // Allow focus and selection
     );
   }
 
@@ -386,6 +394,16 @@ export const getEditorExtensions = (
       },
     }),
   );
+
+  if (language === "sql") {
+    extensions.push(createSmartTriggers());
+    extensions.push(
+      createSqlAutocomplete({
+        connectionId: connectionId || getActiveConnectionId(),
+        dialect: dialect || "postgresql",
+      }),
+    );
+  }
 
   return extensions;
 };

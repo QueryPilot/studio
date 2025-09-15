@@ -1,5 +1,8 @@
 # Index Usage Statistics Implementation Specification
 
+**Status**: ✅ Implemented for PostgreSQL
+**Last Updated**: 2025-09-15
+
 ## Overview
 Add comprehensive index usage statistics to the database indexes view, providing insights into index performance and utilization across PostgreSQL, MySQL, SQL Server, and SQLite databases.
 
@@ -21,6 +24,7 @@ pub struct IndexUsageStats {
     pub rows_read: Option<i64>,
     pub rows_returned: Option<i64>,
     pub last_accessed: Option<String>,
+    pub last_used: Option<String>, // ISO timestamp of last index scan (PG16+)
     pub cache_hit_ratio: Option<f64>,
     pub size_bytes: Option<i64>,
     pub size_pretty: Option<String>,
@@ -32,16 +36,17 @@ pub struct IndexUsageStats {
 #### Frontend (TypeScript)
 ```typescript
 interface IndexUsageStats {
-  indexName: string;
-  scanCount?: number;
-  rowsRead?: number;
-  rowsReturned?: number;
-  lastAccessed?: string;
-  cacheHitRatio?: number;
-  sizeBytes?: number;
-  sizePretty?: string;
-  isUnused: boolean;
-  efficiencyScore?: number; // 0-100
+  index_name: string;
+  scan_count?: number;
+  rows_read?: number;
+  rows_returned?: number;
+  last_accessed?: string;
+  last_used?: string; // ISO timestamp of last index scan (PG16+)
+  cache_hit_ratio?: number;
+  size_bytes?: number;
+  size_pretty?: string;
+  is_unused: boolean;
+  efficiency_score?: number; // 0-100
 }
 
 interface TableIndex {
@@ -60,11 +65,15 @@ interface TableIndex {
 
 ### PostgreSQL
 **Full Support** - Comprehensive statistics available
+**PostgreSQL 16+** - Additional `last_idx_scan` timestamp support
 
 ```sql
--- Main usage statistics
+-- Version detection for PG16+ features
+SELECT current_setting('server_version_num')::int;
+
+-- Main usage statistics (PG16+)
 SELECT
-    i.indexrelname AS index_name,
+    s.indexrelname AS index_name,
     s.idx_scan AS scan_count,
     s.idx_tup_read AS rows_read,
     s.idx_tup_fetch AS rows_returned,
@@ -74,18 +83,19 @@ SELECT
         WHEN s.idx_scan = 0 THEN true
         ELSE false
     END AS is_unused,
-    -- Cache hit ratio from pg_statio_user_indexes
+    -- Cache hit ratio from pg_statio_all_indexes
     CASE
         WHEN io.idx_blks_read + io.idx_blks_hit = 0 THEN NULL
         ELSE (io.idx_blks_hit::float / (io.idx_blks_read + io.idx_blks_hit)) * 100
-    END AS cache_hit_ratio
+    END AS cache_hit_ratio,
+    s.last_idx_scan AT TIME ZONE 'UTC' AS last_idx_scan -- PG16+ only
 FROM
-    pg_stat_user_indexes s
-    LEFT JOIN pg_statio_user_indexes io
+    pg_stat_all_indexes s
+    LEFT JOIN pg_statio_all_indexes io
         ON s.indexrelid = io.indexrelid
 WHERE
-    s.schemaname = $1
-    AND s.tablename = $2
+    s.relname = $1
+    AND s.schemaname NOT IN ('pg_catalog', 'information_schema')
 ORDER BY
     s.idx_scan DESC;
 ```
@@ -225,19 +235,21 @@ if (supportsUsageStats(connectionType)) {
 ### Visual Indicators
 ```typescript
 const getUsageIndicator = (stats?: IndexUsageStats) => {
-    if (!stats) return { color: 'gray', icon: '⚪', label: 'N/A' };
+    if (!stats) return { color: 'gray', label: '-' };
 
-    if (stats.isUnused) {
-        return { color: 'red', icon: '🔴', label: 'Unused' };
+    if (stats.is_unused) {
+        return { color: 'red', label: 'Unused' };
     }
 
-    if (stats.scanCount < 100) {
-        return { color: 'yellow', icon: '🟡', label: 'Low usage' };
+    if (stats.scan_count && stats.scan_count < 100) {
+        return { color: 'yellow', label: stats.scan_count.toLocaleString() };
     }
 
-    return { color: 'green', icon: '🟢', label: 'Active' };
+    return { color: 'green', label: stats.scan_count?.toLocaleString() || 'Active' };
 };
 ```
+
+**Note**: Icons removed per UI feedback - clean text-only indicators preferred.
 
 ### Table Display
 ```
@@ -250,44 +262,54 @@ const getUsageIndicator = (stats?: IndexUsageStats) => {
 └──────────────┴─────────┴────────┴────────┴───────────┴────────┴─────────────┘
 ```
 
-### Tooltip Details
-```html
-<Tooltip>
-    <div>
-        <strong>Index Usage Statistics</strong>
-        <div>Scans: {stats.scanCount}</div>
-        <div>Rows Read: {stats.rowsRead}</div>
-        <div>Cache Hit: {stats.cacheHitRatio}%</div>
-        <div>Last Used: {stats.lastAccessed || 'Never'}</div>
-        <div>Size: {stats.sizePretty}</div>
+### Hover Card Details (using shadcn/ui HoverCard)
+```tsx
+<HoverCard openDelay={200}>
+  <HoverCardTrigger>
+    <span className={colorClass}>{displayValue}</span>
+  </HoverCardTrigger>
+  <HoverCardContent side="top" align="end">
+    <div className="space-y-1.5">
+      <div className="font-semibold">Index Usage Statistics</div>
+      <div>Scans: {stats.scan_count?.toLocaleString()}</div>
+      {stats.last_used && (
+        <div>Last Used: {formatRelativeTime(stats.last_used)}</div>
+      )}
+      <div>Rows Read: {stats.rows_read?.toLocaleString()}</div>
+      <div>Cache Hit: {stats.cache_hit_ratio?.toFixed(1)}%</div>
+      <div>Efficiency: {stats.efficiency_score}/100</div>
     </div>
-</Tooltip>
+  </HoverCardContent>
+</HoverCard>
 ```
+
+**Last Used Format**: Shows relative time (e.g., "3h ago", "2d ago", "1w ago")
 
 ## Implementation Steps
 
 ### Phase 1: Backend Foundation
 1. ✅ Define IndexUsageStats struct in Rust
 2. ✅ Add trait method to database adapter interface
-3. ✅ Implement PostgreSQL adapter method
-4. ⬜ Add Tauri command `get_index_usage_stats`
+3. ✅ Implement PostgreSQL adapter method with version detection
+4. ✅ Add Tauri command `get_index_usage_stats`
 
 ### Phase 2: Frontend Integration
-5. ⬜ Update TypeScript interfaces
-6. ⬜ Modify TableIndexes component
-7. ⬜ Add visual indicators and tooltips
-8. ⬜ Implement caching layer
+5. ✅ Update TypeScript interfaces
+6. ✅ Modify TableIndexes component
+7. ✅ Add visual indicators and HoverCard tooltips
+8. ✅ Implement non-blocking progressive loading
+9. ✅ Add empty state when no indexes exist
 
 ### Phase 3: Additional Databases
-9. ⬜ Implement MySQL adapter
-10. ⬜ Implement SQL Server adapter
-11. ⬜ Add SQLite stub with capability flag
+10. ⬜ Implement MySQL adapter
+11. ⬜ Implement SQL Server adapter
+12. ⬜ Add SQLite stub with capability flag
 
 ### Phase 4: Polish
-12. ⬜ Add refresh button
-13. ⬜ Implement efficiency scoring algorithm
-14. ⬜ Add sorting by usage
-15. ⬜ Export usage report feature
+13. ⬜ Add refresh button
+14. ✅ Implement efficiency scoring algorithm
+15. ⬜ Add sorting by usage
+16. ⬜ Export usage report feature
 
 ## Error Handling
 
@@ -334,9 +356,35 @@ WHERE VARIABLE_NAME = 'performance_schema';
 - Correct identification of unused indexes
 - No UI blocking during stats loading
 
+## Implementation Notes & Learnings
+
+### Key Implementation Details
+
+1. **Connection ID Mapping**: Frontend must use `databaseService.getIndexUsageStats()` which properly maps frontend connection IDs to backend connection IDs. Direct `BackendAPI` calls will fail due to ID mismatch.
+
+2. **PostgreSQL Version Detection**: The implementation checks `server_version_num` to determine if `last_idx_scan` column is available (PG16+). Falls back gracefully for older versions.
+
+3. **Progressive Loading**: Statistics are loaded asynchronously after the main index data to prevent UI blocking. The table remains responsive while stats load in the background.
+
+4. **Empty State Handling**: When a table has no indexes, a centered message with appropriate icon is displayed while maintaining the table header structure.
+
+5. **Statistics Interpretation**:
+   - **Scan Count**: Total number of times the index was used
+   - **Rows Read**: Total index entries read across all scans (can be much higher than scan count)
+   - **Efficiency Score**: Calculated based on scan frequency and read ratio
+
+### UI/UX Decisions
+
+- **No emoji indicators**: Clean text-only status indicators for professional appearance
+- **HoverCard instead of Popover**: Shows on hover (200ms delay) rather than click
+- **Relative time display**: "3h ago" format is more intuitive than timestamps
+- **Color coding**: Red (unused), Yellow (<100 scans), Green (active)
+
 ## Future Enhancements
-- Historical usage tracking
-- Index recommendation engine
+- Historical usage tracking with time-series data
+- Index recommendation engine based on query patterns
 - Automated unused index cleanup suggestions
-- Usage pattern analysis (time-based)
+- Usage pattern analysis (time-based, workload-specific)
 - Index fragmentation statistics
+- Cost/benefit analysis for index maintenance
+- Multi-database comparison reports

@@ -1,27 +1,31 @@
-import { useEffect, useRef, useMemo } from 'react';
-import CodeMirror from '@uiw/react-codemirror';
-import { EditorView } from '@codemirror/view';
-import { vscodeDark } from '@uiw/codemirror-theme-vscode';
-import { githubLight } from '@uiw/codemirror-theme-github';
-import { useTheme } from '@/components/theme-provider';
-import { foldGutterTheme } from './themes';
-import { getEditorExtensions } from './extensions';
-import type { CodeEditorProps } from './types';
+import { useEffect, useRef, useMemo } from "react";
+import CodeMirror from "@uiw/react-codemirror";
+import { EditorView } from "@codemirror/view";
+// Autocomplete and triggers are provided via getEditorExtensions
+import { vscodeDark } from "@uiw/codemirror-theme-vscode";
+import { githubLight } from "@uiw/codemirror-theme-github";
+import { useTheme } from "@/components/theme-provider";
+import { foldGutterTheme } from "./themes";
+import { getEditorExtensions } from "./extensions";
+import type { CodeEditorProps } from "./types";
 
 export function CodeEditor({
   value,
   onChange,
   onExecute,
-  language = 'sql',
-  dialect = 'postgresql',
+  language = "sql",
+  dialect = "postgresql",
+  connectionId,
+  database,
+  schema,
   readOnly = false,
-  height = '100%',
-  theme = 'auto',
-  placeholder = '',
+  height = "100%",
+  theme = "auto",
+  placeholder = "",
   autoFocus = false,
   lineNumbers = true,
-  className = '',
-  minHeight = '100px',
+  className = "",
+  minHeight = "100px",
   maxHeight,
 }: CodeEditorProps) {
   const editorRef = useRef<EditorView | null>(null);
@@ -29,47 +33,56 @@ export function CodeEditor({
 
   // Determine actual theme based on 'auto' setting
   const actualTheme = useMemo(() => {
-    if (theme === 'auto') {
+    if (theme === "auto") {
       // Use resolvedTheme if available, otherwise check DOM
       if (resolvedTheme) {
-        return resolvedTheme === 'dark' ? 'dark' : 'light';
+        return resolvedTheme === "dark" ? "dark" : "light";
       }
       // Fallback to DOM check if theme not resolved yet
-      return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+      return document.documentElement.classList.contains("dark")
+        ? "dark"
+        : "light";
     }
     return theme;
   }, [theme, resolvedTheme]);
-  
+
   // Memoize the theme object to prevent recreation
   const editorTheme = useMemo(() => {
-    return actualTheme === 'dark' ? vscodeDark : githubLight;
+    return actualTheme === "dark" ? vscodeDark : githubLight;
   }, [actualTheme]);
 
   // Create extensions
   const extensions = useMemo(() => {
     return [
-      ...getEditorExtensions(language, dialect, readOnly, lineNumbers, onExecute),
+      ...getEditorExtensions(
+        language,
+        dialect,
+        readOnly,
+        lineNumbers,
+        onExecute,
+        connectionId,
+      ),
       foldGutterTheme,
       EditorView.theme({
-        '&': {
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
+        "&": {
+          height: "100%",
+          display: "flex",
+          flexDirection: "column",
         },
-        '.cm-editor': {
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
+        ".cm-editor": {
+          height: "100%",
+          display: "flex",
+          flexDirection: "column",
         },
-        '.cm-scroller': {
-          overflow: 'auto',
-          flex: '1',
+        ".cm-scroller": {
+          overflow: "auto",
+          flex: "1",
         },
-        '.cm-content': {
-          minHeight: '100%',
+        ".cm-content": {
+          minHeight: "100%",
         },
-        '.cm-gutters': {
-          minHeight: '100%',
+        ".cm-gutters": {
+          minHeight: "100%",
         },
       }),
     ];
@@ -82,7 +95,6 @@ export function CodeEditor({
     }
   }, [autoFocus]);
 
-
   return (
     <div className={`code-editor h-full flex flex-col ${className}`}>
       <CodeMirror
@@ -93,14 +105,14 @@ export function CodeEditor({
         placeholder={placeholder}
         height="100%"
         theme={editorTheme}
-        style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+        style={{ height: "100%", display: "flex", flexDirection: "column" }}
         onCreateEditor={(view) => {
           editorRef.current = view;
         }}
         basicSetup={{
           lineNumbers: false, // We handle this in extensions
           foldGutter: false,
-          autocompletion: false, // Disabled as requested
+          autocompletion: false, // Managed by extensions
         }}
       />
     </div>
@@ -108,4 +120,9 @@ export function CodeEditor({
 }
 
 // Export types for external use
-export type { CodeEditorProps, CodeEditorLanguage, SqlDialect, EditorTheme } from './types';
+export type {
+  CodeEditorProps,
+  CodeEditorLanguage,
+  SqlDialect,
+  EditorTheme,
+} from "./types";
