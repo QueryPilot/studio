@@ -249,7 +249,77 @@ impl PostgresIntrospector {
         
         Ok(indexes)
     }
-    
+
+    pub async fn get_index_usage_stats(&self, table: &str) -> Result<Vec<IndexUsageStats>> {
+        let sql = r#"
+            SELECT
+                s.indexrelname AS index_name,
+                s.idx_scan AS scan_count,
+                s.idx_tup_read AS rows_read,
+                s.idx_tup_fetch AS rows_returned,
+                pg_size_pretty(pg_relation_size(s.indexrelid)) AS size_pretty,
+                pg_relation_size(s.indexrelid) AS size_bytes,
+                CASE
+                    WHEN s.idx_scan = 0 THEN true
+                    ELSE false
+                END AS is_unused,
+                CASE
+                    WHEN io.idx_blks_read + io.idx_blks_hit = 0 THEN NULL
+                    ELSE (io.idx_blks_hit::float / (io.idx_blks_read + io.idx_blks_hit)) * 100
+                END AS cache_hit_ratio
+            FROM
+                pg_stat_all_indexes s
+                LEFT JOIN pg_statio_all_indexes io
+                    ON s.indexrelid = io.indexrelid
+            WHERE
+                s.relname = $1
+                AND s.schemaname NOT IN ('pg_catalog', 'information_schema')
+            ORDER BY
+                s.idx_scan DESC
+        "#;
+
+        let rows = self.client.query(sql, &[&table]).await?;
+
+        // Debug logging
+        println!("Index usage stats query for table '{}' returned {} rows", table, rows.len());
+
+        let stats = rows.iter().map(|row| {
+            let scan_count: Option<i64> = row.get(1);
+            let rows_read: Option<i64> = row.get(2);
+
+            // Calculate efficiency score (0-100)
+            let efficiency_score = match (scan_count, rows_read) {
+                (Some(scans), Some(reads)) if scans > 0 => {
+                    // Higher score for more scans and better read ratio
+                    let scan_score = (scans.min(10000) as f64 / 10000.0 * 50.0) as i32;
+                    let read_efficiency = if reads > 0 {
+                        ((scans as f64 / reads as f64).min(1.0) * 50.0) as i32
+                    } else {
+                        50
+                    };
+                    Some(scan_score + read_efficiency)
+                },
+                (Some(0), _) => Some(0), // Unused index
+                _ => None,
+            };
+
+            IndexUsageStats {
+                index_name: row.get(0),
+                scan_count: row.get(1),
+                rows_read: row.get(2),
+                rows_returned: row.get(3),
+                last_accessed: None, // PostgreSQL doesn't track this directly
+                cache_hit_ratio: row.get(7),
+                size_pretty: row.get(4),
+                size_bytes: row.get(5),
+                is_unused: row.get(6),
+                efficiency_score,
+            }
+        }).collect();
+
+        Ok(stats)
+    }
+
     pub async fn get_constraints(&self, table: &str) -> Result<Vec<Constraint>> {
         let sql = r#"
             SELECT 
@@ -334,7 +404,7 @@ impl PostgresIntrospector {
         
         let columns = rows.iter().map(|row| {
             let type_oid: u32 = row.get(2);
-            
+
             ColumnMeta {
                 name: row.get(0),
                 data_type: PostgresTypeConverter::oid_to_cell_type(type_oid),
@@ -342,6 +412,8 @@ impl PostgresIntrospector {
                 primary_key: row.get(4),
                 db_type: row.get(1),
                 type_oid: Some(type_oid),
+                default_value: row.get(5),
+                comment: row.get(6),
             }
         }).collect();
         

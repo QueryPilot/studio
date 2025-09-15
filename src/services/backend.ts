@@ -64,6 +64,8 @@ export interface ColumnMeta {
   primary_key: boolean;
   db_type: string;
   type_oid?: number;
+  default_value?: string | null;
+  comment?: string | null;
 }
 
 export interface PageChunk {
@@ -186,6 +188,19 @@ export interface Index {
   is_primary: boolean;
   is_partial: boolean;
   definition: string;
+}
+
+export interface IndexUsageStats {
+  index_name: string;
+  scan_count?: number;
+  rows_read?: number;
+  rows_returned?: number;
+  last_accessed?: string;
+  cache_hit_ratio?: number;
+  size_bytes?: number;
+  size_pretty?: string;
+  is_unused: boolean;
+  efficiency_score?: number; // 0-100
 }
 
 export interface Constraint {
@@ -326,6 +341,10 @@ export class BackendAPI {
 
   static async getIndexes(connId: string, table: string): Promise<Index[]> {
     return invoke("get_indexes", { connId, table });
+  }
+
+  static async getIndexUsageStats(connId: string, table: string): Promise<IndexUsageStats[]> {
+    return invoke("get_index_usage_stats", { connId, table });
   }
 
   static async getConstraints(

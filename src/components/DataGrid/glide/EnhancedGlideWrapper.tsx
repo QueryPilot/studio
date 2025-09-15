@@ -19,6 +19,7 @@ import { useCopy } from "@/hooks/useCopy";
 import { useToast } from "@/hooks/use-toast";
 import { CellValuePopup } from "./CellValuePopup";
 import { useDatabaseCells } from "./cells";
+import { getHoverActions, hitTestHoverAction } from "./cells/hoverActions";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -265,10 +266,35 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
 
   // Handle cell click
   const handleCellClick = useCallback(
-    (cell: Item, _event: GridMouseEventArgs) => {
+    (cell: Item, event: GridMouseEventArgs) => {
+      // If click is inside hover band, trigger hover action click
+      if ("bounds" in event) {
+        const gc = getCellContent(cell);
+        if (gc.kind === GridCellKind.Custom) {
+          const actions = getHoverActions(
+            gc as unknown as {
+              data: Record<string, unknown>;
+            } as unknown as never,
+          );
+          const idx = hitTestHoverAction(
+            event.bounds,
+            event.location[0],
+            actions.length,
+          );
+          if (idx != null && actions[idx]) {
+            actions[idx].onClick(
+              gc as unknown as {
+                data: Record<string, unknown>;
+              } as unknown as never,
+              { x: event.location[0], y: event.location[1] },
+            );
+            return; // consume click
+          }
+        }
+      }
       onCellClicked?.(cell);
     },
-    [onCellClicked],
+    [getCellContent, onCellClicked],
   );
 
   // Get cells for selection (copy operation)

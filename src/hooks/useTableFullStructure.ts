@@ -39,7 +39,7 @@ export function useTableFullStructure({
 
     setIsLoading(true);
     setError(null);
-    
+
     try {
       const fullStructure = await databaseService.getTableStructure(
         connectionId,
@@ -48,27 +48,27 @@ export function useTableFullStructure({
         table,
         options
       );
-      
+
       setStructure(fullStructure);
     } catch (err) {
-      const errorMessage = err instanceof Error 
-        ? err.message 
+      const errorMessage = err instanceof Error
+        ? err.message
         : "Failed to load table structure";
       setError(errorMessage);
       console.error("Error fetching table structure:", err);
     } finally {
       setIsLoading(false);
     }
-  }, [connectionId, database, table, schema, options, enabled]);
+  }, [connectionId, database, table, schema, enabled]); // Removed options from deps
 
   // Auto-fetch on mount and when dependencies change
   useEffect(() => {
     void fetchStructure();
   }, [fetchStructure]);
 
-  return { 
-    structure, 
-    isLoading, 
+  return {
+    structure,
+    isLoading,
     error,
     refresh: fetchStructure,
   };

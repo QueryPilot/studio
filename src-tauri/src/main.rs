@@ -56,6 +56,7 @@ fn main() {
             commands::get_views,
             commands::get_functions,
             commands::get_indexes,
+            commands::get_index_usage_stats,
             commands::get_constraints,
             commands::get_columns,
             commands::get_triggers,

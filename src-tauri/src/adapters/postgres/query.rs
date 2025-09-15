@@ -51,6 +51,8 @@ impl PostgresQueryExecutor {
                     primary_key: false,
                     db_type: col.type_().name().to_string(),
                     type_oid: Some(col.type_().oid()),
+                    default_value: None,
+                    comment: None,
                 }
             }).collect::<Vec<_>>();
             
@@ -105,6 +107,8 @@ impl PostgresQueryExecutor {
                 primary_key: false,
                 db_type: col.type_().name().to_string(),
                 type_oid: Some(col.type_().oid()),
+                default_value: None,
+                comment: None,
             });
             
             // For display, if we'll cast to text, show it as the original type
@@ -116,6 +120,8 @@ impl PostgresQueryExecutor {
                 primary_key: false,
                 db_type: col.type_().name().to_string(),
                 type_oid: Some(col.type_().oid()),
+                default_value: None,
+                comment: None,
             });
         }
         
