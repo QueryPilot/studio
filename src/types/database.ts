@@ -65,6 +65,7 @@ export interface ColumnMeta {
   ordinal: number;
   precision?: number | null;
   scale?: number | null;
+  comment?: string | null;
   // MSSQL specific
   is_identity?: boolean;
   is_computed?: boolean;

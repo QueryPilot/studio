@@ -49,9 +49,9 @@ export const LookupCell: CustomRenderer<LookupCustomCell> = {
 
     const baseFont = theme.baseFontStyle || "12px sans-serif";
     const isNull = value == null;
-    ctx.fillStyle = theme.textDark;
+    ctx.fillStyle = isNull ? theme.textLight : theme.textDark;
     ctx.font = isNull ? `italic ${baseFont}` : baseFont;
-    if (isNull) ctx.globalAlpha = 0.55;
+    // if (isNull) ctx.globalAlpha = 0.55;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     const padding = theme.cellHorizontalPadding ?? 6;

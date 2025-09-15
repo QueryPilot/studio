@@ -19,16 +19,17 @@ export type DateCustomCell = CustomCell<DateCellData>;
 export const DateCell: CustomRenderer<DateCustomCell> = {
   kind: GridCellKind.Custom,
   isMatch: (cell: CustomCell): cell is DateCustomCell => {
-    return (cell as any)?.data?.kind === "date-cell";
+    const c = cell as unknown as { data: { kind?: unknown } };
+    return c.data.kind === "date-cell";
   },
   draw: (args: DrawArgs<DateCustomCell>, cell: DateCustomCell) => {
-    const ctx = args.ctx as CanvasRenderingContext2D;
+    const ctx = args.ctx;
     const rect = args.rect;
     const theme = args.theme as Theme;
     const { value } = cell.data;
-    const dbType = String(
-      (cell.data.metadata as any)?.db_type || "",
-    ).toLowerCase();
+    const meta = cell.data.metadata as Record<string, unknown> | undefined;
+    const dbTypeRaw = (meta?.db_type as string | undefined) ?? "";
+    const dbType = dbTypeRaw.toLowerCase();
 
     const isTimeOnly = dbType.includes("time") && !dbType.includes("date");
 
@@ -51,11 +52,11 @@ export const DateCell: CustomRenderer<DateCustomCell> = {
 
     const baseFont = theme.baseFontStyle || "12px sans-serif";
     const isNull = value == null;
-    ctx.fillStyle = theme.textDark;
+    ctx.fillStyle = isNull ? theme.textLight : theme.textDark;
     ctx.font = isNull ? `italic ${baseFont}` : baseFont;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    const padding = theme.cellHorizontalPadding ?? 6;
+    const padding = (theme.cellHorizontalPadding as number | undefined) ?? 6;
     const maxTextWidth = Math.max(0, rect.width - padding * 2);
     const display = truncateTextToWidth(
       text,
@@ -68,7 +69,7 @@ export const DateCell: CustomRenderer<DateCustomCell> = {
     ctx.beginPath();
     ctx.rect(rect.x, rect.y, rect.width, rect.height);
     ctx.clip();
-    if (isNull) ctx.globalAlpha = 0.55;
+    // keep full opacity for red NULL
     ctx.fillText(display, rect.x + padding, rect.y + rect.height / 2);
     ctx.restore();
     return true;

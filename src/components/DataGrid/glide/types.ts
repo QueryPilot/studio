@@ -91,6 +91,7 @@ export interface GlideQueryDataGridProps extends GlideDataGridProps {
   data?: {
     columns: string[];
     rows: unknown[][];
+    columnMeta?: TableColumnMeta[];
   };
 }
 
@@ -216,13 +217,17 @@ export const cellValueToGridCell = (
       allowOverlay: false,
       readonly: true,
       contentAlign: "left",
+      themeOverride: {
+        textDark: "rgba(127,127,127,0.7)",
+        baseFontStyle: "italic 12px",
+      },
     };
   }
 
   // Debug log the value structure
-  if (typeof value === "object" && "display_value" in value) {
-    console.log("CellValue structure:", value);
-  }
+  // if (typeof value === "object" && "display_value" in value) {
+  //   console.log("CellValue structure:", value);
+  // }
 
   // Handle CellValue structure from types/cellValue.ts
   let displayText = "";
@@ -230,10 +235,37 @@ export const cellValueToGridCell = (
   if (typeof value === "object") {
     // Check for frontend CellValue structure (has 'value' property)
     if ("value" in value) {
-      displayText = String(value.value);
+      const inner = (value as { value: unknown }).value;
+      if (inner == null) {
+        return {
+          kind: GridCellKind.Text,
+          data: "NULL",
+          displayData: "NULL",
+          allowOverlay: false,
+          readonly: true,
+          contentAlign: "left",
+          themeOverride: {
+            textDark: "rgba(127,127,127,0.7)",
+            baseFontStyle: "italic 12px",
+          },
+        };
+      }
+      if (typeof inner === "object") {
+        try {
+          displayText = JSON.stringify(inner as Record<string, unknown>);
+        } catch {
+          displayText = "[object]";
+        }
+      } else {
+        displayText = String(inner);
+      }
     } else {
       // If it's an object without expected properties, convert to string
-      displayText = JSON.stringify(value);
+      try {
+        displayText = JSON.stringify(value as Record<string, unknown>);
+      } catch {
+        displayText = "[object]";
+      }
     }
   } else {
     // For primitive values or other types

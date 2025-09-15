@@ -12,6 +12,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
+import { truncateTextToWidth } from "../types";
 
 type BooleanCellData = {
   kind: "boolean-cell";
@@ -29,7 +30,7 @@ export const BooleanCell: CustomRenderer<BooleanCustomCell> = {
     );
   },
   draw: (args: DrawArgs<BooleanCustomCell>, cell: BooleanCustomCell) => {
-    const ctx: CanvasRenderingContext2D = args.ctx;
+    const ctx = args.ctx;
     const rect = args.rect;
     const theme = args.theme as Theme;
     const { value } = cell.data;
@@ -53,52 +54,30 @@ export const BooleanCell: CustomRenderer<BooleanCustomCell> = {
 
     const text = parsed === null ? "NULL" : parsed ? "TRUE" : "FALSE";
     const color =
-      parsed === null ? theme.textLight : parsed ? "#10b981" : "#ef4444";
-    const baseFont = theme.baseFontStyle || `11px ${theme.fontFamily}`;
+      parsed === null
+        ? theme.textLight
+        : parsed
+        ? theme.accentColor || "#FCA311"
+        : theme.textDark;
+    const baseFont = theme.baseFontStyle || `12px ${theme.fontFamily}`;
 
-    // badge
-    ctx.font = parsed === null ? `italic ${baseFont}` : baseFont;
-    if (parsed === null) ctx.globalAlpha = 0.55;
-    const w = ctx.measureText(text).width + 12;
-    const h = 18;
-    const x = rect.x + 8;
-    const y = rect.y + (rect.height - h) / 2;
-
-    ctx.fillStyle = `${color}20`;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1;
+    // text only, no background fill to keep selection visible
+    ctx.save();
     ctx.beginPath();
-    const rctx = ctx as CanvasRenderingContext2D & {
-      roundRect?: (
-        x: number,
-        y: number,
-        w: number,
-        h: number,
-        r: number,
-      ) => void;
-    };
-    if (typeof rctx.roundRect === "function") {
-      rctx.roundRect(x, y, w, h, 4);
-    } else {
-      // fallback rounded rect
-      ctx.moveTo(x + 4, y);
-      ctx.lineTo(x + w - 4, y);
-      ctx.quadraticCurveTo(x + w, y, x + w, y + 4);
-      ctx.lineTo(x + w, y + h - 4);
-      ctx.quadraticCurveTo(x + w, y + h, x + w - 4, y + h);
-      ctx.lineTo(x + 4, y + h);
-      ctx.quadraticCurveTo(x, y + h, x, y + h - 4);
-      ctx.lineTo(x, y + 4);
-      ctx.quadraticCurveTo(x, y, x + 4, y);
-    }
-    ctx.fill();
-    ctx.stroke();
-
+    ctx.rect(rect.x, rect.y, rect.width, rect.height);
+    ctx.clip();
+    ctx.font = parsed === null ? `italic ${baseFont}` : baseFont;
     ctx.fillStyle = color;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(text, x + w / 2, y + h / 2);
+    const horizontalPadding = (theme.cellHorizontalPadding || 6) + 2;
+    const maxTextWidth = Math.max(0, rect.width - horizontalPadding * 2);
+    const display = truncateTextToWidth(text, maxTextWidth, baseFont);
+    const cx = rect.x + rect.width / 2;
+    const cy = rect.y + rect.height / 2;
+    ctx.fillText(display, cx, cy);
 
+    ctx.restore();
     return true;
   },
   provideEditor: () => ({

@@ -40,7 +40,7 @@ export const NumberCell: CustomRenderer<NumberCustomCell> = {
     return (cell as any)?.data?.kind === "number-cell";
   },
   draw: (args: DrawArgs<NumberCustomCell>, cell: NumberCustomCell) => {
-    const ctx = args.ctx as CanvasRenderingContext2D;
+    const ctx = args.ctx;
     const rect = args.rect;
     const theme = args.theme as Theme;
     const { value, metadata } = cell.data;
@@ -56,14 +56,14 @@ export const NumberCell: CustomRenderer<NumberCustomCell> = {
 
     const baseFont = theme.baseFontStyle || "12px sans-serif";
     const isNull = value == null;
-    ctx.fillStyle = theme.textDark;
+    ctx.fillStyle = isNull ? theme.textLight : theme.textDark;
     ctx.font = isNull ? `italic ${baseFont}` : baseFont;
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
     const padding = theme.cellHorizontalPadding ?? 6;
     const maxTextWidth = Math.max(0, rect.width - padding * 2);
     const display = truncateTextToWidth(text, maxTextWidth, baseFont);
-    if (isNull) ctx.globalAlpha = 0.55;
+    // if (isNull) ctx.globalAlpha = 0.55;
 
     ctx.save();
     ctx.beginPath();
