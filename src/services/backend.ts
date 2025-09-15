@@ -196,6 +196,7 @@ export interface IndexUsageStats {
   rows_read?: number;
   rows_returned?: number;
   last_accessed?: string;
+  last_used?: string; // ISO timestamp of last index scan (PG16+)
   cache_hit_ratio?: number;
   size_bytes?: number;
   size_pretty?: string;

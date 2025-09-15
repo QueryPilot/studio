@@ -246,22 +246,10 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
   // Handle cell double click - show popup
   const handleCellDoubleClick = useCallback(
     (cell: Item) => {
-      const [col, row] = cell;
-      if (getCellValue && columns[col]) {
-        const value = getCellValue(cell);
-        const column = columns[col];
-
-        setPopupState({
-          isOpen: true,
-          value,
-          columnName: column.title,
-          rowIndex: row,
-        });
-      }
-
+      // Disable default preview on double click
       onCellDoubleClick?.(cell);
     },
-    [columns, getCellValue, onCellDoubleClick],
+    [onCellDoubleClick],
   );
 
   // Handle cell click

@@ -455,13 +455,13 @@ export function WorkspaceTitleBar({
       </div>
 
       {/* Center Section - Absolute positioning for true center */}
-      <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-3 text-xs">
+      <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-3 text-xs max-w-[40%] min-w-0">
         {/* Database Name with Type */}
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-sm">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-medium text-sm truncate">
             {connection?.name || "Loading..."}
           </span>
-          <span className="text-muted-foreground">
+          <span className="text-muted-foreground whitespace-nowrap">
             {connection
               ? connection.type
                   .toUpperCase()
@@ -478,18 +478,18 @@ export function WorkspaceTitleBar({
         {/* Connection Details */}
         {connection?.host && (
           <>
-            <div className="h-3 w-px bg-border" />
-            <span className="text-muted-foreground">
+            <div className="h-3 w-px bg-border flex-shrink-0" />
+            <span className="text-muted-foreground truncate min-w-0">
               {connection.host}:{connection.port}/{connection.database}
             </span>
           </>
         )}
 
         {/* Connection Status Badge */}
-        <div className="h-3 w-px bg-border" />
+        <div className="h-3 w-px bg-border flex-shrink-0" />
         <div
           className={cn(
-            "flex items-center gap-1.5 px-2 py-0.5 rounded-full transition-all",
+            "flex items-center gap-1.5 px-2 py-0.5 rounded-full transition-all whitespace-nowrap",
             connectionHealth?.status === "ready" && "bg-green-500/10",
             connectionHealth?.status === "degraded" && "bg-yellow-500/10",
             connectionHealth?.status === "error" && "bg-red-500/20 border border-red-500/30 animate-pulse",

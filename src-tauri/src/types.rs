@@ -297,6 +297,7 @@ pub struct IndexUsageStats {
     pub rows_read: Option<i64>,
     pub rows_returned: Option<i64>,
     pub last_accessed: Option<String>,
+    pub last_used: Option<String>, // ISO timestamp of last index scan (PG16+)
     pub cache_hit_ratio: Option<f64>,
     pub size_bytes: Option<i64>,
     pub size_pretty: Option<String>,

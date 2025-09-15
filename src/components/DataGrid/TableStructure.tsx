@@ -51,111 +51,125 @@ export const TableStructure = memo(function TableStructure({
 
   return (
     <div className="h-full overflow-auto">
-      <table className="min-w-full">
-        <thead className="sticky top-0 z-10 bg-muted border-b">
+      <table className="min-w-full border-separate border-spacing-0">
+        <thead className="sticky top-0 z-10 bg-muted border-b border-border">
           <tr className="text-xs" style={{ height: "28px" }}>
-            <th className="text-left px-2 py-1 w-10 border-r font-normal text-foreground/70">
+            <th className="text-left px-2 py-1 w-10 border-r border-border font-semibold text-foreground/80">
               #
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[150px]">
+            <th className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80 min-w-[150px]">
               Column
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[200px]">
+            <th className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80 min-w-[200px]">
               Type
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[80px]">
+            <th className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80 min-w-[80px]">
               Nullable
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[100px]">
+            <th className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80 min-w-[100px]">
               Default
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[100px]">
+            <th className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80 min-w-[100px]">
               Check
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[150px]">
+            <th className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80 min-w-[150px]">
               Foreign Key
             </th>
-            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70 min-w-[200px]">
+            <th className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80 min-w-[200px]">
               Comment
             </th>
           </tr>
         </thead>
         <tbody>
           {columns.map((column, index) => {
-            const fkInfo = foreignKeys.find(fk => fk.columns.includes(column.name));
+            const fkInfo = foreignKeys.find((fk) =>
+              fk.columns.includes(column.name),
+            );
             const checkConstraint = constraints.find(
-              c => c.constraint_type === ConstraintType.Check &&
-              c.definition?.includes(column.name)
+              (c) =>
+                c.constraint_type === ConstraintType.Check &&
+                c.definition?.includes(column.name),
             );
 
             return (
-            <tr
-              key={column.name}
-              className={cn(
-                "hover:bg-primary/10 transition-colors text-xs border-b border-r",
-                index % 2 === 0 && "bg-muted/10",
-              )}
-              style={{ height: "28px" }}
-            >
-              <td className="px-1.5 py-0.5 border-r text-muted-foreground">
-                {index + 1}
-              </td>
-              <td className="px-1.5 py-0.5 border-r font-medium text-foreground/80 dark:text-foreground/70">
-                <div className="flex items-center justify-between">
-                  <span className={column.is_pk ? "font-semibold" : ""}>
-                    {column.name}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    {column.is_pk && (
-                      <KeyRound className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
-                    )}
-                    {column.is_fk && (
-                      <Hash className="h-3 w-3 text-blue-600 dark:text-blue-500" />
-                    )}
+              <tr
+                key={column.name}
+                className={cn(
+                  "hover:bg-primary/10 transition-colors text-xs border-b border-r",
+                  index % 2 === 0 && "bg-muted/10",
+                )}
+                style={{ height: "28px" }}
+              >
+                <td className="px-1.5 py-0.5 border-b border-r text-muted-foreground">
+                  {index + 1}
+                </td>
+                <td className="px-1.5 py-0.5 border-b border-r font-medium text-foreground/80 dark:text-foreground/70">
+                  <div className="flex items-center justify-between">
+                    <span className={column.is_pk ? "font-semibold" : ""}>
+                      {column.name}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      {column.is_pk && (
+                        <KeyRound className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
+                      )}
+                      {column.is_fk && (
+                        <Hash className="h-3 w-3 text-blue-600 dark:text-blue-500" />
+                      )}
+                    </div>
                   </div>
-                </div>
-              </td>
-              <td className="px-1.5 py-0.5 border-r text-foreground/80 dark:text-foreground/65 font-mono text-xs">
-                {column.db_type}
-              </td>
-              <td className="px-1.5 py-0.5 border-r">
-                <span
-                  className={cn(
-                    "inline-flex px-1.5 py-0 rounded text-xs",
-                    column.nullable
-                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                      : "bg-primary/10 text-primary",
+                </td>
+                <td className="px-1.5 py-0.5 border-b border-r text-foreground/80 dark:text-foreground/65 font-mono text-xs">
+                  {column.db_type}
+                </td>
+                <td className="px-1.5 py-0.5 border-b border-r">
+                  <span
+                    className={cn(
+                      "inline-flex px-1.5 py-0 rounded text-xs",
+                      column.nullable
+                        ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                        : "bg-primary/10 text-primary",
+                    )}
+                  >
+                    {column.nullable ? "YES" : "NO"}
+                  </span>
+                </td>
+                <td className="px-1.5 py-0.5 border-b border-r text-foreground/70 dark:text-foreground/60 text-xs">
+                  {column.default || "-"}
+                </td>
+                <td className="px-1.5 py-0.5 border-b border-r text-foreground/70 dark:text-foreground/60 text-xs">
+                  {checkConstraint ? (
+                    <span
+                      className="font-mono text-xs"
+                      title={checkConstraint.definition}
+                    >
+                      {checkConstraint.name ||
+                        checkConstraint.definition?.substring(0, 30) + "..."}
+                    </span>
+                  ) : (
+                    "-"
                   )}
-                >
-                  {column.nullable ? "YES" : "NO"}
-                </span>
-              </td>
-              <td className="px-1.5 py-0.5 border-r text-foreground/70 dark:text-foreground/60 text-xs">
-                {column.default || "-"}
-              </td>
-              <td className="px-1.5 py-0.5 border-r text-foreground/70 dark:text-foreground/60 text-xs">
-                {checkConstraint ? (
-                  <span className="font-mono text-xs" title={checkConstraint.definition}>
-                    {checkConstraint.name || checkConstraint.definition?.substring(0, 30) + '...'}
-                  </span>
-                ) : (
-                  "-"
-                )}
-              </td>
-              <td className="px-1.5 py-0.5 border-r text-foreground/70 dark:text-foreground/60 text-xs">
-                {fkInfo ? (
-                  <div className="flex items-center justify-between font-mono" title={`${fkInfo.name}: ON DELETE ${fkInfo.onDelete || 'NO ACTION'} ON UPDATE ${fkInfo.onUpdate || 'NO ACTION'}`}>
-                    <span>{fkInfo.foreignTable}.{fkInfo.foreignColumns[0]}</span>
-                    <span>→</span>
-                  </div>
-                ) : (
-                  "-"
-                )}
-              </td>
-              <td className="px-1.5 py-0.5 border-r text-foreground/60 dark:text-foreground/50 text-xs italic">
-                {column.comment || "-"}
-              </td>
-            </tr>
+                </td>
+                <td className="px-1.5 py-0.5 border-b border-r text-foreground/70 dark:text-foreground/60 text-xs">
+                  {fkInfo ? (
+                    <div
+                      className="flex items-center justify-between font-mono"
+                      title={`${fkInfo.name}: ON DELETE ${
+                        fkInfo.onDelete || "NO ACTION"
+                      } ON UPDATE ${fkInfo.onUpdate || "NO ACTION"}`}
+                    >
+                      <span>
+                        {fkInfo.foreignTable}.{fkInfo.foreignColumns[0]}
+                      </span>
+                      <span>→</span>
+                    </div>
+                  ) : (
+                    "-"
+                  )}
+                </td>
+                <td className="px-1.5 py-0.5 border-b border-r text-foreground/60 dark:text-foreground/50 text-xs italic">
+                  {column.comment || "-"}
+                </td>
+              </tr>
             );
           })}
         </tbody>
