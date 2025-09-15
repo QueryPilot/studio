@@ -177,6 +177,9 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
       }
       // Respect column reordering when accessing raw data
       const originalColIndex = columnOrder.length > 0 ? columnOrder[col] : col;
+      if (originalColIndex === undefined) {
+        return null;
+      }
       return data.rows[row][originalColIndex];
     },
     [data, columnOrder],

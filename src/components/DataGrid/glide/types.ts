@@ -4,6 +4,7 @@ import {
   GridCellKind,
 } from "@glideapps/glide-data-grid";
 import type { CellValue } from "@/types/cellValue";
+import type { ColumnMeta as TableColumnMeta } from "@/types/database";
 
 // Create a singleton canvas context for text measurement
 let measurementCanvas: HTMLCanvasElement | null = null;
@@ -13,7 +14,7 @@ const getMeasurementContext = (): CanvasRenderingContext2D | null => {
   if (typeof document === "undefined") {
     return null;
   }
-  
+
   if (!measurementCtx) {
     try {
       measurementCanvas = document.createElement("canvas");
@@ -27,13 +28,13 @@ const getMeasurementContext = (): CanvasRenderingContext2D | null => {
 };
 
 // Measure text width and truncate with ellipsis if needed
-const truncateTextToWidth = (
+export const truncateTextToWidth = (
   text: string,
   maxWidth: number,
-  font: string = "400 12px Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif"
+  font: string = "400 12px Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif",
 ): string => {
   if (!text) return text;
-  
+
   const ctx = getMeasurementContext();
   if (!ctx) {
     // Fallback to character-based truncation if canvas not available
@@ -44,33 +45,33 @@ const truncateTextToWidth = (
     }
     return text;
   }
-  
+
   ctx.font = font;
-  
+
   const ellipsis = "...";
   const textWidth = ctx.measureText(text).width;
-  
+
   if (textWidth <= maxWidth) {
     return text;
   }
-  
+
   // Binary search for optimal truncation point
   let left = 0;
   let right = text.length;
   let truncated = text;
-  
+
   while (left < right) {
     const mid = Math.floor((left + right + 1) / 2);
     truncated = text.substring(0, mid);
     const truncatedWidth = ctx.measureText(truncated + ellipsis).width;
-    
+
     if (truncatedWidth <= maxWidth) {
       left = mid;
     } else {
       right = mid - 1;
     }
   }
-  
+
   return text.substring(0, left) + ellipsis;
 };
 
@@ -97,6 +98,8 @@ export type DataGridColumn = GridColumn & {
   id: string;
   name: string;
   type?: string;
+  // Original database metadata for this column (db_type, enum_values, is_fk, is_json, nullable, etc.)
+  meta?: unknown;
 };
 
 export interface DataGridState {
@@ -143,9 +146,9 @@ export const getGridCellKind = (type?: string): GridCellKind => {
 // Helper to check if column should have full width by default
 export const shouldUseFullWidth = (type?: string): boolean => {
   if (!type) return false;
-  
+
   const lowerType = type.toLowerCase();
-  
+
   // Use full width for numbers, dates, times, and timestamps
   return (
     lowerType.includes("int") ||
@@ -159,6 +162,42 @@ export const shouldUseFullWidth = (type?: string): boolean => {
     lowerType.includes("timestamp") ||
     lowerType.includes("timestamptz")
   );
+};
+
+// Determine custom renderer type string from column metadata
+export const getCellRendererFromColumnMeta = (
+  meta: TableColumnMeta,
+): string | undefined => {
+  const dbType: string | undefined = meta.db_type;
+
+  if (Array.isArray(meta.enum_values) && meta.enum_values.length > 0) {
+    return "enum-cell";
+  }
+  if (meta.is_fk) return "lookup-cell";
+  if (meta.is_json) return "json-cell";
+
+  const t = (dbType || "").toLowerCase();
+  if (t.includes("bool")) return "boolean-cell";
+  if (t.includes("money")) return "money-cell";
+  if (t.includes("uuid")) return "uuid-cell";
+  if (t.includes("array") || t.endsWith("[]")) return "array-cell";
+  if (t.includes("bytea") || t.includes("blob") || t.includes("binary"))
+    return "binary-cell";
+  if (t.includes("timestamptz") || t.includes("timestamp"))
+    return "datetime-cell";
+  if (t.includes("time") && !t.includes("date")) return "time-cell";
+  if (t.includes("date")) return "date-cell";
+  if (
+    t.includes("int") ||
+    t.includes("numeric") ||
+    t.includes("decimal") ||
+    t.includes("float") ||
+    t.includes("double") ||
+    t.includes("real")
+  )
+    return "number-cell";
+
+  return undefined;
 };
 
 // Convert CellValue to GridCell
@@ -246,13 +285,13 @@ export const cellValueToGridCell = (
     default: {
       // Dynamic truncation based on column width (always apply)
       let truncatedText = displayText;
-      
+
       if (columnWidth && columnWidth > 0) {
         // Account for minimal padding (8px total for left and right)
         const availableWidth = columnWidth - 8;
         truncatedText = truncateTextToWidth(displayText, availableWidth);
       }
-      
+
       return {
         kind: GridCellKind.Text,
         data: displayText, // Full text for copy/overlay
