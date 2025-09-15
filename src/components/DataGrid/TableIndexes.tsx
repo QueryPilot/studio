@@ -3,6 +3,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle, KeyRound, Hash, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { databaseService, type TableIndex } from "@/services/databaseService";
+import { type IndexUsageStats } from "@/services/backend";
 
 interface TableIndexesProps {
   connectionId: string;
@@ -18,7 +19,9 @@ export const TableIndexes = memo(function TableIndexes({
   schema,
 }: TableIndexesProps) {
   const [indexes, setIndexes] = useState<TableIndex[]>([]);
+  const [usageStats, setUsageStats] = useState<Map<string, IndexUsageStats>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
+  const [statsLoading, setStatsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -33,6 +36,25 @@ export const TableIndexes = memo(function TableIndexes({
           table,
         );
         setIndexes(result);
+
+        // Fetch usage stats separately (non-blocking)
+        setStatsLoading(true);
+        try {
+          console.log("Fetching index usage stats for:", { connectionId, table });
+          const stats = await databaseService.getIndexUsageStats(connectionId, table);
+          console.log("Received index usage stats:", stats);
+          const statsMap = new Map<string, IndexUsageStats>();
+          stats.forEach(stat => {
+            statsMap.set(stat.index_name, stat);
+          });
+          setUsageStats(statsMap);
+          console.log("Stats map:", Array.from(statsMap.entries()));
+        } catch (err) {
+          // Log the error for debugging
+          console.error("Could not fetch index usage stats:", err);
+        } finally {
+          setStatsLoading(false);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load indexes");
         console.error("Failed to fetch table indexes:", err);
@@ -86,6 +108,9 @@ export const TableIndexes = memo(function TableIndexes({
             <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
               Size
             </th>
+            <th className="text-left px-2 py-1 border-r font-normal text-foreground/70">
+              Usage
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -102,7 +127,7 @@ export const TableIndexes = memo(function TableIndexes({
                 {i + 1}
               </td>
               <td className="px-1.5 py-0.5 border-r font-medium text-foreground/80 dark:text-foreground/70 whitespace-nowrap">
-                <div className="flex items-center gap-1">
+                <div className="flex items-center justify-between">
                   <span className={index.primary ? "font-semibold" : ""}>
                     {index.name}
                   </span>
@@ -140,10 +165,66 @@ export const TableIndexes = memo(function TableIndexes({
                 </span>
               </td>
               <td className="px-1.5 py-0.5 border-r text-foreground/60 dark:text-foreground/50 text-xs italic whitespace-nowrap">
-                -
+                {index.condition || "-"}
               </td>
               <td className="px-1.5 py-0.5 border-r text-foreground/70 dark:text-foreground/60 text-xs text-right font-mono whitespace-nowrap">
-                -
+                {(() => {
+                  const stats = usageStats.get(index.name);
+                  return stats?.size_pretty || index.size || "-";
+                })()}
+              </td>
+              <td className="px-1.5 py-0.5 border-r text-foreground/70 dark:text-foreground/60 text-xs whitespace-nowrap">
+                {(() => {
+                  const stats = usageStats.get(index.name);
+                  if (!stats) {
+                    return statsLoading ? (
+                      <Skeleton className="h-4 w-16 inline-block" />
+                    ) : (
+                      <span className="text-muted-foreground">N/A</span>
+                    );
+                  }
+
+                  const indicator = stats.is_unused ? (
+                    <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400">
+                      <span className="text-base">🔴</span>
+                      <span>Unused</span>
+                    </span>
+                  ) : stats.scan_count && stats.scan_count < 100 ? (
+                    <span className="inline-flex items-center gap-1 text-yellow-600 dark:text-yellow-400">
+                      <span className="text-base">🟡</span>
+                      <span>{stats.scan_count.toLocaleString()}</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
+                      <span className="text-base">🟢</span>
+                      <span>{stats.scan_count?.toLocaleString() || "Active"}</span>
+                    </span>
+                  );
+
+                  return (
+                    <div className="group relative inline-flex items-center">
+                      {indicator}
+                      {/* Tooltip with detailed stats */}
+                      <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block z-50">
+                        <div className="bg-popover text-popover-foreground border rounded-md shadow-md p-2 text-xs whitespace-nowrap">
+                          <div className="font-semibold mb-1">Index Usage Statistics</div>
+                          {stats.scan_count !== undefined && (
+                            <div>Scans: {stats.scan_count.toLocaleString()}</div>
+                          )}
+                          {stats.rows_read !== undefined && (
+                            <div>Rows Read: {stats.rows_read.toLocaleString()}</div>
+                          )}
+                          {stats.cache_hit_ratio !== undefined && (
+                            <div>Cache Hit: {stats.cache_hit_ratio.toFixed(1)}%</div>
+                          )}
+                          {stats.efficiency_score !== undefined && (
+                            <div>Efficiency: {stats.efficiency_score}/100</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </td>
             </tr>
           ))}

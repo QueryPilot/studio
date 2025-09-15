@@ -68,6 +68,8 @@ export interface TableIndex {
   primary: boolean;
   columns: string[];
   index_type: string;
+  condition?: string;
+  size?: string;
 }
 
 export interface ColumnMeta {
@@ -452,13 +454,14 @@ class DatabaseService {
         name: c.name,
         db_type: c.db_type,
         nullable: c.nullable,
-        default: undefined,
+        default: c.default_value || null,
         is_pk: c.primary_key,
         is_fk: false,
         ordinal: index,
         precision: undefined,
         scale: undefined,
-      }));
+        comment: c.comment || null,
+      } as ColumnMeta & { comment?: string | null }));
     } catch (error) {
       console.error("Failed to get table columns:", error);
       throw error;
@@ -483,9 +486,26 @@ class DatabaseService {
         primary: idx.is_primary,
         columns: idx.columns,
         index_type: idx.is_partial ? "PARTIAL" : "BTREE",
+        condition: idx.is_partial ? idx.definition : undefined,
       }));
     } catch (error) {
       console.error("Failed to get table indexes:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get index usage statistics
+   */
+  async getIndexUsageStats(
+    connectionId: string,
+    table: string,
+  ): Promise<import("./backend").IndexUsageStats[]> {
+    try {
+      const backendConnId = this.getBackendConnectionId(connectionId);
+      return await BackendAPI.getIndexUsageStats(backendConnId, table);
+    } catch (error) {
+      console.error("Failed to get index usage stats:", error);
       throw error;
     }
   }

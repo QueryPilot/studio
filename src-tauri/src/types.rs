@@ -86,6 +86,8 @@ pub struct ColumnMeta {
     pub primary_key: bool,
     pub db_type: String,
     pub type_oid: Option<u32>,
+    pub default_value: Option<String>,
+    pub comment: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -286,6 +288,20 @@ pub struct Index {
     pub is_primary: bool,
     pub is_partial: bool,
     pub definition: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexUsageStats {
+    pub index_name: String,
+    pub scan_count: Option<i64>,
+    pub rows_read: Option<i64>,
+    pub rows_returned: Option<i64>,
+    pub last_accessed: Option<String>,
+    pub cache_hit_ratio: Option<f64>,
+    pub size_bytes: Option<i64>,
+    pub size_pretty: Option<String>,
+    pub is_unused: bool,
+    pub efficiency_score: Option<i32>, // 0-100
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

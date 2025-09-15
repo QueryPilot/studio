@@ -1,8 +1,9 @@
 import { memo } from "react";
-import { useTableStructure } from "@/hooks/useTableStructure";
+import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle, KeyRound, Hash } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ConstraintType } from "@/services/backend";
 
 interface TableStructureProps {
   connectionId: string;
@@ -17,12 +18,20 @@ export const TableStructure = memo(function TableStructure({
   table,
   schema,
 }: TableStructureProps) {
-  const { columns, isLoading, error } = useTableStructure({
+  const { structure, isLoading, error } = useTableFullStructure({
     connectionId,
     database,
     table,
     schema,
+    options: {
+      includeConstraints: true,
+      includeForeignKeys: true,
+    },
   });
+
+  const columns = structure?.columns || [];
+  const foreignKeys = structure?.foreignKeys || [];
+  const constraints = structure?.constraints || [];
 
   if (isLoading) {
     return <TableStructureSkeleton />;
@@ -72,7 +81,14 @@ export const TableStructure = memo(function TableStructure({
           </tr>
         </thead>
         <tbody>
-          {columns.map((column, index) => (
+          {columns.map((column, index) => {
+            const fkInfo = foreignKeys.find(fk => fk.columns.includes(column.name));
+            const checkConstraint = constraints.find(
+              c => c.constraint_type === ConstraintType.Check &&
+              c.definition?.includes(column.name)
+            );
+
+            return (
             <tr
               key={column.name}
               className={cn(
@@ -107,23 +123,29 @@ export const TableStructure = memo(function TableStructure({
                   className={cn(
                     "inline-flex px-1.5 py-0 rounded text-xs",
                     column.nullable
-                      ? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
-                      : "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
+                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                      : "bg-primary/10 text-primary",
                   )}
                 >
-                  {column.nullable ? "NULL" : "NOT NULL"}
+                  {column.nullable ? "YES" : "NO"}
                 </span>
               </td>
               <td className="px-1.5 py-0.5 border-r text-foreground/70 dark:text-foreground/60 text-xs">
                 {column.default || "-"}
               </td>
               <td className="px-1.5 py-0.5 border-r text-foreground/70 dark:text-foreground/60 text-xs">
-                -
+                {checkConstraint ? (
+                  <span className="font-mono text-xs" title={checkConstraint.definition}>
+                    {checkConstraint.name || checkConstraint.definition?.substring(0, 30) + '...'}
+                  </span>
+                ) : (
+                  "-"
+                )}
               </td>
               <td className="px-1.5 py-0.5 border-r text-foreground/70 dark:text-foreground/60 text-xs">
-                {column.is_fk ? (
-                  <div className="flex items-center justify-between font-mono">
-                    <span>{column.name.replace(/_id$/, "")}s.id</span>
+                {fkInfo ? (
+                  <div className="flex items-center justify-between font-mono" title={`${fkInfo.name}: ON DELETE ${fkInfo.onDelete || 'NO ACTION'} ON UPDATE ${fkInfo.onUpdate || 'NO ACTION'}`}>
+                    <span>{fkInfo.foreignTable}.{fkInfo.foreignColumns[0]}</span>
                     <span>→</span>
                   </div>
                 ) : (
@@ -131,10 +153,11 @@ export const TableStructure = memo(function TableStructure({
                 )}
               </td>
               <td className="px-1.5 py-0.5 border-r text-foreground/60 dark:text-foreground/50 text-xs italic">
-                -
+                {column.comment || "-"}
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>

@@ -26,6 +26,7 @@ pub trait DbAdapter: Send + Sync {
     async fn get_views(&self, schema: &str) -> Result<Vec<View>>;
     async fn get_functions(&self, schema: &str) -> Result<Vec<Function>>;
     async fn get_indexes(&self, table: &str) -> Result<Vec<Index>>;
+    async fn get_index_usage_stats(&self, table: &str) -> Result<Vec<IndexUsageStats>>;
     async fn get_constraints(&self, table: &str) -> Result<Vec<Constraint>>;
     
     // Table operations

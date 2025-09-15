@@ -13,6 +13,11 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { truncateTextToWidth } from "../types";
+import {
+  drawHoverButtons,
+  getHoverActions,
+  getHoverBandWidth,
+} from "./hoverActions";
 
 type EnumCellData = {
   kind: "enum-cell";
@@ -24,6 +29,8 @@ export type EnumCustomCell = CustomCell<EnumCellData>;
 
 export const EnumCell: CustomRenderer<EnumCustomCell> = {
   kind: GridCellKind.Custom,
+  needsHover: true,
+  needsHoverPosition: true,
   isMatch: (cell: CustomCell): cell is EnumCustomCell => {
     return (cell as any)?.data?.kind === "enum-cell";
   },
@@ -42,7 +49,14 @@ export const EnumCell: CustomRenderer<EnumCustomCell> = {
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     const padding = theme.cellHorizontalPadding ?? 6;
-    const maxTextWidth = Math.max(0, rect.width - padding * 2 - 16);
+    let extraRight = 16;
+    const hoverAmount =
+      (args as unknown as { hoverAmount?: number }).hoverAmount ?? 0;
+    if (hoverAmount > 0) {
+      const actions = getHoverActions(cell as unknown as CustomCell);
+      extraRight = Math.max(extraRight, getHoverBandWidth(actions.length));
+    }
+    const maxTextWidth = Math.max(0, rect.width - padding * 2 - extraRight);
     const display = truncateTextToWidth(
       text,
       maxTextWidth,
@@ -55,6 +69,20 @@ export const EnumCell: CustomRenderer<EnumCustomCell> = {
     ctx.clip();
     ctx.fillText(display, rect.x + padding, rect.y + rect.height / 2);
     (ctx as CanvasRenderingContext2D).restore();
+
+    // hover buttons
+    if (hoverAmount > 0) {
+      const actions = getHoverActions(cell as unknown as CustomCell);
+      if (actions.length > 0) {
+        drawHoverButtons(
+          ctx as CanvasRenderingContext2D,
+          rect,
+          theme,
+          actions,
+          Math.min(1, Math.max(0, hoverAmount)),
+        );
+      }
+    }
 
     // dropdown glyph
     ctx.fillStyle = theme.textLight as string;

@@ -1033,3 +1033,124 @@ function drawButton(
 ## Conclusion
 
 This implementation plan provides a comprehensive roadmap for transforming the DataGrid from a read-only viewer into a fully interactive, type-aware data management tool. By leveraging both the `@glideapps/glide-data-grid-cells` package and shadcn/ui components, we can rapidly build a best-in-class editing experience that respects database constraints and provides intuitive interfaces for each data type.
+
+## Hover Actions (Finalized)
+
+### Goals
+
+- Provide consistent, low-latency hover affordances per cell without obscuring selection.
+- Zero impact on scrolling performance; no React overlays per cell, draw on canvas only.
+- Keyboard parity: all actions invokable without a mouse.
+
+### UX Rules
+
+- Actions appear on hover after 120ms delay; fade out 200ms after mouse leaves cell.
+- Buttons live inside the cell at the right edge; never overlap displayed text (reserve 24–40px on the right when actions visible).
+- Button size 18px, spacing 4px, 8px right padding. Respect row height.
+- Do NOT draw button backgrounds that override row selection or active edits; use subtle alpha.
+- Tooltip optional for later; not required for MVP.
+
+### API / Contracts
+
+- New types in `glide/cells/hoverActions.ts`:
+
+```ts
+export interface HoverAction {
+  id: "edit" | "copy" | "navigate" | "open-json" | "open-image" | "download";
+  icon:
+    | "chevron"
+    | "pencil"
+    | "copy"
+    | "arrow-up-right"
+    | "code"
+    | "image"
+    | "download";
+  visible: (cell: CustomCell) => boolean;
+  onClick: (cell: CustomCell, coords: { x: number; y: number }) => void;
+}
+
+export function getHoverActions(cell: CustomCell): HoverAction[];
+```
+
+- `EnhancedGlideWrapper` exposes two optional callbacks:
+
+```ts
+onHoverAction?: (actionId: string, cell: Item) => void;
+resolveFk?: (meta: TableColumnMeta, value: unknown) => { table: string; schema?: string; key: string } | null;
+```
+
+- Each CustomRenderer may opt-in with:
+
+```ts
+needsHover: true;
+needsHoverPosition: true; // to receive hoverX, hoverY in DrawArgs
+```
+
+### Rendering + Hit-Testing
+
+- Buttons are drawn in the cell `draw` method when `hoverAmount > 0` (passed by DataEditor) and `needsHover` is true.
+- Hit test strategy in `onCellContextMenu` / `onCellClicked` path:
+  - If the click lands within the hover button band (right-aligned rect), compute index by x-offset and invoke `onClick` of the matching HoverAction, else bubble to normal click.
+- Reserve text space when hover is active: the renderer truncates text width by the hover band width.
+
+### Per-Cell Action Matrix (MVP)
+
+- boolean-cell: [edit, copy]
+- enum-cell: [edit, copy]
+- number-cell: [copy]
+- money-cell: [copy]
+- uuid-cell: [copy]
+- date-cell: [edit, copy]
+- datetime-cell: [edit, copy]
+- time-cell: [edit, copy]
+- json-cell: [open-json, copy]
+- lookup-cell (FK): [edit, copy, navigate]
+- array-cell: [edit, copy]
+- binary-cell: [download, copy]
+
+Visibility rules examples:
+
+```ts
+// copy visible when truthy string length or number or boolean true/false or Date
+value != null && value !== "";
+
+// navigate only when meta.is_fk && value != null
+meta.is_fk && value != null;
+```
+
+### Keyboard
+
+- F2/Enter: opens editor if `edit` present.
+- Cmd/Ctrl+C: built-in copy still works; if hover `copy` exists, both paths should copy the same string.
+- Cmd/Ctrl+Enter on FK: triggers `navigate` when `lookup-cell`.
+
+### Copy Semantics
+
+- Must route through a single formatting function used by both hover `copy` and wrapper selection `copy`:
+
+```ts
+formatCopy(cell: GridCell): string; // already implemented in EnhancedGlideWrapper
+```
+
+- For custom cells ensure `copyData` is a primitive string (JSON.stringify for objects).
+
+### Performance
+
+- No React per-cell elements. All hover visuals are canvas-drawn.
+- Avoid per-frame allocations; reuse text measurements and icon paths.
+- Icon drawing: use 2–3 line primitives (chevron, arrow) rather than images; keep alpha low.
+- Max 3 buttons per cell.
+
+### Accessibility
+
+- Add role hints to context menu with same actions as hover.
+- Ensure keyboard bindings cover all hover actions.
+
+### Tests (Checklist)
+
+- Hover delay shows buttons; moving to adjacent cell hides after 200ms.
+- Click on each action fires the correct callback and does not trigger cell selection.
+- Copy content matches selection-copy for the same cell.
+- FK navigate invoked only when `meta.is_fk` and value present.
+- Text truncation respects hover band width.
+- Selection highlight remains visible beneath hover buttons.

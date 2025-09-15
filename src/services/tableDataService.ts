@@ -89,11 +89,25 @@ export class TableDataService {
       console.log(`[tableDataService] Received ${result.columns.length} columns for table ${params.table}`);
       console.log('[tableDataService] Column names:', result.columns.map(c => c.name));
       
+      // Map backend columns to frontend ColumnMeta format
+      const mappedColumns = result.columns.map((col, index) => ({
+        name: col.name,
+        db_type: col.db_type,
+        nullable: col.nullable,
+        default: (col as any).default_value || null,
+        is_pk: col.primary_key,
+        is_fk: false,
+        ordinal: index,
+        precision: null,
+        scale: null,
+        comment: (col as any).comment || null,
+      } as ColumnMeta));
+
       callbacks.onMeta({
         type: 'meta',
         table: params.table,
         schema: params.schema,
-        columns: result.columns,
+        columns: mappedColumns,
         selected: result.columns.map(col => col.name),
         page_size: params.limit || 1000,
         cursor_key_columns: []

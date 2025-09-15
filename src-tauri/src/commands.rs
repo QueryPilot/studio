@@ -146,6 +146,19 @@ pub async fn get_indexes(
 }
 
 #[tauri::command]
+pub async fn get_index_usage_stats(
+    conn_id: String,
+    table: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<Vec<IndexUsageStats>, String> {
+    let conn = manager.get_connection(&conn_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+
+    conn.adapter.get_index_usage_stats(&table).await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn get_constraints(
     conn_id: String,
     table: String,

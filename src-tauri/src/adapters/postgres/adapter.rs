@@ -255,10 +255,17 @@ impl DbAdapter for PostgresAdapter {
     async fn get_indexes(&self, table: &str) -> Result<Vec<Index>> {
         let introspector = self.introspector.as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-        
+
         introspector.get_indexes(table).await
     }
-    
+
+    async fn get_index_usage_stats(&self, table: &str) -> Result<Vec<IndexUsageStats>> {
+        let introspector = self.introspector.as_ref()
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+
+        introspector.get_index_usage_stats(table).await
+    }
+
     async fn get_constraints(&self, table: &str) -> Result<Vec<Constraint>> {
         let introspector = self.introspector.as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
