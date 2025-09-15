@@ -15,6 +15,10 @@ import {
   type DataGridColumn,
 } from "./types";
 import { cn } from "@/lib/utils";
+import type { ColumnMeta as TableColumnMeta } from "@/types/database";
+import type { TableDataRow } from "@/services/tableDataTypes";
+import type { CellValue } from "@/types/cellValue";
+import { getCellRendererFromColumnMeta } from "./types";
 import { DataGridStatusBar } from "../components/DataGridStatusBar";
 import {
   DataGridErrorState,
@@ -54,34 +58,41 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
   });
 
   // Use tab-specific column state from store
-  const columnWidths = currentTab?.ui.columnWidths || {};
-  const tabColumnOrder = currentTab?.ui.columnOrder || [];
+  const columnWidths = useMemo(() => currentTab?.ui.columnWidths || {}, [currentTab]);
+  const tabColumnOrder = useMemo(() => currentTab?.ui.columnOrder || [], [currentTab]);
 
   // Initialize column order when columns change or tab changes
-  const columnOrder = useMemo(() => {
-    if (!tableColumns || tableColumns.length === 0) return [];
+  const columnOrder = useMemo<number[]>(() => {
+    if (tableColumns.length === 0) return [] as number[];
 
     // If tab has saved order and matches column count, use it
     if (tabColumnOrder.length === tableColumns.length) {
-      return tabColumnOrder.map(name =>
-        tableColumns.findIndex(col => col.name === name)
-      ).filter(idx => idx !== -1);
+      return tabColumnOrder
+        .map((name) => tableColumns.findIndex((col) => col.name === name))
+        .filter((idx) => idx !== -1);
     }
 
     // Otherwise use default order and save it
     const defaultOrder = tableColumns.map((_, index) => index);
-    if (currentTab) {
-      updateTabUI(currentTab.id, {
-        columnOrder: tableColumns.map(col => col.name)
-      });
-    }
     return defaultOrder;
-  }, [tableColumns, tabColumnOrder, currentTab, updateTabUI]);
+  }, [tableColumns, tabColumnOrder]);
+
+  // Initialize tab column order outside of render to avoid setState in render
+  useEffect(() => {
+    if (tableColumns.length === 0) return;
+    if (!currentTab) return;
+    if (tabColumnOrder.length === tableColumns.length) return;
+    updateTabUI(currentTab.id, {
+      columnOrder: tableColumns.map((col) => col.name),
+    });
+  }, [tableColumns, tabColumnOrder.length, currentTab, updateTabUI]);
 
   // Convert columns to Glide format with reordering
   const columns = useMemo<DataGridColumn[]>(() => {
-    console.log(`[GlideTableDataGrid] Converting ${tableColumns?.length || 0} columns to Glide format`);
-    if (!tableColumns || tableColumns.length === 0) return [];
+    console.log(
+      `[GlideTableDataGrid] Converting ${tableColumns.length} columns to Glide format`,
+    );
+    if (tableColumns.length === 0) return [];
 
     // Use column order if available, otherwise use default order
     const orderedIndices =
@@ -95,18 +106,18 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
         if (!col) return null;
 
         const colId = col.name || `col_${originalIndex}`;
-        
+
         // Calculate base width - use full content width for date/time/number columns
-        let baseWidth;
+        let baseWidth: number;
         if (shouldUseFullWidth(col.db_type)) {
           // For date/time/number columns, calculate based on typical content length
-          if (col.db_type?.toLowerCase().includes("timestamp")) {
+          if (col.db_type.toLowerCase().includes("timestamp")) {
             // Timestamps like "2025-08-31T10:44:52" need ~160px
             baseWidth = 180;
-          } else if (col.db_type?.toLowerCase().includes("date")) {
+          } else if (col.db_type.toLowerCase().includes("date")) {
             // Dates like "2025-08-31" need ~100px
             baseWidth = 120;
-          } else if (col.db_type?.toLowerCase().includes("time")) {
+          } else if (col.db_type.toLowerCase().includes("time")) {
             // Times like "10:44:52" need ~80px
             baseWidth = 100;
           } else {
@@ -117,24 +128,30 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
           // Text columns - use standard calculation
           baseWidth = Math.max(80, Math.min(200, col.name.length * 7 + 40));
         }
-        
+
+        const meta = col as unknown as TableColumnMeta;
         return {
           id: colId,
           name: col.name,
           title: col.name,
           width: columnWidths[colId] || baseWidth,
           type: col.db_type,
+          meta,
           grow: 0, // Set to 0 to allow manual resizing
           hasMenu: false,
-          themeOverride: {
-            bgIconHeader: (col as any).primary_key
-              ? "rgba(59, 130, 246, 0.1)"
-              : undefined,
-          },
-        };
+          themeOverride: undefined,
+        } as unknown as DataGridColumn;
       })
       .filter(Boolean) as DataGridColumn[];
   }, [tableColumns, columnWidths, columnOrder]);
+
+  // Column metadata in the same ordering as `columns` (derived, not changing existing column typing)
+  const columnMetas = useMemo(() => {
+    if (tableColumns.length === 0) return [] as TableColumnMeta[];
+    const orderedIndices =
+      columnOrder.length > 0 ? columnOrder : tableColumns.map((_, i) => i);
+    return orderedIndices.map((idx) => tableColumns[idx] as unknown as TableColumnMeta);
+  }, [tableColumns, columnOrder]);
 
   // Get cell content callback
   const getCellContent = useCallback(
@@ -152,14 +169,47 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
       }
 
       const column = columns[col];
-      const rowData = rows[row];
+      const rowData: TableDataRow = rows[row];
 
       // Access value by column name
-      const value = rowData[column.name];
-      // Convert cell value to grid cell with column width for proper truncation
-      return cellValueToGridCell(value, column.type, 'width' in column ? column.width : undefined);
+      const value: CellValue | undefined = rowData[column.name] as CellValue | undefined;
+      // If we have column meta that maps to a custom renderer, emit Custom cell
+      const colMeta = columnMetas[col];
+      if (colMeta) {
+        const kind = getCellRendererFromColumnMeta(colMeta);
+        if (
+          kind === "boolean-cell" ||
+          kind === "enum-cell" ||
+          kind === "date-cell" ||
+          kind === "datetime-cell" ||
+          kind === "time-cell"
+        ) {
+          // Ensure copyData is always a primitive string, not [object Object]
+          const raw: unknown = value?.value ?? value ?? "";
+          const copy = typeof raw === "object" && raw !== null ? JSON.stringify(raw) : String(raw);
+          return {
+            kind: GridCellKind.Custom,
+            allowOverlay: true,
+            copyData: copy,
+            data: {
+              kind,
+              value: raw,
+              metadata: colMeta,
+            },
+            readonly: true,
+          } as unknown as GridCell;
+        }
+      }
+
+      // Fallback to default mapping
+      const valueToConvert: CellValue | null | undefined = value as CellValue | null | undefined;
+      return cellValueToGridCell(
+        valueToConvert,
+        column.type,
+        "width" in column ? column.width : undefined,
+      );
     },
-    [rows, columns],
+    [rows, columns, columnMetas],
   );
 
   // Calculate optimal column width based on content
@@ -171,22 +221,44 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
       const headerWidth = column.name.length * 8 + 40; // Header text width
 
       // Create a canvas for accurate text measurement
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
       if (!ctx) return headerWidth;
-      
+
       // Use the same font as the grid
-      ctx.font = '400 12px Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif';
+      ctx.font =
+        "400 12px Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif";
 
       // Sample all rows (or up to 1000 for performance)
       let maxContentWidth = headerWidth;
       const sampleSize = Math.min(1000, rows.length);
 
       for (let i = 0; i < sampleSize; i++) {
-        const cellValue = rows[i]?.[column.name];
-        const displayValue = cellValue?.value || cellValue;
-        const textValue = String(displayValue || "");
-        
+        const cellValueUnknown = rows[i]?.[column.name] as unknown;
+        const hasInnerValue =
+          typeof cellValueUnknown === "object" && cellValueUnknown !== null &&
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          Object.prototype.hasOwnProperty.call(cellValueUnknown as any, "value");
+        let displayValue: unknown;
+        if (hasInnerValue) {
+          const cv = cellValueUnknown as { value?: unknown };
+          displayValue = cv.value;
+        } else {
+          displayValue = cellValueUnknown;
+        }
+        let textValue: string;
+        if (displayValue === null || displayValue === undefined) {
+          textValue = "";
+        } else if (typeof displayValue === "object") {
+          try {
+            textValue = JSON.stringify(displayValue as Record<string, unknown>);
+          } catch {
+            textValue = "[object]";
+          }
+        } else {
+          textValue = String(displayValue);
+        }
+
         // Measure actual text width
         const textWidth = ctx.measureText(textValue).width;
         const contentWidth = textWidth + 16; // Add padding
@@ -202,13 +274,13 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
   // Handle column resize
   const handleColumnResize = useCallback(
     (_column: GridColumn, newSize: number, colIndex: number) => {
-      if (columns[colIndex]?.id && currentTab) {
-        const colId = columns[colIndex].id;
+      const colId = columns[colIndex]?.id;
+      if (colId && currentTab) {
         updateTabUI(currentTab.id, {
           columnWidths: {
             ...columnWidths,
             [colId]: newSize,
-          }
+          },
         });
       }
     },
@@ -218,17 +290,19 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
   // Handle column move (drag and drop)
   const handleColumnMoved = useCallback(
     (startIndex: number, endIndex: number) => {
-      if (startIndex === endIndex || !currentTab || !tableColumns) return;
+      if (startIndex === endIndex || !currentTab || tableColumns.length === 0) return;
 
       const newOrder = [...columnOrder];
       const [movedColumn] = newOrder.splice(startIndex, 1);
       newOrder.splice(endIndex, 0, movedColumn);
 
       // Convert indices back to column names
-      const newColumnOrder = newOrder.map(idx => tableColumns[idx]?.name).filter(Boolean);
+      const newColumnOrder = newOrder
+        .map((idx) => tableColumns[idx]?.name)
+        .filter((n): n is string => Boolean(n));
 
       updateTabUI(currentTab.id, {
-        columnOrder: newColumnOrder
+        columnOrder: newColumnOrder,
       });
     },
     [columnOrder, currentTab, updateTabUI, tableColumns],
@@ -238,15 +312,16 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
   const handleColumnResizeEnd = useCallback(
     (_column: GridColumn, newSize: number, colIndex: number) => {
       // Check if this is a double-click (size is -1 indicates auto-size request)
-      if (newSize < 0 && currentTab) {
-        const optimalWidth = calculateOptimalWidth(colIndex);
-        if (columns[colIndex]?.id) {
-          const colId = columns[colIndex].id;
+      if (newSize < 0 && currentTab && Number.isInteger(colIndex) && colIndex >= 0 && colIndex < columns.length) {
+        const idx: number = colIndex;
+        const optimalWidth: number = calculateOptimalWidth(idx);
+        const colId: string | undefined = columns[idx]?.id;
+        if (colId) {
           updateTabUI(currentTab.id, {
             columnWidths: {
               ...columnWidths,
               [colId]: optimalWidth,
-            }
+            },
           });
         }
       }
@@ -282,16 +357,13 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
   }, []);
 
   // Handle visible region change for infinite scrolling
-  const handleVisibleRegionChanged = useCallback(
-    (range: Rectangle) => {
-      // Use RAF for smooth updates
-      requestAnimationFrame(() => {
-        const newRange = { start: range.y, end: range.y + range.height };
-        setVisibleRange(newRange);
-      });
-    },
-    [],
-  );
+  const handleVisibleRegionChanged = useCallback((range: Rectangle) => {
+    // Use RAF for smooth updates
+    requestAnimationFrame(() => {
+      const newRange = { start: range.y, end: range.y + range.height };
+      setVisibleRange(newRange);
+    });
+  }, []);
 
   // Handle selection change
   const handleSelectionChange = useCallback((count: number) => {

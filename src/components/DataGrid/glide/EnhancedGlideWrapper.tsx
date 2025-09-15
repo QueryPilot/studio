@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
 import { memo, useCallback, useState, useRef, useMemo, useEffect } from "react";
 import DataEditor, {
   type GridCell,
@@ -12,7 +10,6 @@ import DataEditor, {
   type Theme,
   type GridMouseEventArgs,
   CompactSelection,
-  type DrawCellCallback,
 } from "@glideapps/glide-data-grid";
 import "@glideapps/glide-data-grid/dist/index.css";
 import "./glide-overrides.css";
@@ -21,6 +18,7 @@ import { useTheme } from "next-themes";
 import { useCopy } from "@/hooks/useCopy";
 import { useToast } from "@/hooks/use-toast";
 import { CellValuePopup } from "./CellValuePopup";
+import { useDatabaseCells } from "./cells";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -96,79 +94,9 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
   estimatedTotal,
 }: EnhancedGlideWrapperProps) {
   const { theme: appTheme } = useTheme();
+  const { customRenderers } = useDatabaseCells();
 
-  // Custom text cell renderer with optimized ellipsis
-  const drawTextCell: DrawCellCallback = useCallback((args, cell, drawContent) => {
-    // Only handle text cells
-    if (cell.kind !== GridCellKind.Text) return false;
-    
-    const { ctx, rect, theme } = args;
-    const { x, y, width, height } = rect;
-    const text = String(cell.displayData || cell.data || "");
-    
-    // Don't render empty text
-    if (!text || text === "NULL") {
-      // Use default renderer for NULL values
-      return false;
-    }
-    
-    // Save context state
-    ctx.save();
-    
-    // Clear the cell area first
-    ctx.fillStyle = theme.bgCell;
-    ctx.fillRect(x, y, width, height);
-    
-    // Set up text rendering
-    ctx.fillStyle = theme.textDark;
-    ctx.font = `${theme.baseFontStyle} ${theme.fontFamily}`;
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    
-    // Calculate text position
-    const padding = 8;
-    const textX = x + padding;
-    const textY = y + height / 2;
-    const maxWidth = width - (padding * 2);
-    
-    // Measure text
-    const textMetrics = ctx.measureText(text);
-    
-    if (textMetrics.width <= maxWidth) {
-      // Text fits - render normally
-      ctx.fillText(text, textX, textY);
-    } else {
-      // Text overflows - add ellipsis
-      const ellipsis = '\u2026';
-      const ellipsisWidth = ctx.measureText(ellipsis).width;
-      const availableWidth = maxWidth - ellipsisWidth;
-      
-      // Binary search for truncation point
-      let left = 0;
-      let right = text.length;
-      
-      while (left < right) {
-        const mid = Math.ceil((left + right) / 2);
-        const testText = text.substring(0, mid);
-        const testWidth = ctx.measureText(testText).width;
-        
-        if (testWidth <= availableWidth) {
-          left = mid;
-        } else {
-          right = mid - 1;
-        }
-      }
-      
-      // Draw truncated text with ellipsis
-      const truncatedText = text.substring(0, left);
-      ctx.fillText(truncatedText + ellipsis, textX, textY);
-    }
-    
-    // Restore context
-    ctx.restore();
-    
-    return true;
-  }, []);
+  // Note: custom draw override intentionally disabled for now; rely on default renderer
   const { copy } = useCopy();
   const { toast } = useToast();
   const gridRef = useRef<DataEditorRef>(null);
@@ -367,16 +295,25 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
       .map((row) =>
         row
           .map((cell) => {
-            const value = (cell as any).displayData || (cell as any).data;
+            const cellAny = cell as unknown as {
+              displayData?: unknown;
+              data?: unknown;
+            };
+            const raw = cellAny.displayData ?? cellAny.data;
+            const value =
+              raw == null
+                ? ""
+                : typeof raw === "string"
+                ? raw
+                : JSON.stringify(raw);
             if (
-              typeof value === "string" &&
-              (value.includes(",") ||
-                value.includes('"') ||
-                value.includes("\n"))
+              value.includes(",") ||
+              value.includes('"') ||
+              value.includes("\n")
             ) {
               return `"${value.replace(/"/g, '""')}"`;
             }
-            return String(value);
+            return value;
           })
           .join(","),
       )
@@ -385,7 +322,9 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
 
   // Format cells as JSON
   const formatCellsAsJson = useCallback((cells: (readonly GridCell[])[]) => {
-    const data = cells.map((row) => row.map((cell) => (cell as any).data));
+    const data = cells.map((row) =>
+      row.map((cell) => (cell as { data?: unknown }).data ?? null),
+    );
     return JSON.stringify(data, null, 2);
   }, []);
 
@@ -394,7 +333,8 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
     (format: "text" | "csv" | "json") => {
       // Get the current selection
       const selection = gridSelection;
-      if (!selection.rows || selection.rows.length === 0) {
+      const selectedRows = selection.rows.toArray();
+      if (selectedRows.length === 0) {
         toast({
           title: "No selection",
           description: "Please select cells to copy",
@@ -403,7 +343,6 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
       }
 
       // Get selected bounds
-      const selectedRows = selection.rows.toArray();
       const selectedCols = selection.columns.toArray();
 
       // If no columns selected, select all
@@ -433,7 +372,15 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
           content = cells
             .map((row) =>
               row
-                .map((cell) => (cell as any).displayData || (cell as any).data)
+                .map((cell) => {
+                  const c = cell as { displayData?: unknown; data?: unknown };
+                  const raw = c.displayData ?? c.data;
+                  return raw == null
+                    ? ""
+                    : typeof raw === "string"
+                    ? raw
+                    : JSON.stringify(raw);
+                })
                 .join("\t"),
             )
             .join("\n");
@@ -462,7 +409,7 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
       if (!onCellEdited) return false;
 
       // For now, just paste the first value to the target cell
-      if (values.length > 0 && values[0]?.length > 0) {
+      if (values.length > 0 && values[0] && values[0].length > 0) {
         const newCell = getCellContent(target);
         if (newCell.kind === GridCellKind.Text) {
           onCellEdited(target, {
@@ -496,19 +443,20 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
       const now = performance.now();
 
       // Throttle updates to 60fps
-      if (now - scrollOptimizationRef.current.lastScroll < 16) {
+      const state = scrollOptimizationRef.current;
+      if (now - state.lastScroll < 16) {
         return;
       }
 
-      scrollOptimizationRef.current.lastScroll = now;
+      state.lastScroll = now;
 
       // Cancel previous RAF if exists
-      if (scrollOptimizationRef.current.rafId) {
-        cancelAnimationFrame(scrollOptimizationRef.current.rafId);
+      if (state.rafId) {
+        cancelAnimationFrame(state.rafId);
       }
 
       // Use RAF for smooth updates
-      scrollOptimizationRef.current.rafId = requestAnimationFrame(() => {
+      state.rafId = requestAnimationFrame(() => {
         onVisibleRegionChanged?.(range);
       });
     },
@@ -564,6 +512,7 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
               columns={columns}
               rows={rows}
               getCellContent={getCellContent}
+              customRenderers={customRenderers}
               onCellClicked={handleCellClick}
               onCellActivated={handleCellDoubleClick}
               onCellEdited={onCellEdited}
@@ -643,7 +592,9 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
           >
             <Copy className="mr-2 h-3 w-3" />
             Copy
-            <ContextMenuShortcut className="text-[10px]">⌘C</ContextMenuShortcut>
+            <ContextMenuShortcut className="text-[10px]">
+              ⌘C
+            </ContextMenuShortcut>
           </ContextMenuItem>
 
           <ContextMenuItem
@@ -687,7 +638,9 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
           <ContextMenuItem disabled className="text-xs py-1 px-2 h-7">
             <Search className="mr-2 h-3 w-3" />
             Search in Column
-            <ContextMenuShortcut className="text-[10px]">⌘F</ContextMenuShortcut>
+            <ContextMenuShortcut className="text-[10px]">
+              ⌘F
+            </ContextMenuShortcut>
           </ContextMenuItem>
 
           <ContextMenuItem disabled className="text-xs py-1 px-2 h-7">
