@@ -37,11 +37,11 @@ export const TimeCell: CustomRenderer<TimeCustomCell> = {
       }
     }
 
-    ctx.fillStyle = theme.textDark;
-    const baseFont = theme.baseFontStyle || "12px sans-serif";
     const isNull = value == null;
+    ctx.fillStyle = isNull ? theme.textLight : theme.textDark;
+    const baseFont = theme.baseFontStyle || "12px sans-serif";
     ctx.font = isNull ? `italic ${baseFont}` : baseFont;
-    if (isNull) ctx.globalAlpha = 0.55;
+    // keep full opacity for red NULL
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     const padding = theme.cellHorizontalPadding ?? 6;

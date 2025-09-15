@@ -69,14 +69,14 @@ export const MoneyCell: CustomRenderer<MoneyCustomCell> = {
 
     const baseFont = theme.baseFontStyle || "12px sans-serif";
     const isNull = value == null;
-    ctx.fillStyle = theme.textDark;
+    ctx.fillStyle = isNull ? theme.textLight : theme.textDark;
     ctx.font = isNull ? `italic ${baseFont}` : baseFont;
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
     const padding = theme.cellHorizontalPadding ?? 6;
     const maxTextWidth = Math.max(0, rect.width - padding * 2);
     const display = truncateTextToWidth(text, maxTextWidth, baseFont);
-    if (isNull) ctx.globalAlpha = 0.55;
+    // if (isNull) ctx.globalAlpha = 0.55;
 
     ctx.save();
     ctx.beginPath();

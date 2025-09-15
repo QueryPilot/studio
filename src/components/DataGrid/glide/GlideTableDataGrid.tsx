@@ -9,16 +9,16 @@ import {
 import { EnhancedGlideWrapper } from "./EnhancedGlideWrapper";
 import { useInfiniteTableData } from "../hooks/useInfiniteTableData";
 import {
-  cellValueToGridCell,
   shouldUseFullWidth,
   type GlideTableDataGridProps,
   type DataGridColumn,
 } from "./types";
+import { buildTableCell } from "./cellFactory";
 import { cn } from "@/lib/utils";
 import type { ColumnMeta as TableColumnMeta } from "@/types/database";
 import type { TableDataRow } from "@/services/tableDataTypes";
 import type { CellValue } from "@/types/cellValue";
-import { getCellRendererFromColumnMeta } from "./types";
+// import { getCellRendererFromColumnMeta } from "./types";
 import { DataGridStatusBar } from "../components/DataGridStatusBar";
 import {
   DataGridErrorState,
@@ -58,8 +58,14 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
   });
 
   // Use tab-specific column state from store
-  const columnWidths = useMemo(() => currentTab?.ui.columnWidths || {}, [currentTab]);
-  const tabColumnOrder = useMemo(() => currentTab?.ui.columnOrder || [], [currentTab]);
+  const columnWidths = useMemo(
+    () => currentTab?.ui.columnWidths || {},
+    [currentTab],
+  );
+  const tabColumnOrder = useMemo(
+    () => currentTab?.ui.columnOrder || [],
+    [currentTab],
+  );
 
   // Initialize column order when columns change or tab changes
   const columnOrder = useMemo<number[]>(() => {
@@ -150,7 +156,9 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
     if (tableColumns.length === 0) return [] as TableColumnMeta[];
     const orderedIndices =
       columnOrder.length > 0 ? columnOrder : tableColumns.map((_, i) => i);
-    return orderedIndices.map((idx) => tableColumns[idx] as unknown as TableColumnMeta);
+    return orderedIndices.map(
+      (idx) => tableColumns[idx] as unknown as TableColumnMeta,
+    );
   }, [tableColumns, columnOrder]);
 
   // Get cell content callback
@@ -171,43 +179,10 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
       const column = columns[col];
       const rowData: TableDataRow = rows[row];
 
-      // Access value by column name
-      const value: CellValue | undefined = rowData[column.name] as CellValue | undefined;
-      // If we have column meta that maps to a custom renderer, emit Custom cell
-      const colMeta = columnMetas[col];
-      if (colMeta) {
-        const kind = getCellRendererFromColumnMeta(colMeta);
-        if (
-          kind === "boolean-cell" ||
-          kind === "enum-cell" ||
-          kind === "date-cell" ||
-          kind === "datetime-cell" ||
-          kind === "time-cell"
-        ) {
-          // Ensure copyData is always a primitive string, not [object Object]
-          const raw: unknown = value?.value ?? value ?? "";
-          const copy = typeof raw === "object" && raw !== null ? JSON.stringify(raw) : String(raw);
-          return {
-            kind: GridCellKind.Custom,
-            allowOverlay: true,
-            copyData: copy,
-            data: {
-              kind,
-              value: raw,
-              metadata: colMeta,
-            },
-            readonly: true,
-          } as unknown as GridCell;
-        }
-      }
-
-      // Fallback to default mapping
-      const valueToConvert: CellValue | null | undefined = value as CellValue | null | undefined;
-      return cellValueToGridCell(
-        valueToConvert,
-        column.type,
-        "width" in column ? column.width : undefined,
-      );
+      const value: CellValue | undefined = rowData[column.name] as
+        | CellValue
+        | undefined;
+      return buildTableCell({ value, column, meta: columnMetas[col] });
     },
     [rows, columns, columnMetas],
   );
@@ -236,9 +211,12 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
       for (let i = 0; i < sampleSize; i++) {
         const cellValueUnknown = rows[i]?.[column.name] as unknown;
         const hasInnerValue =
-          typeof cellValueUnknown === "object" && cellValueUnknown !== null &&
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          Object.prototype.hasOwnProperty.call(cellValueUnknown as any, "value");
+          typeof cellValueUnknown === "object" &&
+          cellValueUnknown !== null &&
+          Object.prototype.hasOwnProperty.call(
+            cellValueUnknown as Record<string, unknown>,
+            "value",
+          );
         let displayValue: unknown;
         if (hasInnerValue) {
           const cv = cellValueUnknown as { value?: unknown };
@@ -290,10 +268,12 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
   // Handle column move (drag and drop)
   const handleColumnMoved = useCallback(
     (startIndex: number, endIndex: number) => {
-      if (startIndex === endIndex || !currentTab || tableColumns.length === 0) return;
+      if (startIndex === endIndex || !currentTab || tableColumns.length === 0)
+        return;
 
       const newOrder = [...columnOrder];
-      const [movedColumn] = newOrder.splice(startIndex, 1);
+      const moved = newOrder.splice(startIndex, 1);
+      const movedColumn = moved.length > 0 ? moved[0] : startIndex;
       newOrder.splice(endIndex, 0, movedColumn);
 
       // Convert indices back to column names
@@ -312,7 +292,13 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
   const handleColumnResizeEnd = useCallback(
     (_column: GridColumn, newSize: number, colIndex: number) => {
       // Check if this is a double-click (size is -1 indicates auto-size request)
-      if (newSize < 0 && currentTab && Number.isInteger(colIndex) && colIndex >= 0 && colIndex < columns.length) {
+      if (
+        newSize < 0 &&
+        currentTab &&
+        Number.isInteger(colIndex) &&
+        colIndex >= 0 &&
+        colIndex < columns.length
+      ) {
         const idx: number = colIndex;
         const optimalWidth: number = calculateOptimalWidth(idx);
         const colId: string | undefined = columns[idx]?.id;

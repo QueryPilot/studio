@@ -7,6 +7,7 @@ import {
 } from "@glideapps/glide-data-grid";
 import { EnhancedGlideWrapper } from "./EnhancedGlideWrapper";
 import { type GlideQueryDataGridProps, type DataGridColumn } from "./types";
+import { buildQueryCell } from "./cellFactory";
 import { cn } from "@/lib/utils";
 import { DataGridStatusBar } from "../components/DataGridStatusBar";
 import { DataGridEmptyState } from "../components/DataGridStates";
@@ -62,46 +63,7 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
       .filter(Boolean) as DataGridColumn[];
   }, [data?.columns, columnWidths, columnOrder]);
 
-  // Detect data type from value
-  const detectCellKind = useCallback((value: unknown): GridCellKind => {
-    if (value === null || value === undefined) {
-      return GridCellKind.Text;
-    }
-
-    if (typeof value === "boolean") {
-      return GridCellKind.Boolean;
-    }
-
-    if (typeof value === "number" && !isNaN(value)) {
-      return GridCellKind.Number;
-    }
-
-    return GridCellKind.Text;
-  }, []);
-
-  // Format display value
-  const formatDisplayValue = useCallback((value: unknown): string => {
-    if (value === null) return "NULL";
-    if (value === undefined) return "";
-
-    if (typeof value === "boolean") {
-      return value ? "TRUE" : "FALSE";
-    }
-
-    if (typeof value === "object") {
-      try {
-        return JSON.stringify(value, null, 2);
-      } catch {
-        return String(value);
-      }
-    }
-
-    if (value instanceof Date) {
-      return value.toISOString();
-    }
-
-    return String(value);
-  }, []);
+  // (removed detectCellKind/formatDisplayValue; cellFactory handles formatting)
 
   // Get cell content callback
   const getCellContent = useCallback(
@@ -121,50 +83,12 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
       // Map to original column index for data access
       const originalColIndex = columnOrder.length > 0 ? columnOrder[col] : col;
       const value =
-        originalColIndex !== undefined
+        typeof originalColIndex === "number"
           ? data.rows[row][originalColIndex]
           : null;
-      const cellKind = detectCellKind(value);
-
-      switch (cellKind) {
-        case GridCellKind.Boolean:
-          return {
-            kind: GridCellKind.Boolean,
-            data: value as boolean,
-            allowOverlay: false,
-            readonly: true,
-          };
-
-        case GridCellKind.Number:
-          return {
-            kind: GridCellKind.Number,
-            data: value as number,
-            displayData: formatDisplayValue(value),
-            allowOverlay: false,
-            readonly: true,
-            contentAlign: "right", // Right-align numbers
-          };
-
-        default: {
-          const textValue = formatDisplayValue(value);
-
-          return {
-            kind: GridCellKind.Text,
-            data: textValue,
-            displayData: textValue, // Let CSS handle overflow ellipsis
-            allowOverlay: true,
-            readonly: true,
-            themeOverride:
-              value === null
-                ? {
-                    textLight: "var(--muted-foreground)",
-                  }
-                : undefined,
-          };
-        }
-      }
+      return buildQueryCell(value);
     },
-    [data, columns, detectCellKind, formatDisplayValue],
+    [data, columns, columnOrder],
   );
 
   // Get raw cell value for popup
@@ -213,12 +137,28 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
       const sampleSize = Math.min(1000, data.rows.length);
 
       // Map to original column index for data access
-      const originalColIndex =
+      const maybeIndex =
         columnOrder.length > 0 ? columnOrder[colIndex] : colIndex;
+      const originalColIndex: number | undefined =
+        typeof maybeIndex === "number" ? maybeIndex : undefined;
 
       for (let i = 0; i < sampleSize; i++) {
+        if (originalColIndex === undefined) continue;
         const value = data.rows[i]?.[originalColIndex];
-        const textValue = String(value || "");
+        let textValue = "";
+        if (value === null || value === undefined) {
+          textValue = "";
+        } else if (value instanceof Date) {
+          textValue = value.toISOString();
+        } else if (typeof value === "object") {
+          try {
+            textValue = JSON.stringify(value as Record<string, unknown>);
+          } catch {
+            textValue = "[object]";
+          }
+        } else {
+          textValue = String(value);
+        }
 
         // Measure actual text width
         const textWidth = ctx.measureText(textValue).width;
@@ -250,7 +190,7 @@ export const GlideQueryDataGrid = memo(function GlideQueryDataGrid({
   const handleColumnResizeEnd = useCallback(
     (_column: GridColumn, newSize: number, colIndex: number) => {
       // Check if this is a double-click (size is -1 indicates auto-size request)
-      if (newSize < 0) {
+      if (newSize < 0 && Number.isInteger(colIndex)) {
         const optimalWidth = calculateOptimalWidth(colIndex);
         if (columns[colIndex]?.id) {
           const colId = columns[colIndex].id;

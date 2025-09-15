@@ -21,7 +21,7 @@ export const DateTimeCell: CustomRenderer<DateTimeCustomCell> = {
     return (cell as any)?.data?.kind === "datetime-cell";
   },
   draw: (args: DrawArgs<DateTimeCustomCell>, cell: DateTimeCustomCell) => {
-    const ctx = args.ctx as CanvasRenderingContext2D;
+    const ctx = args.ctx;
     const rect = args.rect;
     const theme = args.theme as Theme;
     const { value } = cell.data;
@@ -35,9 +35,9 @@ export const DateTimeCell: CustomRenderer<DateTimeCustomCell> = {
       }
     }
 
-    ctx.fillStyle = theme.textDark;
-    const baseFont = theme.baseFontStyle || "12px sans-serif";
     const isNull = value == null;
+    ctx.fillStyle = isNull ? theme.textLight : theme.textDark;
+    const baseFont = theme.baseFontStyle || "12px sans-serif";
     ctx.font = isNull ? `italic ${baseFont}` : baseFont;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
@@ -53,7 +53,7 @@ export const DateTimeCell: CustomRenderer<DateTimeCustomCell> = {
     ctx.beginPath();
     ctx.rect(rect.x, rect.y, rect.width, rect.height);
     ctx.clip();
-    if (isNull) ctx.globalAlpha = 0.55;
+    // keep full opacity for red NULL
     ctx.fillText(display, rect.x + padding, rect.y + rect.height / 2);
     ctx.restore();
     return true;
@@ -61,9 +61,7 @@ export const DateTimeCell: CustomRenderer<DateTimeCustomCell> = {
   provideEditor: () => ({
     editor: (props) => {
       // For now reuse Date calendar (date portion). Time editing later.
-      const raw = props.value.data.value;
-      const selected =
-        typeof raw === "string" ? new Date(raw) : raw ?? undefined;
+
       return (
         <div className="p-2 text-xs text-muted-foreground">
           Inline editor TBD
