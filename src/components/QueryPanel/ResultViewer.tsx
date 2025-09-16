@@ -8,6 +8,7 @@ import {
   AlertCircle,
   CheckCircle2,
   XCircle,
+  Clipboard,
 } from "lucide-react";
 import { QueryDataGrid } from "@/components/DataGrid";
 import { toast } from "sonner";
@@ -156,18 +157,45 @@ export const ResultViewer = memo(function ResultViewer({
   }
 
   if (result.error) {
+    const handleCopyError = () => {
+      navigator.clipboard
+        .writeText(result.error || "")
+        .then(() => {
+          toast.success("Error message copied to clipboard");
+        })
+        .catch(() => {
+          toast.error("Failed to copy to clipboard");
+        });
+    };
+
     return (
       <div
         className={cn(
-          "flex items-center justify-center bg-destructive/10 h-full",
+          "flex items-center justify-center bg-destructive/5 h-full",
           className,
         )}
       >
-        <div className="flex flex-col items-center space-y-2 p-4">
-          <XCircle className="h-8 w-8 text-destructive" />
+        <div className="flex flex-col items-center space-y-3 p-6 max-w-2xl w-full">
+          <XCircle className="h-10 w-10 text-destructive" />
           <p className="text-sm font-semibold text-destructive">Query Error</p>
-          <p className="text-xs text-destructive/80 text-center max-w-md">
-            {result.error}
+          <div className="relative w-full">
+            <div className="bg-destructive/10 border border-destructive/20 rounded-md p-4 pr-12">
+              <pre className="text-xs text-destructive/90 whitespace-pre-wrap break-words font-mono select-text">
+                {result.error}
+              </pre>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute top-2 right-2 h-8 w-8 hover:bg-destructive/20"
+              onClick={handleCopyError}
+              title="Copy error message"
+            >
+              <Clipboard className="h-4 w-4 text-destructive/70" />
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Check your SQL syntax and connection status
           </p>
         </div>
       </div>

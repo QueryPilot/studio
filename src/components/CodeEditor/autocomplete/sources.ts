@@ -75,6 +75,16 @@ export function createContextualCompletionSource(params: {
         return res && res.options.length > 0 ? res : null;
       }
       case "WHERE":
+      case "HAVING": {
+        const res = await getFilterCompletions(
+          q,
+          context,
+          dbType,
+          connectionId,
+        );
+        return res && res.options.length > 0 ? res : null;
+      }
+      case "WHERE":
       case "HAVING":
       case "ORDER BY":
       case "GROUP BY":
@@ -167,6 +177,101 @@ async function getColumnCompletions(
 
   const word = context.matchBefore(/[\w\[\]"`$]+$/);
   if (!word && !context.explicit) return null;
+  const from = word ? word.from : context.pos;
+  return { from, options: completions, validFor: /^(?:[\w\[\]"`$]+)?$/ };
+}
+
+async function getFilterCompletions(
+  queryContext: QueryContext,
+  context: CompletionContext,
+  dbType: DbType,
+  connectionId: string,
+): Promise<CompletionResult | null> {
+  const completions: Completion[] = [];
+
+  // Suggest aliases first (e.g., u.)
+  for (const t of queryContext.tablesInScope) {
+    if (t.alias) {
+      completions.push({
+        label: `${t.alias}.`,
+        apply: `${t.alias}.`,
+        type: "variable",
+        detail: "alias",
+      });
+    } else if (t.table) {
+      const needs = QUOTE_CHARS[dbType].needsQuoting(t.table);
+      const tableName = needs ? autoQuoteIdentifier(t.table, dbType) : t.table;
+      completions.push({
+        label: `${tableName}.`,
+        apply: `${tableName}.`,
+        type: "variable",
+        detail: "table",
+      });
+    }
+  }
+
+  // Columns from all tables in scope
+  const colRes = await getColumnCompletions(
+    queryContext,
+    context,
+    dbType,
+    connectionId,
+  );
+  if (colRes) completions.push(...colRes.options);
+
+  // Only include operators AFTER a column-like token (alias.column or quoted)
+  const pos = context.pos;
+  const line = context.state.doc.lineAt(pos);
+  const textBefore = line.text.slice(0, pos - line.from);
+  const hasColumnLike = /(?:\b\w+\.|\[.+\]\.|".+"\.|`.+`\.)\w+\s*$/.test(
+    textBefore,
+  );
+  if (hasColumnLike) {
+    const ops: Completion[] = [
+      { label: "=", type: "operator" },
+      { label: "!=", type: "operator" },
+      { label: ">", type: "operator" },
+      { label: "<", type: "operator" },
+      { label: ">=", type: "operator" },
+      { label: "<=", type: "operator" },
+      {
+        label: "IS NULL",
+        apply: "IS NULL",
+        type: "keyword",
+        detail: "null check",
+      },
+      {
+        label: "IS NOT NULL",
+        apply: "IS NOT NULL",
+        type: "keyword",
+        detail: "null check",
+      },
+      {
+        label: "IN (...)",
+        apply: "IN (${values})",
+        type: "keyword",
+        detail: "set membership",
+      },
+      {
+        label: "BETWEEN ... AND ...",
+        apply: "BETWEEN ${a} AND ${b}",
+        type: "keyword",
+        detail: "range",
+      },
+      {
+        label: "LIKE",
+        apply: "LIKE '%${pattern}%'",
+        type: "keyword",
+        detail: "pattern",
+      },
+      { label: "AND", type: "keyword" },
+      { label: "OR", type: "keyword" },
+      { label: "NOT", type: "keyword" },
+    ];
+    completions.push(...ops);
+  }
+
+  const word = context.matchBefore(/[\w\[\]"`$]+$/);
   const from = word ? word.from : context.pos;
   return { from, options: completions, validFor: /^(?:[\w\[\]"`$]+)?$/ };
 }

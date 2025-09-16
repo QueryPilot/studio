@@ -19,7 +19,12 @@ import { useCopy } from "@/hooks/useCopy";
 import { useToast } from "@/hooks/use-toast";
 import { CellValuePopup } from "./CellValuePopup";
 import { useDatabaseCells } from "./cells";
-import { getHoverActions, hitTestHoverAction } from "./cells/hoverActions";
+import {
+  ChevronDown,
+  Clipboard,
+  ClipboardCheck,
+  ArrowUpRight,
+} from "lucide-react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -109,6 +114,9 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
     lastScroll: 0,
     rafId: null,
   });
+  const overlayHoverRef = useRef<boolean>(false);
+  const hoverHoldUntilRef = useRef<number>(0);
+  const hoverHideTimerRef = useRef<number | null>(null);
 
   const [gridSelection, setGridSelection] = useState<GridSelection>({
     columns: CompactSelection.empty(),
@@ -134,6 +142,18 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
     cell: null,
     position: null,
   });
+
+  type HoverAction = {
+    id: "edit" | "copy" | "navigate";
+    icon: "chevron" | "clipboard" | "arrow-up-right";
+    state?: "success";
+  };
+  const [hoverUi, setHoverUi] = useState<{
+    bounds: Rectangle;
+    cell: Item;
+    actions: HoverAction[];
+    side: "left" | "right";
+  } | null>(null);
 
   // Create theme based on app theme matching our color system
   const theme = useMemo<Partial<Theme>>(() => {
@@ -252,37 +272,12 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
     [onCellDoubleClick],
   );
 
-  // Handle cell click
+  // Handle cell click (hover actions handled by HTML overlay)
   const handleCellClick = useCallback(
-    (cell: Item, event: GridMouseEventArgs) => {
-      // If click is inside hover band, trigger hover action click
-      if ("bounds" in event) {
-        const gc = getCellContent(cell);
-        if (gc.kind === GridCellKind.Custom) {
-          const actions = getHoverActions(
-            gc as unknown as {
-              data: Record<string, unknown>;
-            } as unknown as never,
-          );
-          const idx = hitTestHoverAction(
-            event.bounds,
-            event.location[0],
-            actions.length,
-          );
-          if (idx != null && actions[idx]) {
-            actions[idx].onClick(
-              gc as unknown as {
-                data: Record<string, unknown>;
-              } as unknown as never,
-              { x: event.location[0], y: event.location[1] },
-            );
-            return; // consume click
-          }
-        }
-      }
+    (cell: Item, _event: GridMouseEventArgs) => {
       onCellClicked?.(cell);
     },
-    [getCellContent, onCellClicked],
+    [onCellClicked],
   );
 
   // Get cells for selection (copy operation)
@@ -472,16 +467,101 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
       // Use RAF for smooth updates
       state.rafId = requestAnimationFrame(() => {
         onVisibleRegionChanged?.(range);
+        // hide hover UI on scroll
+        if (hoverUi) setHoverUi(null);
       });
     },
-    [onVisibleRegionChanged],
+    [onVisibleRegionChanged, hoverUi],
+  );
+
+  const formatCellForCopy = useCallback((cell: GridCell): string => {
+    const c = cell as unknown as { data?: unknown; displayData?: unknown };
+    let raw: unknown = c.data;
+    if (cell.kind === GridCellKind.Custom) {
+      const d = c.data as { value?: unknown } | undefined;
+      if (d && typeof d === "object" && "value" in d) raw = d.value;
+    }
+    if (raw == null) raw = c.displayData;
+    if (raw == null) return "";
+    if (typeof raw === "string") return raw;
+    try {
+      return JSON.stringify(raw as Record<string, unknown>);
+    } catch {
+      return "[object]";
+    }
+  }, []);
+
+  const buildHoverActions = useCallback(
+    (cell: GridCell): HoverAction[] => {
+      const actions: HoverAction[] = [];
+      const canCopy = formatCellForCopy(cell).length > 0;
+      if (canCopy) actions.push({ id: "copy", icon: "clipboard" });
+      if (cell.kind === GridCellKind.Custom)
+        actions.push({ id: "edit", icon: "chevron" });
+      const meta = (
+        cell as unknown as { data?: { metadata?: { is_fk?: boolean } } }
+      ).data?.metadata;
+      if (meta?.is_fk) actions.push({ id: "navigate", icon: "arrow-up-right" });
+      return actions;
+    },
+    [formatCellForCopy],
+  );
+
+  const getOverlaySide = useCallback(
+    (cell: GridCell, column: GridColumn | undefined): "left" | "right" => {
+      const align = (cell as unknown as { contentAlign?: "left" | "right" })
+        .contentAlign;
+      if (align === "right") return "left";
+      if (cell.kind === GridCellKind.Number) return "left";
+      if (cell.kind === GridCellKind.Custom) {
+        const k =
+          (cell as unknown as { data?: { kind?: string } }).data?.kind ?? "";
+        if (k === "number-cell" || k === "money-cell") return "left";
+      }
+      const t =
+        (column as { type?: string } | undefined)?.type?.toLowerCase() ?? "";
+      if (/int|numeric|decimal|float|double|real|money/.test(t)) return "left";
+      return "right";
+    },
+    [],
+  );
+
+  // Hover tracking for HTML overlay buttons
+  const handleItemHovered = useCallback(
+    (
+      args: { kind?: string; location?: Item; bounds?: Rectangle } | undefined,
+    ) => {
+      const a = args;
+      const nowTs = performance.now();
+      if (
+        a == null ||
+        a.kind !== "cell" ||
+        a.location == null ||
+        a.bounds == null
+      ) {
+        // During hold window, ignore transient non-cell hover events
+        if (nowTs < hoverHoldUntilRef.current) return;
+        setHoverUi(null);
+        return;
+      }
+      const gc = getCellContent(a.location);
+      const actions = buildHoverActions(gc);
+      if (actions.length === 0) {
+        setHoverUi(null);
+        return;
+      }
+      const side = getOverlaySide(gc, columns[a.location[0]]);
+      setHoverUi({ bounds: a.bounds, cell: a.location, actions, side });
+    },
+    [getCellContent, buildHoverActions, getOverlaySide, columns],
   );
 
   // Cleanup RAF on unmount
   useEffect(() => {
+    const current = scrollOptimizationRef.current;
     return () => {
-      if (scrollOptimizationRef.current.rafId) {
-        cancelAnimationFrame(scrollOptimizationRef.current.rafId);
+      if (current.rafId) {
+        cancelAnimationFrame(current.rafId);
       }
     };
   }, []);
@@ -509,6 +589,11 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
 
   return (
     <>
+      {/* Absolute overlay container for React hover buttons */}
+      <div
+        id="glide-html-overlays"
+        className="pointer-events-none absolute inset-0 z-10"
+      />
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div
@@ -529,6 +614,9 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
               customRenderers={customRenderers}
               onCellClicked={handleCellClick}
               onCellActivated={handleCellDoubleClick}
+              onItemHovered={
+                handleItemHovered as unknown as (args: unknown) => void
+              }
               onCellEdited={onCellEdited}
               onColumnResize={onColumnResize}
               onColumnResizeEnd={onColumnResizeEnd}
@@ -584,6 +672,141 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
                 selectRow: true,
               }}
             />
+            {hoverUi && (
+              <div
+                className="absolute pointer-events-none"
+                style={{
+                  left:
+                    hoverUi.bounds.x -
+                    (containerRef.current?.getBoundingClientRect().x ?? 0),
+                  top:
+                    hoverUi.bounds.y -
+                    (containerRef.current?.getBoundingClientRect().y ?? 0),
+                  width: hoverUi.bounds.width,
+                  height: hoverUi.bounds.height,
+                }}
+              >
+                <div
+                  className={`absolute ${
+                    hoverUi.side === "left" ? "left-1" : "right-1"
+                  } top-1/2 -translate-y-1/2 flex gap-[2px]`}
+                  style={{ pointerEvents: "auto" }}
+                  onMouseEnter={() => {
+                    overlayHoverRef.current = true;
+                    if (hoverHideTimerRef.current != null) {
+                      window.clearTimeout(hoverHideTimerRef.current);
+                      hoverHideTimerRef.current = null;
+                    }
+                  }}
+                  onMouseLeave={() => {
+                    overlayHoverRef.current = false;
+                    const prevCell = hoverUi.cell;
+                    // Add a small grace window to avoid clearing a freshly opened overlay
+                    hoverHoldUntilRef.current = performance.now() + 140;
+                    if (hoverHideTimerRef.current != null) {
+                      window.clearTimeout(hoverHideTimerRef.current);
+                      hoverHideTimerRef.current = null;
+                    }
+                    hoverHideTimerRef.current = window.setTimeout(() => {
+                      setHoverUi((current) => {
+                        if (overlayHoverRef.current) return current;
+                        if (!current) return current;
+                        // Only clear if we are still on the same cell we left
+                        if (
+                          current.cell[0] !== prevCell[0] ||
+                          current.cell[1] !== prevCell[1]
+                        )
+                          return current;
+                        return null;
+                      });
+                      hoverHideTimerRef.current = null;
+                    }, 80);
+                  }}
+                >
+                  {hoverUi.actions.map((a, i) => {
+                    return (
+                      <button
+                        key={`${a.id}-${i}`}
+                        className="bg-background rounded-md h-5 w-5 flex items-center justify-center shadow-sm hover:bg-accent dark:border"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                        }}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const gc = getCellContent(hoverUi.cell);
+                          if (a.id === "edit") {
+                            // try to trigger edit via F2 as a fallback
+                            (
+                              containerRef.current ?? document.body
+                            ).dispatchEvent(
+                              new KeyboardEvent("keydown", {
+                                key: "F2",
+                                code: "F2",
+                                bubbles: true,
+                              }),
+                            );
+                          } else if (a.id === "copy") {
+                            const txt = formatCellForCopy(gc);
+                            void navigator.clipboard.writeText(txt);
+                            // Hold briefly to avoid flicker while moving to adjacent cells
+                            hoverHoldUntilRef.current = performance.now() + 220;
+                            setHoverUi((prev) => {
+                              if (!prev) return prev;
+                              if (
+                                prev.cell[0] !== hoverUi.cell[0] ||
+                                prev.cell[1] !== hoverUi.cell[1]
+                              )
+                                return prev;
+                              return {
+                                ...prev,
+                                actions: prev.actions.map((act, idx) =>
+                                  idx === i
+                                    ? { ...act, state: "success" }
+                                    : act,
+                                ),
+                              };
+                            });
+                            window.setTimeout(() => {
+                              setHoverUi((prev) => {
+                                if (!prev) return prev;
+                                return {
+                                  ...prev,
+                                  actions: prev.actions.map((act, idx) =>
+                                    idx === i
+                                      ? { ...act, state: undefined }
+                                      : act,
+                                  ),
+                                };
+                              });
+                            }, 1200);
+                          }
+                          // keep overlay visible while interacting
+                        }}
+                        title={a.id}
+                      >
+                        {(() => {
+                          switch (a.icon) {
+                            case "chevron":
+                              return <ChevronDown className="h-3.5 w-3.5" />;
+                            case "clipboard":
+                              return a.state === "success" ? (
+                                <ClipboardCheck className="h-3.5 w-3.5 text-green-600" />
+                              ) : (
+                                <Clipboard className="h-3.5 w-3.5" />
+                              );
+                            case "arrow-up-right":
+                              return <ArrowUpRight className="h-3.5 w-3.5" />;
+                            default:
+                              return null;
+                          }
+                        })()}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </ContextMenuTrigger>
 

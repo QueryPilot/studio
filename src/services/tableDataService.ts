@@ -155,26 +155,51 @@ export class TableDataService {
    */
   async executeQuery(
     connectionId: string,
-    database: string,
+    _database: string,
     query: string,
     options: { limit?: number; signal?: AbortSignal } = {}
   ): Promise<{ columns: string[]; rows: any[][]; error?: string }> {
     try {
-      const result = await safeInvoke<{
-        columns: string[];
-        rows: any[][];
-        error?: string;
-      }>('execute_query', {
-        connectionId,
-        database,
-        query,
-        limit: options.limit || 1000,
+      const handle = await safeInvoke<any>('execute_query', {
+        connId: connectionId,
+        sql: query,
       });
 
-      return result;
+      if (!handle) {
+        throw new Error('Failed to execute query: No handle returned');
+      }
+
+      const result = await safeInvoke<any>('fetch_results', {
+        connId: connectionId,
+        queryHandle: handle,
+        maxRows: options.limit || 1000,
+      });
+
+      if (!result) {
+        throw new Error('Failed to fetch query results');
+      }
+
+      if (result.error) {
+        throw new Error(result.error);
+      }
+
+      return {
+        columns: result.columns || [],
+        rows: result.rows || [],
+      };
     } catch (error) {
       console.error('[TableDataService] Query execution error:', error);
-      throw error;
+
+      let errorMessage = 'Failed to execute query';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      } else if (error && typeof error === 'object' && 'message' in error) {
+        errorMessage = String(error.message);
+      }
+
+      throw new Error(errorMessage);
     }
   }
 

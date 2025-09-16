@@ -112,15 +112,32 @@ export const QueryPanel = memo(function QueryPanel({
           return;
         } else {
           executionTime = Date.now() - startTime;
-          errorMessage =
-            error instanceof Error ? error.message : "Failed to execute query";
+
+          // Extract detailed error message
+          if (error instanceof Error) {
+            errorMessage = error.message;
+          } else if (typeof error === 'string') {
+            errorMessage = error;
+          } else if (error && typeof error === 'object' && 'message' in error) {
+            errorMessage = String(error.message);
+          } else {
+            errorMessage = "An unknown error occurred while executing the query";
+          }
+
           setResult({
             columns: [],
             rows: [],
             rowCount: 0,
             error: errorMessage,
           });
-          toast.error(errorMessage);
+
+          // Show error toast with full details
+          toast.error(errorMessage, {
+            duration: 5000,
+            description: "Check the console for more details",
+          });
+
+          console.error("Query execution failed:", error);
         }
       } finally {
         setIsExecuting(false);
