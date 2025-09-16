@@ -13,11 +13,6 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { truncateTextToWidth } from "../types";
-import {
-  drawHoverButtons,
-  getHoverActions,
-  getHoverBandWidth,
-} from "./hoverActions";
 
 type BooleanCellData = {
   kind: "boolean-cell";
@@ -78,13 +73,7 @@ export const BooleanCell: CustomRenderer<BooleanCustomCell> = {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     const horizontalPadding = (theme.cellHorizontalPadding || 6) + 2;
-    let extraRight = 0;
-    const hoverAmount =
-      (args as unknown as { hoverAmount?: number }).hoverAmount ?? 0;
-    if (hoverAmount > 0) {
-      const actions = getHoverActions(cell as unknown as CustomCell);
-      extraRight = getHoverBandWidth(actions.length);
-    }
+    const extraRight = 0; // HTML overlay handles its own layout; no canvas reserve
     const maxTextWidth = Math.max(
       0,
       rect.width - horizontalPadding * 2 - extraRight,
@@ -93,20 +82,6 @@ export const BooleanCell: CustomRenderer<BooleanCustomCell> = {
     const cx = rect.x + rect.width / 2;
     const cy = rect.y + rect.height / 2;
     ctx.fillText(display, cx, cy);
-
-    // hover buttons (if any)
-    if (hoverAmount > 0) {
-      const actions = getHoverActions(cell as unknown as CustomCell);
-      if (actions.length > 0) {
-        drawHoverButtons(
-          ctx,
-          rect,
-          theme,
-          actions,
-          Math.min(1, Math.max(0, hoverAmount)),
-        );
-      }
-    }
 
     ctx.restore();
     return true;

@@ -12,12 +12,8 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
+import { useEffect, useState } from "react";
 import { truncateTextToWidth } from "../types";
-import {
-  drawHoverButtons,
-  getHoverActions,
-  getHoverBandWidth,
-} from "./hoverActions";
 
 type EnumCellData = {
   kind: "enum-cell";
@@ -49,13 +45,7 @@ export const EnumCell: CustomRenderer<EnumCustomCell> = {
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     const padding = theme.cellHorizontalPadding ?? 6;
-    let extraRight = 16;
-    const hoverAmount =
-      (args as unknown as { hoverAmount?: number }).hoverAmount ?? 0;
-    if (hoverAmount > 0) {
-      const actions = getHoverActions(cell as unknown as CustomCell);
-      extraRight = Math.max(extraRight, getHoverBandWidth(actions.length));
-    }
+    let extraRight = 16; // space for chevron only; HTML overlay handles actions
     const maxTextWidth = Math.max(0, rect.width - padding * 2 - extraRight);
     const display = truncateTextToWidth(
       text,
@@ -70,19 +60,7 @@ export const EnumCell: CustomRenderer<EnumCustomCell> = {
     ctx.fillText(display, rect.x + padding, rect.y + rect.height / 2);
     (ctx as CanvasRenderingContext2D).restore();
 
-    // hover buttons
-    if (hoverAmount > 0) {
-      const actions = getHoverActions(cell as unknown as CustomCell);
-      if (actions.length > 0) {
-        drawHoverButtons(
-          ctx as CanvasRenderingContext2D,
-          rect,
-          theme,
-          actions,
-          Math.min(1, Math.max(0, hoverAmount)),
-        );
-      }
-    }
+    // hover buttons now rendered via HTML overlay; canvas path removed
 
     // dropdown glyph (lucide-like chevron)
     ctx.fillStyle = theme.textDark as string;
@@ -100,10 +78,17 @@ export const EnumCell: CustomRenderer<EnumCustomCell> = {
     editor: (props) => {
       const options = props.value.data.metadata?.enum_values ?? [];
       const current = props.value.data.value ?? "";
+      const [open, setOpen] = useState(true);
+      useEffect(() => {
+        setOpen(true);
+      }, []);
       return (
-        <div className="p-2 min-w-[200px]">
+        <div className="p-1 min-w-[160px]">
           <Select
+            open={open}
+            onOpenChange={setOpen}
             value={current}
+            defaultOpen
             onValueChange={(v) => {
               props.onChange({
                 ...props.value,
@@ -111,7 +96,7 @@ export const EnumCell: CustomRenderer<EnumCustomCell> = {
               });
             }}
           >
-            <SelectTrigger className="h-8 w-full">
+            <SelectTrigger size="sm" className="h-8 w-full">
               <SelectValue placeholder="Select…" />
             </SelectTrigger>
             <SelectContent>
