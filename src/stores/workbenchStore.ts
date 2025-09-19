@@ -52,6 +52,11 @@ interface WorkbenchStore {
   addTab: (panelId: string, tabId: string, tabData?: TabMetadata) => void;
   removeTab: (panelId: string, tabId: string) => void;
   setActiveTab: (panelId: string, tabId: string) => void;
+  updateTabMetadata: (
+    panelId: string,
+    tabId: string,
+    updates: Partial<TabMetadata>,
+  ) => void;
 }
 
 const useWorkbenchStore = create<WorkbenchStore>()(
@@ -476,6 +481,34 @@ const useWorkbenchStore = create<WorkbenchStore>()(
       newContents.set(panelId, {
         ...panel,
         activeTabId: tabId,
+      });
+
+      const updatedTree = updatePanelContents(layoutTree, newContents);
+
+      set({
+        layoutTree: updatedTree,
+        panelContents: newContents,
+      });
+    },
+
+    updateTabMetadata: (panelId, tabId, updates) => {
+      const { panelContents, layoutTree } = get();
+      if (!layoutTree) return;
+
+      const panel = panelContents.get(panelId);
+      if (!panel) return;
+
+      const panelMetadata: Record<string, TabMetadata | undefined> = {
+        ...(panel.metadata ?? {}),
+      };
+
+      const currentMetadata = (panelMetadata[tabId] ?? {}) as TabMetadata;
+      panelMetadata[tabId] = { ...currentMetadata, ...updates };
+
+      const newContents = new Map(panelContents);
+      newContents.set(panelId, {
+        ...panel,
+        metadata: panelMetadata,
       });
 
       const updatedTree = updatePanelContents(layoutTree, newContents);

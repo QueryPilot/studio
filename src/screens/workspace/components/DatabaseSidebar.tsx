@@ -447,7 +447,7 @@ export function DatabaseSidebar({
                 <SidebarItem
                   key={`${table.schema}.${table.name}`}
                   icon={
-                    <Table className="h-3.5 w-4 min-w-4 text-blue-500 flex-shrink-0" />
+                    <Table className="h-3.5 w-4 min-w-4 text-primary flex-shrink-0" />
                   }
                   name={table.name}
                   isActive={isTableActive(table.name, table.schema)}
@@ -502,7 +502,7 @@ export function DatabaseSidebar({
                       className={cn(
                         "h-4 min-h-4 w-4 min-w-4 flex-shrink-0",
                         view.kind === "MaterializedView"
-                          ? "text-purple-500"
+                          ? "text-blue-500"
                           : "text-green-500",
                       )}
                     />

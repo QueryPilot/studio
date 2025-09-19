@@ -76,7 +76,7 @@ impl PostgresQueryExecutor {
         
         // For SELECT queries, check if we need to build a modified query with casts
         // to handle types that tokio-postgres cannot deserialize
-        let needs_casting = sql.to_uppercase().contains("SELECT");
+        let _needs_casting = sql.to_uppercase().contains("SELECT");
         
         // First, prepare the original statement to get column metadata
         let stmt = self.client.prepare(sql).await?;
@@ -88,10 +88,10 @@ impl PostgresQueryExecutor {
         
         for col in stmt.columns() {
             let cell_type = PostgresTypeConverter::type_to_cell_type(col.type_());
-            let db_type_name = col.type_().name();
+            let _db_type_name = col.type_().name();
             
             // Check if this needs casting - including ALL custom types (enums, etc.)
-            let needs_cast = matches!(cell_type,
+            let _needs_cast = matches!(cell_type,
                 CellValueType::Range(_) |
                 CellValueType::Multirange(_) |
                 CellValueType::TsVector |
@@ -178,7 +178,7 @@ impl PostgresQueryExecutor {
             // Check if we need to cast range columns to text
             let columns_with_casts = portal.column_info.iter()
                 .enumerate()
-                .map(|(idx, col)| {
+                .map(|(_idx, col)| {
                     // Check if this is a type that needs casting to text
                     // This includes ranges, text search types, money, and ALL custom types (including enums)
                     if matches!(col.data_type,

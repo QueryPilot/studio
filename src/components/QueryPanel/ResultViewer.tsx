@@ -1,6 +1,5 @@
-import { memo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Copy,
@@ -13,6 +12,7 @@ import {
 import { QueryDataGrid } from "@/components/DataGrid";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { CodeEditor } from "@/components/CodeEditor";
 
 interface QueryResult {
   columns: string[];
@@ -37,6 +37,27 @@ export const ResultViewer = memo(function ResultViewer({
   connectionId = "",
 }: ResultViewerProps) {
   const [viewMode, setViewMode] = useState<"table" | "json">("table");
+
+  const jsonContent = useMemo(() => {
+    if (!result || result.error) {
+      return "[]";
+    }
+
+    const objects = result.rows.map((row) => {
+      const obj: Record<string, unknown> = {};
+      result.columns.forEach((col, i) => {
+        obj[col] = row[i];
+      });
+      return obj;
+    });
+
+    try {
+      return JSON.stringify(objects, null, 2);
+    } catch (err) {
+      console.warn("[ResultViewer] Failed to stringify query results", err);
+      return "[]";
+    }
+  }, [result]);
 
   const handleCopyToClipboard = () => {
     if (!result || result.error) return;
@@ -272,24 +293,31 @@ export const ResultViewer = memo(function ResultViewer({
             />
           </TabsContent>
 
-          <TabsContent value="json" className="flex-1 mt-2 mx-0">
-            <ScrollArea className="h-full">
-              <pre className="p-4 text-xs font-mono overflow-x-auto">
-                {JSON.stringify(
-                  result.rows.map((row) => {
-                    const obj: Record<string, unknown> = {};
-                    result.columns.forEach((col, i) => {
-                      obj[col] = row[i];
-                    });
-                    return obj;
-                  }),
-                  null,
-                  2,
-                )}
-              </pre>
-            </ScrollArea>
+          <TabsContent value="json" className="flex-1 mt-2 mx-0 h-full">
+            <JsonViewer content={jsonContent} />
           </TabsContent>
         </Tabs>
+      </div>
+    </div>
+  );
+});
+
+interface JsonViewerProps {
+  content: string;
+}
+
+const JsonViewer = memo(function JsonViewer({ content }: JsonViewerProps) {
+  return (
+    <div className="h-full px-3 pb-3">
+      <div className="h-full overflow-hidden rounded-md border bg-background">
+        <CodeEditor
+          value={content}
+          language="json"
+          readOnly
+          height="100%"
+          className="h-full"
+          lineNumbers
+        />
       </div>
     </div>
   );

@@ -29,6 +29,7 @@ export interface TabMetadata {
   database?: string;
   connectionId?: string;
   viewType?: string;
+  sql?: string;
   [key: string]: unknown;
 }
 

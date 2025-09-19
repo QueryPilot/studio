@@ -8,11 +8,11 @@ import {
   Table2,
   Eye,
   FunctionSquare,
-  Database,
   PanelRight,
   PanelBottom,
   PanelLeft,
   PanelTop,
+  Code,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -81,7 +81,7 @@ const DraggableTab: React.FC<DraggableTabProps> = ({
       case "function":
         return FunctionSquare;
       case "query":
-        return Database;
+        return Code;
       default:
         return Table2;
     }
@@ -95,7 +95,7 @@ const DraggableTab: React.FC<DraggableTabProps> = ({
       if (kind === "MaterializedView") {
         return cn(
           "h-3.5 w-3.5",
-          isActive && isFocused ? "text-purple-500" : "text-purple-500/60",
+          isActive && isFocused ? "text-blue-500" : "text-blue-500/60",
         );
       }
       return cn(
@@ -106,7 +106,7 @@ const DraggableTab: React.FC<DraggableTabProps> = ({
     if (tabType === "table") {
       return cn(
         "h-3.5 w-3.5",
-        isActive && isFocused ? "text-blue-500" : "text-blue-500/60",
+        isActive && isFocused ? "text-primary" : "text-primary/60",
       );
     }
     return "h-3.5 w-3.5";
@@ -156,9 +156,13 @@ const DraggableTab: React.FC<DraggableTabProps> = ({
         </div>
         <span className="max-w-[120px] truncate">{displayName}</span>
       </div>
-      {!isLast && !isActive && !isNextActive && (
-        <div className="h-5 w-px bg-muted-foreground/30 self-center" />
-      )}
+
+      <div
+        className={cn("h-5 w-px self-center", {
+          "bg-muted-foreground/30": !isLast && !isActive && !isNextActive,
+          "bg-transparent": !(!isLast && !isActive && !isNextActive),
+        })}
+      />
     </>
   );
 };
@@ -406,6 +410,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
       <div className="panel-body flex-1 overflow-hidden relative">
         {content.activeTabId && (
           <PanelContentRenderer
+            panelId={content.id}
             tabId={content.activeTabId}
             metadata={content.metadata?.[content.activeTabId]}
           />

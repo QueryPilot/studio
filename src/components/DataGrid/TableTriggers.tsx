@@ -3,6 +3,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle, Clock, Play, Pause, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { databaseService, type TriggerMeta } from "@/services/databaseService";
+import { useColumnResizing } from "@/hooks/useColumnResizing";
 
 interface TableTriggersProps {
   connectionId: string;
@@ -17,6 +18,20 @@ export const TableTriggers = memo(function TableTriggers({
   table,
   schema,
 }: TableTriggersProps) {
+  const { columnWidths, resizingColumn, handleMouseDown } = useColumnResizing({
+    columns: [
+      { key: 'rowNumber', minWidth: 30, defaultWidth: 40 },
+      { key: 'name', minWidth: 100, defaultWidth: 150 },
+      { key: 'event', minWidth: 80, defaultWidth: 100 },
+      { key: 'timing', minWidth: 80, defaultWidth: 100 },
+      { key: 'level', minWidth: 60, defaultWidth: 80 },
+      { key: 'status', minWidth: 80, defaultWidth: 100 },
+      { key: 'function', minWidth: 120, defaultWidth: 150 },
+      { key: 'condition', minWidth: 100, defaultWidth: 150 },
+    ],
+    storageKey: `table-triggers-columns-${database}-${table}`,
+  });
+
   const [triggers, setTriggers] = useState<TriggerMeta[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -83,29 +98,109 @@ export const TableTriggers = memo(function TableTriggers({
       <table className="min-w-full border-separate border-spacing-0">
         <thead className="sticky top-0 z-10 bg-muted">
           <tr className="text-xs" style={{ height: "28px" }}>
-            <th className="text-left px-2 py-1 w-10 border-r border-b border-border font-semibold text-foreground/80">
+            <th
+              className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80 relative"
+              style={{ width: columnWidths.rowNumber }}
+            >
               #
+              <div
+                className={cn(
+                  "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
+                  resizingColumn === 'rowNumber' && "bg-primary"
+                )}
+                onMouseDown={(e) => handleMouseDown(e, 'rowNumber')}
+              />
             </th>
-            <th className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80">
+            <th
+              className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80 relative"
+              style={{ width: columnWidths.name }}
+            >
               Trigger Name
+              <div
+                className={cn(
+                  "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
+                  resizingColumn === 'name' && "bg-primary"
+                )}
+                onMouseDown={(e) => handleMouseDown(e, 'name')}
+              />
             </th>
-            <th className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80">
+            <th
+              className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80 relative"
+              style={{ width: columnWidths.event }}
+            >
               Event
+              <div
+                className={cn(
+                  "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
+                  resizingColumn === 'event' && "bg-primary"
+                )}
+                onMouseDown={(e) => handleMouseDown(e, 'event')}
+              />
             </th>
-            <th className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80">
+            <th
+              className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80 relative"
+              style={{ width: columnWidths.timing }}
+            >
               Timing
+              <div
+                className={cn(
+                  "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
+                  resizingColumn === 'timing' && "bg-primary"
+                )}
+                onMouseDown={(e) => handleMouseDown(e, 'timing')}
+              />
             </th>
-            <th className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80">
+            <th
+              className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80 relative"
+              style={{ width: columnWidths.level }}
+            >
               Level
+              <div
+                className={cn(
+                  "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
+                  resizingColumn === 'level' && "bg-primary"
+                )}
+                onMouseDown={(e) => handleMouseDown(e, 'level')}
+              />
             </th>
-            <th className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80">
+            <th
+              className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80 relative"
+              style={{ width: columnWidths.status }}
+            >
               Status
+              <div
+                className={cn(
+                  "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
+                  resizingColumn === 'status' && "bg-primary"
+                )}
+                onMouseDown={(e) => handleMouseDown(e, 'status')}
+              />
             </th>
-            <th className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80">
+            <th
+              className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80 relative"
+              style={{ width: columnWidths.function }}
+            >
               Function
+              <div
+                className={cn(
+                  "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
+                  resizingColumn === 'function' && "bg-primary"
+                )}
+                onMouseDown={(e) => handleMouseDown(e, 'function')}
+              />
             </th>
-            <th className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80">
+            <th
+              className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80 relative"
+              style={{ width: columnWidths.condition }}
+            >
               Condition
+              <div
+                className={cn(
+                  "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
+                  resizingColumn === 'condition' && "bg-primary"
+                )}
+                onMouseDown={(e) => handleMouseDown(e, 'condition')}
+              />
             </th>
           </tr>
         </thead>

@@ -1,21 +1,17 @@
 import { isTauri, safeInvoke, safeEmit } from "@/utils/tauri";
-import {
-  queryManager,
-  type QueryResult,
-} from "./queryManager";
+import { queryManager, type QueryResult } from "./queryManager";
 import {
   BackendAPI,
   ConstraintType,
   type ConnectionProfile,
   type DbType,
-  type Constraint,
 } from "./backend";
 import { streamingTableService } from "./streamingTableService";
-import type { 
-  TableStructure, 
-  TableStructureOptions, 
-  ForeignKeyInfo, 
-  TableStatistics 
+import type {
+  TableStructure,
+  TableStructureOptions,
+  ForeignKeyInfo,
+  TableStatistics,
 } from "@/types/tableStructure";
 
 // Types from API spec
@@ -70,6 +66,7 @@ export interface TableIndex {
   index_type: string;
   condition?: string;
   size?: string;
+  foreign_key?: boolean;
 }
 
 export interface ColumnMeta {
@@ -131,7 +128,12 @@ class DatabaseService {
 
     try {
       // Backend returns ConnectionInfo with 'id' field, not 'connection_id'
-      const backendResponse = await safeInvoke<{ id: string; db_type: string; database: string; version?: string }>("db_connect_by_id", {
+      const backendResponse = await safeInvoke<{
+        id: string;
+        db_type: string;
+        database: string;
+        version?: string;
+      }>("db_connect_by_id", {
         connectionId: connectionId,
         workspaceId: workspaceId,
       });
@@ -302,6 +304,111 @@ class DatabaseService {
   }
 
   /**
+   * Get available foreign key targets (tables with primary keys or unique constraints)
+   */
+  async getForeignKeyTargets(connectionId: string): Promise<any[]> {
+    try {
+      const backendConnId = this.getBackendConnectionId(connectionId);
+
+      // Get all tables in the public schema
+      const tables = await this.listTables(connectionId, 'public', 'public');
+
+      const targets: any[] = [];
+      const addedTargets = new Set<string>(); // Track added column combinations
+
+      // For each table, get its structure to find referenceable columns
+      for (const table of tables) {
+        try {
+          const structure = await this.getTableStructure(
+            connectionId,
+            'public',
+            'public',
+            table.name,
+            {
+              includeIndexes: true,
+              includeConstraints: true
+            }
+          );
+
+          // Add primary key columns
+          if (structure.primaryKeys && structure.primaryKeys.length > 0) {
+            for (const pkColumn of structure.primaryKeys) {
+              const column = structure.columns.find(c => c.name === pkColumn);
+              if (column) {
+                const key = `${table.name}.${column.name}`;
+                if (!addedTargets.has(key)) {
+                  targets.push({
+                    table: table.name,
+                    column: column.name,
+                    type: column.db_type
+                  });
+                  addedTargets.add(key);
+                }
+              }
+            }
+          }
+
+          // Add columns with unique constraints
+          if (structure.constraints) {
+            for (const constraint of structure.constraints) {
+              if (constraint.constraint_type === 'UNIQUE' || constraint.constraint_type === 'u') {
+                // Parse the constraint definition to extract column names
+                const match = constraint.definition.match(/\((.*?)\)/);
+                if (match) {
+                  const columns = match[1].split(',').map(col => col.trim().replace(/"/g, ''));
+                  for (const colName of columns) {
+                    const column = structure.columns.find(c => c.name === colName);
+                    if (column) {
+                      const key = `${table.name}.${column.name}`;
+                      if (!addedTargets.has(key)) {
+                        targets.push({
+                          table: table.name,
+                          column: column.name,
+                          type: column.db_type
+                        });
+                        addedTargets.add(key);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          // Add columns with unique indexes
+          if (structure.indexes) {
+            for (const index of structure.indexes) {
+              if (index.is_unique) {
+                for (const colName of index.columns) {
+                  const column = structure.columns.find(c => c.name === colName);
+                  if (column) {
+                    const key = `${table.name}.${column.name}`;
+                    if (!addedTargets.has(key)) {
+                      targets.push({
+                        table: table.name,
+                        column: column.name,
+                        type: column.db_type
+                      });
+                      addedTargets.add(key);
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.error(`Failed to get structure for table ${table.name}:`, err);
+        }
+      }
+
+      return targets;
+    } catch (error) {
+      console.error("Failed to fetch foreign key targets:", error);
+      return [];
+    }
+  }
+
+  /**
    * Get backend connection ID from local connection ID
    */
   getBackendConnectionId(localConnectionId: string): string {
@@ -331,7 +438,10 @@ class DatabaseService {
   /**
    * List schemas in a database
    */
-  async listSchemas(connectionId: string, _database: string): Promise<string[]> {
+  async listSchemas(
+    connectionId: string,
+    _database: string,
+  ): Promise<string[]> {
     try {
       const backendConnId = this.getBackendConnectionId(connectionId);
       const schemas = await BackendAPI.getSchemas(backendConnId, _database);
@@ -450,18 +560,21 @@ class DatabaseService {
     try {
       const backendConnId = this.getBackendConnectionId(connectionId);
       const columns = await BackendAPI.getColumns(backendConnId, schema, table);
-      return columns.map((c, index) => ({
-        name: c.name,
-        db_type: c.db_type,
-        nullable: c.nullable,
-        default: c.default_value || null,
-        is_pk: c.primary_key,
-        is_fk: false,
-        ordinal: index,
-        precision: undefined,
-        scale: undefined,
-        comment: c.comment || null,
-      } as ColumnMeta & { comment?: string | null }));
+      return columns.map(
+        (c, index) =>
+          ({
+            name: c.name,
+            db_type: c.db_type,
+            nullable: c.nullable,
+            default: c.default_value || null,
+            is_pk: c.primary_key,
+            is_fk: false,
+            ordinal: index,
+            precision: undefined,
+            scale: undefined,
+            comment: c.comment || null,
+          } as ColumnMeta & { comment?: string | null }),
+      );
     } catch (error) {
       console.error("Failed to get table columns:", error);
       throw error;
@@ -480,14 +593,18 @@ class DatabaseService {
     try {
       const backendConnId = this.getBackendConnectionId(connectionId);
       const indexes = await BackendAPI.getIndexes(backendConnId, table);
-      return indexes.map((idx) => ({
+      console.log('Raw indexes from backend:', indexes);
+      const mapped = indexes.map((idx) => ({
         name: idx.name,
         unique: idx.is_unique,
         primary: idx.is_primary,
         columns: idx.columns,
         index_type: idx.is_partial ? "PARTIAL" : "BTREE",
         condition: idx.is_partial ? idx.definition : undefined,
+        foreign_key: idx.is_foreign_key,
       }));
+      console.log('Mapped indexes:', mapped);
+      return mapped;
     } catch (error) {
       console.error("Failed to get table indexes:", error);
       throw error;
@@ -510,6 +627,94 @@ class DatabaseService {
     }
   }
 
+  private indexTypeCache = new Map<
+    string,
+    { types: string[]; timestamp: number }
+  >();
+  private INDEX_TYPE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+  async getSupportedIndexTypes(connectionId: string): Promise<string[]> {
+    try {
+      const backendConnId = this.getBackendConnectionId(connectionId);
+
+      // Check cache first
+      const cached = this.indexTypeCache.get(backendConnId);
+      if (cached && Date.now() - cached.timestamp < this.INDEX_TYPE_CACHE_TTL) {
+        return cached.types;
+      }
+
+      // Fetch from backend - database is source of truth
+      const types = await safeInvoke<string[]>("get_supported_index_types", {
+        connId: backendConnId,
+      });
+
+      // Cache the result
+      this.indexTypeCache.set(backendConnId, {
+        types,
+        timestamp: Date.now(),
+      });
+
+      return types;
+    } catch (error) {
+      console.error("Failed to get supported index types:", error);
+      // Throw error instead of masking it with fallback
+      throw error;
+    }
+  }
+
+  clearIndexTypeCache(connectionId?: string) {
+    if (connectionId) {
+      const backendConnId = this.getBackendConnectionId(connectionId);
+      this.indexTypeCache.delete(backendConnId);
+    } else {
+      this.indexTypeCache.clear();
+    }
+  }
+
+  private columnTypeCache = new Map<
+    string,
+    { types: string[]; timestamp: number }
+  >();
+  private COLUMN_TYPE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+  async getSupportedColumnTypes(connectionId: string): Promise<string[]> {
+    try {
+      const backendConnId = this.getBackendConnectionId(connectionId);
+
+      // Check cache first
+      const cached = this.columnTypeCache.get(backendConnId);
+      if (cached && Date.now() - cached.timestamp < this.COLUMN_TYPE_CACHE_TTL) {
+        return cached.types;
+      }
+
+      // Fetch from backend - database is source of truth
+      const types = await safeInvoke<string[]>("get_supported_column_types", {
+        connId: backendConnId,
+      });
+
+      // Cache the result
+      this.columnTypeCache.set(backendConnId, {
+        types,
+        timestamp: Date.now(),
+      });
+
+      return types;
+    } catch (error) {
+      console.error("Failed to get supported column types:", error);
+      // Throw error instead of masking it with fallback
+      throw error;
+    }
+  }
+
+  clearColumnTypeCache(connectionId?: string) {
+    if (connectionId) {
+      const backendConnId = this.getBackendConnectionId(connectionId);
+      this.columnTypeCache.delete(backendConnId);
+    } else {
+      this.columnTypeCache.clear();
+    }
+  }
+
   /**
    * Get comprehensive table structure with all metadata
    * This includes columns, indexes, constraints, triggers, and statistics
@@ -519,7 +724,7 @@ class DatabaseService {
     database: string,
     schema: string,
     table: string,
-    options: TableStructureOptions = {}
+    options: TableStructureOptions = {},
   ): Promise<TableStructure> {
     const {
       includeIndexes = true,
@@ -531,63 +736,70 @@ class DatabaseService {
 
     try {
       const backendConnId = this.getBackendConnectionId(connectionId);
-      
+
       // Fetch all table metadata in parallel for performance
-      const [
-        columns,
-        constraints,
-        indexes,
-        triggers,
-        tables,
-      ] = await Promise.all([
-        // Always fetch columns
-        BackendAPI.getColumns(backendConnId, schema, table),
-        
-        // Conditionally fetch other metadata
-        includeConstraints ? BackendAPI.getConstraints(backendConnId, table) : Promise.resolve([]),
-        includeIndexes ? BackendAPI.getIndexes(backendConnId, table) : Promise.resolve([]),
-        includeTriggers ? BackendAPI.getTriggers(backendConnId, schema, table) : Promise.resolve([]),
-        includeStatistics ? BackendAPI.getTables(backendConnId, schema) : Promise.resolve([]),
-      ]);
+      const [columns, constraints, indexes, triggers, tables] =
+        await Promise.all([
+          // Always fetch columns
+          BackendAPI.getColumns(backendConnId, schema, table),
+
+          // Conditionally fetch other metadata
+          includeConstraints
+            ? BackendAPI.getConstraints(backendConnId, table)
+            : Promise.resolve([]),
+          includeIndexes
+            ? BackendAPI.getIndexes(backendConnId, table)
+            : Promise.resolve([]),
+          includeTriggers
+            ? BackendAPI.getTriggers(backendConnId, schema, table)
+            : Promise.resolve([]),
+          includeStatistics
+            ? BackendAPI.getTables(backendConnId, schema)
+            : Promise.resolve([]),
+        ]);
 
       // Find this specific table in the list for metadata
-      const tableInfo = tables.find(t => t.name === table);
+      const tableInfo = tables.find((t) => t.name === table);
 
       // Extract primary keys from constraints
       const primaryKeys = constraints
-        .filter(c => c.constraint_type === ConstraintType.PrimaryKey)
-        .flatMap(c => {
+        .filter((c) => c.constraint_type === ConstraintType.PrimaryKey)
+        .flatMap((c) => {
           // Parse constraint definition to extract column names
           const match = c.definition.match(/\((.*?)\)/);
-          return match ? match[1].split(',').map(col => col.trim()) : [];
+          return match ? match[1].split(",").map((col) => col.trim()) : [];
         });
 
       // Extract foreign keys with full information
       const foreignKeys: ForeignKeyInfo[] = includeForeignKeys
         ? constraints
-            .filter(c => c.constraint_type === ConstraintType.ForeignKey)
-            .map(c => {
+            .filter((c) => c.constraint_type === ConstraintType.ForeignKey)
+            .map((c) => {
               // Parse foreign key constraint definition
               // Example: "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
-              const fkMatch = c.definition.match(/FOREIGN KEY\s*\((.*?)\)\s*REFERENCES\s*([\w.]+)\s*\((.*?)\)/i);
+              const fkMatch = c.definition.match(
+                /FOREIGN KEY\s*\((.*?)\)\s*REFERENCES\s*([\w.]+)\s*\((.*?)\)/i,
+              );
               const onDeleteMatch = c.definition.match(/ON DELETE\s+(\w+)/i);
               const onUpdateMatch = c.definition.match(/ON UPDATE\s+(\w+)/i);
-              
+
               if (!fkMatch) {
                 return null;
               }
 
               const [, localCols, foreignTable, foreignCols] = fkMatch;
-              const [foreignSchema, foreignTableName] = foreignTable.includes('.')
-                ? foreignTable.split('.')
+              const [foreignSchema, foreignTableName] = foreignTable.includes(
+                ".",
+              )
+                ? foreignTable.split(".")
                 : [schema, foreignTable];
 
               return {
                 name: c.name,
-                columns: localCols.split(',').map(col => col.trim()),
+                columns: localCols.split(",").map((col) => col.trim()),
                 foreignTable: foreignTableName,
                 foreignSchema,
-                foreignColumns: foreignCols.split(',').map(col => col.trim()),
+                foreignColumns: foreignCols.split(",").map((col) => col.trim()),
                 onDelete: onDeleteMatch?.[1],
                 onUpdate: onUpdateMatch?.[1],
               };
@@ -596,14 +808,15 @@ class DatabaseService {
         : [];
 
       // Build table statistics if available
-      const stats: TableStatistics | undefined = includeStatistics && tableInfo
-        ? {
-            totalRows: tableInfo.row_count || 0,
-            tableSize: tableInfo.size || 'Unknown',
-            indexSize: 'Unknown', // Would need additional query for this
-            totalSize: tableInfo.size || 'Unknown',
-          }
-        : undefined;
+      const stats: TableStatistics | undefined =
+        includeStatistics && tableInfo
+          ? {
+              totalRows: tableInfo.row_count || 0,
+              tableSize: tableInfo.size || "Unknown",
+              indexSize: "Unknown", // Would need additional query for this
+              totalSize: tableInfo.size || "Unknown",
+            }
+          : undefined;
 
       // Return comprehensive table structure
       const structure: TableStructure = {
@@ -628,8 +841,8 @@ class DatabaseService {
       console.error("Failed to get table structure:", error);
       throw new Error(
         `Failed to get structure for table ${schema}.${table}: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
       );
     }
   }
@@ -642,29 +855,34 @@ class DatabaseService {
     database: string,
     schema: string,
     objectName: string,
-    objectType: 'table' | 'view' | 'materialized_view' | 'function' | 'procedure'
+    objectType:
+      | "table"
+      | "view"
+      | "materialized_view"
+      | "function"
+      | "procedure",
   ): Promise<string> {
     try {
       const backendConnId = this.getBackendConnectionId(connectionId);
-      
+
       // Map frontend object type to backend format
-      const backendObjectType = objectType.replace('_', '');
-      
+      const backendObjectType = objectType.replace("_", "");
+
       const definition = await BackendAPI.getObjectDefinition(
         backendConnId,
         database,
         schema,
         objectName,
-        backendObjectType
+        backendObjectType,
       );
-      
+
       return definition;
     } catch (error) {
-      console.error('Failed to get object definition:', error);
+      console.error("Failed to get object definition:", error);
       throw new Error(
         `Failed to get definition for ${objectType} ${schema}.${objectName}: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
       );
     }
   }
@@ -828,6 +1046,269 @@ class DatabaseService {
    */
   async cancelQuery(queryId: string): Promise<void> {
     return queryManager.cancelQuery(queryId);
+  }
+
+  /**
+   * Create a new index
+   */
+  async createIndex(
+    connectionId: string,
+    schema: string,
+    table: string,
+    index: {
+      name: string;
+      columns: string[];
+      unique: boolean;
+      indexType: string;
+      condition?: string;
+    }
+  ): Promise<void> {
+    try {
+      const backendConnId = this.getBackendConnectionId(connectionId);
+      await safeInvoke("create_index", {
+        connId: backendConnId,
+        schema,
+        table,
+        index: {
+          name: index.name,
+          columns: index.columns,
+          unique: index.unique,
+          index_type: index.indexType,
+          condition: index.condition,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to create index:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Drop an index
+   */
+  async dropIndex(
+    connectionId: string,
+    schema: string,
+    indexName: string
+  ): Promise<void> {
+    try {
+      const backendConnId = this.getBackendConnectionId(connectionId);
+      await safeInvoke("drop_index", {
+        connId: backendConnId,
+        schema,
+        indexName,
+      });
+    } catch (error) {
+      console.error("Failed to drop index:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Rename an index
+   */
+  async renameIndex(
+    connectionId: string,
+    schema: string,
+    oldName: string,
+    newName: string
+  ): Promise<void> {
+    try {
+      const backendConnId = this.getBackendConnectionId(connectionId);
+      await safeInvoke("rename_index", {
+        connId: backendConnId,
+        schema,
+        oldName,
+        newName,
+      });
+    } catch (error) {
+      console.error("Failed to rename index:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Add a column to a table
+   */
+  async addColumn(
+    connectionId: string,
+    schema: string,
+    table: string,
+    column: {
+      name: string;
+      dataType: string;
+      nullable: boolean;
+      defaultValue?: string;
+      checkConstraint?: string;
+      comment?: string;
+    }
+  ): Promise<void> {
+    try {
+      const backendConnId = this.getBackendConnectionId(connectionId);
+      await safeInvoke("alter_table_add_column", {
+        connId: backendConnId,
+        schema,
+        table,
+        column: {
+          name: column.name,
+          data_type: column.dataType,
+          nullable: column.nullable,
+          default_value: column.defaultValue,
+          check_constraint: column.checkConstraint,
+          comment: column.comment,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to add column:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Drop a column from a table
+   */
+  async dropColumn(
+    connectionId: string,
+    schema: string,
+    table: string,
+    columnName: string
+  ): Promise<void> {
+    try {
+      const backendConnId = this.getBackendConnectionId(connectionId);
+      await safeInvoke("alter_table_drop_column", {
+        connId: backendConnId,
+        schema,
+        table,
+        columnName,
+      });
+    } catch (error) {
+      console.error("Failed to drop column:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Modify a table column
+   */
+  async modifyColumn(
+    connectionId: string,
+    schema: string,
+    table: string,
+    column: {
+      name: string;
+      newName?: string;
+      newType?: string;
+      nullable?: boolean;
+      defaultValue?: string;
+      dropDefault?: boolean;
+      comment?: string;
+    }
+  ): Promise<void> {
+    try {
+      const backendConnId = this.getBackendConnectionId(connectionId);
+      await safeInvoke("alter_table_modify_column", {
+        connId: backendConnId,
+        schema,
+        table,
+        column: {
+          name: column.name,
+          new_name: column.newName,
+          new_type: column.newType,
+          nullable: column.nullable,
+          default_value: column.defaultValue,
+          drop_default: column.dropDefault || false,
+          comment: column.comment,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to modify column:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Rename a column
+   */
+  async renameColumn(
+    connectionId: string,
+    schema: string,
+    table: string,
+    oldName: string,
+    newName: string
+  ): Promise<void> {
+    try {
+      const backendConnId = this.getBackendConnectionId(connectionId);
+      await safeInvoke("alter_table_rename_column", {
+        connId: backendConnId,
+        schema,
+        table,
+        oldName,
+        newName,
+      });
+    } catch (error) {
+      console.error("Failed to rename column:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Add a foreign key constraint
+   */
+  async addForeignKey(
+    connectionId: string,
+    schema: string,
+    table: string,
+    foreignKey: {
+      constraintName?: string;
+      columnName: string;
+      referencedTable: string;
+      referencedColumn: string;
+      onUpdate: string;
+      onDelete: string;
+    }
+  ): Promise<void> {
+    try {
+      const backendConnId = this.getBackendConnectionId(connectionId);
+      await safeInvoke("alter_table_add_foreign_key", {
+        connId: backendConnId,
+        schema,
+        table,
+        fk: {
+          constraint_name: foreignKey.constraintName,
+          column_name: foreignKey.columnName,
+          referenced_table: foreignKey.referencedTable,
+          referenced_column: foreignKey.referencedColumn,
+          on_update: foreignKey.onUpdate,
+          on_delete: foreignKey.onDelete,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to add foreign key:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Drop a foreign key constraint
+   */
+  async dropForeignKey(
+    connectionId: string,
+    schema: string,
+    table: string,
+    constraintName: string
+  ): Promise<void> {
+    try {
+      const backendConnId = this.getBackendConnectionId(connectionId);
+      await safeInvoke("alter_table_drop_foreign_key", {
+        connId: backendConnId,
+        schema,
+        table,
+        constraintName,
+      });
+    } catch (error) {
+      console.error("Failed to drop foreign key:", error);
+      throw error;
+    }
   }
 
   /**

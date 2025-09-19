@@ -1,4 +1,4 @@
-import { memo, useState, useCallback } from "react";
+import { memo, useState, useCallback, useEffect } from "react";
 import { QueryEditor } from "./QueryEditor";
 import { ResultViewer } from "./ResultViewer";
 import { QueryHistory } from "./QueryHistory";
@@ -24,13 +24,17 @@ import {
   useSyncQueryState,
   useSyncEditorState,
 } from "@/services/keyboard/integration/storeIntegration";
+import useWorkbenchStore from "@/stores/workbenchStore";
 
 interface QueryPanelProps {
+  panelId: string;
+  tabId: string;
   connectionId: string;
   database: string;
   schema?: string;
   dbType?: string;
   className?: string;
+  initialSql?: string;
 }
 
 interface QueryResult {
@@ -42,19 +46,37 @@ interface QueryResult {
 }
 
 export const QueryPanel = memo(function QueryPanel({
+  panelId,
+  tabId,
   connectionId,
   database,
   schema = "public",
   dbType = "postgres",
   className,
+  initialSql = "",
 }: QueryPanelProps) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialSql);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const [abortController, setAbortController] =
     useState<AbortController | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [hasSelection] = useState(false);
+  const updateTabMetadata = useWorkbenchStore(
+    (state) => state.updateTabMetadata,
+  );
+
+  useEffect(() => {
+    setQuery(initialSql);
+  }, [initialSql]);
+
+  const persistSql = useCallback(
+    (value: string) => {
+      if (!panelId || !tabId) return;
+      updateTabMetadata(panelId, tabId, { sql: value });
+    },
+    [panelId, tabId, updateTabMetadata],
+  );
 
   // Sync state with keyboard context
   useSyncQueryState(isExecuting, !!result);
@@ -168,9 +190,13 @@ export const QueryPanel = memo(function QueryPanel({
     }
   }, [abortController]);
 
-  const handleSelectQuery = useCallback((selectedQuery: string) => {
-    setQuery(selectedQuery);
-  }, []);
+  const handleSelectQuery = useCallback(
+    (selectedQuery: string) => {
+      setQuery(selectedQuery);
+      persistSql(selectedQuery);
+    },
+    [persistSql],
+  );
 
   const handleBeautify = useCallback(() => {
     // Basic SQL formatting
@@ -193,8 +219,9 @@ export const QueryPanel = memo(function QueryPanel({
       .trim();
 
     setQuery(beautified);
+    persistSql(beautified);
     toast.success("Query formatted");
-  }, [query]);
+  }, [query, persistSql]);
 
   // Register keyboard shortcuts using the new system
   useShortcut("cmd+enter", handleExecute, {
@@ -243,7 +270,9 @@ export const QueryPanel = memo(function QueryPanel({
                     dbType={dbType}
                     value={query}
                     onChange={(value) => {
-                      setQuery(value || "");
+                      const nextValue = value ?? "";
+                      setQuery(nextValue);
+                      persistSql(nextValue);
                     }}
                     onExecute={handleExecute}
                     height="100%"

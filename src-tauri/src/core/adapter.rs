@@ -27,6 +27,8 @@ pub trait DbAdapter: Send + Sync {
     async fn get_functions(&self, schema: &str) -> Result<Vec<Function>>;
     async fn get_indexes(&self, table: &str) -> Result<Vec<Index>>;
     async fn get_index_usage_stats(&self, table: &str) -> Result<Vec<IndexUsageStats>>;
+    async fn get_supported_index_types(&self) -> Result<Vec<String>>;
+    async fn get_supported_column_types(&self) -> Result<Vec<String>>;
     async fn get_constraints(&self, table: &str) -> Result<Vec<Constraint>>;
     
     // Table operations
@@ -37,7 +39,20 @@ pub trait DbAdapter: Send + Sync {
     async fn get_table_data(&self, schema: &str, table: &str, limit: usize, offset: usize) -> Result<TableDataResult>;
     async fn get_table_data_filtered(&self, schema: &str, table: &str, limit: usize, offset: usize, filters: Option<crate::types::FilterConfig>, sorts: Option<Vec<crate::types::SortConfig>>) -> Result<TableDataResult>;
     async fn get_table_count(&self, schema: &str, table: &str) -> Result<i64>;
-    
+
+    // Index operations
+    async fn create_index(&self, schema: &str, table: &str, index: &CreateIndexRequest) -> Result<()>;
+    async fn drop_index(&self, schema: &str, index_name: &str) -> Result<()>;
+    async fn rename_index(&self, schema: &str, old_name: &str, new_name: &str) -> Result<()>;
+
+    // Table structure operations
+    async fn alter_table_add_column(&self, schema: &str, table: &str, column: &AddColumnRequest) -> Result<()>;
+    async fn alter_table_drop_column(&self, schema: &str, table: &str, column_name: &str) -> Result<()>;
+    async fn alter_table_modify_column(&self, schema: &str, table: &str, column: &ModifyColumnRequest) -> Result<()>;
+    async fn alter_table_rename_column(&self, schema: &str, table: &str, old_name: &str, new_name: &str) -> Result<()>;
+    async fn alter_table_add_foreign_key(&self, schema: &str, table: &str, fk: &AddForeignKeyRequest) -> Result<()>;
+    async fn alter_table_drop_foreign_key(&self, schema: &str, table: &str, constraint_name: &str) -> Result<()>;
+
     // Database-specific features
     fn get_supported_types(&self) -> Vec<CellValueType>;
     fn supports_schemas(&self) -> bool { true }

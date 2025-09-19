@@ -11,6 +11,7 @@ import DataEditor, {
   type GridMouseEventArgs,
   CompactSelection,
 } from "@glideapps/glide-data-grid";
+import type { CustomCell } from "@glideapps/glide-data-grid";
 import "@glideapps/glide-data-grid/dist/index.css";
 import "./glide-overrides.css";
 import { cn } from "@/lib/utils";
@@ -34,6 +35,21 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Command as CommandRoot,
+  CommandInput,
+  CommandList,
+  CommandItem,
+  CommandEmpty,
+} from "@/components/ui/command";
+import { Calendar } from "@/components/ui/calendar";
+import {
   Copy,
   FileJson,
   Table,
@@ -43,6 +59,68 @@ import {
   SortDesc,
   Eye,
 } from "lucide-react";
+
+const pad2 = (value: number): string => value.toString().padStart(2, "0");
+
+const formatDatePart = (date: Date): string =>
+  `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+
+const formatTimePart = (date: Date): string =>
+  `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(
+    date.getSeconds(),
+  )}`;
+
+const parseDateValue = (value: unknown): Date | undefined => {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    const normalized =
+      trimmed.includes(" ") && !trimmed.includes("T")
+        ? trimmed.replace(" ", "T")
+        : trimmed;
+    const parsed = new Date(normalized);
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+  }
+  return undefined;
+};
+
+const parseTimeParts = (
+  value: unknown,
+): { hours: number; minutes: number; seconds: number } | null => {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return {
+      hours: value.getHours(),
+      minutes: value.getMinutes(),
+      seconds: value.getSeconds(),
+    };
+  }
+  if (typeof value === "string") {
+    const match = value.match(/(?:^|T|\s)(\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (match) {
+      return {
+        hours: Number(match[1]),
+        minutes: Number(match[2]),
+        seconds: Number(match[3] ?? "0"),
+      };
+    }
+  }
+  return null;
+};
+
+const applyTimeParts = (
+  date: Date,
+  parts: { hours: number; minutes: number; seconds: number },
+  useUTC = false,
+) => {
+  if (useUTC) {
+    date.setUTCHours(parts.hours, parts.minutes, parts.seconds, 0);
+  } else {
+    date.setHours(parts.hours, parts.minutes, parts.seconds, 0);
+  }
+};
 
 interface EnhancedGlideWrapperProps {
   columns: GridColumn[];
@@ -117,6 +195,111 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
   const overlayHoverRef = useRef<boolean>(false);
   const hoverHoldUntilRef = useRef<number>(0);
   const hoverHideTimerRef = useRef<number | null>(null);
+  const [inlineEditor, setInlineEditor] = useState<{
+    cell: Item;
+    bounds: Rectangle;
+    kind: string;
+    meta?: Record<string, unknown>;
+    value: unknown;
+  } | null>(null);
+  const inlineEditorRef = useRef<HTMLDivElement>(null);
+
+  const inlineEditorPosition = useMemo(() => {
+    if (!inlineEditor) return null;
+    const { bounds, kind } = inlineEditor;
+
+    const containerRect = containerRef.current?.getBoundingClientRect();
+    const viewportWidth =
+      typeof window !== "undefined" ? window.innerWidth : undefined;
+    const viewportHeight =
+      typeof window !== "undefined" ? window.innerHeight : undefined;
+
+    const baseWidth = Math.max(
+      bounds.width,
+      (() => {
+        switch (kind) {
+          case "json-cell":
+            return 420;
+          case "date-cell":
+          case "datetime-cell":
+            return 280;
+          case "enum-cell":
+            return 220;
+          case "boolean-cell":
+            return 180;
+          case "time-cell":
+            return 200;
+          default:
+            return 220;
+        }
+      })(),
+    );
+
+    const estimatedHeight = (() => {
+      switch (kind) {
+        case "json-cell":
+          return 360;
+        case "date-cell":
+        case "datetime-cell":
+          return 320;
+        case "enum-cell":
+          return 220;
+        case "boolean-cell":
+          return 180;
+        case "time-cell":
+          return 160;
+        default:
+          return 200;
+      }
+    })();
+
+    const padding = 16;
+
+    let left = (containerRect?.left ?? 0) + bounds.x;
+    if (viewportWidth) {
+      const maxLeft = viewportWidth - padding - baseWidth;
+      left = Math.min(Math.max(padding, left), Math.max(padding, maxLeft));
+    }
+
+    let top = (containerRect?.top ?? 0) + bounds.y + bounds.height + 8;
+    if (viewportHeight) {
+      const maxTop = viewportHeight - padding - estimatedHeight;
+      if (top > maxTop) {
+        top = Math.max(
+          padding,
+          (containerRect?.top ?? 0) + bounds.y - estimatedHeight - 8,
+        );
+      }
+    }
+
+    return {
+      left,
+      top,
+      minWidth: baseWidth,
+    };
+  }, [inlineEditor]);
+
+  const inlineEditorDateValue = useMemo(
+    () => parseDateValue(inlineEditor?.value),
+    [inlineEditor],
+  );
+
+  const inlineEditorTimeParts = useMemo(
+    () => parseTimeParts(inlineEditor?.value),
+    [inlineEditor],
+  );
+
+  type DbCellData = {
+    kind?: string;
+    value?: unknown;
+    metadata?: Record<string, unknown>;
+  };
+
+  const isCustomCell = useCallback(
+    (c: GridCell): c is CustomCell<DbCellData> =>
+      c.kind === GridCellKind.Custom,
+    [],
+  );
 
   const [gridSelection, setGridSelection] = useState<GridSelection>({
     columns: CompactSelection.empty(),
@@ -153,6 +336,7 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
     cell: Item;
     actions: HoverAction[];
     side: "left" | "right";
+    offsetPx?: number;
   } | null>(null);
 
   // Create theme based on app theme matching our color system
@@ -210,8 +394,8 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
 
       linkColor: "#FCA311",
 
-      cellHorizontalPadding: 6,
-      cellVerticalPadding: 3,
+      cellHorizontalPadding: 8,
+      cellVerticalPadding: 4,
 
       headerFontStyle: "600 12px",
       baseFontStyle: "400 12px",
@@ -263,14 +447,7 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
     [onSelectionChange],
   );
 
-  // Handle cell double click - show popup
-  const handleCellDoubleClick = useCallback(
-    (cell: Item) => {
-      // Disable default preview on double click
-      onCellDoubleClick?.(cell);
-    },
-    [onCellDoubleClick],
-  );
+  // (removed placeholder)
 
   // Handle cell click (hover actions handled by HTML overlay)
   const handleCellClick = useCallback(
@@ -526,6 +703,92 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
     [],
   );
 
+  const getOverlayOffsetPx = useCallback((cell: GridCell): number => {
+    if (cell.kind === GridCellKind.Custom) {
+      const k = (cell as unknown as { data?: { kind?: string } }).data?.kind;
+      if (k === "enum-cell") return 16; // space for chevron glyph
+    }
+    return 0;
+  }, []);
+
+  // Inline editor open helper
+  const openInlineEditor = useCallback(
+    (cell: Item, bounds: Rectangle) => {
+      const gc = getCellContent(cell);
+      if (isCustomCell(gc)) {
+        const data = gc.data as DbCellData | undefined;
+        const kind = (data?.kind as string) || "";
+        if (
+          kind === "boolean-cell" ||
+          kind === "enum-cell" ||
+          kind === "date-cell" ||
+          kind === "datetime-cell" ||
+          kind === "time-cell" ||
+          kind === "json-cell"
+        ) {
+          setInlineEditor({
+            cell,
+            bounds,
+            kind,
+            meta: data?.metadata || {},
+            value: data?.value,
+          });
+          return;
+        }
+      } else {
+        // Enable basic editors for default Glide kinds to avoid no-op on double click
+        if (gc.kind === GridCellKind.Text) {
+          const txt =
+            (gc as unknown as { data?: string; displayData?: string }).data ??
+            (gc as unknown as { displayData?: string }).displayData ??
+            "";
+          setInlineEditor({ cell, bounds, kind: "text", value: txt });
+          return;
+        }
+        if (gc.kind === GridCellKind.Number) {
+          const num = (gc as unknown as { data?: number }).data ?? 0;
+          setInlineEditor({ cell, bounds, kind: "number", value: num });
+          return;
+        }
+        if (gc.kind === GridCellKind.Boolean) {
+          const val = (gc as unknown as { data?: boolean }).data ?? false;
+          setInlineEditor({ cell, bounds, kind: "boolean-cell", value: val });
+          return;
+        }
+      }
+    },
+    [getCellContent, isCustomCell],
+  );
+
+  // Double click -> open inline editor
+  const handleCellDoubleClick = useCallback(
+    (cell: Item) => {
+      const [col, row] = cell;
+      if (col < 0 || row < 0 || col >= columns.length || row >= rows) {
+        onCellDoubleClick?.(cell);
+        return;
+      }
+      const getter = gridRef.current?.getBounds;
+      if (typeof getter === "function") {
+        try {
+          const bounds = (
+            getter as unknown as (arg: Item) => Rectangle | undefined
+          )(cell);
+          if (bounds) {
+            setTimeout(() => {
+              openInlineEditor(cell, bounds);
+            }, 0);
+            return;
+          }
+        } catch {
+          // ignore and let default handler run
+        }
+      }
+      onCellDoubleClick?.(cell);
+    },
+    [columns.length, rows, onCellDoubleClick, openInlineEditor],
+  );
+
   // Hover tracking for HTML overlay buttons
   const handleItemHovered = useCallback(
     (
@@ -551,10 +814,138 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
         return;
       }
       const side = getOverlaySide(gc, columns[a.location[0]]);
-      setHoverUi({ bounds: a.bounds, cell: a.location, actions, side });
+      const offsetPx = getOverlayOffsetPx(gc);
+      setHoverUi({
+        bounds: a.bounds,
+        cell: a.location,
+        actions,
+        side,
+        offsetPx,
+      });
     },
-    [getCellContent, buildHoverActions, getOverlaySide, columns],
+    [
+      getCellContent,
+      buildHoverActions,
+      getOverlaySide,
+      getOverlayOffsetPx,
+      columns,
+    ],
   );
+
+  const commitInlineEdit = useCallback(
+    (newValue: unknown) => {
+      if (!inlineEditor) return;
+      const gc = getCellContent(inlineEditor.cell);
+      if (isCustomCell(gc)) {
+        let normalizedValue = newValue;
+
+        if (inlineEditor.kind === "date-cell") {
+          if (newValue instanceof Date && !Number.isNaN(newValue.getTime())) {
+            normalizedValue = formatDatePart(newValue);
+          } else if (newValue == null || newValue === "") {
+            normalizedValue = null;
+          } else if (typeof newValue === "string") {
+            normalizedValue = newValue;
+          }
+        } else if (inlineEditor.kind === "datetime-cell") {
+          if (newValue instanceof Date && !Number.isNaN(newValue.getTime())) {
+            const meta = inlineEditor.meta as { db_type?: string } | undefined;
+            const dbType = meta?.db_type?.toLowerCase() ?? "";
+            const timeParts = inlineEditorTimeParts;
+            if (timeParts) {
+              applyTimeParts(
+                newValue,
+                timeParts,
+                dbType.includes("timestamptz"),
+              );
+            }
+            if (dbType.includes("timestamptz")) {
+              normalizedValue = newValue.toISOString();
+            } else {
+              normalizedValue = `${formatDatePart(newValue)} ${formatTimePart(
+                newValue,
+              )}`;
+            }
+          } else if (newValue == null || newValue === "") {
+            normalizedValue = null;
+          } else if (typeof newValue === "string") {
+            normalizedValue = newValue;
+          }
+        } else if (inlineEditor.kind === "time-cell") {
+          if (newValue instanceof Date && !Number.isNaN(newValue.getTime())) {
+            normalizedValue = newValue.toTimeString().slice(0, 8);
+          } else if (typeof newValue === "string") {
+            normalizedValue = newValue;
+          } else if (newValue == null || newValue === "") {
+            normalizedValue = null;
+          }
+        }
+
+        const updated: GridCell = {
+          ...gc,
+          data: {
+            ...(gc.data as Record<string, unknown>),
+            value: normalizedValue,
+          },
+        } as GridCell;
+        onCellEdited?.(inlineEditor.cell, updated);
+      } else {
+        if (gc.kind === GridCellKind.Text) {
+          const text =
+            typeof newValue === "string"
+              ? newValue
+              : newValue == null
+              ? ""
+              : JSON.stringify(newValue);
+          const updated: GridCell = {
+            ...gc,
+            data: text,
+            displayData: text,
+          } as GridCell;
+          onCellEdited?.(inlineEditor.cell, updated);
+        } else if (gc.kind === GridCellKind.Number) {
+          const num =
+            newValue === "" || newValue == null ? 0 : Number(newValue);
+          const updated: GridCell = {
+            ...gc,
+            data: num,
+            displayData: String(num),
+          } as GridCell;
+          onCellEdited?.(inlineEditor.cell, updated);
+        } else if (gc.kind === GridCellKind.Boolean) {
+          const bool = Boolean(newValue);
+          const updated: GridCell = { ...gc, data: bool } as GridCell;
+          onCellEdited?.(inlineEditor.cell, updated);
+        }
+      }
+      setInlineEditor(null);
+    },
+    [
+      inlineEditor,
+      inlineEditorTimeParts,
+      getCellContent,
+      onCellEdited,
+      isCustomCell,
+    ],
+  );
+
+  const cancelInlineEdit = useCallback(() => {
+    setInlineEditor(null);
+  }, []);
+
+  useEffect(() => {
+    if (!inlineEditor) return;
+    const handler = (e: MouseEvent) => {
+      const el = inlineEditorRef.current;
+      if (el && !el.contains(e.target as Node)) {
+        setInlineEditor(null);
+      }
+    };
+    document.addEventListener("mousedown", handler, true);
+    return () => {
+      document.removeEventListener("mousedown", handler, true);
+    };
+  }, [inlineEditor]);
 
   // Cleanup RAF on unmount
   useEffect(() => {
@@ -687,10 +1078,18 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
                 }}
               >
                 <div
-                  className={`absolute ${
-                    hoverUi.side === "left" ? "left-1" : "right-1"
-                  } top-1/2 -translate-y-1/2 flex gap-[2px]`}
-                  style={{ pointerEvents: "auto" }}
+                  className="absolute top-1/2 -translate-y-1/2 flex gap-[2px]"
+                  style={{
+                    pointerEvents: "auto",
+                    right:
+                      hoverUi.side === "right"
+                        ? (hoverUi.offsetPx ?? 0) + 4
+                        : undefined,
+                    left:
+                      hoverUi.side === "left"
+                        ? (hoverUi.offsetPx ?? 0) + 4
+                        : undefined,
+                  }}
                   onMouseEnter={() => {
                     overlayHoverRef.current = true;
                     if (hoverHideTimerRef.current != null) {
@@ -736,16 +1135,8 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
                           e.stopPropagation();
                           const gc = getCellContent(hoverUi.cell);
                           if (a.id === "edit") {
-                            // try to trigger edit via F2 as a fallback
-                            (
-                              containerRef.current ?? document.body
-                            ).dispatchEvent(
-                              new KeyboardEvent("keydown", {
-                                key: "F2",
-                                code: "F2",
-                                bubbles: true,
-                              }),
-                            );
+                            // open inline editor based on cell kind
+                            openInlineEditor(hoverUi.cell, hoverUi.bounds);
                           } else if (a.id === "copy") {
                             const txt = formatCellForCopy(gc);
                             void navigator.clipboard.writeText(txt);
@@ -805,6 +1196,227 @@ export const EnhancedGlideWrapper = memo(function EnhancedGlideWrapper({
                     );
                   })}
                 </div>
+              </div>
+            )}
+            {inlineEditor && (
+              <div
+                className="pointer-events-auto"
+                style={{
+                  position: "fixed",
+                  left: inlineEditorPosition?.left ?? 0,
+                  top: inlineEditorPosition?.top ?? 0,
+                  zIndex: 9999,
+                  minWidth: inlineEditorPosition?.minWidth,
+                  maxWidth: "calc(100vw - 32px)",
+                }}
+                ref={inlineEditorRef}
+              >
+                {inlineEditor.kind === "text" && (
+                  <div className="bg-popover border rounded-md shadow-md p-2">
+                    <input
+                      type="text"
+                      className="h-8 text-xs rounded-md border bg-background px-2 min-w-[220px]"
+                      defaultValue={
+                        typeof inlineEditor.value === "string"
+                          ? inlineEditor.value
+                          : inlineEditor.value == null
+                          ? ""
+                          : JSON.stringify(inlineEditor.value)
+                      }
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          commitInlineEdit(
+                            (e.target as HTMLInputElement).value,
+                          );
+                        } else if (e.key === "Escape") {
+                          cancelInlineEdit();
+                        }
+                      }}
+                      onBlur={(e) => {
+                        commitInlineEdit(e.target.value);
+                      }}
+                    />
+                  </div>
+                )}
+                {inlineEditor.kind === "number" && (
+                  <div className="bg-popover border rounded-md shadow-md p-2">
+                    <input
+                      type="number"
+                      className="h-8 text-xs rounded-md border bg-background px-2 min-w-[140px] text-right"
+                      defaultValue={
+                        typeof inlineEditor.value === "number"
+                          ? String(inlineEditor.value)
+                          : inlineEditor.value == null
+                          ? "0"
+                          : String(Number(inlineEditor.value) || 0)
+                      }
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          commitInlineEdit(
+                            (e.target as HTMLInputElement).value,
+                          );
+                        } else if (e.key === "Escape") {
+                          cancelInlineEdit();
+                        }
+                      }}
+                      onBlur={(e) => {
+                        commitInlineEdit(e.target.value);
+                      }}
+                    />
+                  </div>
+                )}
+                {inlineEditor.kind === "boolean-cell" && (
+                  <div className="p-1 min-w-[160px] bg-popover border rounded-md shadow-md">
+                    <Select
+                      defaultValue={
+                        inlineEditor.value === null
+                          ? "null"
+                          : String(Boolean(inlineEditor.value))
+                      }
+                      onValueChange={(v: string) => {
+                        commitInlineEdit(v === "null" ? null : v === "true");
+                      }}
+                    >
+                      <SelectTrigger className="h-8 w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="true">TRUE</SelectItem>
+                        <SelectItem value="false">FALSE</SelectItem>
+                        <SelectItem value="null">NULL</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {inlineEditor.kind === "enum-cell" &&
+                  (() => {
+                    const opts =
+                      (
+                        inlineEditor.meta as
+                          | { enum_values?: string[] }
+                          | undefined
+                      )?.enum_values ?? [];
+                    if (opts.length > 10) {
+                      return (
+                        <div className="bg-popover border rounded-md shadow-md">
+                          <CommandRoot className="min-w-[220px]">
+                            <CommandInput placeholder="Search option..." />
+                            <CommandList>
+                              <CommandEmpty>No results</CommandEmpty>
+                              {opts.map((o) => (
+                                <CommandItem
+                                  key={o}
+                                  value={o}
+                                  onSelect={(v) => {
+                                    commitInlineEdit(v);
+                                  }}
+                                >
+                                  {o}
+                                </CommandItem>
+                              ))}
+                            </CommandList>
+                          </CommandRoot>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div className="p-1 min-w-[180px] bg-popover border rounded-md shadow-md">
+                        <Select
+                          defaultValue={
+                            typeof inlineEditor.value === "string"
+                              ? inlineEditor.value
+                              : ""
+                          }
+                          onValueChange={(v: string) => {
+                            commitInlineEdit(v);
+                          }}
+                        >
+                          <SelectTrigger className="h-8 w-full">
+                            <SelectValue placeholder="Select…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {opts.map((o) => (
+                              <SelectItem key={o} value={o}>
+                                {o}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    );
+                  })()}
+                {inlineEditor.kind === "date-cell" && (
+                  <div className="bg-popover border rounded-md shadow-md p-0 min-w-[280px] overflow-hidden">
+                    <Calendar
+                      mode="single"
+                      captionLayout="dropdown"
+                      selected={inlineEditorDateValue}
+                      defaultMonth={inlineEditorDateValue}
+                      onSelect={(d) => {
+                        commitInlineEdit(d ?? null);
+                      }}
+                    />
+                  </div>
+                )}
+                {inlineEditor.kind === "datetime-cell" && (
+                  <div className="bg-popover border rounded-md shadow-md p-0 min-w-[280px] overflow-hidden">
+                    <Calendar
+                      mode="single"
+                      captionLayout="dropdown"
+                      selected={inlineEditorDateValue}
+                      defaultMonth={inlineEditorDateValue}
+                      onSelect={(d) => {
+                        commitInlineEdit(d ?? null);
+                      }}
+                    />
+                  </div>
+                )}
+                {inlineEditor.kind === "time-cell" && (
+                  <div className="bg-popover border rounded-md shadow-md p-2">
+                    <input
+                      type="time"
+                      className="h-8 text-xs rounded-md border bg-background px-2"
+                      defaultValue={
+                        typeof inlineEditor.value === "string"
+                          ? inlineEditor.value.slice(0, 8)
+                          : ""
+                      }
+                      onChange={(e) => {
+                        commitInlineEdit(e.target.value);
+                      }}
+                    />
+                  </div>
+                )}
+                {inlineEditor.kind === "json-cell" && (
+                  <div className="bg-popover border rounded-md shadow-md p-2 min-w-[320px]">
+                    <textarea
+                      className="font-mono text-xs h-40 w-[420px] rounded-md border bg-background p-2"
+                      defaultValue={(() => {
+                        try {
+                          return JSON.stringify(
+                            inlineEditor.value ?? null,
+                            null,
+                            2,
+                          );
+                        } catch {
+                          return typeof inlineEditor.value === "string"
+                            ? inlineEditor.value
+                            : "";
+                        }
+                      })()}
+                      onBlur={(e: React.FocusEvent<HTMLTextAreaElement>) => {
+                        try {
+                          const parsed: unknown = JSON.parse(e.target.value);
+                          commitInlineEdit(parsed);
+                        } catch {
+                          commitInlineEdit(e.target.value);
+                        }
+                      }}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>

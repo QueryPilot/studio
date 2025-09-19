@@ -8,6 +8,7 @@ import {
 } from "@codemirror/view";
 import { defaultKeymap, indentWithTab } from "@codemirror/commands";
 import { sql, PostgreSQL, MySQL, SQLite } from "@codemirror/lang-sql";
+import { json as jsonLang } from "@codemirror/lang-json";
 import {
   bracketMatching,
   foldGutter,
@@ -232,9 +233,7 @@ export const getLanguageExtension = (
         upperCaseKeywords: false, // Let syntax highlighting handle the styling
       });
     case "json":
-      // For now, treat JSON as plain text
-      // We can add JSON language support later if needed
-      return [];
+      return jsonLang();
     case "text":
     default:
       return [];

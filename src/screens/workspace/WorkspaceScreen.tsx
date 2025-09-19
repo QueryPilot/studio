@@ -15,6 +15,7 @@ import {
   ResizableHandle,
 } from "@/components/ui/resizable";
 import { CommandPalette, useCommandPalette } from "@/components/CommandPalette";
+import { useConnectionAutoReconnect } from "@/hooks/useConnectionAutoReconnect";
 
 export function WorkspaceScreen() {
   const { connectionId } = useParams<{ connectionId: string }>();
@@ -23,9 +24,10 @@ export function WorkspaceScreen() {
   const { initialize: initializePanels } = usePanelStore();
   const commandPalette = useCommandPalette();
   const [isLoading, setIsLoading] = useState(true);
-  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [selectedDatabase, setSelectedDatabase] = useState("");
   const [selectedSchema, setSelectedSchema] = useState("");
+
+  useConnectionAutoReconnect(connectionId);
 
   useEffect(() => {
     if (connectionId) {
@@ -38,14 +40,11 @@ export function WorkspaceScreen() {
       void databaseService
         .connectById(connectionId)
         .then(() => {
-          setConnectionError(null);
           // Load schemas after successful connection
           return loadSchemas(connectionId);
         })
-        .catch((error) => {
-          console.error("Failed to connect to database:", error);
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          setConnectionError(errorMessage);
+        .catch((err: unknown) => {
+          console.error("Failed to connect to database:", err);
         })
         .finally(() => {
           setIsLoading(false);

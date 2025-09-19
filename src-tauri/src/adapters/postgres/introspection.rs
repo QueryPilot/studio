@@ -214,28 +214,55 @@ impl PostgresIntrospector {
     
     pub async fn get_indexes(&self, table: &str) -> Result<Vec<Index>> {
         let sql = r#"
-            SELECT 
+            SELECT
                 i.relname as index_name,
                 t.relname as table_name,
                 array_agg(a.attname ORDER BY array_position(ix.indkey, a.attnum)) as columns,
                 ix.indisunique as is_unique,
                 ix.indisprimary as is_primary,
                 ix.indpred IS NOT NULL as is_partial,
-                pg_get_indexdef(i.oid) as definition
+                pg_get_indexdef(i.oid) as definition,
+                EXISTS (
+                    SELECT 1
+                    FROM pg_constraint con
+                    WHERE con.contype = 'f'
+                    AND con.conrelid = t.oid
+                    AND array_to_string(
+                        ARRAY(
+                            SELECT a2.attname
+                            FROM pg_attribute a2
+                            WHERE a2.attrelid = t.oid
+                            AND a2.attnum = ANY(con.conkey)
+                            ORDER BY array_position(con.conkey, a2.attnum)
+                        ),
+                        ','
+                    ) = array_to_string(
+                        ARRAY(
+                            SELECT a3.attname
+                            FROM pg_attribute a3
+                            WHERE a3.attrelid = t.oid
+                            AND a3.attnum = ANY(ix.indkey)
+                            ORDER BY array_position(ix.indkey, a3.attnum)
+                        ),
+                        ','
+                    )
+                ) as is_foreign_key
             FROM pg_index ix
             JOIN pg_class t ON t.oid = ix.indrelid
             JOIN pg_class i ON i.oid = ix.indexrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
             JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
             WHERE t.relname = $1
-            GROUP BY i.relname, t.relname, ix.indisunique, ix.indisprimary, ix.indpred, i.oid
+            AND n.nspname = current_schema()
+            GROUP BY i.relname, t.relname, ix.indisunique, ix.indisprimary, ix.indpred, i.oid, t.oid, ix.indkey
             ORDER BY i.relname
         "#;
-        
+
         let rows = self.client.query(sql, &[&table]).await?;
-        
+
         let indexes = rows.iter().map(|row| {
             let columns: Vec<String> = row.get(2);
-            
+
             Index {
                 name: row.get(0),
                 table_name: row.get(1),
@@ -244,9 +271,10 @@ impl PostgresIntrospector {
                 is_primary: row.get(4),
                 is_partial: row.get(5),
                 definition: row.get(6),
+                is_foreign_key: row.get(7),
             }
         }).collect();
-        
+
         Ok(indexes)
     }
 
@@ -421,9 +449,9 @@ impl PostgresIntrospector {
     
     pub async fn get_table_columns(&self, schema: &str, table: &str) -> Result<Vec<ColumnMeta>> {
         let sql = r#"
-            SELECT 
+            SELECT
                 a.attname as column_name,
-                pg_catalog.format_type(a.atttypid, a.atttypmod) as data_type,
+                t.typname as raw_type_name,
                 a.atttypid as type_oid,
                 NOT a.attnotnull as nullable,
                 EXISTS (
@@ -437,6 +465,7 @@ impl PostgresIntrospector {
             FROM pg_attribute a
             JOIN pg_class c ON c.oid = a.attrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_type t ON t.oid = a.atttypid
             LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
             WHERE n.nspname = $1
                 AND c.relname = $2
@@ -444,9 +473,9 @@ impl PostgresIntrospector {
                 AND NOT a.attisdropped
             ORDER BY a.attnum
         "#;
-        
+
         let rows = self.client.query(sql, &[&schema, &table]).await?;
-        
+
         let columns = rows.iter().map(|row| {
             let type_oid: u32 = row.get(2);
 
@@ -461,7 +490,7 @@ impl PostgresIntrospector {
                 comment: row.get(6),
             }
         }).collect();
-        
+
         Ok(columns)
     }
     

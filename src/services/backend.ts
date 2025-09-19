@@ -188,6 +188,7 @@ export interface Index {
   is_primary: boolean;
   is_partial: boolean;
   definition: string;
+  is_foreign_key: boolean;
 }
 
 export interface IndexUsageStats {

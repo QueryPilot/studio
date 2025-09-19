@@ -57,6 +57,8 @@ fn main() {
             commands::get_functions,
             commands::get_indexes,
             commands::get_index_usage_stats,
+            commands::get_supported_index_types,
+            commands::get_supported_column_types,
             commands::get_constraints,
             commands::get_columns,
             commands::get_triggers,
