@@ -38,7 +38,7 @@ export function buildTableCell(opts: {
           : String(raw);
       return {
         kind: GridCellKind.Custom,
-        allowOverlay: true,
+        allowOverlay: false,
         copyData: copy,
         data: {
           kind,
@@ -67,7 +67,7 @@ export function buildQueryCell(value: unknown): GridCell {
       kind: GridCellKind.Text,
       data: "NULL",
       displayData: "NULL",
-      allowOverlay: true,
+      allowOverlay: false,
       readonly: true,
       themeOverride: {
         textDark: "rgba(127,127,127,0.7)",
@@ -81,7 +81,7 @@ export function buildQueryCell(value: unknown): GridCell {
       kind: GridCellKind.Text,
       data: "",
       displayData: "",
-      allowOverlay: true,
+      allowOverlay: false,
       readonly: true,
       contentAlign: "left",
     };
@@ -114,7 +114,7 @@ export function buildQueryCell(value: unknown): GridCell {
       kind: GridCellKind.Text,
       data: text,
       displayData: text,
-      allowOverlay: true,
+      allowOverlay: false,
       readonly: true,
     };
   }
@@ -132,7 +132,7 @@ export function buildQueryCell(value: unknown): GridCell {
         kind: GridCellKind.Text,
         data: "NULL",
         displayData: "NULL",
-        allowOverlay: true,
+        allowOverlay: false,
         readonly: true,
         themeOverride: {
           textDark: "rgba(127,127,127,0.7)",
@@ -151,18 +151,26 @@ export function buildQueryCell(value: unknown): GridCell {
       kind: GridCellKind.Text,
       data: text,
       displayData: text,
-      allowOverlay: true,
+      allowOverlay: false,
       readonly: true,
     };
   }
 
   // Default text
-  const text = String(value);
+  let text: string;
+  try {
+    text =
+      typeof value === "string"
+        ? value
+        : JSON.stringify(value as Record<string, unknown>);
+  } catch {
+    text = "[object]";
+  }
   return {
     kind: GridCellKind.Text,
     data: text,
     displayData: text,
-    allowOverlay: true,
+    allowOverlay: false,
     readonly: true,
   };
 }

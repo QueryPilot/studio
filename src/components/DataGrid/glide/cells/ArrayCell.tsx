@@ -21,7 +21,7 @@ export const ArrayCell: CustomRenderer<ArrayCustomCell> = {
     return (cell as any)?.data?.kind === "array-cell";
   },
   draw: (args: DrawArgs<ArrayCustomCell>, cell: ArrayCustomCell) => {
-    const ctx = args.ctx as CanvasRenderingContext2D;
+    const ctx = args.ctx;
     const rect = args.rect;
     const theme = args.theme as Theme;
     const { value } = cell.data;
@@ -45,7 +45,7 @@ export const ArrayCell: CustomRenderer<ArrayCustomCell> = {
     const isNull = value == null;
     ctx.fillStyle = isNull ? theme.textLight : theme.textDark;
     ctx.font = isNull ? `italic ${baseFont}` : baseFont;
-    // if (isNull) ctx.globalAlpha = 0.55;
+    if (isNull) ctx.globalAlpha = 0.55;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     const padding = theme.cellHorizontalPadding ?? 6;

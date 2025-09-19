@@ -86,6 +86,7 @@ pub struct ColumnMeta {
     pub primary_key: bool,
     pub db_type: String,
     pub type_oid: Option<u32>,
+    #[serde(rename = "default")]
     pub default_value: Option<String>,
     pub comment: Option<String>,
 }
@@ -288,6 +289,7 @@ pub struct Index {
     pub is_primary: bool,
     pub is_partial: bool,
     pub definition: String,
+    pub is_foreign_key: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -492,4 +494,46 @@ pub enum StreamEvent {
         message: String,
         code: Option<String>,
     },
+}
+
+// Index operation requests
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateIndexRequest {
+    pub name: String,
+    pub columns: Vec<String>,
+    pub unique: bool,
+    pub index_type: String, // btree, hash, gin, gist, etc.
+    pub condition: Option<String>, // For partial indexes
+}
+
+// Table structure operation requests
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddColumnRequest {
+    pub name: String,
+    pub data_type: String,
+    pub nullable: bool,
+    pub default_value: Option<String>,
+    pub check_constraint: Option<String>,
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModifyColumnRequest {
+    pub name: String,
+    pub new_name: Option<String>,
+    pub new_type: Option<String>,
+    pub nullable: Option<bool>,
+    pub default_value: Option<String>,
+    pub drop_default: bool,
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddForeignKeyRequest {
+    pub constraint_name: Option<String>,
+    pub column_name: String,
+    pub referenced_table: String,
+    pub referenced_column: String,
+    pub on_update: String, // NO ACTION, CASCADE, SET NULL, SET DEFAULT, RESTRICT
+    pub on_delete: String, // NO ACTION, CASCADE, SET NULL, SET DEFAULT, RESTRICT
 }

@@ -78,7 +78,7 @@ impl DbAdapter for PostgresAdapter {
                 .danger_accept_invalid_certs(true) // For development
                 .build()
                 .map_err(|e| AppError::driver_error(e))?;
-            let connector = MakeTlsConnector::new(connector);
+            let _connector = MakeTlsConnector::new(connector);
             
             // This won't work with different connection types - we need a different approach
             // For now, just use NoTls for simplicity
@@ -266,6 +266,79 @@ impl DbAdapter for PostgresAdapter {
         introspector.get_index_usage_stats(table).await
     }
 
+    async fn get_supported_index_types(&self) -> Result<Vec<String>> {
+        let client = self.client.as_ref()
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+
+        let query = "SELECT amname AS index_type FROM pg_am WHERE amtype = 'i' ORDER BY 1";
+        let rows = client.query(query, &[]).await
+            .map_err(|e| AppError::Driver(e.to_string()))?;
+
+        let index_types: Vec<String> = rows.iter()
+            .map(|row| row.get::<_, String>(0))
+            .collect();
+
+        Ok(index_types)
+    }
+
+    async fn get_supported_column_types(&self) -> Result<Vec<String>> {
+        let client = self.client.as_ref()
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+
+        let query = r#"
+            WITH all_types AS (
+                -- Base types, array types, range types, and multirange types from pg_catalog
+                SELECT DISTINCT
+                    t.typname as type_name,
+                    1 as priority
+                FROM pg_type t
+                JOIN pg_namespace n ON t.typnamespace = n.oid
+                WHERE n.nspname = 'pg_catalog'
+                    AND t.typtype IN ('b', 'a', 'r', 'm')  -- Include base, array, range, and multirange types
+                    AND t.typname NOT IN ('pg_node_tree', 'pg_ndistinct', 'pg_dependencies',
+                                        'pg_mcv_list', 'pg_brin_bloom_summary', 'pg_brin_minmax_multi_summary',
+                                        'anyrange', 'anymultirange', 'anycompatiblerange', 'anycompatiblemultirange')
+
+                UNION ALL
+
+                -- User-defined types, enums, domains, ranges, multiranges, and their arrays
+                SELECT DISTINCT
+                    t.typname as type_name,
+                    2 as priority
+                FROM pg_type t
+                JOIN pg_namespace n ON t.typnamespace = n.oid
+                WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+                    AND t.typtype IN ('d', 'e', 'c', 'r', 'm', 'a')  -- Include all user-defined type categories
+
+                UNION ALL
+
+                -- Common type aliases with modifiers
+                SELECT 'character varying' as type_name, 1 as priority
+                UNION ALL SELECT 'varchar' as type_name, 1 as priority
+                UNION ALL SELECT 'character' as type_name, 1 as priority
+                UNION ALL SELECT 'char' as type_name, 1 as priority
+                UNION ALL SELECT 'timestamp with time zone' as type_name, 1 as priority
+                UNION ALL SELECT 'timestamp without time zone' as type_name, 1 as priority
+                UNION ALL SELECT 'time with time zone' as type_name, 1 as priority
+                UNION ALL SELECT 'time without time zone' as type_name, 1 as priority
+                UNION ALL SELECT 'double precision' as type_name, 1 as priority
+                UNION ALL SELECT 'bit varying' as type_name, 1 as priority
+            )
+            SELECT DISTINCT type_name
+            FROM all_types
+            ORDER BY type_name
+        "#;
+
+        let rows = client.query(query, &[]).await
+            .map_err(|e| AppError::Driver(e.to_string()))?;
+
+        let column_types: Vec<String> = rows.iter()
+            .map(|row| row.get::<_, String>(0))
+            .collect();
+
+        Ok(column_types)
+    }
+
     async fn get_constraints(&self, table: &str) -> Result<Vec<Constraint>> {
         let introspector = self.introspector.as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
@@ -431,4 +504,216 @@ impl DbAdapter for PostgresAdapter {
     fn supports_schemas(&self) -> bool { true }
     fn supports_procedures(&self) -> bool { true }
     fn supports_functions(&self) -> bool { true }
+
+    // Index operations
+    async fn create_index(&self, schema: &str, table: &str, index: &CreateIndexRequest) -> Result<()> {
+        let client = self.client.as_ref()
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+
+        let unique_str = if index.unique { "UNIQUE " } else { "" };
+        let columns = index.columns.join(", ");
+        let index_type = if index.index_type.is_empty() { "btree".to_string() } else { index.index_type.clone() };
+
+        let mut sql = format!(
+            "CREATE {}INDEX {} ON {}.{} USING {} ({})",
+            unique_str,
+            index.name,
+            schema,
+            table,
+            index_type,
+            columns
+        );
+
+        if let Some(condition) = &index.condition {
+            sql.push_str(&format!(" WHERE {}", condition));
+        }
+
+        client.execute(&sql, &[]).await?;
+
+        Ok(())
+    }
+
+    async fn drop_index(&self, schema: &str, index_name: &str) -> Result<()> {
+        let client = self.client.as_ref()
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+
+        let sql = format!("DROP INDEX IF EXISTS {}.{}", schema, index_name);
+
+        client.execute(&sql, &[]).await?;
+
+        Ok(())
+    }
+
+    async fn rename_index(&self, schema: &str, old_name: &str, new_name: &str) -> Result<()> {
+        let client = self.client.as_ref()
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+
+        let sql = format!("ALTER INDEX {}.{} RENAME TO {}", schema, old_name, new_name);
+
+        client.execute(&sql, &[]).await?;
+
+        Ok(())
+    }
+
+    // Table structure operations
+    async fn alter_table_add_column(&self, schema: &str, table: &str, column: &AddColumnRequest) -> Result<()> {
+        let client = self.client.as_ref()
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+
+        let mut sql = format!(
+            "ALTER TABLE {}.{} ADD COLUMN {} {}",
+            schema, table, column.name, column.data_type
+        );
+
+        if !column.nullable {
+            sql.push_str(" NOT NULL");
+        }
+
+        if let Some(default) = &column.default_value {
+            sql.push_str(&format!(" DEFAULT {}", default));
+        }
+
+        if let Some(check) = &column.check_constraint {
+            sql.push_str(&format!(" CHECK ({})", check));
+        }
+
+        client.execute(&sql, &[]).await?;
+
+        // Add comment if provided
+        if let Some(comment) = &column.comment {
+            let comment_sql = format!(
+                "COMMENT ON COLUMN {}.{}.{} IS $1",
+                schema, table, column.name
+            );
+            client.execute(&comment_sql, &[&comment]).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn alter_table_drop_column(&self, schema: &str, table: &str, column_name: &str) -> Result<()> {
+        let client = self.client.as_ref()
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+
+        let sql = format!(
+            "ALTER TABLE {}.{} DROP COLUMN IF EXISTS {}",
+            schema, table, column_name
+        );
+
+        client.execute(&sql, &[]).await?;
+
+        Ok(())
+    }
+
+    async fn alter_table_modify_column(&self, schema: &str, table: &str, column: &ModifyColumnRequest) -> Result<()> {
+        let client = self.client.as_ref()
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+
+        // Handle column rename
+        if let Some(new_name) = &column.new_name {
+            let sql = format!(
+                "ALTER TABLE {}.{} RENAME COLUMN {} TO {}",
+                schema, table, column.name, new_name
+            );
+            client.execute(&sql, &[]).await
+                ?;
+        }
+
+        // Handle type change
+        if let Some(new_type) = &column.new_type {
+            let sql = format!(
+                "ALTER TABLE {}.{} ALTER COLUMN {} TYPE {} USING {}::{}",
+                schema, table, column.name, new_type, column.name, new_type
+            );
+            client.execute(&sql, &[]).await
+                ?;
+        }
+
+        // Handle nullable change
+        if let Some(nullable) = column.nullable {
+            let sql = if nullable {
+                format!("ALTER TABLE {}.{} ALTER COLUMN {} DROP NOT NULL", schema, table, column.name)
+            } else {
+                format!("ALTER TABLE {}.{} ALTER COLUMN {} SET NOT NULL", schema, table, column.name)
+            };
+            client.execute(&sql, &[]).await
+                ?;
+        }
+
+        // Handle default value
+        if column.drop_default {
+            let sql = format!("ALTER TABLE {}.{} ALTER COLUMN {} DROP DEFAULT", schema, table, column.name);
+            client.execute(&sql, &[]).await
+                ?;
+        } else if let Some(default) = &column.default_value {
+            let sql = format!("ALTER TABLE {}.{} ALTER COLUMN {} SET DEFAULT {}", schema, table, column.name, default);
+            client.execute(&sql, &[]).await
+                ?;
+        }
+
+        // Update comment
+        if let Some(comment) = &column.comment {
+            let column_name = column.new_name.as_ref().unwrap_or(&column.name);
+            let comment_sql = format!(
+                "COMMENT ON COLUMN {}.{}.{} IS $1",
+                schema, table, column_name
+            );
+            client.execute(&comment_sql, &[&comment]).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn alter_table_rename_column(&self, schema: &str, table: &str, old_name: &str, new_name: &str) -> Result<()> {
+        let client = self.client.as_ref()
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+
+        let sql = format!(
+            "ALTER TABLE {}.{} RENAME COLUMN {} TO {}",
+            schema, table, old_name, new_name
+        );
+
+        client.execute(&sql, &[]).await?;
+
+        Ok(())
+    }
+
+    async fn alter_table_add_foreign_key(&self, schema: &str, table: &str, fk: &AddForeignKeyRequest) -> Result<()> {
+        let client = self.client.as_ref()
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+
+        let constraint_name = fk.constraint_name.as_ref()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("fk_{}_{}_{}", table, fk.column_name, fk.referenced_table));
+
+        let sql = format!(
+            "ALTER TABLE {}.{} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({}) ON UPDATE {} ON DELETE {}",
+            schema,
+            table,
+            constraint_name,
+            fk.column_name,
+            fk.referenced_table,
+            fk.referenced_column,
+            fk.on_update,
+            fk.on_delete
+        );
+
+        client.execute(&sql, &[]).await?;
+
+        Ok(())
+    }
+
+    async fn alter_table_drop_foreign_key(&self, schema: &str, table: &str, constraint_name: &str) -> Result<()> {
+        let client = self.client.as_ref()
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+
+        let sql = format!(
+            "ALTER TABLE \"{}\".\"{}\" DROP CONSTRAINT IF EXISTS \"{}\"",
+            schema, table, constraint_name
+        );
+
+        client.execute(&sql, &[]).await?;
+
+        Ok(())
+    }
 }

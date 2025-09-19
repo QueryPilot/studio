@@ -84,7 +84,7 @@ impl ConnectionManager {
         let conn_key = profile.connection_key();
         
         // Check if connection exists
-        if let Some(mut entry) = self.connections.get_mut(&conn_key) {
+        if let Some(entry) = self.connections.get_mut(&conn_key) {
             *entry.last_used.write().await = Instant::now();
             return Ok(conn_key);
         }

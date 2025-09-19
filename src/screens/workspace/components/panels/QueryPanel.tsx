@@ -41,10 +41,13 @@ export function QueryPanel({
       }
     >
       <MonacoQueryPanel
+        panelId={tab.panelId}
+        tabId={tab.id}
         connectionId={connectionId}
         database={database}
         schema={schema}
         dbType={dbType}
+        initialSql={tab.payload?.sql}
         className="h-full"
       />
     </Suspense>

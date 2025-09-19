@@ -159,6 +159,30 @@ pub async fn get_index_usage_stats(
 }
 
 #[tauri::command]
+pub async fn get_supported_index_types(
+    conn_id: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<Vec<String>, String> {
+    let conn = manager.get_connection(&conn_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+
+    conn.adapter.get_supported_index_types().await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_supported_column_types(
+    conn_id: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<Vec<String>, String> {
+    let conn = manager.get_connection(&conn_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+
+    conn.adapter.get_supported_column_types().await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn get_constraints(
     conn_id: String,
     table: String,
@@ -424,7 +448,7 @@ pub async fn store_connection(
 #[tauri::command]
 pub async fn db_connect_by_id(
     connection_id: String,
-    workspace_id: Option<String>,
+    _workspace_id: Option<String>,
     storage: State<'_, Arc<crate::storage::SecureStorage>>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<ConnectionInfo, String> {
@@ -638,4 +662,141 @@ pub async fn update_connection_with_event(
 
     println!("DEBUG: update_connection_with_event completed successfully");
     Ok(())
+}
+
+// Index operation commands
+#[tauri::command]
+pub async fn create_index(
+    conn_id: String,
+    schema: String,
+    table: String,
+    index: CreateIndexRequest,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<(), String> {
+    let conn = manager.get_connection(&conn_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+
+    conn.adapter.create_index(&schema, &table, &index).await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn drop_index(
+    conn_id: String,
+    schema: String,
+    index_name: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<(), String> {
+    let conn = manager.get_connection(&conn_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+
+    conn.adapter.drop_index(&schema, &index_name).await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn rename_index(
+    conn_id: String,
+    schema: String,
+    old_name: String,
+    new_name: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<(), String> {
+    let conn = manager.get_connection(&conn_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+
+    conn.adapter.rename_index(&schema, &old_name, &new_name).await
+        .map_err(|e| e.to_string())
+}
+
+// Table structure operation commands
+#[tauri::command]
+pub async fn alter_table_add_column(
+    conn_id: String,
+    schema: String,
+    table: String,
+    column: AddColumnRequest,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<(), String> {
+    let conn = manager.get_connection(&conn_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+
+    conn.adapter.alter_table_add_column(&schema, &table, &column).await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn alter_table_drop_column(
+    conn_id: String,
+    schema: String,
+    table: String,
+    column_name: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<(), String> {
+    let conn = manager.get_connection(&conn_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+
+    conn.adapter.alter_table_drop_column(&schema, &table, &column_name).await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn alter_table_modify_column(
+    conn_id: String,
+    schema: String,
+    table: String,
+    column: ModifyColumnRequest,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<(), String> {
+    let conn = manager.get_connection(&conn_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+
+    conn.adapter.alter_table_modify_column(&schema, &table, &column).await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn alter_table_rename_column(
+    conn_id: String,
+    schema: String,
+    table: String,
+    old_name: String,
+    new_name: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<(), String> {
+    let conn = manager.get_connection(&conn_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+
+    conn.adapter.alter_table_rename_column(&schema, &table, &old_name, &new_name).await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn alter_table_add_foreign_key(
+    conn_id: String,
+    schema: String,
+    table: String,
+    fk: AddForeignKeyRequest,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<(), String> {
+    let conn = manager.get_connection(&conn_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+
+    conn.adapter.alter_table_add_foreign_key(&schema, &table, &fk).await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn alter_table_drop_foreign_key(
+    conn_id: String,
+    schema: String,
+    table: String,
+    constraint_name: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<(), String> {
+    let conn = manager.get_connection(&conn_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+
+    conn.adapter.alter_table_drop_foreign_key(&schema, &table, &constraint_name).await
+        .map_err(|e| e.to_string())
 }
