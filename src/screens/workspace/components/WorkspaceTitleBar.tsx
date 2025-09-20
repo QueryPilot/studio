@@ -17,6 +17,7 @@ import {
   AlertCircle,
   Loader2,
   RotateCcw,
+  GitBranch,
 } from "lucide-react";
 import {
   Popover,
@@ -54,6 +55,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useTheme } from "@/components/theme-provider";
 import { toast } from "@/hooks/use-toast";
+import useWorkbenchStore from "@/stores/workbenchStore";
 
 interface WorkspaceTitleBarProps {
   connectionId: string;
@@ -349,6 +351,67 @@ export function WorkspaceTitleBar({
     }
   };
 
+  const handleOpenErd = () => {
+    const {
+      focusedPanelId,
+      panelContents,
+      addTab,
+      focusPanel,
+    } = useWorkbenchStore.getState();
+
+    const erdTabId = `erd-${connectionId}`;
+    const erdMetadata = {
+      type: "erd" as const,
+      title: "ERD",
+      connectionId,
+      database: connection?.database,
+      schema: "public",
+    };
+
+    let targetPanelId = focusedPanelId;
+
+    if (!targetPanelId) {
+      const firstPanel = Array.from(panelContents.entries())[0];
+      if (firstPanel) {
+        targetPanelId = firstPanel[0];
+        focusPanel(firstPanel[0]);
+      }
+    }
+
+    if (targetPanelId) {
+      addTab(targetPanelId, erdTabId, erdMetadata);
+      return;
+    }
+
+    const {
+      getPrimaryPanel,
+      addTabToPanel,
+      setActiveTabInPanel,
+    } = usePanelStore.getState();
+
+    const primaryPanel = getPrimaryPanel();
+    if (!primaryPanel) return;
+
+    const existingErdTab = Array.from(primaryPanel.tabs.values()).find(
+      (tab) => tab.type === "erd",
+    );
+
+    if (existingErdTab) {
+      setActiveTabInPanel(primaryPanel.id, existingErdTab.id);
+      return;
+    }
+
+    addTabToPanel(primaryPanel.id, {
+      type: "erd",
+      connectionId,
+      title: "ERD",
+      payload: {
+        database: connection?.database,
+        schema: "public",
+      },
+    });
+  };
+
   return (
     <div
       className="relative flex items-center justify-between h-10 bg-background/95 backdrop-blur"
@@ -542,6 +605,16 @@ export function WorkspaceTitleBar({
           title="Toggle right sidebar"
         >
           <PanelRight className="h-3.5 w-3.5" />
+        </Button>
+
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0"
+          onClick={handleOpenErd}
+          title="Open ERD"
+        >
+          <GitBranch className="h-3.5 w-3.5" />
         </Button>
 
         {/* Settings Dropdown - Now at the far right */}

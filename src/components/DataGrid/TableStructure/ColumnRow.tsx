@@ -19,6 +19,8 @@ export interface ColumnRowData {
   foreign_key_ref?: {
     table: string;
     column: string;
+    onUpdate?: string;
+    onDelete?: string;
   } | null;
   comment?: string | null;
   originalName?: string;

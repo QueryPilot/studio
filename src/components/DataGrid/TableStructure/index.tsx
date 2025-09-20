@@ -84,6 +84,8 @@ export const TableStructure = memo(function TableStructure({
           ? {
               table: fkInfo.foreignTable,
               column: fkInfo.foreignColumns[0],
+              onUpdate: fkInfo.onUpdate,
+              onDelete: fkInfo.onDelete,
             }
           : null,
         comment: col.comment,

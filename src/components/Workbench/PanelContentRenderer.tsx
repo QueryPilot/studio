@@ -11,6 +11,7 @@ import { QueryPanel } from "@/components/QueryPanel";
 import { useConnectionStore } from "@/stores/connectionStore";
 import { Skeleton } from "../ui/skeleton";
 import { type TabMetadata } from "@/types/workbench";
+import { ERDPanel } from "@/components/Erd";
 
 interface PanelContentRendererProps {
   panelId: string;
@@ -88,6 +89,17 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
           onDefinitionLoad={(def) => {
             definitionRef.current = def;
           }}
+        />
+      );
+    }
+
+    if (type === "erd") {
+      return (
+        <ERDPanel
+          connectionId={metadata?.connectionId || activeConnectionId || ""}
+          tabId={tabId}
+          database={metadata?.database}
+          schema={metadata?.schema}
         />
       );
     }

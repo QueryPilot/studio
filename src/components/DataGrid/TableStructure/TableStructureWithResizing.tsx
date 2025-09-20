@@ -80,6 +80,8 @@ export const TableStructureWithResizing = memo(
             ? {
                 table: fkInfo.foreignTable,
                 column: fkInfo.foreignColumns[0],
+                onUpdate: fkInfo.onUpdate,
+                onDelete: fkInfo.onDelete,
               }
             : null,
           comment: col.comment,
