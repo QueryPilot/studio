@@ -1,4 +1,4 @@
-export type CodeEditorLanguage = "sql" | "json" | "text";
+export type CodeEditorLanguage = "sql" | "json" | "text" | "dbml";
 export type SqlDialect = "postgresql" | "mysql" | "sqlite";
 export type EditorTheme = "light" | "dark" | "auto";
 
