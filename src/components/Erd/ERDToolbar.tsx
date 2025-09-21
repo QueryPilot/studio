@@ -2,13 +2,13 @@ import React from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { LayoutPanelTop, CodeXml, SplitSquareVertical } from "lucide-react";
+  LayoutPanelTop,
+  CodeXml,
+  SplitSquareVertical,
+  Plus,
+  RefreshCw,
+  Shuffle,
+} from "lucide-react";
 
 type ErdMode = "visual" | "code" | "split";
 
@@ -16,25 +16,19 @@ interface ERDToolbarProps {
   mode: ErdMode;
   onModeChange: (mode: ErdMode) => void;
   onCreateView?: () => void;
-  onExport?: () => void;
   onRefresh?: () => void;
-  schemas?: string[];
-  selectedSchema?: string;
-  onSchemaChange?: (schema: string) => void;
+  onAutoArrange?: () => void;
 }
 
 export const ERDToolbar: React.FC<ERDToolbarProps> = ({
   mode,
   onModeChange,
   onCreateView,
-  onExport,
   onRefresh,
-  schemas,
-  selectedSchema,
-  onSchemaChange,
+  onAutoArrange,
 }) => {
   return (
-    <div className="flex items-center justify-between border-b bg-muted/30 px-3 py-2">
+    <div className="flex items-center justify-between border-b bg-muted/30 p-1">
       <Tabs
         value={mode}
         onValueChange={(value) => {
@@ -42,7 +36,10 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
         }}
       >
         <TabsList className="grid grid-cols-3 h-8">
-          <TabsTrigger value="visual" className="flex items-center gap-1 text-xs">
+          <TabsTrigger
+            value="visual"
+            className="flex items-center gap-1 text-xs"
+          >
             <LayoutPanelTop className="h-3 w-3" />
             Visual
           </TabsTrigger>
@@ -50,59 +47,51 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
             <CodeXml className="h-3 w-3" />
             Code
           </TabsTrigger>
-          <TabsTrigger value="split" className="flex items-center gap-1 text-xs">
+          <TabsTrigger
+            value="split"
+            className="flex items-center gap-1 text-xs"
+          >
             <SplitSquareVertical className="h-3 w-3" />
             Split
           </TabsTrigger>
         </TabsList>
       </Tabs>
-      <div className="flex items-center gap-2">
-        {schemas && schemas.length > 0 && onSchemaChange ? (
-          <Select value={selectedSchema} onValueChange={onSchemaChange}>
-            <SelectTrigger className="h-7 w-36 text-xs">
-              <SelectValue placeholder="Select schema" />
-            </SelectTrigger>
-            <SelectContent>
-              {schemas.map((schemaOption) => (
-                <SelectItem key={schemaOption} value={schemaOption}>
-                  {schemaOption}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : null}
+      <div className="flex items-center gap-1">
         <Button
           type="button"
-          variant="outline"
-          size="sm"
-          className="text-xs"
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7"
+          onClick={() => {
+            onAutoArrange?.();
+          }}
+          title="Auto Arrange"
+        >
+          <Shuffle className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7"
           onClick={() => {
             onCreateView?.();
           }}
+          title="New View"
         >
-          New View
+          <Plus className="h-3.5 w-3.5" />
         </Button>
         <Button
           type="button"
-          variant="outline"
-          size="sm"
-          className="text-xs"
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7"
           onClick={() => {
             onRefresh?.();
           }}
+          title="Refresh"
         >
-          Refresh
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="text-xs"
-          onClick={() => {
-            onExport?.();
-          }}
-        >
-          Export
+          <RefreshCw className="h-3.5 w-3.5" />
         </Button>
       </div>
     </div>
