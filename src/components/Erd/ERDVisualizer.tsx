@@ -26,6 +26,11 @@ import ReactFlow, {
 import "reactflow/dist/style.css";
 import ELK from "elkjs/lib/elk.bundled.js";
 import { Key, Link2, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import type { TableStructure } from "@/types/tableStructure";
 import type { ColumnMeta } from "@/types/database";
@@ -65,6 +70,7 @@ interface ForeignEdgeData {
   sourceCardinality?: "1" | "n";
   targetCardinality?: "1" | "n";
   highlighted?: boolean;
+  isHovered?: boolean;
   onHover?: (relationshipId: string) => void;
   onLeave?: () => void;
 }
@@ -77,19 +83,27 @@ const edgeStylesInjected = (() => {
     if (injected) return;
     const style = document.createElement("style");
     style.innerHTML = `
-      @keyframes erd-arrow-flow {
-        0% { transform: translateX(0); opacity: 0; }
-        50% { opacity: 1; }
-        100% { transform: translateX(20px); opacity: 0; }
+      @keyframes erd-line-flow {
+        from { stroke-dashoffset: 24; }
+        to { stroke-dashoffset: 0; }
       }
-      .erd-edge-arrow {
-        animation: erd-arrow-flow 1.5s ease-in-out infinite;
+      @keyframes erd-dots-flow {
+        from { stroke-dashoffset: 0; }
+        to { stroke-dashoffset: -24; }
       }
-      .erd-edge-hover-area {
-        pointer-events: stroke;
-        stroke-width: 20;
-        stroke: transparent;
-        fill: none;
+      .erd-edge-animated {
+        stroke-dasharray: 8 4;
+        animation: erd-line-flow 2s linear infinite;
+      }
+      .erd-edge-dots {
+        stroke-dasharray: 8 16;
+        stroke-linecap: round;
+        animation: erd-dots-flow 1.5s linear infinite;
+        will-change: stroke-dashoffset;
+      }
+      .erd-edge-flow-pulse {
+        stroke-dasharray: 10 15;
+        animation: erd-line-flow 2s ease-in-out infinite;
       }
       .erd-table-card {
         transition: box-shadow 0.2s ease, border-color 0.2s ease;
@@ -114,18 +128,6 @@ const edgeStylesInjected = (() => {
       .${FLOW_CLASS} .react-flow__node {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       }
-      .erd-column-tooltip {
-        position: absolute;
-        z-index: 1000;
-        background: hsl(var(--popover));
-        color: hsl(var(--popover-foreground));
-        padding: 4px 8px;
-        border-radius: 4px;
-        font-size: 11px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-        pointer-events: none;
-        white-space: nowrap;
-      }
       .erd-cardinality-badge {
         font-weight: 600;
         font-size: 11px;
@@ -143,8 +145,11 @@ const edgeStylesInjected = (() => {
 const buildNodeId = (table: TableStructure): string =>
   `${table.schema}.${table.name}`;
 
-const makeHandleId = (columnName: string, role: "source" | "target") =>
-  `${role}-${columnName}`;
+const makeHandleId = (
+  columnName: string,
+  role: "source" | "target",
+  side?: "left" | "right",
+) => (side ? `${role}-${side}-${columnName}` : `${role}-${columnName}`);
 
 const TABLE_NODE_TYPE = "table-node";
 const EDGE_TYPE = "foreign";
@@ -165,11 +170,6 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
     onColumnHover,
     onColumnLeave,
   } = data;
-  const [tooltipContent, setTooltipContent] = useState<{
-    text: string;
-    x: number;
-    y: number;
-  } | null>(null);
   // Sort columns: PK first, then FK, then others
   const sortedColumns = [...table.columns].sort((a, b) => {
     // Primary keys always come first
@@ -178,8 +178,8 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
 
     // Among primary keys, 'id' comes first
     if (a.is_pk && b.is_pk) {
-      if (a.name.toLowerCase() === 'id') return -1;
-      if (b.name.toLowerCase() === 'id') return 1;
+      if (a.name.toLowerCase() === "id") return -1;
+      if (b.name.toLowerCase() === "id") return 1;
       return 0;
     }
 
@@ -203,7 +203,10 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
     if (column.is_pk) {
       icons.push(<Key key="pk" className="h-3 w-3 text-amber-500" />);
     }
-    if (column.is_fk || (!column.is_pk && column.name.toLowerCase().includes("_id"))) {
+    if (
+      column.is_fk ||
+      (!column.is_pk && column.name.toLowerCase().includes("_id"))
+    ) {
       icons.push(<Link2 key="fk" className="h-3 w-3 text-sky-500" />);
     }
     return icons.length > 0 ? (
@@ -229,7 +232,6 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
       }}
       onMouseLeave={() => {
         onLeave();
-        setTooltipContent(null);
       }}
       onMouseUp={() => {
         onClick(id);
@@ -262,77 +264,104 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
           {columns.map((column) => {
             const { type, constraints } = formatColumnType(column);
             return (
-              <li
-                key={column.name}
-                className="relative flex items-center gap-2 rounded px-2 py-1 transition hover:bg-muted"
-                onMouseEnter={(e) => {
-                  onColumnHover?.(column.name);
-                  if (column.default || column.comment) {
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    const content = [];
-                    if (column.default)
-                      content.push(`Default: ${column.default}`);
-                    if (column.comment)
-                      content.push(`Comment: ${column.comment}`);
-                    setTooltipContent({
-                      text: content.join("\n"),
-                      x: rect.right + 5,
-                      y: rect.top + rect.height / 2,
-                    });
-                  }
-                }}
-                onMouseLeave={() => {
-                  onColumnLeave?.();
-                  setTooltipContent(null);
-                }}
-              >
-                <Handle
-                  type="target"
-                  position={Position.Left}
-                  id={makeHandleId(column.name, "target")}
-                  className="absolute left-0 top-1/2"
-                  style={{
-                    width: 0,
-                    height: 0,
-                    border: "none",
-                    background: "transparent",
-                    pointerEvents: "none",
-                    transform: "translate(-8px, -50%)",
-                  }}
-                />
-                <div className="flex flex-1 items-center gap-2 min-w-0">
-                  <div className="flex-1 inline-flex items-center gap-2">
-                    <span className="font-medium text-foreground truncate max-w-[120px]">
-                      {column.name}
-                    </span>
-                    {renderColumnIcons(column)}
-                  </div>
-                  <div className="flex items-center gap-2 min-w-0">
-                    {constraints.length > 0 && (
-                      <span className="text-[9px] text-orange-500 font-semibold flex-shrink-0">
-                        {constraints.join(",")}
-                      </span>
-                    )}
-                    <span className="text-[10px] text-muted-foreground truncate">
-                      {type}
-                    </span>
-                  </div>
-                </div>
-                <Handle
-                  type="source"
-                  position={Position.Right}
-                  id={makeHandleId(column.name, "source")}
-                  className="absolute right-0 top-1/2"
-                  style={{
-                    width: 0,
-                    height: 0,
-                    border: "none",
-                    background: "transparent",
-                    pointerEvents: "none",
-                    transform: "translate(8px, -50%)",
-                  }}
-                />
-              </li>
+              <Tooltip key={column.name} delayDuration={200}>
+                <TooltipTrigger asChild>
+                  <li
+                    className="relative flex items-center gap-2 rounded px-2 py-1 transition hover:bg-muted"
+                    onMouseEnter={() => {
+                      onColumnHover?.(column.name);
+                    }}
+                    onMouseLeave={() => {
+                      onColumnLeave?.();
+                    }}
+                  >
+                    {/* Left side handles */}
+                    <Handle
+                      type="target"
+                      position={Position.Left}
+                      id={makeHandleId(column.name, "target", "left")}
+                      className="absolute left-0 top-1/2"
+                      style={{
+                        width: 0,
+                        height: 0,
+                        border: "none",
+                        background: "transparent",
+                        pointerEvents: "none",
+                        transform: "translate(-8px, -50%)",
+                      }}
+                    />
+                    <Handle
+                      type="source"
+                      position={Position.Left}
+                      id={makeHandleId(column.name, "source", "left")}
+                      className="absolute left-0 top-1/2"
+                      style={{
+                        width: 0,
+                        height: 0,
+                        border: "none",
+                        background: "transparent",
+                        pointerEvents: "none",
+                        transform: "translate(-8px, -50%)",
+                      }}
+                    />
+                    <div className="flex flex-1 items-center gap-2 min-w-0">
+                      <div className="flex-1 inline-flex items-center gap-2">
+                        <span className="font-medium text-foreground truncate max-w-[120px]">
+                          {column.name}
+                        </span>
+                        {renderColumnIcons(column)}
+                      </div>
+                      <div className="flex items-center gap-2 min-w-0">
+                        {constraints.length > 0 && (
+                          <span className="text-[9px] text-orange-500 font-semibold flex-shrink-0">
+                            {constraints.join(",")}
+                          </span>
+                        )}
+                        <span className="text-[10px] text-muted-foreground truncate">
+                          {type}
+                        </span>
+                      </div>
+                    </div>
+                    {/* Right side handles */}
+                    <Handle
+                      type="target"
+                      position={Position.Right}
+                      id={makeHandleId(column.name, "target", "right")}
+                      className="absolute right-0 top-1/2"
+                      style={{
+                        width: 0,
+                        height: 0,
+                        border: "none",
+                        background: "transparent",
+                        pointerEvents: "none",
+                        transform: "translate(8px, -50%)",
+                      }}
+                    />
+                    <Handle
+                      type="source"
+                      position={Position.Right}
+                      id={makeHandleId(column.name, "source", "right")}
+                      className="absolute right-0 top-1/2"
+                      style={{
+                        width: 0,
+                        height: 0,
+                        border: "none",
+                        background: "transparent",
+                        pointerEvents: "none",
+                        transform: "translate(8px, -50%)",
+                      }}
+                    />
+                  </li>
+                </TooltipTrigger>
+                {(column.default || column.comment) && (
+                  <TooltipContent side="right" sideOffset={5}>
+                    <div className="space-y-1">
+                      {column.default && <div>Default: {column.default}</div>}
+                      {column.comment && <div>Comment: {column.comment}</div>}
+                    </div>
+                  </TooltipContent>
+                )}
+              </Tooltip>
             );
           })}
           {hasMore && !expanded ? (
@@ -342,21 +371,6 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
           ) : null}
         </ul>
       </div>
-      {tooltipContent && (
-        <div
-          className="erd-column-tooltip"
-          style={{
-            left: tooltipContent.x,
-            top: tooltipContent.y,
-            transform: "translateY(-50%)",
-            position: "fixed",
-          }}
-        >
-          {tooltipContent.text.split("\n").map((line, i) => (
-            <div key={i}>{line}</div>
-          ))}
-        </div>
-      )}
     </div>
   );
 };
@@ -374,6 +388,74 @@ const ForeignKeyEdge: React.FC<EdgeProps<ForeignEdgeData>> = ({
   style = {},
   markerEnd,
 }) => {
+  // Determine relationship type based on cardinalities
+  const getRelationshipType = () => {
+    const source = data?.sourceCardinality || "1";
+    const target = data?.targetCardinality || "1";
+    return `${source}-${target}`;
+  };
+
+  const relationshipType = getRelationshipType();
+  const highlighted = Boolean(selected || data?.highlighted);
+
+  // Create custom markers for different relationship types
+  const getMarkerStyle = (
+    cardinality: "1" | "n",
+    position: "source" | "target",
+  ) => {
+    const baseColor = highlighted
+      ? "hsl(var(--primary))"
+      : "hsl(var(--muted-foreground))";
+
+    if (cardinality === "1") {
+      // Single line for "one" side
+      return {
+        markerWidth: 6,
+        markerHeight: 10,
+        refX: position === "target" ? 6 : 0,
+        refY: 5,
+        orient: "auto",
+        fill: "none",
+        stroke: baseColor,
+        strokeWidth: 1,
+      };
+    } else {
+      // Crow's foot for "many" side
+      return {
+        markerWidth: 10,
+        markerHeight: 8,
+        refX: position === "target" ? 10 : 0,
+        refY: 4,
+        orient: "auto",
+        fill: "none",
+        stroke: baseColor,
+        strokeWidth: 0.8,
+      };
+    }
+  };
+
+  // Get line style based on relationship type
+  const getLineStyle = () => {
+    const baseStyle = {
+      strokeLinecap: "round" as const,
+      strokeLinejoin: "round" as const,
+    };
+
+    switch (relationshipType) {
+      case "1-1":
+        return { ...baseStyle }; // Solid line
+      case "1-n":
+      case "n-1":
+        return { ...baseStyle }; // Solid line
+      case "n-n":
+        return {
+          ...baseStyle,
+          strokeDasharray: "5,5", // Dashed line for many-to-many
+        };
+      default:
+        return baseStyle;
+    }
+  };
   const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
@@ -381,70 +463,167 @@ const ForeignKeyEdge: React.FC<EdgeProps<ForeignEdgeData>> = ({
     targetY,
     sourcePosition,
     targetPosition,
-    borderRadius: 16,
-    offset: 24,
+    borderRadius: 8,
+    offset: 32,
   });
 
-  const startLabelX = sourceX + (targetX - sourceX) * 0.2;
-  const startLabelY = sourceY + (targetY - sourceY) * 0.2;
-  const endLabelX = targetX + (sourceX - targetX) * 0.2;
-  const endLabelY = targetY + (sourceY - targetY) * 0.2;
+  // Position cardinality labels closer to the actual connection points
+  const sourceOffset = 20; // Distance from the node edge
+  const targetOffset = 20;
 
-  const highlighted = Boolean(selected || data?.highlighted);
+  // Calculate positions based on source and target positions
+  let startLabelX = sourceX;
+  let startLabelY = sourceY;
+  let endLabelX = targetX;
+  let endLabelY = targetY;
+
+  // Adjust based on connection position
+  if (sourcePosition === Position.Right) {
+    startLabelX = sourceX + sourceOffset;
+  } else if (sourcePosition === Position.Left) {
+    startLabelX = sourceX - sourceOffset;
+  } else if (sourcePosition === Position.Top) {
+    startLabelY = sourceY - sourceOffset;
+  } else if (sourcePosition === Position.Bottom) {
+    startLabelY = sourceY + sourceOffset;
+  }
+
+  if (targetPosition === Position.Right) {
+    endLabelX = targetX + targetOffset;
+  } else if (targetPosition === Position.Left) {
+    endLabelX = targetX - targetOffset;
+  } else if (targetPosition === Position.Top) {
+    endLabelY = targetY - targetOffset;
+  } else if (targetPosition === Position.Bottom) {
+    endLabelY = targetY + targetOffset;
+  }
+
+  const lineStyle = getLineStyle();
+
+  const sourceMarkerId = `marker-source-${id}`;
+  const targetMarkerId = `marker-target-${id}`;
+  const sourceMarkerStyle = data?.sourceCardinality
+    ? getMarkerStyle(data.sourceCardinality, "source")
+    : null;
+  const targetMarkerStyle = data?.targetCardinality
+    ? getMarkerStyle(data.targetCardinality, "target")
+    : null;
 
   return (
     <>
+      {/* Define custom markers */}
+      <defs>
+        {sourceMarkerStyle && (
+          <marker id={sourceMarkerId} {...sourceMarkerStyle}>
+            {data?.sourceCardinality === "1" ? (
+              <line x1="0" y1="1" x2="0" y2="9" />
+            ) : (
+              // Thinner crow's foot for "many"
+              <g>
+                <line x1="0" y1="2" x2="6" y2="4" />
+                <line x1="0" y1="4" x2="6" y2="4" />
+                <line x1="0" y1="6" x2="6" y2="4" />
+              </g>
+            )}
+          </marker>
+        )}
+        {targetMarkerStyle && (
+          <marker id={targetMarkerId} {...targetMarkerStyle}>
+            {data?.targetCardinality === "1" ? (
+              <line x1="6" y1="1" x2="6" y2="9" />
+            ) : (
+              // Thinner crow's foot for "many"
+              <g>
+                <line x1="4" y1="2" x2="10" y2="4" />
+                <line x1="4" y1="4" x2="10" y2="4" />
+                <line x1="4" y1="6" x2="10" y2="4" />
+              </g>
+            )}
+          </marker>
+        )}
+      </defs>
+
+      {/* Invisible wider path for better hover detection */}
+      <path
+        d={edgePath}
+        stroke="transparent"
+        strokeWidth={20}
+        fill="none"
+        onMouseEnter={() => data?.onHover?.(data.relationshipId)}
+        onMouseLeave={() => data?.onLeave?.()}
+        pointerEvents="stroke"
+        style={{ cursor: "pointer" }}
+      />
       <path
         id={id}
-        className={["erd-edge", highlighted ? "erd-edge-animated" : ""].join(
-          " ",
-        )}
         d={edgePath}
         stroke={
           highlighted ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))"
         }
-        strokeWidth={highlighted ? 2 : 1.5}
+        strokeWidth={0.5}
         fill="none"
-        markerEnd={markerEnd}
-        onMouseEnter={() => data?.onHover?.(data.relationshipId)}
-        onMouseLeave={() => data?.onLeave?.()}
-        pointerEvents="stroke"
+        markerStart={sourceMarkerStyle ? `url(#${sourceMarkerId})` : undefined}
+        markerEnd={targetMarkerStyle ? `url(#${targetMarkerId})` : markerEnd}
+        pointerEvents="none"
         style={{
           ...style,
-          strokeLinecap: "round",
-          strokeLinejoin: "round",
+          ...lineStyle,
         }}
       />
 
-      {data?.sourceCardinality ? (
-        <text
-          x={startLabelX}
-          y={startLabelY}
-          className="fill-background"
-          textAnchor="middle"
-          dominantBaseline="middle"
-        >
-          <tspan className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[8px] font-semibold text-primary-foreground">
-            {data.sourceCardinality}
-          </tspan>
-        </text>
-      ) : null}
+      {/* Animated flowing dots overlay when highlighted */}
+      {highlighted && (
+        <g>
+          <path
+            d={edgePath}
+            stroke="hsl(var(--primary))"
+            strokeWidth="2"
+            fill="none"
+            className="erd-edge-dots"
+            pointerEvents="none"
+            style={{
+              opacity: 0.8,
+              filter: "drop-shadow(0 0 5px hsl(var(--primary)))",
+            }}
+          />
+        </g>
+      )}
 
-      {data?.targetCardinality ? (
-        <text
-          x={endLabelX}
-          y={endLabelY}
-          className="fill-background"
-          textAnchor="middle"
-          dominantBaseline="middle"
-        >
-          <tspan className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[8px] font-semibold text-primary-foreground">
-            {data.targetCardinality}
-          </tspan>
-        </text>
-      ) : null}
+      {/* Cardinality indicators only show when line is hovered or highlighted */}
+      {data?.sourceCardinality && (data?.isHovered || data?.highlighted) && (
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              position: "absolute",
+              transform: `translate(-50%, -50%) translate(${startLabelX}px, ${startLabelY}px)`,
+              pointerEvents: "none",
+              opacity: data?.isHovered || data?.highlighted ? 1 : 0,
+              transition: "opacity 150ms ease-in-out",
+            }}
+            className="text-[11px] font-bold text-primary bg-background rounded-full w-6 h-6 flex items-center justify-center shadow-sm border border-primary/40"
+          >
+            {data.sourceCardinality === "n" ? "N" : data.sourceCardinality}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+      {data?.targetCardinality && (data?.isHovered || data?.highlighted) && (
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              position: "absolute",
+              transform: `translate(-50%, -50%) translate(${endLabelX}px, ${endLabelY}px)`,
+              pointerEvents: "none",
+              opacity: data?.isHovered || data?.highlighted ? 1 : 0,
+              transition: "opacity 150ms ease-in-out",
+            }}
+            className="text-[11px] font-bold text-primary bg-background rounded-full w-6 h-6 flex items-center justify-center shadow-sm border border-primary/40"
+          >
+            {data.targetCardinality === "n" ? "N" : data.targetCardinality}
+          </div>
+        </EdgeLabelRenderer>
+      )}
 
-      {data?.label ? (
+      {data?.label && data?.isHovered && (
         <EdgeLabelRenderer>
           <div
             style={{
@@ -452,12 +631,16 @@ const ForeignKeyEdge: React.FC<EdgeProps<ForeignEdgeData>> = ({
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
               pointerEvents: "none",
             }}
-            className="rounded bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm"
+            className="rounded bg-background px-2 py-0.5 text-[10px] font-medium text-foreground shadow-md border border-primary/50"
           >
             {data.label}
+            {/* Show relationship type in label when highlighted */}
+            <span className="ml-1 text-[9px] text-muted-foreground">
+              ({data.sourceCardinality || "1"}:{data.targetCardinality || "1"})
+            </span>
           </div>
         </EdgeLabelRenderer>
-      ) : null}
+      )}
     </>
   );
 };
@@ -470,7 +653,10 @@ const edgeTypes = {
   [EDGE_TYPE]: ForeignKeyEdge,
 };
 
-export const ERDVisualizer: React.FC<ERDVisualizerProps> = ({
+export const ERDVisualizer = React.forwardRef<
+  { triggerAutoArrange: () => void },
+  ERDVisualizerProps
+>(({
   tables,
   relationships,
   nodePositions,
@@ -478,7 +664,7 @@ export const ERDVisualizer: React.FC<ERDVisualizerProps> = ({
   onNodePositionsChange,
   onNodePositionChange,
   onViewportChange,
-}) => {
+}, ref) => {
   edgeStylesInjected();
 
   const [nodes, setNodes, onNodesChangeInternal] = useNodesState([]);
@@ -493,6 +679,7 @@ export const ERDVisualizer: React.FC<ERDVisualizerProps> = ({
   const [, setHoveredColumn] = useState<string | null>(null);
   const flowInstanceRef = useRef<ReactFlowInstance | null>(null);
   const fitAppliedRef = useRef(false);
+  const autoArrangeTriggeredRef = useRef(false);
 
   const toggleExpanded = useCallback((nodeId: string) => {
     setExpandedNodes((prev) => {
@@ -526,6 +713,11 @@ export const ERDVisualizer: React.FC<ERDVisualizerProps> = ({
     setSelectedTableId((prev) => (prev === tableId ? null : tableId));
   }, []);
 
+  const handlePaneClick = useCallback((event: React.MouseEvent) => {
+    // Deselect table when clicking on the pane/background
+    setSelectedTableId(null);
+  }, []);
+
   const createEdges = useCallback((): Edge<ForeignEdgeData>[] => {
     return relationships.flatMap((relationship) => {
       const sourceId = `${relationship.fromSchema ?? "public"}.${
@@ -539,6 +731,36 @@ export const ERDVisualizer: React.FC<ERDVisualizerProps> = ({
         relationship.toColumns.length,
       );
 
+      // Function to determine optimal connection side based on node positions
+      const getOptimalConnectionSide = (
+        sourceNodeId: string,
+        targetNodeId: string,
+      ) => {
+        const sourceNode = nodesRef.current.find((n) => n.id === sourceNodeId);
+        const targetNode = nodesRef.current.find((n) => n.id === targetNodeId);
+
+        if (!sourceNode || !targetNode) {
+          return { source: "right", target: "left" }; // Default fallback
+        }
+
+        const sourceX =
+          sourceNode.position.x + (sourceNode.width || NODE_WIDTH) / 2;
+        const targetX =
+          targetNode.position.x + (targetNode.width || NODE_WIDTH) / 2;
+
+        // Calculate which sides would give the shortest connection
+        const isTargetToTheRight = targetX > sourceX;
+        const isTargetToTheLeft = targetX < sourceX;
+
+        return {
+          source: isTargetToTheRight ? "right" : "left",
+          target: isTargetToTheLeft ? "right" : "left",
+        };
+      };
+
+      // Get optimal connection sides
+      const connectionSides = getOptimalConnectionSide(sourceId, targetId);
+
       return Array.from({ length: pairCount }, (_, index) => {
         const sourceColumn =
           relationship.fromColumns[index] ?? relationship.fromColumns[0] ?? "";
@@ -550,12 +772,23 @@ export const ERDVisualizer: React.FC<ERDVisualizerProps> = ({
           id: edgeId,
           source: sourceId,
           target: targetId,
-          sourceHandle: makeHandleId(sourceColumn, "source"),
-          targetHandle: makeHandleId(targetColumn, "target"),
+          sourceHandle: makeHandleId(
+            sourceColumn,
+            "source",
+            connectionSides.source as "left" | "right",
+          ),
+          targetHandle: makeHandleId(
+            targetColumn,
+            "target",
+            connectionSides.target as "left" | "right",
+          ),
           type: EDGE_TYPE,
           markerEnd: {
             type: MarkerType.ArrowClosed,
             color: "hsl(var(--muted-foreground))",
+          },
+          style: {
+            strokeWidth: 0.5,
           },
           data: {
             relationshipId: relationship.id,
@@ -570,23 +803,65 @@ export const ERDVisualizer: React.FC<ERDVisualizerProps> = ({
     });
   }, [relationships, handleEdgeHover, handleEdgeLeave]);
 
-  useEffect(() => {
-    let cancelled = false;
+  const layoutWithElk = useCallback(async () => {
+      // Calculate dynamic heights based on expanded state
+      const getNodeHeight = (table: TableStructure) => {
+        const id = buildNodeId(table);
+        const isExpanded = expandedNodes.has(id);
+        const baseHeight = 50;
+        const columnHeight = 24;
+        const visibleColumns = isExpanded
+          ? table.columns.length
+          : Math.min(table.columns.length, PREVIEW_COLUMN_LIMIT);
+        return baseHeight + (visibleColumns * columnHeight) + 20;
+      };
 
-    const layoutWithElk = async () => {
       const graph = {
         id: "root",
         layoutOptions: {
           "elk.algorithm": "layered",
           "elk.direction": "RIGHT",
-          "elk.spacing.nodeNode": "60",
-          "elk.spacing.nodeNodeBetweenLayers": "80",
+          "elk.layered.spacing.nodeNodeBetweenLayers": "150",
+          "elk.layered.spacing.edgeNodeBetweenLayers": "80",
+          "elk.layered.spacing.edgeEdgeBetweenLayers": "20",
+          "elk.spacing.nodeNode": "100",
+          "elk.edgeRouting": "ORTHOGONAL",
+          "elk.layered.unnecessaryBendpoints": "true",
+          "elk.layered.considerModelOrder": "NODES_AND_EDGES",
+          "elk.layered.mergeEdges": "false",
+          "elk.layered.mergeHierarchyCrossingEdges": "false",
+          "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
+          "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+          "elk.layered.nodePlacement.favorStraightEdges": "true",
+          "elk.portConstraints": "FIXED_SIDE",
         },
-        children: tables.map((table) => ({
-          id: buildNodeId(table),
-          width: NODE_WIDTH,
-          height: 160,
-        })),
+        children: tables.map((table) => {
+          const id = buildNodeId(table);
+          return {
+            id,
+            width: NODE_WIDTH,
+            height: getNodeHeight(table),
+            properties: {
+              "elk.portConstraints": "FIXED_SIDE",
+            },
+            ports: [
+              {
+                id: `${id}-west`,
+                properties: {
+                  "elk.port.side": "WEST",
+                  "elk.port.index": "0",
+                },
+              },
+              {
+                id: `${id}-east`,
+                properties: {
+                  "elk.port.side": "EAST",
+                  "elk.port.index": "1",
+                },
+              },
+            ],
+          };
+        }),
         edges: relationships.map((relationship) => ({
           id: relationship.id,
           sources: [
@@ -599,7 +874,6 @@ export const ERDVisualizer: React.FC<ERDVisualizerProps> = ({
       } as const;
 
       const layout = await elk.layout(graph);
-      if (cancelled) return;
 
       const positions: Record<string, NodePosition> = {};
       const layoutNodes: Node<TableNodeData>[] = tables.map((table) => {
@@ -637,7 +911,39 @@ export const ERDVisualizer: React.FC<ERDVisualizerProps> = ({
       setEdges(createEdges());
       onNodePositionsChange?.(positions);
       fitAppliedRef.current = false;
-    };
+      autoArrangeTriggeredRef.current = true;
+
+      // Fit view and update viewport after applying new layout
+      setTimeout(() => {
+        const instance = flowInstanceRef.current;
+        if (instance) {
+          instance.fitView({ padding: 0.2, duration: 400 });
+          // Update viewport state after fitting
+          setTimeout(() => {
+            const newViewport = instance.getViewport();
+            onViewportChange?.(newViewport);
+          }, 450); // After fitView animation completes
+        }
+      }, 50);
+    }, [
+      tables,
+      expandedNodes,
+      relationships,
+      selectedTableId,
+      handleTableClick,
+      setNodes,
+      setEdges,
+      createEdges,
+      onNodePositionsChange,
+      toggleExpanded,
+    ]);
+
+  React.useImperativeHandle(ref, () => ({
+    triggerAutoArrange: layoutWithElk,
+  }), [layoutWithElk]);
+
+  useEffect(() => {
+    let cancelled = false;
 
     const applyStoredPositions = () => {
       const positionedNodes: Node<TableNodeData>[] = tables.map((table) => {
@@ -698,6 +1004,10 @@ export const ERDVisualizer: React.FC<ERDVisualizerProps> = ({
     handleTableClick,
   ]);
 
+  // Use a ref to track current nodes to avoid dependency cycles
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+
   useEffect(() => {
     setNodes((nds) =>
       nds.map((node) => {
@@ -735,6 +1045,12 @@ export const ERDVisualizer: React.FC<ERDVisualizerProps> = ({
   useEffect(() => {
     const instance = flowInstanceRef.current;
     if (!instance) return;
+
+    // Don't apply initial viewport if auto-arrange was just triggered
+    if (autoArrangeTriggeredRef.current) {
+      autoArrangeTriggeredRef.current = false;
+      return;
+    }
 
     if (initialViewport) {
       instance.setViewport(initialViewport as Viewport, { duration: 0 });
@@ -798,8 +1114,8 @@ export const ERDVisualizer: React.FC<ERDVisualizerProps> = ({
     if (selectedTableId) {
       selectedIds.add(selectedTableId);
     }
-    setEdges((eds) =>
-      eds.map((edge) => {
+    setEdges((eds) => {
+      const updatedEdges = eds.map((edge) => {
         // Check if edge is related to selected nodes (persistent highlight)
         const isRelatedToSelected =
           selectedIds.has(edge.source) || selectedIds.has(edge.target);
@@ -814,15 +1130,32 @@ export const ERDVisualizer: React.FC<ERDVisualizerProps> = ({
             (edge.data as ForeignEdgeData).relationshipId ===
               hoveredRelationshipId);
 
+        // Check if this specific edge is hovered (not just connected to hovered node)
+        const isEdgeHovered = hoveredRelationshipId !== null &&
+          (edge.data as ForeignEdgeData).relationshipId === hoveredRelationshipId;
+
         return {
           ...edge,
           data: {
             ...(edge.data as ForeignEdgeData),
             highlighted: isRelatedToSelected || isTemporarilyHighlighted,
+            isHovered: isEdgeHovered,
           },
         };
-      }),
-    );
+      });
+
+      // Sort edges so highlighted ones are rendered last (on top)
+      updatedEdges.sort((a, b) => {
+        const aHighlighted = (a.data as ForeignEdgeData).highlighted || false;
+        const bHighlighted = (b.data as ForeignEdgeData).highlighted || false;
+
+        if (aHighlighted && !bHighlighted) return 1;
+        if (!aHighlighted && bHighlighted) return -1;
+        return 0;
+      });
+
+      return updatedEdges;
+    });
   }, [
     nodes,
     hoveredNodeId,
@@ -833,7 +1166,15 @@ export const ERDVisualizer: React.FC<ERDVisualizerProps> = ({
   ]);
 
   return (
-    <div className="h-full w-full">
+    <div
+      className="h-full w-full"
+      onClick={(e) => {
+        // Only dismiss if clicking directly on the wrapper, not on ReactFlow elements
+        if (e.target === e.currentTarget) {
+          setSelectedTableId(null);
+        }
+      }}
+    >
       <ReactFlow
         className={FLOW_CLASS}
         nodes={nodes}
@@ -841,13 +1182,13 @@ export const ERDVisualizer: React.FC<ERDVisualizerProps> = ({
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitView
-        minZoom={0.2}
-        maxZoom={1.6}
+        minZoom={0.1}
+        maxZoom={1.2}
         nodesDraggable
         nodesConnectable={false}
-        elementsSelectable
+        elementsSelectable={false}
         panOnScroll
-        selectionOnDrag
+        selectionOnDrag={false}
         proOptions={{ hideAttribution: true }}
         onInit={(instance) => {
           flowInstanceRef.current = instance;
@@ -860,10 +1201,13 @@ export const ERDVisualizer: React.FC<ERDVisualizerProps> = ({
         onNodesChange={handleNodesChange}
         onNodeDragStop={handleNodeDragStop}
         onMoveEnd={handleMoveEnd}
+        onPaneClick={handlePaneClick}
       >
         <Background className="opacity-60" gap={24} size={1} />
         <Controls showInteractive={false} position="bottom-right" />
       </ReactFlow>
     </div>
   );
-};
+});
+
+ERDVisualizer.displayName = "ERDVisualizer";

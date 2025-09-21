@@ -79,6 +79,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   const lastConnectionRef = useRef<string | null>(connectionId);
   const skipParseNextRef = useRef<boolean>(false);
   const parseTimerRef = useRef<number | undefined>(undefined);
+  const erdVisualizerRef = useRef<{ triggerAutoArrange: () => void } | null>(null);
 
   const ensureView = useErdStore((state) => state.ensureView);
   const setActiveViewStore = useErdStore((state) => state.setActiveView);
@@ -712,13 +713,10 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
         onCreateView={() => {
           // TODO: hook into ERD view creation when multi-view support is added
         }}
-        onExport={() => {
-          // TODO: add export handler in later phase
-        }}
         onRefresh={handleRefresh}
-        schemas={schemas}
-        selectedSchema={selectedSchema}
-        onSchemaChange={handleSchemaChange}
+        onAutoArrange={() => {
+          erdVisualizerRef.current?.triggerAutoArrange();
+        }}
       />
 
       {parseError ? (
@@ -739,6 +737,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
           {tables.length > 0 && !loading && !error ? (
             <ReactFlowProvider>
               <ERDVisualizer
+                ref={erdVisualizerRef}
                 tables={tables}
                 relationships={relationships}
                 nodePositions={activeView?.nodePositions ?? {}}

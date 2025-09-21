@@ -10,14 +10,13 @@ import {
   Check,
   Database,
   Circle,
-  Columns2,
+  Waypoints,
   Sun,
   Moon,
   Monitor,
   AlertCircle,
   Loader2,
   RotateCcw,
-  GitBranch,
 } from "lucide-react";
 import {
   Popover,
@@ -130,10 +129,15 @@ export function WorkspaceTitleBar({
         if (health.status === "error" && previousHealth?.status !== "error") {
           toast({
             title: "Connection Failed",
-            description: health.error || "Unable to connect to the database. Please check your connection settings.",
+            description:
+              health.error ||
+              "Unable to connect to the database. Please check your connection settings.",
             variant: "destructive",
           });
-        } else if (health.status === "ready" && previousHealth?.status === "error") {
+        } else if (
+          health.status === "ready" &&
+          previousHealth?.status === "error"
+        ) {
           toast({
             title: "Connection Restored",
             description: "Successfully reconnected to the database.",
@@ -181,7 +185,10 @@ export function WorkspaceTitleBar({
       console.error("Failed to reconnect:", error);
       toast({
         title: "Reconnection Failed",
-        description: error instanceof Error ? error.message : "Failed to reconnect to the database.",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Failed to reconnect to the database.",
         variant: "destructive",
       });
     } finally {
@@ -261,7 +268,7 @@ export function WorkspaceTitleBar({
 
       if (windowLabel === "main") {
         // We're in the main window, just navigate
-        navigate("/");
+        void navigate("/");
       } else {
         // We're in a separate workspace window
         // Show main window first
@@ -276,7 +283,7 @@ export function WorkspaceTitleBar({
     } catch (error) {
       console.error("Failed to go home:", error);
       // Fallback: navigate using React Router
-      navigate("/");
+      void navigate("/");
     }
   };
 
@@ -320,44 +327,9 @@ export function WorkspaceTitleBar({
     }
   };
 
-  const handleToggleSplitPanel = () => {
-    const secondaryPanel = getSecondaryPanel();
-    const primaryPanel = getPrimaryPanel();
-
-    if (splitMode !== "none" && secondaryPanel) {
-      // Close split panel - move all tabs from secondary to primary
-      if (primaryPanel && secondaryPanel.tabs.size > 0) {
-        // Move all tabs from secondary to primary
-        secondaryPanel.tabs.forEach((tab) => {
-          moveTabBetweenPanels(tab.id, secondaryPanel.id, primaryPanel.id);
-        });
-      }
-      // Remove secondary panel and set split mode to none
-      removePanel(secondaryPanel.id);
-      setSplitMode("none");
-    } else {
-      // Create split panel
-      const { createPanel, addTabToPanel } = usePanelStore.getState();
-      const newPanelId = createPanel("secondary");
-      setSplitMode("horizontal");
-
-      // Create a new query tab in the secondary panel
-      addTabToPanel(newPanelId, {
-        type: "query",
-        connectionId,
-        title: "New Query",
-        payload: { sql: "" },
-      });
-    }
-  };
-
   const handleOpenErd = () => {
-    const {
-      focusedPanelId,
-      panelContents,
-      addTab,
-      focusPanel,
-    } = useWorkbenchStore.getState();
+    const { focusedPanelId, panelContents, addTab, focusPanel } =
+      useWorkbenchStore.getState();
 
     const erdTabId = `erd-${connectionId}`;
     const erdMetadata = {
@@ -383,11 +355,8 @@ export function WorkspaceTitleBar({
       return;
     }
 
-    const {
-      getPrimaryPanel,
-      addTabToPanel,
-      setActiveTabInPanel,
-    } = usePanelStore.getState();
+    const { getPrimaryPanel, addTabToPanel, setActiveTabInPanel } =
+      usePanelStore.getState();
 
     const primaryPanel = getPrimaryPanel();
     if (!primaryPanel) return;
@@ -555,7 +524,8 @@ export function WorkspaceTitleBar({
             "flex items-center gap-1.5 px-2 py-0.5 rounded-full transition-all whitespace-nowrap",
             connectionHealth?.status === "ready" && "bg-green-500/10",
             connectionHealth?.status === "degraded" && "bg-yellow-500/10",
-            connectionHealth?.status === "error" && "bg-red-500/20 border border-red-500/30 animate-pulse",
+            connectionHealth?.status === "error" &&
+              "bg-red-500/20 border border-red-500/30 animate-pulse",
             (!connectionHealth || isConnecting) && "bg-gray-500/10",
           )}
           title={connectionHealth?.error || "Connection status"}
@@ -587,6 +557,16 @@ export function WorkspaceTitleBar({
           variant="ghost"
           size="sm"
           className="h-7 w-7 p-0"
+          onClick={handleOpenErd}
+          title="Open ERD"
+        >
+          <Waypoints className="h-3.5 w-3.5" />
+        </Button>
+
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0"
           onClick={() => {
             onToggleSidebar("left");
           }}
@@ -605,16 +585,6 @@ export function WorkspaceTitleBar({
           title="Toggle right sidebar"
         >
           <PanelRight className="h-3.5 w-3.5" />
-        </Button>
-
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 w-7 p-0"
-          onClick={handleOpenErd}
-          title="Open ERD"
-        >
-          <GitBranch className="h-3.5 w-3.5" />
         </Button>
 
         {/* Settings Dropdown - Now at the far right */}
