@@ -1,0 +1,269 @@
+@top Schema { statement* }
+
+statement {
+  ProjectDef |
+  TableDef |
+  TablePartialDef |
+  TableGroupDef |
+  EnumDef |
+  RefDef |
+  NoteDef
+}
+
+ProjectDef {
+  Project identifier "{"
+    ProjectContent*
+  "}"
+}
+
+ProjectContent {
+  SettingItem |
+  NoteStatement
+}
+
+TableDef {
+  Table QualifiedName TableAlias? TableSettings? "{"
+    TableContent*
+  "}"
+}
+
+TablePartialDef {
+  TablePartial identifier TableSettings? "{"
+    TableContent*
+  "}"
+}
+
+TableContent {
+  ColumnDef |
+  IndexBlock |
+  NoteStatement |
+  PartialRef
+}
+
+PartialRef {
+  "~" identifier
+}
+
+ColumnDef {
+  ColumnName DataType? ColumnSettings?
+}
+
+ColumnName {
+  identifier | QuotedIdentifier
+}
+
+DataType {
+  identifier TypeParams?
+}
+
+TypeParams {
+  "(" Number ("," Number)* ")"
+}
+
+IndexBlock {
+  indexes "{"
+    IndexDef*
+  "}"
+}
+
+IndexDef {
+  IndexSpec Settings?
+}
+
+IndexSpec {
+  identifier |
+  "(" IndexList ")" |
+  Expression
+}
+
+IndexList {
+  IndexItem ("," IndexItem)*
+}
+
+IndexItem {
+  identifier | Expression
+}
+
+TableGroupDef {
+  TableGroup identifier Settings? "{"
+    TableGroupContent*
+  "}"
+}
+
+TableGroupContent {
+  identifier |
+  NoteStatement
+}
+
+TableAlias {
+  as identifier
+}
+
+TableSettings {
+  "[" SettingList "]"
+}
+
+ColumnSettings {
+  "[" ColumnSettingList "]"
+}
+
+Settings {
+  "[" SettingList "]"
+}
+
+SettingList {
+  SettingItem ("," SettingItem)*
+}
+
+ColumnSettingList {
+  ColumnSetting ("," ColumnSetting)*
+}
+
+SettingItem {
+  SettingKey (":" SettingValue)?
+}
+
+ColumnSetting {
+  ColumnConstraint |
+  SettingItem |
+  RefInline
+}
+
+ColumnConstraint {
+  pk | unique | increment | (not null) | null | (primary key)
+}
+
+RefInline {
+  ref ":" RefOp QualifiedName
+}
+
+SettingKey {
+  identifier
+}
+
+SettingValue {
+  String | Number | Boolean | Expression | identifier | ColorCode
+}
+
+EnumDef {
+  enum QualifiedName "{"
+    EnumValue*
+  "}"
+}
+
+EnumValue {
+  (identifier | QuotedIdentifier | String) Settings?
+}
+
+RefDef {
+  RefLong | RefShort
+}
+
+RefLong {
+  Ref identifier? "{"
+    RefSpec Settings?
+  "}"
+}
+
+RefShort {
+  Ref identifier? ":" RefSpec Settings?
+}
+
+RefSpec {
+  RefEndpoint RefOp RefEndpoint
+}
+
+RefEndpoint {
+  QualifiedName |
+  "(" RefComposite ")"
+}
+
+RefComposite {
+  QualifiedName ("," QualifiedName)*
+}
+
+RefOp {
+  "<" | ">" | "-" | "<>"
+}
+
+NoteDef {
+  Note identifier "{"
+    NoteContent
+  "}"
+}
+
+NoteStatement {
+  Note ":" NoteContent |
+  Note "{"
+    NoteContent
+  "}"
+}
+
+NoteContent {
+  String | MultilineString
+}
+
+QualifiedName {
+  identifier ("." identifier)?
+}
+
+
+@tokens {
+  identifier { $[a-zA-Z_] $[a-zA-Z0-9_]* }
+
+  QuotedIdentifier { '"' (!["\\] | "\\" _)* '"' }
+
+  String { "'" (!['\\\n] | "\\" _)* "'" }
+
+  MultilineString {
+    "'''"
+    (!['] | "'" !['] | "'" "'" !['"])*
+    "'''"
+  }
+
+  Expression { "`" (![\`\\] | "\\" _)* "`" }
+
+  Number {
+    "-"? $[0-9]+ ("." $[0-9]+)?
+  }
+
+  Boolean { "true" | "false" | "null" }
+
+  ColorCode { "#" $[0-9a-fA-F]+ }
+
+  LineComment { "//" ![\n]* }
+
+  BlockComment { "/*" (![*] | "*" ![/])* "*/" }
+
+  space { $[ \t\n\r]+ }
+
+  // Keywords
+  Project { "Project" }
+  Table { "Table" }
+  TablePartial { "TablePartial" }
+  TableGroup { "TableGroup" }
+  enum { "enum" }
+  Ref { "Ref" }
+  Note { "Note" }
+  indexes { "indexes" }
+  as { "as" }
+  ref { "ref" }
+
+  // Constraints
+  pk { "pk" }
+  unique { "unique" }
+  not { "not" }
+  null { "null" }
+  primary { "primary" }
+  key { "key" }
+  increment { "increment" }
+  default { "default" }
+
+  "(" ")" "{" "}" "[" "]"
+  "." "," ":" "~"
+  "<" ">" "-" "<>"
+}
+
+@skip { space | LineComment | BlockComment }
+
+@detectDelim

@@ -1,0 +1,332 @@
+// COMPREHENSIVE DBML SYNTAX TEST
+// This file tests all DBML features from official spec
+
+/********************************
+ * 1. PROJECT DEFINITION
+ ********************************/
+Project ecommerce_db {
+  database_type: 'PostgreSQL'
+  Note: '''
+    This is a multi-line note
+    Testing all DBML features
+    Including '''special''' characters
+  '''
+}
+
+/********************************
+ * 2. TABLE PARTIALS (Reusable)
+ ********************************/
+TablePartial base_fields {
+  id integer [pk, increment]
+  created_at timestamp [default: `now()`, not null]
+  updated_at timestamp [default: `now()`, not null]
+  deleted_at timestamp [null]
+}
+
+TablePartial audit_fields {
+  created_by varchar(100) [not null]
+  updated_by varchar(100)
+  version integer [default: 1]
+}
+
+/********************************
+ * 3. TABLES WITH ALL FEATURES
+ ********************************/
+
+// Schema-qualified table
+Table public.users [headercolor: #3498DB] {
+  // Inject partials
+  ~base_fields
+  ~audit_fields
+
+  // Various column types and constraints
+  username varchar(50) [unique, not null, note: 'Unique username']
+  email varchar(255) [unique, not null]
+  "first name" varchar(100) [note: 'Quoted column name with space']
+  last_name varchar(100)
+  age integer [null]
+  balance decimal(10,2) [default: 0.00]
+  is_active boolean [default: true, not null]
+  status user_status [default: 'active']
+  metadata json [note: 'Stores additional user data']
+  binary_data bytea
+  registration_date date [not null]
+  last_login timestamp
+  profile_uuid uuid [unique]
+
+  // Inline reference
+  country_id integer [ref: > countries.id]
+  manager_id integer [ref: - users.id, note: 'Self-reference']
+
+  // Index block
+  indexes {
+    email [unique, name: 'idx_users_email']
+    username [type: hash, unique]
+    (email, username) [name: 'idx_email_username']
+    `lower(email)` [name: 'idx_lower_email', type: btree]
+    (`created_at`, `deleted_at`)
+    (country_id, is_active) [name: 'idx_country_active']
+  }
+
+  Note: '''
+    Main users table with all features
+    - Partials injection
+    - Various data types
+    - Multiple constraints
+    - Complex indexes
+  '''
+}
+
+// Table with alias
+Table very_long_table_name_for_products as P {
+  id integer [pk]
+  name varchar(200) [not null]
+  price decimal(10,2) [not null]
+  sku varchar(50) [unique]
+  category_id integer [ref: > categories.id]
+
+  indexes {
+    sku
+    (category_id, price)
+  }
+}
+
+// Another schema
+Table inventory.stock {
+  product_id integer [ref: > P.id]  // Using alias
+  warehouse_id integer [ref: > warehouses.id]
+  quantity integer [default: 0]
+  last_check datetime
+
+  indexes {
+    (product_id, warehouse_id) [pk]
+  }
+}
+
+/********************************
+ * 4. ENUMERATIONS
+ ********************************/
+
+// Simple enum
+enum user_status {
+  active
+  inactive
+  suspended
+  deleted
+}
+
+// Enum with quotes and notes
+enum order_status {
+  'pending' [note: 'Order placed but not paid']
+  'processing' [note: 'Payment received, preparing']
+  'shipped' [note: 'Order dispatched']
+  'delivered' [note: 'Order received by customer']
+  'cancelled' [note: 'Order cancelled']
+  "refunded" [note: 'Payment returned']
+  "on-hold"  // Enum value with hyphen
+}
+
+// Schema-qualified enum
+enum inventory.stock_level {
+  'out_of_stock'
+  'low'
+  'medium'
+  'high'
+  'overstocked'
+}
+
+/********************************
+ * 5. RELATIONSHIPS (All Types)
+ ********************************/
+
+// Long form with settings
+Ref order_items_ref {
+  orders.id < order_items.order_id [
+    delete: cascade,
+    update: cascade,
+    color: #FF5733
+  ]
+}
+
+// Short form
+Ref: products.category_id > categories.id [delete: restrict]
+
+// One-to-one
+Ref: users.id - user_profiles.user_id
+
+// Many-to-many (two ways)
+Ref: authors.id <> books.id  // Direct many-to-many
+
+// Composite foreign keys
+Ref: order_items.(order_id, product_id) > inventory.stock.(product_id, warehouse_id)
+
+// Cross-schema reference
+Ref: public.users.country_id > geography.countries.id
+
+// Multiple references from same column
+Table posts {
+  id integer [pk]
+  author_id integer [ref: > users.id, ref: > authors.id]
+  content text
+}
+
+/********************************
+ * 6. TABLE GROUPS
+ ********************************/
+
+TableGroup user_management [color: #27AE60, note: 'User-related tables'] {
+  users
+  user_profiles
+  user_sessions
+
+  Note: '''
+    Core user management tables
+    Including authentication and profiles
+  '''
+}
+
+TableGroup inventory_management {
+  P  // Using table alias
+  inventory.stock
+  warehouses
+}
+
+/********************************
+ * 7. STANDALONE NOTES
+ ********************************/
+
+Note design_decisions {
+  '''
+  # Design Decisions
+
+  1. We use UUID for external IDs
+  2. All tables have soft delete capability
+  3. Audit fields track all changes
+
+  ## Performance Considerations
+  - Index all foreign keys
+  - Use partial indexes where appropriate
+  '''
+}
+
+Note single_line_note {
+  'This is a single line sticky note'
+}
+
+/********************************
+ * 8. COMPLEX DATA TYPES
+ ********************************/
+
+Table data_types_showcase {
+  // PostgreSQL specific
+  id serial [pk]
+  big_id bigserial
+  small_num smallint
+
+  // MySQL specific
+  tiny_num tinyint
+  medium_num mediumint
+
+  // Various string types
+  fixed_str char(10)
+  var_str varchar(255)
+  tiny_text tinytext
+  medium_text mediumtext
+  long_text longtext
+
+  // Binary types
+  binary_fixed binary(16)
+  binary_var varbinary(255)
+  blob_data blob
+  tiny_blob tinyblob
+  medium_blob mediumblob
+  long_blob longblob
+
+  // Numeric types
+  real_num real
+  double_num double
+  float_num float(10,2)
+  decimal_num decimal(15,4)
+  numeric_num numeric(20,6)
+
+  // Date/Time types
+  date_only date
+  time_only time
+  year_only year
+  datetime_full datetime
+  timestamp_tz timestamp
+
+  // Other types
+  json_data json
+  jsonb_data jsonb
+  uuid_field uuid
+  boolean_field boolean
+}
+
+/********************************
+ * 9. SPECIAL CHARACTERS & EDGE CASES
+ ********************************/
+
+Table "Special-Table.Name" {
+  "column.with.dots" varchar(100)
+  "column-with-dashes" integer
+  "column with spaces" text
+  `expression_column` varchar [default: `concat('hello', 'world')`]
+  regular_column integer
+
+  indexes {
+    `upper("column with spaces")` [name: 'idx_special']
+  }
+}
+
+// Testing escape sequences
+Table escape_test {
+  description text [note: 'Can contain \'quotes\' and "double quotes"']
+  path varchar [default: 'C:\\Users\\Documents']
+  regex varchar [note: 'Pattern: \d+\.\d+']
+}
+
+/********************************
+ * 10. SETTINGS & COLORS
+ ********************************/
+
+Table styled_table [headercolor: #FF6B6B] {
+  id integer [pk]
+  name varchar
+}
+
+TableGroup styled_group [color: #4ECDC4] {
+  styled_table
+}
+
+Ref styled_ref: styled_table.id < posts.id [color: #95E77E]
+
+/********************************
+ * 11. DEFAULTS WITH EXPRESSIONS
+ ********************************/
+
+Table advanced_defaults {
+  id integer [pk]
+
+  // Simple defaults
+  status varchar [default: 'active']
+  count integer [default: 0]
+  price decimal [default: 99.99]
+  is_enabled boolean [default: false]
+  nothing varchar [default: null]
+
+  // Expression defaults
+  created_at timestamp [default: `now()`]
+  random_id uuid [default: `gen_random_uuid()`]
+  calculated varchar [default: `concat(first_name, ' ', last_name)`]
+  date_calc date [default: `current_date + interval '7 days'`]
+  complex_expr text [default: `case when status = 'active' then 'OK' else 'CHECK' end`]
+}
+
+/*
+  Multi-line block comment
+  /* Nested comments might not be supported */
+  But we can test them
+*/
+
+// End of comprehensive test file

@@ -29,6 +29,8 @@ interface ForeignKeyEditorPopoverProps {
   value?: ForeignKeyRef | null;
   onChange: (value: ForeignKeyRef | null) => void;
   connectionId?: string;
+  database?: string;
+  schema?: string;
   currentTable?: string;
   currentColumn?: string;
   columnName: string;
@@ -53,8 +55,9 @@ export const ForeignKeyEditorPopover = memo(function ForeignKeyEditorPopover({
   value,
   onChange,
   connectionId,
+  database = "public",
+  schema = "public",
   currentTable,
-  currentColumn,
   columnName,
   disabled = false,
 }: ForeignKeyEditorPopoverProps) {
@@ -62,10 +65,10 @@ export const ForeignKeyEditorPopover = memo(function ForeignKeyEditorPopover({
   const [localValue, setLocalValue] = useState<ForeignKeyRef>({
     table: value?.table || "",
     column: value?.column || "",
-    onUpdate: value?.onUpdate || "NO ACTION",
-    onDelete: value?.onDelete || "NO ACTION",
+    onUpdate: value?.onUpdate?.toUpperCase() || "NO ACTION",
+    onDelete: value?.onDelete?.toUpperCase() || "NO ACTION",
   });
-
+  console.log(">>>", "localValue", localValue);
   const [availableTables, setAvailableTables] = useState<string[]>([]);
   const [availableColumns, setAvailableColumns] = useState<TableColumn[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -76,8 +79,8 @@ export const ForeignKeyEditorPopover = memo(function ForeignKeyEditorPopover({
       setLocalValue({
         table: value?.table || "",
         column: value?.column || "",
-        onUpdate: value?.onUpdate || "NO ACTION",
-        onDelete: value?.onDelete || "NO ACTION",
+        onUpdate: value?.onUpdate?.toUpperCase() || "NO ACTION",
+        onDelete: value?.onDelete?.toUpperCase() || "NO ACTION",
       });
     }
   }, [open, value]);
@@ -88,7 +91,7 @@ export const ForeignKeyEditorPopover = memo(function ForeignKeyEditorPopover({
       setIsLoading(true);
 
       databaseService
-        .getForeignKeyTargets(connectionId)
+        .getForeignKeyTargets(connectionId, database, schema)
         .then((targets) => {
           // Only use actual data from backend
           if (!targets || targets.length === 0) {
@@ -253,7 +256,7 @@ export const ForeignKeyEditorPopover = memo(function ForeignKeyEditorPopover({
               </Label>
               <Select
                 key="onUpdate-select"
-                value={localValue.onUpdate || "NO ACTION"}
+                value={localValue.onUpdate?.toUpperCase() || "NO ACTION"}
                 onValueChange={(val) => {
                   setLocalValue((prev) => ({ ...prev, onUpdate: val }));
                 }}
@@ -282,9 +285,12 @@ export const ForeignKeyEditorPopover = memo(function ForeignKeyEditorPopover({
               </Label>
               <Select
                 key="onDelete-select"
-                value={localValue.onDelete || "NO ACTION"}
+                value={localValue.onDelete?.toUpperCase() || "NO ACTION"}
                 onValueChange={(val) => {
-                  setLocalValue((prev) => ({ ...prev, onDelete: val }));
+                  setLocalValue((prev) => ({
+                    ...prev,
+                    onDelete: val,
+                  }));
                 }}
               >
                 <SelectTrigger className="col-span-2 !h-7 !text-xs w-full">

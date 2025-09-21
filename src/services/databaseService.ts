@@ -306,12 +306,14 @@ class DatabaseService {
   /**
    * Get available foreign key targets (tables with primary keys or unique constraints)
    */
-  async getForeignKeyTargets(connectionId: string): Promise<any[]> {
+  async getForeignKeyTargets(
+    connectionId: string,
+    database: string,
+    schema: string,
+  ): Promise<any[]> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
-
-      // Get all tables in the public schema
-      const tables = await this.listTables(connectionId, 'public', 'public');
+      // Get all tables in the current schema
+      const tables = await this.listTables(connectionId, database, schema);
 
       const targets: any[] = [];
       const addedTargets = new Set<string>(); // Track added column combinations
@@ -321,26 +323,26 @@ class DatabaseService {
         try {
           const structure = await this.getTableStructure(
             connectionId,
-            'public',
-            'public',
+            database,
+            schema,
             table.name,
             {
               includeIndexes: true,
-              includeConstraints: true
-            }
+              includeConstraints: true,
+            },
           );
 
           // Add primary key columns
           if (structure.primaryKeys && structure.primaryKeys.length > 0) {
             for (const pkColumn of structure.primaryKeys) {
-              const column = structure.columns.find(c => c.name === pkColumn);
+              const column = structure.columns.find((c) => c.name === pkColumn);
               if (column) {
                 const key = `${table.name}.${column.name}`;
                 if (!addedTargets.has(key)) {
                   targets.push({
                     table: table.name,
                     column: column.name,
-                    type: column.db_type
+                    type: column.db_type,
                   });
                   addedTargets.add(key);
                 }
@@ -351,20 +353,27 @@ class DatabaseService {
           // Add columns with unique constraints
           if (structure.constraints) {
             for (const constraint of structure.constraints) {
-              if (constraint.constraint_type === 'UNIQUE' || constraint.constraint_type === 'u') {
+              if (
+                constraint.constraint_type === "UNIQUE" ||
+                constraint.constraint_type === "u"
+              ) {
                 // Parse the constraint definition to extract column names
                 const match = constraint.definition.match(/\((.*?)\)/);
                 if (match) {
-                  const columns = match[1].split(',').map(col => col.trim().replace(/"/g, ''));
+                  const columns = match[1]
+                    .split(",")
+                    .map((col) => col.trim().replace(/"/g, ""));
                   for (const colName of columns) {
-                    const column = structure.columns.find(c => c.name === colName);
+                    const column = structure.columns.find(
+                      (c) => c.name === colName,
+                    );
                     if (column) {
                       const key = `${table.name}.${column.name}`;
                       if (!addedTargets.has(key)) {
                         targets.push({
                           table: table.name,
                           column: column.name,
-                          type: column.db_type
+                          type: column.db_type,
                         });
                         addedTargets.add(key);
                       }
@@ -380,14 +389,16 @@ class DatabaseService {
             for (const index of structure.indexes) {
               if (index.is_unique) {
                 for (const colName of index.columns) {
-                  const column = structure.columns.find(c => c.name === colName);
+                  const column = structure.columns.find(
+                    (c) => c.name === colName,
+                  );
                   if (column) {
                     const key = `${table.name}.${column.name}`;
                     if (!addedTargets.has(key)) {
                       targets.push({
                         table: table.name,
                         column: column.name,
-                        type: column.db_type
+                        type: column.db_type,
                       });
                       addedTargets.add(key);
                     }
@@ -397,7 +408,10 @@ class DatabaseService {
             }
           }
         } catch (err) {
-          console.error(`Failed to get structure for table ${table.name}:`, err);
+          console.error(
+            `Failed to get structure for table ${table.name}:`,
+            err,
+          );
         }
       }
 
@@ -593,7 +607,7 @@ class DatabaseService {
     try {
       const backendConnId = this.getBackendConnectionId(connectionId);
       const indexes = await BackendAPI.getIndexes(backendConnId, table);
-      console.log('Raw indexes from backend:', indexes);
+      console.log("Raw indexes from backend:", indexes);
       const mapped = indexes.map((idx) => ({
         name: idx.name,
         unique: idx.is_unique,
@@ -603,7 +617,7 @@ class DatabaseService {
         condition: idx.is_partial ? idx.definition : undefined,
         foreign_key: idx.is_foreign_key,
       }));
-      console.log('Mapped indexes:', mapped);
+      console.log("Mapped indexes:", mapped);
       return mapped;
     } catch (error) {
       console.error("Failed to get table indexes:", error);
@@ -683,7 +697,10 @@ class DatabaseService {
 
       // Check cache first
       const cached = this.columnTypeCache.get(backendConnId);
-      if (cached && Date.now() - cached.timestamp < this.COLUMN_TYPE_CACHE_TTL) {
+      if (
+        cached &&
+        Date.now() - cached.timestamp < this.COLUMN_TYPE_CACHE_TTL
+      ) {
         return cached.types;
       }
 
@@ -780,8 +797,12 @@ class DatabaseService {
               const fkMatch = c.definition.match(
                 /FOREIGN KEY\s*\((.*?)\)\s*REFERENCES\s*([\w.]+)\s*\((.*?)\)/i,
               );
-              const onDeleteMatch = c.definition.match(/ON DELETE\s+(\w+)/i);
-              const onUpdateMatch = c.definition.match(/ON UPDATE\s+(\w+)/i);
+              const onDeleteMatch = c.definition.match(
+                /ON DELETE\s+(NO ACTION|CASCADE|SET NULL|SET DEFAULT|RESTRICT)/i,
+              );
+              const onUpdateMatch = c.definition.match(
+                /ON UPDATE\s+(NO ACTION|CASCADE|SET NULL|SET DEFAULT|RESTRICT)/i,
+              );
 
               if (!fkMatch) {
                 return null;
@@ -800,8 +821,8 @@ class DatabaseService {
                 foreignTable: foreignTableName,
                 foreignSchema,
                 foreignColumns: foreignCols.split(",").map((col) => col.trim()),
-                onDelete: onDeleteMatch?.[1],
-                onUpdate: onUpdateMatch?.[1],
+                onDelete: onDeleteMatch?.[1]?.trim(),
+                onUpdate: onUpdateMatch?.[1]?.trim(),
               };
             })
             .filter((fk): fk is ForeignKeyInfo => fk !== null)
@@ -1061,7 +1082,7 @@ class DatabaseService {
       unique: boolean;
       indexType: string;
       condition?: string;
-    }
+    },
   ): Promise<void> {
     try {
       const backendConnId = this.getBackendConnectionId(connectionId);
@@ -1089,7 +1110,7 @@ class DatabaseService {
   async dropIndex(
     connectionId: string,
     schema: string,
-    indexName: string
+    indexName: string,
   ): Promise<void> {
     try {
       const backendConnId = this.getBackendConnectionId(connectionId);
@@ -1111,7 +1132,7 @@ class DatabaseService {
     connectionId: string,
     schema: string,
     oldName: string,
-    newName: string
+    newName: string,
   ): Promise<void> {
     try {
       const backendConnId = this.getBackendConnectionId(connectionId);
@@ -1141,7 +1162,7 @@ class DatabaseService {
       defaultValue?: string;
       checkConstraint?: string;
       comment?: string;
-    }
+    },
   ): Promise<void> {
     try {
       const backendConnId = this.getBackendConnectionId(connectionId);
@@ -1171,7 +1192,7 @@ class DatabaseService {
     connectionId: string,
     schema: string,
     table: string,
-    columnName: string
+    columnName: string,
   ): Promise<void> {
     try {
       const backendConnId = this.getBackendConnectionId(connectionId);
@@ -1202,7 +1223,7 @@ class DatabaseService {
       defaultValue?: string;
       dropDefault?: boolean;
       comment?: string;
-    }
+    },
   ): Promise<void> {
     try {
       const backendConnId = this.getBackendConnectionId(connectionId);
@@ -1234,7 +1255,7 @@ class DatabaseService {
     schema: string,
     table: string,
     oldName: string,
-    newName: string
+    newName: string,
   ): Promise<void> {
     try {
       const backendConnId = this.getBackendConnectionId(connectionId);
@@ -1265,7 +1286,7 @@ class DatabaseService {
       referencedColumn: string;
       onUpdate: string;
       onDelete: string;
-    }
+    },
   ): Promise<void> {
     try {
       const backendConnId = this.getBackendConnectionId(connectionId);
@@ -1295,7 +1316,7 @@ class DatabaseService {
     connectionId: string,
     schema: string,
     table: string,
-    constraintName: string
+    constraintName: string,
   ): Promise<void> {
     try {
       const backendConnId = this.getBackendConnectionId(connectionId);

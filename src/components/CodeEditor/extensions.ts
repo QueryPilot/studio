@@ -7,7 +7,14 @@ import {
   highlightActiveLine,
 } from "@codemirror/view";
 import { defaultKeymap, indentWithTab } from "@codemirror/commands";
-import { sql, PostgreSQL, MySQL, SQLite } from "@codemirror/lang-sql";
+import {
+  sql,
+  PLSQL,
+  PostgreSQL,
+  MySQL,
+  SQLite,
+  MSSQL,
+} from "@codemirror/lang-sql";
 import { json as jsonLang } from "@codemirror/lang-json";
 import {
   bracketMatching,
@@ -26,6 +33,7 @@ import {
 import type { SqlDialect, CodeEditorLanguage } from "./types";
 import { createSqlAutocomplete } from "./autocomplete";
 import { createSmartTriggers } from "./autocomplete/triggers";
+import { dbmlMixed } from "./languages/dbml/dbml-mixed";
 
 // Enhanced SQL folding service using syntax tree for better nested support
 const sqlFoldService = foldService.of((state, from) => {
@@ -215,7 +223,10 @@ const getDialect = (dialect?: SqlDialect) => {
       return MySQL;
     case "sqlite":
       return SQLite;
-    case "postgresql":
+    case "plsql":
+      return PLSQL;
+    case "mssql":
+      return MSSQL;
     default:
       return PostgreSQL;
   }
@@ -234,6 +245,8 @@ export const getLanguageExtension = (
       });
     case "json":
       return jsonLang();
+    case "dbml":
+      return dbmlMixed();
     case "text":
     default:
       return [];
@@ -273,8 +286,8 @@ export const getEditorExtensions = (
     // Set indent unit for SQL
     indentUnit.of("  "),
 
-    // Enable line wrapping
-    EditorView.lineWrapping,
+    // Disable line wrapping - horizontal scroll instead
+    // EditorView.lineWrapping, // Commented out to prevent wrapping
 
     // Language support
     getLanguageExtension(language, dialect),

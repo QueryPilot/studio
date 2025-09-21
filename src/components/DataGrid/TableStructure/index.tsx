@@ -580,6 +580,8 @@ export const TableStructure = memo(function TableStructure({
                 hasChanges={hasRowChanges}
                 isDeleted={isDeleted}
                 connectionId={connectionId}
+                database={database}
+                schema={schema}
                 originalColumn={column}
                 onUpdate={(updates) => {
                   // Clear deletion if user starts editing
@@ -629,6 +631,8 @@ export const TableStructure = memo(function TableStructure({
               hasChanges={true}
               isNew={true}
               connectionId={connectionId}
+              database={database}
+              schema={schema}
               onUpdate={(updates) => {
                 updateNewColumn(i, updates);
               }}

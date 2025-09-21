@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DBML Syntax Highlighting Test</title>
+</head>
+<body>
+    <h1>DBML Syntax Highlighting Test</h1>
+    <p>To test DBML syntax highlighting:</p>
+    <ol>
+        <li>Start the dev server: <code>pnpm tauri:dev</code></li>
+        <li>Open a workspace and connect to a database</li>
+        <li>Open the ERD Panel or any panel with CodeEditor</li>
+        <li>Test with the following DBML code:</li>
+    </ol>
+
+    <pre><code>// DBML Test File
+Project my_database {
+  database_type: 'PostgreSQL'
+  Note: '''
+    Multi-line project note
+    Testing DBML syntax highlighting
+  '''
+}
+
+// Reusable table fields
+TablePartial timestamps {
+  created_at timestamp [default: `now()`]
+  updated_at timestamp [default: `now()`]
+}
+
+Table users [headercolor: #3498DB] {
+  ~timestamps
+  id integer [pk, increment]
+  email varchar(255) [unique, not null]
+  name varchar [not null, note: 'User full name']
+  status user_status [default: 'active']
+
+  indexes {
+    email [unique, name: 'idx_email']
+    (email, created_at)
+  }
+
+  Note: 'User accounts table'
+}
+
+Table posts {
+  id integer [pk]
+  title varchar(255) [not null]
+  body text [note: 'Post content']
+  author_id integer [ref: > users.id]
+  status post_status
+  created_at timestamp [default: `now()`]
+}
+
+// Enums
+enum user_status {
+  'active'
+  'inactive'
+  'suspended'
+}
+
+enum post_status {
+  'draft' [note: 'Work in progress']
+  'published'
+  'archived'
+}
+
+// Relationships
+Ref: posts.author_id > users.id [delete: cascade, update: no action]
+
+/* Block comment
+   Testing multi-line
+   comments */
+
+TableGroup blog [color: #FCA311] {
+  posts
+  tags
+
+  Note: 'Blog tables'
+}
+
+// Sticky note
+Note important_info {
+  '''
+  Remember to index
+  foreign key columns
+  for better performance
+  '''
+}</code></pre>
+
+<h2>Expected Highlighting:</h2>
+<ul>
+    <li><strong>Keywords</strong> (Project, Table, Enum, Ref, etc.) - Blue/Purple</li>
+    <li><strong>Data Types</strong> (integer, varchar, text, timestamp) - Green/Teal</li>
+    <li><strong>Constraints</strong> (pk, unique, not null) - Orange/Yellow</li>
+    <li><strong>Strings</strong> ('...') - Red/Pink</li>
+    <li><strong>Comments</strong> (// and /* */) - Gray</li>
+    <li><strong>Numbers</strong> - Cyan</li>
+    <li><strong>Identifiers</strong> (table/column names) - Default text</li>
+    <li><strong>Operators</strong> (>, <, -) - Purple</li>
+</ul>
+</body>
+</html>
