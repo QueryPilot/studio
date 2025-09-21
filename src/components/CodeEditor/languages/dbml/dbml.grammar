@@ -1,0 +1,252 @@
+@top Schema { element* }
+
+element {
+  ProjectDef |
+  TableDef |
+  TablePartialDef |
+  TableGroupDef |
+  EnumDef |
+  RefDef |
+  NoteDef
+}
+
+ProjectDef {
+  kw<"Project"> Identifier "{"
+    ProjectContent*
+  "}"
+}
+
+ProjectContent {
+  Setting |
+  NoteStatement
+}
+
+TableDef {
+  kw<"Table"> QualifiedName Alias? "{"
+    TableContent*
+  "}"
+}
+
+TablePartialDef {
+  kw<"TablePartial"> Identifier Settings? "{"
+    TableContent*
+  "}"
+}
+
+TableContent {
+  ColumnDef |
+  IndexBlock |
+  NoteStatement |
+  PartialRef
+}
+
+PartialRef {
+  "~" Identifier
+}
+
+ColumnDef {
+  ColumnName Type Settings? InlineRef?
+}
+
+ColumnName {
+  Identifier | QuotedIdentifier
+}
+
+Type {
+  TypeName TypeParams?
+}
+
+TypeName {
+  identifier |
+  kw<"integer"> | kw<"varchar"> | kw<"text"> | kw<"boolean"> |
+  kw<"timestamp"> | kw<"date"> | kw<"json"> | kw<"jsonb"> |
+  kw<"decimal"> | kw<"numeric"> | kw<"float"> | kw<"double"> |
+  kw<"uuid"> | kw<"bytea"> | kw<"char"> | kw<"bigint"> | kw<"smallint">
+}
+
+TypeParams {
+  "(" Number ("," Number)* ")"
+}
+
+InlineRef {
+  kw<"ref"> ":" RefOperator QualifiedName ("." Identifier)?
+}
+
+IndexBlock {
+  kw<"indexes"> "{"
+    IndexDef*
+  "}"
+}
+
+IndexDef {
+  IndexTarget Settings?
+}
+
+IndexTarget {
+  Identifier |
+  "(" IndexColumnList ")"
+}
+
+IndexColumnList {
+  IndexColumn ("," IndexColumn)*
+}
+
+IndexColumn {
+  Identifier | Expression
+}
+
+TableGroupDef {
+  kw<"TableGroup"> Identifier Settings? "{"
+    TableGroupContent*
+  "}"
+}
+
+TableGroupContent {
+  Identifier |
+  NoteStatement
+}
+
+EnumDef {
+  kw<"enum"> QualifiedName "{"
+    EnumValue*
+  "}"
+}
+
+EnumValue {
+  (Identifier | QuotedIdentifier | String) Settings?
+}
+
+RefDef {
+  RefLongForm | RefShortForm
+}
+
+RefLongForm {
+  kw<"Ref"> Identifier? "{"
+    RefSpec Settings?
+  "}"
+}
+
+RefShortForm {
+  kw<"Ref"> Identifier? ":" RefSpec Settings?
+}
+
+RefSpec {
+  RefEndpoint RefOperator RefEndpoint
+}
+
+RefEndpoint {
+  RefTable |
+  "(" RefTable ("," RefTable)* ")"
+}
+
+RefTable {
+  QualifiedName "." Identifier
+}
+
+RefOperator {
+  "<" | ">" | "-" | "<>"
+}
+
+NoteDef {
+  kw<"Note"> Identifier "{"
+    (String | MultilineString)
+  "}"
+}
+
+NoteStatement {
+  kw<"Note"> ":" (String | MultilineString) |
+  kw<"Note"> "{"
+    (String | MultilineString)
+  "}"
+}
+
+QualifiedName {
+  Identifier ("." Identifier)? !qualified |
+  Identifier !simple
+}
+
+Alias {
+  kw<"as"> Identifier
+}
+
+Settings {
+  "[" Setting ("," Setting)* "]"
+}
+
+Setting {
+  SettingKey (":" SettingValue)?
+}
+
+SettingKey {
+  identifier |
+  kw<"pk"> | kw<"primary"> kw<"key"> |
+  kw<"unique"> | kw<"not"> kw<"null"> | kw<"null"> |
+  kw<"increment"> | kw<"default"> | kw<"note"> |
+  kw<"type"> | kw<"name"> | kw<"headercolor"> | kw<"color"> |
+  kw<"delete"> | kw<"update"> | kw<"cascade"> | kw<"restrict"> |
+  kw<"set"> (kw<"null"> | kw<"default">) | kw<"no"> kw<"action">
+}
+
+SettingValue {
+  String | Number | Boolean | Expression | ColorCode | identifier
+}
+
+ColorCode {
+  "#" hexDigit+
+}
+
+@tokens {
+  identifier { $[a-zA-Z_] $[a-zA-Z0-9_]* }
+
+  Identifier { identifier }
+
+  QuotedIdentifier { '"' (!["\\] | "\\" _)* '"' }
+
+  String { "'" (!['\\\n] | "\\" _)* "'" }
+
+  MultilineString {
+    "'" "'" "'"
+    (!['] | "'" !['] | "'" "'" !['])*
+    "'" "'" "'"
+  }
+
+  Expression { "`" (![\`\\] | "\\" _)* "`" }
+
+  Number {
+    ("-"? $[0-9]+ ("." $[0-9]+)?) |
+    ("." $[0-9]+)
+  }
+
+  Boolean { "true" | "false" | "null" }
+
+  hexDigit { $[0-9a-fA-F] }
+
+  LineComment { "//" ![\n]* }
+
+  BlockComment { "/*" blockCommentContent* "*/" }
+
+  blockCommentContent { ![*] | "*" ![/] }
+
+  space { $[ \t\n\r]+ }
+
+  "(" ")" "{" "}" "[" "]"
+  "." "," ":" "~"
+  "<" ">" "-" "<>"
+}
+
+@skip { space | LineComment | BlockComment }
+
+kw<term> { @specialize[@name={term}]<identifier, term> }
+
+@precedence {
+  qualified,
+  simple,
+  MultilineString,
+  String,
+  Expression,
+  Number,
+  ColorCode,
+  identifier
+}
+
+@detectDelim

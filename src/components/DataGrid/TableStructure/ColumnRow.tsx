@@ -34,6 +34,8 @@ interface ColumnRowProps {
   isDeleted?: boolean;
   originalColumn?: ColumnRowData;
   connectionId?: string;
+  database?: string;
+  schema?: string;
   onUpdate?: (updates: Partial<ColumnRowData>) => void;
   onDelete?: () => void;
   onReset?: () => void;
@@ -48,6 +50,8 @@ export const ColumnRow = memo(function ColumnRow({
   isDeleted = false,
   originalColumn,
   connectionId,
+  database,
+  schema,
   onUpdate,
   onDelete,
   onReset,
@@ -251,6 +255,8 @@ export const ColumnRow = memo(function ColumnRow({
             value={column.foreign_key_ref}
             onChange={(val) => onUpdate?.({ foreign_key_ref: val })}
             connectionId={connectionId}
+            database={database}
+            schema={schema}
             currentTable={originalColumn?.name}
             currentColumn={column.name}
             columnName={column.name}

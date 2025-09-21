@@ -14,10 +14,8 @@ export function CodeEditor({
   onChange,
   onExecute,
   language = "sql",
-  dialect = "postgresql",
+  dialect = "plsql",
   connectionId,
-  database,
-  schema,
   readOnly = false,
   height = "100%",
   theme = "auto",
@@ -26,7 +24,7 @@ export function CodeEditor({
   lineNumbers = true,
   className = "",
   minHeight = "100px",
-  maxHeight,
+  maxHeight = "100%",
 }: CodeEditorProps) {
   const editorRef = useRef<EditorView | null>(null);
   const { resolvedTheme } = useTheme();
@@ -86,7 +84,15 @@ export function CodeEditor({
         },
       }),
     ];
-  }, [language, dialect, readOnly, lineNumbers, onExecute]);
+  }, [
+    language,
+    dialect,
+    readOnly,
+    lineNumbers,
+    onExecute,
+    minHeight,
+    maxHeight,
+  ]);
 
   // Handle auto-focus
   useEffect(() => {
@@ -103,7 +109,9 @@ export function CodeEditor({
         extensions={extensions}
         editable={!readOnly}
         placeholder={placeholder}
-        height="100%"
+        height={height}
+        minHeight={minHeight}
+        maxHeight={maxHeight}
         theme={editorTheme}
         style={{ height: "100%", display: "flex", flexDirection: "column" }}
         onCreateEditor={(view) => {

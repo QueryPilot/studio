@@ -20,6 +20,8 @@ interface ForeignKeySelectorProps {
   value?: ForeignKeyRef | null;
   onChange: (value: ForeignKeyRef | null) => void;
   connectionId?: string;
+  database?: string;
+  schema?: string;
   disabled?: boolean;
   className?: string;
   currentTable?: string;
@@ -36,6 +38,8 @@ export const ForeignKeySelector = memo(function ForeignKeySelector({
   value,
   onChange,
   connectionId,
+  database = "public",
+  schema = "public",
   disabled = false,
   className,
   currentTable,
@@ -54,7 +58,7 @@ export const ForeignKeySelector = memo(function ForeignKeySelector({
 
       // Get all tables and their primary key columns
       databaseService
-        .getForeignKeyTargets(connectionId)
+        .getForeignKeyTargets(connectionId, database, schema)
         .then((targets) => {
           // If no targets returned, use mock data for now
           if (!targets || targets.length === 0) {
