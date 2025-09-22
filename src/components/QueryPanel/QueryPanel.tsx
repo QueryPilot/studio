@@ -25,6 +25,7 @@ import {
   useSyncEditorState,
 } from "@/services/keyboard/integration/storeIntegration";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { safeListen } from "@/utils/tauri";
 
 interface QueryPanelProps {
   panelId: string;
@@ -77,6 +78,56 @@ export const QueryPanel = memo(function QueryPanel({
     },
     [panelId, tabId, updateTabMetadata],
   );
+
+  const applyInsertByLines = useCallback(
+    function applyInsertByLines(
+      original: string,
+      startLine: number,
+      endLine: number,
+      content: string,
+    ): string {
+      if (!Number.isFinite(startLine) || !Number.isFinite(endLine))
+        return original;
+      const lines = original.split("\n");
+      const s = Math.max(0, Math.min(lines.length, (startLine || 1) - 1));
+      const e = Math.max(s, Math.min(lines.length, endLine || startLine || 1));
+      const insert = content.split("\n");
+      const next = [...lines.slice(0, s), ...insert, ...lines.slice(e)];
+      const joined = next.join("\n");
+      persistSql(joined);
+      return joined;
+    },
+    [persistSql],
+  );
+
+  // Apply editor inserts from bridge (e.g., opencode tool -> tauri bridge -> UI event)
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    (async () => {
+      try {
+        unlisten = await safeListen<{
+          filePath?: string;
+          startLine: number;
+          endLine: number;
+          content: string;
+        }>("editor-insert", (event) => {
+          setQuery((prev) =>
+            applyInsertByLines(
+              prev,
+              event.payload.startLine,
+              event.payload.endLine,
+              event.payload.content,
+            ),
+          );
+        });
+      } catch {
+        // ignore in non-tauri/browser
+      }
+    })().catch(() => {});
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [applyInsertByLines]);
 
   // Sync state with keyboard context
   useSyncQueryState(isExecuting, !!result);
@@ -138,12 +189,13 @@ export const QueryPanel = memo(function QueryPanel({
           // Extract detailed error message
           if (error instanceof Error) {
             errorMessage = error.message;
-          } else if (typeof error === 'string') {
+          } else if (typeof error === "string") {
             errorMessage = error;
-          } else if (error && typeof error === 'object' && 'message' in error) {
+          } else if (error && typeof error === "object" && "message" in error) {
             errorMessage = String(error.message);
           } else {
-            errorMessage = "An unknown error occurred while executing the query";
+            errorMessage =
+              "An unknown error occurred while executing the query";
           }
 
           setResult({
