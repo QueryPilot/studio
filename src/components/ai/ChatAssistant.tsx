@@ -19,8 +19,6 @@ export function ChatAssistant({
   const [selectedModel, setSelectedModel] = useState<AIModel>(DEFAULT_MODEL);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [authOpen, setAuthOpen] = useState(false);
-  const { isAuthenticated } = useAIAuth();
 
   const generateMockResponse = (
     model: AIModel,
@@ -52,10 +50,6 @@ export function ChatAssistant({
 
   const handleSendMessage = useCallback(
     (content: string, mentions: TableMention[]) => {
-      if (!isAuthenticated) {
-        setAuthOpen(true);
-        return;
-      }
       const userMessage: Message = {
         id: Date.now().toString(),
         role: "user",
@@ -96,13 +90,9 @@ export function ChatAssistant({
     setMessages((prev) => [...prev, systemMessage]);
   };
 
-  const handleSettingsClick = () => {
-    setAuthOpen(true);
-  };
-
   return (
     <div className="flex flex-col h-full bg-background">
-      <ChatHeader onSettingsClick={handleSettingsClick} />
+      <ChatHeader onSettingsClick={() => {}} />
 
       <ChatMessages messages={messages} isLoading={isLoading} />
 
