@@ -31,7 +31,7 @@ export const EnumCell: CustomRenderer<EnumCustomCell> = {
     return (cell as any)?.data?.kind === "enum-cell";
   },
   draw: (args: DrawArgs<EnumCustomCell>, cell: EnumCustomCell) => {
-    const ctx = args.ctx as CanvasRenderingContext2D;
+    const ctx = args.ctx;
     const rect = args.rect;
     const theme = args.theme as Theme;
     const { value } = cell.data;
@@ -45,7 +45,7 @@ export const EnumCell: CustomRenderer<EnumCustomCell> = {
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     const padding = theme.cellHorizontalPadding ?? 6;
-    let extraRight = 16; // space for chevron only; HTML overlay handles actions
+    const extraRight = 16; // space for chevron only; HTML overlay handles actions
     const maxTextWidth = Math.max(0, rect.width - padding * 2 - extraRight);
     const display = truncateTextToWidth(
       text,
@@ -53,17 +53,17 @@ export const EnumCell: CustomRenderer<EnumCustomCell> = {
       theme.baseFontStyle || "12px sans-serif",
     );
     // Clip to cell rect to preserve selection visuals
-    (ctx as CanvasRenderingContext2D).save();
+    ctx.save();
     ctx.beginPath();
     ctx.rect(rect.x, rect.y, rect.width, rect.height);
     ctx.clip();
     ctx.fillText(display, rect.x + padding, rect.y + rect.height / 2);
-    (ctx as CanvasRenderingContext2D).restore();
+    ctx.restore();
 
     // hover buttons now rendered via HTML overlay; canvas path removed
 
     // dropdown glyph (lucide-like chevron)
-    ctx.fillStyle = theme.textDark as string;
+    ctx.fillStyle = theme.textDark;
     const gx = rect.x + rect.width - 12;
     const gy = rect.y + rect.height / 2 + 0.5;
     ctx.beginPath();

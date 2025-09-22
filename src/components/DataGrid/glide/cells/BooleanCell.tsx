@@ -117,8 +117,9 @@ export const BooleanCell: CustomRenderer<BooleanCustomCell> = {
       const current = parseBoolean(props.value.data.value);
       const str = current === null ? "null" : current ? "true" : "false";
       return (
-        <div className="p-2 min-w-[160px]">
+        <div className="min-w-[160px]">
           <Select
+            open
             value={str}
             onValueChange={(v) => {
               const newValue = v === "null" ? null : v === "true";
