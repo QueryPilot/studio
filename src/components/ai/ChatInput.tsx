@@ -1,24 +1,31 @@
 import { useState, useRef, useEffect } from "react";
-import { Send } from "lucide-react";
+import { Send, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-} from "@/components/ui/select";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { TableMentionPopup } from "./TableMentionPopup";
-import { AI_MODELS, type AIModel, type TableMention } from "./types";
+import type { TableMention } from "./types";
+import { getAIProviders, type AIProvider } from "@/services/opencodeService";
+import { isTauri } from "@tauri-apps/api/core";
 
 interface ChatInputProps {
   onSendMessage: (message: string, mentions: TableMention[]) => void;
   disabled?: boolean;
   placeholder?: string;
-  selectedModel: AIModel;
-  onModelChange: (model: AIModel) => void;
+  selectedModel: string;
+  onModelChange: (model: string) => void;
 }
 
 export function ChatInput({
@@ -33,10 +40,66 @@ export function ChatInput({
   const [mentionSearchQuery, setMentionSearchQuery] = useState("");
   const [mentionPosition, setMentionPosition] = useState({ top: 0, left: 0 });
   const [mentions, setMentions] = useState<TableMention[]>([]);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [providers, setProviders] = useState<AIProvider[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const openaiModels = AI_MODELS.filter((m) => m.provider === "openai");
-  const claudeModels = AI_MODELS.filter((m) => m.provider === "anthropic");
+  // Auto-resize textarea as content grows
+  useEffect(() => {
+    if (textareaRef.current) {
+      const textarea = textareaRef.current;
+      // Reset height to auto to recalculate
+      textarea.style.height = 'auto';
+      // Set to scrollHeight but limit to 30vh
+      const maxHeight = window.innerHeight * 0.3;
+      const newHeight = Math.min(textarea.scrollHeight, maxHeight);
+      textarea.style.height = `${newHeight}px`;
+    }
+  }, [message]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    const loadProviders = async () => {
+      setLoadingModels(true);
+      try {
+        const providerList = await getAIProviders();
+        setProviders(providerList);
+      } catch (error) {
+        console.error("Failed to load providers:", error);
+      } finally {
+        setLoadingModels(false);
+      }
+    };
+
+    void loadProviders();
+  }, []);
+
+  const getModelDisplay = () => {
+    if (!selectedModel) return "Select model...";
+    // selectedModel may be either "provider/model" or raw model id
+    let providerId: string | undefined;
+    let modelId = selectedModel;
+    if (selectedModel.includes("/")) {
+      const parts = selectedModel.split("/");
+      providerId = parts[0];
+      modelId = parts.slice(1).join("/");
+    }
+    if (providerId) {
+      const provider = providers.find((p) => p.id === providerId);
+      const model = provider?.models.find((m) => m.id === modelId);
+      if (model?.name) return model.name;
+    }
+    // Fallback: search all providers for matching raw id
+    for (const p of providers) {
+      const m = p.models.find(
+        (mm) => mm.id === selectedModel || mm.id === modelId,
+      );
+      if (m?.name) return m.name;
+    }
+    return modelId;
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
@@ -102,6 +165,11 @@ export function ChatInput({
   };
 
   const handleSend = () => {
+    if (!selectedModel) {
+      // force user to pick a model first; open the selector
+      setModelOpen(true);
+      return;
+    }
     if (message.trim() && !disabled) {
       onSendMessage(message.trim(), mentions);
       setMessage("");
@@ -147,7 +215,8 @@ export function ChatInput({
   return (
     <>
       <div className="border-t">
-        <div className="p-2 pb-1">
+        <div className="flex flex-col p-2 gap-2">
+          {/* Input area */}
           <Textarea
             ref={textareaRef}
             value={message}
@@ -155,79 +224,64 @@ export function ChatInput({
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             disabled={disabled}
-            className="min-h-[40px] max-h-[200px] resize-none text-sm border-0 bg-transparent px-3 py-2 focus:outline-none focus:ring-0 shadow-none"
+            className="resize-none !text-xs border-0 bg-transparent !px-2 !py-2 !focus:outline-none !focus:ring-0 shadow-none overflow-y-auto"
+            style={{ minHeight: '40px' }}
           />
-        </div>
 
-        <div className="flex items-center justify-between px-3 pb-2">
-          <Select
-            value={selectedModel.name}
-            onValueChange={(name) => {
-              const model = AI_MODELS.find((m) => m.name === name);
-              if (model) onModelChange(model);
-            }}
-          >
-            <SelectTrigger className="w-[280px] h-7 text-xs border-0 bg-transparent hover:bg-accent focus:ring-0">
-              <span>{selectedModel.name}</span>
-            </SelectTrigger>
-            <SelectContent>
-              {openaiModels.length > 0 && (
-                <SelectGroup>
-                  <SelectLabel className="text-xs px-2">Codex</SelectLabel>
-                  {openaiModels.map((model) => (
-                    <SelectItem
-                      key={model.id}
-                      value={model.name}
-                      className="text-xs"
-                    >
-                      <div className="flex flex-col items-start w-full">
-                        <span>{model.name}</span>
-                        {model.description && (
-                          <span className="text-muted-foreground text-[10px] mt-0.5">
-                            {model.description}
-                          </span>
-                        )}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              )}
+          {/* Model selector and send button on same line */}
+          <div className="flex items-center justify-between">
+            <Popover open={modelOpen} onOpenChange={setModelOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs font-normal text-muted-foreground hover:text-foreground"
+                  disabled={loadingModels}
+                >
+                  <span className="truncate">{getModelDisplay()}</span>
+                  <ChevronDown className="ml-1 h-3 w-3" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[280px] p-0" align="start">
+                <Command>
+                  <CommandInput
+                    placeholder="Search models..."
+                    className="text-xs"
+                  />
+                  <CommandList>
+                    <CommandEmpty>No models found.</CommandEmpty>
+                    {providers.map((provider) => (
+                      <CommandGroup key={provider.id} heading={provider.name}>
+                        {provider.models.map((model) => (
+                          <CommandItem
+                            key={model.id}
+                            value={`${provider.name} ${model.name}`}
+                            onSelect={() => {
+                              onModelChange(`${provider.id}/${model.id}`);
+                              setModelOpen(false);
+                            }}
+                            className="text-xs"
+                          >
+                            <span className="text-xs">{model.name}</span>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    ))}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
 
-              {claudeModels.length > 0 && (
-                <SelectGroup>
-                  <SelectLabel className="text-xs px-2">
-                    Claude Code
-                  </SelectLabel>
-                  {claudeModels.map((model) => (
-                    <SelectItem
-                      key={model.id}
-                      value={model.name}
-                      className="text-xs"
-                    >
-                      <div className="flex flex-col items-start w-full">
-                        <span>{model.name}</span>
-                        {model.description && (
-                          <span className="text-muted-foreground text-[10px] mt-0.5">
-                            {model.description}
-                          </span>
-                        )}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              )}
-            </SelectContent>
-          </Select>
-
-          <Button
-            onClick={handleSend}
-            disabled={!message.trim() || disabled}
-            size="icon"
-            variant="ghost"
-            className="h-7 w-7 rounded-full hover:bg-primary/10"
-          >
-            <Send className="h-3.5 w-3.5" />
-          </Button>
+            <Button
+              onClick={handleSend}
+              disabled={!message.trim() || disabled}
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7 rounded-full hover:bg-primary/10"
+            >
+              <Send className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
       </div>
 
