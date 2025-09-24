@@ -32,7 +32,6 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { useConnectionStore } from "@/stores/connectionStore";
-import { usePanelStore } from "@/stores/panelStore";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -75,16 +74,6 @@ export function WorkspaceTitleBar({
     useState<ConnectionHealth | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const { theme, setTheme } = useTheme();
-
-  // Get panel store state and functions
-  const {
-    splitMode,
-    setSplitMode,
-    getPrimaryPanel,
-    getSecondaryPanel,
-    removePanel,
-    moveTabBetweenPanels,
-  } = usePanelStore();
 
   // Load connections if not already loaded
   useEffect(() => {
@@ -354,31 +343,6 @@ export function WorkspaceTitleBar({
       addTab(targetPanelId, erdTabId, erdMetadata);
       return;
     }
-
-    const { getPrimaryPanel, addTabToPanel, setActiveTabInPanel } =
-      usePanelStore.getState();
-
-    const primaryPanel = getPrimaryPanel();
-    if (!primaryPanel) return;
-
-    const existingErdTab = Array.from(primaryPanel.tabs.values()).find(
-      (tab) => tab.type === "erd",
-    );
-
-    if (existingErdTab) {
-      setActiveTabInPanel(primaryPanel.id, existingErdTab.id);
-      return;
-    }
-
-    addTabToPanel(primaryPanel.id, {
-      type: "erd",
-      connectionId,
-      title: "ERD",
-      payload: {
-        database: connection?.database,
-        schema: "public",
-      },
-    });
   };
 
   return (
