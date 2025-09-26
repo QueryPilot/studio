@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { GripVerticalIcon } from "lucide-react";
 import * as ResizablePrimitive from "react-resizable-panels";
 
 import { cn } from "@/lib/cn";
@@ -39,13 +38,15 @@ function ResizableHandle({
     <ResizablePrimitive.PanelResizeHandle
       data-slot="resizable-handle"
       className={cn(
-        "bg-transparent focus-visible:ring-ring relative flex w-0 items-center justify-center focus-visible:ring-1 focus-visible:ring-offset-1 focus-visible:outline-hidden data-[panel-group-direction=vertical]:h-0 data-[panel-group-direction=vertical]:w-full group transition-all hover:bg-primary/10 hover:w-px data-[panel-group-direction=vertical]:hover:h-px",
+        "focus-visible:ring-ring relative flex w-2 bg-border/30 h-full items-center justify-center focus-visible:ring-1",
+        "focus-visible:ring-offset-1 focus-visible:outline-hidden data-[panel-group-direction=vertical]:h-2 data-[panel-group-direction=vertical]:w-full",
+        "group transition-all hover:bg-primary/10",
         className,
       )}
       {...props}
     >
       {withHandle && (
-        <div className="absolute bg-muted-foreground/30 group-hover:bg-primary/50 transition-all rounded-full h-8 w-0.5 group-hover:w-1 data-[panel-group-direction=vertical]:w-8 data-[panel-group-direction=vertical]:h-0.5 data-[panel-group-direction=vertical]:group-hover:h-1" />
+        <div className="absolute bg-muted-foreground/30 group-hover:bg-primary/50 transition-all rounded-full h-8 w-0.5 group-hover:w-1 data-[panel-group-direction=vertical]:w-8 data-[panel-group-direction=vertical]:h-0.5 data-[panel-group-direction=vertical]:group-hover:h-2" />
       )}
     </ResizablePrimitive.PanelResizeHandle>
   );

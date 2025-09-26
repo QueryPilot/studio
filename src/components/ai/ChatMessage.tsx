@@ -40,6 +40,10 @@ export function ChatMessage({ message, style }: ChatMessageProps) {
   const handleExecuteCode = (code: string) => {
     console.log("[AI] Execute button clicked, code:", code);
 
+    // Clean up the SQL - remove trailing semicolons as they cause issues
+    const cleanedCode = code.trim().replace(/;\s*$/, '');
+    console.log("[AI] Cleaned code:", cleanedCode);
+
     const state = useWorkbenchStore.getState();
     const { focusedPanelId, addTab, panelContents } = state;
 
@@ -89,14 +93,14 @@ export function ChatMessage({ message, style }: ChatMessageProps) {
 
     console.log("[AI] Adding tab to panel:", targetPanelId, "with id:", tabId);
 
-    // Add the tab with the SQL code
+    // Add the tab with the cleaned SQL code
     addTab(targetPanelId, tabId, {
       type: "query",
       title: "AI Query",
       isQuery: true,
       connectionId,
       database,
-      sql: code, // Pass the SQL code here
+      sql: cleanedCode, // Pass the cleaned SQL code here
     });
 
     console.log("[AI] Tab added successfully");
@@ -305,9 +309,8 @@ export function ChatMessage({ message, style }: ChatMessageProps) {
     return <>{parts}</>;
   };
 
-  if (!message.content) {
-    return null;
-  }
+  // Show loading state for empty assistant messages
+  const isAssistantLoading = message.role === "assistant" && (!message.content || message.content === "");
 
   return (
     <div
@@ -326,7 +329,17 @@ export function ChatMessage({ message, style }: ChatMessageProps) {
             isUser ? "bg-muted text-foreground" : "",
           )}
         >
-          {isUser ? (
+          {isAssistantLoading ? (
+            // Show loading state for assistant messages without content
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <div className="flex gap-1">
+                <span className="animate-pulse">●</span>
+                <span className="animate-pulse" style={{ animationDelay: "200ms" }}>●</span>
+                <span className="animate-pulse" style={{ animationDelay: "400ms" }}>●</span>
+              </div>
+              <span className="text-xs">Thinking...</span>
+            </div>
+          ) : isUser ? (
             <div className="whitespace-pre-wrap break-words">
               {renderMessageContent(message.content, message.mentions, isUser)}
             </div>

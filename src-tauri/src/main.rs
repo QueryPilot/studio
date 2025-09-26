@@ -3,37 +3,37 @@
     windows_subsystem = "windows"
 )]
 
-mod error;
-mod types;
-mod core;
 mod adapters;
 mod commands;
-mod storage;
-mod window_state;
+mod core;
+mod error;
 mod state;
+mod storage;
+mod types;
+mod window_state;
 
-use std::sync::Arc;
-use tauri::{Listener, RunEvent, Manager};
 use state::AppState;
+use std::sync::Arc;
+use tauri::{Listener, Manager, RunEvent};
 
 fn main() {
     // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive(tracing::Level::INFO.into())
+                .add_directive(tracing::Level::INFO.into()),
         )
         .init();
-    
+
     // Create connection manager
     let manager = Arc::new(core::manager::ConnectionManager::new());
-    
+
     // Create secure storage
     let storage = Arc::new(storage::SecureStorage::new());
-    
+
     // Create window state manager
     let window_states = Arc::new(window_state::WindowStateManager::new());
-    
+
     // Create shared AI state
     let ai_opencode_stdin = std::sync::Arc::new(tokio::sync::Mutex::new(None));
     let ai_opencode_server = std::sync::Arc::new(tokio::sync::Mutex::new(None));
@@ -134,6 +134,7 @@ fn main() {
             commands::ai_opencode_start_server,
             commands::ai_opencode_auth_ls,
             commands::ai_anthropic_exchange_code,
+            commands::ai_init_opencode_configs,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

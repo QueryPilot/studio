@@ -554,7 +554,7 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
       >
         <div
           className={cn(
-            "workbench-layout h-full overflow-hidden border-x border-border",
+            "workbench-layout h-full overflow-hidden rounded-lg bg-border/30",
             className,
           )}
         >

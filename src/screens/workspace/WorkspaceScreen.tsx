@@ -86,10 +86,10 @@ export function WorkspaceScreen() {
               defaultSize={18}
               minSize={12}
               maxSize={30}
-              className="bg-muted/20 flex flex-col"
+              className="flex flex-col bg-border/30"
             >
               {/* Database/Schema Selector aligned with tabs */}
-              <div className="h-[34px] border-y bg-background flex items-center overflow-hidden">
+              <div className="flex items-center overflow-hidden">
                 <DatabaseSchemaSelector
                   connectionId={connectionId}
                   selectedDatabase={selectedDatabase}
@@ -126,8 +126,8 @@ export function WorkspaceScreen() {
               : 100
           }
         >
-          <WorkbenchLayout 
-            className="h-full" 
+          <WorkbenchLayout
+            className="h-full"
             connectionId={connectionId}
             database={selectedDatabase}
           />

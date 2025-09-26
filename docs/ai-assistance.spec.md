@@ -204,8 +204,14 @@ Rust (`src-tauri`):
 - `ai_opencode_login_claude(): Promise<'success' | 'cancelled'>`
   - Preferred: uses SDK route by asking server to start login; returns on success.
   - Fallback: PTY-automates `opencode auth login` and opens system browser when URL appears.
+- `ai_init_opencode_configs(options?: { version?: string; force?: boolean })`
+  - Materialises `AGENTS.md` plus command templates under `<devdb_home>/.config/opencode`, writes `devdb-opencode-config.json`, and skips rewrites when the stored version matches. Emits `ai:opencode-init` so the UI can refresh caches.
 
-Frontend TS (`services/ai/opencodeClient.ts`):
+Phase-2 addition:
+
+- The existing command exposes manifest versioning only; there is still no dedicated Rust wrapper for invoking individual commands beyond the SDK route above.
+
+Frontend TS (`services/ai/opencodeClient.ts` / `services/opencodeService.ts`):
 
 ```ts
 import { invoke } from "@tauri-apps/api/core";
@@ -248,6 +254,7 @@ Notes:
 
 - If SDK surface differs, adapt, but keep the same abstraction in our service.
 - If server mode is unavailable, we’ll replace the class with a CLI stdio wrapper returning line-delimited JSON tokens.
+- Phase 2 introduced helpers: `listAICommands()` (fetch `/command`), `renderCommandTemplate()` (local `$VAR` substitution), and `runAICommand(sessionId, command, args)` (POST `/session/{id}/command`).
 
 ---
 
@@ -257,7 +264,11 @@ Files: `src/components/ai/ChatAssistant.tsx`, `ChatInput.tsx`, `ChatMessages.tsx
 
 - Replace `generateMockResponse()` in `ChatAssistant.tsx` with a call into `OpencodeClient` that streams tokens and updates messages.
 - Add a settings button click in `ChatHeader` that triggers `ai_opencode_login_claude()` when the user isn’t authenticated.
-- Keep existing mentions UX; pass mentions as metadata in the prompt for now.
+- Mention popovers now use real catalog data; every outbound prompt appends a `<metadata>` block containing connection details and JSON table schemas for any `@table` references. The block is logged for debugging but hidden from the transcript.
+- Slash command discovery mirrors the mention flow: typing `/` opens the filtered command list, Enter/Tab commits the selection, and commands execute via the existing dialog/payload path rather than sending raw chat text.
+- *Phase 2 additions*: load the custom command catalog on boot (desktop-only), surface it through a popover in `ChatInput`, collect template variables via dialog, and stream the resulting assistant response back into the transcript. Commands reuse the JSON detection pipeline, which currently no-ops while tooling is disabled.
+- *Phase 3 additions*: seed specialized agent prompts/config on init, expose the agent list via `client.app.agents()`, and add a desktop-only agent selector in the chat header so prompts run under the chosen persona.
+- *Phase 4 additions (deferred)*: tool manifests and bridge execution were removed; the bullet remains as an architectural reference only.
 - Minimum state: selected model (map to Anthropic Sonnet/Opus x Sonnet), streaming flag, transcript list.
 
 ---

@@ -1,8 +1,8 @@
-use std::sync::Arc;
 use crate::window_state::WindowStateManager;
-use tokio::sync::Mutex;
-use tokio::process::ChildStdin;
+use std::sync::Arc;
 use tokio::process::Child;
+use tokio::process::ChildStdin;
+use tokio::sync::Mutex;
 
 pub struct AppState {
     pub window_states: Arc<WindowStateManager>,

@@ -5,7 +5,7 @@ export type EditorTheme = "light" | "dark" | "auto";
 export interface CodeEditorProps {
   value: string;
   onChange?: (value: string) => void;
-  onExecute?: () => void;
+  onExecute?: (query?: string) => void;
   language?: CodeEditorLanguage;
   dialect?: SqlDialect;
   connectionId?: string;

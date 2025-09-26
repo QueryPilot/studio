@@ -1,4 +1,5 @@
 import type { Extension } from "@codemirror/state";
+import { Prec } from "@codemirror/state";
 import {
   keymap,
   EditorView,
@@ -32,7 +33,7 @@ import {
 } from "@codemirror/search";
 import type { SqlDialect, CodeEditorLanguage } from "./types";
 import { createSqlAutocomplete } from "./autocomplete";
-import { createSmartTriggers } from "./autocomplete/triggers";
+import { acceptCompletion } from "@codemirror/autocomplete";
 import { dbmlMixed } from "./languages/dbml/dbml-mixed";
 
 // Enhanced SQL folding service using syntax tree for better nested support
@@ -253,19 +254,85 @@ export const getLanguageExtension = (
   }
 };
 
-// Create execute command keymap
-export const createExecuteKeymap = (onExecute?: () => void): Extension => {
+// Helper to get query at cursor position
+const getQueryAtCursor = (view: EditorView): string => {
+  const state = view.state;
+  const doc = state.doc.toString();
+  const selection = state.selection.main;
+
+  // If there's a selection, return the selected text
+  if (selection.from !== selection.to) {
+    return state.sliceDoc(selection.from, selection.to).trim().replace(/;\s*$/, '');
+  }
+
+  // Otherwise, find the query at cursor position
+  const cursorPos = selection.from;
+
+  // Split by semicolons to find individual queries
+  const queries = doc.split(/;(?=(?:[^']*'[^']*')*[^']*$)/);
+  let currentPos = 0;
+
+  for (let i = 0; i < queries.length; i++) {
+    const queryLength = queries[i].length;
+    const nextPos = currentPos + queryLength + (i < queries.length - 1 ? 1 : 0);
+
+    if (cursorPos >= currentPos && cursorPos <= nextPos) {
+      // Found the query containing the cursor
+      const query = queries[i].trim();
+      // Remove trailing semicolon if present
+      return query.replace(/;\s*$/, '');
+    }
+
+    currentPos = nextPos;
+  }
+
+  // Fallback to entire document
+  return doc.trim().replace(/;\s*$/, '');
+};
+
+// Create execute command keymap with highest precedence
+export const createExecuteKeymap = (onExecute?: (query?: string) => void): Extension => {
   if (!onExecute) return [];
 
-  return keymap.of([
+  return Prec.highest(keymap.of([
     {
-      key: "Mod-Enter",
-      run: () => {
-        onExecute();
+      key: "Cmd-Enter",
+      mac: "Cmd-Enter",
+      run: (view) => {
+        const query = getQueryAtCursor(view);
+        if (query) {
+          onExecute(query);
+        } else {
+          onExecute();
+        }
         return true;
       },
     },
-  ]);
+    {
+      key: "Ctrl-Enter",
+      run: (view) => {
+        const query = getQueryAtCursor(view);
+        if (query) {
+          onExecute(query);
+        } else {
+          onExecute();
+        }
+        return true;
+      },
+    },
+    {
+      key: "Mod-Enter",
+      run: (view) => {
+        const query = getQueryAtCursor(view);
+        if (query) {
+          onExecute(query);
+        } else {
+          onExecute();
+        }
+        return true;
+      },
+    },
+  ]));
 };
 
 // Get editor extensions based on configuration
@@ -274,7 +341,7 @@ export const getEditorExtensions = (
   dialect?: SqlDialect,
   readOnly = false,
   showLineNumbers = true,
-  onExecute?: () => void,
+  onExecute?: (query?: string) => void,
   connectionId?: string,
 ): Extension[] => {
   const extensions: Extension[] = [
@@ -384,9 +451,9 @@ export const getEditorExtensions = (
     extensions.push(keymap.of([indentWithTab]));
   }
 
-  // Add execute keymap if handler provided
+  // Add execute keymap FIRST if handler provided to override default behavior
   if (onExecute) {
-    extensions.push(createExecuteKeymap(onExecute));
+    extensions.unshift(createExecuteKeymap(onExecute));
   }
 
   // Add read-only extension if needed (but still allow selection)
@@ -408,12 +475,15 @@ export const getEditorExtensions = (
   );
 
   if (language === "sql") {
-    extensions.push(createSmartTriggers());
     extensions.push(
       createSqlAutocomplete({
         connectionId: connectionId || getActiveConnectionId(),
         dialect: dialect || "postgresql",
       }),
+      // Add Tab key support for accepting autocomplete
+      keymap.of([
+        { key: "Tab", run: acceptCompletion }
+      ])
     );
   }
 

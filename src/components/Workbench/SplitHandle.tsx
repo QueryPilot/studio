@@ -16,12 +16,10 @@ export const SplitHandle: React.FC<SplitHandleProps> = ({
   className,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
-  const [startPosition, setStartPosition] = useState({ x: 0, y: 0 });
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     setIsDragging(true);
-    setStartPosition({ x: e.clientX, y: e.clientY });
   }, []);
 
   const handleMouseMove = useCallback(
@@ -65,11 +63,11 @@ export const SplitHandle: React.FC<SplitHandleProps> = ({
   return (
     <div
       className={cn(
-        "split-handle group relative flex items-center justify-center transition-all bg-border hover:bg-primary/30 z-10",
+        "split-handle group relative flex items-center justify-center transition-all bg-border/30 hover:bg-primary/10 z-10",
         orientation === "horizontal"
-          ? "w-2 cursor-col-resize"
-          : "h-2 cursor-row-resize",
-        isDragging && "bg-primary/50",
+          ? "min-w-2 h-full cursor-col-resize"
+          : "min-h-2 w-full cursor-row-resize",
+        isDragging && "bg-primary/10",
         className,
       )}
       onMouseDown={handleMouseDown}
@@ -81,7 +79,7 @@ export const SplitHandle: React.FC<SplitHandleProps> = ({
           orientation === "horizontal"
             ? "h-8 w-0.5 group-hover:w-1"
             : "w-8 h-0.5 group-hover:h-1",
-          isDragging && "bg-primary w-1 h-1",
+          isDragging && "bg-primary",
         )}
       />
     </div>

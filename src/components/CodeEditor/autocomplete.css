@@ -1,0 +1,180 @@
+/* Autocomplete tooltip styling */
+.cm-autocomplete {
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 13px;
+  max-height: 300px;
+  min-width: 280px;
+}
+
+/* Completion list styling */
+.cm-autocomplete > ul {
+  max-height: 300px;
+}
+
+.cm-autocomplete > ul > li {
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.4;
+}
+
+/* Selected item */
+.cm-autocomplete > ul > li[aria-selected] {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+/* Hover effect */
+.cm-autocomplete > ul > li:hover {
+  background: var(--muted);
+}
+
+/* Completion icons using CSS */
+.cm-completionIcon {
+  font-size: 11px;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  font-weight: bold;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
+/* Icon types */
+.cm-completion-type .cm-completionIcon::after {
+  content: "T";
+  background: #4CAF50;
+  color: white;
+  padding: 2px 4px;
+  border-radius: 2px;
+}
+
+.cm-completion-property .cm-completionIcon::after {
+  content: "C";
+  background: #2196F3;
+  color: white;
+  padding: 2px 4px;
+  border-radius: 2px;
+}
+
+.cm-completion-function .cm-completionIcon::after {
+  content: "F";
+  background: #FF9800;
+  color: white;
+  padding: 2px 4px;
+  border-radius: 2px;
+}
+
+.cm-completion-keyword .cm-completionIcon::after {
+  content: "K";
+  background: #9C27B0;
+  color: white;
+  padding: 2px 4px;
+  border-radius: 2px;
+}
+
+.cm-completion-namespace .cm-completionIcon::after {
+  content: "S";
+  background: #00BCD4;
+  color: white;
+  padding: 2px 4px;
+  border-radius: 2px;
+}
+
+.cm-completion-variable .cm-completionIcon::after {
+  content: "A";
+  background: #CDDC39;
+  color: #333;
+  padding: 2px 4px;
+  border-radius: 2px;
+}
+
+.cm-completion-operator .cm-completionIcon::after {
+  content: "O";
+  background: #795548;
+  color: white;
+  padding: 2px 4px;
+  border-radius: 2px;
+}
+
+/* Label and detail */
+.cm-completionLabel {
+  flex: 1;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cm-completionDetail {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  opacity: 0.7;
+  margin-left: auto;
+  padding-left: 12px;
+}
+
+/* Match highlighting */
+.cm-completionMatchedText {
+  font-weight: bold;
+  text-decoration: underline;
+  text-decoration-color: var(--primary);
+  text-underline-offset: 2px;
+}
+
+/* Info panel */
+.cm-completionInfo {
+  background: var(--muted);
+  border-left: 3px solid var(--primary);
+  padding: 12px;
+  font-size: 12px;
+  max-width: 500px;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* Dark mode adjustments */
+.dark .cm-autocomplete {
+  background: hsl(222.2 84% 4.9%);
+  border-color: hsl(217.2 32.6% 17.5%);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.dark .cm-autocomplete > ul > li[aria-selected] {
+  background: hsl(217.2 32.6% 17.5%);
+  color: hsl(210 40% 98%);
+}
+
+.dark .cm-autocomplete > ul > li:hover {
+  background: hsl(217.2 32.6% 12%);
+}
+
+.dark .cm-completionDetail {
+  color: hsl(215 20.2% 65.1%);
+}
+
+/* Scrollbar styling */
+.cm-autocomplete > ul::-webkit-scrollbar {
+  width: 8px;
+}
+
+.cm-autocomplete > ul::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cm-autocomplete > ul::-webkit-scrollbar-thumb {
+  background: var(--muted-foreground);
+  border-radius: 4px;
+  opacity: 0.3;
+}
+
+.cm-autocomplete > ul::-webkit-scrollbar-thumb:hover {
+  opacity: 0.5;
+}

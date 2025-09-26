@@ -1,8 +1,8 @@
-use crate::types::CellValueType;
 use crate::error::{AppError, Result};
+use crate::types::CellValueType;
+use regex::Regex;
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
-use regex::Regex;
 
 pub struct PostgresTypeParser;
 
@@ -15,21 +15,24 @@ impl PostgresTypeParser {
                 "empty": true
             }));
         }
-        
+
         // Check bounds - first char is lower bound, last is upper bound
         let lower_inclusive = trimmed.starts_with('[');
         let upper_inclusive = trimmed.ends_with(']');
-        
+
         // Remove bounds characters
-        let content = &trimmed[1..trimmed.len()-1];
-        
+        let content = &trimmed[1..trimmed.len() - 1];
+
         // Split by comma, handling quoted values
         let parts: Vec<&str> = split_pg_tuple(content);
-        
+
         if parts.len() != 2 {
-            return Err(AppError::ParseError(format!("Invalid range format: {}", input)));
+            return Err(AppError::ParseError(format!(
+                "Invalid range format: {}",
+                input
+            )));
         }
-        
+
         Ok(json!({
             "lower": if parts[0].is_empty() { JsonValue::Null } else { JsonValue::String(parts[0].to_string()) },
             "upper": if parts[1].is_empty() { JsonValue::Null } else { JsonValue::String(parts[1].to_string()) },
@@ -38,30 +41,33 @@ impl PostgresTypeParser {
             "type": format!("{:?}", base_type)
         }))
     }
-    
+
     /// Parse PostgreSQL multirange type string like "{[1,2),[5,10]}"
     pub fn parse_multirange(input: &str, base_type: &CellValueType) -> Result<JsonValue> {
         let trimmed = input.trim();
         if !trimmed.starts_with('{') || !trimmed.ends_with('}') {
-            return Err(AppError::ParseError(format!("Invalid multirange format: {}", input)));
+            return Err(AppError::ParseError(format!(
+                "Invalid multirange format: {}",
+                input
+            )));
         }
-        
-        let content = &trimmed[1..trimmed.len()-1];
+
+        let content = &trimmed[1..trimmed.len() - 1];
         if content.is_empty() {
             return Ok(json!({ "ranges": [] }));
         }
-        
+
         // Parse each range
         let mut ranges = Vec::new();
         let mut current = String::new();
         let mut depth = 0;
-        
+
         for ch in content.chars() {
             match ch {
                 '[' | '(' => {
                     depth += 1;
                     current.push(ch);
-                },
+                }
                 ']' | ')' => {
                     depth -= 1;
                     current.push(ch);
@@ -69,196 +75,232 @@ impl PostgresTypeParser {
                         ranges.push(Self::parse_range(&current, base_type)?);
                         current.clear();
                     }
-                },
+                }
                 ',' if depth == 0 => {
                     // Skip commas between ranges
-                },
+                }
                 _ => current.push(ch),
             }
         }
-        
+
         Ok(json!({ "ranges": ranges }))
     }
-    
+
     /// Parse PostgreSQL composite type string like "(value1,value2,value3)"
     pub fn parse_composite(input: &str) -> Result<JsonValue> {
         let trimmed = input.trim();
         if !trimmed.starts_with('(') || !trimmed.ends_with(')') {
-            return Err(AppError::ParseError(format!("Invalid composite format: {}", input)));
+            return Err(AppError::ParseError(format!(
+                "Invalid composite format: {}",
+                input
+            )));
         }
-        
-        let content = &trimmed[1..trimmed.len()-1];
+
+        let content = &trimmed[1..trimmed.len() - 1];
         let fields = split_pg_tuple(content);
-        
+
         Ok(json!({ "fields": fields }))
     }
-    
+
     /// Parse PostgreSQL multi-dimensional array like "{{1,2},{3,4}}" or "{a,b,c}"
     pub fn parse_array(input: &str) -> Result<JsonValue> {
         let trimmed = input.trim();
         if !trimmed.starts_with('{') || !trimmed.ends_with('}') {
-            return Err(AppError::ParseError(format!("Invalid array format: {}", input)));
+            return Err(AppError::ParseError(format!(
+                "Invalid array format: {}",
+                input
+            )));
         }
-        
+
         // Parse recursively for multi-dimensional arrays
-        parse_array_recursive(&trimmed[1..trimmed.len()-1])
+        parse_array_recursive(&trimmed[1..trimmed.len() - 1])
     }
-    
+
     /// Parse PostgreSQL point type "(x,y)"
     pub fn parse_point(input: &str) -> Result<JsonValue> {
         let trimmed = input.trim();
         if !trimmed.starts_with('(') || !trimmed.ends_with(')') {
-            return Err(AppError::ParseError(format!("Invalid point format: {}", input)));
+            return Err(AppError::ParseError(format!(
+                "Invalid point format: {}",
+                input
+            )));
         }
-        
-        let content = &trimmed[1..trimmed.len()-1];
+
+        let content = &trimmed[1..trimmed.len() - 1];
         let parts: Vec<&str> = content.split(',').map(|s| s.trim()).collect();
-        
+
         if parts.len() != 2 {
-            return Err(AppError::ParseError(format!("Invalid point format: {}", input)));
+            return Err(AppError::ParseError(format!(
+                "Invalid point format: {}",
+                input
+            )));
         }
-        
+
         Ok(json!({
             "x": parts[0].parse::<f64>().unwrap_or(0.0),
             "y": parts[1].parse::<f64>().unwrap_or(0.0)
         }))
     }
-    
+
     /// Parse PostgreSQL line segment "[(x1,y1),(x2,y2)]"
     pub fn parse_lseg(input: &str) -> Result<JsonValue> {
         let trimmed = input.trim();
         if !trimmed.starts_with('[') || !trimmed.ends_with(']') {
-            return Err(AppError::ParseError(format!("Invalid lseg format: {}", input)));
+            return Err(AppError::ParseError(format!(
+                "Invalid lseg format: {}",
+                input
+            )));
         }
-        
-        let content = &trimmed[1..trimmed.len()-1];
+
+        let content = &trimmed[1..trimmed.len() - 1];
         let points = parse_point_list(content)?;
-        
+
         if points.len() != 2 {
-            return Err(AppError::ParseError(format!("Invalid lseg format: {}", input)));
+            return Err(AppError::ParseError(format!(
+                "Invalid lseg format: {}",
+                input
+            )));
         }
-        
+
         Ok(json!({
             "start": points[0],
             "end": points[1]
         }))
     }
-    
+
     /// Parse PostgreSQL box "((x1,y1),(x2,y2))"
     pub fn parse_box(input: &str) -> Result<JsonValue> {
         let trimmed = input.trim();
         if !trimmed.starts_with('(') || !trimmed.ends_with(')') {
-            return Err(AppError::ParseError(format!("Invalid box format: {}", input)));
+            return Err(AppError::ParseError(format!(
+                "Invalid box format: {}",
+                input
+            )));
         }
-        
-        let content = &trimmed[1..trimmed.len()-1];
+
+        let content = &trimmed[1..trimmed.len() - 1];
         let points = parse_point_list(content)?;
-        
+
         if points.len() != 2 {
-            return Err(AppError::ParseError(format!("Invalid box format: {}", input)));
+            return Err(AppError::ParseError(format!(
+                "Invalid box format: {}",
+                input
+            )));
         }
-        
+
         Ok(json!({
             "upper_right": points[0],
             "lower_left": points[1]
         }))
     }
-    
+
     /// Parse PostgreSQL path "[(x1,y1),(x2,y2),...]" or "((x1,y1),(x2,y2),...)"
     pub fn parse_path(input: &str) -> Result<JsonValue> {
         let trimmed = input.trim();
         let (is_closed, content) = if trimmed.starts_with('[') && trimmed.ends_with(']') {
-            (false, &trimmed[1..trimmed.len()-1])
+            (false, &trimmed[1..trimmed.len() - 1])
         } else if trimmed.starts_with('(') && trimmed.ends_with(')') {
-            (true, &trimmed[1..trimmed.len()-1])
+            (true, &trimmed[1..trimmed.len() - 1])
         } else {
-            return Err(AppError::ParseError(format!("Invalid path format: {}", input)));
+            return Err(AppError::ParseError(format!(
+                "Invalid path format: {}",
+                input
+            )));
         };
-        
+
         let points = parse_point_list(content)?;
-        
+
         Ok(json!({
             "closed": is_closed,
             "points": points
         }))
     }
-    
+
     /// Parse PostgreSQL polygon "((x1,y1),(x2,y2),...)"
     pub fn parse_polygon(input: &str) -> Result<JsonValue> {
         let trimmed = input.trim();
         if !trimmed.starts_with('(') || !trimmed.ends_with(')') {
-            return Err(AppError::ParseError(format!("Invalid polygon format: {}", input)));
+            return Err(AppError::ParseError(format!(
+                "Invalid polygon format: {}",
+                input
+            )));
         }
-        
-        let content = &trimmed[1..trimmed.len()-1];
+
+        let content = &trimmed[1..trimmed.len() - 1];
         let points = parse_point_list(content)?;
-        
+
         Ok(json!({
             "points": points
         }))
     }
-    
+
     /// Parse PostgreSQL circle "<(x,y),r>"
     pub fn parse_circle(input: &str) -> Result<JsonValue> {
         let trimmed = input.trim();
         if !trimmed.starts_with('<') || !trimmed.ends_with('>') {
-            return Err(AppError::ParseError(format!("Invalid circle format: {}", input)));
+            return Err(AppError::ParseError(format!(
+                "Invalid circle format: {}",
+                input
+            )));
         }
-        
-        let content = &trimmed[1..trimmed.len()-1];
-        
+
+        let content = &trimmed[1..trimmed.len() - 1];
+
         // Find the last comma that separates center from radius
         if let Some(radius_pos) = content.rfind(',') {
             let center_str = &content[..radius_pos];
-            let radius_str = &content[radius_pos+1..];
-            
+            let radius_str = &content[radius_pos + 1..];
+
             let center = Self::parse_point(center_str)?;
-            let radius = radius_str.trim().parse::<f64>()
-                .map_err(|_| AppError::ParseError(format!("Invalid radius in circle: {}", input)))?;
-            
+            let radius = radius_str.trim().parse::<f64>().map_err(|_| {
+                AppError::ParseError(format!("Invalid radius in circle: {}", input))
+            })?;
+
             return Ok(json!({
                 "center": center,
                 "radius": radius
             }));
         }
-        
-        Err(AppError::ParseError(format!("Invalid circle format: {}", input)))
+
+        Err(AppError::ParseError(format!(
+            "Invalid circle format: {}",
+            input
+        )))
     }
-    
+
     /// Parse PostgreSQL money type "$1,234.56" or "-$1,234.56"
     pub fn parse_money(input: &str) -> Result<JsonValue> {
         let trimmed = input.trim();
-        
+
         // Remove currency symbol and commas
-        let cleaned = trimmed
-            .replace('$', "")
-            .replace(',', "");
-        
-        let amount = cleaned.parse::<f64>()
+        let cleaned = trimmed.replace('$', "").replace(',', "");
+
+        let amount = cleaned
+            .parse::<f64>()
             .map_err(|_| AppError::ParseError(format!("Invalid money format: {}", input)))?;
-        
+
         Ok(json!({
             "amount": amount,
             "formatted": trimmed
         }))
     }
-    
+
     /// Parse PostgreSQL hstore "key1=>value1,key2=>value2"
     pub fn parse_hstore(input: &str) -> Result<JsonValue> {
         let mut map = HashMap::new();
-        
+
         if input.trim().is_empty() {
             return Ok(json!(map));
         }
-        
+
         // Parse key-value pairs
         let pairs = split_hstore_pairs(input);
-        
+
         for pair in pairs {
             if let Some(arrow_pos) = pair.find("=>") {
                 let key = unquote_hstore_value(&pair[..arrow_pos].trim());
-                let value = &pair[arrow_pos+2..].trim();
-                
+                let value = &pair[arrow_pos + 2..].trim();
+
                 if *value == "NULL" {
                     map.insert(key, JsonValue::Null);
                 } else {
@@ -266,10 +308,10 @@ impl PostgresTypeParser {
                 }
             }
         }
-        
+
         Ok(json!(map))
     }
-    
+
     /// Parse PostgreSQL ltree "Top.Countries.Europe.Russia"
     pub fn parse_ltree(input: &str) -> Result<JsonValue> {
         let labels: Vec<&str> = input.split('.').collect();
@@ -278,14 +320,14 @@ impl PostgresTypeParser {
             "path": input
         }))
     }
-    
+
     /// Parse PostgreSQL cube "(x1,x2,...)" or "(x1,x2,...),(y1,y2,...)"
     pub fn parse_cube(input: &str) -> Result<JsonValue> {
         let trimmed = input.trim();
-        
+
         // Check if it's a point or a box
         let parts = split_cube_parts(trimmed);
-        
+
         if parts.len() == 1 {
             // It's a point
             let coords = parse_coordinates(&parts[0])?;
@@ -303,10 +345,13 @@ impl PostgresTypeParser {
                 "upper": upper
             }))
         } else {
-            Err(AppError::ParseError(format!("Invalid cube format: {}", input)))
+            Err(AppError::ParseError(format!(
+                "Invalid cube format: {}",
+                input
+            )))
         }
     }
-    
+
     /// Parse PostgreSQL interval "1 year 2 months 3 days 04:05:06"
     pub fn parse_interval(input: &str) -> Result<JsonValue> {
         let mut years = 0;
@@ -315,10 +360,10 @@ impl PostgresTypeParser {
         let mut hours = 0;
         let mut minutes = 0;
         let mut seconds = 0.0;
-        
+
         let parts: Vec<&str> = input.split_whitespace().collect();
         let mut i = 0;
-        
+
         while i < parts.len() {
             if let Ok(num) = parts[i].parse::<i32>() {
                 if i + 1 < parts.len() {
@@ -347,7 +392,7 @@ impl PostgresTypeParser {
                 i += 1;
             }
         }
-        
+
         Ok(json!({
             "years": years,
             "months": months,
@@ -358,27 +403,27 @@ impl PostgresTypeParser {
             "iso8601": format!("P{}Y{}M{}DT{}H{}M{}S", years, months, days, hours, minutes, seconds)
         }))
     }
-    
+
     /// Parse PostgreSQL tsvector "'word1':1,2 'word2':3"
     pub fn parse_tsvector(input: &str) -> Result<JsonValue> {
         let mut lexemes = Vec::new();
         let mut current_word = String::new();
         let mut in_word = false;
         let mut positions = Vec::new();
-        
+
         for ch in input.chars() {
             match ch {
                 '\'' if !in_word => {
                     in_word = true;
                     current_word.clear();
-                },
+                }
                 '\'' if in_word => {
                     in_word = false;
-                },
+                }
                 ':' if !in_word && !current_word.is_empty() => {
                     // Positions follow
                     positions.clear();
-                },
+                }
                 ',' | ' ' if !in_word => {
                     if !current_word.is_empty() {
                         lexemes.push(json!({
@@ -388,20 +433,20 @@ impl PostgresTypeParser {
                         current_word.clear();
                         positions.clear();
                     }
-                },
+                }
                 c if in_word => {
                     current_word.push(c);
-                },
+                }
                 c if c.is_ascii_digit() => {
                     // Collecting position numbers
                     let mut num_str = String::new();
                     num_str.push(c);
                     positions.push(num_str.parse::<i32>().unwrap_or(0));
-                },
+                }
                 _ => {}
             }
         }
-        
+
         // Add last lexeme if any
         if !current_word.is_empty() {
             lexemes.push(json!({
@@ -409,12 +454,12 @@ impl PostgresTypeParser {
                 "positions": positions
             }));
         }
-        
+
         Ok(json!({
             "lexemes": lexemes
         }))
     }
-    
+
     /// Parse PostgreSQL tsquery "'fat' & 'rat'"
     pub fn parse_tsquery(input: &str) -> Result<JsonValue> {
         // Simple parsing - just extract the structure
@@ -436,7 +481,7 @@ pub fn quote_identifier(identifier: &str) -> String {
     if identifier.starts_with('"') && identifier.ends_with('"') {
         return identifier.to_string();
     }
-    
+
     // Always quote to ensure case sensitivity
     format!("\"{}\"", identifier)
 }
@@ -447,7 +492,7 @@ pub fn quote_index_definition(indexdef: &str) -> String {
     let re = Regex::new(
         r"(?i)(CREATE\s+(?:UNIQUE\s+)?INDEX)\s+(\S+)\s+(ON)\s+(?:(\S+)\.)?(\S+)\s+(USING\s+\S+)?\s*\(([^)]+)\)"
     ).unwrap();
-    
+
     if let Some(captures) = re.captures(indexdef) {
         let create_clause = &captures[1];
         let index_name = &captures[2];
@@ -456,7 +501,7 @@ pub fn quote_index_definition(indexdef: &str) -> String {
         let table_name = &captures[5];
         let using_clause = captures.get(6).map(|m| m.as_str()).unwrap_or("");
         let columns = &captures[7];
-        
+
         // Quote identifiers
         let quoted_index = quote_identifier(index_name);
         let quoted_table = if let Some(s) = schema {
@@ -464,18 +509,14 @@ pub fn quote_index_definition(indexdef: &str) -> String {
         } else {
             quote_identifier(table_name)
         };
-        
+
         // Parse and quote column names while preserving expressions
         let quoted_columns = quote_column_list(columns);
-        
+
         // Reconstruct the index definition
-        format!("{} {} {} {} {} ({})",
-            create_clause,
-            quoted_index,
-            on_keyword,
-            quoted_table,
-            using_clause,
-            quoted_columns
+        format!(
+            "{} {} {} {} {} ({})",
+            create_clause, quoted_index, on_keyword, quoted_table, using_clause, quoted_columns
         )
     } else {
         // If parsing fails, return original
@@ -499,31 +540,33 @@ fn quote_column_list(columns: &str) -> String {
             }
         })
         .collect();
-    
+
     parts.join(", ")
 }
 
 /// Quote column expressions in index definitions
 fn quote_column_expression(expr: &str) -> String {
     // Handle expressions like "lower(column_name)" or "column_name DESC"
-    
+
     // Check for function calls
     if let Some(paren_pos) = expr.find('(') {
         let func_part = &expr[..paren_pos];
         let rest = &expr[paren_pos..];
-        
+
         // Extract column name from function arguments
         if let Some(close_paren) = rest.rfind(')') {
             let args = &rest[1..close_paren];
             let after_func = &rest[close_paren + 1..];
-            
+
             // Quote the column name inside function
             let quoted_args = if args.contains(',') {
                 // Multiple arguments
                 args.split(',')
                     .map(|arg| {
                         let trimmed = arg.trim();
-                        if trimmed.starts_with('\'') || trimmed.chars().all(|c| c.is_numeric() || c == '.') {
+                        if trimmed.starts_with('\'')
+                            || trimmed.chars().all(|c| c.is_numeric() || c == '.')
+                        {
                             // It's a literal, don't quote
                             trimmed.to_string()
                         } else {
@@ -535,21 +578,24 @@ fn quote_column_expression(expr: &str) -> String {
             } else {
                 // Single argument
                 let trimmed = args.trim();
-                if trimmed.starts_with('\'') || trimmed.chars().all(|c| c.is_numeric() || c == '.') {
+                if trimmed.starts_with('\'') || trimmed.chars().all(|c| c.is_numeric() || c == '.')
+                {
                     trimmed.to_string()
                 } else {
                     quote_identifier(trimmed)
                 }
             };
-            
-            format!("{}({}){}",func_part, quoted_args, after_func)
+
+            format!("{}({}){}", func_part, quoted_args, after_func)
         } else {
             expr.to_string()
         }
     } else if expr.contains(' ') {
         // Handle "column_name DESC" or "column_name ASC"
         let parts: Vec<&str> = expr.split_whitespace().collect();
-        if parts.len() == 2 && (parts[1].to_uppercase() == "ASC" || parts[1].to_uppercase() == "DESC") {
+        if parts.len() == 2
+            && (parts[1].to_uppercase() == "ASC" || parts[1].to_uppercase() == "DESC")
+        {
             format!("{} {}", quote_identifier(parts[0]), parts[1])
         } else {
             expr.to_string()
@@ -566,7 +612,7 @@ fn split_pg_tuple(input: &str) -> Vec<&str> {
     let mut current = String::new();
     let mut in_quotes = false;
     let mut escape_next = false;
-    
+
     for ch in input.chars() {
         if escape_next {
             current.push(ch);
@@ -582,28 +628,28 @@ fn split_pg_tuple(input: &str) -> Vec<&str> {
             current.push(ch);
         }
     }
-    
+
     if !current.is_empty() || input.ends_with(',') {
         result.push(input[input.len() - current.len()..].trim());
     }
-    
+
     result
 }
 
 fn parse_array_recursive(input: &str) -> Result<JsonValue> {
     let trimmed = input.trim();
-    
+
     if trimmed.is_empty() {
         return Ok(json!([]));
     }
-    
+
     // Check if this is a nested array
     if trimmed.starts_with('{') {
         // Multi-dimensional array
         let mut elements = Vec::new();
         let mut current = String::new();
         let mut depth = 0;
-        
+
         for ch in trimmed.chars() {
             match ch {
                 '{' => {
@@ -611,7 +657,7 @@ fn parse_array_recursive(input: &str) -> Result<JsonValue> {
                         current.push(ch);
                     }
                     depth += 1;
-                },
+                }
                 '}' => {
                     depth -= 1;
                     if depth > 0 {
@@ -622,18 +668,18 @@ fn parse_array_recursive(input: &str) -> Result<JsonValue> {
                             current.clear();
                         }
                     }
-                },
+                }
                 ',' if depth == 1 => {
                     // Separator at current level
                     if !current.is_empty() {
                         elements.push(parse_array_recursive(&current)?);
                         current.clear();
                     }
-                },
+                }
                 _ => current.push(ch),
             }
         }
-        
+
         Ok(json!(elements))
     } else {
         // Simple array - parse elements
@@ -647,7 +693,7 @@ fn split_pg_array_elements(input: &str) -> Vec<String> {
     let mut current = String::new();
     let mut in_quotes = false;
     let mut escape_next = false;
-    
+
     for ch in input.chars() {
         if escape_next {
             current.push(ch);
@@ -665,11 +711,11 @@ fn split_pg_array_elements(input: &str) -> Vec<String> {
             current.push(ch);
         }
     }
-    
+
     if !current.is_empty() {
         result.push(current.trim().trim_matches('"').to_string());
     }
-    
+
     result
 }
 
@@ -677,13 +723,13 @@ fn parse_point_list(input: &str) -> Result<Vec<JsonValue>> {
     let mut points = Vec::new();
     let mut current = String::new();
     let mut depth = 0;
-    
+
     for ch in input.chars() {
         match ch {
             '(' => {
                 depth += 1;
                 current.push(ch);
-            },
+            }
             ')' => {
                 depth -= 1;
                 current.push(ch);
@@ -691,14 +737,14 @@ fn parse_point_list(input: &str) -> Result<Vec<JsonValue>> {
                     points.push(PostgresTypeParser::parse_point(&current)?);
                     current.clear();
                 }
-            },
+            }
             ',' if depth == 0 => {
                 // Skip commas between points
-            },
+            }
             _ => current.push(ch),
         }
     }
-    
+
     Ok(points)
 }
 
@@ -707,7 +753,7 @@ fn split_hstore_pairs(input: &str) -> Vec<String> {
     let mut current = String::new();
     let mut in_quotes = false;
     let mut escape_next = false;
-    
+
     for ch in input.chars() {
         if escape_next {
             current.push(ch);
@@ -727,18 +773,18 @@ fn split_hstore_pairs(input: &str) -> Vec<String> {
             current.push(ch);
         }
     }
-    
+
     if !current.trim().is_empty() {
         result.push(current.trim().to_string());
     }
-    
+
     result
 }
 
 fn unquote_hstore_value(input: &str) -> String {
     let trimmed = input.trim();
     if trimmed.starts_with('"') && trimmed.ends_with('"') {
-        trimmed[1..trimmed.len()-1]
+        trimmed[1..trimmed.len() - 1]
             .replace("\\\\", "\\")
             .replace("\\\"", "\"")
     } else {
@@ -750,13 +796,13 @@ fn split_cube_parts(input: &str) -> Vec<String> {
     let mut parts = Vec::new();
     let mut current = String::new();
     let mut paren_depth = 0;
-    
+
     for ch in input.chars() {
         match ch {
             '(' => {
                 paren_depth += 1;
                 current.push(ch);
-            },
+            }
             ')' => {
                 paren_depth -= 1;
                 current.push(ch);
@@ -764,31 +810,35 @@ fn split_cube_parts(input: &str) -> Vec<String> {
                     parts.push(current.clone());
                     current.clear();
                 }
-            },
+            }
             ',' if paren_depth == 0 => {
                 // Skip commas between parts
-            },
+            }
             _ => current.push(ch),
         }
     }
-    
+
     if !current.is_empty() {
         parts.push(current);
     }
-    
+
     parts
 }
 
 fn parse_coordinates(input: &str) -> Result<Vec<f64>> {
     let trimmed = input.trim();
     let content = if trimmed.starts_with('(') && trimmed.ends_with(')') {
-        &trimmed[1..trimmed.len()-1]
+        &trimmed[1..trimmed.len() - 1]
     } else {
         trimmed
     };
-    
-    content.split(',')
-        .map(|s| s.trim().parse::<f64>()
-            .map_err(|_| AppError::ParseError(format!("Invalid coordinate: {}", s))))
+
+    content
+        .split(',')
+        .map(|s| {
+            s.trim()
+                .parse::<f64>()
+                .map_err(|_| AppError::ParseError(format!("Invalid coordinate: {}", s)))
+        })
         .collect()
 }

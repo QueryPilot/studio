@@ -8,6 +8,7 @@ import { useTheme } from "@/components/theme-provider";
 import { foldGutterTheme } from "./themes";
 import { getEditorExtensions } from "./extensions";
 import type { CodeEditorProps } from "./types";
+import "./autocomplete.css";
 
 export function CodeEditor({
   value,
@@ -94,12 +95,25 @@ export function CodeEditor({
     maxHeight,
   ]);
 
-  // Handle auto-focus
+  // Handle auto-focus - focus on mount and when autoFocus changes
   useEffect(() => {
     if (autoFocus && editorRef.current) {
-      editorRef.current.focus();
+      // Small delay to ensure editor is fully rendered
+      setTimeout(() => {
+        editorRef.current?.focus();
+      }, 100);
     }
   }, [autoFocus]);
+
+  // Also focus when value changes (e.g., when tab becomes active)
+  useEffect(() => {
+    if (autoFocus && editorRef.current && value !== undefined) {
+      // Small delay to ensure editor is fully rendered
+      setTimeout(() => {
+        editorRef.current?.focus();
+      }, 100);
+    }
+  }, [value, autoFocus]);
 
   return (
     <div className={`code-editor h-full flex flex-col ${className}`}>
@@ -116,6 +130,12 @@ export function CodeEditor({
         style={{ height: "100%", display: "flex", flexDirection: "column" }}
         onCreateEditor={(view) => {
           editorRef.current = view;
+          // Auto-focus when editor is created if autoFocus is true
+          if (autoFocus) {
+            setTimeout(() => {
+              view.focus();
+            }, 100);
+          }
         }}
         basicSetup={{
           lineNumbers: false, // We handle this in extensions

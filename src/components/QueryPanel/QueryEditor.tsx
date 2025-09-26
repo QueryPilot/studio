@@ -33,9 +33,11 @@ export const QueryEditor = memo(function QueryEditor({
       ? "sqlite"
       : "postgresql";
 
-  const handleExecute = () => {
-    if (onExecute && value) {
-      onExecute(value);
+  const handleExecute = (query?: string) => {
+    if (onExecute) {
+      // Use the query passed from CodeMirror (selected text or query at cursor)
+      // If no query is passed, use the entire editor value
+      onExecute(query || value);
     }
   };
 

@@ -347,7 +347,7 @@ export function WorkspaceTitleBar({
 
   return (
     <div
-      className="relative flex items-center justify-between h-10 bg-background/95 backdrop-blur"
+      className="relative flex items-center justify-between h-10 bg-border/30"
       data-tauri-drag-region
     >
       {/* Left Section - Add padding for macOS traffic lights */}
@@ -451,13 +451,16 @@ export function WorkspaceTitleBar({
       </div>
 
       {/* Center Section - Absolute positioning for true center */}
-      <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-3 text-xs max-w-[40%] min-w-0">
+      <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-3 text-xs max-w-[40%] min-w-0 select-none">
         {/* Database Name with Type */}
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="font-medium text-sm truncate">
+        <div className="flex items-center gap-2 min-w-0" data-tauri-drag-region>
+          <span className="font-medium text-sm truncate" data-tauri-drag-region>
             {connection?.name || "Loading..."}
           </span>
-          <span className="text-muted-foreground whitespace-nowrap">
+          <span
+            className="text-muted-foreground whitespace-nowrap"
+            data-tauri-drag-region
+          >
             {connection
               ? connection.type
                   .toUpperCase()
@@ -475,14 +478,20 @@ export function WorkspaceTitleBar({
         {connection?.host && (
           <>
             <div className="h-3 w-px bg-border flex-shrink-0" />
-            <span className="text-muted-foreground truncate min-w-0">
+            <span
+              className="text-muted-foreground truncate min-w-0"
+              data-tauri-drag-region
+            >
               {connection.host}:{connection.port}/{connection.database}
             </span>
           </>
         )}
 
         {/* Connection Status Badge */}
-        <div className="h-3 w-px bg-border flex-shrink-0" />
+        <div
+          className="h-3 w-px bg-border flex-shrink-0"
+          data-tauri-drag-region
+        />
         <div
           className={cn(
             "flex items-center gap-1.5 px-2 py-0.5 rounded-full transition-all whitespace-nowrap",
@@ -493,9 +502,13 @@ export function WorkspaceTitleBar({
             (!connectionHealth || isConnecting) && "bg-gray-500/10",
           )}
           title={connectionHealth?.error || "Connection status"}
+          data-tauri-drag-region
         >
           {getStatusIcon()}
-          <span className={cn("font-medium", getStatusColor())}>
+          <span
+            className={cn("font-medium", getStatusColor())}
+            data-tauri-drag-region
+          >
             {getStatusText()}
           </span>
         </div>

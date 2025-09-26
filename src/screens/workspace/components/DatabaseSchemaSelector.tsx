@@ -32,6 +32,32 @@ export function DatabaseSchemaSelector({
   const { connections } = useConnectionStore();
   const connection = connections.find((c) => c.id === connectionId);
 
+  const loadDatabases = useCallback(async () => {
+    try {
+      const dbs = await databaseService.listDatabases(connectionId);
+      setDatabases(dbs);
+
+      // Auto-select the current database or first available
+      if (!selectedDatabase) {
+        if (connection?.database && dbs.includes(connection.database)) {
+          onDatabaseChange(connection.database);
+        } else if (dbs.length > 0) {
+          onDatabaseChange(dbs[0] || "");
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load databases:", err);
+      if (connection) {
+        // Use the connection's database or fallback to default
+        const dbName = connection.database || "default";
+        setDatabases([dbName]);
+        if (!selectedDatabase) {
+          onDatabaseChange(dbName);
+        }
+      }
+    }
+  }, [connectionId, selectedDatabase, connection, onDatabaseChange]);
+
   // Load databases on mount
   useEffect(() => {
     if (connectionId) {
@@ -51,14 +77,37 @@ export function DatabaseSchemaSelector({
 
       void checkAndLoad();
     }
-  }, [connectionId]);
+  }, [connectionId, loadDatabases]);
+
+  const loadSchemas = useCallback(async () => {
+    try {
+      const schemaList = await databaseService.listSchemas(
+        connectionId,
+        selectedDatabase,
+      );
+      setSchemas(schemaList);
+
+      // Auto-select schema
+      if (schemaList.length > 0) {
+        const publicSchema = schemaList.find(
+          (s) => s.toLowerCase() === "public",
+        );
+        const defaultSchema = schemaList.find((s) => s.toLowerCase() === "dbo");
+        onSchemaChange(publicSchema || defaultSchema || schemaList[0] || "");
+      }
+    } catch (err) {
+      console.error("Failed to load schemas:", err);
+      setSchemas(["default"]);
+      onSchemaChange("default");
+    }
+  }, [connectionId, selectedDatabase, onSchemaChange]);
 
   // Load schemas when database changes
   useEffect(() => {
     if (selectedDatabase) {
       void loadSchemas();
     }
-  }, [selectedDatabase]);
+  }, [selectedDatabase, loadSchemas]);
 
   // Listen for database reconnection events
   useEffect(() => {
@@ -85,56 +134,7 @@ export function DatabaseSchemaSelector({
     return () => {
       if (cleanup) cleanup();
     };
-  }, [connectionId, selectedDatabase]);
-
-  const loadDatabases = useCallback(async () => {
-    try {
-      const dbs = await databaseService.listDatabases(connectionId);
-      setDatabases(dbs);
-
-      // Auto-select the current database or first available
-      if (!selectedDatabase) {
-        if (connection?.database && dbs.includes(connection.database)) {
-          onDatabaseChange(connection.database);
-        } else if (dbs.length > 0) {
-          onDatabaseChange(dbs[0] || "");
-        }
-      }
-    } catch (err) {
-      console.error("Failed to load databases:", err);
-      if (connection) {
-        // Use the connection's database or fallback to default
-        const dbName = connection.database || "default";
-        setDatabases([dbName]);
-        if (!selectedDatabase) {
-          onDatabaseChange(dbName);
-        }
-      }
-    }
-  }, [connectionId, selectedDatabase, onDatabaseChange]);
-
-  const loadSchemas = useCallback(async () => {
-    try {
-      const schemaList = await databaseService.listSchemas(
-        connectionId,
-        selectedDatabase,
-      );
-      setSchemas(schemaList);
-
-      // Auto-select schema
-      if (schemaList.length > 0) {
-        const publicSchema = schemaList.find(
-          (s) => s.toLowerCase() === "public",
-        );
-        const defaultSchema = schemaList.find((s) => s.toLowerCase() === "dbo");
-        onSchemaChange(publicSchema || defaultSchema || schemaList[0] || "");
-      }
-    } catch (err) {
-      console.error("Failed to load schemas:", err);
-      setSchemas(["default"]);
-      onSchemaChange("default");
-    }
-  }, [connectionId, selectedDatabase, onSchemaChange]);
+  }, [connectionId, selectedDatabase, loadDatabases, loadSchemas]);
 
   return (
     <div className="flex items-center gap-1">

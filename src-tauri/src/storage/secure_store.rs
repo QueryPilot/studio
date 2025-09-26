@@ -1,11 +1,11 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::path::PathBuf;
-use std::fs;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::sync::RwLock;
+use uuid::Uuid;
 
 use crate::error::{AppError, Result};
 use crate::types::ConnectionProfile;
@@ -48,7 +48,7 @@ impl SecureStorage {
     pub fn new() -> Self {
         let storage_path = Self::get_storage_path();
         let connections = Self::load_from_file(&storage_path).unwrap_or_default();
-        
+
         Self {
             connections: Arc::new(connections),
             encryption_key: None,
@@ -56,11 +56,11 @@ impl SecureStorage {
             use_encryption: false,
         }
     }
-    
+
     pub fn with_encryption(key: Vec<u8>) -> Self {
         let storage_path = Self::get_storage_path();
         let connections = Self::load_from_file(&storage_path).unwrap_or_default();
-        
+
         Self {
             connections: Arc::new(connections),
             encryption_key: Some(key),
@@ -68,7 +68,7 @@ impl SecureStorage {
             use_encryption: true,
         }
     }
-    
+
     fn get_storage_path() -> PathBuf {
         // Use local .devdb directory in the repository for development
         let app_dir = PathBuf::from(".devdb");
@@ -78,34 +78,38 @@ impl SecureStorage {
 
         app_dir.join("connections.json")
     }
-    
+
     fn load_from_file(path: &PathBuf) -> Result<DashMap<String, StoredConnection>> {
         if !path.exists() {
             return Ok(DashMap::new());
         }
-        
+
         let content = fs::read_to_string(path)
             .map_err(|e| AppError::internal(&format!("Failed to read connections file: {}", e)))?;
-        
+
         let connections: HashMap<String, StoredConnection> = serde_json::from_str(&content)
             .map_err(|e| AppError::internal(&format!("Failed to parse connections: {}", e)))?;
-        
+
         let dash_map = DashMap::new();
         for (id, conn) in connections {
             dash_map.insert(id, conn);
         }
-        
+
         Ok(dash_map)
     }
-    
+
     fn save_to_file(&self) -> Result<()> {
         println!("DEBUG: save_to_file started, collecting connections...");
-        let connections: HashMap<String, StoredConnection> = self.connections
+        let connections: HashMap<String, StoredConnection> = self
+            .connections
             .iter()
             .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect();
 
-        println!("DEBUG: Collected {} connections, serializing...", connections.len());
+        println!(
+            "DEBUG: Collected {} connections, serializing...",
+            connections.len()
+        );
         let content = serde_json::to_string_pretty(&connections)
             .map_err(|e| AppError::internal(&format!("Failed to serialize connections: {}", e)))?;
 
@@ -122,39 +126,40 @@ impl SecureStorage {
         println!("DEBUG: File saved successfully to {:?}", self.storage_path);
         Ok(())
     }
-    
+
     pub async fn store_connection(&self, mut profile: ConnectionProfile) -> Result<String> {
         // Generate ID if not present
         if profile.id.is_empty() {
             profile.id = Uuid::new_v4().to_string();
         }
-        
+
         let stored = StoredConnection {
             profile: profile.clone(),
             metadata: ConnectionMetadata::default(),
         };
-        
+
         // Store in memory and persist to file
         self.connections.insert(profile.id.clone(), stored);
         self.save_to_file()?;
-        
+
         Ok(profile.id)
     }
-    
+
     pub async fn get_connection(&self, id: &str) -> Result<StoredConnection> {
         self.connections
             .get(id)
             .map(|entry| entry.clone())
             .ok_or_else(|| AppError::not_found(&format!("Connection {} not found", id)))
     }
-    
+
     pub async fn list_connections(&self) -> Result<Vec<StoredConnection>> {
-        Ok(self.connections
+        Ok(self
+            .connections
             .iter()
             .map(|entry| entry.value().clone())
             .collect())
     }
-    
+
     pub async fn update_connection(&self, id: &str, profile: ConnectionProfile) -> Result<()> {
         // Update the connection and drop the mutable reference before saving
         let found = if let Some(mut entry) = self.connections.get_mut(id) {
@@ -173,22 +178,22 @@ impl SecureStorage {
             Err(AppError::not_found(&format!("Connection {} not found", id)))
         }
     }
-    
+
     pub async fn delete_connection(&self, id: &str) -> Result<()> {
         self.connections
             .remove(id)
             .ok_or_else(|| AppError::not_found(&format!("Connection {} not found", id)))?;
-        
+
         self.save_to_file()?;
         Ok(())
     }
-    
+
     pub async fn clear_all(&self) -> Result<()> {
         self.connections.clear();
         self.save_to_file()?;
         Ok(())
     }
-    
+
     pub async fn update_metadata(&self, id: &str, metadata: ConnectionMetadata) -> Result<()> {
         // Update the metadata and drop the mutable reference before saving
         let found = if let Some(mut entry) = self.connections.get_mut(id) {
@@ -205,7 +210,7 @@ impl SecureStorage {
             Err(AppError::not_found(&format!("Connection {} not found", id)))
         }
     }
-    
+
     pub async fn mark_as_used(&self, id: &str) -> Result<()> {
         // Update the usage data and drop the mutable reference before saving
         let found = if let Some(mut entry) = self.connections.get_mut(id) {
@@ -223,7 +228,7 @@ impl SecureStorage {
             Err(AppError::not_found(&format!("Connection {} not found", id)))
         }
     }
-    
+
     pub async fn toggle_favorite(&self, id: &str) -> Result<bool> {
         // Toggle favorite and drop the mutable reference before saving
         let result = if let Some(mut entry) = self.connections.get_mut(id) {
@@ -240,7 +245,7 @@ impl SecureStorage {
             Err(AppError::not_found(&format!("Connection {} not found", id)))
         }
     }
-    
+
     pub async fn add_tag(&self, id: &str, tag: String) -> Result<()> {
         // Add tag and drop the mutable reference before saving
         let found = if let Some(mut entry) = self.connections.get_mut(id) {
@@ -259,7 +264,7 @@ impl SecureStorage {
             Err(AppError::not_found(&format!("Connection {} not found", id)))
         }
     }
-    
+
     pub async fn remove_tag(&self, id: &str, tag: &str) -> Result<()> {
         // Remove tag and drop the mutable reference before saving
         let found = if let Some(mut entry) = self.connections.get_mut(id) {
@@ -303,26 +308,31 @@ impl SecureStorage {
 
     pub async fn search(&self, query: &str) -> Result<Vec<StoredConnection>> {
         let query_lower = query.to_lowercase();
-        
-        Ok(self.connections
+
+        Ok(self
+            .connections
             .iter()
             .filter(|entry| {
                 let conn = entry.value();
-                conn.profile.name.to_lowercase().contains(&query_lower) ||
-                conn.profile.host.to_lowercase().contains(&query_lower) ||
-                conn.profile.database.to_lowercase().contains(&query_lower) ||
-                conn.metadata.tags.iter().any(|t| t.to_lowercase().contains(&query_lower))
+                conn.profile.name.to_lowercase().contains(&query_lower)
+                    || conn.profile.host.to_lowercase().contains(&query_lower)
+                    || conn.profile.database.to_lowercase().contains(&query_lower)
+                    || conn
+                        .metadata
+                        .tags
+                        .iter()
+                        .any(|t| t.to_lowercase().contains(&query_lower))
             })
             .map(|entry| entry.value().clone())
             .collect())
     }
-    
+
     // Phase 4: These will be implemented with actual encryption
     fn encrypt_password(&self, password: &str) -> Result<Vec<u8>> {
         // Placeholder for Phase 4
         Ok(password.as_bytes().to_vec())
     }
-    
+
     fn decrypt_password(&self, encrypted: &[u8]) -> Result<String> {
         // Placeholder for Phase 4
         String::from_utf8(encrypted.to_vec())

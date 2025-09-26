@@ -17,6 +17,7 @@ import {
   AtSign,
   Code,
   Command as CommandIcon,
+  Sparkles,
 } from "lucide-react";
 import { KeyboardManager } from "@/services/keyboard/KeyboardManager";
 
@@ -24,6 +25,7 @@ import { useKeyboardStore } from "@/stores/keyboardStore";
 import { fuzzyMatch } from "./fuzzyMatch";
 import { DatabaseCommandProvider } from "./providers/DatabaseCommandProvider";
 import { useParams } from "react-router-dom";
+import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 
 export type PaletteMode = ">" | "@" | ":" | "?" | "#" | "!" | "$" | "";
 
@@ -85,6 +87,41 @@ export function CommandPalette({
     return null;
   }, [connectionId]);
 
+  const ensureAssistantVisible = useCallback(() => {
+    const store = useWorkspaceScreenStore.getState();
+    if (!store.sidebars.right) {
+      store.toggleSidebar("right");
+    }
+  }, []);
+
+  const aiCommands = useMemo<CommandItem[]>(
+    () => [
+      {
+        id: "ai.openAssistant",
+        label: "AI: Open Assistant Panel",
+        icon: <Sparkles className="w-4 h-4 text-blue-500" />,
+        category: "AI",
+        keywords: ["ai", "assistant", "chat"],
+        action: () => {
+          ensureAssistantVisible();
+          window.dispatchEvent(new CustomEvent("devdb-ai-focus"));
+        },
+      },
+      {
+        id: "ai.runCommand",
+        label: "AI: Run Command…",
+        icon: <Zap className="w-4 h-4" />,
+        category: "AI",
+        keywords: ["command", "tool"],
+        action: () => {
+          ensureAssistantVisible();
+          window.dispatchEvent(new CustomEvent("devdb-ai-open-commands"));
+        },
+      },
+    ],
+    [ensureAssistantVisible],
+  );
+
   // Cleanup provider on unmount
   useEffect(() => {
     return () => {
@@ -111,16 +148,17 @@ export function CommandPalette({
 
   // Build command items based on mode
   const commandItems = useMemo((): CommandItem[] => {
-    if (!dbProvider) {
-      return [];
-    }
-
     switch (mode) {
-      case ">":
-        return dbProvider.getAllCommands();
-
+      case ">": {
+        const items: CommandItem[] = [];
+        if (dbProvider) {
+          items.push(...dbProvider.getAllCommands());
+        }
+        items.push(...aiCommands);
+        return items;
+      }
       case "@":
-        return dbProvider.getSchemaObjects();
+        return dbProvider ? dbProvider.getSchemaObjects() : [];
 
       case "?":
         return [
@@ -149,7 +187,7 @@ export function CommandPalette({
       default:
         return [];
     }
-  }, [mode]);
+  }, [mode, dbProvider, aiCommands]);
 
   // Filter and score items
   const filteredItems = useMemo(() => {

@@ -88,7 +88,7 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
       <div
         ref={containerRef}
         className={cn(
-          "flex h-full w-full",
+          "flex h-full w-full ",
           isHorizontal ? "flex-row" : "flex-col",
           className,
         )}
@@ -107,11 +107,13 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
           )}
         </div>
 
-        <SplitHandle
-          orientation={node.orientation!}
-          onResize={handleResize}
-          onResizeEnd={handleResizeEnd}
-        />
+        {!!node.orientation && (
+          <SplitHandle
+            orientation={node.orientation}
+            onResize={handleResize}
+            onResizeEnd={handleResizeEnd}
+          />
+        )}
 
         <div
           style={{

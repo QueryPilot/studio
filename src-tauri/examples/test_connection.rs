@@ -17,9 +17,9 @@ async fn main() {
         ssl_mode: Some(SslMode::Disable),
         options: HashMap::new(),
     };
-    
+
     let mut adapter = PostgresAdapter::new();
-    
+
     println!("Connecting to PostgreSQL...");
     match adapter.connect(&profile).await {
         Ok(_) => println!("✓ Connected successfully!"),
@@ -28,7 +28,7 @@ async fn main() {
             return;
         }
     }
-    
+
     println!("\nTesting connection...");
     match adapter.test_connection().await {
         Ok(result) => {
@@ -40,7 +40,7 @@ async fn main() {
         }
         Err(e) => eprintln!("✗ Connection test failed: {}", e),
     }
-    
+
     println!("\nFetching schemas...");
     match adapter.get_schemas("todoapp").await {
         Ok(schemas) => {
@@ -51,24 +51,31 @@ async fn main() {
         }
         Err(e) => eprintln!("✗ Failed to get schemas: {}", e),
     }
-    
+
     println!("\nFetching tables from public schema...");
     match adapter.get_tables("public").await {
         Ok(tables) => {
             println!("✓ Found {} tables:", tables.len());
             for table in tables.iter().take(5) {
-                println!("  - {} ({})", table.name, table.size.as_ref().unwrap_or(&"unknown".to_string()));
+                println!(
+                    "  - {} ({})",
+                    table.name,
+                    table.size.as_ref().unwrap_or(&"unknown".to_string())
+                );
             }
         }
         Err(e) => eprintln!("✗ Failed to get tables: {}", e),
     }
-    
+
     println!("\nRunning a simple query...");
     match adapter.open_query("SELECT COUNT(*) FROM todos").await {
         Ok(handle) => {
             println!("✓ Query opened, handle: {}", handle.id);
-            println!("  Columns: {:?}", handle.columns.iter().map(|c| &c.name).collect::<Vec<_>>());
-            
+            println!(
+                "  Columns: {:?}",
+                handle.columns.iter().map(|c| &c.name).collect::<Vec<_>>()
+            );
+
             match adapter.fetch_page(&handle, 10).await {
                 Ok(chunk) => {
                     println!("✓ Fetched {} rows", chunk.rows.len());
@@ -83,12 +90,12 @@ async fn main() {
         }
         Err(e) => eprintln!("✗ Failed to open query: {}", e),
     }
-    
+
     println!("\nDisconnecting...");
     match adapter.disconnect().await {
         Ok(_) => println!("✓ Disconnected successfully!"),
         Err(e) => eprintln!("✗ Failed to disconnect: {}", e),
     }
-    
+
     println!("\n✅ Test completed!");
 }
