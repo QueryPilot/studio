@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 interface TableItem {
   name: string;
   schema?: string;
-  type: 'table' | 'view';
+  type?: 'table' | 'view';
   columns?: number;
 }
 
@@ -17,27 +17,12 @@ interface TableMentionPopupProps {
   tables?: TableItem[];
 }
 
-const MOCK_TABLES: TableItem[] = [
-  { name: 'users', schema: 'public', type: 'table', columns: 8 },
-  { name: 'orders', schema: 'public', type: 'table', columns: 12 },
-  { name: 'products', schema: 'public', type: 'table', columns: 10 },
-  { name: 'customers', schema: 'public', type: 'table', columns: 7 },
-  { name: 'categories', schema: 'public', type: 'table', columns: 4 },
-  { name: 'user_sessions', schema: 'public', type: 'table', columns: 6 },
-  { name: 'order_items', schema: 'public', type: 'table', columns: 8 },
-  { name: 'inventory', schema: 'public', type: 'table', columns: 9 },
-  { name: 'payments', schema: 'public', type: 'table', columns: 11 },
-  { name: 'reviews', schema: 'public', type: 'table', columns: 7 },
-  { name: 'active_users_view', schema: 'public', type: 'view', columns: 5 },
-  { name: 'sales_summary_view', schema: 'public', type: 'view', columns: 8 },
-];
-
 export function TableMentionPopup({
   isOpen,
   searchQuery,
   position,
   onSelect,
-  tables = MOCK_TABLES
+  tables = [],
 }: TableMentionPopupProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [filteredTables, setFilteredTables] = useState<TableItem[]>(tables);
@@ -67,6 +52,7 @@ export function TableMentionPopup({
           setSelectedIndex((prev) => (prev > 0 ? prev - 1 : prev));
           break;
         case 'Enter':
+        case 'Tab':
           e.preventDefault();
           if (filteredTables[selectedIndex]) {
             onSelect(filteredTables[selectedIndex]);
@@ -82,9 +68,11 @@ export function TableMentionPopup({
     return () => { window.removeEventListener('keydown', handleKeyDown); };
   }, [isOpen, selectedIndex, filteredTables, onSelect]);
 
-  if (!isOpen || filteredTables.length === 0) {
+  if (!isOpen) {
     return null;
   }
+
+  const hasResults = filteredTables.length > 0;
 
   return (
     <div
@@ -94,9 +82,9 @@ export function TableMentionPopup({
         left: `${position.left}px`,
       }}
     >
-      <div className="overflow-y-auto max-h-64">
-        <div className="py-1">
-          {filteredTables.map((table, index) => (
+      <div className="overflow-y-auto max-h-64 py-1">
+        {hasResults ? (
+          filteredTables.map((table, index) => (
             <div
               key={`${table.schema}.${table.name}`}
               className={cn(
@@ -127,12 +115,19 @@ export function TableMentionPopup({
                   )}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {table.type} • {table.columns} columns
+                  {(table.type ?? 'table')}
+                  {typeof table.columns === 'number'
+                    ? ` • ${table.columns} columns`
+                    : null}
                 </div>
               </div>
             </div>
-          ))}
-        </div>
+          ))
+        ) : (
+          <div className="px-3 py-2 text-xs text-muted-foreground">
+            No tables found.
+          </div>
+        )}
       </div>
     </div>
   );

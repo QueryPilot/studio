@@ -24,12 +24,9 @@ impl ConnectionProfile {
     pub fn connection_key(&self) -> String {
         // Format: {db_type}://{host}:{port}/{database}#{username}
         // This ensures unique keys for connections to different database types
-        format!("{:?}://{}:{}/{}#{}", 
-            self.db_type, 
-            self.host, 
-            self.port, 
-            self.database, 
-            self.username
+        format!(
+            "{:?}://{}:{}/{}#{}",
+            self.db_type, self.host, self.port, self.database, self.username
         )
     }
 }
@@ -68,7 +65,10 @@ pub struct SshTunnelConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SshAuthMethod {
     Password(String),
-    KeyFile { path: String, passphrase: Option<String> },
+    KeyFile {
+        path: String,
+        passphrase: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,7 +122,7 @@ impl CellValue {
             db_specific: None,
         }
     }
-    
+
     pub fn text(value: impl Into<String>) -> Self {
         let val = value.into();
         CellValue {
@@ -132,7 +132,7 @@ impl CellValue {
             db_specific: None,
         }
     }
-    
+
     pub fn integer(value: i64) -> Self {
         CellValue {
             value_type: CellValueType::Integer,
@@ -141,7 +141,7 @@ impl CellValue {
             db_specific: None,
         }
     }
-    
+
     pub fn boolean(value: bool) -> Self {
         CellValue {
             value_type: CellValueType::Boolean,
@@ -165,7 +165,7 @@ pub enum CellValueType {
     DateTime,
     Binary,
     Json,
-    
+
     // PostgreSQL specific types
     Array(Box<CellValueType>),
     Composite(Vec<(String, CellValueType)>),
@@ -204,9 +204,12 @@ pub enum CellValueType {
     Xid8,
     Bit,
     VarBit,
-    
+
     // Type modifiers
-    ArrayMultiDim { base: Box<CellValueType>, dimensions: Vec<usize> },
+    ArrayMultiDim {
+        base: Box<CellValueType>,
+        dimensions: Vec<usize>,
+    },
     CustomType(String),
 }
 
@@ -372,9 +375,9 @@ pub struct Trigger {
     pub name: String,
     pub schema: String,
     pub table_name: String,
-    pub event: String,        // INSERT, UPDATE, DELETE, TRUNCATE
-    pub timing: String,       // BEFORE, AFTER, INSTEAD OF
-    pub level: String,        // ROW, STATEMENT
+    pub event: String,  // INSERT, UPDATE, DELETE, TRUNCATE
+    pub timing: String, // BEFORE, AFTER, INSTEAD OF
+    pub level: String,  // ROW, STATEMENT
     pub enabled: bool,
     pub function: String,
     pub condition: Option<String>,
@@ -474,7 +477,7 @@ impl Default for NullsPosition {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum StreamEvent {
-    Started { 
+    Started {
         columns: Vec<ColumnMeta>,
         estimated_rows: Option<i64>,
     },
@@ -502,7 +505,7 @@ pub struct CreateIndexRequest {
     pub name: String,
     pub columns: Vec<String>,
     pub unique: bool,
-    pub index_type: String, // btree, hash, gin, gist, etc.
+    pub index_type: String,        // btree, hash, gin, gist, etc.
     pub condition: Option<String>, // For partial indexes
 }
 

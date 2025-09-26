@@ -1,9 +1,8 @@
 import { autocompletion, startCompletion } from "@codemirror/autocomplete";
 import type { Extension } from "@codemirror/state";
-import { createContextualCompletionSource } from "./sources";
-import { snippetsCompletionSource } from "./snippets";
-import { SqlQueryParser } from "./parser";
-import { keywordCompletionSource } from "./keywords";
+import { createContextualCompletionSource } from "./sources-v3";
+import { SqlQueryParser } from "./parser-v2-fixed";
+import { schemaCache } from "@/services/schemaCache";
 import { type SqlDialect } from "../types";
 
 export interface AutocompleteConfig {
@@ -14,16 +13,19 @@ export interface AutocompleteConfig {
   mode?: "editor" | "filter";
 }
 
-function dialectToDbType(dialect: AutocompleteConfig["dialect"]) {
+function dialectToDbType(dialect: AutocompleteConfig["dialect"]): "PostgreSQL" | "MySQL" | "SQLite" | "MSSQL" {
   switch (dialect) {
+    case "postgresql":
     case "plsql":
-      return "PostgreSQL" as const;
+      return "PostgreSQL";
     case "mysql":
-      return "MySQL" as const;
+      return "MySQL";
     case "sqlite":
-      return "SQLite" as const;
+      return "SQLite";
+    case "mssql":
+      return "MSSQL";
     default:
-      return "PostgreSQL" as const;
+      return "PostgreSQL";
   }
 }
 
@@ -32,6 +34,10 @@ export function createSqlAutocomplete(config: AutocompleteConfig): Extension {
   const dbType = dialectToDbType(dialect);
   const parser = new SqlQueryParser();
 
+  // Set connection context for cache
+  schemaCache.setConnection(connectionId);
+
+  // Create our improved contextual source
   const contextual = createContextualCompletionSource({
     connectionId,
     dbType,
@@ -39,10 +45,19 @@ export function createSqlAutocomplete(config: AutocompleteConfig): Extension {
   });
 
   return autocompletion({
-    override: [contextual, keywordCompletionSource, snippetsCompletionSource],
+    override: [contextual],
     activateOnTyping: true,
     maxRenderedOptions: 50,
+    defaultKeymap: true,
+    closeOnBlur: true,
+    icons: true,
+    tooltipClass: () => "cm-autocomplete-tooltip",
+    optionClass: (completion) => {
+      // Add CSS classes based on completion type
+      return `cm-completion-${completion.type || 'default'}`;
+    }
   });
 }
 
-export { startCompletion };
+// Export utilities
+export { startCompletion, schemaCache };

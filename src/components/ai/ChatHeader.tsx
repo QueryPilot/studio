@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Sparkles, Settings, Plus, ChevronDown } from "lucide-react";
+import { Sparkles, Settings, Plus, ChevronDown, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -25,12 +25,14 @@ interface ChatHeaderProps {
   selectedSession: AISession | null;
   onSessionChange: (session: AISession) => void;
   onSettingsClick?: () => void;
+  isBusy?: boolean;
 }
 
 export function ChatHeader({
   selectedSession,
   onSessionChange,
   onSettingsClick,
+  isBusy = false,
 }: ChatHeaderProps) {
   const [sessions, setSessions] = useState<AISession[]>([]);
   const [sessionOpen, setSessionOpen] = useState(false);
@@ -70,6 +72,9 @@ export function ChatHeader({
     <div className="flex items-center justify-between h-8 px-3 border-b">
       <div className="flex items-center gap-2">
         <Sparkles className="h-3.5 w-3.5 text-blue-500" />
+        {isBusy ? (
+          <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+        ) : null}
 
         {/* Session selector */}
         <Popover open={sessionOpen} onOpenChange={setSessionOpen}>

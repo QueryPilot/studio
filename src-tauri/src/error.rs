@@ -6,40 +6,40 @@ use thiserror::Error;
 pub enum AppError {
     #[error("Not found: {0}")]
     NotFound(String),
-    
+
     #[error("Connection closed: {0}")]
     ConnectionClosed(String),
-    
+
     #[error("Safe mode blocked: {0}")]
     SafeBlocked(String),
-    
+
     #[error("SQL syntax error: {0}")]
     SqlSyntax(String),
-    
+
     #[error("Timeout: {0}")]
     Timeout(String),
-    
+
     #[error("Database driver error: {0}")]
     Driver(String),
-    
+
     #[error("IO error: {0}")]
     Io(String),
-    
+
     #[error("SSH error: {0}")]
     Ssh(String),
-    
+
     #[error("Crypto error: {0}")]
     Crypto(String),
-    
+
     #[error("Internal error: {0}")]
     Internal(String),
-    
+
     #[error("Unsupported: {0}")]
     Unsupported(String),
-    
+
     #[error("Invalid input: {0}")]
     InvalidInput(String),
-    
+
     #[error("Parse error: {0}")]
     ParseError(String),
 }
@@ -62,23 +62,23 @@ impl AppError {
             AppError::ParseError(_) => "E_PARSE_ERROR",
         }
     }
-    
+
     pub fn not_found(msg: impl Into<String>) -> Self {
         AppError::NotFound(msg.into())
     }
-    
+
     pub fn sql_error(err: impl std::error::Error) -> Self {
         AppError::SqlSyntax(err.to_string())
     }
-    
+
     pub fn driver_error(err: impl std::error::Error) -> Self {
         AppError::Driver(err.to_string())
     }
-    
+
     pub fn internal(msg: impl Into<String>) -> Self {
         AppError::Internal(msg.into())
     }
-    
+
     pub fn unsupported(msg: impl Into<String>) -> Self {
         AppError::Unsupported(msg.into())
     }

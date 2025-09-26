@@ -50,7 +50,7 @@ export const IndexUsageCell = memo(function IndexUsageCell({
           <div className="font-semibold text-sm mb-2">
             Index Usage Statistics
           </div>
-          {stats.scan_count !== undefined && (
+          {!!stats.scan_count && (
             <div className="text-xs flex justify-between gap-4">
               <span className="text-muted-foreground">Scans:</span>
               <span className="font-mono">
@@ -58,13 +58,15 @@ export const IndexUsageCell = memo(function IndexUsageCell({
               </span>
             </div>
           )}
-          {stats.last_used && (
+          {!!stats.last_used && (
             <div className="text-xs flex justify-between gap-4">
               <span className="text-muted-foreground">Last Used:</span>
-              <span className="font-mono">{formatTimeAgo(stats.last_used)}</span>
+              <span className="font-mono">
+                {formatTimeAgo(stats.last_used)}
+              </span>
             </div>
           )}
-          {stats.rows_read !== undefined && (
+          {!!stats.rows_read && (
             <div className="text-xs flex justify-between gap-4">
               <span className="text-muted-foreground">Rows Read:</span>
               <span className="font-mono">
@@ -72,7 +74,7 @@ export const IndexUsageCell = memo(function IndexUsageCell({
               </span>
             </div>
           )}
-          {stats.cache_hit_ratio !== undefined && (
+          {!!stats.cache_hit_ratio && (
             <div className="text-xs flex justify-between gap-4">
               <span className="text-muted-foreground">Cache Hit:</span>
               <span className="font-mono">
@@ -80,7 +82,7 @@ export const IndexUsageCell = memo(function IndexUsageCell({
               </span>
             </div>
           )}
-          {stats.efficiency_score !== undefined && (
+          {!!stats.efficiency_score && (
             <div className="text-xs flex justify-between gap-4">
               <span className="text-muted-foreground">Efficiency:</span>
               <span className="font-mono">{stats.efficiency_score}/100</span>

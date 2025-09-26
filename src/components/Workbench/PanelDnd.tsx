@@ -291,12 +291,12 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
   return (
     <div
       className={cn(
-        "panel flex flex-col bg-background h-full overflow-hidden relative border border-border ",
+        "panel flex flex-col bg-background h-full overflow-hidden relative rounded-lg",
         className,
       )}
       onClick={handleClick}
     >
-      <div className="panel-header flex items-center justify-between bg-muted/20 border-b">
+      <div className="panel-header flex items-center justify-between">
         <div className="flex-1 overflow-x-auto relative scrollbar-none">
           <div ref={tabsContainerRef} className="flex items-center relative">
             {content.tabIds.map((tabId, index) => {

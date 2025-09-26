@@ -279,12 +279,7 @@ Include:
   "model": "claude-3.7-sonnet",
   "maxTokens": 8000,
   "prompt": "agents/sql-expert.md",
-  "tools": [
-    "execute-query",
-    "explain-plan",
-    "analyze-statistics",
-    "suggest-indexes"
-  ],
+  "notes": "Tool integrations deferred",
   "context": {
     "includeSchema": true,
     "includeStatistics": true,
@@ -327,12 +322,7 @@ Always:
   "model": "claude-3.7-sonnet",
   "maxTokens": 8000,
   "prompt": "agents/schema-architect.md",
-  "tools": [
-    "analyze-schema",
-    "generate-ddl",
-    "create-migration",
-    "validate-constraints"
-  ]
+  "notes": "Tool integrations deferred"
 }
 ```
 
@@ -346,12 +336,7 @@ Always:
   "model": "claude-3.7-sonnet",
   "maxTokens": 5000,
   "prompt": "agents/performance-analyst.md",
-  "tools": [
-    "profile-query",
-    "analyze-execution-plan",
-    "monitor-locks",
-    "suggest-optimizations"
-  ]
+  "notes": "Tool integrations deferred"
 }
 ```
 
@@ -365,18 +350,13 @@ Always:
   "model": "claude-3.7-sonnet",
   "maxTokens": 3000,
   "prompt": "agents/data-guardian.md",
-  "tools": [
-    "validate-operation",
-    "check-constraints",
-    "generate-rollback",
-    "assess-risk"
-  ]
+  "notes": "Tool integrations deferred"
 }
 ```
 
-### 4.5 DevDB Agent (MCP-enabled)
+### 4.5 DevDB Agent
 
-**Purpose**: Read-only database reasoning with on-demand schema/data via MCP tools
+**Purpose**: Read-only database reasoning with native DevDB context injection
 
 ```json
 {
@@ -384,16 +364,7 @@ Always:
   "model": "claude-3.7-sonnet",
   "maxTokens": 8000,
   "prompt": "agents/devdb-agent.md",
-  "tools": [
-    "devdb.get-schemas",
-    "devdb.get-tables",
-    "devdb.get-columns",
-    "devdb.get-indexes",
-    "devdb.get-views",
-    "devdb.get-functions",
-    "devdb.get-object-definition",
-    "devdb.execute-select"
-  ],
+  "notes": "Tool integrations deferred; relies on UI-provided context",
   "context": {
     "includeSchema": true,
     "includeQueryHistory": true,
@@ -410,21 +381,9 @@ You are the DevDB Agent. Your job is to answer database questions accurately.
 Rules:
 
 - Operate in read-only mode. Never generate or execute DDL/DML.
-- When unsure, call MCP tools to fetch schema or sample rows before concluding.
 - On `@tableName` mentions, fetch columns and indexes for that table.
 - Prefer precise, executable outputs over verbose prose.
 - When outputting code (SQL/JS/TS), return exactly one block wrapped in <devdb_executable>...</devdb_executable> with no commentary inside. Place explanations outside the tags.
-
-Tools:
-
-- devdb.get-schemas(database)
-- devdb.get-tables(schema)
-- devdb.get-columns(schema, table)
-- devdb.get-indexes(table)
-- devdb.get-views(schema)
-- devdb.get-functions(schema)
-- devdb.get-object-definition(database, schema, objectName, objectType)
-- devdb.execute-select(sql, limit=1000) — SELECT-only, single statement
 
 Behavior:
 
@@ -433,7 +392,9 @@ Behavior:
 - Provide short reasoning and explicit assumptions.
 ```
 
-## 5. Tool Integration Architecture
+## 5. Tool Integration Architecture (Deferred)
+
+> Tooling support has been removed in the current iteration. The subsections below remain as design references only and are not wired into the product.
 
 ### 5.1 Database Query Execution Tool
 
@@ -578,6 +539,8 @@ interface DevdbExecuteSelectTool {
 
 ### 5.6 Tool-Calling Protocol (Chat)
 
+> Reference design only; the runtime currently ignores tool-call payloads.
+
 - Assistant requests a tool by emitting a fenced JSON object (no prose inside):
 
 ```json
@@ -601,46 +564,77 @@ interface DevdbExecuteSelectTool {
 }
 ```
 
-- On `@tableName` in user input, the client prefetches `devdb.get-columns` and `devdb.get-indexes` and injects a short context block before sending the prompt.
+- On each user message, the client appends a `<metadata>` block that contains connection details and a JSON array of table schemas (columns, enum values, primary/foreign keys, indexes, triggers). The block is added to the prompt payload only; it is not rendered in the chat transcript.
+
+### 5.7 Configuration Seeding & Versioning
+
+- The Tauri command `ai_init_opencode_configs` pre-populates `AGENTS.md` and command templates inside `<devdb_home>/.config/opencode` before the OpenCode sidecar launches.
+- `config.json` now registers every DevDB command template under the `command` map so the sidecar exposes them through `/command`.
+- A manifest `devdb-opencode-config.json` captures the current config version so rewrites happen only when files are missing or the requested version changes.
+- When configs refresh, the React side clears cached OpenCode client/server handles to guarantee new chat sessions use the latest prompts, commands, and agents.
+
+### 5.8 Command Launcher UX
+
+- The Chat Assistant surfaces the custom command catalog inline: typing `/` opens a filtered suggestion list, aligning the UX with `@` table mentions.
+- Selecting a command inserts the `/command` token into the composer and, when required, opens an inline form to collect template variables before dispatching `session.command` with JSON arguments.
+- After execution, the assistant stream is reloaded from history; any tool-call JSON is ignored while tooling remains disabled.
+
+### 5.9 Specialized Agents
+
+- Config seeding now writes dedicated prompts under `agents/` for `sql-expert`, `schema-architect`, `performance-analyst`, `data-guardian`, and the default `devdb-agent`.
+- `config.json` registers each agent prompt and description (tool whitelists were removed when tooling was de-scoped).
+- The desktop Chat header exposes an agent selector (desktop only) that persists via the AI store; message dispatch includes the chosen agent ID so downstream tool calls inherit the same persona.
+
+### 5.10 Tool Catalog (Removed)
+
+- Tool manifest generation (`tools/devdb-tools.json`) has been removed; no tool definitions are written or mirrored into OpenCode config homes.
+- The chat assistant ignores tool-call payloads until a future phase reintroduces execution support.
+
+### 5.11 UI Enhancements
+
+- The chat header shows a subtle spinner while prompts or command runs are in-flight, giving immediate status feedback.
+- The global command palette exposes AI-centric commands (open assistant panel, focus composer, launch command runner) that fire custom events consumed by the chat input.
+- Chat input listens for `devdb-ai-focus` and `devdb-ai-open-commands` events so other surfaces (e.g., palette, shortcuts) can steer AI workflows.
+- Outbound prompts are logged (with metadata included) to aid debugging, while the UI continues to display only the user's original message.
 
 ## 6. Implementation Plan
 
 ### 6.1 Phase 1: Core Integration (Week 1-2)
 
 - [x] Set up OpenCode server communication
-- [ ] Implement basic AGENTS.md injection
-- [ ] Create initial custom commands
+- [x] Implement basic AGENTS.md injection
+- [x] Create initial custom commands
 - [x] Test API connectivity
 
 ### 6.2 Phase 2: Custom Commands (Week 3-4)
 
-- [ ] Develop query generation commands
-- [ ] Implement schema analysis commands
-- [ ] Create performance optimization commands
-- [ ] Add data safety commands
+- [x] Develop query generation commands
+- [x] Implement schema analysis commands
+- [x] Create performance optimization commands
+- [x] Add data safety commands
 
 ### 6.3 Phase 3: Specialized Agents (Week 5-6)
 
-- [ ] Configure SQL Expert agent
-- [ ] Set up Schema Architect agent
-- [ ] Implement Performance Analyst agent
-- [ ] Deploy Data Guardian agent
+- [x] Configure SQL Expert agent
+- [x] Set up Schema Architect agent
+- [x] Implement Performance Analyst agent
+- [x] Deploy Data Guardian agent
 
 ### 6.4 Phase 4: Tool Development (Week 7-8)
 
-- [ ] Build query execution tool
-- [ ] Create schema introspection tool
-- [ ] Implement query plan analyzer
-- [ ] Develop index recommendation tool
+- [ ] Build query execution tool _(deferred)_
+- [ ] Create schema introspection tool _(deferred)_
+- [ ] Implement query plan analyzer _(deferred)_
+- [ ] Develop index recommendation tool _(deferred)_
 - [ ] Ship Rust MCP server `devdb-mcp` exposing read-only DevDB tools
-- [ ] Add chat-side tool-call bridge (detect JSON tool calls, execute, stream back)
+- [ ] Add chat-side tool-call bridge (detect JSON tool calls, execute, stream back) _(deferred)_
 
 ### 6.5 Phase 5: UI Integration (Week 9-10)
 
 - [x] Integrate chat interface with OpenCode
-- [ ] Add context injection from current view
-- [ ] Implement command palette integration
-- [ ] Create visual feedback for AI operations
+- [x] Add context injection from current view
+- [x] Implement command palette integration
+- [x] Create visual feedback for AI operations
 
 ### 6.6 Phase 6: Testing & Optimization (Week 11-12)
 

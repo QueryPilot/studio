@@ -135,9 +135,12 @@ export const QueryPanel = memo(function QueryPanel({
 
   const handleExecute = useCallback(
     async (queryToExecute?: string) => {
-      const sql = queryToExecute || query;
+      let sql = queryToExecute || query;
 
-      if (!sql.trim()) {
+      // Clean up the SQL - remove trailing semicolons as they cause issues
+      sql = sql.trim().replace(/;\s*$/, '');
+
+      if (!sql) {
         toast.error("Please enter a query to execute");
         return;
       }
@@ -275,12 +278,7 @@ export const QueryPanel = memo(function QueryPanel({
     toast.success("Query formatted");
   }, [query, persistSql]);
 
-  // Register keyboard shortcuts using the new system
-  useShortcut("cmd+enter", handleExecute, {
-    when: "queryEditor.focus && !isExecuting && query",
-    preventDefault: true,
-    description: "Execute query",
-  });
+  // Removed cmd+enter shortcut - now handled directly by CodeMirror editor
 
   useShortcut("alt+f", handleBeautify, {
     when: "queryEditor.focus && query",

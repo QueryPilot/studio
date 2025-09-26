@@ -22,29 +22,31 @@ fn test_profile() -> ConnectionProfile {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut adapter = PostgresAdapter::new();
     let profile = test_profile();
-    
+
     println!("Connecting...");
     adapter.connect(&profile).await?;
-    
+
     println!("Opening simple query...");
     let handle = adapter.open_query("SELECT 1 as test_col").await?;
     println!("Query opened successfully: {:?}", handle.id);
-    
+
     println!("Fetching page...");
     let chunk = adapter.fetch_page(&handle, 1).await?;
     println!("Fetched {} rows", chunk.rows.len());
-    
+
     println!("Now testing array query...");
-    let handle2 = adapter.open_query("SELECT collaborator_ids FROM todos WHERE collaborator_ids IS NOT NULL LIMIT 1").await?;
+    let handle2 = adapter
+        .open_query("SELECT collaborator_ids FROM todos WHERE collaborator_ids IS NOT NULL LIMIT 1")
+        .await?;
     println!("Array query opened successfully: {:?}", handle2.id);
-    
+
     println!("Fetching array page...");
     let chunk2 = adapter.fetch_page(&handle2, 1).await?;
     println!("Fetched {} array rows", chunk2.rows.len());
-    
+
     println!("Disconnecting...");
     adapter.disconnect().await?;
     println!("Done!");
-    
+
     Ok(())
 }

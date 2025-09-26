@@ -1,10 +1,10 @@
-use tokio_postgres::Client;
 use std::sync::Arc;
+use tokio_postgres::Client;
 
+use super::parser::quote_index_definition;
+use super::types::PostgresTypeConverter;
 use crate::error::{AppError, Result};
 use crate::types::*;
-use super::types::PostgresTypeConverter;
-use super::parser::quote_index_definition;
 
 pub struct PostgresIntrospector {
     client: Arc<Client>,
@@ -14,7 +14,7 @@ impl PostgresIntrospector {
     pub fn new(client: Arc<Client>) -> Self {
         Self { client }
     }
-    
+
     /// Convert PostgreSQL type names to their shorthand forms
     fn format_type_shorthand(type_name: &str) -> String {
         // Replace common verbose type names with their shorthand equivalents
@@ -39,10 +39,10 @@ impl PostgresIntrospector {
             .replace("TIMESTAMP WITHOUT TIME ZONE", "TIMESTAMP")
             .replace("timestamp with time zone", "timestamptz")
             .replace("TIMESTAMP WITH TIME ZONE", "TIMESTAMPTZ");
-        
+
         result
     }
-    
+
     pub async fn get_databases(&self) -> Result<Vec<Database>> {
         let sql = r#"
             SELECT 
@@ -55,22 +55,23 @@ impl PostgresIntrospector {
             WHERE datistemplate = false
             ORDER BY datname
         "#;
-        
+
         let rows = self.client.query(sql, &[]).await?;
-        
-        let databases = rows.iter().map(|row| {
-            Database {
+
+        let databases = rows
+            .iter()
+            .map(|row| Database {
                 name: row.get(0),
                 owner: row.get(1),
                 encoding: row.get(2),
                 collation: row.get(3),
                 size: row.get(4),
-            }
-        }).collect();
-        
+            })
+            .collect();
+
         Ok(databases)
     }
-    
+
     pub async fn get_schemas(&self) -> Result<Vec<Schema>> {
         let sql = r#"
             SELECT 
@@ -82,19 +83,20 @@ impl PostgresIntrospector {
                 AND nspname NOT LIKE 'pg_toast_temp_%'
             ORDER BY nspname
         "#;
-        
+
         let rows = self.client.query(sql, &[]).await?;
-        
-        let schemas = rows.iter().map(|row| {
-            Schema {
+
+        let schemas = rows
+            .iter()
+            .map(|row| Schema {
                 name: row.get(0),
                 owner: row.get(1),
-            }
-        }).collect();
-        
+            })
+            .collect();
+
         Ok(schemas)
     }
-    
+
     pub async fn get_tables(&self, schema: &str) -> Result<Vec<Table>> {
         let sql = r#"
             SELECT 
@@ -116,31 +118,34 @@ impl PostgresIntrospector {
                 AND c.relkind IN ('r', 'p', 'f')
             ORDER BY c.relname
         "#;
-        
+
         let rows = self.client.query(sql, &[&schema]).await?;
-        
-        let tables = rows.iter().map(|row| {
-            let kind_str: String = row.get(2);
-            let kind = match kind_str.as_str() {
-                "partitioned" => TableKind::Partitioned,
-                "foreign" => TableKind::Foreign,
-                _ => TableKind::Regular,
-            };
-            
-            Table {
-                schema: row.get(0),
-                name: row.get(1),
-                kind,
-                owner: row.get(3),
-                size: row.get(4),
-                row_count: Some(row.get::<_, i64>(5)),
-                comment: row.get(6),
-            }
-        }).collect();
-        
+
+        let tables = rows
+            .iter()
+            .map(|row| {
+                let kind_str: String = row.get(2);
+                let kind = match kind_str.as_str() {
+                    "partitioned" => TableKind::Partitioned,
+                    "foreign" => TableKind::Foreign,
+                    _ => TableKind::Regular,
+                };
+
+                Table {
+                    schema: row.get(0),
+                    name: row.get(1),
+                    kind,
+                    owner: row.get(3),
+                    size: row.get(4),
+                    row_count: Some(row.get::<_, i64>(5)),
+                    comment: row.get(6),
+                }
+            })
+            .collect();
+
         Ok(tables)
     }
-    
+
     pub async fn get_views(&self, schema: &str) -> Result<Vec<View>> {
         let sql = r#"
             SELECT 
@@ -156,23 +161,24 @@ impl PostgresIntrospector {
                 AND c.relkind IN ('v', 'm')
             ORDER BY c.relname
         "#;
-        
+
         let rows = self.client.query(sql, &[&schema]).await?;
-        
-        let views = rows.iter().map(|row| {
-            View {
+
+        let views = rows
+            .iter()
+            .map(|row| View {
                 schema: row.get(0),
                 name: row.get(1),
                 owner: row.get(2),
                 definition: row.get(3),
                 is_materialized: row.get(4),
                 comment: row.get(5),
-            }
-        }).collect();
-        
+            })
+            .collect();
+
         Ok(views)
     }
-    
+
     pub async fn get_functions(&self, schema: &str) -> Result<Vec<Function>> {
         let sql = r#"
             SELECT DISTINCT ON (n.nspname, p.proname, pg_get_function_identity_arguments(p.oid))
@@ -192,26 +198,29 @@ impl PostgresIntrospector {
                 AND n.nspname NOT IN ('pg_catalog', 'information_schema')
             ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid)
         "#;
-        
+
         let rows = self.client.query(sql, &[&schema]).await?;
-        
-        let functions = rows.iter().map(|row| {
-            Function {
+
+        let functions = rows
+            .iter()
+            .map(|row| Function {
                 schema: row.get(0),
                 name: row.get(1),
                 arguments: row.get(2),
-                return_type: row.try_get::<_, String>(3).unwrap_or_else(|_| "void".to_string()),
+                return_type: row
+                    .try_get::<_, String>(3)
+                    .unwrap_or_else(|_| "void".to_string()),
                 language: row.get(4),
                 is_aggregate: row.get(5),
                 is_window: row.get(6),
                 is_trigger: row.get(7),
                 source: row.get(8),
-            }
-        }).collect();
-        
+            })
+            .collect();
+
         Ok(functions)
     }
-    
+
     pub async fn get_indexes(&self, table: &str) -> Result<Vec<Index>> {
         let sql = r#"
             SELECT
@@ -260,20 +269,23 @@ impl PostgresIntrospector {
 
         let rows = self.client.query(sql, &[&table]).await?;
 
-        let indexes = rows.iter().map(|row| {
-            let columns: Vec<String> = row.get(2);
+        let indexes = rows
+            .iter()
+            .map(|row| {
+                let columns: Vec<String> = row.get(2);
 
-            Index {
-                name: row.get(0),
-                table_name: row.get(1),
-                columns,
-                is_unique: row.get(3),
-                is_primary: row.get(4),
-                is_partial: row.get(5),
-                definition: row.get(6),
-                is_foreign_key: row.get(7),
-            }
-        }).collect();
+                Index {
+                    name: row.get(0),
+                    table_name: row.get(1),
+                    columns,
+                    is_unique: row.get(3),
+                    is_primary: row.get(4),
+                    is_partial: row.get(5),
+                    definition: row.get(6),
+                    is_foreign_key: row.get(7),
+                }
+            })
+            .collect();
 
         Ok(indexes)
     }
@@ -346,49 +358,56 @@ impl PostgresIntrospector {
         let rows = self.client.query(sql, &[&table]).await?;
 
         // Debug logging
-        println!("Index usage stats query for table '{}' returned {} rows", table, rows.len());
+        println!(
+            "Index usage stats query for table '{}' returned {} rows",
+            table,
+            rows.len()
+        );
 
-        let stats = rows.iter().map(|row| {
-            let scan_count: Option<i64> = row.get(1);
-            let rows_read: Option<i64> = row.get(2);
+        let stats = rows
+            .iter()
+            .map(|row| {
+                let scan_count: Option<i64> = row.get(1);
+                let rows_read: Option<i64> = row.get(2);
 
-            // Calculate efficiency score (0-100)
-            let efficiency_score = match (scan_count, rows_read) {
-                (Some(scans), Some(reads)) if scans > 0 => {
-                    // Higher score for more scans and better read ratio
-                    let scan_score = (scans.min(10000) as f64 / 10000.0 * 50.0) as i32;
-                    let read_efficiency = if reads > 0 {
-                        ((scans as f64 / reads as f64).min(1.0) * 50.0) as i32
-                    } else {
-                        50
-                    };
-                    Some(scan_score + read_efficiency)
-                },
-                (Some(0), _) => Some(0), // Unused index
-                _ => None,
-            };
+                // Calculate efficiency score (0-100)
+                let efficiency_score = match (scan_count, rows_read) {
+                    (Some(scans), Some(reads)) if scans > 0 => {
+                        // Higher score for more scans and better read ratio
+                        let scan_score = (scans.min(10000) as f64 / 10000.0 * 50.0) as i32;
+                        let read_efficiency = if reads > 0 {
+                            ((scans as f64 / reads as f64).min(1.0) * 50.0) as i32
+                        } else {
+                            50
+                        };
+                        Some(scan_score + read_efficiency)
+                    }
+                    (Some(0), _) => Some(0), // Unused index
+                    _ => None,
+                };
 
-            let last_used = if has_last_idx_scan {
-                row.get::<_, Option<chrono::NaiveDateTime>>(8)
-                    .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S.%fZ").to_string())
-            } else {
-                None
-            };
+                let last_used = if has_last_idx_scan {
+                    row.get::<_, Option<chrono::NaiveDateTime>>(8)
+                        .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S.%fZ").to_string())
+                } else {
+                    None
+                };
 
-            IndexUsageStats {
-                index_name: row.get(0),
-                scan_count: row.get(1),
-                rows_read: row.get(2),
-                rows_returned: row.get(3),
-                last_accessed: None, // Legacy field, kept for compatibility
-                last_used, // New field for PG16+ last_idx_scan
-                cache_hit_ratio: row.get(7),
-                size_pretty: row.get(4),
-                size_bytes: row.get(5),
-                is_unused: row.get(6),
-                efficiency_score,
-            }
-        }).collect();
+                IndexUsageStats {
+                    index_name: row.get(0),
+                    scan_count: row.get(1),
+                    rows_read: row.get(2),
+                    rows_returned: row.get(3),
+                    last_accessed: None, // Legacy field, kept for compatibility
+                    last_used,           // New field for PG16+ last_idx_scan
+                    cache_hit_ratio: row.get(7),
+                    size_pretty: row.get(4),
+                    size_bytes: row.get(5),
+                    is_unused: row.get(6),
+                    efficiency_score,
+                }
+            })
+            .collect();
 
         Ok(stats)
     }
@@ -421,32 +440,35 @@ impl PostgresIntrospector {
             WHERE t.relname = $1
             ORDER BY con.conname
         "#;
-        
+
         let rows = self.client.query(sql, &[&table]).await?;
-        
-        let constraints = rows.iter().map(|row| {
-            let type_str: String = row.get(2);
-            let constraint_type = match type_str.as_str() {
-                "PRIMARY KEY" => ConstraintType::PrimaryKey,
-                "FOREIGN KEY" => ConstraintType::ForeignKey,
-                "UNIQUE" => ConstraintType::Unique,
-                "CHECK" => ConstraintType::Check,
-                "EXCLUSION" => ConstraintType::Exclusion,
-                _ => ConstraintType::Check,
-            };
-            
-            Constraint {
-                name: row.get(0),
-                table_name: row.get(1),
-                constraint_type,
-                definition: row.get(3),
-                foreign_table: row.get(4),
-            }
-        }).collect();
-        
+
+        let constraints = rows
+            .iter()
+            .map(|row| {
+                let type_str: String = row.get(2);
+                let constraint_type = match type_str.as_str() {
+                    "PRIMARY KEY" => ConstraintType::PrimaryKey,
+                    "FOREIGN KEY" => ConstraintType::ForeignKey,
+                    "UNIQUE" => ConstraintType::Unique,
+                    "CHECK" => ConstraintType::Check,
+                    "EXCLUSION" => ConstraintType::Exclusion,
+                    _ => ConstraintType::Check,
+                };
+
+                Constraint {
+                    name: row.get(0),
+                    table_name: row.get(1),
+                    constraint_type,
+                    definition: row.get(3),
+                    foreign_table: row.get(4),
+                }
+            })
+            .collect();
+
         Ok(constraints)
     }
-    
+
     pub async fn get_table_columns(&self, schema: &str, table: &str) -> Result<Vec<ColumnMeta>> {
         let sql = r#"
             SELECT
@@ -476,24 +498,27 @@ impl PostgresIntrospector {
 
         let rows = self.client.query(sql, &[&schema, &table]).await?;
 
-        let columns = rows.iter().map(|row| {
-            let type_oid: u32 = row.get(2);
+        let columns = rows
+            .iter()
+            .map(|row| {
+                let type_oid: u32 = row.get(2);
 
-            ColumnMeta {
-                name: row.get(0),
-                data_type: PostgresTypeConverter::oid_to_cell_type(type_oid),
-                nullable: row.get(3),
-                primary_key: row.get(4),
-                db_type: row.get(1),
-                type_oid: Some(type_oid),
-                default_value: row.get(5),
-                comment: row.get(6),
-            }
-        }).collect();
+                ColumnMeta {
+                    name: row.get(0),
+                    data_type: PostgresTypeConverter::oid_to_cell_type(type_oid),
+                    nullable: row.get(3),
+                    primary_key: row.get(4),
+                    db_type: row.get(1),
+                    type_oid: Some(type_oid),
+                    default_value: row.get(5),
+                    comment: row.get(6),
+                }
+            })
+            .collect();
 
         Ok(columns)
     }
-    
+
     pub async fn get_triggers(&self, schema: &str, table: &str) -> Result<Vec<Trigger>> {
         let sql = r#"
             SELECT 
@@ -542,63 +567,78 @@ impl PostgresIntrospector {
             GROUP BY t.tgname, n.nspname, c.relname, t.tgtype, t.tgenabled, p.proname, t.oid
             ORDER BY t.tgname
         "#;
-        
+
         let rows = self.client.query(sql, &[&schema, &table]).await?;
-        
-        let triggers = rows.iter().map(|row| {
-            let definition: String = row.get(8);  // definition is at index 8, not 9
-            let condition = if definition.contains("WHEN") {
-                definition.split("WHEN").nth(1).map(|s| s.trim().to_string())
-            } else {
-                None
-            };
-            
-            Trigger {
-                name: row.get(0),
-                schema: row.get(1),
-                table_name: row.get(2),
-                event: row.get(3),
-                timing: row.get(4),
-                level: row.get(5),
-                enabled: row.get(6),
-                function: row.get(7),
-                condition,
-            }
-        }).collect();
-        
+
+        let triggers = rows
+            .iter()
+            .map(|row| {
+                let definition: String = row.get(8); // definition is at index 8, not 9
+                let condition = if definition.contains("WHEN") {
+                    definition
+                        .split("WHEN")
+                        .nth(1)
+                        .map(|s| s.trim().to_string())
+                } else {
+                    None
+                };
+
+                Trigger {
+                    name: row.get(0),
+                    schema: row.get(1),
+                    table_name: row.get(2),
+                    event: row.get(3),
+                    timing: row.get(4),
+                    level: row.get(5),
+                    enabled: row.get(6),
+                    function: row.get(7),
+                    condition,
+                }
+            })
+            .collect();
+
         Ok(triggers)
     }
-    
-    pub async fn get_object_definition(&self, schema: &str, object_name: &str, object_type: &str) -> Result<String> {
+
+    pub async fn get_object_definition(
+        &self,
+        schema: &str,
+        object_name: &str,
+        object_type: &str,
+    ) -> Result<String> {
         let definition = match object_type.to_lowercase().as_str() {
             "table" => {
                 // Get table definition
                 self.get_table_definition(schema, object_name).await?
-            },
+            }
             "view" => {
                 // Get view definition
                 self.get_view_definition(schema, object_name).await?
-            },
+            }
             "materialized_view" | "materializedview" => {
                 // Get materialized view definition
-                self.get_materialized_view_definition(schema, object_name).await?
-            },
+                self.get_materialized_view_definition(schema, object_name)
+                    .await?
+            }
             "function" => {
                 // Get function definition
                 self.get_function_definition(schema, object_name).await?
-            },
+            }
             "procedure" => {
                 // Get procedure definition
                 self.get_procedure_definition(schema, object_name).await?
-            },
+            }
             _ => {
-                return Err(AppError::Unsupported(format!("Unsupported object type: {}", object_type)));
+                return Err(AppError::Unsupported(format!(
+                    "Unsupported object type: {}",
+                    object_type
+                )));
             }
         };
-        
+
         Ok(definition)
     }
-    
+
     async fn get_table_definition(&self, schema: &str, table_name: &str) -> Result<String> {
         // Get table columns using pg_catalog for accurate type names
         let columns_sql = r#"
@@ -625,11 +665,14 @@ impl PostgresIntrospector {
                 AND NOT a.attisdropped
             ORDER BY a.attnum
         "#;
-        
-        let columns = self.client.query(columns_sql, &[&schema, &table_name]).await?;
-        
+
+        let columns = self
+            .client
+            .query(columns_sql, &[&schema, &table_name])
+            .await?;
+
         let mut definition = format!("CREATE TABLE \"{}\".\"{}\" (\n", schema, table_name);
-        
+
         for (i, row) in columns.iter().enumerate() {
             let col_name: String = row.get(0);
             let data_type: String = row.get(1);
@@ -637,39 +680,43 @@ impl PostgresIntrospector {
             let column_default: Option<String> = row.get(3);
             let _base_type_name: String = row.get(4);
             let type_category: Option<String> = row.get(5);
-            
+
             definition.push_str(&format!("    \"{}\" ", col_name));
-            
+
             // Convert to shorthand and uppercase
             let formatted_type = Self::format_type_shorthand(&data_type);
             definition.push_str(&formatted_type.to_uppercase());
-            
+
             // Add NOT NULL
             if !is_nullable {
                 definition.push_str(" NOT NULL");
             }
-            
+
             // Add default
             if let Some(default) = column_default {
                 definition.push_str(&format!(" DEFAULT {}", default));
             }
-            
+
             if i < columns.len() - 1 {
                 definition.push_str(",\n");
             }
-            
+
             // If this is a custom type (enum, domain, composite), we'll add its definition later
             if type_category.is_some() {
                 // TODO: Add custom type definitions as comments or separate CREATE TYPE statements
             }
         }
-        
+
         definition.push_str("\n);\n\n");
-        
+
         // Get indexes
-        let indexes_sql = "SELECT indexdef FROM pg_indexes WHERE schemaname = $1 AND tablename = $2";
-        let indexes = self.client.query(indexes_sql, &[&schema, &table_name]).await?;
-        
+        let indexes_sql =
+            "SELECT indexdef FROM pg_indexes WHERE schemaname = $1 AND tablename = $2";
+        let indexes = self
+            .client
+            .query(indexes_sql, &[&schema, &table_name])
+            .await?;
+
         if !indexes.is_empty() {
             definition.push_str("-- Indexes\n");
             for row in indexes.iter() {
@@ -679,7 +726,7 @@ impl PostgresIntrospector {
             }
             definition.push_str("\n");
         }
-        
+
         // Get constraints
         let constraints_sql = r#"
             SELECT 
@@ -689,20 +736,25 @@ impl PostgresIntrospector {
             WHERE conrelid = ('"' || $1 || '"."' || $2 || '"')::regclass
                 AND contype IN ('f', 'c', 'u')
         "#;
-        
-        let constraints = self.client.query(constraints_sql, &[&schema, &table_name]).await?;
-        
+
+        let constraints = self
+            .client
+            .query(constraints_sql, &[&schema, &table_name])
+            .await?;
+
         if !constraints.is_empty() {
             definition.push_str("-- Constraints\n");
             for row in constraints.iter() {
                 let conname: String = row.get(0);
                 let condef: String = row.get(1);
-                definition.push_str(&format!("ALTER TABLE \"{}\".\"{}\" ADD CONSTRAINT \"{}\" {};\n", 
-                    schema, table_name, conname, condef));
+                definition.push_str(&format!(
+                    "ALTER TABLE \"{}\".\"{}\" ADD CONSTRAINT \"{}\" {};\n",
+                    schema, table_name, conname, condef
+                ));
             }
             definition.push_str("\n");
         }
-        
+
         // Get custom type definitions used by this table
         let custom_types_sql = r#"
             SELECT DISTINCT 
@@ -730,38 +782,50 @@ impl PostgresIntrospector {
                 AND t.typtype IN ('e', 'd')  -- enum or domain types
                 AND n.nspname NOT IN ('pg_catalog', 'information_schema')
         "#;
-        
-        let custom_types = self.client.query(custom_types_sql, &[&schema, &table_name]).await?;
-        
+
+        let custom_types = self
+            .client
+            .query(custom_types_sql, &[&schema, &table_name])
+            .await?;
+
         if !custom_types.is_empty() {
             definition.push_str("-- Custom Types Used\n");
             for row in custom_types.iter() {
                 let type_name: String = row.get(0);
-                let type_type: i8 = row.get(1);  // PostgreSQL char type maps to i8
+                let type_type: i8 = row.get(1); // PostgreSQL char type maps to i8
                 let type_type_char = (type_type as u8) as char;
                 let type_schema: String = row.get(2);
                 let type_def: Option<String> = row.get(3);
-                
+
                 if type_type_char == 'e' {
                     // Enum type
                     if let Some(values) = type_def {
-                        definition.push_str(&format!("-- CREATE TYPE \"{}\".\"{}\" AS ENUM ({});\n", 
-                            type_schema, type_name, 
-                            values.split(", ").map(|v| format!("'{}'", v)).collect::<Vec<_>>().join(", ")));
+                        definition.push_str(&format!(
+                            "-- CREATE TYPE \"{}\".\"{}\" AS ENUM ({});\n",
+                            type_schema,
+                            type_name,
+                            values
+                                .split(", ")
+                                .map(|v| format!("'{}'", v))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ));
                     }
                 } else if type_type_char == 'd' {
                     // Domain type
                     if let Some(base_type) = type_def {
-                        definition.push_str(&format!("-- CREATE DOMAIN \"{}\".\"{}\" AS {};\n", 
-                            type_schema, type_name, base_type));
+                        definition.push_str(&format!(
+                            "-- CREATE DOMAIN \"{}\".\"{}\" AS {};\n",
+                            type_schema, type_name, base_type
+                        ));
                     }
                 }
             }
         }
-        
+
         Ok(definition)
     }
-    
+
     async fn get_view_definition(&self, schema: &str, view_name: &str) -> Result<String> {
         let sql = r#"
             SELECT pg_get_viewdef(c.oid, true)
@@ -769,38 +833,58 @@ impl PostgresIntrospector {
             JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'v'
         "#;
-        
+
         let rows = self.client.query(sql, &[&schema, &view_name]).await?;
-        
+
         if rows.is_empty() {
-            return Err(AppError::NotFound(format!("View {}.{} not found", schema, view_name)));
+            return Err(AppError::NotFound(format!(
+                "View {}.{} not found",
+                schema, view_name
+            )));
         }
-        
+
         let viewdef: String = rows[0].get(0);
-        Ok(format!("CREATE VIEW \"{}\".\"{}\" AS\n{}", schema, view_name, viewdef))
+        Ok(format!(
+            "CREATE VIEW \"{}\".\"{}\" AS\n{}",
+            schema, view_name, viewdef
+        ))
     }
-    
-    async fn get_materialized_view_definition(&self, schema: &str, view_name: &str) -> Result<String> {
+
+    async fn get_materialized_view_definition(
+        &self,
+        schema: &str,
+        view_name: &str,
+    ) -> Result<String> {
         let sql = r#"
             SELECT pg_get_viewdef(c.oid, true)
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'm'
         "#;
-        
+
         let rows = self.client.query(sql, &[&schema, &view_name]).await?;
-        
+
         if rows.is_empty() {
-            return Err(AppError::NotFound(format!("Materialized view {}.{} not found", schema, view_name)));
+            return Err(AppError::NotFound(format!(
+                "Materialized view {}.{} not found",
+                schema, view_name
+            )));
         }
-        
+
         let viewdef: String = rows[0].get(0);
-        let mut definition = format!("CREATE MATERIALIZED VIEW \"{}\".\"{}\" AS\n{}", schema, view_name, viewdef);
-        
+        let mut definition = format!(
+            "CREATE MATERIALIZED VIEW \"{}\".\"{}\" AS\n{}",
+            schema, view_name, viewdef
+        );
+
         // Get indexes on materialized view
-        let indexes_sql = "SELECT indexdef FROM pg_indexes WHERE schemaname = $1 AND tablename = $2";
-        let indexes = self.client.query(indexes_sql, &[&schema, &view_name]).await?;
-        
+        let indexes_sql =
+            "SELECT indexdef FROM pg_indexes WHERE schemaname = $1 AND tablename = $2";
+        let indexes = self
+            .client
+            .query(indexes_sql, &[&schema, &view_name])
+            .await?;
+
         if !indexes.is_empty() {
             definition.push_str("\n\n-- Indexes\n");
             for row in indexes.iter() {
@@ -809,10 +893,10 @@ impl PostgresIntrospector {
                 definition.push_str(&format!("{};\n", quoted_indexdef));
             }
         }
-        
+
         Ok(definition)
     }
-    
+
     async fn get_function_definition(&self, schema: &str, function_name: &str) -> Result<String> {
         // Get function definition including signature
         let sql = r#"
@@ -823,17 +907,20 @@ impl PostgresIntrospector {
             WHERE n.nspname = $1 AND p.proname = $2
             LIMIT 1
         "#;
-        
+
         let rows = self.client.query(sql, &[&schema, &function_name]).await?;
-        
+
         if rows.is_empty() {
-            return Err(AppError::NotFound(format!("Function {}.{} not found", schema, function_name)));
+            return Err(AppError::NotFound(format!(
+                "Function {}.{} not found",
+                schema, function_name
+            )));
         }
-        
+
         let funcdef: String = rows[0].get(0);
         Ok(funcdef)
     }
-    
+
     async fn get_procedure_definition(&self, schema: &str, procedure_name: &str) -> Result<String> {
         // PostgreSQL 11+ procedures - same as functions but with different kind
         let sql = r#"
@@ -844,14 +931,14 @@ impl PostgresIntrospector {
             WHERE n.nspname = $1 AND p.proname = $2 AND p.prokind = 'p'
             LIMIT 1
         "#;
-        
+
         let rows = self.client.query(sql, &[&schema, &procedure_name]).await?;
-        
+
         if rows.is_empty() {
             // Try as function if procedure not found (for older PostgreSQL versions)
             return self.get_function_definition(schema, procedure_name).await;
         }
-        
+
         let procdef: String = rows[0].get(0);
         Ok(procdef)
     }
