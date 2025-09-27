@@ -428,6 +428,8 @@ class DatabaseService {
   getBackendConnectionId(localConnectionId: string): string {
     // First check if we have a mapped backend connection ID
     const backendId = this.connectionIdMap.get(localConnectionId);
+
+
     if (backendId) {
       return backendId;
     }

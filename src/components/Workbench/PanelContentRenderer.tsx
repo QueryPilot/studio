@@ -1,12 +1,19 @@
-import React, { useState, useRef, memo, useCallback, Suspense } from "react";
+import React, {
+  useState,
+  useRef,
+  memo,
+  useCallback,
+  Suspense,
+  useMemo,
+} from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Table, Bolt, BookMarked, Zap, Code, Copy } from "lucide-react";
-import { GlideTableDataGrid } from "@/components/DataGrid/glide/GlideTableDataGrid";
-import { TableStructure } from "@/components/DataGrid/TableStructure";
-import { TableIndexes } from "@/components/DataGrid/TableIndexes";
-import { TableTriggers } from "@/components/DataGrid/TableTriggers";
-import { ObjectDefinition } from "@/components/DataGrid/ObjectDefinition";
+import { TableDataGridV2 } from "@/components/DataGridV2";
+import { TableStructure } from "@/components/TableStructure";
+import { TableIndexes } from "@/components/TableIndexes";
+import { TableTriggers } from "@/components/TableTriggers";
+import { ObjectDefinition } from "@/components/ObjectDefinition";
 import { QueryPanel } from "@/components/QueryPanel";
 import { useConnectionStore } from "@/stores/connectionStore";
 import { Skeleton } from "../ui/skeleton";
@@ -71,7 +78,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
           connectionId={metadata?.connectionId || ""}
           database={metadata?.database || ""}
           schema={metadata?.schema}
-          dbType={metadata?.dbType}
+          dbType={metadata?.dbType || ""}
           className="h-full"
         />
       );
@@ -104,11 +111,20 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       );
     }
 
+    const tableGridId = useMemo(() => {
+      if (!metadata || metadata.type !== "table") return undefined;
+      const connection =
+        metadata.connectionId || activeConnectionId || "unknown";
+      const db = metadata.database || "";
+      const schemaName = metadata.schema || "public";
+      const tableName = metadata.table || "";
+      return `table:${connection}:${db}:${schemaName}:${tableName}`;
+    }, [activeConnectionId, metadata]);
+
     if (type === "table" && metadata) {
       const isView = metadata.isView || false;
       const isMaterializedView = metadata.kind === "MaterializedView";
       const isRegularView = isView && !isMaterializedView;
-      console.log(">>>", "metadata", metadata);
       return (
         <div className="flex flex-col h-full">
           {/* Table Toolbar */}
@@ -216,11 +232,12 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
             <Suspense fallback={<TabLoadingSkeleton />}>
               {/* Render all tab contents but only show the active one */}
               <div
-                className={`absolute inset-0 ${
+                className={`absolute inset-0 px-1 ${
                   activeView === "data" ? "block" : "hidden"
                 }`}
               >
-                <GlideTableDataGrid
+                <TableDataGridV2
+                  gridId={tableGridId ?? `table:${tabId}`}
                   connectionId={activeConnectionId || metadata.connectionId}
                   database={metadata.database}
                   schema={metadata.schema}
@@ -230,7 +247,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
               </div>
 
               <div
-                className={`absolute inset-0 ${
+                className={`absolute inset-0 px-1 ${
                   activeView === "structure" ? "block" : "hidden"
                 }`}
               >
@@ -239,12 +256,16 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                   database={metadata.database}
                   schema={metadata.schema}
                   table={metadata.table}
-                  onActionsChange={activeView === "structure" ? handleViewActionsChange : undefined}
+                  onActionsChange={
+                    activeView === "structure"
+                      ? handleViewActionsChange
+                      : undefined
+                  }
                 />
               </div>
 
               <div
-                className={`absolute inset-0 ${
+                className={`absolute inset-0 px-1 ${
                   activeView === "indexes" ? "block" : "hidden"
                 }`}
               >
@@ -253,12 +274,16 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                   database={metadata.database}
                   schema={metadata.schema}
                   table={metadata.table}
-                  onActionsChange={activeView === "indexes" ? handleViewActionsChange : undefined}
+                  onActionsChange={
+                    activeView === "indexes"
+                      ? handleViewActionsChange
+                      : undefined
+                  }
                 />
               </div>
 
               <div
-                className={`absolute inset-0 ${
+                className={`absolute inset-0 px-1 ${
                   activeView === "triggers" ? "block" : "hidden"
                 }`}
               >
@@ -267,11 +292,15 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                   database={metadata.database}
                   schema={metadata.schema}
                   table={metadata.table}
-                  onActionsChange={activeView === "triggers" ? handleViewActionsChange : undefined}
+                  onActionsChange={
+                    activeView === "triggers"
+                      ? handleViewActionsChange
+                      : undefined
+                  }
                 />
               </div>
               <div
-                className={`absolute inset-0 ${
+                className={`absolute inset-0 px-1 ${
                   activeView === "definition" ? "block" : "hidden"
                 }`}
               >

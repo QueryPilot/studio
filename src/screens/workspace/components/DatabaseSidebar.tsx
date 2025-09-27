@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import {
   Search,
@@ -13,11 +13,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePanelStore } from "@/stores/panelStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
-import {
-  databaseService,
-  type TableMeta,
-  type FunctionMeta,
-} from "@/services/databaseService";
+import { type TableMeta, type FunctionMeta } from "@/services/databaseService";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { safeListen } from "@/utils/tauri";
@@ -26,6 +22,7 @@ import {
   SidebarItem,
   ActionButton,
 } from "./DatabaseSidebarItem";
+import { useSchemaData } from "@/hooks/useSchemaData";
 
 interface DatabaseSidebarProps {
   connectionId: string;
@@ -34,11 +31,6 @@ interface DatabaseSidebarProps {
   selectedSchema: string;
 }
 
-interface SchemaData {
-  tables: TableMeta[];
-  views: TableMeta[];
-  functions: FunctionMeta[];
-}
 
 export function DatabaseSidebar({
   connectionId,
@@ -48,13 +40,16 @@ export function DatabaseSidebar({
 }: DatabaseSidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
-  const [isLoadingData, setIsLoadingData] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [schemaData, setSchemaData] = useState<SchemaData>({
-    tables: [],
-    views: [],
-    functions: [],
-  });
+
+  // Use shared schema data hook
+  const {
+    tables,
+    views,
+    functions,
+    isLoading: isLoadingData,
+    error,
+    refresh: refreshSchemaData,
+  } = useSchemaData(connectionId, selectedDatabase, selectedSchema);
 
   const {
     getPrimaryPanel,
@@ -67,64 +62,15 @@ export function DatabaseSidebar({
 
   const { focusedPanelId, panelContents } = useWorkbenchStore();
 
-  const loadSchemaData = useCallback(async () => {
-    try {
-      setIsLoadingData(true);
-      setError(null);
-
-      // Load tables and functions in parallel
-      const [tables, functions] = await Promise.all([
-        databaseService.listTables(
-          connectionId,
-          selectedDatabase,
-          selectedSchema,
-        ),
-        databaseService
-          .listFunctions(connectionId, selectedDatabase, selectedSchema)
-          .catch(() => []),
-      ]);
-
-      // Separate tables and views
-      const tableList = tables.filter((t) => t.kind === "Table");
-      const viewList = tables.filter(
-        (t) => t.kind === "View" || t.kind === "MaterializedView",
-      );
-
-      // Deduplicate functions based on schema and name only (ignore overloads)
-      const uniqueFunctions = functions.reduce<FunctionMeta[]>((acc, func) => {
-        const key = `${func.schema}.${func.name}`;
-        if (!acc.some((f) => `${f.schema}.${f.name}` === key)) {
-          acc.push(func);
-        }
-        return acc;
-      }, []);
-
-      setSchemaData({
-        tables: tableList,
-        views: viewList,
-        functions: uniqueFunctions,
-      });
-
-      // Auto-expand tables if there are items
-      if (tableList.length > 0) {
-        setExpandedNodes(
-          (prev) => new Set([...prev, "tables", "views", "functions"]),
-        );
-      }
-    } catch (err) {
-      console.error("Failed to load schema data:", err);
-      setError("Failed to load schema objects");
-    } finally {
-      setIsLoadingData(false);
-    }
-  }, [connectionId, selectedDatabase, selectedSchema]);
-
-  // Load schema data when schema changes
+  // Auto-expand sections when data is loaded
   useEffect(() => {
-    if (selectedSchema && selectedDatabase) {
-      void loadSchemaData();
+    if (tables.length > 0) {
+      setExpandedNodes(
+        (prev) => new Set([...prev, "tables", "views", "functions"]),
+      );
     }
-  }, [selectedSchema, selectedDatabase, loadSchemaData]);
+  }, [tables]);
+
 
   // Listen for database reconnection events
   useEffect(() => {
@@ -139,7 +85,7 @@ export function DatabaseSidebar({
             selectedSchema &&
             selectedDatabase
           ) {
-            void loadSchemaData();
+            void refreshSchemaData();
           }
         },
       );
@@ -150,7 +96,7 @@ export function DatabaseSidebar({
     return () => {
       if (cleanup) cleanup();
     };
-  }, [connectionId, selectedSchema, selectedDatabase, loadSchemaData]);
+  }, [connectionId, selectedSchema, selectedDatabase, refreshSchemaData]);
 
   const toggleNode = (nodeId: string) => {
     const newExpanded = new Set(expandedNodes);
@@ -302,7 +248,7 @@ export function DatabaseSidebar({
   const handleRefresh = async () => {
     // Refresh schema data
     if (selectedDatabase && selectedSchema) {
-      await loadSchemaData();
+      await refreshSchemaData();
     }
   };
 
@@ -433,17 +379,17 @@ export function DatabaseSidebar({
       <div className="flex-1 relative min-h-0 overflow-auto">
         <div className="pb-2 min-w-0">
           {/* Tables Section */}
-          {(schemaData.tables.length > 0 || isLoadingData) && (
+          {(tables.length > 0 || isLoadingData) && (
             <SidebarSection
               title="Tables"
-              count={schemaData.tables.length}
+              count={tables.length}
               isExpanded={expandedNodes.has("tables")}
               onToggle={() => {
                 toggleNode("tables");
               }}
               stickyClass="sticky top-0 bg-background z-30"
             >
-              {filterItems(schemaData.tables).map((table) => (
+              {filterItems(tables).map((table) => (
                 <SidebarItem
                   key={`${table.schema}.${table.name}`}
                   icon={
@@ -485,16 +431,16 @@ export function DatabaseSidebar({
           )}
 
           {/* Views Section */}
-          {schemaData.views.length > 0 && (
+          {views.length > 0 && (
             <SidebarSection
               title="Views"
-              count={schemaData.views.length}
+              count={views.length}
               isExpanded={expandedNodes.has("views")}
               onToggle={() => {
                 toggleNode("views");
               }}
             >
-              {filterItems(schemaData.views).map((view) => (
+              {filterItems(views).map((view) => (
                 <SidebarItem
                   key={`${view.schema}.${view.name}`}
                   icon={
@@ -543,17 +489,17 @@ export function DatabaseSidebar({
           )}
 
           {/* Functions Section */}
-          {schemaData.functions.length > 0 && (
+          {functions.length > 0 && (
             <SidebarSection
               title="Functions"
-              count={schemaData.functions.length}
+              count={functions.length}
               isExpanded={expandedNodes.has("functions")}
               onToggle={() => {
                 toggleNode("functions");
               }}
               stickyClass="sticky top-0 bg-background z-10"
             >
-              {filterItems(schemaData.functions).map((func) => (
+              {filterItems(functions).map((func) => (
                 <SidebarItem
                   key={`${func.schema}.${func.name}`}
                   icon={
@@ -571,9 +517,9 @@ export function DatabaseSidebar({
 
           {/* Empty state */}
           {!isLoadingData &&
-            schemaData.tables.length === 0 &&
-            schemaData.views.length === 0 &&
-            schemaData.functions.length === 0 && (
+            tables.length === 0 &&
+            views.length === 0 &&
+            functions.length === 0 && (
               <div className="text-center py-4">
                 <p className="text-xs text-muted-foreground">
                   {selectedSchema ? "No objects found" : "Select a schema"}

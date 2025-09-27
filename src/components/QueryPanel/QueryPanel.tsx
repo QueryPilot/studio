@@ -1,4 +1,4 @@
-import { memo, useState, useCallback, useEffect } from "react";
+import { memo, useState, useCallback, useEffect, useMemo } from "react";
 import { QueryEditor } from "./QueryEditor";
 import { ResultViewer } from "./ResultViewer";
 import { QueryHistory } from "./QueryHistory";
@@ -65,6 +65,11 @@ export const QueryPanel = memo(function QueryPanel({
   const [hasSelection] = useState(false);
   const updateTabMetadata = useWorkbenchStore(
     (state) => state.updateTabMetadata,
+  );
+
+  const queryGridId = useMemo(
+    () => `query:${connectionId}:${database}:${schema}:${tabId}`,
+    [connectionId, database, schema, tabId],
   );
 
   useEffect(() => {
@@ -415,6 +420,7 @@ export const QueryPanel = memo(function QueryPanel({
                     isLoading={isExecuting}
                     connectionId={connectionId}
                     height="100%"
+                    gridId={queryGridId}
                   />
                 </ResizablePanel>
               </ResizablePanelGroup>

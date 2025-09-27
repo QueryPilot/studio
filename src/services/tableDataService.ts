@@ -185,7 +185,6 @@ export class TableDataService {
     options: { limit?: number; signal?: AbortSignal } = {},
   ): Promise<{ columns: string[]; rows: any[][]; error?: string }> {
     try {
-      console.log(">>>", "", { query, connectionId, options }, "execute_query");
       if (!isTauri()) {
         throw new Error("Query execution requires Tauri runtime");
       }
