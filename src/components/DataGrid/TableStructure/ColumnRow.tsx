@@ -7,6 +7,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { TypeSelector } from "./TypeSelector";
 import { DefaultValueInput } from "./DefaultValueInput";
 import { ForeignKeyEditorPopover } from "./ForeignKeyEditorPopover";
+import { ConstraintInput } from "../common/ConstraintInput";
+import { CommentInput } from "../common/CommentInput";
 
 export interface ColumnRowData {
   name: string;
@@ -36,6 +38,7 @@ interface ColumnRowProps {
   connectionId?: string;
   database?: string;
   schema?: string;
+  availableColumns?: Array<{ name: string; db_type: string }>;
   onUpdate?: (updates: Partial<ColumnRowData>) => void;
   onDelete?: () => void;
   onReset?: () => void;
@@ -52,6 +55,7 @@ export const ColumnRow = memo(function ColumnRow({
   connectionId,
   database,
   schema,
+  availableColumns = [],
   onUpdate,
   onDelete,
   onReset,
@@ -213,18 +217,15 @@ export const ColumnRow = memo(function ColumnRow({
           className={cn(checkChanged && canEdit && "bg-primary/10 rounded-sm")}
         >
           {canEdit ? (
-            <Input
-              value={column.check_constraint || ""}
-              onChange={(e) =>
-                onUpdate?.({ check_constraint: e.target.value || null })
-              }
+            <ConstraintInput
+              value={column.check_constraint}
+              onChange={(val) => onUpdate?.({ check_constraint: val })}
               placeholder={isNew ? "expression" : "-"}
-              className={cn(
-                "!h-7 !px-2 !py-1 border-0 bg-transparent !text-xs font-mono text-ellipsis",
-                "focus-visible:ring-1 focus-visible:ring-primary rounded-none !bg-transparent",
-                checkChanged && "text-primary",
-                isNew && "placeholder:text-muted-foreground/50",
-              )}
+              disabled={!canEdit}
+              isNew={isNew}
+              className={cn(checkChanged && "text-primary")}
+              label="Check Constraint"
+              availableColumns={availableColumns}
             />
           ) : (
             <span
@@ -272,16 +273,13 @@ export const ColumnRow = memo(function ColumnRow({
           )}
         >
           {canEdit ? (
-            <Input
-              value={column.comment || ""}
-              onChange={(e) => onUpdate?.({ comment: e.target.value })}
+            <CommentInput
+              value={column.comment}
+              onChange={(val) => onUpdate?.({ comment: val })}
               placeholder={isNew ? "Column description" : "-"}
-              className={cn(
-                "!h-7 !px-2 !py-1 border-0 bg-transparent !text-xs italic flex-1",
-                "focus-visible:ring-1 focus-visible:ring-primary rounded-none !bg-transparent",
-                commentChanged && "text-primary",
-                isNew && "placeholder:text-muted-foreground/50",
-              )}
+              disabled={!canEdit}
+              isNew={isNew}
+              className={cn(commentChanged && "text-primary", "flex-1")}
             />
           ) : (
             <span className="italic px-2">{column.comment || "-"}</span>

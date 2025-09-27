@@ -68,7 +68,7 @@ export const ForeignKeyEditorPopover = memo(function ForeignKeyEditorPopover({
     onUpdate: value?.onUpdate?.toUpperCase() || "NO ACTION",
     onDelete: value?.onDelete?.toUpperCase() || "NO ACTION",
   });
-  console.log(">>>", "localValue", localValue);
+
   const [availableTables, setAvailableTables] = useState<string[]>([]);
   const [availableColumns, setAvailableColumns] = useState<TableColumn[]>([]);
   const [isLoading, setIsLoading] = useState(false);
