@@ -9,8 +9,12 @@ import {
   ensureOpencodeConfigs,
   ensureOpencodeServer,
 } from "./services/opencodeService";
+import { PreferencesDialog } from "./components/Preferences/PreferencesDialog";
+import { usePreferencesStore } from "./stores/preferencesStore";
 
 function AppContent() {
+  const openPreferences = usePreferencesStore((state) => state.open);
+
   // Register global keyboard shortcut for new window
   useShortcut(
     "cmd+shift+n",
@@ -23,13 +27,28 @@ function AppContent() {
     },
   );
 
+  // Register global keyboard shortcut for preferences
+  useShortcut(
+    "cmd+,",
+    () => {
+      openPreferences();
+    },
+    {
+      preventDefault: true,
+      description: "Open preferences",
+    },
+  );
+
   return (
-    <Router>
-      <Routes>
-        <Route path="/" element={<MainScreen />} />
-        <Route path="/workspace/:connectionId" element={<WorkspaceScreen />} />
-      </Routes>
-    </Router>
+    <>
+      <Router>
+        <Routes>
+          <Route path="/" element={<MainScreen />} />
+          <Route path="/workspace/:connectionId" element={<WorkspaceScreen />} />
+        </Routes>
+      </Router>
+      <PreferencesDialog />
+    </>
   );
 }
 

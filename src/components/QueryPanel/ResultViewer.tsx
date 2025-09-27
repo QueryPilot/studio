@@ -9,7 +9,7 @@ import {
   XCircle,
   Clipboard,
 } from "lucide-react";
-import { QueryDataGrid } from "@/components/DataGrid";
+import { QueryDataGridV2 } from "@/components/DataGridV2";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { CodeEditor } from "@/components/CodeEditor";
@@ -28,6 +28,7 @@ interface ResultViewerProps {
   className?: string;
   height?: string;
   connectionId?: string;
+  gridId: string;
 }
 
 export const ResultViewer = memo(function ResultViewer({
@@ -35,6 +36,7 @@ export const ResultViewer = memo(function ResultViewer({
   isLoading = false,
   className,
   connectionId = "",
+  gridId,
 }: ResultViewerProps) {
   const [viewMode, setViewMode] = useState<"table" | "json">("table");
 
@@ -281,7 +283,8 @@ export const ResultViewer = memo(function ResultViewer({
           </TabsList>
 
           <TabsContent value="table" className="flex-1 mt-2 mx-0">
-            <QueryDataGrid
+            <QueryDataGridV2
+              gridId={gridId}
               connectionId={connectionId}
               query=""
               data={
@@ -290,6 +293,7 @@ export const ResultViewer = memo(function ResultViewer({
                   : undefined
               }
               className="h-full"
+              error={result?.error ?? null}
             />
           </TabsContent>
 

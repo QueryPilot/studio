@@ -12,7 +12,6 @@ import type {
   TableDataErrorEvent,
 } from "@/services/tableDataTypes";
 import type { ColumnMeta } from "@/types/database";
-import type { FilterConfig, SortConfig } from "@/types/filter";
 
 // State interface for the hook
 interface TableDataState {
@@ -37,13 +36,14 @@ export interface UseTableDataInitialState {
   hasNextPage?: boolean;
   totalLoadedRows?: number;
   estimatedTotal?: number | null;
-  filter?: FilterConfig;
-  sorts?: SortConfig[];
 }
 
 // Return type for the hook
 interface UseTableDataReturn extends TableDataState {
-  loadData: (params: TableDataParams, initialState?: UseTableDataInitialState) => Promise<void>;
+  loadData: (
+    params: TableDataParams,
+    initialState?: UseTableDataInitialState,
+  ) => Promise<void>;
   loadMore: () => Promise<void>;
   refresh: () => Promise<void>;
   stop: () => Promise<void>;
@@ -54,16 +54,20 @@ interface UseTableDataReturn extends TableDataState {
  * Hook for managing table data loading with streaming support
  * Redesigned with stable callbacks and proper state management
  */
-export function useTableData(initialState?: UseTableDataInitialState): UseTableDataReturn {
+export function useTableData(
+  initialState?: UseTableDataInitialState,
+): UseTableDataReturn {
   // State management - if we have initial state with data, don't show loading
   const hasInitialData = initialState?.rows && initialState.rows.length > 0;
-  
+
   if (hasInitialData) {
-    console.log(`[useTableData] Initializing with cached data: ${initialState.rows?.length} rows`);
+    console.log(
+      `[useTableData] Initializing with cached data: ${initialState.rows?.length} rows`,
+    );
   }
-  
+
   const [state, setState] = useState<TableDataState>({
-    isLoading: false,  // Never show loading if we have cached data
+    isLoading: false, // Never show loading if we have cached data
     isLoadingMore: false,
     isStreaming: false,
     error: null,
@@ -72,7 +76,8 @@ export function useTableData(initialState?: UseTableDataInitialState): UseTableD
     hasNextPage: initialState?.hasNextPage || false,
     nextCursor: initialState?.nextCursor || null,
     pageSize: 100,
-    totalLoadedRows: initialState?.totalLoadedRows || initialState?.rows?.length || 0,
+    totalLoadedRows:
+      initialState?.totalLoadedRows || initialState?.rows?.length || 0,
     estimatedTotal: initialState?.estimatedTotal || null,
   });
 
@@ -97,8 +102,6 @@ export function useTableData(initialState?: UseTableDataInitialState): UseTableD
 
   // Handle stream metadata - STABLE callback with NO dependencies
   const handleMeta = useCallback((meta: TableDataMetaEvent) => {
-    console.log("[useTableData] Received metadata:", meta);
-    console.log(`[useTableData] Number of columns: ${meta.columns?.length || 0}`);
     if (!isMountedRef.current) return;
 
     setState((prev) => ({
@@ -114,10 +117,6 @@ export function useTableData(initialState?: UseTableDataInitialState): UseTableD
 
   // Handle stream data rows - STABLE callback with NO dependencies
   const handleRows = useCallback((rowsEvent: TableDataRowsEvent) => {
-    console.log("[useTableData] Received rows:", rowsEvent.rows.length, "rows");
-    console.log("[useTableData] Next cursor:", rowsEvent.next_cursor);
-    console.log("[useTableData] Estimated total:", rowsEvent.estimated_total);
-    console.log(">>> rows sample:", rowsEvent.rows[0]);
     if (!isMountedRef.current) return;
 
     setState((prev) => {
@@ -173,80 +172,86 @@ export function useTableData(initialState?: UseTableDataInitialState): UseTableD
   }, []); // NO dependencies = stable callback
 
   // Load data with new parameters - STABLE callback with NO dependencies
-  const loadData = useCallback(async (params: TableDataParams, loadInitialState?: UseTableDataInitialState) => {
-    console.log("[useTableData] loadData called with params:", params);
-    if (!isMountedRef.current) return;
+  const loadData = useCallback(
+    async (
+      params: TableDataParams,
+      loadInitialState?: UseTableDataInitialState,
+    ) => {
+      console.log("[useTableData] loadData called with params:", params);
+      if (!isMountedRef.current) return;
 
-    try {
-      // Store current parameters for refresh/pagination
-      currentParamsRef.current = params;
+      try {
+        // Store current parameters for refresh/pagination
+        currentParamsRef.current = params;
 
-      // If initial state provided, use it instead of loading
-      if (loadInitialState?.rows && loadInitialState.rows.length > 0) {
-        console.log("[useTableData] Using initial state with", loadInitialState.rows.length, "rows");
+        // If initial state provided, use it instead of loading
+        if (loadInitialState?.rows && loadInitialState.rows.length > 0) {
+          console.log(
+            "[useTableData] Using initial state with",
+            loadInitialState.rows.length,
+            "rows",
+          );
+          setState((prev) => ({
+            ...prev,
+            isLoading: false,
+            isLoadingMore: false,
+            isStreaming: false,
+            error: null,
+            columns: loadInitialState.columns || prev.columns,
+            rows: loadInitialState.rows,
+            hasNextPage: loadInitialState.hasNextPage || false,
+            nextCursor: loadInitialState.nextCursor || null,
+            totalLoadedRows:
+              loadInitialState.totalLoadedRows || loadInitialState.rows.length,
+            estimatedTotal: loadInitialState.estimatedTotal || null,
+          }));
+          return; // Skip actual data loading
+        }
+
+        // Reset state for initial load
         setState((prev) => ({
           ...prev,
-          isLoading: false,
+          isLoading: true,
           isLoadingMore: false,
           isStreaming: false,
           error: null,
-          columns: loadInitialState.columns || prev.columns,
-          rows: loadInitialState.rows,
-          hasNextPage: loadInitialState.hasNextPage || false,
-          nextCursor: loadInitialState.nextCursor || null,
-          totalLoadedRows: loadInitialState.totalLoadedRows || loadInitialState.rows.length,
-          estimatedTotal: loadInitialState.estimatedTotal || null,
+          rows: [],
+          hasNextPage: false,
+          nextCursor: null,
+          totalLoadedRows: 0,
+          estimatedTotal: null,
         }));
-        return; // Skip actual data loading
+
+        // Load data with offset 0 for initial load
+        const paramsWithOffset = { ...params, offset: 0 };
+        await tableDataService.loadTableData(paramsWithOffset, {
+          onMeta: handleMeta,
+          onRows: handleRows,
+          onDone: handleDone,
+          onError: handleError,
+        });
+      } catch (error) {
+        console.error("[useTableData] Error loading data:", error);
+        const errorMessage =
+          error instanceof Error ? error.message : "Failed to load table data";
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+        if (isMountedRef.current) {
+          setState((prev) => ({
+            ...prev,
+            isLoading: false,
+            error: errorMessage,
+          }));
+        }
       }
-
-      // Reset state for initial load
-      console.log("[useTableData] Resetting state");
-      setState((prev) => ({
-        ...prev,
-        isLoading: true,
-        isLoadingMore: false,
-        isStreaming: false,
-        error: null,
-        rows: [],
-        hasNextPage: false,
-        nextCursor: null,
-        totalLoadedRows: 0,
-        estimatedTotal: null,
-      }));
-
-      // Load data with offset 0 for initial load
-      const paramsWithOffset = { ...params, offset: 0 };
-      console.log("[useTableData] Loading data");
-      await tableDataService.loadTableData(paramsWithOffset, {
-        onMeta: handleMeta,
-        onRows: handleRows,
-        onDone: handleDone,
-        onError: handleError,
-      });
-
-      console.log("[useTableData] Data loaded successfully");
-    } catch (error) {
-      console.error("[useTableData] Error loading data:", error);
-      const errorMessage =
-        error instanceof Error ? error.message : "Failed to load table data";
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-      if (isMountedRef.current) {
-        setState((prev) => ({
-          ...prev,
-          isLoading: false,
-          error: errorMessage,
-        }));
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // NO dependencies = stable callback
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [],
+  ); // NO dependencies = stable callback
 
   // Load more data (pagination) - STABLE callback using refs
   const loadMore = useCallback(async () => {
     const currentState = stateRef.current;
 
-    console.log("[useTableData] loadMore called");
     console.log("[useTableData] Current rows:", currentState.rows.length);
     console.log("[useTableData] Next cursor:", currentState.nextCursor);
     console.log("[useTableData] Has next page:", currentState.hasNextPage);
@@ -334,7 +339,6 @@ export function useTableData(initialState?: UseTableDataInitialState): UseTableD
         isStreaming: false,
       }));
     }
-     
   }, []); // NO dependencies = stable callback
 
   // Clear all data - STABLE callback
@@ -355,7 +359,6 @@ export function useTableData(initialState?: UseTableDataInitialState): UseTableD
         estimatedTotal: null,
       }));
     }
-     
   }, []); // NO dependencies = stable callback
 
   return {
