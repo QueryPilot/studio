@@ -27,14 +27,14 @@ export const TableIndexes = memo(function TableIndexes({
 }: TableIndexesProps) {
   const { columnWidths, resizingColumn, handleMouseDown } = useColumnResizing({
     columns: [
-      { key: 'rowNumber', minWidth: 30, defaultWidth: 40 },
-      { key: 'name', minWidth: 100, defaultWidth: 150 },
-      { key: 'columns', minWidth: 150, defaultWidth: 200 },
-      { key: 'type', minWidth: 80, defaultWidth: 100 },
-      { key: 'unique', minWidth: 60, defaultWidth: 70 },
-      { key: 'condition', minWidth: 100, defaultWidth: 150 },
-      { key: 'size', minWidth: 60, defaultWidth: 70 },
-      { key: 'usage', minWidth: 80, defaultWidth: 100 },
+      { key: "rowNumber", minWidth: 30, defaultWidth: 40 },
+      { key: "name", minWidth: 100, defaultWidth: 150 },
+      { key: "columns", minWidth: 150, defaultWidth: 200 },
+      { key: "type", minWidth: 80, defaultWidth: 100 },
+      { key: "unique", minWidth: 60, defaultWidth: 70 },
+      { key: "condition", minWidth: 100, defaultWidth: 150 },
+      { key: "size", minWidth: 60, defaultWidth: 70 },
+      { key: "usage", minWidth: 80, defaultWidth: 100 },
     ],
     storageKey: `table-indexes-columns-${database}-${table}`,
   });
@@ -104,7 +104,6 @@ export const TableIndexes = memo(function TableIndexes({
     void fetchIndexes();
   }, [fetchIndexes]);
 
-
   const validateIndexData = (data: IndexRowData): string | null => {
     if (!data.name || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(data.name)) {
       return "Invalid index name. Use only letters, numbers, and underscores.";
@@ -128,7 +127,7 @@ export const TableIndexes = memo(function TableIndexes({
     return null;
   };
 
-  const addNewIndex = () => {
+  const addNewIndex = useCallback(() => {
     const newIndex: IndexRowData = {
       name: "",
       columns: [],
@@ -138,7 +137,7 @@ export const TableIndexes = memo(function TableIndexes({
     };
     setNewIndexes((prev) => [...prev, newIndex]);
     setHasChanges(true);
-  };
+  }, []);
 
   const updateNewIndex = (index: number, updates: Partial<IndexRowData>) => {
     setNewIndexes((prev) => {
@@ -147,16 +146,20 @@ export const TableIndexes = memo(function TableIndexes({
       const mergedIndex = { ...currentIndex, ...updates };
 
       // Auto-generate index name if columns are selected and name is empty
-      if ((updates.columns || updates.unique !== undefined) && mergedIndex.columns.length > 0 && !currentIndex.name) {
-        const columnNames = mergedIndex.columns.join('_');
-        const prefix = mergedIndex.unique ? 'unique' : 'idx';
+      if (
+        (updates.columns || updates.unique !== undefined) &&
+        mergedIndex.columns.length > 0 &&
+        !currentIndex.name
+      ) {
+        const columnNames = mergedIndex.columns.join("_");
+        const prefix = mergedIndex.unique ? "unique" : "idx";
         const baseName = `${prefix}_${table}_${columnNames}`;
 
         // Check if this name already exists and add a suffix if needed
         let finalName = baseName;
         let suffix = 1;
         while (
-          indexes.some(idx => idx.name === finalName) ||
+          indexes.some((idx) => idx.name === finalName) ||
           updated.some((idx, i) => i !== index && idx.name === finalName)
         ) {
           finalName = `${baseName}_${suffix}`;
@@ -176,7 +179,10 @@ export const TableIndexes = memo(function TableIndexes({
     setNewIndexes((prev) => {
       const updated = prev.filter((_, i) => i !== index);
       // Check if we still have changes after removal
-      const stillHasChanges = updated.length > 0 || editingIndexes.size > 0 || deletedIndexes.size > 0;
+      const stillHasChanges =
+        updated.length > 0 ||
+        editingIndexes.size > 0 ||
+        deletedIndexes.size > 0;
       setHasChanges(stillHasChanges);
       return updated;
     });
@@ -193,19 +199,26 @@ export const TableIndexes = memo(function TableIndexes({
       const mergedData = { ...originalIndex, ...existing, ...updates };
 
       // Auto-generate index name if columns are selected and name is empty for existing index
-      if ((updates.columns || updates.unique !== undefined) && mergedData.columns.length > 0) {
-        const currentName = existing?.name || '';
-        if (!currentName || currentName === '') {
-          const columnNames = mergedData.columns.join('_');
-          const prefix = mergedData.unique ? 'unique' : 'idx';
+      if (
+        (updates.columns || updates.unique !== undefined) &&
+        mergedData.columns.length > 0
+      ) {
+        const currentName = existing?.name || "";
+        if (!currentName || currentName === "") {
+          const columnNames = mergedData.columns.join("_");
+          const prefix = mergedData.unique ? "unique" : "idx";
           const baseName = `${prefix}_${table}_${columnNames}`;
 
           // Check if this name already exists and add a suffix if needed
           let finalName = baseName;
           let suffix = 1;
           while (
-            indexes.some(idx => idx.name === finalName && idx.name !== indexName) ||
-            Array.from(newMap.values()).some(idx => idx.name === finalName && idx.originalName !== indexName)
+            indexes.some(
+              (idx) => idx.name === finalName && idx.name !== indexName,
+            ) ||
+            Array.from(newMap.values()).some(
+              (idx) => idx.name === finalName && idx.originalName !== indexName,
+            )
           ) {
             finalName = `${baseName}_${suffix}`;
             suffix++;
@@ -240,17 +253,21 @@ export const TableIndexes = memo(function TableIndexes({
     setHasChanges(true);
   };
 
-  const handleSaveAllChanges = async () => {
+  const handleSaveAllChanges = useCallback(async () => {
     setIsSaving(true);
     const errors: string[] = [];
 
     try {
-      const currentSchema = schema || 'public';
+      const currentSchema = schema || "public";
 
       // Handle deletions first
       for (const indexName of deletedIndexes) {
         try {
-          await databaseService.dropIndex(connectionId, currentSchema, indexName);
+          await databaseService.dropIndex(
+            connectionId,
+            currentSchema,
+            indexName,
+          );
           toast.success(`Dropped index ${indexName}`);
         } catch (err) {
           errors.push(
@@ -276,8 +293,15 @@ export const TableIndexes = memo(function TableIndexes({
 
         if (editData.name !== editData.originalName && editData.originalName) {
           try {
-            await databaseService.renameIndex(connectionId, currentSchema, editData.originalName, editData.name);
-            toast.success(`Renamed index ${editData.originalName} to ${editData.name}`);
+            await databaseService.renameIndex(
+              connectionId,
+              currentSchema,
+              editData.originalName,
+              editData.name,
+            );
+            toast.success(
+              `Renamed index ${editData.originalName} to ${editData.name}`,
+            );
           } catch (err) {
             errors.push(
               `Failed to rename ${editData.originalName}: ${
@@ -297,13 +321,18 @@ export const TableIndexes = memo(function TableIndexes({
         }
 
         try {
-          await databaseService.createIndex(connectionId, currentSchema, table, {
-            name: newIndex.name,
-            columns: newIndex.columns,
-            unique: newIndex.unique,
-            indexType: newIndex.type,
-            condition: newIndex.condition || undefined,
-          });
+          await databaseService.createIndex(
+            connectionId,
+            currentSchema,
+            table,
+            {
+              name: newIndex.name,
+              columns: newIndex.columns,
+              unique: newIndex.unique,
+              indexType: newIndex.type,
+              condition: newIndex.condition || undefined,
+            },
+          );
           toast.success(`Created index ${newIndex.name}`);
         } catch (err) {
           errors.push(
@@ -332,10 +361,19 @@ export const TableIndexes = memo(function TableIndexes({
     } finally {
       setIsSaving(false);
     }
-  };
+  }, [
+    schema,
+    fetchIndexes,
+    deletedIndexes,
+    connectionId,
+    editingIndexes,
+    validateIndexData,
+    newIndexes,
+    table,
+  ]);
 
   const handleDeleteIndex = (indexName: string) => {
-    setDeletedIndexes(prev => {
+    setDeletedIndexes((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(indexName)) {
         newSet.delete(indexName);
@@ -347,12 +385,12 @@ export const TableIndexes = memo(function TableIndexes({
     setHasChanges(true);
   };
 
-  const discardAllChanges = () => {
+  const discardAllChanges = useCallback(() => {
     setEditingIndexes(new Map());
     setNewIndexes([]);
     setDeletedIndexes(new Set());
     setHasChanges(false);
-  };
+  }, []);
 
   // Update parent with action buttons
   useEffect(() => {
@@ -387,7 +425,12 @@ export const TableIndexes = memo(function TableIndexes({
             </Button>
           </>
         )}
-        <Button size="sm" variant="outline" onClick={addNewIndex} className="h-6 text-xs px-2 py-0">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={addNewIndex}
+          className="h-6 text-xs px-2 py-0"
+        >
           <Plus className="h-3 w-3 mr-1" />
           New Index
         </Button>
@@ -397,8 +440,17 @@ export const TableIndexes = memo(function TableIndexes({
     onActionsChange(actions);
 
     // Cleanup on unmount
-    return () => onActionsChange(null);
-  }, [hasChanges, isSaving, onActionsChange, discardAllChanges, handleSaveAllChanges, addNewIndex]);
+    return () => {
+      onActionsChange(null);
+    };
+  }, [
+    hasChanges,
+    isSaving,
+    onActionsChange,
+    discardAllChanges,
+    handleSaveAllChanges,
+    addNewIndex,
+  ]);
 
   if (isLoading) {
     return <TableIndexesSkeleton />;
@@ -419,7 +471,7 @@ export const TableIndexes = memo(function TableIndexes({
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-auto">
-        <table className="min-w-full border-separate border-spacing-0">
+        <table className="min-w-full border-separate border-spacing-0 px-1">
           <thead className="sticky top-0 z-10 bg-muted border-b border-border">
             <tr className="text-xs" style={{ height: "28px" }}>
               <th
@@ -430,9 +482,11 @@ export const TableIndexes = memo(function TableIndexes({
                 <div
                   className={cn(
                     "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
-                    resizingColumn === 'rowNumber' && "bg-primary"
+                    resizingColumn === "rowNumber" && "bg-primary",
                   )}
-                  onMouseDown={(e) => handleMouseDown(e, 'rowNumber')}
+                  onMouseDown={(e) => {
+                    handleMouseDown(e, "rowNumber");
+                  }}
                 />
               </th>
               <th
@@ -443,9 +497,11 @@ export const TableIndexes = memo(function TableIndexes({
                 <div
                   className={cn(
                     "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
-                    resizingColumn === 'name' && "bg-primary"
+                    resizingColumn === "name" && "bg-primary",
                   )}
-                  onMouseDown={(e) => handleMouseDown(e, 'name')}
+                  onMouseDown={(e) => {
+                    handleMouseDown(e, "name");
+                  }}
                 />
               </th>
               <th
@@ -456,9 +512,11 @@ export const TableIndexes = memo(function TableIndexes({
                 <div
                   className={cn(
                     "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
-                    resizingColumn === 'columns' && "bg-primary"
+                    resizingColumn === "columns" && "bg-primary",
                   )}
-                  onMouseDown={(e) => handleMouseDown(e, 'columns')}
+                  onMouseDown={(e) => {
+                    handleMouseDown(e, "columns");
+                  }}
                 />
               </th>
               <th
@@ -469,9 +527,11 @@ export const TableIndexes = memo(function TableIndexes({
                 <div
                   className={cn(
                     "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
-                    resizingColumn === 'type' && "bg-primary"
+                    resizingColumn === "type" && "bg-primary",
                   )}
-                  onMouseDown={(e) => handleMouseDown(e, 'type')}
+                  onMouseDown={(e) => {
+                    handleMouseDown(e, "type");
+                  }}
                 />
               </th>
               <th
@@ -482,9 +542,11 @@ export const TableIndexes = memo(function TableIndexes({
                 <div
                   className={cn(
                     "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
-                    resizingColumn === 'unique' && "bg-primary"
+                    resizingColumn === "unique" && "bg-primary",
                   )}
-                  onMouseDown={(e) => handleMouseDown(e, 'unique')}
+                  onMouseDown={(e) => {
+                    handleMouseDown(e, "unique");
+                  }}
                 />
               </th>
               <th
@@ -495,9 +557,11 @@ export const TableIndexes = memo(function TableIndexes({
                 <div
                   className={cn(
                     "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
-                    resizingColumn === 'condition' && "bg-primary"
+                    resizingColumn === "condition" && "bg-primary",
                   )}
-                  onMouseDown={(e) => handleMouseDown(e, 'condition')}
+                  onMouseDown={(e) => {
+                    handleMouseDown(e, "condition");
+                  }}
                 />
               </th>
               <th
@@ -508,9 +572,11 @@ export const TableIndexes = memo(function TableIndexes({
                 <div
                   className={cn(
                     "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
-                    resizingColumn === 'size' && "bg-primary"
+                    resizingColumn === "size" && "bg-primary",
                   )}
-                  onMouseDown={(e) => handleMouseDown(e, 'size')}
+                  onMouseDown={(e) => {
+                    handleMouseDown(e, "size");
+                  }}
                 />
               </th>
               <th
@@ -521,9 +587,11 @@ export const TableIndexes = memo(function TableIndexes({
                 <div
                   className={cn(
                     "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
-                    resizingColumn === 'usage' && "bg-primary"
+                    resizingColumn === "usage" && "bg-primary",
                   )}
-                  onMouseDown={(e) => handleMouseDown(e, 'usage')}
+                  onMouseDown={(e) => {
+                    handleMouseDown(e, "usage");
+                  }}
                 />
               </th>
             </tr>
@@ -579,7 +647,7 @@ export const TableIndexes = memo(function TableIndexes({
                   onUpdate={(updates) => {
                     // Clear deletion if user starts editing
                     if (isDeleted) {
-                      setDeletedIndexes(prev => {
+                      setDeletedIndexes((prev) => {
                         const newSet = new Set(prev);
                         newSet.delete(index.name);
                         return newSet;
@@ -591,7 +659,7 @@ export const TableIndexes = memo(function TableIndexes({
                     if (!index.primary && !index.foreign_key) {
                       // Clear deletion if user starts editing
                       if (isDeleted) {
-                        setDeletedIndexes(prev => {
+                        setDeletedIndexes((prev) => {
                           const newSet = new Set(prev);
                           newSet.delete(index.name);
                           return newSet;
@@ -604,20 +672,22 @@ export const TableIndexes = memo(function TableIndexes({
                   }}
                   onDelete={
                     !index.primary && !index.foreign_key
-                      ? () => handleDeleteIndex(index.name)
+                      ? () => {
+                          handleDeleteIndex(index.name);
+                        }
                       : undefined
                   }
                   onReset={() => {
                     if (isDeleted) {
                       // Undo deletion
-                      setDeletedIndexes(prev => {
+                      setDeletedIndexes((prev) => {
                         const newSet = new Set(prev);
                         newSet.delete(index.name);
                         return newSet;
                       });
                     } else if (hasRowChanges) {
                       // Reset changes to original values
-                      setEditingIndexes(prev => {
+                      setEditingIndexes((prev) => {
                         const newMap = new Map(prev);
                         newMap.delete(index.name);
                         return newMap;
@@ -652,7 +722,6 @@ export const TableIndexes = memo(function TableIndexes({
           </tbody>
         </table>
       </div>
-
     </div>
   );
 });

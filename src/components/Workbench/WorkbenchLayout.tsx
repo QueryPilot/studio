@@ -553,10 +553,7 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
         onDragEnd={handleDragEnd}
       >
         <div
-          className={cn(
-            "workbench-layout h-full overflow-hidden rounded-lg bg-border/30",
-            className,
-          )}
+          className={cn("workbench-layout h-full overflow-hidden", className)}
         >
           <GridRenderer node={layoutTree} className="h-full" />
         </div>

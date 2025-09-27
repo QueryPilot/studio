@@ -23,7 +23,7 @@ export function SidebarSection({
     <div>
       <div className={stickyClass}>
         <button
-          className="flex items-center gap-1.5 w-full text-left bg-muted/50 p-1.5 rounded text-xs backdrop-blur-md text-foreground/80 dark:text-foreground/70"
+          className="flex items-center gap-1.5 w-full text-left bg-muted/50 p-1.5 rounded text-xs text-foreground/80 dark:text-foreground/70"
           onClick={onToggle}
         >
           {isExpanded ? (

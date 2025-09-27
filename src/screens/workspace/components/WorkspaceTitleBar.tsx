@@ -347,7 +347,7 @@ export function WorkspaceTitleBar({
 
   return (
     <div
-      className="relative flex items-center justify-between h-10 bg-border/30"
+      className="relative flex items-center justify-between h-9 bg-secondary"
       data-tauri-drag-region
     >
       {/* Left Section - Add padding for macOS traffic lights */}

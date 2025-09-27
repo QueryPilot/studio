@@ -332,7 +332,7 @@ export const GlideTableDataGrid = memo(function GlideTableDataGrid({
 
   return (
     <div className={cn("h-full w-full flex flex-col", className)}>
-      <div className="flex-1 w-full min-h-0">
+      <div className="flex-1 w-full min-h-0 px-1">
         <EnhancedGlideWrapper
           columns={columns}
           rows={rows.length}

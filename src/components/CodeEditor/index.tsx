@@ -2,8 +2,7 @@ import { useEffect, useRef, useMemo } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { EditorView } from "@codemirror/view";
 // Autocomplete and triggers are provided via getEditorExtensions
-import { vscodeDark } from "@uiw/codemirror-theme-vscode";
-import { githubLight } from "@uiw/codemirror-theme-github";
+import { githubLight, githubDarkInit } from "@uiw/codemirror-theme-github";
 import { useTheme } from "@/components/theme-provider";
 import { foldGutterTheme } from "./themes";
 import { getEditorExtensions } from "./extensions";
@@ -47,7 +46,21 @@ export function CodeEditor({
 
   // Memoize the theme object to prevent recreation
   const editorTheme = useMemo(() => {
-    return actualTheme === "dark" ? vscodeDark : githubLight;
+    return actualTheme === "dark"
+      ? githubDarkInit({
+          settings: {
+            background: "#09090B",
+            backgroundImage: "",
+            foreground: "#c9d1d9",
+            caret: "#c9d1d9",
+            selection: "#3392FF44",
+            selectionMatch: "#17E5E633",
+            lineHighlight: "#0d1117",
+            gutterBackground: "#09090B",
+            gutterForeground: "#8b949e",
+          },
+        })
+      : githubLight;
   }, [actualTheme]);
 
   // Create extensions
@@ -93,6 +106,7 @@ export function CodeEditor({
     onExecute,
     minHeight,
     maxHeight,
+    connectionId,
   ]);
 
   // Handle auto-focus - focus on mount and when autoFocus changes

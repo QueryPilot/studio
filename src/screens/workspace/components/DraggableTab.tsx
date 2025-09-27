@@ -110,7 +110,7 @@ export function DraggableTab({
         className={cn(
           "relative flex items-center gap-1.5 px-2 h-8 min-w-[120px] cursor-pointer group transition-colors",
           "border-r border-border/50",
-          isActive ? "bg-background" : "bg-muted/20 hover:bg-muted/40",
+          isActive ? "bg-background" : "bg-muted/20 hover:bg-secondary",
           index === 0 && "border-l",
           isDragging && "z-50 opacity-50",
         )}

@@ -112,33 +112,33 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       return (
         <div className="flex flex-col h-full">
           {/* Table Toolbar */}
-          <div className="flex-none border-b bg-background h-8">
+          <div className="flex-none py-1 bg-background">
             <div className="flex items-center justify-between px-1 h-full">
               <Tabs value={activeView} onValueChange={setActiveView}>
-                <TabsList className="h-6 p-0.5">
+                <TabsList className="p-0.5">
                   <TabsTrigger
                     value="data"
-                    className="flex items-center gap-1 text-xs h-5 px-2 py-0"
+                    className="flex items-center gap-1 text-xs px-2"
                   >
                     <Table className="h-3 w-3" />
-                    Data
+                    <span>Data</span>
                   </TabsTrigger>
                   <TabsTrigger
                     value="structure"
-                    className="flex items-center gap-1 text-xs h-5 px-2 py-0"
+                    className="flex items-center gap-1 text-xs px-2"
                   >
                     <Bolt className="h-3 w-3" />
-                    Structure
+                    <span>Structure</span>
                   </TabsTrigger>
 
                   {/* Regular views: only show Definition tab */}
                   {isRegularView && (
                     <TabsTrigger
                       value="definition"
-                      className="flex items-center gap-1 text-xs h-5 px-2 py-0"
+                      className="flex items-center gap-1 text-xs px-2"
                     >
                       <Code className="h-3 w-3" />
-                      Definition
+                      <span>Definition</span>
                     </TabsTrigger>
                   )}
 
@@ -147,24 +147,24 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                     <>
                       <TabsTrigger
                         value="indexes"
-                        className="flex items-center gap-1 text-xs h-5 px-2 py-0"
+                        className="flex items-center gap-1 text-xs px-2"
                       >
                         <BookMarked className="h-3 w-3" />
-                        Indexes
+                        <span>Indexes</span>
                       </TabsTrigger>
                       <TabsTrigger
                         value="triggers"
-                        className="flex items-center gap-1 text-xs h-5 px-2 py-0"
+                        className="flex items-center gap-1 text-xs px-2"
                       >
                         <Zap className="h-3 w-3" />
-                        Triggers
+                        <span>Triggers</span>
                       </TabsTrigger>
                       <TabsTrigger
                         value="definition"
-                        className="flex items-center gap-1 text-xs h-5 px-2 py-0"
+                        className="flex items-center gap-1 text-xs px-2"
                       >
                         <Code className="h-3 w-3" />
-                        Definition
+                        <span>Definition</span>
                       </TabsTrigger>
                     </>
                   )}
@@ -173,10 +173,10 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                   {isMaterializedView && (
                     <TabsTrigger
                       value="indexes"
-                      className="flex items-center gap-1 text-xs h-5 px-2 py-0"
+                      className="flex items-center gap-1 text-xs px-2"
                     >
                       <BookMarked className="h-3 w-3" />
-                      Indexes
+                      <span>Indexes</span>
                     </TabsTrigger>
                   )}
 
@@ -184,7 +184,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                   {isMaterializedView && (
                     <TabsTrigger
                       value="definition"
-                      className="flex items-center gap-1 text-xs h-5 px-2 py-0"
+                      className="flex items-center gap-1 text-xs px-2"
                     >
                       <Code className="h-3 w-3" />
                       Definition

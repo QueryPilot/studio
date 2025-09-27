@@ -51,8 +51,14 @@ export const TableStructure = memo(function TableStructure({
   });
 
   const columns = useMemo(() => structure?.columns || [], [structure?.columns]);
-  const foreignKeys = useMemo(() => structure?.foreignKeys || [], [structure?.foreignKeys]);
-  const constraints = useMemo(() => structure?.constraints || [], [structure?.constraints]);
+  const foreignKeys = useMemo(
+    () => structure?.foreignKeys || [],
+    [structure?.foreignKeys],
+  );
+  const constraints = useMemo(
+    () => structure?.constraints || [],
+    [structure?.constraints],
+  );
 
   // State for editing
   const [editingColumns, setEditingColumns] = useState<
@@ -69,7 +75,8 @@ export const TableStructure = memo(function TableStructure({
       const checkConstraint = constraints.find(
         (c) =>
           c.constraint_type === ConstraintType.Check &&
-          c.definition && c.definition.includes(col.name),
+          c.definition &&
+          c.definition.includes(col.name),
       );
 
       return {
@@ -237,7 +244,9 @@ export const TableStructure = memo(function TableStructure({
               );
               toast.success(`Removed foreign key from ${originalName}`);
             } else {
-              toast.error(`Could not find foreign key constraint for ${originalName}`);
+              toast.error(
+                `Could not find foreign key constraint for ${originalName}`,
+              );
             }
           }
           // If foreign key was added or modified
@@ -332,7 +341,8 @@ export const TableStructure = memo(function TableStructure({
       // Refresh the structure
       await refresh();
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       toast.error(`Failed to save changes: ${errorMessage}`);
     } finally {
       setIsSaving(false);
@@ -426,7 +436,7 @@ export const TableStructure = memo(function TableStructure({
 
   return (
     <div className="h-full overflow-auto">
-      <table className="min-w-full border-separate border-spacing-0">
+      <table className="min-w-full border-separate border-spacing-0 px-1">
         <thead className="sticky top-0 z-10 bg-muted border-b border-border">
           <tr className="text-xs" style={{ height: "28px" }}>
             <th
@@ -535,7 +545,7 @@ export const TableStructure = memo(function TableStructure({
               />
             </th>
             <th
-              className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80 relative"
+              className="text-left px-2 py-1 font-semibold text-foreground/80 relative"
               style={{ width: columnWidths.comment }}
             >
               Comment / Actions

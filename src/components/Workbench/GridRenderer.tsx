@@ -1,9 +1,12 @@
-import React, { useCallback, useRef, useState, useEffect } from "react";
-import { cn } from "@/lib/utils";
+import React, { useCallback } from "react";
 import { type GridNode } from "@/types/workbench";
 import { Panel } from "./PanelDnd";
-import { SplitHandle } from "./SplitHandle";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from "@/components/ui/resizable";
 
 interface GridRendererProps {
   node: GridNode;
@@ -17,118 +20,56 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
   className,
 }) => {
   const { resizePanelAction } = useWorkbenchStore();
-  const containerRef = useRef<HTMLDivElement>(null);
-  // const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
-  const [localSplitRatio, setLocalSplitRatio] = useState(
-    node.splitRatio || 0.5,
-  );
 
-  useEffect(() => {
-    setLocalSplitRatio(node.splitRatio || 0.5);
-  }, [node.splitRatio]);
-
-  useEffect(() => {
-    const updateSize = () => {
-      if (containerRef.current) {
-        // const rect = containerRef.current.getBoundingClientRect();
-        // setContainerSize({ width: rect.width, height: rect.height });
+  const handlePanelResize = useCallback(
+    (sizes: number[]) => {
+      if (node.type === "branch" && sizes.length === 2) {
+        const newRatio = sizes[0] / 100;
+        resizePanelAction(path, newRatio);
       }
-    };
-
-    updateSize();
-    const resizeObserver = new ResizeObserver(updateSize);
-
-    if (containerRef.current) {
-      resizeObserver.observe(containerRef.current);
-    }
-
-    return () => {
-      resizeObserver.disconnect();
-    };
-  }, []);
-
-  const handleResize = useCallback(
-    (mousePos: number) => {
-      if (!containerRef.current || node.type !== "branch") return;
-
-      const containerRect = containerRef.current.getBoundingClientRect();
-      const containerStart =
-        node.orientation === "horizontal"
-          ? containerRect.left
-          : containerRect.top;
-      const totalSize =
-        node.orientation === "horizontal"
-          ? containerRect.width
-          : containerRect.height;
-
-      const relativePos = mousePos - containerStart;
-      const newRatio = Math.max(0.1, Math.min(0.9, relativePos / totalSize));
-
-      setLocalSplitRatio(newRatio);
     },
-    [node],
+    [node.type, path, resizePanelAction],
   );
-
-  const handleResizeEnd = useCallback(() => {
-    if (node.type === "branch") {
-      resizePanelAction(path, localSplitRatio);
-    }
-  }, [node.type, path, localSplitRatio, resizePanelAction]);
 
   if (node.type === "leaf") {
-    return <Panel content={node.content!} path={path} className={className} />;
+    if (!node.content) return null;
+    return <Panel content={node.content} path={path} className={className} />;
   }
 
   if (node.type === "branch" && node.children && node.children.length === 2) {
-    const isHorizontal = node.orientation === "horizontal";
-    const firstSize = `${localSplitRatio * 100}%`;
-    const secondSize = `${(1 - localSplitRatio) * 100}%`;
+    const defaultSizes = [
+      (node.splitRatio ?? 0.5) * 100,
+      (1 - (node.splitRatio ?? 0.5)) * 100,
+    ];
 
     return (
-      <div
-        ref={containerRef}
-        className={cn(
-          "flex h-full w-full ",
-          isHorizontal ? "flex-row" : "flex-col",
-          className,
-        )}
+      <ResizablePanelGroup
+        direction={node.orientation ?? "horizontal"}
+        onLayout={handlePanelResize}
+        className={className}
       >
-        <div
-          style={{
-            [isHorizontal ? "width" : "height"]: firstSize,
-            minWidth: isHorizontal ? "100px" : undefined,
-            minHeight: !isHorizontal ? "100px" : undefined,
-            flex: isHorizontal ? `0 0 ${firstSize}` : `0 0 ${firstSize}`,
-          }}
-          className="overflow-hidden"
+        <ResizablePanel
+          defaultSize={defaultSizes[0]}
+          minSize={10}
+          maxSize={90}
+          className="rounded-xl overflow-hidden bg-transparent"
         >
           {node.children[0] && (
             <GridRenderer node={node.children[0]} path={[...path, 0]} />
           )}
-        </div>
-
-        {!!node.orientation && (
-          <SplitHandle
-            orientation={node.orientation}
-            onResize={handleResize}
-            onResizeEnd={handleResizeEnd}
-          />
-        )}
-
-        <div
-          style={{
-            [isHorizontal ? "width" : "height"]: secondSize,
-            minWidth: isHorizontal ? "100px" : undefined,
-            minHeight: !isHorizontal ? "100px" : undefined,
-            flex: isHorizontal ? `0 0 ${secondSize}` : `0 0 ${secondSize}`,
-          }}
-          className="overflow-hidden"
+        </ResizablePanel>
+        <ResizableHandle />
+        <ResizablePanel
+          defaultSize={defaultSizes[1]}
+          minSize={10}
+          maxSize={90}
+          className="rounded-xl overflow-hidden bg-transparent"
         >
           {node.children[1] && (
             <GridRenderer node={node.children[1]} path={[...path, 1]} />
           )}
-        </div>
-      </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     );
   }
 
