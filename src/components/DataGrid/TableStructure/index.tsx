@@ -105,6 +105,34 @@ export const TableStructure = memo(function TableStructure({
   const hasChanges =
     editingColumns.size > 0 || deletedColumns.size > 0 || newColumns.length > 0;
 
+  // Get all available columns including new ones
+  const availableColumns = useMemo(() => {
+    const result: Array<{ name: string; db_type: string }> = [];
+
+    // Add existing columns (excluding deleted ones)
+    columnsData.forEach(col => {
+      if (!deletedColumns.has(col.name)) {
+        const editingData = editingColumns.get(col.name);
+        result.push({
+          name: editingData?.name || col.name,
+          db_type: editingData?.db_type || col.db_type,
+        });
+      }
+    });
+
+    // Add new columns
+    newColumns.forEach(col => {
+      if (col.name) {
+        result.push({
+          name: col.name,
+          db_type: col.db_type,
+        });
+      }
+    });
+
+    return result;
+  }, [columnsData, editingColumns, deletedColumns, newColumns]);
+
   // Update editing data for a column
   const updateEditingData = useCallback(
     (columnName: string, updates: Partial<ColumnRowData>) => {
@@ -593,6 +621,7 @@ export const TableStructure = memo(function TableStructure({
                 database={database}
                 schema={schema}
                 originalColumn={column}
+                availableColumns={availableColumns}
                 onUpdate={(updates) => {
                   // Clear deletion if user starts editing
                   if (isDeleted) {
@@ -643,6 +672,7 @@ export const TableStructure = memo(function TableStructure({
               connectionId={connectionId}
               database={database}
               schema={schema}
+              availableColumns={availableColumns}
               onUpdate={(updates) => {
                 updateNewColumn(i, updates);
               }}

@@ -6,6 +6,7 @@ import { ColumnSelector } from "./ColumnSelector";
 import { IndexTypeSelector } from "./IndexTypeSelector";
 import { IndexSizeCell } from "./IndexSizeCell";
 import { IndexUsageCell } from "./IndexUsageCell";
+import { ConstraintInput } from "../common/ConstraintInput";
 import { type IndexUsageStats } from "@/services/backend";
 
 interface Column {
@@ -123,12 +124,15 @@ export const IndexRow = memo(function IndexRow({
             disabled={!canEdit}
             className={cn(
               "!px-2 !py-1 !h-7 !w-full bg-transparent border-0 outline-none !text-xs",
-              canEdit &&
-                "focus-visible:ring-1 focus-visible:ring-primary focus-visible:border-primary",
-              !canEdit && "cursor-not-allowed opacity-60 font-semibold",
-              nameChanged && canEdit && "text-primary",
-              isNew &&
-                "placeholder:text-muted-foreground/50 placeholder:text-xs",
+              {
+                "!pr-6": index.unique || isPrimary || isForeignKey,
+                "focus-visible:ring-1 focus-visible:ring-primary focus-visible:border-primary":
+                  canEdit,
+                "cursor-not-allowed opacity-60 font-semibold": !canEdit,
+                "text-primary": nameChanged && canEdit,
+                "placeholder:text-muted-foreground/50 placeholder:text-xs":
+                  isNew,
+              },
             )}
           />
           <div className="flex items-center gap-1 px-1 absolute right-1">
@@ -220,17 +224,15 @@ export const IndexRow = memo(function IndexRow({
           )}
         >
           {canEdit ? (
-            <input
+            <ConstraintInput
               value={index.condition || ""}
-              onChange={(e) => onUpdate?.({ condition: e.target.value })}
+              onChange={(val) => onUpdate?.({ condition: val || "" })}
               placeholder={isNew ? "Optional WHERE" : "WHERE clause"}
-              className={cn(
-                "px-2 py-1 h-7 w-full bg-transparent border-0 outline-none font-mono text-xs",
-                "focus-visible:ring-1 focus-visible:ring-primary focus-visible:border-primary",
-                conditionChanged && "text-primary",
-                isNew &&
-                  "placeholder:text-muted-foreground/50 placeholder:text-xs",
-              )}
+              disabled={!canEdit}
+              isNew={isNew}
+              className={cn(conditionChanged && "text-primary")}
+              label="WHERE Condition"
+              availableColumns={availableColumns}
             />
           ) : (
             <span className="italic px-2 py-1 h-7 flex items-center">

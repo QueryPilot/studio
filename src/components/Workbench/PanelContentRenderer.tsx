@@ -239,7 +239,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                   database={metadata.database}
                   schema={metadata.schema}
                   table={metadata.table}
-                  onActionsChange={handleViewActionsChange}
+                  onActionsChange={activeView === "structure" ? handleViewActionsChange : undefined}
                 />
               </div>
 
@@ -253,7 +253,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                   database={metadata.database}
                   schema={metadata.schema}
                   table={metadata.table}
-                  onActionsChange={handleViewActionsChange}
+                  onActionsChange={activeView === "indexes" ? handleViewActionsChange : undefined}
                 />
               </div>
 
@@ -267,6 +267,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                   database={metadata.database}
                   schema={metadata.schema}
                   table={metadata.table}
+                  onActionsChange={activeView === "triggers" ? handleViewActionsChange : undefined}
                 />
               </div>
               <div
@@ -277,7 +278,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                 <ObjectDefinition
                   connectionId={activeConnectionId || metadata.connectionId}
                   database={metadata.database}
-                  schema={metadata.schema}
+                  schema={metadata.schema || "public"}
                   objectName={metadata.table}
                   objectType={
                     isMaterializedView
