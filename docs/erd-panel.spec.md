@@ -158,7 +158,10 @@ interface ERDState {
   // Actions - Layout
   setAutoLayout: (enabled: boolean) => void;
   setLayoutDirection: (direction: "TB" | "BT" | "LR" | "RL") => void;
-  saveNodePosition: (nodeId: string, position: { x: number; y: number }) => void;
+  saveNodePosition: (
+    nodeId: string,
+    position: { x: number; y: number },
+  ) => void;
   saveViewport: (viewport: Viewport) => void;
 
   // Actions - Editor
@@ -233,7 +236,11 @@ interface RelationshipEdgeProps {
 
 ```typescript
 // src/components/Erd/ERDPanel.tsx
-import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from "@/components/ui/resizable";
 import { CodeEditor } from "@/components/CodeEditor";
 
 interface ERDPanelProps {
@@ -254,10 +261,7 @@ const ERDPanel: React.FC<ERDPanelProps> = ({ connectionId, tabId }) => {
         onExport={() => {}}
       />
 
-      <ResizablePanelGroup
-        direction="horizontal"
-        className="flex-1"
-      >
+      <ResizablePanelGroup direction="horizontal" className="flex-1">
         {/* Visualizer Panel - Always rendered, never hidden */}
         <ResizablePanel
           defaultSize={mode === "split" ? 60 : 100}
@@ -265,7 +269,7 @@ const ERDPanel: React.FC<ERDPanelProps> = ({ connectionId, tabId }) => {
           className="erd-visualizer-panel"
           style={{
             display: mode === "code" ? "none" : "block",
-            width: mode === "code" ? "0" : undefined
+            width: mode === "code" ? "0" : undefined,
           }}
         >
           {/* Placeholder until ERDVisualizer is implemented */}
@@ -276,9 +280,7 @@ const ERDPanel: React.FC<ERDPanelProps> = ({ connectionId, tabId }) => {
         </ResizablePanel>
 
         {/* Resizable handle - only in split mode */}
-        {mode === "split" && !editorCollapsed && (
-          <ResizableHandle withHandle />
-        )}
+        {mode === "split" && !editorCollapsed && <ResizableHandle />}
 
         {/* Code Editor Panel */}
         {(mode === "code" || mode === "split") && (
@@ -291,7 +293,7 @@ const ERDPanel: React.FC<ERDPanelProps> = ({ connectionId, tabId }) => {
             onExpand={() => setEditorCollapsed(false)}
             className="erd-editor-panel"
             style={{
-              display: editorCollapsed ? "none" : "block"
+              display: editorCollapsed ? "none" : "block",
             }}
           >
             {/* Current: SQL mode used as DBML placeholder */}
@@ -404,11 +406,15 @@ const useCollapsedTables = () => {
   // Tables with >10 columns start collapsed
   // Expand on user interaction only
   const [expanded, setExpanded] = useState(new Set());
-  return { expanded, toggle: (id) => setExpanded(prev => {
-    const next = new Set(prev);
-    next.has(id) ? next.delete(id) : next.add(id);
-    return next;
-  })};
+  return {
+    expanded,
+    toggle: (id) =>
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        next.has(id) ? next.delete(id) : next.add(id);
+        return next;
+      }),
+  };
 };
 
 // 3. Debounced DBML parsing
@@ -435,28 +441,31 @@ const useAutoLayout = (tables, relationships) => {
   const [positions, setPositions] = useState({});
 
   useEffect(() => {
-    calculateOptimalLayout(tables, relationships)
-      .then(setPositions);
+    calculateOptimalLayout(tables, relationships).then(setPositions);
   }, [tables, relationships]);
 
-  const nodes = useMemo(() =>
-    tables.map(table => ({
-      id: table.name,
-      type: 'tableNode',
-      position: positions[table.name] || { x: 0, y: 0 },
-      data: { ...table, collapsed: !expanded.has(table.name) }
-    })), [tables, positions, expanded]
+  const nodes = useMemo(
+    () =>
+      tables.map((table) => ({
+        id: table.name,
+        type: "tableNode",
+        position: positions[table.name] || { x: 0, y: 0 },
+        data: { ...table, collapsed: !expanded.has(table.name) },
+      })),
+    [tables, positions, expanded],
   );
 
-  const edges = useMemo(() =>
-    relationships.map(rel => ({
-      id: `${rel.from}-${rel.to}`,
-      source: rel.from,
-      target: rel.to,
-      type: 'relationshipEdge',
-      animated: highlightedEdges.has(`${rel.from}-${rel.to}`),
-      data: rel
-    })), [relationships, highlightedEdges]
+  const edges = useMemo(
+    () =>
+      relationships.map((rel) => ({
+        id: `${rel.from}-${rel.to}`,
+        source: rel.from,
+        target: rel.to,
+        type: "relationshipEdge",
+        animated: highlightedEdges.has(`${rel.from}-${rel.to}`),
+        data: rel,
+      })),
+    [relationships, highlightedEdges],
   );
 
   return { nodes, edges };
@@ -468,7 +477,7 @@ const useAutoLayout = (tables, relationships) => {
 ### 1. Smart Layout Algorithm (Using ELK)
 
 ```typescript
-import ELK from 'elkjs/lib/elk.bundled.js';
+import ELK from "elkjs/lib/elk.bundled.js";
 
 const elk = new ELK();
 
@@ -478,20 +487,20 @@ const calculateOptimalLayout = async (
   relationships: Relationship[],
 ) => {
   const elkGraph = {
-    id: 'root',
+    id: "root",
     layoutOptions: {
-      'elk.algorithm': 'layered',
-      'elk.direction': 'RIGHT',
-      'elk.spacing.nodeNode': '50',
-      'elk.layered.spacing.nodeNodeBetweenLayers': '50',
-      'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+      "elk.algorithm": "layered",
+      "elk.direction": "RIGHT",
+      "elk.spacing.nodeNode": "50",
+      "elk.layered.spacing.nodeNodeBetweenLayers": "50",
+      "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
     },
-    children: tables.map(table => ({
+    children: tables.map((table) => ({
       id: table.name,
       width: 250,
       height: Math.min(100 + table.columns.length * 20, 300), // Collapsed height
     })),
-    edges: relationships.map(rel => ({
+    edges: relationships.map((rel) => ({
       id: `${rel.from_table}_${rel.to_table}`,
       sources: [rel.from_table],
       targets: [rel.to_table],
@@ -501,10 +510,13 @@ const calculateOptimalLayout = async (
   const layouted = await elk.layout(elkGraph);
 
   // Convert ELK positions to ReactFlow positions
-  return layouted.children.reduce((acc, node) => ({
-    ...acc,
-    [node.id]: { x: node.x, y: node.y }
-  }), {});
+  return layouted.children.reduce(
+    (acc, node) => ({
+      ...acc,
+      [node.id]: { x: node.x, y: node.y },
+    }),
+    {},
+  );
 };
 ```
 
@@ -572,11 +584,12 @@ import { GitBranch } from "lucide-react"; // ERD icon
   title="Open ERD View"
 >
   <GitBranch className="h-3.5 w-3.5" />
-</Button>
+</Button>;
 
 // Handler to open ERD in the active/primary panel
 const handleOpenERD = () => {
-  const { addTabToPanel, getPrimaryPanel, activePanelId } = usePanelStore.getState();
+  const { addTabToPanel, getPrimaryPanel, activePanelId } =
+    usePanelStore.getState();
   const panelId = activePanelId || getPrimaryPanel()?.id;
   if (panelId) {
     addTabToPanel(panelId, {

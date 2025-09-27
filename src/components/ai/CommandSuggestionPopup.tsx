@@ -84,7 +84,7 @@ export function CommandSuggestionPopup({
 
   return (
     <div
-      className="absolute z-50 w-72 max-h-64 overflow-hidden rounded-lg border bg-popover shadow-lg"
+      className="absolute z-50 w-72 max-h-64 overflow-hidden rounded-xl border bg-popover shadow-lg"
       style={{
         top: `${position.top}px`,
         left: `${position.left}px`,

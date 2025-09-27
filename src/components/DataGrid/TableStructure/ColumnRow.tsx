@@ -264,8 +264,7 @@ export const ColumnRow = memo(function ColumnRow({
           />
         </div>
       </td>
-
-      <td className="border-b border-r border-border text-foreground/60 dark:text-foreground/50 text-xs min-w-[200px]">
+      <td className="border-b text-foreground/60 dark:text-foreground/50 text-xs min-w-[200px]">
         <div
           className={cn(
             "flex items-center justify-between",

@@ -79,7 +79,9 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   const lastConnectionRef = useRef<string | null>(connectionId);
   const skipParseNextRef = useRef<boolean>(false);
   const parseTimerRef = useRef<number | undefined>(undefined);
-  const erdVisualizerRef = useRef<{ triggerAutoArrange: () => void } | null>(null);
+  const erdVisualizerRef = useRef<{ triggerAutoArrange: () => void } | null>(
+    null,
+  );
 
   const ensureView = useErdStore((state) => state.ensureView);
   const setActiveViewStore = useErdStore((state) => state.setActiveView);
@@ -444,35 +446,35 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
               // Look for index with pk setting
               for (const idx of tableObj.indexes) {
                 // Check if this index has a pk property in its settings
-                const hasPkSetting = idx.settings && (
-                  idx.settings.pk === true ||
-                  idx.settings.primary === true ||
-                  idx.settings.primaryKey === true
-                );
+                const hasPkSetting =
+                  idx.settings &&
+                  (idx.settings.pk === true ||
+                    idx.settings.primary === true ||
+                    idx.settings.primaryKey === true);
 
                 // Check various ways DBML might mark primary keys
                 const isPrimaryKey =
                   idx.pk === true ||
                   idx.primary === true ||
-                  idx.type === 'pk' ||
+                  idx.type === "pk" ||
                   hasPkSetting ||
-                  (idx.unique === true && idx.name?.includes('pkey'));
+                  (idx.unique === true && idx.name?.includes("pkey"));
 
                 if (isPrimaryKey) {
                   // Get column names from the index
                   if (idx.columns && Array.isArray(idx.columns)) {
                     primaryKeys = idx.columns.map((col: any) => {
                       // DBML parser stores column references as objects with 'value' property
-                      if (typeof col === 'object' && col.value) {
+                      if (typeof col === "object" && col.value) {
                         return col.value;
                       }
-                      if (typeof col === 'string') {
+                      if (typeof col === "string") {
                         return col;
                       }
-                      if (typeof col === 'object' && col.name) {
+                      if (typeof col === "object" && col.name) {
                         return col.name;
                       }
-                      if (typeof col === 'object' && col.column) {
+                      if (typeof col === "object" && col.column) {
                         return col.column.name || col.column;
                       }
                       return col;
@@ -487,8 +489,10 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
             // that references this table
             const schemaIndexes = (schemaEntry as any).indexes;
             if (schemaIndexes && Array.isArray(schemaIndexes)) {
-              const tablePkIndex = schemaIndexes.find((idx: any) =>
-                idx.tableName === table.name && (idx.pk === true || idx.primary === true)
+              const tablePkIndex = schemaIndexes.find(
+                (idx: any) =>
+                  idx.tableName === table.name &&
+                  (idx.pk === true || idx.primary === true),
               );
               if (tablePkIndex && tablePkIndex.columns) {
                 primaryKeys = tablePkIndex.columns.map((c: any) =>
@@ -757,7 +761,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
             />
           )}
         </ResizablePanel>
-        {mode === "split" && !editorCollapsed && <ResizableHandle withHandle />}
+        {mode === "split" && !editorCollapsed && <ResizableHandle />}
         {(mode === "code" || mode === "split") && (
           <ResizablePanel
             defaultSize={mode === "code" ? 100 : 40}

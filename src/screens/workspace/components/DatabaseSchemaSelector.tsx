@@ -140,7 +140,7 @@ export function DatabaseSchemaSelector({
     <div className="flex items-center gap-1">
       {databases.length > 0 && (
         <Select value={selectedDatabase} onValueChange={onDatabaseChange}>
-          <SelectTrigger className="!h-8 text-xs min-w-[120px] max-w-[180px] border-0 !bg-background hover:bg-muted/50">
+          <SelectTrigger className="text-xs min-w-[120px] max-w-[180px] border-0 !bg-background hover:bg-muted/50">
             <Database className="!h-3.5 !w-3.5 mr-1" />
             <SelectValue placeholder="Select database" />
           </SelectTrigger>
@@ -158,7 +158,7 @@ export function DatabaseSchemaSelector({
         <Select value={selectedSchema} onValueChange={onSchemaChange}>
           <SelectTrigger
             className={cn(
-              "!h-8 text-xs border-0 !bg-background hover:bg-muted/50",
+              "text-xs border-0 !bg-background hover:bg-muted/50",
               databases.length > 1
                 ? "min-w-[100px] max-w-[150px]"
                 : "min-w-[120px] max-w-[180px]",

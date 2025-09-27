@@ -76,7 +76,10 @@ export function WorkspaceScreen() {
       />
 
       {/* Main Content Area */}
-      <ResizablePanelGroup direction="horizontal" className="flex-1">
+      <ResizablePanelGroup
+        direction="horizontal"
+        className="flex-1 p-1.5 pt-0 bg-secondary"
+      >
         {/* Left Sidebar - Database Explorer */}
         {sidebars.left && (
           <>
@@ -86,7 +89,7 @@ export function WorkspaceScreen() {
               defaultSize={18}
               minSize={12}
               maxSize={30}
-              className="flex flex-col bg-border/30"
+              className="flex flex-col rounded-xl bg-background"
             >
               {/* Database/Schema Selector aligned with tabs */}
               <div className="flex items-center overflow-hidden">
@@ -108,7 +111,7 @@ export function WorkspaceScreen() {
                 />
               </div>
             </ResizablePanel>
-            <ResizableHandle withHandle />
+            <ResizableHandle />
           </>
         )}
 
@@ -136,14 +139,14 @@ export function WorkspaceScreen() {
         {/* Right Sidebar - AI Assistant */}
         {sidebars.right && (
           <>
-            <ResizableHandle withHandle />
+            <ResizableHandle />
             <ResizablePanel
               id="sidebar-right"
               order={3}
               defaultSize={23}
               minSize={15}
               maxSize={40}
-              className="bg-muted/20"
+              className="flex flex-col rounded-xl bg-background"
             >
               <ChatAssistant connectionId={connectionId} />
             </ResizablePanel>

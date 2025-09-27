@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 interface TableItem {
   name: string;
   schema?: string;
-  type?: 'table' | 'view';
+  type?: "table" | "view";
   columns?: number;
 }
 
@@ -30,7 +30,7 @@ export function TableMentionPopup({
   useEffect(() => {
     const query = searchQuery.toLowerCase();
     const filtered = tables.filter((table) =>
-      table.name.toLowerCase().includes(query)
+      table.name.toLowerCase().includes(query),
     );
     setFilteredTables(filtered);
     setSelectedIndex(0);
@@ -41,31 +41,33 @@ export function TableMentionPopup({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       switch (e.key) {
-        case 'ArrowDown':
+        case "ArrowDown":
           e.preventDefault();
           setSelectedIndex((prev) =>
-            prev < filteredTables.length - 1 ? prev + 1 : prev
+            prev < filteredTables.length - 1 ? prev + 1 : prev,
           );
           break;
-        case 'ArrowUp':
+        case "ArrowUp":
           e.preventDefault();
           setSelectedIndex((prev) => (prev > 0 ? prev - 1 : prev));
           break;
-        case 'Enter':
-        case 'Tab':
+        case "Enter":
+        case "Tab":
           e.preventDefault();
           if (filteredTables[selectedIndex]) {
             onSelect(filteredTables[selectedIndex]);
           }
           break;
-        case 'Escape':
+        case "Escape":
           e.preventDefault();
           break;
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => { window.removeEventListener('keydown', handleKeyDown); };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
   }, [isOpen, selectedIndex, filteredTables, onSelect]);
 
   if (!isOpen) {
@@ -76,7 +78,7 @@ export function TableMentionPopup({
 
   return (
     <div
-      className="absolute z-50 w-72 max-h-64 overflow-hidden rounded-lg border bg-popover shadow-lg"
+      className="absolute z-50 w-72 max-h-64 overflow-hidden rounded-xl border bg-popover shadow-lg"
       style={{
         top: `${position.top}px`,
         left: `${position.left}px`,
@@ -89,15 +91,17 @@ export function TableMentionPopup({
               key={`${table.schema}.${table.name}`}
               className={cn(
                 "flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors",
-                selectedIndex === index
-                  ? "bg-accent"
-                  : "hover:bg-accent/50"
+                selectedIndex === index ? "bg-accent" : "hover:bg-accent/50",
               )}
-              onClick={() => { onSelect(table); }}
-              onMouseEnter={() => { setSelectedIndex(index); }}
+              onClick={() => {
+                onSelect(table);
+              }}
+              onMouseEnter={() => {
+                setSelectedIndex(index);
+              }}
             >
               <div className="flex-shrink-0">
-                {table.type === 'view' ? (
+                {table.type === "view" ? (
                   <Database className="h-4 w-4 text-muted-foreground" />
                 ) : (
                   <Table2 className="h-4 w-4 text-muted-foreground" />
@@ -115,8 +119,8 @@ export function TableMentionPopup({
                   )}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {(table.type ?? 'table')}
-                  {typeof table.columns === 'number'
+                  {table.type ?? "table"}
+                  {typeof table.columns === "number"
                     ? ` • ${table.columns} columns`
                     : null}
                 </div>

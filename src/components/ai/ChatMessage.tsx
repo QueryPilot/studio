@@ -41,7 +41,7 @@ export function ChatMessage({ message, style }: ChatMessageProps) {
     console.log("[AI] Execute button clicked, code:", code);
 
     // Clean up the SQL - remove trailing semicolons as they cause issues
-    const cleanedCode = code.trim().replace(/;\s*$/, '');
+    const cleanedCode = code.trim().replace(/;\s*$/, "");
     console.log("[AI] Cleaned code:", cleanedCode);
 
     const state = useWorkbenchStore.getState();
@@ -66,7 +66,8 @@ export function ChatMessage({ message, style }: ChatMessageProps) {
       console.log("[AI] No panels available at all");
       toast({
         title: "No panel available",
-        description: "Unable to create query tab. Please open a database connection first.",
+        description:
+          "Unable to create query tab. Please open a database connection first.",
         variant: "destructive",
       });
       return;
@@ -310,7 +311,9 @@ export function ChatMessage({ message, style }: ChatMessageProps) {
   };
 
   // Show loading state for empty assistant messages
-  const isAssistantLoading = message.role === "assistant" && (!message.content || message.content === "");
+  const isAssistantLoading =
+    message.role === "assistant" &&
+    (!message.content || message.content === "");
 
   return (
     <div
@@ -325,7 +328,7 @@ export function ChatMessage({ message, style }: ChatMessageProps) {
       >
         <div
           className={cn(
-            "p-2 -m-2 rounded-lg text-xs relative",
+            "p-2 -m-2 rounded-xl text-xs relative",
             isUser ? "bg-muted text-foreground" : "",
           )}
         >
@@ -334,8 +337,18 @@ export function ChatMessage({ message, style }: ChatMessageProps) {
             <div className="flex items-center gap-2 text-muted-foreground">
               <div className="flex gap-1">
                 <span className="animate-pulse">●</span>
-                <span className="animate-pulse" style={{ animationDelay: "200ms" }}>●</span>
-                <span className="animate-pulse" style={{ animationDelay: "400ms" }}>●</span>
+                <span
+                  className="animate-pulse"
+                  style={{ animationDelay: "200ms" }}
+                >
+                  ●
+                </span>
+                <span
+                  className="animate-pulse"
+                  style={{ animationDelay: "400ms" }}
+                >
+                  ●
+                </span>
               </div>
               <span className="text-xs">Thinking...</span>
             </div>

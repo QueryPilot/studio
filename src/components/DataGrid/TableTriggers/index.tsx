@@ -20,14 +20,14 @@ export const TableTriggers = memo(function TableTriggers({
 }: TableTriggersProps) {
   const { columnWidths, resizingColumn, handleMouseDown } = useColumnResizing({
     columns: [
-      { key: 'rowNumber', minWidth: 30, defaultWidth: 40 },
-      { key: 'name', minWidth: 100, defaultWidth: 150 },
-      { key: 'event', minWidth: 80, defaultWidth: 100 },
-      { key: 'timing', minWidth: 80, defaultWidth: 100 },
-      { key: 'level', minWidth: 60, defaultWidth: 80 },
-      { key: 'status', minWidth: 80, defaultWidth: 100 },
-      { key: 'function', minWidth: 120, defaultWidth: 150 },
-      { key: 'condition', minWidth: 100, defaultWidth: 150 },
+      { key: "rowNumber", minWidth: 30, defaultWidth: 40 },
+      { key: "name", minWidth: 100, defaultWidth: 150 },
+      { key: "event", minWidth: 80, defaultWidth: 100 },
+      { key: "timing", minWidth: 80, defaultWidth: 100 },
+      { key: "level", minWidth: 60, defaultWidth: 80 },
+      { key: "status", minWidth: 80, defaultWidth: 100 },
+      { key: "function", minWidth: 120, defaultWidth: 150 },
+      { key: "condition", minWidth: 100, defaultWidth: 150 },
     ],
     storageKey: `table-triggers-columns-${database}-${table}`,
   });
@@ -95,7 +95,7 @@ export const TableTriggers = memo(function TableTriggers({
 
   return (
     <div className="h-full overflow-auto">
-      <table className="min-w-full border-separate border-spacing-0">
+      <table className="min-w-full border-separate border-spacing-0 px-1">
         <thead className="sticky top-0 z-10 bg-muted">
           <tr className="text-xs" style={{ height: "28px" }}>
             <th
@@ -106,9 +106,11 @@ export const TableTriggers = memo(function TableTriggers({
               <div
                 className={cn(
                   "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
-                  resizingColumn === 'rowNumber' && "bg-primary"
+                  resizingColumn === "rowNumber" && "bg-primary",
                 )}
-                onMouseDown={(e) => handleMouseDown(e, 'rowNumber')}
+                onMouseDown={(e) => {
+                  handleMouseDown(e, "rowNumber");
+                }}
               />
             </th>
             <th
@@ -119,9 +121,11 @@ export const TableTriggers = memo(function TableTriggers({
               <div
                 className={cn(
                   "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
-                  resizingColumn === 'name' && "bg-primary"
+                  resizingColumn === "name" && "bg-primary",
                 )}
-                onMouseDown={(e) => handleMouseDown(e, 'name')}
+                onMouseDown={(e) => {
+                  handleMouseDown(e, "name");
+                }}
               />
             </th>
             <th
@@ -132,9 +136,11 @@ export const TableTriggers = memo(function TableTriggers({
               <div
                 className={cn(
                   "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
-                  resizingColumn === 'event' && "bg-primary"
+                  resizingColumn === "event" && "bg-primary",
                 )}
-                onMouseDown={(e) => handleMouseDown(e, 'event')}
+                onMouseDown={(e) => {
+                  handleMouseDown(e, "event");
+                }}
               />
             </th>
             <th
@@ -145,9 +151,11 @@ export const TableTriggers = memo(function TableTriggers({
               <div
                 className={cn(
                   "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
-                  resizingColumn === 'timing' && "bg-primary"
+                  resizingColumn === "timing" && "bg-primary",
                 )}
-                onMouseDown={(e) => handleMouseDown(e, 'timing')}
+                onMouseDown={(e) => {
+                  handleMouseDown(e, "timing");
+                }}
               />
             </th>
             <th
@@ -158,9 +166,11 @@ export const TableTriggers = memo(function TableTriggers({
               <div
                 className={cn(
                   "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
-                  resizingColumn === 'level' && "bg-primary"
+                  resizingColumn === "level" && "bg-primary",
                 )}
-                onMouseDown={(e) => handleMouseDown(e, 'level')}
+                onMouseDown={(e) => {
+                  handleMouseDown(e, "level");
+                }}
               />
             </th>
             <th
@@ -171,9 +181,11 @@ export const TableTriggers = memo(function TableTriggers({
               <div
                 className={cn(
                   "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
-                  resizingColumn === 'status' && "bg-primary"
+                  resizingColumn === "status" && "bg-primary",
                 )}
-                onMouseDown={(e) => handleMouseDown(e, 'status')}
+                onMouseDown={(e) => {
+                  handleMouseDown(e, "status");
+                }}
               />
             </th>
             <th
@@ -184,22 +196,26 @@ export const TableTriggers = memo(function TableTriggers({
               <div
                 className={cn(
                   "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
-                  resizingColumn === 'function' && "bg-primary"
+                  resizingColumn === "function" && "bg-primary",
                 )}
-                onMouseDown={(e) => handleMouseDown(e, 'function')}
+                onMouseDown={(e) => {
+                  handleMouseDown(e, "function");
+                }}
               />
             </th>
             <th
-              className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80 relative"
+              className="text-left px-2 py-1 border-b border-border font-semibold text-foreground/80 relative"
               style={{ width: columnWidths.condition }}
             >
               Condition
               <div
                 className={cn(
                   "absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50",
-                  resizingColumn === 'condition' && "bg-primary"
+                  resizingColumn === "condition" && "bg-primary",
                 )}
-                onMouseDown={(e) => handleMouseDown(e, 'condition')}
+                onMouseDown={(e) => {
+                  handleMouseDown(e, "condition");
+                }}
               />
             </th>
           </tr>
@@ -274,7 +290,7 @@ export const TableTriggers = memo(function TableTriggers({
               <td className="px-1.5 py-0.5 border-b border-r text-foreground/70 dark:text-foreground/60 text-xs whitespace-nowrap">
                 {trigger.function}
               </td>
-              <td className="px-1.5 py-0.5 border-b border-r text-foreground/60 dark:text-foreground/50 text-xs italic whitespace-nowrap">
+              <td className="px-1.5 py-0.5 border-b text-foreground/60 dark:text-foreground/50 text-xs italic whitespace-nowrap">
                 {trigger.condition || "-"}
               </td>
             </tr>

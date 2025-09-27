@@ -138,7 +138,7 @@ export const QueryPanel = memo(function QueryPanel({
       let sql = queryToExecute || query;
 
       // Clean up the SQL - remove trailing semicolons as they cause issues
-      sql = sql.trim().replace(/;\s*$/, '');
+      sql = sql.trim().replace(/;\s*$/, "");
 
       if (!sql) {
         toast.error("Please enter a query to execute");
@@ -302,14 +302,33 @@ export const QueryPanel = memo(function QueryPanel({
   const executeHint = useKeybindingHint("query.execute");
   const beautifyHint = useKeybindingHint("query.beautify");
 
+  // Focus panel when QueryPanel is clicked or focused
+  const handleFocusPanel = useCallback(() => {
+    if (panelId) {
+      const state = useWorkbenchStore.getState();
+      state.focusPanel(panelId);
+    }
+  }, [panelId]);
+
   return (
     <KeyboardScope context="queryEditor">
-      <div className={cn("flex flex-col h-full", className)}>
+      <div
+        className={cn("flex flex-col h-full", className)}
+        onMouseDown={handleFocusPanel}
+        onFocus={handleFocusPanel}
+      >
         {/* Main Content */}
         <div className="flex-1 min-h-0 overflow-hidden">
-          <ResizablePanelGroup direction="horizontal" className="h-full">
+          <ResizablePanelGroup
+            direction="horizontal"
+            className="h-full rounded-xl overflow-hidden"
+          >
             {/* Editor and Results */}
-            <ResizablePanel defaultSize={showHistory ? 70 : 100} minSize={30}>
+            <ResizablePanel
+              defaultSize={showHistory ? 70 : 100}
+              minSize={30}
+              className="rounded-xl overflow-hidden"
+            >
               <ResizablePanelGroup direction="vertical" className="h-full">
                 {/* Editor */}
                 <ResizablePanel defaultSize={50} minSize={20}>
@@ -403,7 +422,7 @@ export const QueryPanel = memo(function QueryPanel({
 
             {showHistory && (
               <>
-                <ResizableHandle withHandle />
+                <ResizableHandle />
 
                 {/* History and Saved Queries */}
                 <ResizablePanel defaultSize={30} minSize={20}>
