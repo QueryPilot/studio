@@ -1,5 +1,5 @@
-import { memo } from 'react';
-import { cn } from '@/lib/utils';
+import { memo } from "react";
+import { cn } from "@/lib/utils";
 
 interface DataGridStatusBarProps {
   loadedRows: number;
@@ -14,7 +14,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   estimatedTotal,
   hasMore,
   selectedRows = 0,
-  className
+  className,
 }: DataGridStatusBarProps) {
   const getRowCountDisplay = () => {
     if (estimatedTotal && estimatedTotal > loadedRows) {
@@ -29,14 +29,16 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   };
 
   return (
-    <div className={cn(
-      "flex items-center justify-between px-3 py-1.5 border-t bg-muted/30 text-xs text-muted-foreground",
-      className
-    )}>
+    <div
+      className={cn(
+        "flex items-center justify-between px-3 py-1.5 border-t bg-background text-xs text-muted-foreground",
+        className,
+      )}
+    >
       <div className="flex items-center gap-4">
         {selectedRows > 0 && (
           <span className="text-primary">
-            {selectedRows} row{selectedRows !== 1 ? 's' : ''} selected
+            {selectedRows} row{selectedRows !== 1 ? "s" : ""} selected
           </span>
         )}
       </div>

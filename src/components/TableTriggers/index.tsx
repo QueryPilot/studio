@@ -44,26 +44,36 @@ export const TableTriggers = memo(function TableTriggers({
   const [error, setError] = useState<string | null>(null);
 
   // Editing states
-  const [editingTriggers, setEditingTriggers] = useState<Map<string, TriggerRowData>>(new Map());
-  const [deletedTriggers, setDeletedTriggers] = useState<Set<string>>(new Set());
+  const [editingTriggers, setEditingTriggers] = useState<
+    Map<string, TriggerRowData>
+  >(new Map());
+  const [deletedTriggers, setDeletedTriggers] = useState<Set<string>>(
+    new Set(),
+  );
   const [newTriggers, setNewTriggers] = useState<TriggerRowData[]>([]);
   const [nextTriggerNumber, setNextTriggerNumber] = useState(1);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   // Get available columns for the table
-  const [availableColumns, setAvailableColumns] = useState<Array<{ name: string; db_type?: string }>>([]);
+  const [availableColumns, setAvailableColumns] = useState<
+    Array<{ name: string; db_type?: string }>
+  >([]);
 
   // Get functions from shared schema data hook
-  const { functions: schemaFunctions } = useSchemaData(connectionId, database, schema || "public");
+  const { functions: schemaFunctions } = useSchemaData(
+    connectionId,
+    database,
+    schema || "public",
+  );
 
   // Format functions for display
   const availableFunctions = useMemo(() => {
-    return schemaFunctions.map(f => {
+    return schemaFunctions.map((f) => {
       // The arguments field is an array after being processed by databaseService
       if (f.arguments && Array.isArray(f.arguments) && f.arguments.length > 0) {
         // Filter out empty arguments
-        const validArgs = f.arguments.filter(arg => arg && arg.trim());
+        const validArgs = f.arguments.filter((arg) => arg && arg.trim());
         if (validArgs.length > 0) {
           return `${f.name}(${validArgs.join(", ")})`;
         }
@@ -123,10 +133,10 @@ export const TableTriggers = memo(function TableTriggers({
         );
         if (tableInfo?.columns) {
           setAvailableColumns(
-            tableInfo.columns.map(col => ({
+            tableInfo.columns.map((col) => ({
               name: col.name,
               db_type: col.db_type,
-            }))
+            })),
           );
         }
       } catch (err) {
@@ -142,7 +152,10 @@ export const TableTriggers = memo(function TableTriggers({
   // Update actions when editing state changes
   useEffect(() => {
     if (onActionsChange) {
-      const hasChanges = editingTriggers.size > 0 || deletedTriggers.size > 0 || newTriggers.length > 0;
+      const hasChanges =
+        editingTriggers.size > 0 ||
+        deletedTriggers.size > 0 ||
+        newTriggers.length > 0;
 
       if (!isEditing && !hasChanges) {
         onActionsChange(
@@ -154,7 +167,7 @@ export const TableTriggers = memo(function TableTriggers({
           >
             <Plus className="h-3 w-3 mr-1" />
             Add Trigger
-          </Button>
+          </Button>,
         );
       } else if (hasChanges) {
         onActionsChange(
@@ -186,11 +199,18 @@ export const TableTriggers = memo(function TableTriggers({
               <Plus className="h-3 w-3 mr-1" />
               Add Trigger
             </Button>
-          </div>
+          </div>,
         );
       }
     }
-  }, [editingTriggers, deletedTriggers, newTriggers, isEditing, isSaving, onActionsChange]);
+  }, [
+    editingTriggers,
+    deletedTriggers,
+    newTriggers,
+    isEditing,
+    isSaving,
+    onActionsChange,
+  ]);
 
   const handleAddTrigger = () => {
     const newTrigger: TriggerRowData = {
@@ -219,9 +239,12 @@ export const TableTriggers = memo(function TableTriggers({
         const updatedTrigger = { ...updated[index], ...updates };
 
         // Auto-generate trigger name based on function if user hasn't manually edited it
-        if (updates.function && updated[index].name.startsWith(`trg_${table}_`)) {
+        if (
+          updates.function &&
+          updated[index].name.startsWith(`trg_${table}_`)
+        ) {
           // Extract function base name (without arguments)
-          const funcBaseName = updates.function.split('(')[0];
+          const funcBaseName = updates.function.split("(")[0];
           if (funcBaseName) {
             updatedTrigger.name = `trg_${funcBaseName}`;
           }
@@ -256,7 +279,10 @@ export const TableTriggers = memo(function TableTriggers({
       const index = newTriggers.findIndex((t) => t.name === triggerName);
       if (index !== -1) {
         const updated = [...newTriggers];
-        updated[index] = { ...updated[index], enabled: !updated[index].enabled };
+        updated[index] = {
+          ...updated[index],
+          enabled: !updated[index].enabled,
+        };
         setNewTriggers(updated);
       }
     } else {
@@ -274,7 +300,10 @@ export const TableTriggers = memo(function TableTriggers({
         };
 
         const updated = new Map(editingTriggers);
-        updated.set(triggerName, { ...currentEdit, enabled: !currentEdit.enabled });
+        updated.set(triggerName, {
+          ...currentEdit,
+          enabled: !currentEdit.enabled,
+        });
         setEditingTriggers(updated);
       }
     }
@@ -447,7 +476,7 @@ export const TableTriggers = memo(function TableTriggers({
 
   return (
     <div className="h-full overflow-auto">
-      <table className="min-w-full border-separate border-spacing-0 px-1">
+      <table className="min-w-full border-separate border-spacing-0">
         <thead className="sticky top-0 z-10 bg-muted">
           <tr className="text-xs" style={{ height: "28px" }}>
             <th
@@ -584,9 +613,15 @@ export const TableTriggers = memo(function TableTriggers({
               originalTrigger={item.originalTrigger}
               availableColumns={availableColumns}
               availableFunctions={availableFunctions}
-              onUpdate={(updates) => handleUpdateTrigger(item.trigger.name, updates, item.isNew)}
-              onToggleEnabled={() => handleToggleEnabled(item.trigger.name, item.isNew)}
-              onDelete={() => handleDeleteTrigger(item.trigger.name, item.isNew)}
+              onUpdate={(updates) =>
+                handleUpdateTrigger(item.trigger.name, updates, item.isNew)
+              }
+              onToggleEnabled={() =>
+                handleToggleEnabled(item.trigger.name, item.isNew)
+              }
+              onDelete={() =>
+                handleDeleteTrigger(item.trigger.name, item.isNew)
+              }
               onReset={() => handleResetTrigger(item.trigger.name, item.isNew)}
             />
           ))}

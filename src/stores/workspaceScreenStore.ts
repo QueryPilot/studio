@@ -47,7 +47,7 @@ export const useWorkspaceScreenStore = create<WorkspaceScreenStore>(
     splitPosition: 0.5,
     sidebars: {
       left: true,
-      right: true,
+      right: false,
     },
 
     // Initialize workspace

@@ -534,11 +534,11 @@ export const TableIndexes = memo(function TableIndexes({
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1 overflow-auto">
-        <table className="min-w-full border-separate border-spacing-0 px-1">
+        <table className="min-w-full border-separate border-spacing-0">
           <thead className="sticky top-0 z-10 bg-muted border-b border-border">
             <tr className="text-xs" style={{ height: "28px" }}>
               <th
-                className="text-left px-2 py-1 border-r border-border font-semibold text-foreground/80 relative"
+                className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80 relative"
                 style={{ width: columnWidths.rowNumber }}
               >
                 #
