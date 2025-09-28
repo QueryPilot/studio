@@ -110,7 +110,7 @@ export const TableStructure = memo(function TableStructure({
     const result: Array<{ name: string; db_type: string }> = [];
 
     // Add existing columns (excluding deleted ones)
-    columnsData.forEach(col => {
+    columnsData.forEach((col) => {
       if (!deletedColumns.has(col.name)) {
         const editingData = editingColumns.get(col.name);
         result.push({
@@ -121,7 +121,7 @@ export const TableStructure = memo(function TableStructure({
     });
 
     // Add new columns
-    newColumns.forEach(col => {
+    newColumns.forEach((col) => {
       if (col.name) {
         result.push({
           name: col.name,
@@ -464,11 +464,11 @@ export const TableStructure = memo(function TableStructure({
 
   return (
     <div className="h-full overflow-auto">
-      <table className="min-w-full border-separate border-spacing-0 px-1">
+      <table className="min-w-full border-separate border-spacing-0">
         <thead className="sticky top-0 z-10 bg-muted border-b border-border">
           <tr className="text-xs" style={{ height: "28px" }}>
             <th
-              className="text-left px-2 py-1 border-r border-border font-semibold text-foreground/80 relative"
+              className="text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80 relative"
               style={{ width: columnWidths.rowNumber }}
             >
               #
@@ -573,7 +573,7 @@ export const TableStructure = memo(function TableStructure({
               />
             </th>
             <th
-              className="text-left px-2 py-1 font-semibold text-foreground/80 relative"
+              className="text-left px-2 py-1 border-b border-border font-semibold text-foreground/80 relative"
               style={{ width: columnWidths.comment }}
             >
               Comment / Actions

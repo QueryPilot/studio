@@ -1,4 +1,8 @@
-import { GridCellKind, type GridCell } from "@glideapps/glide-data-grid";
+import {
+  GridCellKind,
+  type GridCell,
+  type CustomCell,
+} from "@glideapps/glide-data-grid";
 import type { CellValue } from "@/types/cellValue";
 import type { GridColumnV2 } from "../types";
 
@@ -14,8 +18,9 @@ export function buildGridCellV2(opts: {
   // Handle null/undefined
   if (!value || value.value == null) {
     // Check if this should be a number column based on type
-    const dbType = column.meta?.db_type?.toLowerCase() || "";
-    const isNumericColumn = dbType.includes("int") ||
+    const dbType = column.meta?.db_type.toLowerCase() || "";
+    const isNumericColumn =
+      dbType.includes("int") ||
       dbType.includes("numeric") ||
       dbType.includes("decimal") ||
       dbType.includes("float") ||
@@ -40,12 +45,40 @@ export function buildGridCellV2(opts: {
   const rawValue = value.value;
   const dbType = column.meta?.db_type?.toLowerCase() || "";
 
-  // Boolean cells
+  // Boolean cells - use custom cell to support null values
   if (dbType.includes("bool") || typeof rawValue === "boolean") {
+    let boolValue: boolean | null = null;
+
+    if (rawValue === null || rawValue === undefined) {
+      boolValue = null;
+    } else if (typeof rawValue === "boolean") {
+      boolValue = rawValue;
+    } else if (typeof rawValue === "string") {
+      // Handle string representations of booleans
+      const lowerValue = rawValue.toLowerCase();
+      if (lowerValue === "true" || lowerValue === "t" || lowerValue === "1") {
+        boolValue = true;
+      } else if (
+        lowerValue === "false" ||
+        lowerValue === "f" ||
+        lowerValue === "0"
+      ) {
+        boolValue = false;
+      } else {
+        boolValue = null;
+      }
+    } else if (typeof rawValue === "number") {
+      boolValue = rawValue !== 0;
+    }
+
     return {
-      kind: GridCellKind.Boolean,
-      data: Boolean(rawValue),
-      allowOverlay: false,
+      kind: GridCellKind.Custom,
+      data: {
+        kind: "boolean-cell",
+        value: boolValue,
+      },
+      copyData: boolValue === null ? "NULL" : String(boolValue),
+      allowOverlay: true,
       readonly: false,
     };
   }
@@ -85,12 +118,17 @@ export function buildGridCellV2(opts: {
   }
 
   // JSON/Array cells - render as formatted text
-  if (dbType.includes("json") || dbType.includes("array") || Array.isArray(rawValue)) {
+  if (
+    dbType.includes("json") ||
+    dbType.includes("array") ||
+    Array.isArray(rawValue)
+  ) {
     let text = "";
     try {
-      text = typeof rawValue === "string"
-        ? rawValue
-        : JSON.stringify(rawValue, null, 2);
+      text =
+        typeof rawValue === "string"
+          ? rawValue
+          : JSON.stringify(rawValue, null, 2);
     } catch {
       text = String(rawValue);
     }

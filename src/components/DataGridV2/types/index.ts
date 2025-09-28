@@ -5,6 +5,10 @@ import type {
   GridSelection,
   Item,
   Rectangle,
+  CustomCell,
+  Theme,
+  ImageWindowLoader,
+  ProvideEditorCallback,
 } from "@glideapps/glide-data-grid";
 import type { TableDataRow } from "@/services/tableDataTypes";
 import type { ColumnMeta } from "@/types/database";
@@ -147,3 +151,23 @@ export interface GridCallbacks {
 }
 
 export type { DataEditorRef };
+
+// Custom cell renderer types
+export interface DrawArgs {
+  ctx: CanvasRenderingContext2D;
+  theme: Theme;
+  rect: Rectangle;
+  hoverAmount: number;
+  hoverX: number | undefined;
+  hoverY: number | undefined;
+  col: number;
+  row: number;
+  highlighted: boolean;
+  imageLoader: ImageWindowLoader;
+}
+
+export type CustomCellRenderer<T extends CustomCell> = {
+  isMatch: (cell: CustomCell) => cell is T;
+  draw: (args: DrawArgs, cell: T) => boolean;
+  provideEditor: ProvideEditorCallback<T>;
+};

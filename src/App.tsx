@@ -44,7 +44,10 @@ function AppContent() {
       <Router>
         <Routes>
           <Route path="/" element={<MainScreen />} />
-          <Route path="/workspace/:connectionId" element={<WorkspaceScreen />} />
+          <Route
+            path="/workspace/:connectionId"
+            element={<WorkspaceScreen />}
+          />
         </Routes>
       </Router>
       <PreferencesDialog />
@@ -56,14 +59,14 @@ function App() {
   useEffect(() => {
     // Setup store integration for keyboard context
     const cleanup = setupStoreIntegration();
-    void (async () => {
-      try {
-        await ensureOpencodeConfigs();
-        await ensureOpencodeServer();
-      } catch (err) {
-        console.warn("[AI] Failed to prepare OpenCode server", err);
-      }
-    })();
+    // void (async () => {
+    //   try {
+    //     await ensureOpencodeConfigs();
+    //     await ensureOpencodeServer();
+    //   } catch (err) {
+    //     console.warn("[AI] Failed to prepare OpenCode server", err);
+    //   }
+    // })();
     return cleanup;
   }, []);
 

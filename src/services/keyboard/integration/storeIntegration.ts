@@ -1,6 +1,6 @@
 import React from "react";
 import { KeyboardManager } from "../KeyboardManager";
-import type { KeyboardContext, ViewContext } from "../types";
+import type { ViewContext } from "../types";
 
 // Import stores (these imports might need adjustment based on actual store exports)
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";

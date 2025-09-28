@@ -4,7 +4,7 @@ import type {
   Item,
   Rectangle,
 } from "@glideapps/glide-data-grid";
-import { GridCellKind } from "@glideapps/glide-data-grid";
+import { GridCellKind, type GridCell } from "@glideapps/glide-data-grid";
 import { EditableDataGrid } from "../base";
 import type {
   GridColumnV2,
@@ -48,6 +48,22 @@ import {
 } from "./columnUtils";
 import { useToast } from "@/hooks/use-toast";
 import type { CellValue } from "@/types/cellValue";
+
+interface BooleanCellPayload {
+  kind: "boolean-cell";
+  value: boolean | null;
+}
+
+const isBooleanCellPayload = (value: unknown): value is BooleanCellPayload => {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    record.kind === "boolean-cell" &&
+    (record.value === null || typeof record.value === "boolean")
+  );
+};
 
 export interface TableDataGridV2Props {
   connectionId: string;
@@ -124,7 +140,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       if (selectedRows.length === 0) return "";
 
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
       const headers = finalColumns.map((col) => col.name).join("\t");
       const dataRows = selectedRows.map((row) =>
         finalColumns
@@ -147,7 +162,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         .map((idx) => rows[idx])
         .filter(Boolean)
         .map((row) => {
-          const jsonRow: Record<string, any> = {};
+          const jsonRow: Record<string, unknown> = {};
           finalColumns.forEach((col) => {
             const value = row?.[col.field];
             if (value && typeof value === "object" && "value" in value) {
@@ -225,37 +240,52 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     [baseColumns, columnState.order],
   );
 
+  const handleColumnWidthsChange = useCallback(
+    (widths: Record<string, number>) => {
+      upsertGridColumnsState(gridId, (draft) => {
+        draft.widths = widths;
+      });
+    },
+    [gridId],
+  );
+
   const { sizedColumns, handleColumnResize, handleColumnResizeEnd } =
     useColumnSizing({
       columns: reorderedColumns,
       initialWidths: columnState.widths,
-      onChange: (widths) => {
-        upsertGridColumnsState(gridId, (draft) => {
-          draft.widths = widths;
-        });
-      },
+      onChange: handleColumnWidthsChange,
     });
+
+  const handleColumnVisibilityChange = useCallback(
+    (visibility: Record<string, boolean>) => {
+      upsertGridColumnsState(gridId, (draft) => {
+        draft.visibility = visibility;
+      });
+    },
+    [gridId],
+  );
 
   const { visibleColumns } = useColumnVisibility({
     columns: sizedColumns,
     initialHidden: Object.entries(columnState.visibility)
       .filter(([, visible]) => !visible)
       .map(([id]) => id),
-    onChange: (visibility) => {
-      upsertGridColumnsState(gridId, (draft) => {
-        draft.visibility = visibility;
-      });
-    },
+    onChange: handleColumnVisibilityChange,
   });
 
-  useColumnPinning({
-    columns: sizedColumns,
-    initialPinned: columnState.pinned,
-    onChange: (pinned) => {
+  const handlePinnedColumnsChange = useCallback(
+    (pinned: string[]) => {
       upsertGridColumnsState(gridId, (draft) => {
         draft.pinned = pinned;
       });
     },
+    [gridId],
+  );
+
+  useColumnPinning({
+    columns: sizedColumns,
+    initialPinned: columnState.pinned,
+    onChange: handlePinnedColumnsChange,
   });
 
   const { columns: finalColumns, freezeColumns } = useMemo(() => {
@@ -284,14 +314,17 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       const gridCell = buildGridCellV2({ value, column });
 
       // Apply text truncation for text cells
-      const colWidth = (column as any).width;
+      const widthCap =
+        typeof (column as { width?: number }).width === "number"
+          ? (column as { width?: number }).width
+          : undefined;
       if (
         gridCell.kind === GridCellKind.Text &&
-        typeof colWidth === "number" &&
+        typeof widthCap === "number" &&
         gridCell.displayData
       ) {
         const text = gridCell.data || "";
-        const availableWidth = colWidth - 16; // Account for padding
+        const availableWidth = widthCap - 16; // Account for padding
         const truncated = truncateTextToWidth(text, availableWidth);
         return {
           ...gridCell,
@@ -301,7 +334,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       return gridCell;
     },
-    [finalColumns, rows],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [finalColumns], // Remove rows from deps to prevent infinite loop
   );
 
   const handleSelectionChange = useCallback(
@@ -328,15 +362,32 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       // Convert grid cell value back to CellValue format
       if ("data" in newValue && column.field) {
+        type GridCellWithData = GridCell & { data?: unknown };
+        type GridCellWithActualValue = GridCell & { actualValue?: unknown };
+
+        let cellValue: unknown = (newValue as GridCellWithData).data;
+
+        if (newValue.kind === GridCellKind.Custom) {
+          const customData = (newValue as GridCellWithData).data;
+          if (isBooleanCellPayload(customData)) {
+            cellValue = customData.value;
+          }
+        } else if (newValue.kind === GridCellKind.Boolean) {
+          const actualValue = (newValue as GridCellWithActualValue).actualValue;
+          cellValue = actualValue ?? (newValue as GridCellWithData).data;
+        }
+
         updatedRow[column.field] = {
-          value: (newValue as any).data,
+          value: cellValue,
           db_type: column.meta?.db_type ?? "text",
           value_type:
-            typeof (newValue as any).data === "string"
+            cellValue === null || cellValue === undefined
+              ? "Null"
+              : typeof cellValue === "string"
               ? "String"
-              : typeof (newValue as any).data === "number"
+              : typeof cellValue === "number"
               ? "Number"
-              : typeof (newValue as any).data === "boolean"
+              : typeof cellValue === "boolean"
               ? "Boolean"
               : "Null",
           is_truncated: false,
@@ -350,11 +401,13 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       // TODO: Send mutation to backend
       // For now, just log the change
+      type GridCellForLog = GridCell & { data?: unknown };
+
       console.log("Cell edit:", {
         table,
         row: rowIndex,
         column: column.field,
-        newValue: (newValue as any).data,
+        newValue: (newValue as GridCellForLog).data,
         previousValue: previousValue?.value,
       });
 
@@ -558,7 +611,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [copySelection, gridSelection, history]);
+  }, [copySelection, gridSelection, history]); // Remove rows and finalColumns
 
   const errorMessage = typeof error === "string" ? error : null;
 
