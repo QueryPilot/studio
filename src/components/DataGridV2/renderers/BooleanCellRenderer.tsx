@@ -1,4 +1,4 @@
-import { GridCellKind, type CustomCell } from "@glideapps/glide-data-grid";
+import { type GridCellKind, type CustomCell } from "@glideapps/glide-data-grid";
 import type { CustomCellRenderer } from "../types";
 import { BooleanCellEditorWithProps } from "./BooleanCellEditor";
 
@@ -19,11 +19,10 @@ export interface BooleanCustomCell extends CustomCell {
 const BooleanCellRenderer: CustomCellRenderer<BooleanCustomCell> = {
   isMatch: (cell: CustomCell): cell is BooleanCustomCell => {
     return (
-      cell.kind === GridCellKind.Custom &&
       typeof cell.data === "object" &&
       cell.data !== null &&
       "kind" in cell.data &&
-      (cell.data as BooleanCellData).kind === "boolean-cell"
+      cell.data.kind === "boolean-cell"
     );
   },
 

@@ -25,31 +25,43 @@ export const BooleanCellEditor: React.FC<BooleanCellEditorProps> = ({
   onFinishedEditing,
   isHighlighted,
 }) => {
+  console.log("🔵 BooleanCellEditor instantiated:", { value, isHighlighted });
+
   const [isOpen, setIsOpen] = useState(false);
+  const [selectedValue, setSelectedValue] = useState(() => {
+    const booleanValue = value.data.value;
+    return booleanValue == null ? "null" : booleanValue.toString();
+  });
+
   const selectRef = useRef<HTMLButtonElement>(null);
   const hasOpenedRef = useRef(false);
+  const isFinishedRef = useRef(false);
 
-  // Extract the actual boolean value from our custom cell
-  const booleanValue = value.data.value;
-
-  // Convert boolean data to string for select component
-  const currentValue = booleanValue == null ? "null" : booleanValue.toString();
+  console.log("🔵 BooleanCellEditor setup:", {
+    booleanValue: value.data.value,
+    selectedValue
+  });
 
   useEffect(() => {
     // Auto-focus and open dropdown when editor mounts (only once)
     if (!hasOpenedRef.current && selectRef.current && isHighlighted) {
+      console.log("🔵 Auto-opening boolean dropdown");
       hasOpenedRef.current = true;
       selectRef.current.focus();
       // Delay opening to avoid conflicts with React's render cycle
       setTimeout(() => {
-        setIsOpen(true);
-        selectRef.current?.click();
+        if (!isFinishedRef.current) {
+          console.log("🔵 Attempting to trigger dropdown by clicking trigger");
+          selectRef.current?.click();
+        }
       }, 50);
     }
   }, [isHighlighted]);
 
   const handleValueChange = useCallback(
     (newValue: string) => {
+      console.log("🔵 Boolean cell editor value changed:", { newValue });
+
       let boolValue: boolean | null;
 
       switch (newValue) {
@@ -72,30 +84,60 @@ export const BooleanCellEditor: React.FC<BooleanCellEditorProps> = ({
           kind: "boolean-cell",
           value: boolValue,
         },
-        copyData: boolValue == null ? "NULL" : String(boolValue),
+        copyData: boolValue === null ? "NULL" : String(boolValue),
         readonly: false,
+        allowOverlay: true,
       };
 
-      onChange(newCell);
-      // onFinishedEditing will handle closing the editor
+      console.log("🔵 Boolean cell editor finishing with:", {
+        newValue,
+        boolValue,
+        newCell,
+      });
+
+      // Mark as finished to prevent further actions
+      isFinishedRef.current = true;
+
+      // Update local state for immediate feedback
+      setSelectedValue(newValue);
+
+      // Close dropdown and finish editing
+      setIsOpen(false);
+
+      // Call onFinishedEditing to commit the change immediately
       onFinishedEditing(newCell, [0, 0]);
     },
-    [onChange, onFinishedEditing],
+    [onFinishedEditing],
   );
 
-  const handleOpenChange = (open: boolean) => {
-    setIsOpen(open);
-    // Don't call onFinishedEditing here - it's already handled in handleValueChange
-  };
+  const handleOpenChange = useCallback((open: boolean) => {
+    console.log("🔵 Boolean dropdown open state changed:", { open, isFinished: isFinishedRef.current });
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (isFinishedRef.current) return;
+
+    setIsOpen(open);
+
+    // If dropdown closes without a value selection, cancel the edit
+    // But only if it wasn't closed by a value selection
+    if (!open && !isFinishedRef.current) {
+      console.log("🔵 Boolean dropdown closed without selection, canceling edit");
+      isFinishedRef.current = true;
+      onFinishedEditing(undefined, [0, 0]);
+    }
+  }, [onFinishedEditing]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (isFinishedRef.current) return;
+
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
+      isFinishedRef.current = true;
       onFinishedEditing(undefined, [0, 0]); // Cancel edit
     } else if (e.key === "Tab") {
       e.preventDefault();
       e.stopPropagation();
+      isFinishedRef.current = true;
       const movement: readonly [-1 | 0 | 1, -1 | 0 | 1] = e.shiftKey
         ? [-1, 0]
         : [1, 0];
@@ -103,9 +145,15 @@ export const BooleanCellEditor: React.FC<BooleanCellEditorProps> = ({
     } else if (e.key === "Enter") {
       e.preventDefault();
       e.stopPropagation();
+      isFinishedRef.current = true;
       onFinishedEditing(value, [0, 1]);
     }
-  };
+  }, [onFinishedEditing, value]);
+
+  // Prevent further actions once finished
+  if (isFinishedRef.current) {
+    return null;
+  }
 
   return (
     <div
@@ -113,10 +161,10 @@ export const BooleanCellEditor: React.FC<BooleanCellEditorProps> = ({
       onKeyDown={handleKeyDown}
     >
       <Select
-        value={currentValue}
+        value={selectedValue}
         onValueChange={handleValueChange}
-        open={isOpen}
         onOpenChange={handleOpenChange}
+        open={isOpen}
       >
         <SelectTrigger
           ref={selectRef}

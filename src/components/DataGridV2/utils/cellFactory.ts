@@ -1,10 +1,26 @@
-import {
-  GridCellKind,
-  type GridCell,
-  type CustomCell,
-} from "@glideapps/glide-data-grid";
+import { GridCellKind, type GridCell } from "@glideapps/glide-data-grid";
 import type { CellValue } from "@/types/cellValue";
 import type { GridColumnV2 } from "../types";
+
+// Cache for memoizing cell creation
+const cellCache = new WeakMap<CellValue, Map<string, GridCell>>();
+
+/**
+ * Helper to cache cell results
+ */
+const cacheAndReturn = (
+  value: CellValue | null | undefined,
+  column: GridColumnV2,
+  result: GridCell,
+): GridCell => {
+  if (value && typeof value === "object") {
+    if (!cellCache.has(value)) {
+      cellCache.set(value, new Map());
+    }
+    cellCache.get(value)!.set(column.id, result);
+  }
+  return result;
+};
 
 /**
  * Build a clean GridCell for V2 without custom cell baggage
@@ -14,6 +30,14 @@ export function buildGridCellV2(opts: {
   column: GridColumnV2;
 }): GridCell {
   const { value, column } = opts;
+
+  // Try to get from cache first
+  if (value && typeof value === "object") {
+    const columnCache = cellCache.get(value);
+    if (columnCache?.has(column.id)) {
+      return columnCache.get(column.id)!;
+    }
+  }
 
   // Handle null/undefined
   if (!value || value.value == null) {
@@ -28,7 +52,7 @@ export function buildGridCellV2(opts: {
       dbType.includes("real") ||
       dbType.includes("money");
 
-    return {
+    return cacheAndReturn(value, column, {
       kind: GridCellKind.Text,
       data: "NULL",
       displayData: "NULL",
@@ -39,11 +63,11 @@ export function buildGridCellV2(opts: {
         textDark: "rgba(127,127,127,0.7)",
         baseFontStyle: "italic 12px",
       },
-    };
+    });
   }
 
   const rawValue = value.value;
-  const dbType = column.meta?.db_type?.toLowerCase() || "";
+  const dbType = column.meta?.db_type.toLowerCase() || "";
 
   // Boolean cells - use custom cell to support null values
   if (dbType.includes("bool") || typeof rawValue === "boolean") {
@@ -71,7 +95,7 @@ export function buildGridCellV2(opts: {
       boolValue = rawValue !== 0;
     }
 
-    return {
+    return cacheAndReturn(value, column, {
       kind: GridCellKind.Custom,
       data: {
         kind: "boolean-cell",
@@ -80,20 +104,20 @@ export function buildGridCellV2(opts: {
       copyData: boolValue === null ? "NULL" : String(boolValue),
       allowOverlay: true,
       readonly: false,
-    };
+    });
   }
 
   // Money cells - format with currency symbol
   if (dbType.includes("money")) {
     const num = typeof rawValue === "number" ? rawValue : Number(rawValue);
-    return {
+    return cacheAndReturn(value, column, {
       kind: GridCellKind.Text,
       data: String(rawValue),
       displayData: isNaN(num) ? String(rawValue) : num.toFixed(2),
       allowOverlay: false,
       readonly: false,
       contentAlign: "right",
-    };
+    });
   }
 
   // Number cells
@@ -107,14 +131,14 @@ export function buildGridCellV2(opts: {
     typeof rawValue === "number"
   ) {
     const num = typeof rawValue === "number" ? rawValue : Number(rawValue);
-    return {
+    return cacheAndReturn(value, column, {
       kind: GridCellKind.Number,
       data: isNaN(num) ? 0 : num,
       displayData: String(rawValue),
       allowOverlay: false,
       readonly: false,
       contentAlign: "right",
-    };
+    });
   }
 
   // JSON/Array cells - render as formatted text
@@ -132,7 +156,7 @@ export function buildGridCellV2(opts: {
     } catch {
       text = String(rawValue);
     }
-    return {
+    return cacheAndReturn(value, column, {
       kind: GridCellKind.Text,
       data: text,
       displayData: text.length > 50 ? text.substring(0, 47) + "..." : text,
@@ -141,26 +165,26 @@ export function buildGridCellV2(opts: {
       themeOverride: {
         baseFontStyle: "400 11px monospace",
       },
-    };
+    });
   }
 
   // Date/Time cells - render as text with special formatting
   if (dbType.includes("date") || dbType.includes("time")) {
     const text = String(rawValue);
-    return {
+    return cacheAndReturn(value, column, {
       kind: GridCellKind.Text,
       data: text,
       displayData: text,
       allowOverlay: false,
       readonly: false,
       contentAlign: "left",
-    };
+    });
   }
 
   // UUID cells - render as monospace text
   if (dbType.includes("uuid")) {
     const text = String(rawValue);
-    return {
+    return cacheAndReturn(value, column, {
       kind: GridCellKind.Text,
       data: text,
       displayData: text,
@@ -169,16 +193,16 @@ export function buildGridCellV2(opts: {
       themeOverride: {
         baseFontStyle: "400 11px monospace",
       },
-    };
+    });
   }
 
   // Default: Text cell
   const text = String(rawValue);
-  return {
+  return cacheAndReturn(value, column, {
     kind: GridCellKind.Text,
     data: text,
     displayData: text, // Will be truncated by the adapter
     allowOverlay: true,
     readonly: false,
-  };
+  });
 }
