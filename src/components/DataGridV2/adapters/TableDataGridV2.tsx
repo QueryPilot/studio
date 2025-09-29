@@ -65,6 +65,232 @@ const isBooleanCellPayload = (value: unknown): value is BooleanCellPayload => {
   );
 };
 
+type RowEditAction = "insert" | "update" | "delete";
+
+interface EditingCellDraft {
+  columnId: string;
+  originalValue: CellValue | null;
+  draftValue: CellValue | null;
+  hasChanged: boolean;
+}
+
+interface RowEditDraft {
+  rowKey: string;
+  rowIndex: number;
+  action: RowEditAction;
+  createdAt: number;
+  updatedAt: number;
+  originalRow: GridRowModel | null;
+  draftRow: GridRowModel | null;
+  cells: Map<string, EditingCellDraft>;
+}
+
+interface UpsertCellEditParams {
+  rowKey: string;
+  rowIndex: number;
+  columnId: string;
+  originalCell: CellValue | null | undefined;
+  draftCell: CellValue | null | undefined;
+  originalRowSnapshot: GridRowModel | null;
+  draftRowSnapshot: GridRowModel | null;
+  actionHint?: RowEditAction;
+}
+
+interface RowMutationParams {
+  rowKey: string;
+  rowIndex: number;
+  row: GridRowModel | null;
+}
+
+const areCellValuesEqual = (
+  left: CellValue | null | undefined,
+  right: CellValue | null | undefined,
+) => {
+  const leftValue = left?.value ?? null;
+  const rightValue = right?.value ?? null;
+
+  if (leftValue === rightValue) {
+    return true;
+  }
+
+  if (leftValue == null || rightValue == null) {
+    return leftValue == null && rightValue == null;
+  }
+
+  if (
+    typeof leftValue === "number" &&
+    typeof rightValue === "number" &&
+    Number.isNaN(leftValue) &&
+    Number.isNaN(rightValue)
+  ) {
+    return true;
+  }
+
+  if (
+    typeof leftValue === "object" &&
+    typeof rightValue === "object" &&
+    leftValue !== null &&
+    rightValue !== null
+  ) {
+    try {
+      return JSON.stringify(leftValue) === JSON.stringify(rightValue);
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+};
+
+const cloneEditingState = (
+  state: Map<string, RowEditDraft>,
+): Map<string, RowEditDraft> => {
+  const clone = new Map<string, RowEditDraft>();
+  state.forEach((entry, key) => {
+    clone.set(key, {
+      ...entry,
+      cells: new Map(entry.cells),
+    });
+  });
+  return clone;
+};
+
+const upsertCellEditState = (
+  prevState: Map<string, RowEditDraft>,
+  params: UpsertCellEditParams,
+): { state: Map<string, RowEditDraft>; changed: boolean } => {
+  const {
+    rowKey,
+    rowIndex,
+    columnId,
+    originalCell,
+    draftCell,
+    originalRowSnapshot,
+    draftRowSnapshot,
+    actionHint,
+  } = params;
+
+  const previousEntry = prevState.get(rowKey);
+  const baselineOriginal =
+    previousEntry?.cells.get(columnId)?.originalValue ?? originalCell ?? null;
+  const baselineDraft = draftCell ?? null;
+
+  if (areCellValuesEqual(baselineOriginal, baselineDraft)) {
+    if (!previousEntry) {
+      return { state: prevState, changed: false };
+    }
+
+    const nextState = new Map(prevState);
+    const updatedEntry: RowEditDraft = {
+      ...previousEntry,
+      rowIndex,
+      updatedAt: Date.now(),
+      draftRow: draftRowSnapshot ?? previousEntry.draftRow,
+      cells: new Map(previousEntry.cells),
+    };
+
+    updatedEntry.cells.delete(columnId);
+
+    if (updatedEntry.cells.size === 0 && updatedEntry.action !== "insert") {
+      nextState.delete(rowKey);
+    } else {
+      nextState.set(rowKey, updatedEntry);
+    }
+
+    return { state: nextState, changed: true };
+  }
+
+  const nextState = new Map(prevState);
+  const now = Date.now();
+  const cells = previousEntry
+    ? new Map(previousEntry.cells)
+    : new Map<string, EditingCellDraft>();
+
+  const entry: RowEditDraft = {
+    rowKey,
+    rowIndex,
+    action: actionHint ?? previousEntry?.action ?? "update",
+    createdAt: previousEntry?.createdAt ?? now,
+    updatedAt: now,
+    originalRow: previousEntry?.originalRow ?? originalRowSnapshot ?? null,
+    draftRow: draftRowSnapshot ?? previousEntry?.draftRow ?? null,
+    cells,
+  };
+
+  entry.cells.set(columnId, {
+    columnId,
+    originalValue: baselineOriginal,
+    draftValue: baselineDraft,
+    hasChanged: true,
+  });
+
+  nextState.set(rowKey, entry);
+  return { state: nextState, changed: true };
+};
+
+const markRowInsertedState = (
+  prevState: Map<string, RowEditDraft>,
+  params: RowMutationParams,
+): { state: Map<string, RowEditDraft>; changed: boolean } => {
+  const { rowKey, rowIndex, row } = params;
+  const previousEntry = prevState.get(rowKey);
+  const now = Date.now();
+
+  if (
+    previousEntry &&
+    previousEntry.action === "insert" &&
+    previousEntry.rowIndex === rowIndex &&
+    previousEntry.draftRow === row
+  ) {
+    return { state: prevState, changed: false };
+  }
+
+  const nextState = new Map(prevState);
+  nextState.set(rowKey, {
+    rowKey,
+    rowIndex,
+    action: "insert",
+    createdAt: previousEntry?.createdAt ?? now,
+    updatedAt: now,
+    originalRow: null,
+    draftRow: row,
+    cells: previousEntry
+      ? new Map(previousEntry.cells)
+      : new Map<string, EditingCellDraft>(),
+  });
+
+  return { state: nextState, changed: true };
+};
+
+const markRowDeletedState = (
+  prevState: Map<string, RowEditDraft>,
+  params: RowMutationParams,
+): { state: Map<string, RowEditDraft>; changed: boolean } => {
+  const { rowKey, rowIndex, row } = params;
+  const previousEntry = prevState.get(rowKey);
+  const now = Date.now();
+
+  const nextState = new Map(prevState);
+
+  if (previousEntry?.action === "insert") {
+    nextState.delete(rowKey);
+    return { state: nextState, changed: true };
+  }
+
+  nextState.set(rowKey, {
+    rowKey,
+    rowIndex,
+    action: "delete",
+    createdAt: previousEntry?.createdAt ?? now,
+    updatedAt: now,
+    originalRow: previousEntry?.originalRow ?? row,
+    draftRow: null,
+    cells: new Map<string, EditingCellDraft>(),
+  });
+
+  return { state: nextState, changed: true };
+};
+
 export interface TableDataGridV2Props {
   connectionId: string;
   database: string;
@@ -102,6 +328,14 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     table,
     schema,
   });
+
+  const rowKeyMapRef = useRef(new WeakMap<GridRowModel, string>());
+  const draftRowCounterRef = useRef(0);
+  const [editingRows, setEditingRows] = useState<Map<string, RowEditDraft>>(
+    () => new Map(),
+  );
+  const editingRowsRef = useRef(editingRows);
+  editingRowsRef.current = editingRows;
 
   const [rows, setRows] = useState<GridRowModel[]>([]);
 
@@ -212,6 +446,59 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     [columnMeta],
   );
 
+  const primaryKeyColumns = useMemo(
+    () => columnMeta.filter((meta) => meta.is_pk).map((meta) => meta.name),
+    [columnMeta],
+  );
+
+  const getRowKey = useCallback(
+    (row: GridRowModel | undefined, index: number): string => {
+      if (!row) {
+        return `${schema ?? "public"}.${table}:row-${index}`;
+      }
+
+      const existing = rowKeyMapRef.current.get(row);
+      if (existing) {
+        return existing;
+      }
+
+      let computedKey: string | null = null;
+
+      if (primaryKeyColumns.length > 0) {
+        const parts = primaryKeyColumns.map((columnName) => {
+          const cell = row[columnName];
+          const value = cell?.value;
+          if (value === null || value === undefined) {
+            return "__null__";
+          }
+          if (typeof value === "object") {
+            try {
+              return JSON.stringify(value);
+            } catch {
+              return String(value);
+            }
+          }
+          return String(value);
+        });
+
+        const hasNonNull = parts.some((part) => part !== "__null__");
+        if (hasNonNull) {
+          computedKey = `${schema ?? "public"}.${table}:pk:${parts.join("|")}`;
+        }
+      }
+
+      if (!computedKey) {
+        computedKey = `${
+          schema ?? "public"
+        }.${table}:draft-${draftRowCounterRef.current++}`;
+      }
+
+      rowKeyMapRef.current.set(row, computedKey);
+      return computedKey;
+    },
+    [primaryKeyColumns, schema, table],
+  );
+
   const columnState = preferences?.columns ?? DEFAULT_COLUMN_STATE;
 
   // Initialize column order and visibility when columns first load
@@ -296,11 +583,54 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     return applyPinnedOrdering(filtered, columnState.pinned);
   }, [columnState.pinned, columnState.visibility, visibleColumns]);
 
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+
+  useEffect(() => {
+    if (rows.length === 0 && editingRowsRef.current.size === 0) {
+      return;
+    }
+
+    const indexByKey = new Map<string, number>();
+    rows.forEach((row, index) => {
+      const key = getRowKey(row, index);
+      indexByKey.set(key, index);
+    });
+
+    if (editingRowsRef.current.size === 0) {
+      return;
+    }
+
+    const normalized = new Map(editingRowsRef.current);
+    let mutated = false;
+
+    for (const [key, entry] of normalized) {
+      const nextIndex = indexByKey.get(key);
+      if (nextIndex === undefined) {
+        normalized.delete(key);
+        mutated = true;
+        continue;
+      }
+
+      if (entry.rowIndex !== nextIndex) {
+        normalized.set(key, { ...entry, rowIndex: nextIndex });
+        mutated = true;
+      }
+    }
+
+    if (!mutated) {
+      return;
+    }
+
+    setEditingRows(normalized);
+    editingRowsRef.current = normalized;
+  }, [rows, getRowKey]);
+
   const handleGetCellContent = useCallback(
     (cell: Item) => {
       const [colIndex, rowIndex] = cell;
       const column = finalColumns[colIndex];
-      const row = rows[rowIndex];
+      const row = rowsRef.current[rowIndex];
       if (!column || !row) {
         return {
           kind: GridCellKind.Text,
@@ -310,8 +640,23 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           readonly: true,
         } as const;
       }
-      const value = row[column.field] as CellValue | null | undefined;
-      const gridCell = buildGridCellV2({ value, column });
+
+      // Check for pending edits and merge with original row data
+      let cellValue = row[column.field] as CellValue | null | undefined;
+
+      // Get row key to check for pending edits
+      const rowKey = getRowKey(row, rowIndex);
+      const editingRowDraft = editingRowsRef.current.get(rowKey);
+
+      if (editingRowDraft && editingRowDraft.cells.has(column.field)) {
+        // Use the edited value if there's a pending edit
+        const editedCell = editingRowDraft.cells.get(column.field);
+        if (editedCell && editedCell.hasChanged) {
+          cellValue = editedCell.draftValue;
+        }
+      }
+
+      const gridCell = buildGridCellV2({ value: cellValue, column });
 
       // Apply text truncation for text cells
       const widthCap =
@@ -334,8 +679,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       return gridCell;
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [finalColumns], // Remove rows from deps to prevent infinite loop
+    [finalColumns, getRowKey],
   );
 
   const handleSelectionChange = useCallback(
@@ -350,18 +694,21 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     (event: GridEditCommitEvent): GridHistoryEntry => {
       const { rowIndex, column, newValue, previousValue } = event;
       const currentRow = rows[rowIndex];
-      if (!currentRow) {
+      if (!currentRow || !column.field) {
         return {
           undo: () => {},
           redo: () => {},
         };
       }
 
+      const rowKey = getRowKey(currentRow, rowIndex);
+
       // Create updated row with new value
       const updatedRow = { ...currentRow };
+      rowKeyMapRef.current.set(updatedRow, rowKey);
 
       // Convert grid cell value back to CellValue format
-      if ("data" in newValue && column.field) {
+      if ("data" in newValue) {
         type GridCellWithData = GridCell & { data?: unknown };
         type GridCellWithActualValue = GridCell & { actualValue?: unknown };
 
@@ -394,6 +741,33 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         } as CellValue;
       }
 
+      const updatedCell = updatedRow[column.field] as
+        | CellValue
+        | null
+        | undefined;
+
+      const previousSnapshot = cloneEditingState(editingRowsRef.current);
+      const { state: nextEditingState, changed: editingChanged } =
+        upsertCellEditState(editingRowsRef.current, {
+          rowKey,
+          rowIndex,
+          columnId: column.field,
+          originalCell: previousValue,
+          draftCell: updatedCell,
+          originalRowSnapshot: currentRow,
+          draftRowSnapshot: updatedRow,
+          actionHint: "update",
+        });
+
+      const nextEditingSnapshot = editingChanged
+        ? cloneEditingState(nextEditingState)
+        : previousSnapshot;
+
+      if (editingChanged) {
+        setEditingRows(nextEditingState);
+        editingRowsRef.current = nextEditingState;
+      }
+
       // Optimistic update
       const newRows = [...rows];
       newRows[rowIndex] = updatedRow;
@@ -403,33 +777,103 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       // For now, just log the change
       type GridCellForLog = GridCell & { data?: unknown };
 
-      console.log("Cell edit:", {
+      console.log("✅ Cell edit committed:", {
         table,
         row: rowIndex,
+        rowKey,
         column: column.field,
         newValue: (newValue as GridCellForLog).data,
         previousValue: previousValue?.value,
+        updatedCell: updatedCell,
       });
 
       // Return history entry for undo/redo
       return {
         undo: () => {
-          const revertedRows = [...rows];
-          revertedRows[rowIndex] = currentRow;
-          setRows(revertedRows);
+          setRows((prevRows) => {
+            const index = prevRows.findIndex(
+              (row, idx) => getRowKey(row, idx) === rowKey,
+            );
+            if (index === -1) {
+              return prevRows;
+            }
+            const reverted = [...prevRows];
+            reverted[index] = currentRow;
+            rowKeyMapRef.current.set(currentRow, rowKey);
+            return reverted;
+          });
+
+          if (editingChanged) {
+            const restored = cloneEditingState(previousSnapshot);
+            setEditingRows(restored);
+            editingRowsRef.current = restored;
+          }
         },
         redo: () => {
-          setRows(newRows);
+          setRows((prevRows) => {
+            const index = prevRows.findIndex(
+              (row, idx) => getRowKey(row, idx) === rowKey,
+            );
+            const targetIndex = index === -1 ? rowIndex : index;
+            if (targetIndex < 0 || targetIndex >= prevRows.length) {
+              return prevRows;
+            }
+            const applied = [...prevRows];
+            applied[targetIndex] = updatedRow;
+            rowKeyMapRef.current.set(updatedRow, rowKey);
+            return applied;
+          });
+
+          if (editingChanged) {
+            const restored = cloneEditingState(nextEditingSnapshot);
+            setEditingRows(restored);
+            editingRowsRef.current = restored;
+          }
         },
       };
     },
-    [rows, table],
+    [getRowKey, rows, table],
   );
 
   const handleRowAppend = useCallback(
     (event: GridRowAppendEvent): GridHistoryEntry => {
-      const { draftRow } = event;
-      const newRows = [draftRow, ...rows];
+      const { draftRow, position } = event;
+
+      const insertionIndex = (() => {
+        if (position === "bottom") {
+          return rows.length;
+        }
+        if (position === "top") {
+          return 0;
+        }
+        if (typeof position === "number" && Number.isFinite(position)) {
+          return Math.max(0, Math.min(rows.length, Math.trunc(position)));
+        }
+        return 0;
+      })();
+
+      const newRows = [...rows];
+      newRows.splice(insertionIndex, 0, draftRow);
+
+      const rowKey = getRowKey(draftRow, insertionIndex);
+
+      const previousSnapshot = cloneEditingState(editingRowsRef.current);
+      const { state: nextEditingState, changed: editingChanged } =
+        markRowInsertedState(editingRowsRef.current, {
+          rowKey,
+          rowIndex: insertionIndex,
+          row: draftRow,
+        });
+
+      const nextEditingSnapshot = editingChanged
+        ? cloneEditingState(nextEditingState)
+        : previousSnapshot;
+
+      if (editingChanged) {
+        setEditingRows(nextEditingState);
+        editingRowsRef.current = nextEditingState;
+      }
+
       setRows(newRows);
 
       toast({
@@ -441,19 +885,64 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       return {
         undo: () => {
           setRows(rows);
+
+          if (editingChanged) {
+            const restored = cloneEditingState(previousSnapshot);
+            setEditingRows(restored);
+            editingRowsRef.current = restored;
+          }
         },
         redo: () => {
           setRows(newRows);
+
+          if (editingChanged) {
+            const restored = cloneEditingState(nextEditingSnapshot);
+            setEditingRows(restored);
+            editingRowsRef.current = restored;
+          }
         },
       };
     },
-    [rows, toast],
+    [getRowKey, rows, toast],
   );
 
   const handleRowDelete = useCallback(
     (event: GridRowDeleteEvent): GridHistoryEntry => {
       const { rowIndexes } = event;
-      const newRows = rows.filter((_, idx) => !rowIndexes.includes(idx));
+      const removalSet = new Set(rowIndexes);
+      const sortedIndexes = [...removalSet].sort((a, b) => b - a);
+
+      const newRows = rows.filter((_, idx) => !removalSet.has(idx));
+
+      let editingState: Map<string, RowEditDraft> = editingRowsRef.current;
+      let editingChanged = false;
+      const previousSnapshot = cloneEditingState(editingRowsRef.current);
+
+      for (const rowIndex of sortedIndexes) {
+        const row = rows[rowIndex];
+        if (!row) {
+          continue;
+        }
+        const rowKey = getRowKey(row, rowIndex);
+        const result = markRowDeletedState(editingState, {
+          rowKey,
+          rowIndex,
+          row,
+        });
+        if (result.changed) {
+          editingState = result.state;
+          editingChanged = true;
+        }
+      }
+
+      const nextEditingSnapshot = editingChanged
+        ? cloneEditingState(editingState)
+        : previousSnapshot;
+
+      if (editingChanged) {
+        setEditingRows(editingState);
+        editingRowsRef.current = editingState;
+      }
 
       setRows(newRows);
 
@@ -467,13 +956,25 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       return {
         undo: () => {
           setRows(rows);
+
+          if (editingChanged) {
+            const restored = cloneEditingState(previousSnapshot);
+            setEditingRows(restored);
+            editingRowsRef.current = restored;
+          }
         },
         redo: () => {
           setRows(newRows);
+
+          if (editingChanged) {
+            const restored = cloneEditingState(nextEditingSnapshot);
+            setEditingRows(restored);
+            editingRowsRef.current = restored;
+          }
         },
       };
     },
-    [rows, toast],
+    [getRowKey, rows, toast],
   );
 
   const handlePaste = useCallback(
@@ -483,17 +984,38 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       // Update cells with pasted values
       const newRows = [...rows];
-      values.forEach((rowValues, rowOffset) => {
-        const targetRowIdx = rowStart + rowOffset;
-        if (targetRowIdx >= rows.length) return; // Skip if beyond existing rows
+      let editingState: Map<string, RowEditDraft> = editingRowsRef.current;
+      let editingChanged = false;
+      const previousSnapshot = cloneEditingState(editingRowsRef.current);
 
-        const targetRow = { ...rows[targetRowIdx] };
-        rowValues.forEach((value, colOffset) => {
+      for (let rowOffset = 0; rowOffset < values.length; rowOffset += 1) {
+        const rowValues = values[rowOffset];
+        if (!rowValues) {
+          continue;
+        }
+        const targetRowIdx = rowStart + rowOffset;
+        if (targetRowIdx >= rows.length) {
+          continue; // Skip if beyond existing rows
+        }
+
+        const currentRow = rows[targetRowIdx];
+        if (!currentRow) {
+          continue;
+        }
+
+        const rowKey = getRowKey(currentRow, targetRowIdx);
+        const updatedRow = { ...currentRow };
+        rowKeyMapRef.current.set(updatedRow, rowKey);
+
+        for (let colOffset = 0; colOffset < rowValues.length; colOffset += 1) {
+          const value = rowValues[colOffset];
           const targetColIdx = colStart + colOffset;
           const column = finalColumns[targetColIdx];
-          if (!column) return;
+          if (!column || !column.field) {
+            continue;
+          }
 
-          targetRow[column.field] = {
+          const newCell = {
             value,
             db_type: column.meta?.db_type ?? "text",
             value_type:
@@ -506,18 +1028,58 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
                 : "Null",
             is_truncated: false,
           } as CellValue;
-        });
-        newRows[targetRowIdx] = targetRow;
-      });
+
+          updatedRow[column.field] = newCell;
+
+          const result = upsertCellEditState(editingState, {
+            rowKey,
+            rowIndex: targetRowIdx,
+            columnId: column.field,
+            originalCell: currentRow[column.field],
+            draftCell: newCell,
+            originalRowSnapshot: currentRow,
+            draftRowSnapshot: updatedRow,
+            actionHint: "update",
+          });
+
+          if (result.changed) {
+            editingState = result.state;
+            editingChanged = true;
+          }
+        }
+
+        newRows[targetRowIdx] = updatedRow;
+      }
+
+      const nextEditingSnapshot = editingChanged
+        ? cloneEditingState(editingState)
+        : previousSnapshot;
+
+      if (editingChanged) {
+        setEditingRows(editingState);
+        editingRowsRef.current = editingState;
+      }
 
       setRows(newRows);
 
       history.push({
         undo: () => {
           setRows(rows);
+
+          if (editingChanged) {
+            const restored = cloneEditingState(previousSnapshot);
+            setEditingRows(restored);
+            editingRowsRef.current = restored;
+          }
         },
         redo: () => {
           setRows(newRows);
+
+          if (editingChanged) {
+            const restored = cloneEditingState(nextEditingSnapshot);
+            setEditingRows(restored);
+            editingRowsRef.current = restored;
+          }
         },
       });
 
@@ -527,7 +1089,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       return true;
     },
-    [rows, finalColumns, history, toast],
+    [finalColumns, getRowKey, history, rows, toast],
   );
 
   // Debounced scroll persistence to improve performance
@@ -663,6 +1225,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         estimatedTotal={estimatedTotal ?? undefined}
         hasMore={hasNextPage}
         selectedRows={selectedRowCount}
+        pendingEdits={editingRows.size}
       />
     </div>
   );

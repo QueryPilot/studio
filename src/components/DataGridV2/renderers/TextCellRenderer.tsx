@@ -19,10 +19,7 @@ export const TextCellRenderer: CustomRenderer<TextCellData> = {
   kind: GridCellKind.Custom,
 
   isMatch: (cell: CustomCell): cell is TextCellData => {
-    return (
-      cell.kind === GridCellKind.Custom &&
-      (cell.data as any)?.kind === "text-cell"
-    );
+    return (cell.data as any)?.kind === "text-cell";
   },
 
   draw: (args: DrawArgs<TextCellData>, cell: TextCellData) => {
@@ -43,7 +40,7 @@ export const TextCellRenderer: CustomRenderer<TextCellData> = {
     }
 
     // Calculate text metrics
-    const padding = theme.cellHorizontalPadding ?? 8;
+    const padding = theme.cellHorizontalPadding;
     const maxWidth = width - padding * 2;
 
     // Apply text truncation
