@@ -8,7 +8,6 @@ import { Loader2 } from "lucide-react";
 const categoryPanels = {
   general: lazy(() => import("./panels/GeneralPanel")),
   editor: lazy(() => import("./panels/EditorPanel")),
-  ai: lazy(() => import("./panels/AIPanel")),
   shortcuts: lazy(() => import("./panels/ShortcutsPanel")),
 };
 

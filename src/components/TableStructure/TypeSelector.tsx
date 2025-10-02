@@ -23,6 +23,8 @@ interface TypeSelectorProps {
   connectionId?: string;
   disabled?: boolean;
   className?: string;
+  enumValues?: string[]; // Pass enum values if already loaded
+  onTypeSelected?: (typeName: string, enumValues?: string[]) => void; // Callback when type is selected
 }
 
 // Simple in-memory cache for column types per connection
@@ -39,6 +41,7 @@ export const TypeSelector = memo(function TypeSelector({
   connectionId,
   disabled = false,
   className,
+  enumValues,
 }: TypeSelectorProps) {
   const [types, setTypes] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -173,6 +176,24 @@ export const TypeSelector = memo(function TypeSelector({
     return { common, userDefined, others };
   }, [types]);
 
+  const displayValue = useMemo(() => {
+    if (!value) return "Select type...";
+    if (enumValues && enumValues.length > 0) {
+      return (
+        <span className="flex items-center gap-1">
+          <span>{value}</span>
+          <span
+            className="text-[10px] opacity-60"
+            title={`Values: ${enumValues.join(", ")}`}
+          >
+            [{enumValues.length}]
+          </span>
+        </span>
+      );
+    }
+    return value;
+  }, [value, enumValues]);
+
   return (
     <Popover
       open={open && !disabled}
@@ -190,11 +211,14 @@ export const TypeSelector = memo(function TypeSelector({
             className,
           )}
         >
-          <span className="truncate">{value || "Select type..."}</span>
+          <span className="truncate flex-1 text-left">{displayValue}</span>
           <ChevronDown className="ml-1 h-2.5 w-2.5 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto min-w-[200px] max-w-[320px] p-0" align="start">
+      <PopoverContent
+        className="w-auto min-w-[200px] max-w-[320px] p-0"
+        align="start"
+      >
         <Command>
           <CommandInput
             placeholder="Search types..."

@@ -57,11 +57,24 @@ export function useColumnSizing(
     options;
 
   const [widthOverrides, setWidthOverrides] = useState<Record<string, number>>(
-    () =>
-      initialWidths
-        ? sanitizeWidths(initialWidths, columns, minColumnWidth, maxColumnWidth)
-        : {},
+    {},
   );
+
+  // Initialize widths on mount, not during render
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (initialWidths && Object.keys(widthOverrides).length === 0) {
+      const sanitized = sanitizeWidths(
+        initialWidths,
+        columns,
+        minColumnWidth,
+        maxColumnWidth,
+      );
+      setWidthOverrides(sanitized);
+      // Don't call onChange during initialization to prevent infinite loops
+      // onChange will be called when user actually resizes columns
+    }
+  }, [initialWidths, columns, minColumnWidth, maxColumnWidth]);
 
   useEffect(() => {
     setWidthOverrides((prev) =>
@@ -84,7 +97,7 @@ export function useColumnSizing(
         return next;
       });
     },
-    [maxColumnWidth, minColumnWidth],
+    [maxColumnWidth, minColumnWidth, onChange],
   );
 
   const handleColumnResize = useCallback<
@@ -124,7 +137,12 @@ export function useColumnSizing(
   >(
     (next) => {
       if (next) {
-        const sanitized = sanitizeWidths(next, columns, minColumnWidth, maxColumnWidth);
+        const sanitized = sanitizeWidths(
+          next,
+          columns,
+          minColumnWidth,
+          maxColumnWidth,
+        );
         setWidthOverrides(sanitized);
         onChange?.(sanitized);
         return;
@@ -135,14 +153,14 @@ export function useColumnSizing(
     [columns, maxColumnWidth, minColumnWidth, onChange],
   );
 
-  const sizedColumns = useMemo(() =>
-    columns.map((column) => {
-      const override = widthOverrides[column.id];
-      return override
-        ? { ...column, width: override }
-        : column;
-    }),
-  [columns, widthOverrides]);
+  const sizedColumns = useMemo(
+    () =>
+      columns.map((column) => {
+        const override = widthOverrides[column.id];
+        return override ? { ...column, width: override } : column;
+      }),
+    [columns, widthOverrides],
+  );
 
   return {
     sizedColumns,

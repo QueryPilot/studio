@@ -89,6 +89,10 @@ pub struct ColumnMeta {
     #[serde(rename = "default")]
     pub default_value: Option<String>,
     pub comment: Option<String>,
+    /// Enum values for enum types, domain info for domain types
+    pub enum_values: Option<Vec<String>>,
+    /// Type category: 'e' for enum, 'd' for domain, 'c' for composite, etc.
+    pub type_category: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

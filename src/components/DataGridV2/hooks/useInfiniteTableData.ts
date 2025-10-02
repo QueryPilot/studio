@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useTableData } from "@/hooks/useTableData";
 import { databaseService } from "@/services/databaseService";
 
@@ -32,17 +32,27 @@ export function useInfiniteTableData(params: UseInfiniteTableDataParams) {
 
   // Check connection status and listen for changes
   useEffect(() => {
-    // Check if connection is active
+    // Memoize checkConnection to prevent recreation
     const checkConnection = () => {
       const activeConnection = databaseService.getActiveConnection(connectionId);
       if (activeConnection) {
         setIsConnected(true);
         setConnectionError(null);
       } else {
-        setIsConnected(false);
-        setConnectionError("Not connected to database");
+        // Batch all state updates to prevent multiple renders
+        setIsConnected(prev => {
+          if (!prev) return prev; // No change needed
+          return false;
+        });
+        setConnectionError(prev => {
+          if (prev === "Not connected to database") return prev; // No change needed
+          return "Not connected to database";
+        });
         clearData(); // Clear any existing data
-        setHasInitialized(false);
+        setHasInitialized(prev => {
+          if (!prev) return prev; // No change needed
+          return false;
+        });
       }
     };
 

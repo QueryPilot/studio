@@ -62,6 +62,8 @@ interface DefaultValueInputProps {
   disabled?: boolean;
   placeholder?: string;
   className?: string;
+  enumValues?: string[]; // Enum values for enum types
+  typeCategory?: string; // Type category (enum, domain, etc.)
 }
 
 export const DefaultValueInput = memo(function DefaultValueInput({
@@ -71,6 +73,8 @@ export const DefaultValueInput = memo(function DefaultValueInput({
   disabled = false,
   placeholder = "NULL",
   className,
+  enumValues,
+  typeCategory,
 }: DefaultValueInputProps) {
   const [open, setOpen] = useState(false);
   const [inputValue, setInputValue] = useState(value || "");
@@ -82,6 +86,11 @@ export const DefaultValueInput = memo(function DefaultValueInput({
 
   // Get appropriate defaults based on column type
   const defaults = useMemo(() => {
+    // For enum types, show enum values
+    if (typeCategory === "enum" && enumValues && enumValues.length > 0) {
+      return ["NULL", ...enumValues.map((v) => `'${v}'`)];
+    }
+
     if (!columnType) return GENERIC_DEFAULTS;
 
     // Use the raw type directly (it's already like int4, text, etc.)
@@ -104,7 +113,7 @@ export const DefaultValueInput = memo(function DefaultValueInput({
 
     // Check for custom/enum types - only NULL is safe
     return GENERIC_DEFAULTS;
-  }, [columnType]);
+  }, [columnType, enumValues, typeCategory]);
 
   const handleSelect = (defaultValue: string) => {
     onChange(defaultValue === "NULL" ? null : defaultValue);
@@ -144,8 +153,18 @@ export const DefaultValueInput = memo(function DefaultValueInput({
               <ChevronDown className="h-3 w-3 text-foreground/80 dark:text-foreground/65" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-auto min-w-[150px] max-w-[400px] p-1" align="end">
+          <PopoverContent
+            className="w-auto min-w-[150px] max-w-[400px] p-1"
+            align="end"
+          >
             <div className="space-y-0.5">
+              {typeCategory === "enum" &&
+                enumValues &&
+                enumValues.length > 0 && (
+                  <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                    Enum Values
+                  </div>
+                )}
               {defaults.map((def) => (
                 <Button
                   key={def}

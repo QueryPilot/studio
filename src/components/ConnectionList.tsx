@@ -87,7 +87,7 @@ function ConnectionItem({
 
   return (
     <div
-      className={`group flex items-center justify-between px-1 py-1.5 rounded hover:bg-muted/50 cursor-pointer transition-colors ${
+      className={`group flex items-center justify-between px-1 py-1.5 rounded-xl bg-muted/40 hover:bg-muted/50 cursor-pointer transition-colors ${
         isActive ? "bg-muted/50 border-l-2 border-primary" : ""
       }`}
       onClick={onClick}

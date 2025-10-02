@@ -51,13 +51,27 @@ const BooleanCellRenderer: CustomCellRenderer<BooleanCustomCell> = {
       ctx.font = `500 ${theme.baseFontStyle}`;
     }
 
-    // Draw the text centered
+    // Draw the text with proper alignment
     ctx.fillStyle = color;
-    ctx.textAlign = "center";
+    ctx.textAlign = cell.contentAlign || "center";
     ctx.textBaseline = "middle";
-    const centerX = rect.x + rect.width / 2;
+
+    let x: number;
+    switch (cell.contentAlign) {
+      case "left":
+        x = rect.x + 8; // Add some padding
+        break;
+      case "right":
+        x = rect.x + rect.width - 8; // Add some padding
+        break;
+      case "center":
+      default:
+        x = rect.x + rect.width / 2;
+        break;
+    }
+
     const centerY = rect.y + rect.height / 2;
-    ctx.fillText(text, centerX, centerY);
+    ctx.fillText(text, x, centerY);
 
     return true;
   },

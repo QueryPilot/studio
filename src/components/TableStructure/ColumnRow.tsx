@@ -1,9 +1,8 @@
-import { memo, useState } from "react";
+import { memo } from "react";
 import { cn } from "@/lib/utils";
 import { KeyRound, Hash, Link, Trash2, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
 import { TypeSelector } from "./TypeSelector";
 import { DefaultValueInput } from "./DefaultValueInput";
 import { ForeignKeyEditorPopover } from "./ForeignKeyEditorPopover";
@@ -26,6 +25,8 @@ export interface ColumnRowData {
   } | null;
   comment?: string | null;
   originalName?: string;
+  enum_values?: string[];
+  type_category?: string;
 }
 
 interface ColumnRowProps {
@@ -170,6 +171,7 @@ export const ColumnRow = memo(function ColumnRow({
             onChange={(val) => canEdit && onUpdate?.({ db_type: val })}
             connectionId={connectionId}
             disabled={!canEdit}
+            enumValues={column.enum_values}
             className={cn("w-full", typeChanged && canEdit && "text-primary")}
           />
         </div>
@@ -208,6 +210,8 @@ export const ColumnRow = memo(function ColumnRow({
             disabled={!canEdit}
             placeholder={isNew ? "NULL" : undefined}
             className={cn(defaultChanged && canEdit && "text-primary")}
+            enumValues={column.enum_values}
+            typeCategory={column.type_category}
           />
         </div>
       </td>

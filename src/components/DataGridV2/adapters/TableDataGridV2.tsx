@@ -48,6 +48,7 @@ import {
 } from "./columnUtils";
 import { useToast } from "@/hooks/use-toast";
 import type { CellValue } from "@/types/cellValue";
+import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 
 interface BooleanCellPayload {
   kind: "boolean-cell";
@@ -62,6 +63,21 @@ const isBooleanCellPayload = (value: unknown): value is BooleanCellPayload => {
   return (
     record.kind === "boolean-cell" &&
     (record.value === null || typeof record.value === "boolean")
+  );
+};
+
+interface EnumCellPayload {
+  kind: "enum-cell";
+  value: string | null;
+  allowedValues?: string[];
+}
+
+const isEnumCellPayload = (value: unknown): value is EnumCellPayload => {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    record.kind === "enum-cell" &&
+    (record.value === null || typeof record.value === "string")
   );
 };
 
@@ -329,6 +345,35 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     schema,
   });
 
+  // Load full structure (columns only) to enrich metadata such as enum values
+  const { structure: tableStructure } = useTableFullStructure({
+    connectionId,
+    database,
+    table,
+    schema,
+    options: {
+      includeIndexes: false,
+      includeConstraints: false,
+      includeTriggers: false,
+      includeStatistics: false,
+      includeForeignKeys: false,
+    },
+    enabled: Boolean(connectionId && database && table),
+  });
+
+  const structureMetaByName = useMemo(() => {
+    const map = new Map<
+      string,
+      NonNullable<typeof tableStructure>["columns"][number]
+    >();
+    if (tableStructure?.columns) {
+      for (const col of tableStructure.columns) {
+        map.set(col.name, col);
+      }
+    }
+    return map;
+  }, [tableStructure?.columns]);
+
   const rowKeyMapRef = useRef(new WeakMap<GridRowModel, string>());
   const draftRowCounterRef = useRef(0);
   const [editingRows, setEditingRows] = useState<Map<string, RowEditDraft>>(
@@ -341,10 +386,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   // Sync rows from data source
   useEffect(() => {
-    if (dataRows.length > 0) {
+    // Only update rows if the data has actually changed
+    if (dataRows.length > 0 && dataRows.length !== rows.length) {
       setRows(dataRows);
     }
-  }, [dataRows]);
+  }, [dataRows.length, rows.length]);
 
   const preferences = useGridPreferences(gridId);
   const hydrated = useGridPreferencesHydrated();
@@ -433,6 +479,14 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     () =>
       columnMeta.map((meta, index) => {
         const id = meta.name || `col_${index}`;
+        const structMeta = structureMetaByName.get(meta.name);
+        const mergedMeta = structMeta
+          ? ({
+              ...meta,
+              enum_values: structMeta.enum_values ?? meta.enum_values,
+              type_category: structMeta.type_category ?? meta.type_category,
+            } as typeof meta)
+          : meta;
         return {
           id,
           field: meta.name,
@@ -440,10 +494,10 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           name: meta.name,
           width: computeBaseWidth(meta.name, meta.db_type),
           type: meta.db_type,
-          meta,
+          meta: mergedMeta,
         } as GridColumnV2;
       }),
-    [columnMeta],
+    [columnMeta, structureMetaByName],
   );
 
   const primaryKeyColumns = useMemo(
@@ -717,6 +771,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         if (newValue.kind === GridCellKind.Custom) {
           const customData = (newValue as GridCellWithData).data;
           if (isBooleanCellPayload(customData)) {
+            cellValue = customData.value;
+          } else if (isEnumCellPayload(customData)) {
             cellValue = customData.value;
           }
         } else if (newValue.kind === GridCellKind.Boolean) {

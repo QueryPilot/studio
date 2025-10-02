@@ -5,10 +5,6 @@ import { KeyboardProvider, useShortcut } from "./services/keyboard";
 import { useEffect } from "react";
 import { setupStoreIntegration } from "./services/keyboard/integration/storeIntegration";
 import { windowManager } from "./services/windowManager";
-import {
-  ensureOpencodeConfigs,
-  ensureOpencodeServer,
-} from "./services/opencodeService";
 import { PreferencesDialog } from "./components/Preferences/PreferencesDialog";
 import { usePreferencesStore } from "./stores/preferencesStore";
 
@@ -59,14 +55,6 @@ function App() {
   useEffect(() => {
     // Setup store integration for keyboard context
     const cleanup = setupStoreIntegration();
-    // void (async () => {
-    //   try {
-    //     await ensureOpencodeConfigs();
-    //     await ensureOpencodeServer();
-    //   } catch (err) {
-    //     console.warn("[AI] Failed to prepare OpenCode server", err);
-    //   }
-    // })();
     return cleanup;
   }, []);
 

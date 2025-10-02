@@ -3,7 +3,13 @@
  * All database operations are handled by Rust backend with connection pooling
  */
 
-export type DatabaseType = 'postgresql' | 'mysql' | 'sqlite' | 'mssql' | 'mariadb' | 'mongodb';
+export type DatabaseType =
+  | "postgresql"
+  | "mysql"
+  | "sqlite"
+  | "mssql"
+  | "mariadb"
+  | "mongodb";
 
 /**
  * Connection configuration for display purposes only
@@ -33,7 +39,7 @@ export interface DatabaseConnection {
   instanceName?: string;
   encrypt?: boolean;
   trustServerCertificate?: boolean;
-  authType?: 'windows' | 'sql';
+  authType?: "windows" | "sql";
   namedPipe?: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -76,6 +82,8 @@ export interface ColumnMeta {
   enum_values?: string[];
   set_values?: string[];
   is_virtual?: boolean;
+  // PostgreSQL custom types
+  type_category?: string; // 'enum', 'domain', 'composite', 'base', 'range', 'multirange'
 }
 
 export interface ForeignKeyRef {
@@ -107,7 +115,7 @@ export interface QueryResult {
 export interface TableInfo {
   name: string;
   schema?: string;
-  type: 'table' | 'view' | 'materialized_view';
+  type: "table" | "view" | "materialized_view";
   rowCount?: number;
 }
 
