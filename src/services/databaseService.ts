@@ -429,7 +429,6 @@ class DatabaseService {
     // First check if we have a mapped backend connection ID
     const backendId = this.connectionIdMap.get(localConnectionId);
 
-
     if (backendId) {
       return backendId;
     }
@@ -504,7 +503,14 @@ class DatabaseService {
 
       return tableMetas;
     } catch (error) {
-      console.error("Failed to list tables:", error);
+      console.error(
+        "[ConnectionId:",
+        connectionId,
+        ", Schema:",
+        schema,
+        "] Failed to list tables:",
+        error,
+      );
       throw error;
     }
   }
@@ -589,6 +595,8 @@ class DatabaseService {
             precision: undefined,
             scale: undefined,
             comment: c.comment || null,
+            enum_values: c.enum_values,
+            type_category: c.type_category,
           } as ColumnMeta & { comment?: string | null }),
       );
     } catch (error) {
@@ -731,6 +739,40 @@ class DatabaseService {
       this.columnTypeCache.delete(backendConnId);
     } else {
       this.columnTypeCache.clear();
+    }
+  }
+
+  /**
+   * Get type information for a specific custom type (enum, domain, composite, etc.)
+   */
+  async getTypeInfo(
+    connectionId: string,
+    typeName: string,
+    schema?: string,
+  ): Promise<{
+    type_name: string;
+    type_category: string;
+    enum_values?: string[];
+    base_type?: string;
+  }> {
+    try {
+      const backendConnId = this.getBackendConnectionId(connectionId);
+
+      const typeInfo = await safeInvoke<{
+        type_name: string;
+        type_category: string;
+        enum_values?: string[];
+        base_type?: string;
+      }>("get_type_info", {
+        connId: backendConnId,
+        typeName,
+        schema: schema || "public",
+      });
+
+      return typeInfo;
+    } catch (error) {
+      console.error(`Failed to get type info for ${typeName}:`, error);
+      throw error;
     }
   }
 

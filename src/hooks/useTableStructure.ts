@@ -31,19 +31,21 @@ export function useTableStructure({
     const fetchStructure = async () => {
       setIsLoading(true);
       setError(null);
-      
+
       try {
         const targetSchema = schema || "public";
-        const columns = await databaseService.getTableColumns(
+        const cols = await databaseService.getTableColumns(
           connectionId,
           database,
           targetSchema,
-          table
+          table,
         );
-        
-        setColumns(columns);
+
+        setColumns(cols as ColumnMeta[]);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load table structure");
+        setError(
+          err instanceof Error ? err.message : "Failed to load table structure",
+        );
       } finally {
         setIsLoading(false);
       }

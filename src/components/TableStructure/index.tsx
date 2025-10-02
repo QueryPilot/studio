@@ -97,6 +97,8 @@ export const TableStructure = memo(function TableStructure({
           : null,
         comment: col.comment,
         originalName: col.name,
+        enum_values: col.enum_values,
+        type_category: col.type_category,
       } as ColumnRowData;
     });
   }, [columns, foreignKeys, constraints]);
@@ -180,7 +182,7 @@ export const TableStructure = memo(function TableStructure({
     (index: number, updates: Partial<ColumnRowData>) => {
       setNewColumns((prev) => {
         const newArray = [...prev];
-        newArray[index] = { ...newArray[index], ...updates };
+        newArray[index] = { ...newArray[index], ...updates } as ColumnRowData;
         return newArray;
       });
     },

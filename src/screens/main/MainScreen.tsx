@@ -18,7 +18,6 @@ import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useConnectionSync } from "@/hooks/useConnectionSync";
 import { useWindowConnection } from "@/hooks/useWindowConnection";
 import { type ConnectionProfile, DbType, SslMode } from "@/types/connection";
-import { windowManager } from "@/services/windowManager";
 import { ConnectionDialog } from "@/components/ConnectionDialog";
 import { ConnectionList } from "@/components/ConnectionList";
 
@@ -32,9 +31,6 @@ export function MainScreen() {
   const { toast } = useToast();
   const { fetchConnections, saveConnection, deleteConnection, connections } =
     useConnectionStore();
-
-  // Use window connection hook
-  const { activeConnectionId, setActiveConnection } = useWindowConnection();
 
   // Enable cross-window sync
   useConnectionSync();
@@ -104,10 +100,8 @@ export function MainScreen() {
         description:
           "PostgreSQL development database connection has been added successfully.",
       });
-
-      // Set as active connection for this window
-      await setActiveConnection(id);
     } catch (error) {
+      console.error("Failed to load Development Database connection:", error);
       toast({
         title: "Error Loading Connection",
         description:

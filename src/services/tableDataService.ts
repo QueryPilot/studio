@@ -119,13 +119,20 @@ export class TableDataService {
             name: col.name,
             db_type: col.db_type,
             nullable: col.nullable,
-            default: (col as any).default_value || null,
+            default:
+              (col as unknown as { default_value?: string | null })
+                .default_value || null,
             is_pk: col.primary_key,
             is_fk: false,
             ordinal: index,
             precision: null,
             scale: null,
-            comment: (col as any).comment || null,
+            comment:
+              (col as unknown as { comment?: string | null }).comment || null,
+            enum_values: (col as unknown as { enum_values?: string[] })
+              .enum_values,
+            type_category: (col as unknown as { type_category?: string })
+              .type_category,
           } as ColumnMeta),
       );
 
@@ -222,16 +229,18 @@ export class TableDataService {
         throw new Error("Failed to fetch query results");
       }
 
-      const columns =
-        (handle.columns || []).map((col: BackendColumnMeta) => col.name);
+      const columns = (handle.columns || []).map(
+        (col: BackendColumnMeta) => col.name,
+      );
 
-      const transformedRows = (result.rows || []).map((row: BackendCellValue[]) =>
-        row.map((cell, columnIndex) =>
-          this.normalizeQueryCellValue(
-            cell,
-            handle.columns?.[columnIndex] as BackendColumnMeta | undefined,
+      const transformedRows = (result.rows || []).map(
+        (row: BackendCellValue[]) =>
+          row.map((cell, columnIndex) =>
+            this.normalizeQueryCellValue(
+              cell,
+              handle.columns?.[columnIndex] as BackendColumnMeta | undefined,
+            ),
           ),
-        ),
       );
 
       return {

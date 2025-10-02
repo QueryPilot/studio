@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { WorkspaceTitleBar } from "./components/WorkspaceTitleBar";
 import { DatabaseSidebar } from "./components/DatabaseSidebar";
 import { DatabaseSchemaSelector } from "./components/DatabaseSchemaSelector";
-import { ChatAssistant } from "@/components/ai";
 import { WorkbenchLayout } from "@/components/Workbench";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import { useSchemaStore } from "@/stores/schemaStore";
@@ -148,8 +147,7 @@ export function WorkspaceScreen() {
               maxSize={40}
               className="flex flex-col rounded-xl bg-background"
             >
-              <ChatAssistant connectionId={connectionId} />
-            </ResizablePanel>
+              </ResizablePanel>
           </>
         )}
       </ResizablePanelGroup>

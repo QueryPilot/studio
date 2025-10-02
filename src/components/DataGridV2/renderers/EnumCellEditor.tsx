@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   Select,
   SelectContent,
@@ -6,23 +6,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { BooleanCustomCell } from "./BooleanCellRenderer";
+import type { EnumCustomCell } from "./EnumCellRenderer";
+import { cn } from "@/lib/cn";
 
-interface BooleanCellEditorProps {
-  value: BooleanCustomCell;
+interface EnumCellEditorProps {
+  value: EnumCustomCell;
   onFinishedEditing: (
-    newValue?: BooleanCustomCell,
+    newValue?: EnumCustomCell,
     movement?: readonly [-1 | 0 | 1, -1 | 0 | 1],
   ) => void;
 }
 
-export const BooleanCellEditor: React.FC<BooleanCellEditorProps> = ({
+export const EnumCellEditor: React.FC<EnumCellEditorProps> = ({
   value,
   onFinishedEditing,
 }) => {
   const initialValue = value.data.value;
-  const initialStringValue =
-    initialValue == null ? "null" : initialValue.toString();
+  const allowedValues = value.data.allowedValues;
+
+  // Add NULL as an option only if the column is nullable (propagated via cell data)
+  const isNullable = (value.data as { nullable?: boolean }).nullable ?? true;
+  const options = isNullable ? ["NULL", ...allowedValues] : [...allowedValues];
 
   const [open, setOpen] = useState(false);
   const finishedRef = useRef(false);
@@ -41,25 +45,16 @@ export const BooleanCellEditor: React.FC<BooleanCellEditorProps> = ({
     if (finishedRef.current) return;
     finishedRef.current = true;
 
-    let boolValue: boolean | null;
-    switch (newValue) {
-      case "true":
-        boolValue = true;
-        break;
-      case "false":
-        boolValue = false;
-        break;
-      default:
-        boolValue = null;
-    }
+    // Convert "NULL" string back to actual null
+    const enumValue = newValue === "NULL" ? null : newValue;
 
-    const newCell: BooleanCustomCell = {
+    const newCell: EnumCustomCell = {
       kind: value.kind,
       data: {
         ...value.data,
-        value: boolValue,
+        value: enumValue,
       },
-      copyData: boolValue === null ? "NULL" : String(boolValue),
+      copyData: enumValue ?? "NULL",
       allowOverlay: value.allowOverlay,
       readonly: value.readonly,
     };
@@ -107,13 +102,15 @@ export const BooleanCellEditor: React.FC<BooleanCellEditorProps> = ({
     }
   };
 
+  const currentValue = initialValue ?? "NULL";
+
   return (
     <div
       className="w-full h-full flex items-center click-outside-ignore"
       onKeyDown={handleKeyDown}
     >
       <Select
-        value={initialStringValue}
+        value={currentValue}
         onValueChange={handleValueChange}
         open={open}
         onOpenChange={handleOpenChange}
@@ -121,20 +118,23 @@ export const BooleanCellEditor: React.FC<BooleanCellEditorProps> = ({
         <SelectTrigger className="h-full text-xs border-0 focus:ring-0 focus:ring-offset-0 bg-transparent w-full shadow-none">
           <SelectValue />
         </SelectTrigger>
-        <SelectContent className="min-w-[100px] click-outside-ignore z-[9999]">
-          <SelectItem value="null" className="text-xs">
-            <span className="text-muted-foreground">NULL</span>
-          </SelectItem>
-          <SelectItem value="true" className="text-xs">
-            <span className="text-green-600 dark:text-green-400 font-medium">
-              TRUE
-            </span>
-          </SelectItem>
-          <SelectItem value="false" className="text-xs">
-            <span className="text-red-600 dark:text-red-400 font-medium">
-              FALSE
-            </span>
-          </SelectItem>
+        <SelectContent className="max-h-[300px] click-outside-ignore z-[9999]">
+          {options.map((option) => (
+            <SelectItem
+              key={option}
+              value={option}
+              className={cn(
+                option === "NULL" ? "text-muted-foreground" : "",
+                "text-xs outline-none",
+              )}
+            >
+              {option === "NULL" ? (
+                <span className="text-muted-foreground">NULL</span>
+              ) : (
+                <span>{option}</span>
+              )}
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
     </div>
@@ -142,7 +142,7 @@ export const BooleanCellEditor: React.FC<BooleanCellEditorProps> = ({
 };
 
 // Extend the component with static properties
-export const BooleanCellEditorWithProps = Object.assign(BooleanCellEditor, {
+export const EnumCellEditorWithProps = Object.assign(EnumCellEditor, {
   disablePadding: true,
   disableStyling: false,
 });

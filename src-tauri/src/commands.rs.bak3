@@ -2,7 +2,7 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State, Window};
-use tokio::io::{AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command as TokioCommand;
 use tokio::time::{timeout, Duration};
 
@@ -226,97 +226,6 @@ pub async fn get_supported_column_types(
         .get_supported_column_types()
         .await
         .map_err(|e| e.to_string())
-}
-
-#[derive(Debug, Serialize)]
-pub struct TypeInfo {
-    pub type_name: String,
-    pub type_category: String,
-    pub enum_values: Option<Vec<String>>,
-    pub base_type: Option<String>,
-}
-
-#[tauri::command]
-pub async fn get_type_info(
-    conn_id: String,
-    type_name: String,
-    schema: Option<String>,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<TypeInfo, String> {
-    let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
-
-    // For PostgreSQL, query type information
-    if matches!(conn.profile.db_type, DbType::PostgreSQL) {
-        let schema = schema.unwrap_or_else(|| "public".to_string());
-        
-        let query_sql = format!(
-            "SELECT \
-                t.typname as type_name, \
-                t.typtype as type_category, \
-                CASE WHEN t.typtype = 'e' THEN ( \
-                    SELECT string_agg(e.enumlabel, ',' ORDER BY e.enumsortorder) \
-                    FROM pg_enum e WHERE e.enumtypid = t.oid \
-                ) ELSE NULL END as enum_values, \
-                CASE WHEN t.typtype = 'd' THEN \
-                    pg_catalog.format_type(t.typbasetype, t.typtypmod) \
-                ELSE NULL END as base_type \
-            FROM pg_type t \
-            JOIN pg_namespace n ON t.typnamespace = n.oid \
-            WHERE t.typname = '{}' AND n.nspname = '{}'",
-            type_name, schema
-        );
-
-        let handle = conn.adapter.open_query(&query_sql).await.map_err(|e| e.to_string())?;
-        let chunk = conn.adapter.fetch_page(&handle, 1).await.map_err(|e| e.to_string())?;
-        let _ = conn.adapter.close_query(&handle).await;
-
-        if chunk.rows.is_empty() {
-            return Err(format!("Type '{}' not found in schema '{}'", type_name, schema));
-        }
-
-        let row = &chunk.rows[0];
-        let type_category = if let Some(cat_value) = &row.get(1).and_then(|v| {
-            if !v.display_value.is_empty() {
-                Some(v.display_value.chars().next()?)
-            } else {
-                None
-            }
-        }) {
-            match cat_value {
-                'e' => "enum",
-                'd' => "domain",
-                'c' => "composite",
-                'b' => "base",
-                'r' => "range",
-                'm' => "multirange",
-                _ => "unknown",
-            }
-        } else {
-            "unknown"
-        };
-
-        let enum_values = row.get(2)
-            .and_then(|v| {
-                if !v.display_value.is_empty() {
-                    Some(v.display_value.split(',').map(|s| s.to_string()).collect())
-                } else {
-                    None
-                }
-            });
-
-        let base_type = row.get(3).map(|v| v.display_value.clone());
-
-        Ok(TypeInfo {
-            type_name: type_name.clone(),
-            type_category: type_category.to_string(),
-            enum_values,
-            base_type,
-        })
-    } else {
-        Err("get_type_info is only supported for PostgreSQL".to_string())
-    }
 }
 
 #[tauri::command]
@@ -902,6 +811,23 @@ pub async fn update_connection_with_event(
     Ok(())
 }
 
+// =============================================================================
+// AI Sidecars: versions
+// =============================================================================
+
+#[derive(serde::Serialize)]
+pub struct AISidecarVersion {
+    pub tool: String,
+    pub version: Option<String>,
+    pub error: Option<String>,
+    pub source: Option<String>, // "cli" | "manifest"
+}
+
+
+
+
+
+// Submit auth code back to the running TUI (best-effort; will target the most recent process)
 
 // Index operation commands
 #[tauri::command]

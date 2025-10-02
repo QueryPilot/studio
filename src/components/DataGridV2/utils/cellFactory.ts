@@ -17,7 +17,10 @@ const cacheAndReturn = (
     if (!cellCache.has(value)) {
       cellCache.set(value, new Map());
     }
-    cellCache.get(value)!.set(column.id, result);
+    const cache = cellCache.get(value);
+    if (cache) {
+      cache.set(column.id, result);
+    }
   }
   return result;
 };
@@ -35,41 +38,35 @@ export function buildGridCellV2(opts: {
   if (value && typeof value === "object") {
     const columnCache = cellCache.get(value);
     if (columnCache?.has(column.id)) {
-      return columnCache.get(column.id)!;
+      const cached = columnCache.get(column.id);
+      if (cached) return cached;
     }
   }
 
-  // Handle null/undefined
-  if (!value || value.value == null) {
-    // Check if this should be a number column based on type
-    const dbType = column.meta?.db_type.toLowerCase() || "";
-    const isNumericColumn =
-      dbType.includes("int") ||
-      dbType.includes("numeric") ||
-      dbType.includes("decimal") ||
-      dbType.includes("float") ||
-      dbType.includes("double") ||
-      dbType.includes("real") ||
-      dbType.includes("money");
+  const rawValue = value?.value;
+  const dbType = column.meta?.db_type.toLowerCase() || "";
+
+  // Enum cells - use custom cell to support enum values
+  if (column.meta?.enum_values && column.meta.enum_values.length > 0) {
+    const enumValue =
+      rawValue === null || rawValue === undefined ? null : String(rawValue);
 
     return cacheAndReturn(value, column, {
-      kind: GridCellKind.Text,
-      data: "NULL",
-      displayData: "NULL",
-      allowOverlay: false,
-      readonly: false,
-      contentAlign: isNumericColumn ? "right" : "left",
-      themeOverride: {
-        textDark: "rgba(127,127,127,0.7)",
-        baseFontStyle: "italic 12px",
+      kind: GridCellKind.Custom,
+      data: {
+        kind: "enum-cell",
+        value: enumValue,
+        allowedValues: column.meta.enum_values,
+        nullable: Boolean(column.meta?.nullable),
       },
+      copyData: enumValue ?? "NULL",
+      allowOverlay: true,
+      readonly: false,
+      contentAlign: "left",
     });
   }
 
-  const rawValue = value.value;
-  const dbType = column.meta?.db_type.toLowerCase() || "";
-
-  // Boolean cells - use custom cell to support null values
+  // Boolean cells - use custom cell to support null values (including NULL)
   if (dbType.includes("bool") || typeof rawValue === "boolean") {
     let boolValue: boolean | null = null;
 
@@ -104,6 +101,7 @@ export function buildGridCellV2(opts: {
       copyData: boolValue === null ? "NULL" : String(boolValue),
       allowOverlay: true,
       readonly: false,
+      contentAlign: "center",
     });
   }
 
@@ -192,6 +190,31 @@ export function buildGridCellV2(opts: {
       readonly: false,
       themeOverride: {
         baseFontStyle: "400 11px monospace",
+      },
+    });
+  }
+
+  // Handle NULL values for non-boolean columns
+  if (rawValue === null || rawValue === undefined) {
+    const isNumericColumn =
+      dbType.includes("int") ||
+      dbType.includes("numeric") ||
+      dbType.includes("decimal") ||
+      dbType.includes("float") ||
+      dbType.includes("double") ||
+      dbType.includes("real") ||
+      dbType.includes("money");
+
+    return cacheAndReturn(value, column, {
+      kind: GridCellKind.Text,
+      data: "NULL",
+      displayData: "NULL",
+      allowOverlay: false,
+      readonly: false,
+      contentAlign: isNumericColumn ? "right" : "left",
+      themeOverride: {
+        textDark: "rgba(127,127,127,0.7)",
+        baseFontStyle: "italic 12px",
       },
     });
   }

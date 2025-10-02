@@ -8,6 +8,7 @@ import { TriggerRow, type TriggerRowData } from "./TriggerRow";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useSchemaData } from "@/hooks/useSchemaData";
+import { useTableStructure } from "@/hooks/useTableStructure";
 
 interface TableTriggersProps {
   connectionId: string;
@@ -38,7 +39,12 @@ export const TableTriggers = memo(function TableTriggers({
     ],
     storageKey: `table-triggers-columns-${database}-${table}`,
   });
-
+  const { columns } = useTableStructure({
+    connectionId,
+    database,
+    table,
+    schema,
+  });
   const [triggersData, setTriggersData] = useState<TriggerMeta[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,9 +62,10 @@ export const TableTriggers = memo(function TableTriggers({
   const [isSaving, setIsSaving] = useState(false);
 
   // Get available columns for the table
-  const [availableColumns, setAvailableColumns] = useState<
-    Array<{ name: string; db_type?: string }>
-  >([]);
+  const availableColumns = useMemo(
+    () => columns.map((col) => ({ name: col.name, db_type: col.db_type })),
+    [columns],
+  );
 
   // Get functions from shared schema data hook
   const { functions: schemaFunctions } = useSchemaData(
@@ -71,7 +78,7 @@ export const TableTriggers = memo(function TableTriggers({
   const availableFunctions = useMemo(() => {
     return schemaFunctions.map((f) => {
       // The arguments field is an array after being processed by databaseService
-      if (f.arguments && Array.isArray(f.arguments) && f.arguments.length > 0) {
+      if (f.arguments.length > 0) {
         // Filter out empty arguments
         const validArgs = f.arguments.filter((arg) => arg && arg.trim());
         if (validArgs.length > 0) {
@@ -107,45 +114,6 @@ export const TableTriggers = memo(function TableTriggers({
 
     if (connectionId && database && table) {
       void fetchTriggers();
-    }
-  }, [connectionId, database, table, schema]);
-
-  // Fetch available columns
-  useEffect(() => {
-    const fetchColumns = async () => {
-      try {
-        // Ensure connection is active
-        if (!databaseService.isConnectionActive(connectionId)) {
-          try {
-            await databaseService.connectById(connectionId);
-          } catch (connErr) {
-            console.error("Failed to establish connection:", connErr);
-            return;
-          }
-        }
-
-        // Fetch columns for the table
-        const tableInfo = await databaseService.getTableInfo(
-          connectionId,
-          database,
-          schema || "public",
-          table,
-        );
-        if (tableInfo?.columns) {
-          setAvailableColumns(
-            tableInfo.columns.map((col) => ({
-              name: col.name,
-              db_type: col.db_type,
-            })),
-          );
-        }
-      } catch (err) {
-        console.error("Failed to fetch columns:", err);
-      }
-    };
-
-    if (connectionId && database && table) {
-      void fetchColumns();
     }
   }, [connectionId, database, table, schema]);
 
@@ -241,7 +209,7 @@ export const TableTriggers = memo(function TableTriggers({
         // Auto-generate trigger name based on function if user hasn't manually edited it
         if (
           updates.function &&
-          updated[index].name.startsWith(`trg_${table}_`)
+          updated[index]?.name.startsWith(`trg_${table}_`)
         ) {
           // Extract function base name (without arguments)
           const funcBaseName = updates.function.split("(")[0];
@@ -250,7 +218,7 @@ export const TableTriggers = memo(function TableTriggers({
           }
         }
 
-        updated[index] = updatedTrigger;
+        updated[index] = updatedTrigger as TriggerRowData;
         setNewTriggers(updated);
       }
     } else {
@@ -281,7 +249,7 @@ export const TableTriggers = memo(function TableTriggers({
         const updated = [...newTriggers];
         updated[index] = {
           ...updated[index],
-          enabled: !updated[index].enabled,
+          enabled: !updated[index]?.enabled,
         };
         setNewTriggers(updated);
       }
@@ -613,16 +581,18 @@ export const TableTriggers = memo(function TableTriggers({
               originalTrigger={item.originalTrigger}
               availableColumns={availableColumns}
               availableFunctions={availableFunctions}
-              onUpdate={(updates) =>
-                handleUpdateTrigger(item.trigger.name, updates, item.isNew)
-              }
-              onToggleEnabled={() =>
-                handleToggleEnabled(item.trigger.name, item.isNew)
-              }
-              onDelete={() =>
-                handleDeleteTrigger(item.trigger.name, item.isNew)
-              }
-              onReset={() => handleResetTrigger(item.trigger.name, item.isNew)}
+              onUpdate={(updates) => {
+                handleUpdateTrigger(item.trigger.name, updates, item.isNew);
+              }}
+              onToggleEnabled={() => {
+                handleToggleEnabled(item.trigger.name, item.isNew);
+              }}
+              onDelete={() => {
+                handleDeleteTrigger(item.trigger.name, item.isNew);
+              }}
+              onReset={() => {
+                handleResetTrigger(item.trigger.name, item.isNew);
+              }}
             />
           ))}
         </tbody>

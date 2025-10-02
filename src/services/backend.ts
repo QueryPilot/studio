@@ -66,6 +66,8 @@ export interface ColumnMeta {
   type_oid?: number;
   default_value?: string | null;
   comment?: string | null;
+  enum_values?: string[];
+  type_category?: string;
 }
 
 export interface PageChunk {
@@ -345,7 +347,10 @@ export class BackendAPI {
     return invoke("get_indexes", { connId, table });
   }
 
-  static async getIndexUsageStats(connId: string, table: string): Promise<IndexUsageStats[]> {
+  static async getIndexUsageStats(
+    connId: string,
+    table: string,
+  ): Promise<IndexUsageStats[]> {
     return invoke("get_index_usage_stats", { connId, table });
   }
 
@@ -379,12 +384,12 @@ export class BackendAPI {
     objectName: string,
     objectType: string,
   ): Promise<string> {
-    return invoke("get_object_definition", { 
-      connId, 
-      database, 
-      schema, 
-      objectName, 
-      objectType 
+    return invoke("get_object_definition", {
+      connId,
+      database,
+      schema,
+      objectName,
+      objectType,
     });
   }
 
@@ -408,14 +413,14 @@ export class BackendAPI {
     filters?: any,
     sorts?: any[],
   ): Promise<TableDataResult> {
-    return invoke("get_table_data_filtered", { 
-      connId, 
-      schema, 
-      table, 
-      limit, 
+    return invoke("get_table_data_filtered", {
+      connId,
+      schema,
+      table,
+      limit,
       offset,
       filters: filters || undefined,
-      sorts: sorts || undefined
+      sorts: sorts || undefined,
     });
   }
 

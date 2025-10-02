@@ -51,9 +51,7 @@
       "minimumSystemVersion": "10.15"
     },
     "resources": [
-      "sidecars/manifest.json",
-      "sidecars/opencode/*",
-      "sidecars/codex/*"
+      "sidecars/manifest.json"
     ]
   }
 }

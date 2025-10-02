@@ -483,7 +483,23 @@ impl PostgresIntrospector {
                         AND a.attnum = ANY(con.conkey)
                 ) as is_primary_key,
                 pg_get_expr(d.adbin, d.adrelid) as default_value,
-                col_description(c.oid, a.attnum) as comment
+                col_description(c.oid, a.attnum) as comment,
+                t.typtype as type_category,
+                -- Get enum values if this is an enum type
+                CASE 
+                    WHEN t.typtype = 'e' THEN (
+                        SELECT array_agg(e.enumlabel ORDER BY e.enumsortorder)
+                        FROM pg_enum e
+                        WHERE e.enumtypid = t.oid
+                    )
+                    ELSE NULL
+                END as enum_values,
+                -- Get base type for domain types
+                CASE 
+                    WHEN t.typtype = 'd' THEN 
+                        pg_catalog.format_type(t.typbasetype, t.typtypmod)
+                    ELSE NULL
+                END as base_type
             FROM pg_attribute a
             JOIN pg_class c ON c.oid = a.attrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -502,6 +518,23 @@ impl PostgresIntrospector {
             .iter()
             .map(|row| {
                 let type_oid: u32 = row.get(2);
+                let type_category: Option<i8> = row.get(7);
+                let enum_values_opt: Option<Vec<String>> = row.get(8);
+
+                // Convert type category i8 to char for display
+                let type_category_str = type_category.map(|tc| {
+                    let type_char = (tc as u8) as char;
+                    match type_char {
+                        'e' => "enum".to_string(),
+                        'd' => "domain".to_string(),
+                        'c' => "composite".to_string(),
+                        'b' => "base".to_string(),
+                        'p' => "pseudo".to_string(),
+                        'r' => "range".to_string(),
+                        'm' => "multirange".to_string(),
+                        _ => type_char.to_string(),
+                    }
+                });
 
                 ColumnMeta {
                     name: row.get(0),
@@ -512,6 +545,8 @@ impl PostgresIntrospector {
                     type_oid: Some(type_oid),
                     default_value: row.get(5),
                     comment: row.get(6),
+                    enum_values: enum_values_opt,
+                    type_category: type_category_str,
                 }
             })
             .collect();

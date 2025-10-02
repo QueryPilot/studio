@@ -2,9 +2,13 @@
  * React hook for fetching comprehensive table structure
  * Includes columns, indexes, constraints, triggers, and statistics
  */
+import useSWR from "swr";
 import { useState, useEffect, useCallback } from "react";
 import { databaseService } from "@/services/databaseService";
-import type { TableStructure, TableStructureOptions } from "@/types/tableStructure";
+import type {
+  TableStructure,
+  TableStructureOptions,
+} from "@/types/tableStructure";
 
 interface UseTableFullStructureParams {
   connectionId: string;
@@ -30,47 +34,60 @@ export function useTableFullStructure({
   options = {},
   enabled = true,
 }: UseTableFullStructureParams): UseTableFullStructureReturn {
-  const [structure, setStructure] = useState<TableStructure | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { data, isLoading, error, mutate } = useSWR(
+    enabled
+      ? [
+          "table-full-structure",
+          connectionId,
+          database,
+          table,
+          schema,
+          options,
+          enabled,
+        ]
+      : null,
+    async () => {
+      if (!connectionId || !database || !table || !enabled) return;
 
-  const fetchStructure = useCallback(async () => {
-    if (!connectionId || !database || !table || !enabled) return;
+      try {
+        const fullStructure = await databaseService.getTableStructure(
+          connectionId,
+          database,
+          schema,
+          table,
+          options,
+        );
+        console.log(">>>", "fullStructure", fullStructure);
+        return fullStructure;
+      } catch (err) {
+        console.error("Error fetching table structure:", err);
+        throw err;
+      }
+    },
+  );
 
-    setIsLoading(true);
-    setError(null);
-
+  const refresh = useCallback(async () => {
     try {
       const fullStructure = await databaseService.getTableStructure(
         connectionId,
         database,
         schema,
         table,
-        options
+        options,
       );
-
-      setStructure(fullStructure);
+      console.log(">>>", "fullStructure", fullStructure);
+      void mutate(fullStructure);
     } catch (err) {
-      const errorMessage = err instanceof Error
-        ? err.message
-        : "Failed to load table structure";
-      setError(errorMessage);
-      console.error("Error fetching table structure:", err);
-    } finally {
-      setIsLoading(false);
+      console.error("Error refreshing table structure:", err);
+      throw err;
     }
-  }, [connectionId, database, table, schema, enabled]); // Removed options from deps
-
-  // Auto-fetch on mount and when dependencies change
-  useEffect(() => {
-    void fetchStructure();
-  }, [fetchStructure]);
+  }, [mutate, connectionId, database, schema, table, options]);
 
   return {
-    structure,
+    structure: data || null,
     isLoading,
     error,
-    refresh: fetchStructure,
+    refresh,
   };
 }
 
@@ -86,7 +103,7 @@ export function useTableColumns(params: UseTableFullStructureParams) {
       includeConstraints: false,
       includeTriggers: false,
       includeStatistics: false,
-    }
+    },
   });
 
   return {
@@ -106,7 +123,7 @@ export function useTableForeignKeys(params: UseTableFullStructureParams) {
       ...params.options,
       includeForeignKeys: true,
       includeConstraints: true,
-    }
+    },
   });
 
   return {
@@ -125,7 +142,7 @@ export function useTableStatistics(params: UseTableFullStructureParams) {
     options: {
       ...params.options,
       includeStatistics: true,
-    }
+    },
   });
 
   return {

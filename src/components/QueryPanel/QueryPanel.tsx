@@ -105,35 +105,7 @@ export const QueryPanel = memo(function QueryPanel({
     [persistSql],
   );
 
-  // Apply editor inserts from bridge (e.g., opencode tool -> tauri bridge -> UI event)
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    (async () => {
-      try {
-        unlisten = await safeListen<{
-          filePath?: string;
-          startLine: number;
-          endLine: number;
-          content: string;
-        }>("editor-insert", (event) => {
-          setQuery((prev) =>
-            applyInsertByLines(
-              prev,
-              event.payload.startLine,
-              event.payload.endLine,
-              event.payload.content,
-            ),
-          );
-        });
-      } catch {
-        // ignore in non-tauri/browser
-      }
-    })().catch(() => {});
-    return () => {
-      if (unlisten) unlisten();
-    };
-  }, [applyInsertByLines]);
-
+  
   // Sync state with keyboard context
   useSyncQueryState(isExecuting, !!result);
   useSyncEditorState(hasSelection, query !== "", false);

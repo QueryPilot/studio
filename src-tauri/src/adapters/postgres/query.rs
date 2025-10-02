@@ -55,6 +55,8 @@ impl PostgresQueryExecutor {
                     type_oid: Some(col.type_().oid()),
                     default_value: None,
                     comment: None,
+                    enum_values: None,
+                    type_category: None,
                 })
                 .collect::<Vec<_>>();
 
@@ -113,6 +115,8 @@ impl PostgresQueryExecutor {
                 type_oid: Some(col.type_().oid()),
                 default_value: None,
                 comment: None,
+                enum_values: None,
+                type_category: None,
             });
 
             // For display, if we'll cast to text, show it as the original type
@@ -126,6 +130,8 @@ impl PostgresQueryExecutor {
                 type_oid: Some(col.type_().oid()),
                 default_value: None,
                 comment: None,
+                enum_values: None,
+                type_category: None,
             });
         }
 
