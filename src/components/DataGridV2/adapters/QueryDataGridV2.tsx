@@ -4,7 +4,7 @@ import type {
   Item,
   Rectangle,
 } from "@glideapps/glide-data-grid";
-import { GridCellKind } from "@glideapps/glide-data-grid";
+import { GridCellKind, type Theme } from "@glideapps/glide-data-grid";
 import { EditableDataGrid } from "../base";
 import type { GridColumnV2, GridRowModel } from "../types";
 import type { GlideQueryDataGridProps } from "@/components/DataGridV2/glide/types";
@@ -13,7 +13,6 @@ import {
   useGridPreferences,
   useGridPreferencesHydrated,
   upsertGridColumnsState,
-  upsertGridViewState,
 } from "../stores";
 import {
   useColumnPinning,
@@ -24,7 +23,6 @@ import {
 } from "../hooks";
 import {
   applyPinnedOrdering,
-  computeBaseWidth,
   filterVisibleColumns,
   reorderColumns,
 } from "./columnUtils";
@@ -76,7 +74,7 @@ export const QueryDataGridV2 = memo(function QueryDataGridV2(
       return;
     }
     setGridSelection(persistedView.selection);
-  }, [hydrated, persistedView.serializedSelection]);
+  }, [hydrated, persistedView.serializedSelection, persistedView.selection]);
 
   const columnNames = data?.columns ?? [];
   const columnMeta = data?.columnMeta ?? [];
@@ -89,9 +87,8 @@ export const QueryDataGridV2 = memo(function QueryDataGridV2(
           field: name,
           title: name,
           name,
-          width: computeBaseWidth(name, meta?.db_type),
           type: meta?.db_type,
-          meta: meta ?? null,
+          meta: meta ?? undefined,
         } satisfies GridColumnV2;
       }),
     [columnMeta, columnNames],
@@ -133,16 +130,12 @@ export const QueryDataGridV2 = memo(function QueryDataGridV2(
 
     if (requiresVisibilitySync) {
       upsertGridColumnsState(gridId, (draft) => {
+        const next: Record<string, boolean> = {};
         expectedOrder.forEach((id) => {
-          if (!(id in draft.visibility)) {
-            draft.visibility[id] = true;
-          }
+          const existing = draft.visibility[id];
+          next[id] = existing === false ? false : true;
         });
-        Object.keys(draft.visibility).forEach((id) => {
-          if (!expectedOrder.includes(id)) {
-            delete draft.visibility[id];
-          }
-        });
+        draft.visibility = next;
       });
     }
   }, [
@@ -181,7 +174,7 @@ export const QueryDataGridV2 = memo(function QueryDataGridV2(
     },
   });
 
-  const { pinnedColumns } = useColumnPinning({
+  const { pinnedColumns: _pinnedColumns } = useColumnPinning({
     columns: sizedColumns,
     initialPinned: columnState.pinned,
     onChange: (pinned) => {
@@ -214,7 +207,7 @@ export const QueryDataGridV2 = memo(function QueryDataGridV2(
         } as const;
       }
       const value = row[column.field];
-      return buildTableCell({ value, column, meta: column.meta ?? null });
+      return buildTableCell({ value, column, meta: column.meta ?? undefined });
     },
     [finalColumns, rows],
   );
@@ -250,6 +243,27 @@ export const QueryDataGridV2 = memo(function QueryDataGridV2(
     [finalColumns, gridId],
   );
 
+  const selectedRowCount = gridSelection ? gridSelection.rows.length : 0;
+
+  // Row highlighting for selected rows (compute before any early returns)
+  const selectedRowsSet = useMemo(() => {
+    const rowsSel = gridSelection ? gridSelection.rows.toArray() : [];
+    return new Set<number>(rowsSel);
+  }, [gridSelection]);
+
+  const getRowThemeOverride = useCallback(
+    (rowIndex: number) => {
+      if (selectedRowsSet.has(rowIndex)) {
+        return {
+          bgCell: "rgba(252, 163, 17, 0.10)", // accent @ 10%
+          bgCellMedium: "rgba(252, 163, 17, 0.12)",
+        } as Partial<Theme>;
+      }
+      return undefined;
+    },
+    [selectedRowsSet],
+  );
+
   if (!hydrated) {
     return null;
   }
@@ -270,8 +284,6 @@ export const QueryDataGridV2 = memo(function QueryDataGridV2(
       />
     );
   }
-
-  const selectedRowCount = gridSelection?.rows?.length ?? 0;
 
   return (
     <div className="flex h-full flex-col">
@@ -297,6 +309,7 @@ export const QueryDataGridV2 = memo(function QueryDataGridV2(
         onSelectionChange={handleSelectionChange}
         onActiveCellChange={persistActiveCell}
         freezeColumns={freezeColumns}
+        getRowThemeOverride={getRowThemeOverride}
       />
 
       <DataGridStatusBar
