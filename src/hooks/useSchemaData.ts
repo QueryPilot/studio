@@ -40,10 +40,9 @@ export function useSchemaData(
       setIsLoading(true);
       setError(null);
 
-      // Ensure connection is active
-      if (!databaseService.isConnectionActive(connectionId)) {
-        await databaseService.connectById(connectionId);
-      }
+      // Always ensure connection mapping is established before queries
+      // The backend's get_or_create_connection is idempotent, so this is safe to call
+      await databaseService.connectById(connectionId);
 
       // Load tables and functions in parallel
       const [tables, functions] = await Promise.all([
@@ -62,7 +61,10 @@ export function useSchemaData(
       // Filter out system functions and deduplicate
       const userFunctions = functions.filter((func) => {
         // Skip functions in system schemas
-        if (func.schema === "pg_catalog" || func.schema === "information_schema") {
+        if (
+          func.schema === "pg_catalog" ||
+          func.schema === "information_schema"
+        ) {
           return false;
         }
 
@@ -104,12 +106,16 @@ export function useSchemaData(
         ];
 
         const funcNameLower = func.name.toLowerCase();
-        if (systemPrefixes.some(prefix => funcNameLower.startsWith(prefix))) {
+        if (systemPrefixes.some((prefix) => funcNameLower.startsWith(prefix))) {
           return false;
         }
 
         // Skip aggregate functions and operators
-        if (funcNameLower.includes("$$") || funcNameLower.startsWith("@") || funcNameLower.startsWith("~")) {
+        if (
+          funcNameLower.includes("$$") ||
+          funcNameLower.startsWith("@") ||
+          funcNameLower.startsWith("~")
+        ) {
           return false;
         }
 
@@ -117,13 +123,16 @@ export function useSchemaData(
       });
 
       // Deduplicate functions based on schema and name only (ignore overloads)
-      const uniqueFunctions = userFunctions.reduce<FunctionMeta[]>((acc, func) => {
-        const key = `${func.schema}.${func.name}`;
-        if (!acc.some((f) => `${f.schema}.${f.name}` === key)) {
-          acc.push(func);
-        }
-        return acc;
-      }, []);
+      const uniqueFunctions = userFunctions.reduce<FunctionMeta[]>(
+        (acc, func) => {
+          const key = `${func.schema}.${func.name}`;
+          if (!acc.some((f) => `${f.schema}.${f.name}` === key)) {
+            acc.push(func);
+          }
+          return acc;
+        },
+        [],
+      );
 
       setData({
         tables: tableList,

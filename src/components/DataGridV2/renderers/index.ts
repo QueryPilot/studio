@@ -3,6 +3,7 @@ import type { CustomRenderer, CustomCell } from "@glideapps/glide-data-grid";
 import { TextCellRenderer } from "./TextCellRenderer";
 import BooleanCellRenderer from "./BooleanCellRenderer";
 import EnumCellRenderer from "./EnumCellRenderer";
+import DateTimeCellRenderer from "./DateTimeCellRenderer";
 
 type AnyCell = CustomCell<Record<string, unknown>>;
 
@@ -15,6 +16,7 @@ export function useDataGridV2Renderers(): {
       TextCellRenderer as unknown as CustomRenderer<AnyCell>,
       BooleanCellRenderer as unknown as CustomRenderer<AnyCell>,
       EnumCellRenderer as unknown as CustomRenderer<AnyCell>,
+      DateTimeCellRenderer as unknown as CustomRenderer<AnyCell>,
     ],
     [],
   );

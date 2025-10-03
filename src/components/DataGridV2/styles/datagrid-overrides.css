@@ -58,3 +58,7 @@
 .dvn-container {
   contain: layout style paint;
 }
+
+.gdg-style {
+  @apply !rounded-md -ml-0.5;
+}

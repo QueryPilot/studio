@@ -257,31 +257,33 @@ export function MainScreen() {
         </div>
 
         {/* Right Panel */}
-        <div className="flex-1 flex flex-col overflow-hidden relative">
+        <div className="flex-1 flex flex-col overflow-hidden bg-secondary relative p-1.5">
           {/* Header */}
-          <div className="px-4 py-3 sticky top-0 z-10 bg-background/30 backdrop-blur-sm backdrop-filter">
-            <div className="relative w-full">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <Input
-                ref={searchInputRef}
-                type="text"
-                placeholder="Search connections... (⌘F)"
-                className="pl-9 h-8 text-sm"
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                }}
-              />
+          <div className="bg-background rounded-xl h-full">
+            <div className="px-4 py-3 sticky top-0 z-10">
+              <div className="relative w-full">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  ref={searchInputRef}
+                  type="text"
+                  placeholder="Search connections... (⌘F)"
+                  className="pl-9 h-8 text-sm"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                  }}
+                />
+              </div>
             </div>
-          </div>
 
-          {/* Connection List */}
-          <ConnectionList
-            searchQuery={searchQuery}
-            onAddConnection={() => {
-              setConnectionDialogOpen(true);
-            }}
-          />
+            {/* Connection List */}
+            <ConnectionList
+              searchQuery={searchQuery}
+              onAddConnection={() => {
+                setConnectionDialogOpen(true);
+              }}
+            />
+          </div>
         </div>
       </div>
 

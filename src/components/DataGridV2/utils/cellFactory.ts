@@ -57,7 +57,9 @@ export function buildGridCellV2(opts: {
         kind: "enum-cell",
         value: enumValue,
         allowedValues: column.meta.enum_values,
-        nullable: Boolean(column.meta?.nullable),
+        nullable: Boolean(
+          (column.meta as { nullable?: boolean } | null)?.nullable,
+        ),
       },
       copyData: enumValue ?? "NULL",
       allowOverlay: true,
@@ -166,16 +168,49 @@ export function buildGridCellV2(opts: {
     });
   }
 
-  // Date/Time cells - render as text with special formatting
-  if (dbType.includes("date") || dbType.includes("time")) {
-    const text = String(rawValue);
+  // Date/Time cells - provide custom editor with calendar popover
+  if (dbType.includes("timestamptz") || dbType.includes("timestamp")) {
+    const v = rawValue == null ? null : String(rawValue);
     return cacheAndReturn(value, column, {
-      kind: GridCellKind.Text,
-      data: text,
-      displayData: text,
-      allowOverlay: false,
+      kind: GridCellKind.Custom,
+      data: {
+        kind: "datetime-cell",
+        value: v,
+        nullable: Boolean(column.meta?.nullable),
+      },
+      copyData: v ?? "NULL",
+      allowOverlay: true,
       readonly: false,
-      contentAlign: "left",
+    });
+  }
+
+  if (dbType.includes("date")) {
+    const v = rawValue == null ? null : String(rawValue);
+    return cacheAndReturn(value, column, {
+      kind: GridCellKind.Custom,
+      data: {
+        kind: "date-cell",
+        value: v,
+        nullable: Boolean(column.meta?.nullable),
+      },
+      copyData: v ?? "NULL",
+      allowOverlay: true,
+      readonly: false,
+    });
+  }
+
+  if (dbType.includes("time")) {
+    const v = rawValue == null ? null : String(rawValue);
+    return cacheAndReturn(value, column, {
+      kind: GridCellKind.Custom,
+      data: {
+        kind: "time-cell",
+        value: v,
+        nullable: Boolean(column.meta?.nullable),
+      },
+      copyData: v ?? "NULL",
+      allowOverlay: true,
+      readonly: false,
     });
   }
 

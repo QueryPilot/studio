@@ -28,7 +28,7 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
   onAutoArrange,
 }) => {
   return (
-    <div className="flex items-center justify-between border-b bg-muted/30 p-1">
+    <div className="flex items-center justify-between p-1.5">
       <Tabs
         value={mode}
         onValueChange={(value) => {

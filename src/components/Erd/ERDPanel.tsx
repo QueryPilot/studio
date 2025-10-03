@@ -702,26 +702,28 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
 
   return (
     <div
-      className="flex h-full flex-col"
+      className="relative flex h-full flex-col"
       data-panel-id={tabId}
       data-connection-id={connectionId}
     >
-      <ERDToolbar
-        mode={mode}
-        onModeChange={(next) => {
-          setMode(next);
-          if (next !== "split") {
-            setEditorCollapsed(false);
-          }
-        }}
-        onCreateView={() => {
-          // TODO: hook into ERD view creation when multi-view support is added
-        }}
-        onRefresh={handleRefresh}
-        onAutoArrange={() => {
-          erdVisualizerRef.current?.triggerAutoArrange();
-        }}
-      />
+      <div className="absolute top-0 left-0 right-0 bg-transparent z-10">
+        <ERDToolbar
+          mode={mode}
+          onModeChange={(next) => {
+            setMode(next);
+            if (next !== "split") {
+              setEditorCollapsed(false);
+            }
+          }}
+          onCreateView={() => {
+            // TODO: hook into ERD view creation when multi-view support is added
+          }}
+          onRefresh={handleRefresh}
+          onAutoArrange={() => {
+            erdVisualizerRef.current?.triggerAutoArrange();
+          }}
+        />
+      </div>
 
       {parseError ? (
         <div className="border-l-4 border-destructive bg-destructive/10 px-3 py-2 text-xs text-destructive select-text">
