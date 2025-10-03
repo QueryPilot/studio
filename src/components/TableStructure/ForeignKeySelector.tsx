@@ -156,7 +156,7 @@ export const ForeignKeySelector = memo(function ForeignKeySelector({
         "flex items-center justify-between p-2 px-3 rounded-md hover:bg-accent/50 text-sm cursor-pointer transition-colors",
         selectedTable === table && "bg-accent"
       )}
-      onClick={() => setSelectedTable(table)}
+      onClick={() => { setSelectedTable(table); }}
     >
       <span className="font-medium">{table}</span>
       <ChevronRight className="h-4 w-4 opacity-50" />
@@ -170,7 +170,7 @@ export const ForeignKeySelector = memo(function ForeignKeySelector({
         "flex items-center justify-between gap-2 p-2 px-3 rounded-md hover:bg-accent/50 text-sm cursor-pointer transition-colors",
         value?.table === col.table && value?.column === col.column && "bg-accent"
       )}
-      onClick={() => handleSelect(col.table, col.column)}
+      onClick={() => { handleSelect(col.table, col.column); }}
     >
       <span className="font-mono font-medium">{col.column}</span>
       <span className="text-muted-foreground text-xs">{col.type}</span>
@@ -208,7 +208,7 @@ export const ForeignKeySelector = memo(function ForeignKeySelector({
               <Input
                 placeholder="Search tables and columns..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => { setSearch(e.target.value); }}
                 className="h-9 text-sm flex-1"
                 autoFocus
               />
@@ -216,7 +216,7 @@ export const ForeignKeySelector = memo(function ForeignKeySelector({
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => setSelectedTable(null)}
+                  onClick={() => { setSelectedTable(null); }}
                   className="h-9 px-3 text-sm font-medium"
                 >
                   ← Back

@@ -243,7 +243,7 @@ export function useTableData(
           }));
         }
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
+       
     },
     [],
   ); // NO dependencies = stable callback

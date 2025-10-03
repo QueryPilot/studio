@@ -5,7 +5,7 @@ import { databaseService, type TableIndex } from "@/services/databaseService";
 import { type IndexUsageStats } from "@/services/backend";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { useTableColumns } from "@/hooks/useTableColumns";
+import { useTableColumns } from "@/hooks/useTableFullStructure";
 import { useColumnResizing } from "@/hooks/useColumnResizing";
 import { cn } from "@/lib/utils";
 import { IndexRow, type IndexRowData } from "./IndexRow";

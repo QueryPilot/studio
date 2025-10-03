@@ -502,7 +502,7 @@ const useWorkbenchStore = create<WorkbenchStore>()(
         ...(panel.metadata ?? {}),
       };
 
-      const currentMetadata = (panelMetadata[tabId] ?? {}) as TabMetadata;
+      const currentMetadata = (panelMetadata[tabId] ?? {});
       panelMetadata[tabId] = { ...currentMetadata, ...updates };
 
       const newContents = new Map(panelContents);

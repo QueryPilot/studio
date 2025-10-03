@@ -262,7 +262,10 @@ const getQueryAtCursor = (view: EditorView): string => {
 
   // If there's a selection, return the selected text
   if (selection.from !== selection.to) {
-    return state.sliceDoc(selection.from, selection.to).trim().replace(/;\s*$/, '');
+    return state
+      .sliceDoc(selection.from, selection.to)
+      .trim()
+      .replace(/;\s*$/, "");
   }
 
   // Otherwise, find the query at cursor position
@@ -273,66 +276,73 @@ const getQueryAtCursor = (view: EditorView): string => {
   let currentPos = 0;
 
   for (let i = 0; i < queries.length; i++) {
-    const queryLength = queries[i].length;
+    const query = queries[i];
+    if (!query) continue;
+
+    const queryLength = query.length;
     const nextPos = currentPos + queryLength + (i < queries.length - 1 ? 1 : 0);
 
     if (cursorPos >= currentPos && cursorPos <= nextPos) {
       // Found the query containing the cursor
-      const query = queries[i].trim();
+      const trimmedQuery = query.trim();
       // Remove trailing semicolon if present
-      return query.replace(/;\s*$/, '');
+      return trimmedQuery.replace(/;\s*$/, "");
     }
 
     currentPos = nextPos;
   }
 
   // Fallback to entire document
-  return doc.trim().replace(/;\s*$/, '');
+  return doc.trim().replace(/;\s*$/, "");
 };
 
 // Create execute command keymap with highest precedence
-export const createExecuteKeymap = (onExecute?: (query?: string) => void): Extension => {
+export const createExecuteKeymap = (
+  onExecute?: (query?: string) => void,
+): Extension => {
   if (!onExecute) return [];
 
-  return Prec.highest(keymap.of([
-    {
-      key: "Cmd-Enter",
-      mac: "Cmd-Enter",
-      run: (view) => {
-        const query = getQueryAtCursor(view);
-        if (query) {
-          onExecute(query);
-        } else {
-          onExecute();
-        }
-        return true;
+  return Prec.highest(
+    keymap.of([
+      {
+        key: "Cmd-Enter",
+        mac: "Cmd-Enter",
+        run: (view) => {
+          const query = getQueryAtCursor(view);
+          if (query) {
+            onExecute(query);
+          } else {
+            onExecute();
+          }
+          return true;
+        },
       },
-    },
-    {
-      key: "Ctrl-Enter",
-      run: (view) => {
-        const query = getQueryAtCursor(view);
-        if (query) {
-          onExecute(query);
-        } else {
-          onExecute();
-        }
-        return true;
+      {
+        key: "Ctrl-Enter",
+        run: (view) => {
+          const query = getQueryAtCursor(view);
+          if (query) {
+            onExecute(query);
+          } else {
+            onExecute();
+          }
+          return true;
+        },
       },
-    },
-    {
-      key: "Mod-Enter",
-      run: (view) => {
-        const query = getQueryAtCursor(view);
-        if (query) {
-          onExecute(query);
-        } else {
-          onExecute();
-        }
-        return true;
+      {
+        key: "Mod-Enter",
+        run: (view) => {
+          const query = getQueryAtCursor(view);
+          if (query) {
+            onExecute(query);
+          } else {
+            onExecute();
+          }
+          return true;
+        },
       },
-    },
-  ]));
+    ]),
+  );
 };
 
 // Get editor extensions based on configuration
@@ -343,6 +353,8 @@ export const getEditorExtensions = (
   showLineNumbers = true,
   onExecute?: (query?: string) => void,
   connectionId?: string,
+  database?: string,
+  schema?: string,
 ): Extension[] => {
   const extensions: Extension[] = [
     // Basic setup
@@ -479,11 +491,11 @@ export const getEditorExtensions = (
       createSqlAutocomplete({
         connectionId: connectionId || getActiveConnectionId(),
         dialect: dialect || "postgresql",
+        database,
+        schema,
       }),
       // Add Tab key support for accepting autocomplete
-      keymap.of([
-        { key: "Tab", run: acceptCompletion }
-      ])
+      keymap.of([{ key: "Tab", run: acceptCompletion }]),
     );
   }
 

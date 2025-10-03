@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useMemo } from "react";
+import { memo, useState, useEffect, useMemo, useCallback } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle, Zap, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -8,7 +8,7 @@ import { TriggerRow, type TriggerRowData } from "./TriggerRow";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useSchemaData } from "@/hooks/useSchemaData";
-import { useTableStructure } from "@/hooks/useTableStructure";
+import { useTableColumns } from "@/hooks/useTableFullStructure";
 
 interface TableTriggersProps {
   connectionId: string;
@@ -39,7 +39,7 @@ export const TableTriggers = memo(function TableTriggers({
     ],
     storageKey: `table-triggers-columns-${database}-${table}`,
   });
-  const { columns } = useTableStructure({
+  const { columns } = useTableColumns({
     connectionId,
     database,
     table,
@@ -60,6 +60,62 @@ export const TableTriggers = memo(function TableTriggers({
   const [nextTriggerNumber, setNextTriggerNumber] = useState(1);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  const handleAddTrigger = useCallback(() => {
+    const newTrigger: TriggerRowData = {
+      name: `trg_${table}_${nextTriggerNumber}`,
+      event: "INSERT",
+      timing: "AFTER",
+      level: "ROW",
+      enabled: true,
+      function: "",
+      condition: undefined,
+    };
+    setNewTriggers([...newTriggers, newTrigger]);
+    setNextTriggerNumber(nextTriggerNumber + 1);
+    setIsEditing(true);
+  }, [table, nextTriggerNumber, newTriggers]);
+
+  const handleSaveChanges = useCallback(async () => {
+    setIsSaving(true);
+
+    try {
+      // TODO: Implement actual save logic
+      // This would involve calling database service methods to:
+      // 1. Delete triggers in deletedTriggers set
+      // 2. Update triggers in editingTriggers map
+      // 3. Create triggers in newTriggers array
+
+      toast({
+        title: "Changes saved",
+        description: "Trigger changes have been applied successfully.",
+      });
+
+      // Clear editing state
+      setEditingTriggers(new Map());
+      setDeletedTriggers(new Set());
+      setNewTriggers([]);
+      setIsEditing(false);
+
+      // Refresh triggers
+      const result = await databaseService.listTriggers(
+        connectionId,
+        database,
+        schema || "public",
+        table,
+      );
+      setTriggersData(result);
+      setNextTriggerNumber(result.length + 1);
+    } catch (err) {
+      toast({
+        title: "Failed to save changes",
+        description: err instanceof Error ? err.message : "An error occurred",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [connectionId, database, schema, table, toast]);
 
   // Get available columns for the table
   const availableColumns = useMemo(
@@ -178,22 +234,9 @@ export const TableTriggers = memo(function TableTriggers({
     isEditing,
     isSaving,
     onActionsChange,
+    handleAddTrigger,
+    handleSaveChanges,
   ]);
-
-  const handleAddTrigger = () => {
-    const newTrigger: TriggerRowData = {
-      name: `trg_${table}_${nextTriggerNumber}`,
-      event: "INSERT",
-      timing: "AFTER",
-      level: "ROW",
-      enabled: true,
-      function: "",
-      condition: undefined,
-    };
-    setNewTriggers([...newTriggers, newTrigger]);
-    setNextTriggerNumber(nextTriggerNumber + 1);
-    setIsEditing(true);
-  };
 
   const handleUpdateTrigger = (
     triggerName: string,
@@ -247,9 +290,11 @@ export const TableTriggers = memo(function TableTriggers({
       const index = newTriggers.findIndex((t) => t.name === triggerName);
       if (index !== -1) {
         const updated = [...newTriggers];
+        const current = updated[index];
+        if (!current) return;
         updated[index] = {
-          ...updated[index],
-          enabled: !updated[index]?.enabled,
+          ...current,
+          enabled: !current.enabled,
         };
         setNewTriggers(updated);
       }
@@ -303,47 +348,6 @@ export const TableTriggers = memo(function TableTriggers({
       const updated = new Map(editingTriggers);
       updated.delete(triggerName);
       setEditingTriggers(updated);
-    }
-  };
-
-  const handleSaveChanges = async () => {
-    setIsSaving(true);
-
-    try {
-      // TODO: Implement actual save logic
-      // This would involve calling database service methods to:
-      // 1. Delete triggers in deletedTriggers set
-      // 2. Update triggers in editingTriggers map
-      // 3. Create triggers in newTriggers array
-
-      toast({
-        title: "Changes saved",
-        description: "Trigger changes have been applied successfully.",
-      });
-
-      // Clear editing state
-      setEditingTriggers(new Map());
-      setDeletedTriggers(new Set());
-      setNewTriggers([]);
-      setIsEditing(false);
-
-      // Refresh triggers
-      const result = await databaseService.listTriggers(
-        connectionId,
-        database,
-        schema || "public",
-        table,
-      );
-      setTriggersData(result);
-      setNextTriggerNumber(result.length + 1);
-    } catch (err) {
-      toast({
-        title: "Failed to save changes",
-        description: err instanceof Error ? err.message : "An error occurred",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSaving(false);
     }
   };
 

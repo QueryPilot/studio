@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GridColumn } from "@glideapps/glide-data-grid";
 import type { GridColumnV2 } from "../types";
 
@@ -60,8 +60,14 @@ export function useColumnSizing(
     {},
   );
 
+  // Coalesce rapid drag events into a single state write per animation frame
+  const resizeRafIdRef = useRef<number | null>(null);
+  const pendingResizeRef = useRef<{ columnId: string; width: number } | null>(
+    null,
+  );
+
   // Initialize widths on mount, not during render
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (initialWidths && Object.keys(widthOverrides).length === 0) {
       const sanitized = sanitizeWidths(
@@ -74,7 +80,7 @@ export function useColumnSizing(
       // Don't call onChange during initialization to prevent infinite loops
       // onChange will be called when user actually resizes columns
     }
-  }, [initialWidths, columns, minColumnWidth, maxColumnWidth]);
+  }, [initialWidths, columns, minColumnWidth, maxColumnWidth, widthOverrides]);
 
   useEffect(() => {
     setWidthOverrides((prev) =>
@@ -104,26 +110,41 @@ export function useColumnSizing(
     UseColumnSizingResult["handleColumnResize"]
   >(
     (column, newSize) => {
-      if (!column?.id || newSize <= 0 || Number.isNaN(newSize)) return;
-      setColumnWidth(column.id, newSize);
+      if (!column.id || newSize <= 0 || Number.isNaN(newSize)) return;
+      const next = Math.round(newSize);
+      if (widthOverrides[column.id] === next) return;
+      pendingResizeRef.current = { columnId: column.id, width: next };
+      if (resizeRafIdRef.current == null) {
+        resizeRafIdRef.current = window.requestAnimationFrame(() => {
+          const pending = pendingResizeRef.current;
+          resizeRafIdRef.current = null;
+          if (pending) {
+            setColumnWidth(pending.columnId, pending.width);
+          }
+        });
+      }
     },
-    [setColumnWidth],
+    [setColumnWidth, widthOverrides],
   );
 
   const handleColumnResizeEnd = useCallback<
     UseColumnSizingResult["handleColumnResizeEnd"]
   >(
     (column, newSize) => {
-      if (!column?.id) return;
+      if (!column.id) return;
       if (newSize <= 0) return;
-      setColumnWidth(column.id, newSize);
+      if (resizeRafIdRef.current != null) {
+        cancelAnimationFrame(resizeRafIdRef.current);
+        resizeRafIdRef.current = null;
+      }
+      setColumnWidth(column.id, Math.round(newSize));
     },
     [setColumnWidth],
   );
 
   const autoSizeColumn = useCallback<UseColumnSizingResult["autoSizeColumn"]>(
     (columnId, measure) => {
-      const measured = measure?.();
+      const measured = measure();
       if (measured == null || Number.isNaN(measured) || measured <= 0) {
         return;
       }

@@ -13,7 +13,9 @@ export interface AutocompleteConfig {
   mode?: "editor" | "filter";
 }
 
-function dialectToDbType(dialect: AutocompleteConfig["dialect"]): "PostgreSQL" | "MySQL" | "SQLite" | "MSSQL" {
+function dialectToDbType(
+  dialect: AutocompleteConfig["dialect"],
+): "PostgreSQL" | "MySQL" | "SQLite" | "MSSQL" {
   switch (dialect) {
     case "postgresql":
     case "plsql":
@@ -30,7 +32,7 @@ function dialectToDbType(dialect: AutocompleteConfig["dialect"]): "PostgreSQL" |
 }
 
 export function createSqlAutocomplete(config: AutocompleteConfig): Extension {
-  const { connectionId, dialect } = config;
+  const { connectionId, dialect, database, schema } = config;
   const dbType = dialectToDbType(dialect);
   const parser = new SqlQueryParser();
 
@@ -42,6 +44,8 @@ export function createSqlAutocomplete(config: AutocompleteConfig): Extension {
     connectionId,
     dbType,
     parser,
+    database,
+    schema,
   });
 
   return autocompletion({
@@ -51,11 +55,13 @@ export function createSqlAutocomplete(config: AutocompleteConfig): Extension {
     defaultKeymap: true,
     closeOnBlur: true,
     icons: true,
+    aboveCursor: false,
     tooltipClass: () => "cm-autocomplete-tooltip",
     optionClass: (completion) => {
       // Add CSS classes based on completion type
-      return `cm-completion-${completion.type || 'default'}`;
-    }
+      return `cm-completion-${completion.type || "default"}`;
+    },
+    // Note: Debouncing handled via completion source caching and early exits
   });
 }
 

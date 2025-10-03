@@ -16,6 +16,8 @@ export function CodeEditor({
   language = "sql",
   dialect = "plsql",
   connectionId,
+  database,
+  schema,
   readOnly = false,
   height = "100%",
   theme = "auto",
@@ -73,6 +75,8 @@ export function CodeEditor({
         lineNumbers,
         onExecute,
         connectionId,
+        database,
+        schema,
       ),
       foldGutterTheme,
       EditorView.theme({
@@ -104,9 +108,9 @@ export function CodeEditor({
     readOnly,
     lineNumbers,
     onExecute,
-    minHeight,
-    maxHeight,
     connectionId,
+    database,
+    schema,
   ]);
 
   // Handle auto-focus - focus on mount and when autoFocus changes
@@ -121,7 +125,7 @@ export function CodeEditor({
 
   // Also focus when value changes (e.g., when tab becomes active)
   useEffect(() => {
-    if (autoFocus && editorRef.current && value !== undefined) {
+    if (autoFocus && editorRef.current) {
       // Small delay to ensure editor is fully rendered
       setTimeout(() => {
         editorRef.current?.focus();

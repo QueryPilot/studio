@@ -15,9 +15,9 @@ interface QueryEditorProps {
 }
 
 export const QueryEditor = memo(function QueryEditor({
-  connectionId: _connectionId, // Unused but kept for compatibility
-  database: _database, // Unused but kept for compatibility
-  schema: _schema, // Unused but kept for compatibility
+  connectionId,
+  database,
+  schema,
   dbType = "postgres",
   value = "",
   onChange,
@@ -49,9 +49,9 @@ export const QueryEditor = memo(function QueryEditor({
         onExecute={handleExecute}
         language="sql"
         dialect={dialect}
-        connectionId={_connectionId}
-        database={_database}
-        schema={_schema}
+        connectionId={connectionId}
+        database={database}
+        schema={schema}
         readOnly={readOnly}
         height={height}
         theme="auto"

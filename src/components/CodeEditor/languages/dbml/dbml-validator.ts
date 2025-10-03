@@ -1,4 +1,4 @@
-import { Text } from "@codemirror/state";
+import { type Text } from "@codemirror/state";
 import { Parser as DBMLParser } from "@dbml/core";
 
 export interface ValidationError {
