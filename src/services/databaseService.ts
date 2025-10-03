@@ -904,10 +904,17 @@ class DatabaseService {
       return structure;
     } catch (error) {
       console.error("Failed to get table structure:", error);
+      // Extract meaningful error message
+      let errorMsg = "Unknown error";
+      if (error instanceof Error) {
+        errorMsg = error.message;
+      } else if (typeof error === "string") {
+        errorMsg = error;
+      } else if (error && typeof error === "object") {
+        errorMsg = JSON.stringify(error);
+      }
       throw new Error(
-        `Failed to get structure for table ${schema}.${table}: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
+        `Failed to get structure for table ${schema}.${table}: ${errorMsg}`,
       );
     }
   }

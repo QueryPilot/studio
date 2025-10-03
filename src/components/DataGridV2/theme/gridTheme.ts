@@ -20,7 +20,7 @@ export const createDataGridTheme = (appTheme: string): Partial<Theme> => {
     fgIconHeader: isDark ? "#D1D5DB" : "#111827",
     textHeader: isDark ? "#D1D5DB" : "#111827",
     textHeaderSelected: isDark ? "#F3F4F6" : "#111827",
-    bgHeaderSelected: "transparent",
+    // bgHeaderSelected: "transparent",
 
     // Cell backgrounds matching our surface colors
     bgCell: isDark ? "#09090B" : "#FFFFFF",
@@ -34,12 +34,12 @@ export const createDataGridTheme = (appTheme: string): Partial<Theme> => {
     bgBubbleSelected: "#FCA311",
 
     // Row selection highlight
-    bgCellSelected: isDark
-      ? "rgba(252, 163, 17, 0.1)"
-      : "rgba(252, 163, 17, 0.05)",
-    bgCellSelectedMedium: isDark
-      ? "rgba(252, 163, 17, 0.15)"
-      : "rgba(252, 163, 17, 0.08)",
+    // bgCellSelected: isDark
+    //   ? "rgba(252, 163, 17, 0.1)"
+    //   : "rgba(252, 163, 17, 0.05)",
+    // bgCellSelectedMedium: isDark
+    //   ? "rgba(252, 163, 17, 0.15)"
+    //   : "rgba(252, 163, 17, 0.08)",
 
     bgSearchResult: "rgba(252, 163, 17, 0.2)",
 
@@ -48,10 +48,7 @@ export const createDataGridTheme = (appTheme: string): Partial<Theme> => {
     horizontalBorderColor: isDark
       ? "rgba(229, 229, 229, 0.05)"
       : "rgba(0, 0, 0, 0.05)",
-    drilldownBorder: isDark
-      ? "rgba(229, 229, 229, 0.2)"
-      : "rgba(0, 0, 0, 0.2)",
-
+    drilldownBorder: isDark ? "rgba(229, 229, 229, 0.2)" : "rgba(0, 0, 0, 0.2)",
     linkColor: "#FCA311",
 
     cellHorizontalPadding: 8,

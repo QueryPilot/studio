@@ -656,154 +656,164 @@ const edgeTypes = {
 export const ERDVisualizer = React.forwardRef<
   { triggerAutoArrange: () => void },
   ERDVisualizerProps
->(({
-  tables,
-  relationships,
-  nodePositions,
-  initialViewport,
-  onNodePositionsChange,
-  onNodePositionChange,
-  onViewportChange,
-}, ref) => {
-  edgeStylesInjected();
+>(
+  (
+    {
+      tables,
+      relationships,
+      nodePositions,
+      initialViewport,
+      onNodePositionsChange,
+      onNodePositionChange,
+      onViewportChange,
+    },
+    ref,
+  ) => {
+    edgeStylesInjected();
 
-  const [nodes, setNodes, onNodesChangeInternal] = useNodesState([]);
-  const [edges, setEdges] = useEdgesState([]);
-  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
-  const [hoveredRelationshipId, setHoveredRelationshipId] = useState<
-    string | null
-  >(null);
-  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
-  const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
-  const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
-  const [, setHoveredColumn] = useState<string | null>(null);
-  const flowInstanceRef = useRef<ReactFlowInstance | null>(null);
-  const fitAppliedRef = useRef(false);
-  const autoArrangeTriggeredRef = useRef(false);
+    const [nodes, setNodes, onNodesChangeInternal] = useNodesState([]);
+    const [edges, setEdges] = useEdgesState([]);
+    const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+    const [hoveredRelationshipId, setHoveredRelationshipId] = useState<
+      string | null
+    >(null);
+    const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+    const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
+    const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
+    const [, setHoveredColumn] = useState<string | null>(null);
+    const flowInstanceRef = useRef<ReactFlowInstance | null>(null);
+    const fitAppliedRef = useRef(false);
+    const autoArrangeTriggeredRef = useRef(false);
 
-  const toggleExpanded = useCallback((nodeId: string) => {
-    setExpandedNodes((prev) => {
-      const next = new Set(prev);
-      if (next.has(nodeId)) {
-        next.delete(nodeId);
-      } else {
-        next.add(nodeId);
-      }
-      return next;
-    });
-  }, []);
-
-  const hasStoredPositions = useMemo(() => {
-    if (!tables.length) return false;
-    return tables.every((table) => {
-      const id = buildNodeId(table);
-      return Boolean(nodePositions[id]);
-    });
-  }, [tables, nodePositions]);
-
-  const handleEdgeHover = useCallback((relationshipId: string) => {
-    setHoveredRelationshipId(relationshipId);
-  }, []);
-
-  const handleEdgeLeave = useCallback(() => {
-    setHoveredRelationshipId(null);
-  }, []);
-
-  const handleTableClick = useCallback((tableId: string) => {
-    setSelectedTableId((prev) => (prev === tableId ? null : tableId));
-  }, []);
-
-  const handlePaneClick = useCallback((event: React.MouseEvent) => {
-    // Deselect table when clicking on the pane/background
-    setSelectedTableId(null);
-  }, []);
-
-  const createEdges = useCallback((): Edge<ForeignEdgeData>[] => {
-    return relationships.flatMap((relationship) => {
-      const sourceId = `${relationship.fromSchema ?? "public"}.${
-        relationship.fromTable
-      }`;
-      const targetId = `${relationship.toSchema ?? "public"}.${
-        relationship.toTable
-      }`;
-      const pairCount = Math.max(
-        relationship.fromColumns.length,
-        relationship.toColumns.length,
-      );
-
-      // Function to determine optimal connection side based on node positions
-      const getOptimalConnectionSide = (
-        sourceNodeId: string,
-        targetNodeId: string,
-      ) => {
-        const sourceNode = nodesRef.current.find((n) => n.id === sourceNodeId);
-        const targetNode = nodesRef.current.find((n) => n.id === targetNodeId);
-
-        if (!sourceNode || !targetNode) {
-          return { source: "right", target: "left" }; // Default fallback
+    const toggleExpanded = useCallback((nodeId: string) => {
+      setExpandedNodes((prev) => {
+        const next = new Set(prev);
+        if (next.has(nodeId)) {
+          next.delete(nodeId);
+        } else {
+          next.add(nodeId);
         }
-
-        const sourceX =
-          sourceNode.position.x + (sourceNode.width || NODE_WIDTH) / 2;
-        const targetX =
-          targetNode.position.x + (targetNode.width || NODE_WIDTH) / 2;
-
-        // Calculate which sides would give the shortest connection
-        const isTargetToTheRight = targetX > sourceX;
-        const isTargetToTheLeft = targetX < sourceX;
-
-        return {
-          source: isTargetToTheRight ? "right" : "left",
-          target: isTargetToTheLeft ? "right" : "left",
-        };
-      };
-
-      // Get optimal connection sides
-      const connectionSides = getOptimalConnectionSide(sourceId, targetId);
-
-      return Array.from({ length: pairCount }, (_, index) => {
-        const sourceColumn =
-          relationship.fromColumns[index] ?? relationship.fromColumns[0] ?? "";
-        const targetColumn =
-          relationship.toColumns[index] ?? relationship.toColumns[0] ?? "";
-        const edgeId = `${relationship.id}-${index}`;
-
-        return {
-          id: edgeId,
-          source: sourceId,
-          target: targetId,
-          sourceHandle: makeHandleId(
-            sourceColumn,
-            "source",
-            connectionSides.source as "left" | "right",
-          ),
-          targetHandle: makeHandleId(
-            targetColumn,
-            "target",
-            connectionSides.target as "left" | "right",
-          ),
-          type: EDGE_TYPE,
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            color: "hsl(var(--muted-foreground))",
-          },
-          style: {
-            strokeWidth: 0.5,
-          },
-          data: {
-            relationshipId: relationship.id,
-            label: relationship.name,
-            sourceCardinality: relationship.sourceCardinality,
-            targetCardinality: relationship.targetCardinality,
-            onHover: handleEdgeHover,
-            onLeave: handleEdgeLeave,
-          },
-        } satisfies Edge<ForeignEdgeData>;
+        return next;
       });
-    });
-  }, [relationships, handleEdgeHover, handleEdgeLeave]);
+    }, []);
 
-  const layoutWithElk = useCallback(async () => {
+    const hasStoredPositions = useMemo(() => {
+      if (!tables.length) return false;
+      return tables.every((table) => {
+        const id = buildNodeId(table);
+        return Boolean(nodePositions[id]);
+      });
+    }, [tables, nodePositions]);
+
+    const handleEdgeHover = useCallback((relationshipId: string) => {
+      setHoveredRelationshipId(relationshipId);
+    }, []);
+
+    const handleEdgeLeave = useCallback(() => {
+      setHoveredRelationshipId(null);
+    }, []);
+
+    const handleTableClick = useCallback((tableId: string) => {
+      setSelectedTableId((prev) => (prev === tableId ? null : tableId));
+    }, []);
+
+    const handlePaneClick = useCallback((event: React.MouseEvent) => {
+      // Deselect table when clicking on the pane/background
+      setSelectedTableId(null);
+    }, []);
+
+    const createEdges = useCallback((): Edge<ForeignEdgeData>[] => {
+      return relationships.flatMap((relationship) => {
+        const sourceId = `${relationship.fromSchema ?? "public"}.${
+          relationship.fromTable
+        }`;
+        const targetId = `${relationship.toSchema ?? "public"}.${
+          relationship.toTable
+        }`;
+        const pairCount = Math.max(
+          relationship.fromColumns.length,
+          relationship.toColumns.length,
+        );
+
+        // Function to determine optimal connection side based on node positions
+        const getOptimalConnectionSide = (
+          sourceNodeId: string,
+          targetNodeId: string,
+        ) => {
+          const sourceNode = nodesRef.current.find(
+            (n) => n.id === sourceNodeId,
+          );
+          const targetNode = nodesRef.current.find(
+            (n) => n.id === targetNodeId,
+          );
+
+          if (!sourceNode || !targetNode) {
+            return { source: "right", target: "left" }; // Default fallback
+          }
+
+          const sourceX =
+            sourceNode.position.x + (sourceNode.width || NODE_WIDTH) / 2;
+          const targetX =
+            targetNode.position.x + (targetNode.width || NODE_WIDTH) / 2;
+
+          // Calculate which sides would give the shortest connection
+          const isTargetToTheRight = targetX > sourceX;
+          const isTargetToTheLeft = targetX < sourceX;
+
+          return {
+            source: isTargetToTheRight ? "right" : "left",
+            target: isTargetToTheLeft ? "right" : "left",
+          };
+        };
+
+        // Get optimal connection sides
+        const connectionSides = getOptimalConnectionSide(sourceId, targetId);
+
+        return Array.from({ length: pairCount }, (_, index) => {
+          const sourceColumn =
+            relationship.fromColumns[index] ??
+            relationship.fromColumns[0] ??
+            "";
+          const targetColumn =
+            relationship.toColumns[index] ?? relationship.toColumns[0] ?? "";
+          const edgeId = `${relationship.id}-${index}`;
+
+          return {
+            id: edgeId,
+            source: sourceId,
+            target: targetId,
+            sourceHandle: makeHandleId(
+              sourceColumn,
+              "source",
+              connectionSides.source as "left" | "right",
+            ),
+            targetHandle: makeHandleId(
+              targetColumn,
+              "target",
+              connectionSides.target as "left" | "right",
+            ),
+            type: EDGE_TYPE,
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              color: "hsl(var(--muted-foreground))",
+            },
+            style: {
+              strokeWidth: 0.5,
+            },
+            data: {
+              relationshipId: relationship.id,
+              label: relationship.name,
+              sourceCardinality: relationship.sourceCardinality,
+              targetCardinality: relationship.targetCardinality,
+              onHover: handleEdgeHover,
+              onLeave: handleEdgeLeave,
+            },
+          } satisfies Edge<ForeignEdgeData>;
+        });
+      });
+    }, [relationships, handleEdgeHover, handleEdgeLeave]);
+
+    const layoutWithElk = useCallback(async () => {
       // Calculate dynamic heights based on expanded state
       const getNodeHeight = (table: TableStructure) => {
         const id = buildNodeId(table);
@@ -813,7 +823,7 @@ export const ERDVisualizer = React.forwardRef<
         const visibleColumns = isExpanded
           ? table.columns.length
           : Math.min(table.columns.length, PREVIEW_COLUMN_LIMIT);
-        return baseHeight + (visibleColumns * columnHeight) + 20;
+        return baseHeight + visibleColumns * columnHeight + 20;
       };
 
       const graph = {
@@ -936,278 +946,291 @@ export const ERDVisualizer = React.forwardRef<
       createEdges,
       onNodePositionsChange,
       toggleExpanded,
+      onViewportChange,
     ]);
 
-  React.useImperativeHandle(ref, () => ({
-    triggerAutoArrange: layoutWithElk,
-  }), [layoutWithElk]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const applyStoredPositions = () => {
-      const positionedNodes: Node<TableNodeData>[] = tables.map((table) => {
-        const id = buildNodeId(table);
-        const position = nodePositions[id] ?? { x: 0, y: 0 };
-        return {
-          id,
-          position,
-          data: {
-            table,
-            expanded: expandedNodes.has(id),
-            isSelected: selectedTableId === id,
-            onToggleExpand: toggleExpanded,
-            onHover: setHoveredNodeId,
-            onLeave: () => {
-              setHoveredNodeId((prev) => (prev === id ? null : prev));
-            },
-            onClick: handleTableClick,
-            onColumnHover: setHoveredColumn,
-            onColumnLeave: () => {
-              setHoveredColumn(null);
-            },
-          },
-          type: TABLE_NODE_TYPE,
-        } satisfies Node<TableNodeData>;
-      });
-      setNodes(positionedNodes);
-      setEdges(createEdges());
-    };
-
-    if (!tables.length) {
-      setNodes([]);
-      setEdges([]);
-      return;
-    }
-
-    if (hasStoredPositions) {
-      applyStoredPositions();
-    } else {
-      void layoutWithElk();
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    tables,
-    relationships,
-    nodePositions,
-    expandedNodes,
-    hasStoredPositions,
-    setNodes,
-    setEdges,
-    onNodePositionsChange,
-    createEdges,
-    toggleExpanded,
-    selectedTableId,
-    handleTableClick,
-  ]);
-
-  // Use a ref to track current nodes to avoid dependency cycles
-  const nodesRef = useRef(nodes);
-  nodesRef.current = nodes;
-
-  useEffect(() => {
-    setNodes((nds) =>
-      nds.map((node) => {
-        const table = tables.find((tbl) => buildNodeId(tbl) === node.id);
-        if (!table) return node;
-        return {
-          ...node,
-          data: {
-            table,
-            expanded: expandedNodes.has(node.id),
-            isSelected: selectedTableId === node.id,
-            onToggleExpand: toggleExpanded,
-            onHover: setHoveredNodeId,
-            onLeave: () => {
-              setHoveredNodeId((prev) => (prev === node.id ? null : prev));
-            },
-            onClick: handleTableClick,
-            onColumnHover: setHoveredColumn,
-            onColumnLeave: () => {
-              setHoveredColumn(null);
-            },
-          },
-        };
+    React.useImperativeHandle(
+      ref,
+      () => ({
+        triggerAutoArrange: layoutWithElk,
       }),
+      [layoutWithElk],
     );
-  }, [
-    tables,
-    expandedNodes,
-    toggleExpanded,
-    setNodes,
-    selectedTableId,
-    handleTableClick,
-  ]);
 
-  useEffect(() => {
-    const instance = flowInstanceRef.current;
-    if (!instance) return;
+    useEffect(() => {
+      const applyStoredPositions = () => {
+        const positionedNodes: Node<TableNodeData>[] = tables.map((table) => {
+          const id = buildNodeId(table);
+          const position = nodePositions[id] ?? { x: 0, y: 0 };
+          return {
+            id,
+            position,
+            data: {
+              table,
+              expanded: expandedNodes.has(id),
+              isSelected: selectedTableId === id,
+              onToggleExpand: toggleExpanded,
+              onHover: setHoveredNodeId,
+              onLeave: () => {
+                setHoveredNodeId((prev) => (prev === id ? null : prev));
+              },
+              onClick: handleTableClick,
+              onColumnHover: setHoveredColumn,
+              onColumnLeave: () => {
+                setHoveredColumn(null);
+              },
+            },
+            type: TABLE_NODE_TYPE,
+          } satisfies Node<TableNodeData>;
+        });
+        setNodes(positionedNodes);
+        setEdges(createEdges());
+      };
 
-    // Don't apply initial viewport if auto-arrange was just triggered
-    if (autoArrangeTriggeredRef.current) {
-      autoArrangeTriggeredRef.current = false;
-      return;
-    }
+      if (!tables.length) {
+        setNodes([]);
+        setEdges([]);
+        return;
+      }
 
-    if (initialViewport) {
-      instance.setViewport(initialViewport as Viewport, { duration: 0 });
-      fitAppliedRef.current = true;
-      return;
-    }
+      if (hasStoredPositions) {
+        applyStoredPositions();
+      } else {
+        void layoutWithElk();
+      }
+    }, [
+      tables,
+      relationships,
+      nodePositions,
+      expandedNodes,
+      hasStoredPositions,
+      setNodes,
+      setEdges,
+      onNodePositionsChange,
+      createEdges,
+      toggleExpanded,
+      selectedTableId,
+      handleTableClick,
+      layoutWithElk,
+    ]);
 
-    if (!fitAppliedRef.current && nodes.length > 0) {
-      instance.fitView({ padding: 0.2, duration: 200 });
-      fitAppliedRef.current = true;
-    }
+    // Use a ref to track current nodes to avoid dependency cycles
+    const nodesRef = useRef(nodes);
+    nodesRef.current = nodes;
 
-    if (nodes.length === 0) {
-      fitAppliedRef.current = false;
-    }
-  }, [nodes, initialViewport]);
+    useEffect(() => {
+      setNodes((nds) =>
+        nds.map((node) => {
+          const table = tables.find((tbl) => buildNodeId(tbl) === node.id);
+          if (!table) return node;
+          return {
+            ...node,
+            data: {
+              table,
+              expanded: expandedNodes.has(node.id),
+              isSelected: selectedTableId === node.id,
+              onToggleExpand: toggleExpanded,
+              onHover: setHoveredNodeId,
+              onLeave: () => {
+                setHoveredNodeId((prev) => (prev === node.id ? null : prev));
+              },
+              onClick: handleTableClick,
+              onColumnHover: setHoveredColumn,
+              onColumnLeave: () => {
+                setHoveredColumn(null);
+              },
+            },
+          };
+        }),
+      );
+    }, [
+      tables,
+      expandedNodes,
+      toggleExpanded,
+      setNodes,
+      selectedTableId,
+      handleTableClick,
+    ]);
 
-  const handleNodesChange = useCallback(
-    (changes: NodeChange[]) => {
-      onNodesChangeInternal(changes);
-      changes.forEach((change) => {
-        if (change.type === "position" && change.position) {
-          onNodePositionChange?.(change.id, change.position);
-        }
-      });
-    },
-    [onNodesChangeInternal, onNodePositionChange],
-  );
+    useEffect(() => {
+      const instance = flowInstanceRef.current;
+      if (!instance) return;
 
-  const handleNodeDragStop = useCallback(
-    (_event: React.MouseEvent, node: Node) => {
-      setDraggingNodeId(null);
-      onNodePositionChange?.(node.id, node.position);
-    },
-    [onNodePositionChange],
-  );
+      // Don't apply initial viewport if auto-arrange was just triggered
+      if (autoArrangeTriggeredRef.current) {
+        autoArrangeTriggeredRef.current = false;
+        return;
+      }
 
-  const handleNodeDragStart = useCallback(
-    (_event: React.MouseEvent, node: Node) => {
-      setDraggingNodeId(node.id);
-      setHoveredNodeId(node.id);
-    },
-    [],
-  );
+      if (initialViewport) {
+        instance.setViewport(initialViewport as Viewport, { duration: 0 });
+        fitAppliedRef.current = true;
+        return;
+      }
 
-  const handleMoveEnd = useCallback(
-    (
-      _event: MouseEvent | React.MouseEvent | TouchEvent | undefined,
-      viewport: Viewport,
-    ) => {
-      onViewportChange?.({ x: viewport.x, y: viewport.y, zoom: viewport.zoom });
-    },
-    [onViewportChange],
-  );
+      if (!fitAppliedRef.current && nodes.length > 0) {
+        instance.fitView({ padding: 0.2, duration: 200 });
+        fitAppliedRef.current = true;
+      }
 
-  useEffect(() => {
-    const selectedIds = new Set(
-      nodes.filter((node) => node.selected).map((node) => node.id),
+      if (nodes.length === 0) {
+        fitAppliedRef.current = false;
+      }
+    }, [nodes, initialViewport]);
+
+    const handleNodesChange = useCallback(
+      (changes: NodeChange[]) => {
+        onNodesChangeInternal(changes);
+        changes.forEach((change) => {
+          if (change.type === "position" && change.position) {
+            onNodePositionChange?.(change.id, change.position);
+          }
+        });
+      },
+      [onNodesChangeInternal, onNodePositionChange],
     );
-    // Add the custom selected table to the set
-    if (selectedTableId) {
-      selectedIds.add(selectedTableId);
-    }
-    setEdges((eds) => {
-      const updatedEdges = eds.map((edge) => {
-        // Check if edge is related to selected nodes (persistent highlight)
-        const isRelatedToSelected =
-          selectedIds.has(edge.source) || selectedIds.has(edge.target);
 
-        // Check if edge is related to hovered/dragged nodes (temporary highlight)
-        const isTemporarilyHighlighted =
-          hoveredNodeId === edge.source ||
-          hoveredNodeId === edge.target ||
-          draggingNodeId === edge.source ||
-          draggingNodeId === edge.target ||
-          (hoveredRelationshipId !== null &&
+    const handleNodeDragStop = useCallback(
+      (_event: React.MouseEvent, node: Node) => {
+        setDraggingNodeId(null);
+        onNodePositionChange?.(node.id, node.position);
+      },
+      [onNodePositionChange],
+    );
+
+    const handleNodeDragStart = useCallback(
+      (_event: React.MouseEvent, node: Node) => {
+        setDraggingNodeId(node.id);
+        setHoveredNodeId(node.id);
+      },
+      [],
+    );
+
+    const handleMoveEnd = useCallback(
+      (
+        _event: MouseEvent | React.MouseEvent | TouchEvent | undefined,
+        viewport: Viewport,
+      ) => {
+        onViewportChange?.({
+          x: viewport.x,
+          y: viewport.y,
+          zoom: viewport.zoom,
+        });
+      },
+      [onViewportChange],
+    );
+
+    useEffect(() => {
+      const selectedIds = new Set(
+        nodes.filter((node) => node.selected).map((node) => node.id),
+      );
+      // Add the custom selected table to the set
+      if (selectedTableId) {
+        selectedIds.add(selectedTableId);
+      }
+      setEdges((eds) => {
+        const updatedEdges = eds.map((edge) => {
+          // Check if edge is related to selected nodes (persistent highlight)
+          const isRelatedToSelected =
+            selectedIds.has(edge.source) || selectedIds.has(edge.target);
+
+          // Check if edge is related to hovered/dragged nodes (temporary highlight)
+          const isTemporarilyHighlighted =
+            hoveredNodeId === edge.source ||
+            hoveredNodeId === edge.target ||
+            draggingNodeId === edge.source ||
+            draggingNodeId === edge.target ||
+            (hoveredRelationshipId !== null &&
+              (edge.data as ForeignEdgeData).relationshipId ===
+                hoveredRelationshipId);
+
+          // Check if this specific edge is hovered (not just connected to hovered node)
+          const isEdgeHovered =
+            hoveredRelationshipId !== null &&
             (edge.data as ForeignEdgeData).relationshipId ===
-              hoveredRelationshipId);
+              hoveredRelationshipId;
 
-        // Check if this specific edge is hovered (not just connected to hovered node)
-        const isEdgeHovered = hoveredRelationshipId !== null &&
-          (edge.data as ForeignEdgeData).relationshipId === hoveredRelationshipId;
+          return {
+            ...edge,
+            data: {
+              ...(edge.data as ForeignEdgeData),
+              highlighted: isRelatedToSelected || isTemporarilyHighlighted,
+              isHovered: isEdgeHovered,
+            },
+          };
+        });
 
-        return {
-          ...edge,
-          data: {
-            ...(edge.data as ForeignEdgeData),
-            highlighted: isRelatedToSelected || isTemporarilyHighlighted,
-            isHovered: isEdgeHovered,
-          },
-        };
+        // Sort edges so highlighted ones are rendered last (on top)
+        updatedEdges.sort((a, b) => {
+          const aHighlighted = (a.data as ForeignEdgeData).highlighted || false;
+          const bHighlighted = (b.data as ForeignEdgeData).highlighted || false;
+
+          if (aHighlighted && !bHighlighted) return 1;
+          if (!aHighlighted && bHighlighted) return -1;
+          return 0;
+        });
+
+        return updatedEdges;
       });
+    }, [
+      nodes,
+      hoveredNodeId,
+      draggingNodeId,
+      hoveredRelationshipId,
+      setEdges,
+      selectedTableId,
+    ]);
 
-      // Sort edges so highlighted ones are rendered last (on top)
-      updatedEdges.sort((a, b) => {
-        const aHighlighted = (a.data as ForeignEdgeData).highlighted || false;
-        const bHighlighted = (b.data as ForeignEdgeData).highlighted || false;
-
-        if (aHighlighted && !bHighlighted) return 1;
-        if (!aHighlighted && bHighlighted) return -1;
-        return 0;
-      });
-
-      return updatedEdges;
-    });
-  }, [
-    nodes,
-    hoveredNodeId,
-    draggingNodeId,
-    hoveredRelationshipId,
-    setEdges,
-    selectedTableId,
-  ]);
-
-  return (
-    <div
-      className="h-full w-full"
-      onClick={(e) => {
-        // Only dismiss if clicking directly on the wrapper, not on ReactFlow elements
-        if (e.target === e.currentTarget) {
-          setSelectedTableId(null);
-        }
-      }}
-    >
-      <ReactFlow
-        className={FLOW_CLASS}
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        fitView
-        minZoom={0.1}
-        maxZoom={1.2}
-        nodesDraggable
-        nodesConnectable={false}
-        elementsSelectable={false}
-        panOnScroll
-        selectionOnDrag={false}
-        proOptions={{ hideAttribution: true }}
-        onInit={(instance) => {
-          flowInstanceRef.current = instance;
-          if (initialViewport) {
-            instance.setViewport(initialViewport as Viewport, { duration: 0 });
-            fitAppliedRef.current = true;
+    return (
+      <div
+        className="h-full w-full"
+        onClick={(e) => {
+          // Only dismiss if clicking directly on the wrapper, not on ReactFlow elements
+          if (e.target === e.currentTarget) {
+            setSelectedTableId(null);
           }
         }}
-        onNodeDragStart={handleNodeDragStart}
-        onNodesChange={handleNodesChange}
-        onNodeDragStop={handleNodeDragStop}
-        onMoveEnd={handleMoveEnd}
-        onPaneClick={handlePaneClick}
       >
-        <Background className="opacity-60" gap={24} size={1} />
-        <Controls showInteractive={false} position="bottom-right" />
-      </ReactFlow>
-    </div>
-  );
-});
+        <ReactFlow
+          className={FLOW_CLASS}
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          fitView
+          minZoom={0.1}
+          maxZoom={1.2}
+          nodesDraggable
+          nodesConnectable={false}
+          elementsSelectable={false}
+          panOnScroll
+          selectionOnDrag={false}
+          proOptions={{ hideAttribution: true }}
+          onInit={(instance) => {
+            flowInstanceRef.current = instance;
+            if (initialViewport) {
+              instance.setViewport(initialViewport as Viewport, {
+                duration: 0,
+              });
+              fitAppliedRef.current = true;
+            }
+          }}
+          onNodeDragStart={handleNodeDragStart}
+          onNodesChange={handleNodesChange}
+          onNodeDragStop={handleNodeDragStop}
+          onMoveEnd={handleMoveEnd}
+          onPaneClick={handlePaneClick}
+        >
+          <Background className="opacity-60" gap={24} size={1} />
+          <Controls
+            showInteractive={false}
+            position="bottom-right"
+            className="bg-background"
+          />
+        </ReactFlow>
+      </div>
+    );
+  },
+);
 
 ERDVisualizer.displayName = "ERDVisualizer";

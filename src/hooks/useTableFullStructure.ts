@@ -3,7 +3,7 @@
  * Includes columns, indexes, constraints, triggers, and statistics
  */
 import useSWR from "swr";
-import { useState, useEffect, useCallback } from "react";
+import { useCallback } from "react";
 import { databaseService } from "@/services/databaseService";
 import type {
   TableStructure,
@@ -50,6 +50,9 @@ export function useTableFullStructure({
       if (!connectionId || !database || !table || !enabled) return;
 
       try {
+        // Ensure connection mapping is established
+        await databaseService.connectById(connectionId);
+
         const fullStructure = await databaseService.getTableStructure(
           connectionId,
           database,
@@ -68,6 +71,9 @@ export function useTableFullStructure({
 
   const refresh = useCallback(async () => {
     try {
+      // Ensure connection mapping is established
+      await databaseService.connectById(connectionId);
+
       const fullStructure = await databaseService.getTableStructure(
         connectionId,
         database,

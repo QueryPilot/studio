@@ -390,7 +390,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     if (dataRows.length > 0 && dataRows.length !== rows.length) {
       setRows(dataRows);
     }
-  }, [dataRows.length, rows.length]);
+  }, [dataRows, rows.length]);
 
   const preferences = useGridPreferences(gridId);
   const hydrated = useGridPreferencesHydrated();
@@ -583,9 +583,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   const handleColumnWidthsChange = useCallback(
     (widths: Record<string, number>) => {
-      upsertGridColumnsState(gridId, (draft) => {
-        draft.widths = widths;
-      });
+      // Defer store mutation to avoid setState during render
+      setTimeout(() => {
+        upsertGridColumnsState(gridId, (draft) => {
+          draft.widths = widths;
+        });
+      }, 0);
     },
     [gridId],
   );
@@ -599,9 +602,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   const handleColumnVisibilityChange = useCallback(
     (visibility: Record<string, boolean>) => {
-      upsertGridColumnsState(gridId, (draft) => {
-        draft.visibility = visibility;
-      });
+      setTimeout(() => {
+        upsertGridColumnsState(gridId, (draft) => {
+          draft.visibility = visibility;
+        });
+      }, 0);
     },
     [gridId],
   );
@@ -616,9 +621,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   const handlePinnedColumnsChange = useCallback(
     (pinned: string[]) => {
-      upsertGridColumnsState(gridId, (draft) => {
-        draft.pinned = pinned;
-      });
+      setTimeout(() => {
+        upsertGridColumnsState(gridId, (draft) => {
+          draft.pinned = pinned;
+        });
+      }, 0);
     },
     [gridId],
   );
@@ -774,6 +781,28 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             cellValue = customData.value;
           } else if (isEnumCellPayload(customData)) {
             cellValue = customData.value;
+          } else if (
+            typeof customData === "object" &&
+            customData !== null &&
+            "kind" in customData &&
+            (customData as { kind?: unknown }).kind &&
+            ["date-cell", "time-cell", "datetime-cell"].includes(
+              String((customData as { kind: unknown }).kind),
+            )
+          ) {
+            // For date/time kinds we store raw string (or null)
+            const v = (customData as { value?: unknown }).value;
+            if (v == null) {
+              cellValue = null;
+            } else if (typeof v === "string") {
+              cellValue = v;
+            } else if (v instanceof Date) {
+              // Persist as ISO date string
+              cellValue = v.toISOString();
+            } else {
+              // Unknown object shape; avoid implicit stringification
+              cellValue = null;
+            }
           }
         } else if (newValue.kind === GridCellKind.Boolean) {
           const actualValue = (newValue as GridCellWithActualValue).actualValue;
@@ -781,7 +810,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         }
 
         updatedRow[column.field] = {
-          value: cellValue,
+          value: ((): unknown => {
+            // Ensure we never store a Date instance directly in CellValue.value
+            if (cellValue instanceof Date) return cellValue.toISOString();
+            return cellValue;
+          })(),
           db_type: column.meta?.db_type ?? "text",
           value_type:
             cellValue === null || cellValue === undefined
@@ -1183,15 +1216,17 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const handleColumnMoved = useCallback(
     (startIndex: number, endIndex: number) => {
       if (startIndex === endIndex) return;
-      upsertGridColumnsState(gridId, (draft) => {
-        const order = draft.order.length
-          ? [...draft.order]
-          : finalColumns.map((column) => column.id);
-        const [moved] = order.splice(startIndex, 1);
-        if (moved === undefined) return;
-        order.splice(endIndex, 0, moved);
-        draft.order = order;
-      });
+      setTimeout(() => {
+        upsertGridColumnsState(gridId, (draft) => {
+          const order = draft.order.length
+            ? [...draft.order]
+            : finalColumns.map((column) => column.id);
+          const [moved] = order.splice(startIndex, 1);
+          if (moved === undefined) return;
+          order.splice(endIndex, 0, moved);
+          draft.order = order;
+        });
+      }, 0);
     },
     [finalColumns, gridId],
   );

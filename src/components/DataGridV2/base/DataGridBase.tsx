@@ -23,13 +23,17 @@ export const DataGridBase = forwardRef(function DataGridBase(
   props: DataGridBaseProps,
   ref: Ref<DataEditorRef>,
 ) {
-  const { columns, rowCount, getCellContent, containerClassName, ...rest } = props;
+  const { columns, rowCount, getCellContent, containerClassName, ...rest } =
+    props;
   const { theme: appTheme } = useTheme();
 
   const { width = "100%", height = "100%", ...editorProps } = rest;
 
   // Create theme based on app theme
-  const theme = useMemo(() => createDataGridTheme(appTheme || "light"), [appTheme]);
+  const theme = useMemo(
+    () => createDataGridTheme(appTheme || "light"),
+    [appTheme],
+  );
 
   return (
     <div className={cn("relative h-full w-full", containerClassName)}>
