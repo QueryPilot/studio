@@ -1,6 +1,6 @@
-import { Action } from "@codemirror/lint";
-import { EditorView } from "@codemirror/view";
-import { DBMLDiagnostic } from "./dbml-linter";
+import { type Action } from "@codemirror/lint";
+import { type EditorView } from "@codemirror/view";
+import { type DBMLDiagnostic } from "./dbml-linter";
 import { ValidationCode } from "./dbml-validator";
 
 export interface QuickFix {

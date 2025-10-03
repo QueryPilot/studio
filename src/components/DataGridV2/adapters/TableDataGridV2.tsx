@@ -34,6 +34,7 @@ import {
   useGridPreferences,
   useGridPreferencesHydrated,
   upsertGridColumnsState,
+  useGridPreferencesStore,
 } from "../stores";
 import {
   useColumnPinning,
@@ -582,28 +583,78 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     [baseColumns, columnState.order],
   );
 
-  const handleColumnWidthsChange = useCallback(
-    (widths: Record<string, number>) => {
-      // Defer store mutation to avoid setState during render
-      setTimeout(() => {
+  // (old immediate persister removed in favor of throttledWidthsChange)
+
+  // Throttle persisting widths to avoid IndexedDB write storms during drag
+  const widthsTimerRef = useRef<number | undefined>(undefined);
+  const pendingWidthsRef = useRef<Record<string, number> | null>(null);
+
+  const flushWidths = useCallback(() => {
+    if (widthsTimerRef.current) {
+      clearTimeout(widthsTimerRef.current);
+      widthsTimerRef.current = undefined;
+    }
+    if (pendingWidthsRef.current) {
+      const latest = pendingWidthsRef.current;
+      pendingWidthsRef.current = null;
+      const state = useGridPreferencesStore.getState();
+      const current = state.preferences[gridId]?.columns.widths ?? {};
+      let changed = false;
+      const keys = Object.keys(latest);
+      if (keys.length !== Object.keys(current).length) {
+        changed = true;
+      } else {
+        for (const k of keys) {
+          if (current[k] !== latest[k]) {
+            changed = true;
+            break;
+          }
+        }
+      }
+      if (changed) {
         upsertGridColumnsState(gridId, (draft) => {
-          draft.widths = widths;
+          draft.widths = latest;
         });
-      }, 0);
+      }
+    }
+  }, [gridId]);
+
+  const throttledWidthsChange = useCallback(
+    (widths: Record<string, number>) => {
+      pendingWidthsRef.current = widths;
+      if (widthsTimerRef.current == null) {
+        widthsTimerRef.current = window.setTimeout(() => {
+          flushWidths();
+        }, 120);
+      }
     },
-    [gridId],
+    [flushWidths],
   );
 
   const { sizedColumns, handleColumnResize, handleColumnResizeEnd } =
     useColumnSizing({
       columns: reorderedColumns,
       initialWidths: columnState.widths,
-      onChange: handleColumnWidthsChange,
+      onChange: throttledWidthsChange,
     });
 
   const handleColumnVisibilityChange = useCallback(
     (visibility: Record<string, boolean>) => {
       setTimeout(() => {
+        const state = useGridPreferencesStore.getState();
+        const current = state.preferences[gridId]?.columns.visibility ?? {};
+        const curKeys = Object.keys(current);
+        const visKeys = Object.keys(visibility);
+        let changed = curKeys.length !== visKeys.length;
+        if (!changed) {
+          for (const k of visKeys) {
+            if (current[k] !== visibility[k]) {
+              changed = true;
+              break;
+            }
+          }
+        }
+        if (!changed) return;
         upsertGridColumnsState(gridId, (draft) => {
           draft.visibility = visibility;
         });
@@ -623,6 +674,18 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const handlePinnedColumnsChange = useCallback(
     (pinned: string[]) => {
       setTimeout(() => {
+        const state = useGridPreferencesStore.getState();
+        const current = state.preferences[gridId]?.columns.pinned ?? [];
+        let changed = current.length !== pinned.length;
+        if (!changed) {
+          for (let i = 0; i < pinned.length; i++) {
+            if (current[i] !== pinned[i]) {
+              changed = true;
+              break;
+            }
+          }
+        }
+        if (!changed) return;
         upsertGridColumnsState(gridId, (draft) => {
           draft.pinned = pinned;
         });
@@ -1436,8 +1499,14 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           onRowAppend={handleRowAppend}
           onRowDelete={handleRowDelete}
           onPaste={handlePaste}
-          onColumnResize={handleColumnResize}
-          onColumnResizeEnd={handleColumnResizeEnd}
+          // Avoid work during drag by not updating overlays when resizing
+          onColumnResize={(col, size) => {
+            handleColumnResize(col, size);
+          }}
+          onColumnResizeEnd={(column, size) => {
+            handleColumnResizeEnd(column, size);
+            flushWidths();
+          }}
           onColumnMoved={handleColumnMoved}
           onActiveCellChange={persistActiveCell}
           onVisibleRegionChanged={handleVisibleRegionChanged}

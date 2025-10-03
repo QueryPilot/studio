@@ -1,11 +1,11 @@
 import {
-  CompletionContext,
-  CompletionResult,
-  Completion,
+  type CompletionContext,
+  type CompletionResult,
+  type Completion,
   snippetCompletion,
   autocompletion
 } from "@codemirror/autocomplete";
-import { Extension, Text } from "@codemirror/state";
+import { type Extension, type Text } from "@codemirror/state";
 import { DBMLValidator } from "./dbml-validator";
 import { DBMLSchema } from "./dbml-schema";
 

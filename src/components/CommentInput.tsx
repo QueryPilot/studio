@@ -101,7 +101,7 @@ export function CommentInput({
           <Textarea
             ref={textareaRef}
             value={localValue}
-            onChange={(e) => setLocalValue(e.target.value)}
+            onChange={(e) => { setLocalValue(e.target.value); }}
             onKeyDown={handleKeyDown}
             placeholder="Describe the purpose of this column..."
             className="min-h-[80px] max-h-[200px] text-xs resize-y"

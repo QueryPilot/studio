@@ -34,7 +34,7 @@ const dbmlFoldService = foldService.of((state, from) => {
     if (lineText.startsWith(keyword + ' ') || lineText === keyword || lineText.startsWith(keyword + '\t')) {
       // Find the opening brace
       let bracePos = -1;
-      let searchEnd = Math.min(from + 500, state.doc.length);
+      const searchEnd = Math.min(from + 500, state.doc.length);
 
       for (let pos = from; pos < searchEnd; pos++) {
         if (state.doc.sliceString(pos, pos + 1) === '{') {

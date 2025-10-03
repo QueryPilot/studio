@@ -30,7 +30,7 @@ export const TableStructureWithResizing = memo(
     schema,
     onActionsChange,
   }: TableStructureProps) {
-    const { structure, isLoading, error, refetch } = useTableFullStructure({
+    const { structure, isLoading, error, refresh } = useTableFullStructure({
       connectionId,
       database,
       table,
@@ -434,13 +434,13 @@ export const TableStructureWithResizing = memo(
         // TODO: Implement actual save logic
         toast.success("Column changes saved successfully");
         discardAllChanges();
-        await refetch();
+        await refresh();
       } catch (error) {
         toast.error("Failed to save changes: " + error);
       } finally {
         setIsSaving(false);
       }
-    }, [discardAllChanges, refetch]);
+    }, [discardAllChanges, refresh]);
 
     // Update action buttons
     useEffect(() => {

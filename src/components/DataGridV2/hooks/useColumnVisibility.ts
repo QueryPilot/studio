@@ -28,7 +28,7 @@ const buildVisibilityMap = (
     initialHidden.forEach((id) => hiddenSet.add(id));
   } else if (initialHidden && typeof initialHidden === "object") {
     Object.entries(initialHidden).forEach(([id, isVisible]) => {
-      if (isVisible === false) {
+      if (!isVisible) {
         hiddenSet.add(id);
       }
     });

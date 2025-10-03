@@ -30,13 +30,13 @@ export const useKeyboardStore = create<KeyboardStore>()(
         isEditing: false,
       },
       updateContext: (context) =>
-        set((state) => ({
+        { set((state) => ({
           context: { ...state.context, ...context },
-        })),
+        })); },
       setContextValue: (key, value) =>
-        set((state) => ({
+        { set((state) => ({
           context: { ...state.context, [key]: value },
-        })),
+        })); },
     }),
     {
       name: 'keyboard-store',

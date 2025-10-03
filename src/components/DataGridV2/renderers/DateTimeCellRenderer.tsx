@@ -17,6 +17,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Button } from "@/components/ui/button";
 import { Calendar as CalendarIcon, X as ClearIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { truncateTextToWidth } from "../utils/textUtils";
 
 export type DateTimeKind = "date-cell" | "time-cell" | "datetime-cell";
 
@@ -273,9 +274,17 @@ const DateTimeCellRenderer: CustomCellRenderer<DateTimeCustomCell> = {
     ctx.font = isNull ? `italic ${theme.baseFontStyle}` : theme.baseFontStyle;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    const x = rect.x + 8;
+    const padding =
+      typeof theme.cellHorizontalPadding === "number"
+        ? theme.cellHorizontalPadding
+        : 8;
+    const maxWidth = Math.max(0, rect.width - padding * 2);
+    const displayText = isNull
+      ? "NULL"
+      : truncateTextToWidth(text, maxWidth, ctx.font);
+    const x = rect.x + padding;
     const centerY = rect.y + rect.height / 2;
-    ctx.fillText(text, x, centerY);
+    ctx.fillText(displayText, x, centerY);
 
     return true;
   },
