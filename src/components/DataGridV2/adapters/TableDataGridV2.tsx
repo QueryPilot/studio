@@ -48,6 +48,7 @@ import {
 } from "./columnUtils";
 import { useToast } from "@/hooks/use-toast";
 import type { CellValue } from "@/types/cellValue";
+import type { Theme } from "@glideapps/glide-data-grid";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 
 interface BooleanCellPayload {
@@ -751,6 +752,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     [persistSelection],
   );
 
+  // Track currently editing cell (for bright cell highlight)
+  const [editingCell, setEditingCell] = useState<{
+    rowIndex: number;
+    columnIndex: number;
+  } | null>(null);
+
   const handleEditCommit = useCallback(
     (event: GridEditCommitEvent): GridHistoryEntry => {
       const { rowIndex, column, newValue, previousValue } = event;
@@ -897,6 +904,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             setEditingRows(restored);
             editingRowsRef.current = restored;
           }
+          // Clear editing highlight after undo restores state
+          setEditingCell(null);
         },
         redo: () => {
           setRows((prevRows) => {
@@ -918,6 +927,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             setEditingRows(restored);
             editingRowsRef.current = restored;
           }
+          // Clear editing highlight after redo applies change
+          setEditingCell(null);
         },
       };
     },
@@ -1000,8 +1011,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       const { rowIndexes } = event;
       const removalSet = new Set(rowIndexes);
       const sortedIndexes = [...removalSet].sort((a, b) => b - a);
-
-      const newRows = rows.filter((_, idx) => !removalSet.has(idx));
+      // Keep rows visible, mark them as pending deletion in editing state
+      const newRows = rows; // do not remove immediately; highlight instead
 
       let editingState: Map<string, RowEditDraft> = editingRowsRef.current;
       let editingChanged = false;
@@ -1032,8 +1043,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         setEditingRows(editingState);
         editingRowsRef.current = editingState;
       }
-
-      setRows(newRows);
 
       toast({
         description: `Deleted ${rowIndexes.length} row(s)`,
@@ -1268,6 +1277,127 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   const errorMessage = typeof error === "string" ? error : null;
 
+  // Build row highlight sets (place hooks before any early returns)
+  const selectedRowsSet = useMemo(() => {
+    const rowsSel = gridSelection ? gridSelection.rows.toArray() : [];
+    const set = new Set<number>(rowsSel);
+    // Merge rectangular selection rows
+    const sel = gridSelection;
+    if (sel) {
+      const addRect = (r: Rectangle | undefined) => {
+        if (!r) return;
+        const start = Math.max(0, r.y);
+        const end = Math.max(start, r.y + r.height);
+        for (let i = start; i < end; i += 1) set.add(i);
+      };
+      if (sel.current) {
+        addRect(sel.current.range);
+        const stack = sel.current.rangeStack as Rectangle[] | undefined;
+        (stack || []).forEach(addRect);
+      }
+    }
+    return set;
+  }, [gridSelection]);
+
+  const pendingDeletedRowIndexes = useMemo(() => {
+    const result = new Set<number>();
+    editingRows.forEach((draft) => {
+      if (draft.action === "delete") {
+        result.add(draft.rowIndex);
+      }
+    });
+    return result;
+  }, [editingRows]);
+
+  const pendingChangedRowIndexes = useMemo(() => {
+    const result = new Set<number>();
+    editingRows.forEach((draft) => {
+      if (draft.action === "delete") return;
+      if (draft.action === "insert" || draft.cells.size > 0) {
+        result.add(draft.rowIndex);
+      }
+    });
+    return result;
+  }, [editingRows]);
+
+  // Column id -> index map for building cell highlight regions
+  const columnIndexById = useMemo(() => {
+    const m = new Map<string, number>();
+    finalColumns.forEach((c, idx) => {
+      m.set(c.id, idx);
+    });
+    return m;
+  }, [finalColumns]);
+
+  // Regions for all edited cells (uncommitted) across the grid
+  const editedCellRegions = useMemo(() => {
+    const regions: Array<{ color: string; range: Rectangle }> = [];
+    if (editingRows.size === 0) return regions;
+    editingRows.forEach((draft) => {
+      draft.cells.forEach((cellDraft, columnId) => {
+        const d = cellDraft as EditingCellDraft | undefined;
+        if (!d || !d.hasChanged) return;
+        const colIndex = columnIndexById.get(columnId);
+        if (colIndex == null) return;
+        regions.push({
+          color: "rgba(252, 163, 17, 0.22)",
+          range: { x: colIndex, y: draft.rowIndex, width: 1, height: 1 },
+        });
+      });
+    });
+    return regions;
+  }, [columnIndexById, editingRows]);
+
+  const getRowThemeOverride = useCallback(
+    (rowIndex: number) => {
+      // Highest precedence: pending deletion
+      if (pendingDeletedRowIndexes.has(rowIndex)) {
+        return {
+          bgCell: "rgba(239, 68, 68, 0.10)", // red-500 @ 10%
+          bgCellMedium: "rgba(239, 68, 68, 0.12)",
+          textMedium: undefined,
+        } as Partial<Theme>;
+      }
+      // Pending insert/update highlight (persists across focus changes)
+      if (pendingChangedRowIndexes.has(rowIndex)) {
+        return {
+          bgCell: "rgba(252, 163, 17, 0.10)", // accent @ 10%
+          bgCellMedium: "rgba(252, 163, 17, 0.12)",
+        } as Partial<Theme>;
+      }
+      // Selected rows subtle highlight
+      if (selectedRowsSet.has(rowIndex)) {
+        return {
+          bgCell: "rgba(252, 163, 17, 0.10)", // accent @ 10%
+          bgCellMedium: "rgba(252, 163, 17, 0.12)",
+        } as Partial<Theme>;
+      }
+      return undefined;
+    },
+    [pendingChangedRowIndexes, pendingDeletedRowIndexes, selectedRowsSet],
+  );
+
+  const selectedRowCount = gridSelection ? gridSelection.rows.length : 0;
+
+  // (rectangular rows merged into selectedRowsSet above)
+
+  // Bright highlight for all edited cells; also include the live editing cell slightly brighter
+  const cellHighlightRegions = useMemo(() => {
+    const regions = [...editedCellRegions];
+    if (editingCell) {
+      regions.push({
+        color: "rgba(252, 163, 17, 0.28)",
+        range: {
+          x: editingCell.columnIndex,
+          y: editingCell.rowIndex,
+          width: 1,
+          height: 1,
+        },
+      });
+    }
+    return regions;
+  }, [editedCellRegions, editingCell]);
+
   if (!hydrated) {
     return null;
   }
@@ -1284,8 +1414,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     return <DataGridSkeleton />;
   }
 
-  const selectedRowCount = gridSelection?.rows.length ?? 0;
-
   return (
     <div className="flex h-full flex-col">
       <div className="relative flex-1">
@@ -1295,7 +1423,16 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           columns={finalColumns}
           getCellContent={handleGetCellContent}
           history={history}
+          onCellEditStart={(coords) => {
+            setEditingCell({
+              rowIndex: coords.rowIndex,
+              columnIndex: coords.columnIndex,
+            });
+          }}
           onCellEditCommit={handleEditCommit}
+          onCellEditCancel={() => {
+            setEditingCell(null);
+          }}
           onRowAppend={handleRowAppend}
           onRowDelete={handleRowDelete}
           onPaste={handlePaste}
@@ -1307,6 +1444,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           gridSelection={gridSelection}
           onSelectionChange={handleSelectionChange}
           freezeColumns={freezeColumns}
+          getRowThemeOverride={getRowThemeOverride}
+          highlightRegions={cellHighlightRegions}
         />
         {isLoadingMore ? <DataGridLoadingIndicator /> : null}
       </div>

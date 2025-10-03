@@ -25,7 +25,9 @@ import { useDataGridV2Renderers } from "../renderers";
 import { inferValueType } from "../utils/valueHelpers";
 
 const isPromise = <T,>(value: unknown): value is Promise<T> =>
-  typeof value === "object" && value !== null && "then" in (value as any);
+  typeof value === "object" &&
+  value !== null &&
+  "then" in (value as { then?: unknown });
 
 const isHistoryEntry = (value: unknown): value is GridHistoryEntry =>
   typeof value === "object" &&
@@ -97,29 +99,30 @@ export interface EditableDataGridProps
   onCellEditStart?: (event: GridEditCoordinates) => void;
   onCellEditCommit?: (
     event: GridEditCommitEvent,
-  ) => GridHistoryEntry | void | Promise<GridHistoryEntry | void>;
+  ) => GridHistoryEntry | undefined | Promise<GridHistoryEntry | undefined>;
   onCellEditCancel?: (event: GridEditCoordinates) => void;
   onRowAppend?: (
     event: GridRowAppendEvent,
-  ) => GridHistoryEntry | void | Promise<GridHistoryEntry | void>;
-  onRowInsert?: (event: GridRowInsertEvent) => GridHistoryEntry | void;
-  onRowDelete?: (event: GridRowDeleteEvent) => GridHistoryEntry | void;
+  ) => GridHistoryEntry | undefined | Promise<GridHistoryEntry | undefined>;
+  onRowInsert?: (event: GridRowInsertEvent) => GridHistoryEntry | undefined;
+  onRowDelete?: (event: GridRowDeleteEvent) => GridHistoryEntry | undefined;
   onPaste?: (
     event: GridPasteEvent,
   ) =>
     | GridRowInsertEvent
     | GridHistoryEntry
     | boolean
-    | void
-    | Promise<GridRowInsertEvent | GridHistoryEntry | boolean | void>;
+    | undefined
+    | Promise<GridRowInsertEvent | GridHistoryEntry | boolean | undefined>;
   createDraftRow?: (position: "top" | "bottom" | number) => GridRowModel;
-  coercePasteValue?: (value: string) => string | number | boolean | null;
+  coerceValue?: (value: string) => string | number | boolean | null;
   onSelectionChange?: (selection: GridSelection) => void;
   onActiveCellChange?: (cell: Item | null) => void;
+  getRowThemeOverride?: DataEditorProps["getRowThemeOverride"];
 }
 
 export interface EditableDataGridRef extends DataEditorRef {
-  appendRow: () => void;
+  appendRow: () => Promise<void>;
 }
 
 export const EditableDataGrid = forwardRef<
@@ -139,12 +142,13 @@ export const EditableDataGrid = forwardRef<
     onRowDelete,
     onPaste,
     createDraftRow,
-    coercePasteValue,
+    coerceValue,
     customRenderers: customRenderersProp,
     onSelectionChange,
     onActiveCellChange,
     onGridSelectionChange,
     gridSelection,
+    getRowThemeOverride,
     ...rest
   } = props;
 
@@ -264,13 +268,13 @@ export const EditableDataGrid = forwardRef<
   );
 
   // Row append handler - exposed via ref for external button
-  const appendRow = useCallback(() => {
+  const appendRow = useCallback(async () => {
     if (!onRowAppend) return;
     const position: GridRowAppendEvent["position"] = "top";
     const baseRow =
       createDraftRow?.(position) ?? createDefaultDraftRow(columns);
     const result = onRowAppend({ position, draftRow: baseRow });
-    processResult(result);
+    await Promise.resolve(processResult(result));
   }, [columns, createDraftRow, onRowAppend, processResult]);
 
   const handleDelete = useCallback<NonNullable<DataEditorProps["onDelete"]>>(
@@ -293,7 +297,7 @@ export const EditableDataGrid = forwardRef<
   );
 
   const { handleDataEditorPaste } = usePasteHandler({
-    coerceValue: coercePasteValue,
+    coerceValue: coerceValue,
     allowGridFallback: false,
     onPaste: (event) => {
       const result = onPaste?.(event);
@@ -367,6 +371,7 @@ export const EditableDataGrid = forwardRef<
         onSelectionChange?.(selection);
         onGridSelectionChange?.(selection);
       }}
+      getRowThemeOverride={getRowThemeOverride}
       drawFocusRing={true}
       rangeSelect="rect"
       columnSelect="single"

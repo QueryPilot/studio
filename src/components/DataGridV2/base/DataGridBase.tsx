@@ -17,6 +17,10 @@ export interface DataGridBaseProps
   getCellContent: DataEditorProps["getCellContent"];
   /** Optional class name applied to the wrapping div */
   containerClassName?: string;
+  /** Optional row override provider for highlighting */
+  getRowThemeOverride?: DataEditorProps["getRowThemeOverride"];
+  /** Optional rectangular highlight regions */
+  highlightRegions?: DataEditorProps["highlightRegions"];
 }
 
 export const DataGridBase = forwardRef(function DataGridBase(
@@ -49,6 +53,8 @@ export const DataGridBase = forwardRef(function DataGridBase(
         smoothScrollY={true}
         rowHeight={28}
         headerHeight={28}
+        getRowThemeOverride={rest.getRowThemeOverride}
+        highlightRegions={rest.highlightRegions}
         {...editorProps}
       />
     </div>
