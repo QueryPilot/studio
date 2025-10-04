@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   GridSelection,
   Item,
@@ -76,8 +76,9 @@ export const QueryDataGridV2 = memo(function QueryDataGridV2(
     setGridSelection(persistedView.selection);
   }, [hydrated, persistedView.serializedSelection, persistedView.selection]);
 
-  const columnNames = data?.columns ?? [];
-  const columnMeta = data?.columnMeta ?? [];
+  const columnNames = useMemo(() => data?.columns ?? [], [data?.columns]);
+  const columnMeta = useMemo(() => data?.columnMeta ?? [], [data?.columnMeta]);
+
   const baseColumns = useMemo<GridColumnV2[]>(
     () =>
       columnNames.map((name, index) => {
@@ -110,40 +111,50 @@ export const QueryDataGridV2 = memo(function QueryDataGridV2(
 
   const columnState = preferences?.columns ?? DEFAULT_COLUMN_STATE;
 
+  // Track if we've initialized this grid to prevent infinite loops
+  const initializedRef = useRef(false);
+
   useEffect(() => {
-    if (!hydrated || baseColumns.length === 0) return;
+    if (!hydrated || baseColumns.length === 0 || initializedRef.current) return;
+
     const expectedOrder = baseColumns.map((column) => column.id);
+    const currentOrder = columnState.order;
+    const currentVisibility = columnState.visibility;
+
     const needsOrderSync =
-      columnState.order.length !== expectedOrder.length ||
-      columnState.order.some((id, index) => id !== expectedOrder[index]);
+      currentOrder.length !== expectedOrder.length ||
+      currentOrder.some((id, index) => id !== expectedOrder[index]);
 
-    if (needsOrderSync) {
-      upsertGridColumnsState(gridId, (draft) => {
-        draft.order = expectedOrder;
-      });
-    }
-
-    const visibilityEntries = Object.keys(columnState.visibility);
+    const visibilityEntries = Object.keys(currentVisibility);
     const requiresVisibilitySync =
       visibilityEntries.length === 0 ||
       visibilityEntries.some((id) => !expectedOrder.includes(id));
 
-    if (requiresVisibilitySync) {
+    if (needsOrderSync || requiresVisibilitySync) {
       upsertGridColumnsState(gridId, (draft) => {
-        const next: Record<string, boolean> = {};
-        expectedOrder.forEach((id) => {
-          const existing = draft.visibility[id];
-          next[id] = existing === false ? false : true;
-        });
-        draft.visibility = next;
+        if (needsOrderSync) {
+          draft.order = expectedOrder;
+        }
+        if (requiresVisibilitySync) {
+          const next: Record<string, boolean> = {};
+          expectedOrder.forEach((id) => {
+            const existing = draft.visibility[id];
+            next[id] = existing === false ? false : true;
+          });
+          draft.visibility = next;
+        }
       });
+      initializedRef.current = true;
+    } else {
+      // Already initialized
+      initializedRef.current = true;
     }
   }, [
     baseColumns,
-    columnState.order,
-    columnState.visibility,
     gridId,
     hydrated,
+    columnState.order,
+    columnState.visibility,
   ]);
 
   const reorderedColumns = useMemo(
@@ -220,12 +231,30 @@ export const QueryDataGridV2 = memo(function QueryDataGridV2(
     [persistSelection],
   );
 
+  // Debounced scroll persistence to avoid infinite loops
+  const scrollDebounceRef = useRef<NodeJS.Timeout | undefined>(undefined);
+
   const handleVisibleRegionChanged = useCallback(
     (region: Rectangle) => {
-      persistScrollOffset({ x: region.x, y: region.y });
+      // Debounce scroll persistence to avoid too many updates
+      if (scrollDebounceRef.current) {
+        clearTimeout(scrollDebounceRef.current);
+      }
+      scrollDebounceRef.current = setTimeout(() => {
+        persistScrollOffset({ x: region.x, y: region.y });
+      }, 150);
     },
     [persistScrollOffset],
   );
+
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (scrollDebounceRef.current) {
+        clearTimeout(scrollDebounceRef.current);
+      }
+    };
+  }, []);
 
   const handleColumnMoved = useCallback(
     (startIndex: number, endIndex: number) => {

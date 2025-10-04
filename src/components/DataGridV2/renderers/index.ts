@@ -4,6 +4,7 @@ import { TextCellRenderer } from "./TextCellRenderer";
 import BooleanCellRenderer from "./BooleanCellRenderer";
 import EnumCellRenderer from "./EnumCellRenderer";
 import DateTimeCellRenderer from "./DateTimeCellRenderer";
+import DateTimeRangeCellRenderer from "./DateTimeRangeCellRenderer";
 
 type AnyCell = CustomCell<Record<string, unknown>>;
 
@@ -17,6 +18,7 @@ export function useDataGridV2Renderers(): {
       BooleanCellRenderer as unknown as CustomRenderer<AnyCell>,
       EnumCellRenderer as unknown as CustomRenderer<AnyCell>,
       DateTimeCellRenderer as unknown as CustomRenderer<AnyCell>,
+      DateTimeRangeCellRenderer as unknown as CustomRenderer<AnyCell>,
     ],
     [],
   );

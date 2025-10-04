@@ -109,6 +109,22 @@ pub trait DbAdapter: Send + Sync {
         constraint_name: &str,
     ) -> Result<()>;
 
+    // Trigger operations
+    async fn create_trigger(
+        &self,
+        schema: &str,
+        table: &str,
+        trigger: &CreateTriggerRequest,
+    ) -> Result<()>;
+    async fn drop_trigger(&self, schema: &str, table: &str, trigger_name: &str) -> Result<()>;
+    async fn enable_disable_trigger(
+        &self,
+        schema: &str,
+        table: &str,
+        trigger_name: &str,
+        enabled: bool,
+    ) -> Result<()>;
+
     // Database-specific features
     fn get_supported_types(&self) -> Vec<CellValueType>;
     fn supports_schemas(&self) -> bool {

@@ -80,16 +80,98 @@ export const TableTriggers = memo(function TableTriggers({
     setIsSaving(true);
 
     try {
-      // TODO: Implement actual save logic
-      // This would involve calling database service methods to:
-      // 1. Delete triggers in deletedTriggers set
-      // 2. Update triggers in editingTriggers map
-      // 3. Create triggers in newTriggers array
+      const currentSchema = schema || "public";
+      const errors: string[] = [];
 
-      toast({
-        title: "Changes saved",
-        description: "Trigger changes have been applied successfully.",
-      });
+      // 1. Delete triggers in deletedTriggers set
+      for (const triggerName of deletedTriggers) {
+        try {
+          await databaseService.dropTrigger(
+            connectionId,
+            currentSchema,
+            table,
+            triggerName,
+          );
+        } catch (err) {
+          errors.push(
+            `Failed to delete ${triggerName}: ${
+              err instanceof Error ? err.message : "Unknown error"
+            }`,
+          );
+        }
+      }
+
+      // 2. Update triggers in editingTriggers map (enable/disable only for now)
+      for (const [triggerName, editData] of editingTriggers) {
+        // Skip deleted triggers
+        if (deletedTriggers.has(triggerName)) continue;
+
+        const original = triggersData.find((t) => t.name === triggerName);
+        if (original && original.enabled !== editData.enabled) {
+          try {
+            await databaseService.enableDisableTrigger(
+              connectionId,
+              currentSchema,
+              table,
+              triggerName,
+              editData.enabled,
+            );
+          } catch (err) {
+            errors.push(
+              `Failed to ${
+                editData.enabled ? "enable" : "disable"
+              } ${triggerName}: ${
+                err instanceof Error ? err.message : "Unknown error"
+              }`,
+            );
+          }
+        }
+      }
+
+      // 3. Create triggers in newTriggers array
+      for (const newTrigger of newTriggers) {
+        // Validate required fields
+        if (!newTrigger.name || !newTrigger.function) {
+          errors.push(`Invalid trigger: Name and function are required`);
+          continue;
+        }
+
+        try {
+          const events = newTrigger.event.split(" OR ").map((e) => e.trim());
+          await databaseService.createTrigger(
+            connectionId,
+            currentSchema,
+            table,
+            {
+              name: newTrigger.name,
+              event: events,
+              timing: newTrigger.timing,
+              level: newTrigger.level,
+              functionName: newTrigger.function.replace(/\(\)$/, ""), // Remove () suffix
+              condition: newTrigger.condition,
+            },
+          );
+        } catch (err) {
+          errors.push(
+            `Failed to create ${newTrigger.name}: ${
+              err instanceof Error ? err.message : "Unknown error"
+            }`,
+          );
+        }
+      }
+
+      if (errors.length > 0) {
+        toast({
+          title: "Some operations failed",
+          description: errors.join("; "),
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Changes saved",
+          description: "Trigger changes have been applied successfully.",
+        });
+      }
 
       // Clear editing state
       setEditingTriggers(new Map());
@@ -101,7 +183,7 @@ export const TableTriggers = memo(function TableTriggers({
       const result = await databaseService.listTriggers(
         connectionId,
         database,
-        schema || "public",
+        currentSchema,
         table,
       );
       setTriggersData(result);
@@ -115,7 +197,17 @@ export const TableTriggers = memo(function TableTriggers({
     } finally {
       setIsSaving(false);
     }
-  }, [connectionId, database, schema, table, toast]);
+  }, [
+    connectionId,
+    database,
+    schema,
+    table,
+    toast,
+    deletedTriggers,
+    editingTriggers,
+    newTriggers,
+    triggersData,
+  ]);
 
   // Get available columns for the table
   const availableColumns = useMemo(

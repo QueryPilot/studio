@@ -1066,3 +1066,59 @@ pub async fn alter_table_drop_foreign_key(
         .await
         .map_err(|e| e.to_string())
 }
+
+// Trigger operation commands
+#[tauri::command]
+pub async fn create_trigger(
+    conn_id: String,
+    schema: String,
+    table: String,
+    trigger: CreateTriggerRequest,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<(), String> {
+    let conn = manager
+        .get_connection(&conn_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+
+    conn.adapter
+        .create_trigger(&schema, &table, &trigger)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn drop_trigger(
+    conn_id: String,
+    schema: String,
+    table: String,
+    trigger_name: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<(), String> {
+    let conn = manager
+        .get_connection(&conn_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+
+    conn.adapter
+        .drop_trigger(&schema, &table, &trigger_name)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn enable_disable_trigger(
+    conn_id: String,
+    schema: String,
+    table: String,
+    trigger_name: String,
+    enabled: bool,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<(), String> {
+    let conn = manager
+        .get_connection(&conn_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+
+    conn.adapter
+        .enable_disable_trigger(&schema, &table, &trigger_name, enabled)
+        .await
+        .map_err(|e| e.to_string())
+}
