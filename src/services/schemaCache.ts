@@ -36,6 +36,7 @@ interface PrefetchQueue {
 
 class SchemaCache {
   private cache: Map<string, CacheEntry<any>> = new Map();
+  private inFlight: Map<string, Promise<any>> = new Map();
   private metrics: CacheMetrics = {
     hits: 0,
     misses: 0,
@@ -107,19 +108,33 @@ class SchemaCache {
       return cached;
     }
 
+    // Coalesce concurrent fetches
+    const existing = this.inFlight.get(key) as Promise<TableMeta[]> | undefined;
+    if (existing) {
+      return existing;
+    }
+
     this.metrics.misses++;
-    const tables = await databaseService.listTables(connectionId, "", s);
+    const promise = databaseService
+      .listTables(connectionId, "", s)
+      .then((tables) => {
+        this.set(key, tables, {
+          ttl: this.ttlConfig.tables,
+          priority: "high",
+          connectionId,
+        });
 
-    this.set(key, tables, {
-      ttl: this.ttlConfig.tables,
-      priority: "high",
-      connectionId,
-    });
+        // Prefetch columns for frequently used tables
+        this.prefetchColumnsForTables(connectionId, s, tables.slice(0, 5));
 
-    // Prefetch columns for frequently used tables
-    this.prefetchColumnsForTables(connectionId, s, tables.slice(0, 5));
+        return tables;
+      })
+      .finally(() => {
+        this.inFlight.delete(key);
+      });
 
-    return tables;
+    this.inFlight.set(key, promise);
+    return promise;
   }
 
   async getTableColumns(
@@ -136,27 +151,38 @@ class SchemaCache {
       return cached;
     }
 
+    // Coalesce concurrent fetches
+    const existing = this.inFlight.get(key) as
+      | Promise<ColumnMeta[]>
+      | undefined;
+    if (existing) {
+      return existing;
+    }
+
     this.metrics.misses++;
-    const columns = await databaseService.getTableColumns(
-      connectionId,
-      "",
-      schema,
-      table,
-    );
+    const promise = databaseService
+      .getTableColumns(connectionId, "", schema, table)
+      .then((columns) => {
+        // Adaptive TTL based on table size
+        const ttl =
+          columns.length > 50
+            ? this.ttlConfig.columns * 0.5 // Shorter TTL for large tables
+            : this.ttlConfig.columns;
 
-    // Adaptive TTL based on table size
-    const ttl =
-      columns.length > 50
-        ? this.ttlConfig.columns * 0.5 // Shorter TTL for large tables
-        : this.ttlConfig.columns;
+        this.set(key, columns, {
+          ttl,
+          priority: columns.length > 100 ? "low" : "medium",
+          connectionId,
+        });
 
-    this.set(key, columns, {
-      ttl,
-      priority: columns.length > 100 ? "low" : "medium",
-      connectionId,
-    });
+        return columns;
+      })
+      .finally(() => {
+        this.inFlight.delete(key);
+      });
 
-    return columns;
+    this.inFlight.set(key, promise);
+    return promise;
   }
 
   // Improved prefetching strategies

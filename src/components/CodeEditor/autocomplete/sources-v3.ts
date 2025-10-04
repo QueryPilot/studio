@@ -191,6 +191,15 @@ export function createContextualCompletionSource(params: {
 }): CompletionSource {
   const { connectionId, dbType, parser, schema } = params;
 
+  // Per-session fast path cache for recently built column completions
+  const columnFastCache = new Map<
+    string,
+    { cols: RankedCompletion[]; ts: number }
+  >();
+  const COLUMN_FASTCACHE_TTL = 10_000; // 10 seconds
+  const prefetchTs = new Map<string, number>();
+  const PREFETCH_TTL = 3_000; // 3 seconds between prefetch attempts
+
   return async (context: CompletionContext) => {
     try {
       // Update schema cache connection on every call (handles tab switching)
@@ -231,6 +240,39 @@ export function createContextualCompletionSource(params: {
       const MAX_COMPLETIONS = 50;
       const MAX_COLUMNS_PER_TABLE = 20;
 
+      // Background prefetch for columns of tables already in scope
+      if (queryContext.tablesInScope.length > 0) {
+        const now = Date.now();
+        for (const t of queryContext.tablesInScope) {
+          const s = t.schema || effectiveSchema;
+          const key = `${connectionId}:${s}.${t.table}`;
+          if (
+            !columnFastCache.has(key) &&
+            now - (prefetchTs.get(key) || 0) > PREFETCH_TTL
+          ) {
+            prefetchTs.set(key, now);
+            // Intentionally fire-and-forget to warm up cache
+            void schemaCache
+              .getTableColumns(connectionId, s, t.table)
+              .then((cols) => {
+                const built: RankedCompletion[] = cols
+                  .slice(0, MAX_COLUMNS_PER_TABLE)
+                  .map((col) => ({
+                    label: col.name,
+                    apply: quoteIdentifier(col.name, dbType),
+                    type: "property",
+                    detail: col.db_type,
+                    score: 200,
+                  }));
+                columnFastCache.set(key, { cols: built, ts: Date.now() });
+              })
+              .catch(() => {
+                // ignore prefetch errors
+              });
+          }
+        }
+      }
+
       // 1. Handle table.column pattern (highest priority)
       // Updated pattern to handle more cases:
       // - After operators: WHERE id=u.
@@ -242,17 +284,28 @@ export function createContextualCompletionSource(params: {
         tableColumnMatch[1] &&
         tableColumnMatch[2] !== undefined
       ) {
-        const tableOrAlias = tableColumnMatch[1].toLowerCase();
+        // Sanitize alias/table by trimming trailing dots/spaces, e.g. "u." -> "u"
+        const rawAlias = tableColumnMatch[1].toLowerCase();
+        const tableOrAlias = rawAlias.replace(/[\s.]+$/g, "");
         const partialColumn = tableColumnMatch[2].toLowerCase();
 
         // First check aliases from AST
         let tableName: string | undefined;
         let schemaName: string | undefined;
 
+        console.debug(
+          `[Autocomplete] Looking up alias/table: raw='${rawAlias}' sanitized='${tableOrAlias}'`,
+          `Known aliases:`,
+          Array.from(queryContext.aliases.keys()),
+        );
+
         if (queryContext.aliases.has(tableOrAlias)) {
           const tableRef = queryContext.aliases.get(tableOrAlias);
           tableName = tableRef?.table;
           schemaName = tableRef?.schema;
+          console.debug(
+            `[Autocomplete] Found alias ${tableOrAlias} -> ${tableName}`,
+          );
         } else {
           // Check tables in scope by name (not alias)
           const tableInScope = queryContext.tablesInScope.find(
@@ -285,26 +338,47 @@ export function createContextualCompletionSource(params: {
 
         if (tableName) {
           try {
-            const columns = await schemaCache.getTableColumns(
-              connectionId,
-              schemaName || effectiveSchema,
-              tableName,
-            );
+            const effective = schemaName || effectiveSchema;
+            const fastKey = `${connectionId}:${effective}.${tableName}`;
+            const now = Date.now();
+            const cached = columnFastCache.get(fastKey);
 
-            completions = columns
-              .filter(
-                (col) =>
+            if (cached && now - cached.ts < COLUMN_FASTCACHE_TTL) {
+              completions = cached.cols.filter(
+                (c) =>
                   !partialColumn ||
-                  col.name.toLowerCase().startsWith(partialColumn),
-              )
-              .slice(0, MAX_COLUMNS_PER_TABLE)
-              .map((col) => ({
-                label: col.name,
-                apply: quoteIdentifier(col.name, dbType),
-                type: "property",
-                detail: col.db_type,
-                score: 200,
-              }));
+                  c.label.toLowerCase().startsWith(partialColumn),
+              );
+            } else {
+              console.debug(
+                `[Autocomplete] Fetching columns for ${tableName} (schema: ${effective}, alias: ${tableOrAlias})`,
+              );
+              const columns = await schemaCache.getTableColumns(
+                connectionId,
+                effective,
+                tableName,
+              );
+
+              console.debug(
+                `[Autocomplete] Found ${columns.length} columns for ${tableName}`,
+              );
+
+              const built: RankedCompletion[] = columns
+                .slice(0, MAX_COLUMNS_PER_TABLE)
+                .map((col) => ({
+                  label: col.name,
+                  apply: quoteIdentifier(col.name, dbType),
+                  type: "property",
+                  detail: col.db_type,
+                  score: 200,
+                }));
+              columnFastCache.set(fastKey, { cols: built, ts: now });
+              completions = built.filter(
+                (c) =>
+                  !partialColumn ||
+                  c.label.toLowerCase().startsWith(partialColumn),
+              );
+            }
 
             // Add * for SELECT clause
             if (
@@ -319,16 +393,33 @@ export function createContextualCompletionSource(params: {
               });
             }
 
-            if (completions.length > 0) {
-              return {
-                from: word.from + tableOrAlias.length + 1,
-                options: completions.slice(0, MAX_COMPLETIONS),
-                validFor: /^[\w.]*$/,
-              };
-            }
+            console.debug(
+              `[Autocomplete] Returning ${completions.length} suggestions for ${tableOrAlias}.${partialColumn}`,
+            );
+
+            // Always return when we have a table.column pattern match
+            // Even if empty, to prevent fallthrough to other suggestions
+            return {
+              from: word.from + tableOrAlias.length + 1,
+              options: completions.slice(0, MAX_COMPLETIONS),
+              validFor: /^[\w.]*$/,
+            };
           } catch (error) {
-            console.debug("Failed to get columns for table:", tableName, error);
+            console.warn(
+              `[Autocomplete] Error fetching columns for ${tableName}:`,
+              error,
+            );
+            // Return empty suggestions instead of falling through
+            return {
+              from: word.from + tableOrAlias.length + 1,
+              options: [],
+              validFor: /^[\w.]*$/,
+            };
           }
+        } else {
+          console.debug(
+            `[Autocomplete] Could not resolve table/alias: ${tableOrAlias}`,
+          );
         }
       }
 
@@ -714,8 +805,8 @@ export function createContextualCompletionSource(params: {
           textBeforeLower,
         );
       if (columnClauseMatch && queryContext.tablesInScope.length > 0) {
-        const clause = columnClauseMatch[1].toLowerCase();
-        const partialColumn = columnClauseMatch[2] || "";
+        const clause = (columnClauseMatch[1] ?? "").toLowerCase();
+        const partialColumn = columnClauseMatch[2] ?? "";
 
         for (const table of queryContext.tablesInScope) {
           try {
