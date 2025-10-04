@@ -6,6 +6,11 @@ import { Input } from "@/components/ui/input";
 import { TypeSelector } from "./TypeSelector";
 import { DefaultValueInput } from "./DefaultValueInput";
 import { ForeignKeyEditorPopover } from "./ForeignKeyEditorPopover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { ConstraintInput } from "../ConstraintInput";
 import { CommentInput } from "../CommentInput";
 
@@ -66,6 +71,9 @@ export const ColumnRow = memo(function ColumnRow({
   const isForeignKey = column.is_fk;
   const canEdit = !isPrimary; // Allow editing even for FK columns (except primary keys)
   const canEditName = canEdit && (isNew || !isPrimary); // Allow name edit for new columns and non-PK columns
+  const dbType = column.db_type;
+  const isArrayType = dbType.includes("[]") || dbType.startsWith("_");
+  const fkDisabled = isPrimary || isArrayType;
 
   // Check individual field changes
   const nameChanged = originalColumn && column.name !== originalColumn.name;
@@ -236,14 +244,29 @@ export const ColumnRow = memo(function ColumnRow({
               className="font-mono text-xs px-2"
               title={column.check_constraint || undefined}
             >
-              {column.check_constraint ? (
-                <>
-                  {column.check_constraint.substring(0, 30)}
-                  {column.check_constraint.length > 30 && "..."}
-                </>
-              ) : (
-                "-"
-              )}
+              {column.check_constraint
+                ? (() => {
+                    // Inline minimal parser to avoid runtime import in render
+                    const extract = (def: string) => {
+                      let s = def.trim();
+                      const m = s.match(/^CHECK\s*\(([\s\S]*)\)$/i);
+                      if (m && m[1] !== undefined) s = m[1].trim();
+                      for (let i = 0; i < 3; i++) {
+                        if (s.startsWith("(") && s.endsWith(")"))
+                          s = s.slice(1, -1).trim();
+                        else break;
+                      }
+                      return s;
+                    };
+                    const cond = extract(column.check_constraint);
+                    return (
+                      <>
+                        {cond.substring(0, 30)}
+                        {cond.length > 30 && "..."}
+                      </>
+                    );
+                  })()
+                : "-"}
             </span>
           )}
         </div>
@@ -256,30 +279,40 @@ export const ColumnRow = memo(function ColumnRow({
             foreignKeyChanged && canEdit && "bg-primary/10 rounded-sm",
           )}
         >
-          <ForeignKeyEditorPopover
-            value={column.foreign_key_ref}
-            onChange={(val) => onUpdate?.({ foreign_key_ref: val })}
-            connectionId={connectionId}
-            database={database}
-            schema={schema}
-            currentTable={originalColumn?.name}
-            currentColumn={column.name}
-            columnName={column.name}
-            disabled={
-              !canEdit ||
-              isPrimary ||
-              column.db_type?.includes("[]") ||
-              column.db_type?.startsWith("_")
-            }
-          />
-          {(column.db_type?.includes("[]") ||
-            column.db_type?.startsWith("_")) && (
-            <span
-              className="text-[10px] text-amber-600 dark:text-amber-400 px-2"
-              title="PostgreSQL does not support foreign keys on array columns. Use a junction table instead."
-            >
-              ⚠️ Array type - FK not supported
-            </span>
+          {isArrayType ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-block">
+                  <ForeignKeyEditorPopover
+                    value={column.foreign_key_ref}
+                    onChange={(val) => onUpdate?.({ foreign_key_ref: val })}
+                    connectionId={connectionId}
+                    database={database}
+                    schema={schema}
+                    currentTable={originalColumn?.name}
+                    currentColumn={column.name}
+                    columnName={column.name}
+                    disabled={fkDisabled}
+                  />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                PostgreSQL does not support foreign keys on array columns. Use a
+                junction table instead.
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <ForeignKeyEditorPopover
+              value={column.foreign_key_ref}
+              onChange={(val) => onUpdate?.({ foreign_key_ref: val })}
+              connectionId={connectionId}
+              database={database}
+              schema={schema}
+              currentTable={originalColumn?.name}
+              currentColumn={column.name}
+              columnName={column.name}
+              disabled={fkDisabled}
+            />
           )}
         </div>
       </td>

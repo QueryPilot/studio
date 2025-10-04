@@ -211,12 +211,6 @@ const sqlFoldService = foldService.of((state, from) => {
   return null;
 });
 
-// Helper to get active connection id without using any
-function getActiveConnectionId(): string {
-  const w = window as unknown as { __activeConnectionId?: string };
-  return w.__activeConnectionId ?? "default";
-}
-
 // Map our dialect types to CodeMirror SQL dialects
 const getDialect = (dialect?: SqlDialect) => {
   switch (dialect) {
@@ -487,16 +481,22 @@ export const getEditorExtensions = (
   );
 
   if (language === "sql") {
-    extensions.push(
-      createSqlAutocomplete({
-        connectionId: connectionId || getActiveConnectionId(),
-        dialect: dialect || "postgresql",
-        database,
-        schema,
-      }),
-      // Add Tab key support for accepting autocomplete
-      keymap.of([{ key: "Tab", run: acceptCompletion }]),
-    );
+    if (!connectionId) {
+      console.warn(
+        "CodeEditor: skipping SQL autocomplete because no connectionId was provided.",
+      );
+    } else {
+      extensions.push(
+        createSqlAutocomplete({
+          connectionId,
+          dialect: dialect || "postgresql",
+          database,
+          schema,
+        }),
+        // Add Tab key support for accepting autocomplete
+        keymap.of([{ key: "Tab", run: acceptCompletion }]),
+      );
+    }
   }
 
   return extensions;

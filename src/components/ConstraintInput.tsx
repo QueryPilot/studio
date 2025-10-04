@@ -244,6 +244,12 @@ export function ConstraintInput({
               placeholder="e.g., age >= 18 AND age <= 120"
               className="min-h-[80px] max-h-[200px] font-mono text-xs resize-y"
               disabled={disabled}
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              inputMode="text"
+              // Prevent iOS/macOS smart quotes/dashes substitutions
+              style={{ WebkitTextSecurity: "none" } as any}
             />
             {showSuggestions && filteredSuggestions.length > 0 && (
               <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover p-1 shadow-md">
