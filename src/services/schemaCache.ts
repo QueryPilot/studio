@@ -185,6 +185,126 @@ class SchemaCache {
     return promise;
   }
 
+  /**
+   * Get enum (or set) values for a specific column, cached and deduped.
+   */
+  async getColumnEnumValues(
+    connectionId: string,
+    schema: string,
+    table: string,
+    column: string,
+  ): Promise<string[]> {
+    const key = `enumvals:${connectionId}:${schema}.${table}.${column}`;
+    const cached = this.get<string[]>(key);
+    if (cached) return cached;
+
+    const existing = this.inFlight.get(key) as Promise<string[]> | undefined;
+    if (existing) return existing;
+
+    const fetchPromise = (async () => {
+      console.debug(
+        `[SchemaCache] Enum fetch start ${schema}.${table}.${column} (conn=${connectionId})`,
+      );
+      // Try fast path from columns cache first
+      try {
+        const cols = await this.getTableColumns(connectionId, schema, table);
+        const meta = cols.find(
+          (c) => c.name.toLowerCase() === column.toLowerCase(),
+        );
+        const values =
+          (meta as any)?.enum_values || (meta as any)?.set_values || [];
+        console.debug(`[SchemaCache] Column meta enum fast-path`, {
+          foundMeta: !!meta,
+          count: Array.isArray(values) ? values.length : 0,
+        });
+        if (Array.isArray(values) && values.length > 0) {
+          this.set(key, values, {
+            ttl: this.ttlConfig.recent,
+            priority: "medium",
+            connectionId,
+          });
+          console.debug(`[SchemaCache] Enum cached (fast)`, values);
+          return values;
+        }
+      } catch {
+        // fallthrough
+      }
+
+      // Fallback to full structure for richer metadata
+      try {
+        const structure = await databaseService.getTableStructure(
+          connectionId,
+          "",
+          schema,
+          table,
+          {
+            includeConstraints: true,
+            includeIndexes: false,
+            includeTriggers: false,
+            includeStatistics: false,
+            includeForeignKeys: false,
+          },
+        );
+        const meta = structure.columns.find(
+          (c) => c.name.toLowerCase() === column.toLowerCase(),
+        ) as any;
+        let values: string[] = meta?.enum_values || meta?.set_values || [];
+        console.debug(`[SchemaCache] Structure-based enum`, {
+          hasMeta: !!meta,
+          fromMetaCount: values?.length || 0,
+        });
+        if (!values || values.length === 0) {
+          // Try parse CHECK constraints like: CHECK (priority IN ('low','high'))
+          for (const cons of structure.constraints) {
+            const def = (cons as any)?.definition as string | undefined;
+            if (!def) continue;
+            const colRegex = new RegExp(`\\b${column}\\b`, "i");
+            if (!colRegex.test(def)) continue;
+            const m = def.match(/\bIN\s*\(([^)]+)\)/i);
+            if (m && m[1]) {
+              const parts = m[1]
+                .split(",")
+                .map((s) => s.trim().replace(/^['\"]|['\"]$/g, ""))
+                .filter(Boolean);
+              if (parts.length > 0) {
+                values = parts;
+                console.debug(`[SchemaCache] Enum parsed from CHECK`, values);
+                break;
+              }
+            }
+          }
+        }
+        if (Array.isArray(values)) {
+          this.set(key, values, {
+            ttl: this.ttlConfig.recent,
+            priority: "medium",
+            connectionId,
+          });
+          console.debug(`[SchemaCache] Enum cached (structure)`, values);
+          return values;
+        }
+      } catch {
+        // ignore
+      }
+
+      // Default empty array to avoid spamming backend
+      this.set(key, [], {
+        ttl: this.ttlConfig.recent,
+        priority: "low",
+        connectionId,
+      });
+      console.debug(`[SchemaCache] Enum not found -> caching empty`);
+      return [];
+    })();
+
+    this.inFlight.set(key, fetchPromise);
+    try {
+      return await fetchPromise;
+    } finally {
+      this.inFlight.delete(key);
+    }
+  }
+
   // Improved prefetching strategies
   private async prefetchCommonData(connectionId: string) {
     this.metrics.prefetches++;

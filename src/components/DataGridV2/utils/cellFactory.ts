@@ -184,6 +184,21 @@ export function buildGridCellV2(opts: {
     });
   }
 
+  // PostgreSQL tstzrange -> custom range editor
+  if (dbType.includes("tstzrange")) {
+    const v = rawValue == null ? null : String(rawValue);
+    return cacheAndReturn(value, column, {
+      kind: GridCellKind.Custom,
+      data: {
+        kind: "tstzrange-cell",
+        value: v,
+      },
+      copyData: v ?? "",
+      allowOverlay: true,
+      readonly: false,
+    });
+  }
+
   if (dbType.includes("date")) {
     const v = rawValue == null ? null : String(rawValue);
     return cacheAndReturn(value, column, {

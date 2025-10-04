@@ -69,6 +69,17 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       setViewActions(actions);
     }, []);
 
+    // Compute tableGridId unconditionally (before any early returns)
+    const tableGridId = useMemo(() => {
+      if (!metadata || metadata.type !== "table") return undefined;
+      const connection =
+        metadata.connectionId || activeConnectionId || "unknown";
+      const db = metadata.database || "";
+      const schemaName = metadata.schema || "public";
+      const tableName = metadata.table || "";
+      return `table:${connection}:${db}:${schemaName}:${tableName}`;
+    }, [activeConnectionId, metadata]);
+
     if (type === "query") {
       return (
         <QueryPanel
@@ -110,16 +121,6 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
         />
       );
     }
-
-    const tableGridId = useMemo(() => {
-      if (!metadata || metadata.type !== "table") return undefined;
-      const connection =
-        metadata.connectionId || activeConnectionId || "unknown";
-      const db = metadata.database || "";
-      const schemaName = metadata.schema || "public";
-      const tableName = metadata.table || "";
-      return `table:${connection}:${db}:${schemaName}:${tableName}`;
-    }, [activeConnectionId, metadata]);
 
     if (type === "table" && metadata) {
       const isView = metadata.isView || false;

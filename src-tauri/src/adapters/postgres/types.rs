@@ -2,7 +2,7 @@ use super::parser::PostgresTypeParser;
 use crate::error::{AppError, Result};
 use crate::types::*;
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
-use postgres_types::Type;
+use postgres_types::{FromSql, Kind, Type};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -11,6 +11,29 @@ use tokio_postgres::Row;
 use uuid::Uuid;
 
 pub struct PostgresTypeConverter;
+
+// Generic enum text decoder for PostgreSQL enums (and domains over enums)
+#[derive(Debug)]
+struct PgEnumText(pub String);
+
+impl<'a> FromSql<'a> for PgEnumText {
+    fn accepts(ty: &Type) -> bool {
+        match ty.kind() {
+            Kind::Enum(_) => true,
+            // Domains over enums should also be accepted
+            Kind::Domain(inner) => matches!(inner.kind(), Kind::Enum(_)),
+            _ => false,
+        }
+    }
+
+    fn from_sql(
+        _ty: &Type,
+        raw: &'a [u8],
+    ) -> std::result::Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+        let s = std::str::from_utf8(raw)?.to_string();
+        Ok(PgEnumText(s))
+    }
+}
 
 // Helper function to format arrays in PostgreSQL array literal syntax
 fn format_postgres_array(values: &[String]) -> String {
@@ -180,7 +203,14 @@ impl PostgresTypeConverter {
                 if pg_type.name().ends_with("[]") {
                     CellValueType::Array(Box::new(CellValueType::Text))
                 } else {
-                    CellValueType::CustomType(pg_type.name().to_string())
+                    // Distinguish enums from other custom types so we can decode without casts
+                    match pg_type.kind() {
+                        Kind::Enum(_) => CellValueType::Enum(pg_type.name().to_string()),
+                        Kind::Domain(inner) if matches!(inner.kind(), Kind::Enum(_)) => {
+                            CellValueType::Enum(pg_type.name().to_string())
+                        }
+                        _ => CellValueType::CustomType(pg_type.name().to_string()),
+                    }
                 }
             }
         }
@@ -1168,6 +1198,25 @@ impl PostgresTypeConverter {
                                 }
                                 Ok(None) => return Ok(CellValue::null()),
                                 Err(e) => {
+                                    // Try decoding generically as an enum without requiring casts
+                                    if let Ok(Some(enum_txt)) =
+                                        row.try_get::<_, Option<PgEnumText>>(idx)
+                                    {
+                                        return Ok(CellValue {
+                                            value_type: CellValueType::Enum(
+                                                type_name.to_string(),
+                                            ),
+                                            raw_value: None,
+                                            display_value: enum_txt.0,
+                                            db_specific: Some(
+                                                DbSpecificValue::PostgreSQL(PostgresValue {
+                                                    oid: type_oid,
+                                                    type_name: type_name.to_string(),
+                                                    type_modifier: -1,
+                                                }),
+                                            ),
+                                        });
+                                    }
                                     // Try alternative methods for complex types
                                     eprintln!(
                                         "DEBUG: Failed to get custom type '{}' as string: {:?}",

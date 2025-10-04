@@ -544,3 +544,21 @@ pub struct AddForeignKeyRequest {
     pub on_update: String, // NO ACTION, CASCADE, SET NULL, SET DEFAULT, RESTRICT
     pub on_delete: String, // NO ACTION, CASCADE, SET NULL, SET DEFAULT, RESTRICT
 }
+
+// Trigger operation requests
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateTriggerRequest {
+    pub name: String,
+    pub event: Vec<String>,     // INSERT, UPDATE, DELETE, TRUNCATE
+    pub timing: String,          // BEFORE, AFTER, INSTEAD OF
+    pub level: String,           // ROW, STATEMENT
+    pub function_name: String,   // The trigger function to execute
+    pub condition: Option<String>, // WHEN condition for the trigger
+    pub for_each: Option<String>, // Optional: ROW or STATEMENT (defaults to level)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnableDisableTriggerRequest {
+    pub name: String,
+    pub enabled: bool,
+}

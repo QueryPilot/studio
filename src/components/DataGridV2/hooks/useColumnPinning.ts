@@ -54,8 +54,20 @@ export function useColumnPinning(
     sanitizePinned(initialPinned, columns, maxPinned),
   );
 
+  const arraysEqual = (a: string[], b: string[]): boolean => {
+    if (a === b) return true;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
+  };
+
   useEffect(() => {
-    setPinnedColumnsState((prev) => sanitizePinned(prev, columns, maxPinned));
+    setPinnedColumnsState((prev) => {
+      const next = sanitizePinned(prev, columns, maxPinned);
+      return arraysEqual(next, prev) ? prev : next;
+    });
   }, [columns, maxPinned]);
 
   useEffect(() => {
@@ -66,7 +78,10 @@ export function useColumnPinning(
     UseColumnPinningResult["setPinnedColumns"]
   >(
     (next) => {
-      setPinnedColumnsState(sanitizePinned(next, columns, maxPinned));
+      setPinnedColumnsState((prev) => {
+        const sanitized = sanitizePinned(next, columns, maxPinned);
+        return arraysEqual(sanitized, prev) ? prev : sanitized;
+      });
     },
     [columns, maxPinned],
   );

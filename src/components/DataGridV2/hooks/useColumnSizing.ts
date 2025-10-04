@@ -76,16 +76,35 @@ export function useColumnSizing(
         minColumnWidth,
         maxColumnWidth,
       );
-      setWidthOverrides(sanitized);
+      if (Object.keys(sanitized).length > 0) {
+        setWidthOverrides(sanitized);
+      }
       // Don't call onChange during initialization to prevent infinite loops
       // onChange will be called when user actually resizes columns
     }
   }, [initialWidths, columns, minColumnWidth, maxColumnWidth, widthOverrides]);
 
   useEffect(() => {
-    setWidthOverrides((prev) =>
-      sanitizeWidths(prev, columns, minColumnWidth, maxColumnWidth),
-    );
+    setWidthOverrides((prev) => {
+      const sanitized = sanitizeWidths(
+        prev,
+        columns,
+        minColumnWidth,
+        maxColumnWidth,
+      );
+      // Avoid state churn if nothing changes
+      if (Object.keys(sanitized).length === Object.keys(prev).length) {
+        let equal = true;
+        for (const k of Object.keys(sanitized)) {
+          if (sanitized[k] !== prev[k]) {
+            equal = false;
+            break;
+          }
+        }
+        if (equal) return prev;
+      }
+      return sanitized;
+    });
   }, [columns, maxColumnWidth, minColumnWidth]);
 
   // Removed useEffect to prevent circular updates - onChange is now called directly in setters

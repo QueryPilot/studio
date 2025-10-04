@@ -252,7 +252,7 @@ export const ColumnRow = memo(function ColumnRow({
       <td className="border-b border-r border-border text-foreground/70 dark:text-foreground/60 text-xs min-w-[150px]">
         <div
           className={cn(
-            "flex items-center",
+            "flex flex-col gap-1",
             foreignKeyChanged && canEdit && "bg-primary/10 rounded-sm",
           )}
         >
@@ -265,8 +265,22 @@ export const ColumnRow = memo(function ColumnRow({
             currentTable={originalColumn?.name}
             currentColumn={column.name}
             columnName={column.name}
-            disabled={!canEdit || isPrimary}
+            disabled={
+              !canEdit ||
+              isPrimary ||
+              column.db_type?.includes("[]") ||
+              column.db_type?.startsWith("_")
+            }
           />
+          {(column.db_type?.includes("[]") ||
+            column.db_type?.startsWith("_")) && (
+            <span
+              className="text-[10px] text-amber-600 dark:text-amber-400 px-2"
+              title="PostgreSQL does not support foreign keys on array columns. Use a junction table instead."
+            >
+              ⚠️ Array type - FK not supported
+            </span>
+          )}
         </div>
       </td>
       <td className="border-b text-foreground/60 dark:text-foreground/50 text-xs min-w-[200px]">

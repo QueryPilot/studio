@@ -4,10 +4,10 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from "@/components/ui/resizable";
-import { CodeEditor } from "@/components/CodeEditor";
+import { CodeEditor, type CodeEditorRef } from "@/components/CodeEditor";
 import { ERDToolbar } from "./ERDToolbar";
 import { ERDVisualizerPlaceholder } from "./ERDVisualizerPlaceholder";
-import { ERDVisualizer } from "./ERDVisualizer";
+import { ERDVisualizer, type ERDVisualizerRef } from "./ERDVisualizer";
 import { ReactFlowProvider } from "reactflow";
 import { Parser } from "@dbml/core";
 
@@ -62,7 +62,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   database,
   schema,
 }) => {
-  const [mode, setMode] = useState<"visual" | "code" | "split">("visual");
+  const [mode, setMode] = useState<"visual" | "split">("visual");
   const [editorCollapsed, setEditorCollapsed] = useState(false);
   const [dbmlDocument, setDbmlDocument] = useState<string>("");
   const [loading, setLoading] = useState(false);
@@ -70,7 +70,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   const [parseError, setParseError] = useState<string | null>(null);
   const [relationships, setRelationships] = useState<DBMLRelationship[]>([]);
   const [tables, setTables] = useState<TableStructure[]>([]);
-  const [schemas, setSchemas] = useState<string[]>(() =>
+  const [_schemas, setSchemas] = useState<string[]>(() =>
     schema ? [schema] : [DEFAULT_SCHEMA],
   );
   const [selectedSchema, setSelectedSchema] = useState<string>(
@@ -79,9 +79,8 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   const lastConnectionRef = useRef<string | null>(connectionId);
   const skipParseNextRef = useRef<boolean>(false);
   const parseTimerRef = useRef<number | undefined>(undefined);
-  const erdVisualizerRef = useRef<{ triggerAutoArrange: () => void } | null>(
-    null,
-  );
+  const erdVisualizerRef = useRef<ERDVisualizerRef | null>(null);
+  const editorRef = useRef<CodeEditorRef>(null);
 
   const ensureView = useErdStore((state) => state.ensureView);
   const setActiveViewStore = useErdStore((state) => state.setActiveView);
@@ -299,7 +298,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
     }
   }, [activeView?.dbml, dbmlDocument]);
 
-  const handleSchemaChange = (next: string) => {
+  const _handleSchemaChange = (next: string) => {
     setSelectedSchema(next);
     setTables([]);
     setRelationships([]);
@@ -700,31 +699,68 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
     [activeViewId, updateView],
   );
 
+  const handleColumnDoubleClick = useCallback(
+    (tableName: string, columnName: string) => {
+      // Switch to code mode if not already in code or split mode
+      if (mode === "visual") {
+        setMode("split");
+        setEditorCollapsed(false);
+      }
+
+      // Wait for mode switch to complete, then search for the column
+      setTimeout(() => {
+        // Find the column definition in the DBML document
+        // Pattern: "Table tableName" followed by column definition
+        const lines = dbmlDocument.split("\n");
+        let tableStartIndex = -1;
+        let columnLineIndex = -1;
+
+        // Find the table definition
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i] ?? "";
+          // Match "Table tableName" or "Table schema.tableName"
+          const tableMatch = line.match(
+            /^\s*Table\s+(?:\w+\.)?(\w+)\s*\{?\s*$/i,
+          );
+          if (tableMatch && tableMatch[1] === tableName) {
+            tableStartIndex = i;
+            break;
+          }
+        }
+
+        // Find the column within the table
+        if (tableStartIndex !== -1) {
+          for (let i = tableStartIndex + 1; i < lines.length; i++) {
+            const line = lines[i] ?? "";
+            // Break if we hit another table or closing brace
+            if (line.match(/^\s*Table\s+/i) || line.match(/^\s*\}\s*$/)) {
+              break;
+            }
+            // Match column definition (columnName type [options])
+            const columnMatch = line.match(/^\s*(\w+)\s+/);
+            if (columnMatch && columnMatch[1] === columnName) {
+              columnLineIndex = i;
+              break;
+            }
+          }
+        }
+
+        // If we found the column, reveal and focus on that line
+        if (columnLineIndex !== -1) {
+          // Line numbers are 1-based for revealLine
+          editorRef.current?.revealLine(columnLineIndex + 1);
+        }
+      }, 100);
+    },
+    [mode, dbmlDocument],
+  );
+
   return (
     <div
       className="relative flex h-full flex-col"
       data-panel-id={tabId}
       data-connection-id={connectionId}
     >
-      <div className="absolute top-0 left-0 right-0 bg-transparent z-10">
-        <ERDToolbar
-          mode={mode}
-          onModeChange={(next) => {
-            setMode(next);
-            if (next !== "split") {
-              setEditorCollapsed(false);
-            }
-          }}
-          onCreateView={() => {
-            // TODO: hook into ERD view creation when multi-view support is added
-          }}
-          onRefresh={handleRefresh}
-          onAutoArrange={() => {
-            erdVisualizerRef.current?.triggerAutoArrange();
-          }}
-        />
-      </div>
-
       {parseError ? (
         <div className="border-l-4 border-destructive bg-destructive/10 px-3 py-2 text-xs text-destructive select-text">
           {parseError}
@@ -732,56 +768,26 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
       ) : null}
 
       <ResizablePanelGroup direction="horizontal" className="flex-1">
-        <ResizablePanel
-          defaultSize={mode === "split" ? 60 : 100}
-          minSize={30}
-          className="border-r"
-          style={{
-            display: mode === "code" ? "none" : "block",
-          }}
-        >
-          {tables.length > 0 && !loading && !error ? (
-            <ReactFlowProvider>
-              <ERDVisualizer
-                ref={erdVisualizerRef}
-                tables={tables}
-                relationships={relationships}
-                nodePositions={activeView?.nodePositions ?? {}}
-                initialViewport={activeView?.viewport}
-                onNodePositionsChange={handleNodePositionsChange}
-                onNodePositionChange={handleNodePositionChange}
-                onViewportChange={handleViewportChange}
-              />
-            </ReactFlowProvider>
-          ) : (
-            <ERDVisualizerPlaceholder
-              loading={loading}
-              error={error}
-              tableCount={tables.length}
-              relationshipCount={relationships.length}
-              schema={selectedSchema}
-            />
-          )}
-        </ResizablePanel>
-        {mode === "split" && !editorCollapsed && <ResizableHandle />}
-        {(mode === "code" || mode === "split") && (
+        {/* Code Editor Panel - LEFT side in split mode */}
+        {mode === "split" && (
           <ResizablePanel
-            defaultSize={mode === "code" ? 100 : 40}
+            defaultSize={40}
             minSize={20}
-            maxSize={mode === "code" ? 100 : 70}
-            collapsible={mode === "split"}
+            maxSize={70}
+            collapsible={true}
             onCollapse={() => {
               setEditorCollapsed(true);
             }}
             onExpand={() => {
               setEditorCollapsed(false);
             }}
-            className="border-l bg-background"
+            className="border-r bg-background"
             style={{
               display: editorCollapsed ? "none" : "block",
             }}
           >
             <CodeEditor
+              ref={editorRef}
               value={dbmlDocument}
               onChange={handleEditorChange}
               language="dbml"
@@ -795,6 +801,68 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
             />
           </ResizablePanel>
         )}
+        {mode === "split" && !editorCollapsed && <ResizableHandle />}
+
+        {/* Visual Diagram Panel - RIGHT side or full width */}
+        <ResizablePanel
+          defaultSize={mode === "split" ? 60 : 100}
+          minSize={30}
+          className="relative"
+        >
+          {tables.length > 0 && !loading && !error ? (
+            <>
+              <div className="absolute top-0 left-0 right-0 bg-transparent z-10">
+                <ERDToolbar
+                  mode={mode}
+                  onModeChange={(next) => {
+                    setMode(next);
+                    if (next !== "split") {
+                      setEditorCollapsed(false);
+                    }
+                  }}
+                  onCreateView={() => {
+                    // TODO: hook into ERD view creation when multi-view support is added
+                  }}
+                  onRefresh={handleRefresh}
+                  onAutoArrange={() => {
+                    erdVisualizerRef.current?.triggerAutoArrange();
+                  }}
+                  onZoomIn={() => {
+                    erdVisualizerRef.current?.zoomIn();
+                  }}
+                  onZoomOut={() => {
+                    erdVisualizerRef.current?.zoomOut();
+                  }}
+                  onFitView={() => {
+                    erdVisualizerRef.current?.fitView();
+                  }}
+                />
+              </div>
+
+              <ReactFlowProvider>
+                <ERDVisualizer
+                  ref={erdVisualizerRef}
+                  tables={tables}
+                  relationships={relationships}
+                  nodePositions={activeView?.nodePositions ?? {}}
+                  initialViewport={activeView?.viewport}
+                  onNodePositionsChange={handleNodePositionsChange}
+                  onNodePositionChange={handleNodePositionChange}
+                  onViewportChange={handleViewportChange}
+                  onColumnDoubleClick={handleColumnDoubleClick}
+                />
+              </ReactFlowProvider>
+            </>
+          ) : (
+            <ERDVisualizerPlaceholder
+              loading={loading}
+              error={error}
+              tableCount={tables.length}
+              relationshipCount={relationships.length}
+              schema={selectedSchema}
+            />
+          )}
+        </ResizablePanel>
       </ResizablePanelGroup>
     </div>
   );

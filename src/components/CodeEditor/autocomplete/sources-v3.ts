@@ -3,6 +3,7 @@ import type {
   CompletionSource,
   CompletionContext,
 } from "@codemirror/autocomplete";
+// (No direct import needed here; enum values provided via schemaCache)
 import { schemaCache } from "@/services/schemaCache";
 import type { QueryContext } from "./parser-v2-fixed";
 
@@ -623,6 +624,119 @@ export function createContextualCompletionSource(params: {
                   type: "keyword",
                   score: 50,
                 });
+              }
+            }
+
+            // Enum value suggestions: detect `<col> = <valuePrefix>` or `IN (<valuePrefix>`
+            const valueCtx =
+              /([a-zA-Z_][\w.]*)\s*(=|!=|<>|IN\s*\()\s*(['"]?)([a-zA-Z0-9_-]*)(['"]?)\s*\)?\s*$/i.exec(
+                textBefore,
+              );
+            if (valueCtx) {
+              const colRefRaw = valueCtx[1] ?? "";
+              const typedQuote = valueCtx[3] ?? "";
+              const valuePrefix = valueCtx[4] ?? "";
+
+              let targetSchema = effectiveSchema;
+              let targetTable: string | undefined;
+              let targetColumn: string | undefined;
+
+              if (colRefRaw.includes(".")) {
+                const parts = colRefRaw.split(".");
+                const aliasOrTable = (
+                  parts[parts.length - 2] ?? ""
+                ).toLowerCase();
+                const columnName = (
+                  parts[parts.length - 1] ?? ""
+                ).toLowerCase();
+
+                // Resolve alias to table
+                const aliasRef = queryContext.aliases.get(aliasOrTable);
+                if (aliasRef?.table) {
+                  targetTable = aliasRef.table;
+                  targetSchema = aliasRef.schema || targetSchema;
+                } else {
+                  // Fallback: find by table name in scope
+                  const t = queryContext.tablesInScope.find(
+                    (t) => t.table.toLowerCase() === aliasOrTable,
+                  );
+                  if (t) {
+                    targetTable = t.table;
+                    targetSchema = t.schema || targetSchema;
+                  }
+                }
+                targetColumn = columnName;
+              } else if (queryContext.tablesInScope.length === 1) {
+                // Single table in scope, unqualified column
+                const only = queryContext.tablesInScope[0];
+                if (only) {
+                  targetTable = only.table;
+                  targetSchema = only.schema || targetSchema;
+                }
+                targetColumn = colRefRaw.toLowerCase();
+              }
+
+              if (targetTable && targetColumn) {
+                try {
+                  // Prefer full structure to get richer enum metadata if needed
+                  console.debug(
+                    `[Autocomplete] Enum attempt for ${targetSchema}.${targetTable}.${targetColumn}`,
+                  );
+                  const enumVals = await schemaCache.getColumnEnumValues(
+                    connectionId,
+                    targetSchema,
+                    targetTable,
+                    targetColumn,
+                  );
+                  console.debug(
+                    `[Autocomplete] Enum values count=${enumVals.length}`,
+                  );
+
+                  if (enumVals.length > 0) {
+                    const options = enumVals
+                      .filter(
+                        (v: string) =>
+                          !valuePrefix ||
+                          v.toLowerCase().startsWith(valuePrefix.toLowerCase()),
+                      )
+                      .map((v: string) => {
+                        const apply = typedQuote ? v : `'${v}'`;
+                        return {
+                          label: v,
+                          apply,
+                          type: "enum",
+                          detail: `${targetTable}.${targetColumn}`,
+                          score: 500,
+                        } as RankedCompletion;
+                      });
+
+                    if (options.length > 0) {
+                      let fromPos = context.pos - valuePrefix.length;
+                      let toPos = context.pos;
+                      const prevChar = fullText[context.pos - 1] || "";
+                      const prevPrevChar = fullText[context.pos - 2] || "";
+                      // If we are after two quotes: ... = ''|
+                      if (
+                        valuePrefix.length === 0 &&
+                        typedQuote &&
+                        prevChar === typedQuote &&
+                        prevPrevChar === typedQuote
+                      ) {
+                        fromPos = context.pos - 2;
+                        toPos = context.pos;
+                      }
+
+                      return {
+                        from: fromPos,
+                        to: toPos,
+                        options: options.slice(0, MAX_COMPLETIONS),
+                        validFor: /^[a-zA-Z0-9_-]*$/,
+                      };
+                    }
+                  }
+                } catch {
+                  // ignore
+                }
               }
             }
           }

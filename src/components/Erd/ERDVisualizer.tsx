@@ -7,7 +7,6 @@ import React, {
 } from "react";
 import ReactFlow, {
   Background,
-  Controls,
   Handle,
   MarkerType,
   Position,
@@ -50,6 +49,7 @@ interface ERDVisualizerProps {
   onNodePositionsChange?: (positions: Record<string, NodePosition>) => void;
   onNodePositionChange?: (nodeId: string, position: NodePosition) => void;
   onViewportChange?: (viewport: ViewportState) => void;
+  onColumnDoubleClick?: (tableName: string, columnName: string) => void;
 }
 
 interface TableNodeData {
@@ -62,6 +62,7 @@ interface TableNodeData {
   onClick: (tableId: string) => void;
   onColumnHover?: (columnName: string) => void;
   onColumnLeave?: () => void;
+  onColumnDoubleClick?: (tableName: string, columnName: string) => void;
 }
 
 interface ForeignEdgeData {
@@ -169,6 +170,7 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
     onClick,
     onColumnHover,
     onColumnLeave,
+    onColumnDoubleClick,
   } = data;
   // Sort columns: PK first, then FK, then others
   const sortedColumns = [...table.columns].sort((a, b) => {
@@ -259,7 +261,7 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
           </button>
         ) : null}
       </div>
-      <div className="max-h-[400px] overflow-auto px-2 py-2">
+      <div className="overflow-auto px-2 py-2">
         <ul className="space-y-0.5">
           {columns.map((column) => {
             const { type, constraints } = formatColumnType(column);
@@ -267,12 +269,16 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
               <Tooltip key={column.name} delayDuration={200}>
                 <TooltipTrigger asChild>
                   <li
-                    className="relative flex items-center gap-2 rounded px-2 py-1 transition hover:bg-muted"
+                    className="relative flex items-center gap-2 rounded px-2 py-1 transition hover:bg-muted cursor-pointer"
                     onMouseEnter={() => {
                       onColumnHover?.(column.name);
                     }}
                     onMouseLeave={() => {
                       onColumnLeave?.();
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      onColumnDoubleClick?.(table.name, column.name);
                     }}
                   >
                     {/* Left side handles */}
@@ -410,26 +416,26 @@ const ForeignKeyEdge: React.FC<EdgeProps<ForeignEdgeData>> = ({
     if (cardinality === "1") {
       // Single line for "one" side
       return {
-        markerWidth: 6,
-        markerHeight: 10,
-        refX: position === "target" ? 6 : 0,
-        refY: 5,
-        orient: "auto",
-        fill: "none",
-        stroke: baseColor,
-        strokeWidth: 1,
-      };
-    } else {
-      // Crow's foot for "many" side
-      return {
-        markerWidth: 10,
-        markerHeight: 8,
-        refX: position === "target" ? 10 : 0,
-        refY: 4,
+        markerWidth: 4,
+        markerHeight: 7,
+        refX: position === "target" ? 4 : 0,
+        refY: 3.5,
         orient: "auto",
         fill: "none",
         stroke: baseColor,
         strokeWidth: 0.8,
+      };
+    } else {
+      // Crow's foot for "many" side
+      return {
+        markerWidth: 7,
+        markerHeight: 6,
+        refX: position === "target" ? 7 : 0,
+        refY: 3,
+        orient: "auto",
+        fill: "none",
+        stroke: baseColor,
+        strokeWidth: 0.6,
       };
     }
   };
@@ -478,24 +484,34 @@ const ForeignKeyEdge: React.FC<EdgeProps<ForeignEdgeData>> = ({
   let endLabelY = targetY;
 
   // Adjust based on connection position
-  if (sourcePosition === Position.Right) {
-    startLabelX = sourceX + sourceOffset;
-  } else if (sourcePosition === Position.Left) {
-    startLabelX = sourceX - sourceOffset;
-  } else if (sourcePosition === Position.Top) {
-    startLabelY = sourceY - sourceOffset;
-  } else if (sourcePosition === Position.Bottom) {
-    startLabelY = sourceY + sourceOffset;
+  switch (sourcePosition) {
+    case Position.Right:
+      startLabelX = sourceX + sourceOffset;
+      break;
+    case Position.Left:
+      startLabelX = sourceX - sourceOffset;
+      break;
+    case Position.Top:
+      startLabelY = sourceY - sourceOffset;
+      break;
+    case Position.Bottom:
+      startLabelY = sourceY + sourceOffset;
+      break;
   }
 
-  if (targetPosition === Position.Right) {
-    endLabelX = targetX + targetOffset;
-  } else if (targetPosition === Position.Left) {
-    endLabelX = targetX - targetOffset;
-  } else if (targetPosition === Position.Top) {
-    endLabelY = targetY - targetOffset;
-  } else if (targetPosition === Position.Bottom) {
-    endLabelY = targetY + targetOffset;
+  switch (targetPosition) {
+    case Position.Right:
+      endLabelX = targetX + targetOffset;
+      break;
+    case Position.Left:
+      endLabelX = targetX - targetOffset;
+      break;
+    case Position.Top:
+      endLabelY = targetY - targetOffset;
+      break;
+    case Position.Bottom:
+      endLabelY = targetY + targetOffset;
+      break;
   }
 
   const lineStyle = getLineStyle();
@@ -516,13 +532,13 @@ const ForeignKeyEdge: React.FC<EdgeProps<ForeignEdgeData>> = ({
         {sourceMarkerStyle && (
           <marker id={sourceMarkerId} {...sourceMarkerStyle}>
             {data?.sourceCardinality === "1" ? (
-              <line x1="0" y1="1" x2="0" y2="9" />
+              <line x1="0" y1="0.5" x2="0" y2="6.5" />
             ) : (
-              // Thinner crow's foot for "many"
+              // Smaller crow's foot for "many"
               <g>
-                <line x1="0" y1="2" x2="6" y2="4" />
-                <line x1="0" y1="4" x2="6" y2="4" />
-                <line x1="0" y1="6" x2="6" y2="4" />
+                <line x1="0" y1="1" x2="4" y2="3" />
+                <line x1="0" y1="3" x2="4" y2="3" />
+                <line x1="0" y1="5" x2="4" y2="3" />
               </g>
             )}
           </marker>
@@ -530,13 +546,13 @@ const ForeignKeyEdge: React.FC<EdgeProps<ForeignEdgeData>> = ({
         {targetMarkerStyle && (
           <marker id={targetMarkerId} {...targetMarkerStyle}>
             {data?.targetCardinality === "1" ? (
-              <line x1="6" y1="1" x2="6" y2="9" />
+              <line x1="4" y1="0.5" x2="4" y2="6.5" />
             ) : (
-              // Thinner crow's foot for "many"
+              // Smaller crow's foot for "many"
               <g>
-                <line x1="4" y1="2" x2="10" y2="4" />
-                <line x1="4" y1="4" x2="10" y2="4" />
-                <line x1="4" y1="6" x2="10" y2="4" />
+                <line x1="3" y1="1" x2="7" y2="3" />
+                <line x1="3" y1="3" x2="7" y2="3" />
+                <line x1="3" y1="5" x2="7" y2="3" />
               </g>
             )}
           </marker>
@@ -590,14 +606,14 @@ const ForeignKeyEdge: React.FC<EdgeProps<ForeignEdgeData>> = ({
       )}
 
       {/* Cardinality indicators only show when line is hovered or highlighted */}
-      {data?.sourceCardinality && (data?.isHovered || data?.highlighted) && (
+      {data?.sourceCardinality && (data.isHovered || data.highlighted) && (
         <EdgeLabelRenderer>
           <div
             style={{
               position: "absolute",
               transform: `translate(-50%, -50%) translate(${startLabelX}px, ${startLabelY}px)`,
               pointerEvents: "none",
-              opacity: data?.isHovered || data?.highlighted ? 1 : 0,
+              opacity: data.isHovered || data.highlighted ? 1 : 0,
               transition: "opacity 150ms ease-in-out",
             }}
             className="text-[11px] font-bold text-primary bg-background rounded-full w-6 h-6 flex items-center justify-center shadow-sm border border-primary/40"
@@ -606,14 +622,14 @@ const ForeignKeyEdge: React.FC<EdgeProps<ForeignEdgeData>> = ({
           </div>
         </EdgeLabelRenderer>
       )}
-      {data?.targetCardinality && (data?.isHovered || data?.highlighted) && (
+      {data?.targetCardinality && (data.isHovered || data.highlighted) && (
         <EdgeLabelRenderer>
           <div
             style={{
               position: "absolute",
               transform: `translate(-50%, -50%) translate(${endLabelX}px, ${endLabelY}px)`,
               pointerEvents: "none",
-              opacity: data?.isHovered || data?.highlighted ? 1 : 0,
+              opacity: data.isHovered || data.highlighted ? 1 : 0,
               transition: "opacity 150ms ease-in-out",
             }}
             className="text-[11px] font-bold text-primary bg-background rounded-full w-6 h-6 flex items-center justify-center shadow-sm border border-primary/40"
@@ -623,7 +639,7 @@ const ForeignKeyEdge: React.FC<EdgeProps<ForeignEdgeData>> = ({
         </EdgeLabelRenderer>
       )}
 
-      {data?.label && data?.isHovered && (
+      {data?.label && data.isHovered && (
         <EdgeLabelRenderer>
           <div
             style={{
@@ -653,8 +669,15 @@ const edgeTypes = {
   [EDGE_TYPE]: ForeignKeyEdge,
 };
 
+export interface ERDVisualizerRef {
+  triggerAutoArrange: () => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  fitView: () => void;
+}
+
 export const ERDVisualizer = React.forwardRef<
-  { triggerAutoArrange: () => void },
+  ERDVisualizerRef,
   ERDVisualizerProps
 >(
   (
@@ -666,6 +689,7 @@ export const ERDVisualizer = React.forwardRef<
       onNodePositionsChange,
       onNodePositionChange,
       onViewportChange,
+      onColumnDoubleClick,
     },
     ref,
   ) => {
@@ -717,7 +741,7 @@ export const ERDVisualizer = React.forwardRef<
       setSelectedTableId((prev) => (prev === tableId ? null : tableId));
     }, []);
 
-    const handlePaneClick = useCallback((event: React.MouseEvent) => {
+    const handlePaneClick = useCallback(() => {
       // Deselect table when clicking on the pane/background
       setSelectedTableId(null);
     }, []);
@@ -912,8 +936,13 @@ export const ERDVisualizer = React.forwardRef<
             onColumnLeave: () => {
               setHoveredColumn(null);
             },
+            onColumnDoubleClick,
           },
           type: TABLE_NODE_TYPE,
+          // Force React to re-render when expansion changes
+          style: {
+            width: NODE_WIDTH,
+          },
         } satisfies Node<TableNodeData>;
       });
 
@@ -947,12 +976,31 @@ export const ERDVisualizer = React.forwardRef<
       onNodePositionsChange,
       toggleExpanded,
       onViewportChange,
+      onColumnDoubleClick,
     ]);
 
     React.useImperativeHandle(
       ref,
       () => ({
         triggerAutoArrange: layoutWithElk,
+        zoomIn: () => {
+          const instance = flowInstanceRef.current;
+          if (instance) {
+            instance.zoomIn({ duration: 200 });
+          }
+        },
+        zoomOut: () => {
+          const instance = flowInstanceRef.current;
+          if (instance) {
+            instance.zoomOut({ duration: 200 });
+          }
+        },
+        fitView: () => {
+          const instance = flowInstanceRef.current;
+          if (instance) {
+            instance.fitView({ padding: 0.2, duration: 400 });
+          }
+        },
       }),
       [layoutWithElk],
     );
@@ -979,8 +1027,13 @@ export const ERDVisualizer = React.forwardRef<
               onColumnLeave: () => {
                 setHoveredColumn(null);
               },
+              onColumnDoubleClick,
             },
             type: TABLE_NODE_TYPE,
+            // Force React to re-render when expansion changes
+            style: {
+              width: NODE_WIDTH,
+            },
           } satisfies Node<TableNodeData>;
         });
         setNodes(positionedNodes);
@@ -1012,6 +1065,7 @@ export const ERDVisualizer = React.forwardRef<
       selectedTableId,
       handleTableClick,
       layoutWithElk,
+      onColumnDoubleClick,
     ]);
 
     // Use a ref to track current nodes to avoid dependency cycles
@@ -1039,6 +1093,7 @@ export const ERDVisualizer = React.forwardRef<
               onColumnLeave: () => {
                 setHoveredColumn(null);
               },
+              onColumnDoubleClick,
             },
           };
         }),
@@ -1050,6 +1105,7 @@ export const ERDVisualizer = React.forwardRef<
       setNodes,
       selectedTableId,
       handleTableClick,
+      onColumnDoubleClick,
     ]);
 
     useEffect(() => {
@@ -1222,11 +1278,6 @@ export const ERDVisualizer = React.forwardRef<
           onPaneClick={handlePaneClick}
         >
           <Background className="opacity-60" gap={24} size={1} />
-          <Controls
-            showInteractive={false}
-            position="bottom-right"
-            className="bg-background"
-          />
         </ReactFlow>
       </div>
     );

@@ -90,6 +90,22 @@ fn main() {
             commands::store_connection_with_event,
             commands::delete_connection_with_event,
             commands::update_connection_with_event,
+            // Index operations
+            commands::create_index,
+            commands::drop_index,
+            commands::rename_index,
+            // Column operations
+            commands::alter_table_add_column,
+            commands::alter_table_drop_column,
+            commands::alter_table_modify_column,
+            commands::alter_table_rename_column,
+            // Foreign key operations
+            commands::alter_table_add_foreign_key,
+            commands::alter_table_drop_foreign_key,
+            // Trigger operations
+            commands::create_trigger,
+            commands::drop_trigger,
+            commands::enable_disable_trigger,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

@@ -1384,6 +1384,91 @@ class DatabaseService {
   }
 
   /**
+   * Create a trigger
+   */
+  async createTrigger(
+    connectionId: string,
+    schema: string,
+    table: string,
+    trigger: {
+      name: string;
+      event: string[];
+      timing: string;
+      level: string;
+      functionName: string;
+      condition?: string;
+    },
+  ): Promise<void> {
+    try {
+      const backendConnId = this.getBackendConnectionId(connectionId);
+      await safeInvoke("create_trigger", {
+        connId: backendConnId,
+        schema,
+        table,
+        trigger: {
+          name: trigger.name,
+          event: trigger.event,
+          timing: trigger.timing,
+          level: trigger.level,
+          function_name: trigger.functionName,
+          condition: trigger.condition,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to create trigger:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Drop a trigger
+   */
+  async dropTrigger(
+    connectionId: string,
+    schema: string,
+    table: string,
+    triggerName: string,
+  ): Promise<void> {
+    try {
+      const backendConnId = this.getBackendConnectionId(connectionId);
+      await safeInvoke("drop_trigger", {
+        connId: backendConnId,
+        schema,
+        table,
+        triggerName,
+      });
+    } catch (error) {
+      console.error("Failed to drop trigger:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Enable or disable a trigger
+   */
+  async enableDisableTrigger(
+    connectionId: string,
+    schema: string,
+    table: string,
+    triggerName: string,
+    enabled: boolean,
+  ): Promise<void> {
+    try {
+      const backendConnId = this.getBackendConnectionId(connectionId);
+      await safeInvoke("enable_disable_trigger", {
+        connId: backendConnId,
+        schema,
+        table,
+        triggerName,
+        enabled,
+      });
+    } catch (error) {
+      console.error("Failed to enable/disable trigger:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Cleanup all connections
    */
   async cleanup(): Promise<void> {

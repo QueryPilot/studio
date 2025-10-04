@@ -3,13 +3,11 @@ use dashmap::DashMap;
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tokio_postgres::{Client, Config, NoTls};
-use uuid::Uuid;
 
 use super::introspection::PostgresIntrospector;
+use super::parser::quote_identifier;
 use super::query::PostgresQueryExecutor;
-use super::types::PostgresTypeConverter;
 use crate::core::adapter::DbAdapter;
 use crate::error::{AppError, Result};
 use crate::types::*;
@@ -592,7 +590,12 @@ impl DbAdapter for PostgresAdapter {
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
         let unique_str = if index.unique { "UNIQUE " } else { "" };
-        let columns = index.columns.join(", ");
+        let columns = index
+            .columns
+            .iter()
+            .map(|col| quote_identifier(col))
+            .collect::<Vec<_>>()
+            .join(", ");
         let index_type = if index.index_type.is_empty() {
             "btree".to_string()
         } else {
@@ -601,7 +604,12 @@ impl DbAdapter for PostgresAdapter {
 
         let mut sql = format!(
             "CREATE {}INDEX {} ON {}.{} USING {} ({})",
-            unique_str, index.name, schema, table, index_type, columns
+            unique_str,
+            quote_identifier(&index.name),
+            quote_identifier(schema),
+            quote_identifier(table),
+            index_type,
+            columns
         );
 
         if let Some(condition) = &index.condition {
@@ -619,7 +627,11 @@ impl DbAdapter for PostgresAdapter {
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
-        let sql = format!("DROP INDEX IF EXISTS {}.{}", schema, index_name);
+        let sql = format!(
+            "DROP INDEX IF EXISTS {}.{}",
+            quote_identifier(schema),
+            quote_identifier(index_name)
+        );
 
         client.execute(&sql, &[]).await?;
 
@@ -632,7 +644,12 @@ impl DbAdapter for PostgresAdapter {
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
-        let sql = format!("ALTER INDEX {}.{} RENAME TO {}", schema, old_name, new_name);
+        let sql = format!(
+            "ALTER INDEX {}.{} RENAME TO {}",
+            quote_identifier(schema),
+            quote_identifier(old_name),
+            quote_identifier(new_name)
+        );
 
         client.execute(&sql, &[]).await?;
 
@@ -653,7 +670,10 @@ impl DbAdapter for PostgresAdapter {
 
         let mut sql = format!(
             "ALTER TABLE {}.{} ADD COLUMN {} {}",
-            schema, table, column.name, column.data_type
+            quote_identifier(schema),
+            quote_identifier(table),
+            quote_identifier(&column.name),
+            column.data_type
         );
 
         if !column.nullable {
@@ -674,7 +694,9 @@ impl DbAdapter for PostgresAdapter {
         if let Some(comment) = &column.comment {
             let comment_sql = format!(
                 "COMMENT ON COLUMN {}.{}.{} IS $1",
-                schema, table, column.name
+                quote_identifier(schema),
+                quote_identifier(table),
+                quote_identifier(&column.name)
             );
             client.execute(&comment_sql, &[&comment]).await?;
         }
@@ -695,7 +717,9 @@ impl DbAdapter for PostgresAdapter {
 
         let sql = format!(
             "ALTER TABLE {}.{} DROP COLUMN IF EXISTS {}",
-            schema, table, column_name
+            quote_identifier(schema),
+            quote_identifier(table),
+            quote_identifier(column_name)
         );
 
         client.execute(&sql, &[]).await?;
@@ -714,20 +738,37 @@ impl DbAdapter for PostgresAdapter {
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
+        let current_column_name = quote_identifier(&column.name);
+
         // Handle column rename
         if let Some(new_name) = &column.new_name {
             let sql = format!(
                 "ALTER TABLE {}.{} RENAME COLUMN {} TO {}",
-                schema, table, column.name, new_name
+                quote_identifier(schema),
+                quote_identifier(table),
+                current_column_name,
+                quote_identifier(new_name)
             );
             client.execute(&sql, &[]).await?;
         }
+
+        // Use the new name for subsequent operations if it was renamed
+        let working_column_name = column
+            .new_name
+            .as_ref()
+            .map(|n| quote_identifier(n))
+            .unwrap_or_else(|| current_column_name.clone());
 
         // Handle type change
         if let Some(new_type) = &column.new_type {
             let sql = format!(
                 "ALTER TABLE {}.{} ALTER COLUMN {} TYPE {} USING {}::{}",
-                schema, table, column.name, new_type, column.name, new_type
+                quote_identifier(schema),
+                quote_identifier(table),
+                working_column_name,
+                new_type,
+                working_column_name,
+                new_type
             );
             client.execute(&sql, &[]).await?;
         }
@@ -737,12 +778,16 @@ impl DbAdapter for PostgresAdapter {
             let sql = if nullable {
                 format!(
                     "ALTER TABLE {}.{} ALTER COLUMN {} DROP NOT NULL",
-                    schema, table, column.name
+                    quote_identifier(schema),
+                    quote_identifier(table),
+                    working_column_name
                 )
             } else {
                 format!(
                     "ALTER TABLE {}.{} ALTER COLUMN {} SET NOT NULL",
-                    schema, table, column.name
+                    quote_identifier(schema),
+                    quote_identifier(table),
+                    working_column_name
                 )
             };
             client.execute(&sql, &[]).await?;
@@ -752,23 +797,29 @@ impl DbAdapter for PostgresAdapter {
         if column.drop_default {
             let sql = format!(
                 "ALTER TABLE {}.{} ALTER COLUMN {} DROP DEFAULT",
-                schema, table, column.name
+                quote_identifier(schema),
+                quote_identifier(table),
+                working_column_name
             );
             client.execute(&sql, &[]).await?;
         } else if let Some(default) = &column.default_value {
             let sql = format!(
                 "ALTER TABLE {}.{} ALTER COLUMN {} SET DEFAULT {}",
-                schema, table, column.name, default
+                quote_identifier(schema),
+                quote_identifier(table),
+                working_column_name,
+                default
             );
             client.execute(&sql, &[]).await?;
         }
 
         // Update comment
         if let Some(comment) = &column.comment {
-            let column_name = column.new_name.as_ref().unwrap_or(&column.name);
             let comment_sql = format!(
                 "COMMENT ON COLUMN {}.{}.{} IS $1",
-                schema, table, column_name
+                quote_identifier(schema),
+                quote_identifier(table),
+                working_column_name
             );
             client.execute(&comment_sql, &[&comment]).await?;
         }
@@ -790,7 +841,10 @@ impl DbAdapter for PostgresAdapter {
 
         let sql = format!(
             "ALTER TABLE {}.{} RENAME COLUMN {} TO {}",
-            schema, table, old_name, new_name
+            quote_identifier(schema),
+            quote_identifier(table),
+            quote_identifier(old_name),
+            quote_identifier(new_name)
         );
 
         client.execute(&sql, &[]).await?;
@@ -809,6 +863,38 @@ impl DbAdapter for PostgresAdapter {
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
+        // Check if the column is an array type (cannot have FK)
+        let type_check_sql = format!(
+            "SELECT format_type(a.atttypid, a.atttypmod) as data_type
+             FROM pg_attribute a
+             JOIN pg_class c ON c.oid = a.attrelid
+             JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE n.nspname = $1
+               AND c.relname = $2
+               AND a.attname = $3
+               AND NOT a.attisdropped"
+        );
+
+        let rows = client
+            .query(&type_check_sql, &[&schema, &table, &fk.column_name])
+            .await?;
+
+        if let Some(row) = rows.first() {
+            let data_type: String = row.get(0);
+            
+            // Log the column type for debugging
+            eprintln!("DEBUG: Attempting to add FK on column '{}' with type '{}'", fk.column_name, data_type);
+            
+            // Check if it's an array type
+            if data_type.ends_with("[]") || data_type.starts_with("ARRAY") {
+                return Err(AppError::InvalidInput(format!(
+                    "Cannot create foreign key on array column '{}' (type: {}). PostgreSQL does not support foreign key constraints on array columns. Consider using a junction table instead.",
+                    fk.column_name,
+                    data_type
+                )));
+            }
+        }
+
         let constraint_name = fk
             .constraint_name
             .as_ref()
@@ -817,15 +903,18 @@ impl DbAdapter for PostgresAdapter {
 
         let sql = format!(
             "ALTER TABLE {}.{} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({}) ON UPDATE {} ON DELETE {}",
-            schema,
-            table,
-            constraint_name,
-            fk.column_name,
-            fk.referenced_table,
-            fk.referenced_column,
+            quote_identifier(schema),
+            quote_identifier(table),
+            quote_identifier(&constraint_name),
+            quote_identifier(&fk.column_name),
+            quote_identifier(&fk.referenced_table),
+            quote_identifier(&fk.referenced_column),
             fk.on_update,
             fk.on_delete
         );
+
+        // Log the SQL for debugging
+        eprintln!("DEBUG: Executing FK SQL: {}", sql);
 
         client.execute(&sql, &[]).await?;
 
@@ -846,6 +935,99 @@ impl DbAdapter for PostgresAdapter {
         let sql = format!(
             "ALTER TABLE \"{}\".\"{}\" DROP CONSTRAINT IF EXISTS \"{}\"",
             schema, table, constraint_name
+        );
+
+        client.execute(&sql, &[]).await?;
+
+        Ok(())
+    }
+
+    // Trigger operations
+    async fn create_trigger(
+        &self,
+        schema: &str,
+        table: &str,
+        trigger: &CreateTriggerRequest,
+    ) -> Result<()> {
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+
+        // Parse timing to handle "INSTEAD OF" case
+        let timing = trigger.timing.trim().to_uppercase();
+        let is_instead_of = timing.contains("INSTEAD");
+
+        // Build the event list
+        let events = trigger.event.join(" OR ");
+
+        // Build the FOR EACH clause
+        let for_each = trigger
+            .for_each
+            .as_deref()
+            .unwrap_or(&trigger.level)
+            .to_uppercase();
+
+        // Build the CREATE TRIGGER statement
+        let mut sql = format!(
+            "CREATE TRIGGER {} {} {} ON {}.{} FOR EACH {} EXECUTE FUNCTION {}",
+            quote_identifier(&trigger.name),
+            if is_instead_of { "INSTEAD OF" } else { &timing },
+            events,
+            quote_identifier(schema),
+            quote_identifier(table),
+            for_each,
+            trigger.function_name
+        );
+
+        // Add WHEN condition if provided
+        if let Some(condition) = &trigger.condition {
+            sql.push_str(&format!(" WHEN ({})", condition));
+        }
+
+        client.execute(&sql, &[]).await?;
+
+        Ok(())
+    }
+
+    async fn drop_trigger(&self, schema: &str, table: &str, trigger_name: &str) -> Result<()> {
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+
+        let sql = format!(
+            "DROP TRIGGER IF EXISTS {} ON {}.{}",
+            quote_identifier(trigger_name),
+            quote_identifier(schema),
+            quote_identifier(table)
+        );
+
+        client.execute(&sql, &[]).await?;
+
+        Ok(())
+    }
+
+    async fn enable_disable_trigger(
+        &self,
+        schema: &str,
+        table: &str,
+        trigger_name: &str,
+        enabled: bool,
+    ) -> Result<()> {
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+
+        let action = if enabled { "ENABLE" } else { "DISABLE" };
+
+        let sql = format!(
+            "ALTER TABLE {}.{} {} TRIGGER {}",
+            quote_identifier(schema),
+            quote_identifier(table),
+            action,
+            quote_identifier(trigger_name)
         );
 
         client.execute(&sql, &[]).await?;
