@@ -72,12 +72,14 @@ export const TableStructure = memo(function TableStructure({
   const columnsData = useMemo(() => {
     return columns.map((col) => {
       const fkInfo = foreignKeys.find((fk) => fk.columns.includes(col.name));
-      const checkConstraint = constraints.find(
-        (c) =>
-          c.constraint_type === ConstraintType.Check &&
-          c.definition &&
-          c.definition.includes(col.name),
-      );
+      const escapeRegExp = (s: string) =>
+        s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const checkConstraint = constraints.find((c) => {
+        if (c.constraint_type !== ConstraintType.Check || !c.definition)
+          return false;
+        const pattern = new RegExp(`\\b"?${escapeRegExp(col.name)}"?\\b`, "i");
+        return pattern.test(c.definition);
+      });
 
       return {
         name: col.name,
@@ -224,11 +226,20 @@ export const TableStructure = memo(function TableStructure({
           throw new Error("Column name is required");
         }
 
+        // Normalize default to prevent accidental column references in DEFAULT
+        // expressions (e.g., bare identifiers on text types)
+        const { normalizeDefaultForType } = await import("@/utils/sql");
+        const normalizedDefault = normalizeDefaultForType(
+          newColumn.default ?? undefined,
+          newColumn.db_type,
+        );
+
         await databaseService.addColumn(connectionId, currentSchema, table, {
           name: newColumn.name,
           dataType: newColumn.db_type,
           nullable: newColumn.nullable,
-          defaultValue: newColumn.default || undefined,
+          defaultValue: normalizedDefault ?? undefined,
+          checkConstraint: newColumn.check_constraint || undefined,
           comment: newColumn.comment || undefined,
         });
         toast.success(`Added column ${newColumn.name}`);
@@ -327,6 +338,8 @@ export const TableStructure = memo(function TableStructure({
             changes.nullable !== originalColumn.nullable) ||
           (changes.default !== undefined &&
             changes.default !== originalColumn.default) ||
+          (changes.check_constraint !== undefined &&
+            changes.check_constraint !== originalColumn.check_constraint) ||
           (changes.comment !== undefined &&
             changes.comment !== originalColumn.comment);
 
@@ -347,10 +360,31 @@ export const TableStructure = memo(function TableStructure({
                   : undefined,
               defaultValue:
                 changes.default !== originalColumn.default
-                  ? changes.default || undefined
+                  ? await (async () => {
+                      const { normalizeDefaultForType } = await import(
+                        "@/utils/sql"
+                      );
+                      return (
+                        normalizeDefaultForType(
+                          changes.default ?? undefined,
+                          changes.db_type || originalColumn.db_type,
+                        ) ?? undefined
+                      );
+                    })()
                   : undefined,
               dropDefault:
                 changes.default === null && originalColumn.default !== null,
+              newCheckConstraint:
+                changes.check_constraint !== undefined &&
+                changes.check_constraint !== null
+                  ? changes.check_constraint || undefined
+                  : undefined,
+              dropCheckConstraint:
+                changes.check_constraint !== undefined &&
+                originalColumn.check_constraint !== null &&
+                changes.check_constraint !== originalColumn.check_constraint
+                  ? true
+                  : false,
               comment:
                 changes.comment !== originalColumn.comment
                   ? changes.comment || undefined

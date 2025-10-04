@@ -1,7 +1,7 @@
 import { autocompletion, startCompletion } from "@codemirror/autocomplete";
 import type { Extension } from "@codemirror/state";
-import { createContextualCompletionSource } from "./sources-v3";
-import { SqlQueryParser } from "./parser-v2-fixed";
+import { createContextualCompletionSource } from "./sources";
+import { SqlQueryParser } from "./parser";
 import { schemaCache } from "@/services/schemaCache";
 import { type SqlDialect } from "../types";
 

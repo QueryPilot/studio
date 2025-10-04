@@ -532,6 +532,8 @@ pub struct ModifyColumnRequest {
     pub nullable: Option<bool>,
     pub default_value: Option<String>,
     pub drop_default: bool,
+    pub new_check_constraint: Option<String>,
+    pub drop_check_constraint: bool,
     pub comment: Option<String>,
 }
 

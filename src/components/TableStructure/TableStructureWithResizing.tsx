@@ -58,15 +58,67 @@ export const TableStructureWithResizing = memo(
       "onChange" | "onEnd"
     >("onChange");
 
+    // Update editing data for a column
+    const updateEditingData = useCallback(
+      (columnName: string, updates: Partial<ColumnRowData>) => {
+        setEditingColumns((prev) => {
+          const newMap = new Map(prev);
+          const currentData = newMap.get(columnName) || {};
+          newMap.set(columnName, { ...currentData, ...updates });
+          return newMap;
+        });
+      },
+      [],
+    );
+
+    // Handle column deletion
+    const handleDeleteColumn = useCallback((columnName: string) => {
+      setDeletedColumns((prev) => {
+        const newSet = new Set(prev);
+        if (newSet.has(columnName)) {
+          newSet.delete(columnName);
+        } else {
+          newSet.add(columnName);
+        }
+        return newSet;
+      });
+    }, []);
+
+    // Handle reset column
+    const handleResetColumn = useCallback(
+      (columnName: string, isDeleted: boolean, hasRowChanges: boolean) => {
+        if (isDeleted) {
+          setDeletedColumns((prev) => {
+            const newSet = new Set(prev);
+            newSet.delete(columnName);
+            return newSet;
+          });
+        } else if (hasRowChanges) {
+          setEditingColumns((prev) => {
+            const newMap = new Map(prev);
+            newMap.delete(columnName);
+            return newMap;
+          });
+        }
+      },
+      [],
+    );
+
     // Convert column data to ColumnRowData format
     const columnsData = useMemo(() => {
       return columns.map((col) => {
         const fkInfo = foreignKeys.find((fk) => fk.columns.includes(col.name));
-        const checkConstraint = constraints.find(
-          (c) =>
-            c.constraint_type === ConstraintType.Check &&
-            c.definition?.includes(col.name),
-        );
+        const escapeRegExp = (s: string) =>
+          s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const checkConstraint = constraints.find((c) => {
+          if (c.constraint_type !== ConstraintType.Check || !c.definition)
+            return false;
+          const pattern = new RegExp(
+            `\\b\"?${escapeRegExp(col.name)}\"?\\b`,
+            "i",
+          );
+          return pattern.test(c.definition);
+        });
 
         return {
           name: col.name,
@@ -321,7 +373,13 @@ export const TableStructureWithResizing = memo(
           ),
         }),
       ],
-      [connectionId],
+      [
+        columnHelper,
+        connectionId,
+        handleDeleteColumn,
+        handleResetColumn,
+        updateEditingData,
+      ],
     );
 
     const tableInstance = useReactTable({
@@ -340,52 +398,6 @@ export const TableStructureWithResizing = memo(
       editingColumns.size > 0 ||
       deletedColumns.size > 0 ||
       newColumns.length > 0;
-
-    // Update editing data for a column
-    const updateEditingData = useCallback(
-      (columnName: string, updates: Partial<ColumnRowData>) => {
-        setEditingColumns((prev) => {
-          const newMap = new Map(prev);
-          const currentData = newMap.get(columnName) || {};
-          newMap.set(columnName, { ...currentData, ...updates });
-          return newMap;
-        });
-      },
-      [],
-    );
-
-    // Handle column deletion
-    const handleDeleteColumn = useCallback((columnName: string) => {
-      setDeletedColumns((prev) => {
-        const newSet = new Set(prev);
-        if (newSet.has(columnName)) {
-          newSet.delete(columnName);
-        } else {
-          newSet.add(columnName);
-        }
-        return newSet;
-      });
-    }, []);
-
-    // Handle reset column
-    const handleResetColumn = useCallback(
-      (columnName: string, isDeleted: boolean, hasRowChanges: boolean) => {
-        if (isDeleted) {
-          setDeletedColumns((prev) => {
-            const newSet = new Set(prev);
-            newSet.delete(columnName);
-            return newSet;
-          });
-        } else if (hasRowChanges) {
-          setEditingColumns((prev) => {
-            const newMap = new Map(prev);
-            newMap.delete(columnName);
-            return newMap;
-          });
-        }
-      },
-      [],
-    );
 
     // Add new column
     const addNewColumn = useCallback(() => {

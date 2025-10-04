@@ -406,6 +406,7 @@ export const TableIndexes = memo(function TableIndexes({
       }
 
       if (errors.length > 0) {
+        // Don't hard refresh on partial failure to avoid flashing; keep edits
         toast.error(`Some changes failed:\n${errors.join("\n")}`);
       } else {
         toast.success("All changes saved successfully");
@@ -415,7 +416,10 @@ export const TableIndexes = memo(function TableIndexes({
         setHasChanges(false);
       }
 
-      await fetchIndexes();
+      // Only refresh when all succeeded to avoid flicker; on errors, let user fix inputs
+      if (errors.length === 0) {
+        await fetchIndexes();
+      }
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Failed to save changes",

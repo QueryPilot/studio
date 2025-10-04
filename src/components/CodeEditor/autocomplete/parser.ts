@@ -49,8 +49,6 @@ export interface QueryContext {
   joinConditions: Array<{ left: string; right: string }>;
 }
 
-// DEPRECATED: kept temporarily to avoid breaking imports during refactors.
-// Use './parser' instead.
 export class SqlQueryParser {
   // Note: SQL_KEYWORDS check removed as aliases CAN be keywords in most SQL dialects
   // Kept for reference if needed in the future
@@ -281,7 +279,7 @@ export class SqlQueryParser {
       /\bFROM\s+([a-zA-Z_][\w.]*|\[[^\]]+\]|`[^`]+`|"[^"]+")(?:\s+(?:AS\s+)?[a-zA-Z_]\w*)?\s*$/i;
     if (fromTablePattern.test(beforeCursor)) {
       // We've completed FROM with a table, now expecting next clause
-      return "FROM"; // But mark as completed - will handle in sources-v2
+      return "FROM"; // But mark as completed - will handle in sources
     }
 
     // Find the last occurrence of each clause
@@ -688,3 +686,5 @@ export class SqlQueryParser {
     return match ? match[1] : "";
   }
 }
+
+

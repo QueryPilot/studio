@@ -1137,6 +1137,31 @@ class DatabaseService {
   ): Promise<void> {
     try {
       const backendConnId = this.getBackendConnectionId(connectionId);
+      // Auto-opclass for common GIN text scenario to avoid 42704
+      let indexType = index.indexType;
+      if (
+        indexType.toLowerCase() === "gin" &&
+        index.columns.length === 1
+      ) {
+        // If the caller didn't specify opclass and column appears text-like,
+        // attach gin_trgm_ops by appending to column name syntax: col gin_trgm_ops
+        // We only adjust on the client by rewriting the column name tokens.
+        // Detect text-ish columns based on current table structure cache if available.
+        try {
+          const structure = await this.getTableStructure(
+            connectionId,
+            "",
+            schema,
+            table,
+            { includeConstraints: false, includeIndexes: false, includeTriggers: false, includeStatistics: false }
+          );
+          const colMeta = structure.columns.find(c => c.name === index.columns[0]);
+          const textish = colMeta?.db_type?.toLowerCase?.().includes("char") || colMeta?.db_type?.toLowerCase?.().includes("text");
+          if (textish && !/\s+gin_trgm_ops\b/i.test(index.columns[0])) {
+            index = { ...index, columns: [ `${index.columns[0]} gin_trgm_ops` ] };
+          }
+        } catch {}
+      }
       await safeInvoke("create_index", {
         connId: backendConnId,
         schema,
@@ -1145,13 +1170,20 @@ class DatabaseService {
           name: index.name,
           columns: index.columns,
           unique: index.unique,
-          index_type: index.indexType,
+          index_type: indexType,
           condition: index.condition,
         },
       });
     } catch (error) {
+      // Provide actionable message for common 42704 GIN text errors
+      const msg = String(error);
+      if (/42704/.test(msg) && /access method\s+\"gin\"/i.test(msg)) {
+        throw new Error(
+          "GIN on text/varchar requires an operator class (e.g., gin_trgm_ops). Try adding it or switch to BTREE."
+        );
+      }
       console.error("Failed to create index:", error);
-      throw error;
+      throw error as any;
     }
   }
 
@@ -1273,6 +1305,8 @@ class DatabaseService {
       nullable?: boolean;
       defaultValue?: string;
       dropDefault?: boolean;
+      newCheckConstraint?: string;
+      dropCheckConstraint?: boolean;
       comment?: string;
     },
   ): Promise<void> {
@@ -1289,6 +1323,8 @@ class DatabaseService {
           nullable: column.nullable,
           default_value: column.defaultValue,
           drop_default: column.dropDefault || false,
+          new_check_constraint: column.newCheckConstraint,
+          drop_check_constraint: column.dropCheckConstraint || false,
           comment: column.comment,
         },
       });

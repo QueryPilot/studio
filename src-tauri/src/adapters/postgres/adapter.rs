@@ -813,6 +813,44 @@ impl DbAdapter for PostgresAdapter {
             client.execute(&sql, &[]).await?;
         }
 
+        // Handle CHECK constraint changes
+        if column.drop_check_constraint {
+            // Drop existing anonymous/per-column check constraints by name pattern
+            // We find constraints attached to the column by introspecting pg_constraint
+            let drop_sql = format!(
+                "SELECT con.conname FROM pg_constraint con \n                 JOIN pg_class t ON t.oid = con.conrelid \n                 JOIN pg_namespace n ON n.oid = t.relnamespace \n                 WHERE n.nspname = $1 AND t.relname = $2 AND con.contype = 'c' AND pg_get_constraintdef(con.oid) ILIKE $3"
+            );
+            let pattern = format!("%{}%", working_column_name.trim_matches('"'));
+            let rows = client.query(&drop_sql, &[&schema, &table, &pattern]).await?;
+            for row in rows {
+                let conname: String = row.get(0);
+                let sql = format!(
+                    "ALTER TABLE {}.{} DROP CONSTRAINT IF EXISTS {}",
+                    quote_identifier(schema),
+                    quote_identifier(table),
+                    quote_identifier(&conname)
+                );
+                client.execute(&sql, &[]).await?;
+            }
+        }
+
+        if let Some(check) = &column.new_check_constraint {
+            // Generate a deterministic constraint name
+            let conname = format!(
+                "chk_{}_{}",
+                table,
+                working_column_name.trim_matches('"')
+            );
+            let sql = format!(
+                "ALTER TABLE {}.{} ADD CONSTRAINT {} CHECK ({})",
+                quote_identifier(schema),
+                quote_identifier(table),
+                quote_identifier(&conname),
+                check
+            );
+            client.execute(&sql, &[]).await?;
+        }
+
         // Update comment
         if let Some(comment) = &column.comment {
             let comment_sql = format!(
