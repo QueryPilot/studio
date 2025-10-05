@@ -150,11 +150,47 @@ export class TableDataService {
       const transformedRows: TableDataRow[] = result.rows.map((row) => {
         const rowObj: TableDataRow = {};
         result.columns.forEach((col, index) => {
-          const cellValue = row[index];
+          const cell = row[index] as BackendCellValue | undefined;
+          const dbType = col.db_type || "text";
+
+          // Default: treat only explicit Null as null
+          const vt = (cell?.value_type ?? "Text") as string | unknown;
+          const isNull = cell == null || vt === "Null";
+
+          let value: unknown = null;
+          let valueType: string = typeof vt === "string" ? vt : "Text";
+
+          if (!isNull) {
+            const display = cell!.display_value;
+            if (valueType === "Json") {
+              try {
+                value = JSON.parse(display);
+                valueType = "Json";
+              } catch {
+                value = display; // fallback to raw string
+                valueType = "Text";
+              }
+            } else if (valueType === "Integer" || valueType === "Decimal") {
+              const n = Number(display);
+              value = Number.isFinite(n) ? n : display;
+              if (!Number.isFinite(n)) valueType = "Text";
+            } else if (valueType === "Boolean") {
+              const s = display.toLowerCase();
+              if (["true", "t", "1", "yes"].includes(s)) value = true;
+              else if (["false", "f", "0", "no"].includes(s)) value = false;
+              else {
+                value = display;
+                valueType = "Text";
+              }
+            } else {
+              value = display;
+            }
+          }
+
           rowObj[col.name] = {
-            value: cellValue?.display_value || null,
-            db_type: col.db_type || "text",
-            value_type: cellValue?.value_type || "Text",
+            value,
+            db_type: dbType,
+            value_type: valueType as any,
             is_truncated: false,
           };
         });

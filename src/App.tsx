@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import { setupStoreIntegration } from "./services/keyboard/integration/storeIntegration";
 import { windowManager } from "./services/windowManager";
 import { PreferencesDialog } from "./components/Preferences/PreferencesDialog";
+import { ChordIndicator } from "./components/ChordIndicator";
 import { usePreferencesStore } from "./stores/preferencesStore";
 import { isTauri } from "./utils/tauri";
 import { toast } from "sonner";
@@ -50,6 +51,7 @@ function AppContent() {
         </Routes>
       </Router>
       <PreferencesDialog />
+      <ChordIndicator />
     </>
   );
 }

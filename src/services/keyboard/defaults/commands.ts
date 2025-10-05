@@ -1,5 +1,5 @@
-import type { Command } from '../types';
-import keybindingsJson from './keybindings.json';
+import type { Command } from "../types";
+import keybindingsJson from "./keybindings.json";
 
 // Command handlers will be implemented by components
 // This file defines the command structure and metadata
@@ -17,12 +17,12 @@ export function getDefaultCommands(): CommandDefinition[] {
   const commands: CommandDefinition[] = [];
   const seen = new Set<string>();
 
-  keybindingsJson.keybindings.forEach(binding => {
+  keybindingsJson.keybindings.forEach((binding) => {
     if (!seen.has(binding.command)) {
       seen.add(binding.command);
 
       // Infer category from command ID
-      const category = binding.command.split('.')[0];
+      const category = binding.command.split(".")[0];
 
       commands.push({
         id: binding.command,
@@ -40,7 +40,7 @@ export function getDefaultCommands(): CommandDefinition[] {
 // Helper to create a command with a handler
 export function createCommand(
   definition: CommandDefinition,
-  handler: () => void | Promise<void>
+  handler: () => void | Promise<void>,
 ): Command {
   return {
     id: definition.id,
@@ -61,7 +61,7 @@ export function createCommand(
 export function loadDefaultKeybindings(): Map<string, string> {
   const keybindings = new Map<string, string>();
 
-  keybindingsJson.keybindings.forEach(binding => {
+  keybindingsJson.keybindings.forEach((binding) => {
     // Store the first keybinding for each command
     if (!keybindings.has(binding.command)) {
       keybindings.set(binding.command, binding.key);
@@ -77,7 +77,7 @@ export function getAllDefaultKeybindings(): Array<{
   key: string;
   when?: string;
 }> {
-  return keybindingsJson.keybindings.map(binding => ({
+  return keybindingsJson.keybindings.map((binding) => ({
     command: binding.command,
     key: binding.key,
     when: binding.when,

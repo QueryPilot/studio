@@ -137,7 +137,7 @@
     },
     {
       "command": "view.commandPalette",
-      "key": "cmd+k",
+      "key": "cmd+shift+p",
       "description": "Open command palette"
     },
     {

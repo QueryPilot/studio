@@ -9,6 +9,7 @@ const categoryPanels = {
   general: lazy(() => import("./panels/GeneralPanel")),
   editor: lazy(() => import("./panels/EditorPanel")),
   shortcuts: lazy(() => import("./panels/ShortcutsPanel")),
+  globalShortcuts: lazy(() => import("./panels/GlobalShortcutsPanel").then(m => ({ default: m.GlobalShortcutsPanel }))),
 };
 
 export function PreferencesDialog() {

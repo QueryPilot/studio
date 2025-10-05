@@ -18,6 +18,7 @@ export function useCommandPalette() {
     const manager = KeyboardManager.getInstance();
 
     // Register command palette shortcuts
+    // Changed from cmd+k to cmd+shift+p to avoid conflict with navigation chords (cmd+k left/right/up/down)
     manager.registerCommand({
       id: 'workbench.action.showCommands',
       title: 'Show All Commands',

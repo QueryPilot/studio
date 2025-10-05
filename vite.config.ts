@@ -1,9 +1,24 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath, URL } from "node:url";
+import { createRequire } from "node:module";
 
-// @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
+
+const require = createRequire(import.meta.url);
+
+const antlr4BrowserEntry = (() => {
+  try {
+    return require.resolve("antlr4/dist/antlr4.web.mjs");
+  } catch {
+    return fileURLToPath(
+      new URL(
+        "./node_modules/.pnpm/node_modules/antlr4/dist/antlr4.web.mjs",
+        import.meta.url,
+      ),
+    );
+  }
+})();
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
@@ -20,13 +35,8 @@ export default defineConfig(async () => ({
       "@hooks": fileURLToPath(new URL("./src/hooks", import.meta.url)),
       "@types": fileURLToPath(new URL("./src/types", import.meta.url)),
       "@utils": fileURLToPath(new URL("./src/utils", import.meta.url)),
-      // Fix antlr4 resolution for @dbml/core - use browser version
-      antlr4: fileURLToPath(
-        new URL(
-          "./node_modules/antlr4/dist/antlr4.web.mjs",
-          import.meta.url,
-        ),
-      ),
+      // Fix antlr4 resolution for @dbml/core - use browser bundle via pnpm
+      antlr4: antlr4BrowserEntry,
     },
   },
 

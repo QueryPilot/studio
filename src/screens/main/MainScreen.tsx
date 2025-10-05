@@ -16,7 +16,7 @@ import { useNavigate } from "react-router-dom";
 import logo from "@/assets/logo.png";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useConnectionSync } from "@/hooks/useConnectionSync";
-import { useWindowConnection } from "@/hooks/useWindowConnection";
+
 import { type ConnectionProfile, DbType, SslMode } from "@/types/connection";
 import { ConnectionDialog } from "@/components/ConnectionDialog";
 import { ConnectionList } from "@/components/ConnectionList";
@@ -93,7 +93,7 @@ export function MainScreen() {
       };
 
       // Save to backend
-      const id = await saveConnection(pgProfile);
+      await saveConnection(pgProfile);
 
       toast({
         title: "PostgreSQL Dev Added",
@@ -118,7 +118,7 @@ export function MainScreen() {
     <div className="flex flex-col h-screen overflow-hidden">
       <div
         data-tauri-drag-region
-        className="select-none h-5 w-full absolute top-0 left-0 cursor-grab z-50"
+        className="select-none h-7 w-full absolute top-0 left-0 cursor-grab z-50"
       ></div>
 
       <div className="flex-1 flex overflow-hidden">

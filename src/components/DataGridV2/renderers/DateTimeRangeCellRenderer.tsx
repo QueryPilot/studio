@@ -382,8 +382,12 @@ const DateTimeRangeCellRenderer: CustomCellRenderer<TstzRangeCustomCell> = {
     const text = buildText(cell.data.value);
     const isEmpty = text.length === 0;
 
-    ctx.fillStyle = isEmpty ? theme.textLight : theme.textDark;
-    ctx.font = isEmpty ? `italic ${theme.baseFontStyle}` : theme.baseFontStyle;
+    // Match NULL styling used by default text cells and ensure full font family is set
+    const fontFamily =
+      "Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif";
+    const baseFont = `${theme.baseFontStyle} ${fontFamily}`;
+    ctx.fillStyle = isEmpty ? "rgba(127,127,127,0.7)" : theme.textDark;
+    ctx.font = isEmpty ? `italic ${baseFont}` : baseFont; // only NULL italic
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     const padding =
