@@ -10,7 +10,7 @@ import { ChordIndicator } from "./components/ChordIndicator";
 import { usePreferencesStore } from "./stores/preferencesStore";
 import { isTauri, safeInvoke } from "./utils/tauri";
 import type { Update } from "@tauri-apps/plugin-updater";
-import { strongholdStorage } from "./services/vaultStorage";
+import { vaultStorage } from "./services/vaultStorage";
 import { Toaster, toast } from "sonner";
 
 function AppContent() {
@@ -90,10 +90,10 @@ function App() {
 
         const currentWindow = getCurrentWindow();
 
-        // Preload Stronghold and data before showing the main UI
+        // Preload vault and data before showing the main UI
         try {
-          await strongholdStorage.initialize();
-          await strongholdStorage.preloadAll();
+          await vaultStorage.initialize();
+          await vaultStorage.preloadAll();
         } catch (error) {
           console.error("Preload failed", error);
         } finally {
@@ -113,9 +113,9 @@ function App() {
 
           let dismiss: (() => void) | undefined;
           try {
-            if (strongholdStorage.hasPendingChanges()) {
+            if (vaultStorage.hasPendingChanges()) {
               dismiss = toast.loading("Saving your work…");
-              await strongholdStorage.flushPendingChanges();
+              await vaultStorage.flushPendingChanges();
             }
           } catch (err) {
             console.error("Flush pending changes failed", err);

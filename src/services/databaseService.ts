@@ -1,5 +1,5 @@
 import { isTauri, safeInvoke, safeEmit } from "@/utils/tauri";
-import { strongholdStorage } from "@/services/vaultStorage";
+import { vaultStorage } from "@/services/vaultStorage";
 import { queryManager, type QueryResult } from "./queryManager";
 import {
   BackendAPI,
@@ -127,8 +127,8 @@ class DatabaseService {
     }
 
     try {
-      // Load the stored connection profile from Stronghold on the frontend
-      const stored = await strongholdStorage.getConnection(connectionId);
+      // Load the stored connection profile from vault on the frontend
+      const stored = await vaultStorage.getConnection(connectionId);
       if (!stored) {
         throw new Error(`Connection ${connectionId} not found`);
       }

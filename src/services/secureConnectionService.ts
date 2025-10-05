@@ -1,23 +1,23 @@
 import { type DatabaseConnection } from "@/types/database";
 import { type ConnectionProfile } from "@/types/connection";
-import { strongholdStorage } from "./vaultStorage";
+import { vaultStorage } from "./vaultStorage";
 
 class SecureConnectionService {
   private static instance: SecureConnectionService;
   private connectionsCache: Map<string, DatabaseConnection> = new Map();
 
   private constructor() {
-    // Initialize Stronghold on construction
+    // Initialize vault on construction
     this.initializeStorage();
   }
 
   private async initializeStorage() {
     try {
-      await strongholdStorage.initialize();
+      await vaultStorage.initialize();
       // Load connections into cache
       await this.refreshCache();
     } catch (error) {
-      console.error("Failed to initialize Stronghold storage:", error);
+      console.error("Failed to initialize vault storage:", error);
     }
   }
 
@@ -29,15 +29,15 @@ class SecureConnectionService {
   }
 
   /**
-   * Refresh connections cache from Stronghold
+   * Refresh connections cache from vault
    */
   async refreshCache(): Promise<void> {
     this.connectionsCache.clear();
-    await this.getAllConnections(); // This will reload from Stronghold
+    await this.getAllConnections(); // This will reload from vault
   }
 
   /**
-   * Convert Stronghold ConnectionProfile to DatabaseConnection
+   * Convert vault ConnectionProfile to DatabaseConnection
    */
   private toDatabaseConnection(profile: ConnectionProfile): DatabaseConnection {
     return {
@@ -58,7 +58,7 @@ class SecureConnectionService {
   }
 
   /**
-   * Convert DatabaseConnection to Stronghold ConnectionProfile
+   * Convert DatabaseConnection to vault ConnectionProfile
    */
   private toConnectionProfile(conn: DatabaseConnection): ConnectionProfile {
     return {
@@ -84,14 +84,14 @@ class SecureConnectionService {
   }
 
   /**
-   * Save a connection to Stronghold
+   * Save a connection to vault
    */
   async saveConnection(connection: DatabaseConnection): Promise<void> {
     try {
       const profile = this.toConnectionProfile(connection);
 
-      // Save to Stronghold
-      await strongholdStorage.storeConnection(profile);
+      // Save to vault
+      await vaultStorage.storeConnection(profile);
 
       // Update cache
       this.connectionsCache.set(connection.id, connection);
@@ -110,11 +110,11 @@ class SecureConnectionService {
   }
 
   /**
-   * Get all connections from Stronghold
+   * Get all connections from vault
    */
   async getAllConnections(): Promise<DatabaseConnection[]> {
     try {
-      const stored = await strongholdStorage.listConnections();
+      const stored = await vaultStorage.listConnections();
 
       // Convert and populate cache
       const connections = stored.map((s) => {
@@ -125,7 +125,7 @@ class SecureConnectionService {
 
       return connections;
     } catch (error) {
-      console.error("Failed to load connections from Stronghold:", error);
+      console.error("Failed to load connections from vault:", error);
       return [];
     }
   }
@@ -139,9 +139,9 @@ class SecureConnectionService {
       return this.connectionsCache.get(id);
     }
 
-    // Load from Stronghold
+    // Load from vault
     try {
-      const stored = await strongholdStorage.getConnection(id);
+      const stored = await vaultStorage.getConnection(id);
       if (stored) {
         const conn = this.toDatabaseConnection(stored.profile);
         this.connectionsCache.set(id, conn);
@@ -155,15 +155,15 @@ class SecureConnectionService {
   }
 
   /**
-   * Delete a connection from Stronghold
+   * Delete a connection from vault
    */
   async deleteConnection(id: string): Promise<void> {
     try {
       // Remove from cache
       this.connectionsCache.delete(id);
 
-      // Delete from Stronghold
-      await strongholdStorage.deleteConnection(id);
+      // Delete from vault
+      await vaultStorage.deleteConnection(id);
     } catch (error) {
       console.error("Failed to delete connection:", error);
       throw error;

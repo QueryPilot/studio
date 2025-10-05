@@ -809,11 +809,11 @@ pub async fn alter_table_drop_foreign_key(
 }
 
 // ============================================================================
-// Stronghold maintenance helpers
+// vault maintenance helpers
 // ============================================================================
 
 #[tauri::command]
-pub async fn reset_stronghold_vault(app_handle: AppHandle) -> std::result::Result<(), String> {
+pub async fn reset_vault_vault(app_handle: AppHandle) -> std::result::Result<(), String> {
     let data_dir = app_handle
         .path()
         .app_local_data_dir()
@@ -825,30 +825,30 @@ pub async fn reset_stronghold_vault(app_handle: AppHandle) -> std::result::Resul
     if vault_path.exists() {
         if let Err(err) = fs::remove_file(&vault_path) {
             tracing::warn!(
-                "Failed to remove Stronghold vault file {}: {}",
+                "Failed to remove vault vault file {}: {}",
                 vault_path.display(),
                 err
             );
         } else {
-            tracing::info!("Removed Stronghold vault file at {}", vault_path.display());
+            tracing::info!("Removed vault vault file at {}", vault_path.display());
         }
     }
 
     if salt_path.exists() {
         if let Err(err) = fs::remove_file(&salt_path) {
             tracing::warn!(
-                "Failed to remove Stronghold salt file {}: {}",
+                "Failed to remove vault salt file {}: {}",
                 salt_path.display(),
                 err
             );
         } else {
-            tracing::info!("Removed Stronghold salt file at {}", salt_path.display());
+            tracing::info!("Removed vault salt file at {}", salt_path.display());
         }
     }
 
     if let Err(err) = crate::keychain::delete_vault_password() {
         tracing::warn!(
-            "Failed to delete Stronghold password from keychain: {}",
+            "Failed to delete vault password from keychain: {}",
             err
         );
     }

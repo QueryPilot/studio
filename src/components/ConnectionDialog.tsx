@@ -692,11 +692,20 @@ export function ConnectionDialog({
 
       try {
         if (isEditMode && connection.id) {
-          console.log("Updating connection via Stronghold:", connection.id, profile, selectedTags);
+          console.log(
+            "Updating connection via vault:",
+            connection.id,
+            profile,
+            selectedTags,
+          );
           await persistUpdate(connection.id, profile, selectedTags);
           console.log("Update successful");
         } else {
-          console.log("Creating new connection via Stronghold:", profile, selectedTags);
+          console.log(
+            "Creating new connection via vault:",
+            profile,
+            selectedTags,
+          );
           await persistConnection(profile, selectedTags);
           console.log("Create successful");
         }

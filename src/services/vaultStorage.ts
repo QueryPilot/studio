@@ -302,5 +302,5 @@ class VaultStorageService {
   }
 }
 
-export const strongholdStorage = new VaultStorageService();
+export const vaultStorage = new VaultStorageService();
 export type { StoredConnection, ConnectionProfile, ConnectionMetadata };

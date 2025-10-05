@@ -6,6 +6,7 @@ const KEYCHAIN_SERVICE: &str = "com.hieuvd.devdb-studio.vault";
 const KEYCHAIN_ACCOUNT: &str = "master_password";
 
 /// Get or generate vault master password from OS keychain (cross-platform via keyring)
+#[tauri::command]
 pub fn get_vault_password() -> Result<String, String> {
     let entry = Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
         .map_err(|e| format!("Failed to access keychain: {}", e))?;
@@ -26,6 +27,7 @@ pub fn get_vault_password() -> Result<String, String> {
 }
 
 /// Delete vault password from keychain (ignore not-found)
+#[tauri::command]
 pub fn delete_vault_password() -> Result<(), String> {
     let entry = Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
         .map_err(|e| format!("Failed to access keychain: {}", e))?;
@@ -35,16 +37,4 @@ pub fn delete_vault_password() -> Result<(), String> {
         Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(format!("Failed to delete password from keychain: {}", e)),
     }
-}
-
-/// Tauri command to get vault password
-#[tauri::command]
-pub fn get_stronghold_password() -> Result<String, String> {
-    get_vault_password()
-}
-
-/// Tauri command to delete vault password
-#[tauri::command]
-pub fn delete_stronghold_password() -> Result<(), String> {
-    delete_vault_password()
 }

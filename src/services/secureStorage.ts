@@ -16,8 +16,8 @@ export interface SecureConnectionConfig {
 }
 
 /**
- * Secure Storage Service - Stronghold Backend
- * All sensitive data is encrypted in Tauri Stronghold vault
+ * Secure Storage Service - vault Backend
+ * All sensitive data is encrypted in Tauri vault vault
  * Vault auto-unlocks on app start using keychain-stored password
  * No user prompts needed - completely seamless
  */
@@ -165,7 +165,6 @@ class SecureStorageService {
       throw new Error(`Failed to get secure data: ${error}`);
     }
   }
-
 }
 
 // Export singleton instance
