@@ -246,19 +246,30 @@ export const ColumnRow = memo(function ColumnRow({
             >
               {column.check_constraint
                 ? (() => {
-                    // Inline minimal parser to avoid runtime import in render
-                    const extract = (def: string) => {
-                      let s = def.trim();
-                      const m = s.match(/^CHECK\s*\(([\s\S]*)\)$/i);
-                      if (m && m[1] !== undefined) s = m[1].trim();
-                      for (let i = 0; i < 3; i++) {
-                        if (s.startsWith("(") && s.endsWith(")"))
-                          s = s.slice(1, -1).trim();
-                        else break;
-                      }
-                      return s;
-                    };
-                    const cond = extract(column.check_constraint);
+                     // Balanced outer-paren stripper
+                     const extract = (def: string) => {
+                       let s = def.trim();
+                       const m = s.match(/^CHECK\s*\(([\s\S]*)\)$/i);
+                       if (m && m[1] !== undefined) s = m[1].trim();
+                       const stripOnceIfWrapped = (text: string): string | null => {
+                         if (!text.startsWith("(") || !text.endsWith(")")) return null;
+                         let depth = 0;
+                         for (let i = 0; i < text.length; i++) {
+                           const ch = text[i];
+                           if (ch === "(") depth++;
+                           else if (ch === ")") depth--;
+                           if (depth === 0 && i < text.length - 1) return null;
+                         }
+                         return text.slice(1, -1).trim();
+                       };
+                       while (true) {
+                         const stripped = stripOnceIfWrapped(s);
+                         if (stripped == null) break;
+                         s = stripped;
+                       }
+                       return s;
+                     };
+                     const cond = extract(column.check_constraint);
                     return (
                       <>
                         {cond.substring(0, 30)}

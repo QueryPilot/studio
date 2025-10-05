@@ -51,6 +51,9 @@ import { useToast } from "@/hooks/use-toast";
 import type { CellValue } from "@/types/cellValue";
 import type { Theme } from "@glideapps/glide-data-grid";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
+import { Button } from "@/components/ui/button";
+import { Loader2, Save, X } from "lucide-react";
+import { CellEditService } from "@/services/cellEditService";
 
 interface BooleanCellPayload {
   kind: "boolean-cell";
@@ -316,6 +319,7 @@ export interface TableDataGridV2Props {
   schema?: string;
   gridId: string;
   className?: string;
+  onActionsChange?: (actions: React.ReactNode) => void;
 }
 
 const DEFAULT_COLUMN_STATE = {
@@ -328,7 +332,7 @@ const DEFAULT_COLUMN_STATE = {
 export const TableDataGridV2 = memo(function TableDataGridV2(
   props: TableDataGridV2Props,
 ) {
-  const { gridId, connectionId, database, table, schema, className } = props;
+  const { gridId, connectionId, database, table, schema, className, onActionsChange } = props;
   const { toast } = useToast();
 
   const {
@@ -385,6 +389,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   editingRowsRef.current = editingRows;
 
   const [rows, setRows] = useState<GridRowModel[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Sync rows from data source
   useEffect(() => {
@@ -554,6 +559,74 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     },
     [primaryKeyColumns, schema, table],
   );
+
+  // Discard all pending edits and revert to last loaded data snapshot
+  const discardAllChanges = useCallback(() => {
+    setEditingRows(new Map());
+    editingRowsRef.current = new Map();
+    // Re-sync to server rows
+    setRows(dataRows);
+    toast({ description: "Discarded pending edits" });
+  }, [dataRows, toast]);
+
+  // Save pending edits (updates only for now)
+  const handleSaveAllChanges = useCallback(async () => {
+    if (editingRowsRef.current.size === 0) return;
+    setIsSaving(true);
+    try {
+      const pkColumns = primaryKeyColumns;
+      if (pkColumns.length === 0) {
+        toast({ description: "Cannot save edits — table has no primary key", variant: "destructive" });
+        return;
+      }
+
+      const errors: string[] = [];
+      // Apply updates per row, per changed cell
+      for (const [, draft] of editingRowsRef.current) {
+        if (draft.action !== "update") {
+          // Not yet supported in this commit path
+          continue;
+        }
+
+        const original = draft.originalRow ?? rows[draft.rowIndex];
+        const pk: Record<string, unknown> = {};
+        for (const pkCol of pkColumns) {
+          pk[pkCol] = original?.[pkCol]?.value ?? null;
+        }
+
+        for (const [columnName, cellDraft] of draft.cells) {
+          if (!cellDraft.hasChanged) continue;
+          const newValue = cellDraft.draftValue?.value ?? null;
+          try {
+            const res = await CellEditService.updateCell({
+              connectionId,
+              database,
+              table,
+              schema,
+              column: columnName,
+              primaryKeys: pk,
+              newValue,
+            });
+            if (!res.success) {
+              errors.push(res.error || `Failed to update ${columnName}`);
+            }
+          } catch (e) {
+            errors.push(e instanceof Error ? e.message : String(e));
+          }
+        }
+      }
+
+      if (errors.length > 0) {
+        toast({ description: errors[0], variant: "destructive" });
+      } else {
+        toast({ description: "Changes saved" });
+        setEditingRows(new Map());
+        editingRowsRef.current = new Map();
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  }, [connectionId, database, schema, table, primaryKeyColumns, rows, toast]);
 
   const columnState = preferences?.columns ?? DEFAULT_COLUMN_STATE;
 
@@ -1439,6 +1512,43 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     },
     [pendingChangedRowIndexes, pendingDeletedRowIndexes, selectedRowsSet],
   );
+
+  // Surface Save/Discard actions in the panel toolbar like other tabs
+  useEffect(() => {
+    if (!onActionsChange) return;
+    const hasChanges = editingRows.size > 0;
+    const actions = hasChanges ? (
+      <>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={discardAllChanges}
+          disabled={isSaving}
+          className="h-6 text-xs px-2 py-0"
+        >
+          <X className="h-3 w-3 mr-1" />
+          Discard
+        </Button>
+        <Button
+          size="sm"
+          onClick={handleSaveAllChanges}
+          disabled={isSaving}
+          className="h-6 text-xs px-2 py-0"
+        >
+          {isSaving ? (
+            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+          ) : (
+            <Save className="h-3 w-3 mr-1" />
+          )}
+          Save All
+        </Button>
+      </>
+    ) : null;
+    onActionsChange(actions);
+    return () => {
+      onActionsChange(null);
+    };
+  }, [editingRows.size, isSaving, onActionsChange, discardAllChanges, handleSaveAllChanges]);
 
   const selectedRowCount = gridSelection ? gridSelection.rows.length : 0;
 

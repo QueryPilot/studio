@@ -590,10 +590,26 @@ impl DbAdapter for PostgresAdapter {
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
         let unique_str = if index.unique { "UNIQUE " } else { "" };
+        // Support opclass syntax like: column gin_trgm_ops (do not quote the opclass)
+        fn format_index_column(col: &str) -> String {
+            // Preserve expressions like lower(col), jsonb_path_ops on expressions, etc.
+            if col.contains('(') {
+                // Assume user provided a valid expression; return as-is
+                return col.to_string();
+            }
+            let mut parts = col.split_whitespace();
+            let first = parts.next().unwrap_or(col);
+            let rest: Vec<&str> = parts.collect();
+            if rest.is_empty() {
+                quote_identifier(first)
+            } else {
+                format!("{} {}", quote_identifier(first), rest.join(" "))
+            }
+        }
         let columns = index
             .columns
             .iter()
-            .map(|col| quote_identifier(col))
+            .map(|col| format_index_column(col))
             .collect::<Vec<_>>()
             .join(", ");
         let index_type = if index.index_type.is_empty() {
@@ -690,15 +706,17 @@ impl DbAdapter for PostgresAdapter {
 
         client.execute(&sql, &[]).await?;
 
-        // Add comment if provided
+        // Add comment if provided (PostgreSQL doesn't allow parameters in COMMENT)
         if let Some(comment) = &column.comment {
+            let escaped = comment.replace('\'', "''");
             let comment_sql = format!(
-                "COMMENT ON COLUMN {}.{}.{} IS $1",
+                "COMMENT ON COLUMN {}.{}.{} IS '{}'",
                 quote_identifier(schema),
                 quote_identifier(table),
-                quote_identifier(&column.name)
+                quote_identifier(&column.name),
+                escaped
             );
-            client.execute(&comment_sql, &[&comment]).await?;
+            client.execute(&comment_sql, &[]).await?;
         }
 
         Ok(())
@@ -851,15 +869,17 @@ impl DbAdapter for PostgresAdapter {
             client.execute(&sql, &[]).await?;
         }
 
-        // Update comment
+        // Update comment (PostgreSQL doesn't allow parameters in COMMENT)
         if let Some(comment) = &column.comment {
+            let escaped = comment.replace('\'', "''");
             let comment_sql = format!(
-                "COMMENT ON COLUMN {}.{}.{} IS $1",
+                "COMMENT ON COLUMN {}.{}.{} IS '{}'",
                 quote_identifier(schema),
                 quote_identifier(table),
-                working_column_name
+                working_column_name,
+                escaped
             );
-            client.execute(&comment_sql, &[&comment]).await?;
+            client.execute(&comment_sql, &[]).await?;
         }
 
         Ok(())

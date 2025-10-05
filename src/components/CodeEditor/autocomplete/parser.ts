@@ -686,5 +686,3 @@ export class SqlQueryParser {
     return match ? match[1] : "";
   }
 }
-
-

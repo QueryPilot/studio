@@ -178,3 +178,14 @@
 .cm-autocomplete > ul::-webkit-scrollbar-thumb:hover {
   opacity: 0.5;
 }
+
+/* Lint diagnostics */
+.cm-tooltip.cm-tooltip-lint {
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 6px 8px;
+}
+
+.cm-tooltip.cm-tooltip-lint .cm-diagnostic {
+  font-size: inherit;
+}

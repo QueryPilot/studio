@@ -244,6 +244,9 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                   schema={metadata.schema}
                   table={metadata.table}
                   className="h-full"
+                  onActionsChange={
+                    activeView === "data" ? handleViewActionsChange : undefined
+                  }
                 />
               </div>
 

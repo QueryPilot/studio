@@ -26,6 +26,7 @@ import {
   codeFolding,
   foldKeymap,
 } from "@codemirror/language";
+import { lintGutter } from "@codemirror/lint";
 import {
   searchKeymap,
   highlightSelectionMatches,
@@ -35,6 +36,7 @@ import type { SqlDialect, CodeEditorLanguage } from "./types";
 import { createSqlAutocomplete } from "./autocomplete";
 import { acceptCompletion } from "@codemirror/autocomplete";
 import { dbmlMixed } from "./languages/dbml/dbml-mixed";
+import { createSqlLinter } from "./languages/sql/sql-linter";
 
 // Enhanced SQL folding service using syntax tree for better nested support
 const sqlFoldService = foldService.of((state, from) => {
@@ -481,6 +483,8 @@ export const getEditorExtensions = (
   );
 
   if (language === "sql") {
+    extensions.push(createSqlLinter(), lintGutter());
+
     if (!connectionId) {
       console.warn(
         "CodeEditor: skipping SQL autocomplete because no connectionId was provided.",

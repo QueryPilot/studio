@@ -1,4 +1,5 @@
 import { memo, useState, useCallback, useEffect, useMemo } from "react";
+import { extractCheckCondition } from "@/utils/sql";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { useColumnResizing } from "@/hooks/useColumnResizing";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -88,7 +89,9 @@ export const TableStructure = memo(function TableStructure({
         default: col.default,
         is_pk: col.is_pk,
         is_fk: col.is_fk,
-        check_constraint: checkConstraint?.definition || null,
+        check_constraint: checkConstraint?.definition
+          ? extractCheckCondition(checkConstraint.definition)
+          : null,
         foreign_key_ref: fkInfo
           ? {
               table: fkInfo.foreignTable,
