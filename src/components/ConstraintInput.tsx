@@ -208,7 +208,7 @@ export function ConstraintInput({
         <button
           disabled={disabled}
           className={cn(
-            "!h-7 !px-2 !py-1 w-full bg-transparent border-0 outline-none font-mono text-xs text-left",
+            "!h-7 !px-2 !py-1 w-full bg-transparent border-0 outline-none font-mono text-xs text-left truncate",
             "focus-visible:ring-1 focus-visible:ring-primary rounded-none",
             "hover:bg-muted/50 transition-colors",
             disabled && "cursor-not-allowed opacity-60",

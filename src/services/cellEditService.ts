@@ -37,30 +37,30 @@ export class CellEditService {
           if (value === null || value === undefined) {
             return `${key} IS NULL`;
           }
-          if (typeof value === 'string') {
+          if (typeof value === "string") {
             return `${key} = '${value.replace(/'/g, "''")}'`;
           }
-          if (typeof value === 'number') {
+          if (typeof value === "number") {
             return `${key} = ${value}`;
           }
-          if (typeof value === 'boolean') {
+          if (typeof value === "boolean") {
             return `${key} = ${value ? 1 : 0}`;
           }
           return `${key} = '${String(value).replace(/'/g, "''")}'`;
         })
-        .join(' AND ');
+        .join(" AND ");
 
       // Build UPDATE query
       let updateValue: string;
       if (newValue === null || newValue === undefined) {
-        updateValue = 'NULL';
-      } else if (typeof newValue === 'string') {
+        updateValue = "NULL";
+      } else if (typeof newValue === "string") {
         updateValue = `'${newValue.replace(/'/g, "''")}'`;
-      } else if (typeof newValue === 'number') {
+      } else if (typeof newValue === "number") {
         updateValue = String(newValue);
-      } else if (typeof newValue === 'boolean') {
-        updateValue = newValue ? '1' : '0';
-      } else if (typeof newValue === 'object') {
+      } else if (typeof newValue === "boolean") {
+        updateValue = newValue ? "1" : "0";
+      } else if (typeof newValue === "object") {
         updateValue = `'${JSON.stringify(newValue).replace(/'/g, "''")}'`;
       } else {
         updateValue = `'${String(newValue).replace(/'/g, "''")}'`;
@@ -71,21 +71,26 @@ export class CellEditService {
 
       // Execute the update query
       if (!isTauri()) {
-        console.warn('Cell edit operations require Tauri runtime');
+        console.warn("Cell edit operations require Tauri runtime");
         return {
           success: false,
-          error: 'Cell editing is not available in browser mode',
+          error: "Cell editing is not available in browser mode",
         };
       }
-      
-      const handle = await safeInvoke<any>('execute_query', {
-        connId: connectionId,
+
+      // Map to backend connection ID used by tauri commands
+      const { databaseService } = await import("./databaseService");
+      const backendConnId =
+        databaseService.getBackendConnectionId?.(connectionId) || connectionId;
+
+      const handle = await safeInvoke<any>("execute_query", {
+        connId: backendConnId,
         sql: query,
       });
-      
+
       // Fetch the result
-      const result = await safeInvoke<any>('fetch_results', {
-        connId: connectionId,
+      const result = await safeInvoke<any>("fetch_results", {
+        connId: backendConnId,
         queryHandle: handle,
         maxRows: 1,
       });
@@ -103,10 +108,10 @@ export class CellEditService {
         message: `Successfully updated ${column}`,
       };
     } catch (error) {
-      console.error('Failed to update cell:', error);
+      console.error("Failed to update cell:", error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to update cell',
+        error: error instanceof Error ? error.message : "Failed to update cell",
       };
     }
   }
@@ -116,15 +121,16 @@ export class CellEditService {
    */
   static extractPrimaryKeys(
     row: Record<string, any>,
-    columns: ColumnMeta[]
+    columns: ColumnMeta[],
   ): Record<string, any> {
     const primaryKeys: Record<string, any> = {};
-    
-    columns.forEach(column => {
+
+    columns.forEach((column) => {
       if (column.is_pk) {
         const value = row[column.name];
         // Handle both direct values and CellValue objects
-        primaryKeys[column.name] = value?.value !== undefined ? value.value : value;
+        primaryKeys[column.name] =
+          value?.value !== undefined ? value.value : value;
       }
     });
 
@@ -142,18 +148,28 @@ export class CellEditService {
 
     // Type-specific validation
     const dataType = column.db_type.toLowerCase();
-    
-    if (dataType.includes('int') || dataType.includes('numeric') || dataType.includes('decimal')) {
+
+    if (
+      dataType.includes("int") ||
+      dataType.includes("numeric") ||
+      dataType.includes("decimal")
+    ) {
       return !isNaN(Number(value));
     }
-    
-    if (dataType.includes('bool')) {
-      return typeof value === 'boolean' || value === 0 || value === 1 || value === 'true' || value === 'false';
+
+    if (dataType.includes("bool")) {
+      return (
+        typeof value === "boolean" ||
+        value === 0 ||
+        value === 1 ||
+        value === "true" ||
+        value === "false"
+      );
     }
-    
-    if (dataType.includes('json')) {
+
+    if (dataType.includes("json")) {
       try {
-        if (typeof value === 'string') {
+        if (typeof value === "string") {
           JSON.parse(value);
         }
         return true;

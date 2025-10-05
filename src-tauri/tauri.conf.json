@@ -33,9 +33,22 @@
     ],
     "security": {
       "csp": null,
-      "capabilities": ["default", "clipboard-capability"]
+      "capabilities": [
+        "default",
+        "clipboard-capability",
+        "window-state-capability",
+        "updater-capability"
+      ]
     },
     "macOSPrivateApi": true
+  },
+  "plugins": {
+    "window-state": {},
+    "updater": {
+      "active": true,
+      "dialog": true,
+      "endpoints": []
+    }
   },
   "bundle": {
     "active": true,

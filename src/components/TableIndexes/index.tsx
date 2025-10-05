@@ -345,17 +345,81 @@ export const TableIndexes = memo(function TableIndexes({
       // Handle existing index modifications
       for (const [_, editData] of editingIndexes) {
         // Skip if index is marked for deletion
-        if (deletedIndexes.has(editData.originalName || editData.name)) {
+        const originalName = editData.originalName || editData.name;
+        if (deletedIndexes.has(originalName)) continue;
+
+        const validationError = validateIndexData(editData);
+        if (validationError) {
+          errors.push(`${originalName}: ${validationError}`);
           continue;
         }
 
-        const error = validateIndexData(editData);
-        if (error) {
-          errors.push(`${editData.originalName}: ${error}`);
-          continue;
-        }
+        // Find original for comparison
+        const original = indexes.find((i) => i.name === originalName);
+        const typeChanged = editData.type !== original?.index_type;
+        const columnsChanged =
+          JSON.stringify(editData.columns) !==
+          JSON.stringify(original?.columns);
+        const uniqueChanged = editData.unique !== original?.unique;
+        const conditionChanged =
+          (editData.condition || "") !== (original?.condition || "");
+        const nameChanged = editData.name !== originalName;
 
-        if (editData.name !== editData.originalName && editData.originalName) {
+        const needsRecreate =
+          typeChanged || columnsChanged || uniqueChanged || conditionChanged;
+
+        if (needsRecreate) {
+          try {
+            await databaseService.dropIndex(
+              connectionId,
+              currentSchema,
+              originalName,
+            );
+          } catch (err) {
+            const msg =
+              typeof err === "string"
+                ? err
+                : err instanceof Error
+                ? err.message
+                : JSON.stringify(err);
+            errors.push(`Failed to drop ${originalName}: ${msg}`);
+            // If we can't drop, skip recreating
+            continue;
+          }
+
+          try {
+            await databaseService.createIndex(
+              connectionId,
+              currentSchema,
+              table,
+              {
+                name: editData.name,
+                columns: editData.columns,
+                unique: editData.unique,
+                indexType: editData.type,
+                condition: editData.condition || undefined,
+              },
+            );
+            toast.success(
+              `Updated index ${originalName}${
+                nameChanged ? ` → ${editData.name}` : ""
+              }`,
+            );
+          } catch (err) {
+            const msg =
+              typeof err === "string"
+                ? err
+                : err instanceof Error
+                ? err.message
+                : JSON.stringify(err);
+            errors.push(
+              `Failed to recreate ${originalName}${
+                nameChanged ? ` as ${editData.name}` : ""
+              }: ${msg}`,
+            );
+          }
+        } else if (nameChanged && editData.originalName) {
+          // Pure rename
           try {
             await databaseService.renameIndex(
               connectionId,
@@ -441,6 +505,7 @@ export const TableIndexes = memo(function TableIndexes({
     deletedIndexes,
     connectionId,
     editingIndexes,
+    indexes,
     validateIndexData,
     newIndexes,
     table,

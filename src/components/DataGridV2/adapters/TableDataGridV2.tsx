@@ -332,7 +332,15 @@ const DEFAULT_COLUMN_STATE = {
 export const TableDataGridV2 = memo(function TableDataGridV2(
   props: TableDataGridV2Props,
 ) {
-  const { gridId, connectionId, database, table, schema, className, onActionsChange } = props;
+  const {
+    gridId,
+    connectionId,
+    database,
+    table,
+    schema,
+    className,
+    onActionsChange,
+  } = props;
   const { toast } = useToast();
 
   const {
@@ -576,11 +584,21 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     try {
       const pkColumns = primaryKeyColumns;
       if (pkColumns.length === 0) {
-        toast({ description: "Cannot save edits — table has no primary key", variant: "destructive" });
+        toast({
+          description: "Cannot save edits — table has no primary key",
+          variant: "destructive",
+        });
         return;
       }
 
       const errors: string[] = [];
+      let updatedRows = 0;
+      let updatedCells = 0;
+      console.log("🟢 SaveAll clicked", {
+        table,
+        schema: schema ?? "public",
+        drafts: editingRowsRef.current.size,
+      });
       // Apply updates per row, per changed cell
       for (const [, draft] of editingRowsRef.current) {
         if (draft.action !== "update") {
@@ -609,19 +627,27 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             });
             if (!res.success) {
               errors.push(res.error || `Failed to update ${columnName}`);
+            } else {
+              updatedCells += 1;
             }
           } catch (e) {
             errors.push(e instanceof Error ? e.message : String(e));
           }
+        }
+        if (draft.cells.size > 0) {
+          updatedRows += 1;
         }
       }
 
       if (errors.length > 0) {
         toast({ description: errors[0], variant: "destructive" });
       } else {
-        toast({ description: "Changes saved" });
+        toast({
+          description: `Saved ${updatedCells} cell(s) across ${updatedRows} row(s)`,
+        });
         setEditingRows(new Map());
         editingRowsRef.current = new Map();
+        // rows already reflect optimistic edits; refresh is optional
       }
     } finally {
       setIsSaving(false);
@@ -1548,7 +1574,13 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     return () => {
       onActionsChange(null);
     };
-  }, [editingRows.size, isSaving, onActionsChange, discardAllChanges, handleSaveAllChanges]);
+  }, [
+    editingRows.size,
+    isSaving,
+    onActionsChange,
+    discardAllChanges,
+    handleSaveAllChanges,
+  ]);
 
   const selectedRowCount = gridSelection ? gridSelection.rows.length : 0;
 
