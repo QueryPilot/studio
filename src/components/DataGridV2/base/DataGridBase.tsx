@@ -29,14 +29,14 @@ export const DataGridBase = forwardRef(function DataGridBase(
 ) {
   const { columns, rowCount, getCellContent, containerClassName, ...rest } =
     props;
-  const { theme: appTheme } = useTheme();
+  const { resolvedTheme } = useTheme();
 
   const { width = "100%", height = "100%", ...editorProps } = rest;
 
-  // Create theme based on app theme
+  // Create theme based on app theme (use resolvedTheme to get actual "dark" or "light" even when "system" is selected)
   const theme = useMemo(
-    () => createDataGridTheme(appTheme || "light"),
-    [appTheme],
+    () => createDataGridTheme(resolvedTheme || "light"),
+    [resolvedTheme],
   );
 
   return (

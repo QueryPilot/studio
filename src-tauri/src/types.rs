@@ -21,7 +21,7 @@ pub struct ConnectionProfile {
 }
 
 impl ConnectionProfile {
-    // identity is the provided id (UUID) from the frontend/Stronghold
+    // identity is the provided id (UUID) from the frontend/vault
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]

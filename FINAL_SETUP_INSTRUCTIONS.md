@@ -1,8 +1,8 @@
-# ✅ Stronghold Migration - Final Setup Instructions
+# ✅ vault Migration - Final Setup Instructions
 
 ## What Was Completed
 
-Full TypeScript-based Stronghold storage with OS keychain integration.
+Full TypeScript-based vault storage with OS keychain integration.
 
 ---
 
@@ -11,32 +11,32 @@ Full TypeScript-based Stronghold storage with OS keychain integration.
 ### Created:
 
 1. `src-tauri/src/keychain.rs` - Auto-generates passwords, stores in OS keychain
-2. `src/services/strongholdStorage.ts` - Complete Stronghold storage implementation
-3. `src/services/secureConnectionService.ts` - Updated to use Stronghold
-4. `STRONGHOLD_MIGRATION_COMPLETE.md` - Full documentation
+2. `src/services/vaultStorage.ts` - Complete vault storage implementation
+3. `src/services/secureConnectionService.ts` - Updated to use vault
+4. `vault_MIGRATION_COMPLETE.md` - Full documentation
 
 ### Modified:
 
-- `src-tauri/Cargo.toml` - Added Stronghold, keyring, rand dependencies
-- `src-tauri/src/main.rs` - Added Stronghold plugin and keychain commands
+- `src-tauri/Cargo.toml` - Added vault, keyring, rand dependencies
+- `src-tauri/src/main.rs` - Added vault plugin and keychain commands
 - `src-tauri/src/lib.rs` - Added keychain module
-- `src-tauri/capabilities/default.json` - **Added Stronghold permissions** ✅
+- `src-tauri/capabilities/default.json` - **Added vault permissions** ✅
 
 ---
 
-## 🔧 Stronghold Permissions (CRITICAL!)
+## 🔧 vault Permissions (CRITICAL!)
 
 The following permissions were added to `src-tauri/capabilities/default.json`:
 
 ```json
-"stronghold:default",
-"stronghold:allow-initialize",
-"stronghold:allow-create-client",
-"stronghold:allow-load-client",
-"stronghold:allow-save",
-"stronghold:allow-save-store-record",
-"stronghold:allow-get-store-record",
-"stronghold:allow-remove-store-record",
+"vault:default",
+"vault:allow-initialize",
+"vault:allow-create-client",
+"vault:allow-load-client",
+"vault:allow-save",
+"vault:allow-save-store-record",
+"vault:allow-get-store-record",
+"vault:allow-remove-store-record",
 "core:path:default",
 "core:path:allow-app-local-data-dir"
 ```
@@ -61,15 +61,15 @@ pnpm tauri:dev
 
 ### On First Launch:
 
-1. **Rust**: `get_stronghold_password()` command runs
+1. **Rust**: `get_vault_password()` command runs
 
    - Generates random 256-bit password
    - Stores in macOS Keychain silently
 
-2. **TypeScript**: `strongholdStorage.initialize()` runs
+2. **TypeScript**: `vaultStorage.initialize()` runs
 
    - Calls Rust to get password
-   - Initializes Stronghold vault
+   - Initializes vault vault
    - Loads connections client
 
 3. **App Ready**: All connections encrypted, zero user prompts
@@ -95,9 +95,9 @@ pnpm tauri:dev
 ### Store Connection
 
 ```typescript
-import { strongholdStorage } from "@/services/strongholdStorage";
+import { vaultStorage } from "@/services/vaultStorage";
 
-await strongholdStorage.storeConnection({
+await vaultStorage.storeConnection({
   id: crypto.randomUUID(),
   name: "Production DB",
   db_type: "PostgreSQL",
@@ -113,34 +113,34 @@ await strongholdStorage.storeConnection({
 ### List Connections
 
 ```typescript
-const connections = await strongholdStorage.listConnections();
+const connections = await vaultStorage.listConnections();
 ```
 
 ### Get Connection
 
 ```typescript
-const conn = await strongholdStorage.getConnection("uuid");
+const conn = await vaultStorage.getConnection("uuid");
 ```
 
 ### Delete Connection
 
 ```typescript
-await strongholdStorage.deleteConnection("uuid");
+await vaultStorage.deleteConnection("uuid");
 ```
 
 ### Update Metadata
 
 ```typescript
-await strongholdStorage.updateTags("uuid", ["production", "important"]);
-await strongholdStorage.toggleFavorite("uuid");
-await strongholdStorage.markAsUsed("uuid");
+await vaultStorage.updateTags("uuid", ["production", "important"]);
+await vaultStorage.toggleFavorite("uuid");
+await vaultStorage.markAsUsed("uuid");
 ```
 
 ---
 
 ## 🛠️ Troubleshooting
 
-### Error: "stronghold.initialize not allowed"
+### Error: "vault.initialize not allowed"
 
 **Solution:** Already fixed! The permissions were added to `src-tauri/capabilities/default.json`.
 
@@ -157,7 +157,7 @@ await strongholdStorage.markAsUsed("uuid");
 **Reset if needed:**
 
 ```typescript
-await strongholdStorage.resetVault();
+await vaultStorage.resetVault();
 ```
 
 ### Port 1420 already in use
@@ -203,14 +203,14 @@ lsof -ti:1420 | xargs kill -9
 1. Old connections are in `.devdb/connections.json`
 2. Copy connection details
 3. Re-add them in the new app
-4. New connections will be encrypted in Stronghold
+4. New connections will be encrypted in vault
 
 ---
 
 ## 📚 Documentation
 
-- **Full Spec**: `storage-stronghold.spec.md`
-- **Migration Details**: `STRONGHOLD_MIGRATION_COMPLETE.md`
+- **Full Spec**: `storage-vault.spec.md`
+- **Migration Details**: `vault_MIGRATION_COMPLETE.md`
 - **This File**: Quick setup guide
 
 ---

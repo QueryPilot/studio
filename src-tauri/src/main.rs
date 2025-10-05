@@ -112,8 +112,8 @@ fn main() {
             commands::get_connection_health,
             commands::ping,
             // Keychain commands (used by TypeScript)
-            keychain::get_stronghold_password,
-            keychain::delete_stronghold_password,
+            keychain::get_vault_password,
+            keychain::delete_vault_password,
             // Index operations
             commands::create_index,
             commands::drop_index,

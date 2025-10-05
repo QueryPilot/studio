@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { strongholdStorage } from "@/services/vaultStorage";
+import { vaultStorage } from "@/services/vaultStorage";
 import {
   type StoredConnection,
   type ConnectionProfile,
@@ -49,7 +49,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
   fetchConnections: async () => {
     set({ loading: true, error: null });
     try {
-      const connections = await strongholdStorage.listConnections();
+      const connections = await vaultStorage.listConnections();
       set({ connections, loading: false });
     } catch (err) {
       const error =
@@ -63,14 +63,14 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
   saveConnection: async (profile: ConnectionProfile, tags?: string[]) => {
     set({ error: null });
     try {
-      const id = await strongholdStorage.storeConnection({ ...profile });
+      const id = await vaultStorage.storeConnection({ ...profile });
 
       if (tags?.length) {
         const uniqueTags = Array.from(
           new Set(tags.map((tag) => tag.trim()).filter(Boolean)),
         );
         if (uniqueTags.length > 0) {
-          await strongholdStorage.updateTags(id, uniqueTags);
+          await vaultStorage.updateTags(id, uniqueTags);
         }
       }
 
@@ -92,13 +92,13 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
   ) => {
     set({ error: null });
     try {
-      await strongholdStorage.updateConnection(id, { ...profile });
+      await vaultStorage.updateConnection(id, { ...profile });
 
       if (tags) {
         const uniqueTags = Array.from(
           new Set(tags.map((tag) => tag.trim()).filter(Boolean)),
         );
-        await strongholdStorage.updateTags(id, uniqueTags);
+        await vaultStorage.updateTags(id, uniqueTags);
       }
 
       await get().fetchConnections();
@@ -114,7 +114,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
   deleteConnection: async (id: string) => {
     set({ error: null });
     try {
-      await strongholdStorage.deleteConnection(id);
+      await vaultStorage.deleteConnection(id);
       await get().fetchConnections();
     } catch (err) {
       const error =
@@ -127,7 +127,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
   // Toggle favorite status
   toggleFavorite: async (id: string) => {
     try {
-      const isFavorite = await strongholdStorage.toggleFavorite(id);
+      const isFavorite = await vaultStorage.toggleFavorite(id);
       await get().fetchConnections();
       return isFavorite;
     } catch (err) {
@@ -148,7 +148,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
 
       const tags = new Set(connection.metadata.tags);
       tags.add(tag.trim());
-      await strongholdStorage.updateTags(id, Array.from(tags).filter(Boolean));
+      await vaultStorage.updateTags(id, Array.from(tags).filter(Boolean));
       await get().fetchConnections();
     } catch (err) {
       const error = err instanceof Error ? err.message : "Failed to add tag";
@@ -168,7 +168,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
       const tags = connection.metadata.tags.filter(
         (existingTag) => existingTag !== tag,
       );
-      await strongholdStorage.updateTags(id, tags);
+      await vaultStorage.updateTags(id, tags);
       await get().fetchConnections();
     } catch (err) {
       const error = err instanceof Error ? err.message : "Failed to remove tag";
@@ -180,7 +180,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
   // Mark connection as used
   markAsUsed: async (id: string) => {
     try {
-      await strongholdStorage.markAsUsed(id);
+      await vaultStorage.markAsUsed(id);
       await get().fetchConnections();
     } catch (err) {
       const error =

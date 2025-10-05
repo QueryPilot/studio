@@ -1,8 +1,8 @@
-# ✅ Stronghold Storage Migration - Complete
+# ✅ vault Storage Migration - Complete
 
 ## Implementation Summary
 
-Successfully migrated from plaintext JSON storage to **TypeScript-based Stronghold** with OS keychain integration.
+Successfully migrated from plaintext JSON storage to **TypeScript-based vault** with OS keychain integration.
 
 ---
 
@@ -15,20 +15,20 @@ Successfully migrated from plaintext JSON storage to **TypeScript-based Strongho
 - Auto-generates 256-bit random password
 - Stores in OS keychain (macOS Keychain / Windows Credential Manager / Linux Secret Service)
 - Commands:
-  - `get_stronghold_password()` - Get or generate vault password
-  - `delete_stronghold_password()` - Delete vault password
+  - `get_vault_password()` - Get or generate vault password
+  - `delete_vault_password()` - Delete vault password
 
 **Dependencies Added:**
 
-- `tauri-plugin-stronghold = "2.3.0"` - Stronghold encryption
+- `tauri-plugin-vault = "2.3.0"` - vault encryption
 - `keyring = "3.3"` - Cross-platform keychain access
 - `rand = "0.8"` - Password generation
 
 ### ✅ TypeScript Frontend (Storage Implementation)
 
-**File: `src/services/strongholdStorage.ts`**
+**File: `src/services/vaultStorage.ts`**
 
-Complete Stronghold storage service with:
+Complete vault storage service with:
 
 - `initialize()` - Auto-unlock vault using keychain password
 - `storeConnection(profile)` - Save connection
@@ -44,12 +44,12 @@ Complete Stronghold storage service with:
 
 **File: `src/services/secureConnectionService.ts`**
 
-Updated to use Stronghold storage with:
+Updated to use vault storage with:
 
 - Automatic initialization on app start
 - In-memory caching for performance
 - Type conversion between DatabaseConnection and ConnectionProfile
-- All CRUD operations migrated to Stronghold
+- All CRUD operations migrated to vault
 
 ---
 
@@ -60,14 +60,14 @@ Updated to use Stronghold storage with:
 ```
 1. App Launch
    ↓
-2. Rust: get_stronghold_password()
+2. Rust: get_vault_password()
    ├─ Check keychain for password
    ├─ If not found: Generate random 256-bit password
    └─ Store in OS keychain
    ↓
-3. TypeScript: strongholdStorage.initialize()
+3. TypeScript: vaultStorage.initialize()
    ├─ Get password from Rust
-   ├─ Load Stronghold vault
+   ├─ Load vault vault
    └─ Load connections client
    ↓
 4. App Ready ✅
@@ -115,7 +115,7 @@ Client: "connections"
 2. **New storage backend**
 
    - From: Rust JSON file
-   - To: TypeScript Stronghold + Rust keychain
+   - To: TypeScript vault + Rust keychain
 
 3. **Removed Rust storage commands**
    - All storage logic moved to TypeScript
@@ -124,7 +124,7 @@ Client: "connections"
 ### 📦 Files Removed
 
 - ❌ `src-tauri/src/storage/secure_store.rs` (old Rust storage)
-- ❌ `src-tauri/src/storage/stronghold_manager.rs` (unused)
+- ❌ `src-tauri/src/storage/vault_manager.rs` (unused)
 - ❌ All storage Tauri commands (moved to TypeScript)
 
 ### 📝 Files Added/Modified
@@ -132,7 +132,7 @@ Client: "connections"
 **Added:**
 
 - ✅ `src-tauri/src/keychain.rs`
-- ✅ `src/services/strongholdStorage.ts`
+- ✅ `src/services/vaultStorage.ts`
 
 **Modified:**
 
@@ -147,9 +147,9 @@ Client: "connections"
 ### Store a Connection
 
 ```typescript
-import { strongholdStorage } from "@/services/strongholdStorage";
+import { vaultStorage } from "@/services/vaultStorage";
 
-await strongholdStorage.storeConnection({
+await vaultStorage.storeConnection({
   id: "uuid",
   name: "My Database",
   db_type: "PostgreSQL",
@@ -165,21 +165,21 @@ await strongholdStorage.storeConnection({
 ### List All Connections
 
 ```typescript
-const connections = await strongholdStorage.listConnections();
+const connections = await vaultStorage.listConnections();
 console.log(connections); // Array of StoredConnection
 ```
 
 ### Delete a Connection
 
 ```typescript
-await strongholdStorage.deleteConnection("uuid");
+await vaultStorage.deleteConnection("uuid");
 ```
 
 ### Reset Vault
 
 ```typescript
 // Deletes all connections and keychain password
-await strongholdStorage.resetVault();
+await vaultStorage.resetVault();
 ```
 
 ---
@@ -239,7 +239,7 @@ await strongholdStorage.resetVault();
 
 ```typescript
 // Reset vault and keychain
-await strongholdStorage.resetVault();
+await vaultStorage.resetVault();
 // Re-add connections manually
 ```
 
@@ -265,9 +265,9 @@ await strongholdStorage.resetVault();
 
 ## Documentation References
 
-- [Tauri Stronghold Plugin](https://v2.tauri.app/plugin/stronghold/)
+- [Tauri vault Plugin](https://v2.tauri.app/plugin/vault/)
 - [Keyring Crate](https://docs.rs/keyring/3.3.0/keyring/)
-- [Specification: storage-stronghold.spec.md](./storage-stronghold.spec.md)
+- [Specification: storage-vault.spec.md](./storage-vault.spec.md)
 
 ---
 

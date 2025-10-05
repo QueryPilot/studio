@@ -1,1 +1,1 @@
-// Storage logic moved to TypeScript using Stronghold JS API
+// Storage logic moved to TypeScript using vault JS API
