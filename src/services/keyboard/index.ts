@@ -3,6 +3,7 @@ export { KeyboardManager } from './KeyboardManager';
 export { CommandRegistry } from './CommandRegistry';
 export { KeyNormalizer } from './KeyNormalizer';
 export { ContextEvaluator } from './ContextEvaluator';
+export { ChordManager } from './ChordManager';
 
 // React components
 export { KeyboardProvider, useKeyboardContext, KeyboardScope } from './KeyboardProvider';

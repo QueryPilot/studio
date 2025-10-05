@@ -1,6 +1,7 @@
 import { CommandRegistry } from './CommandRegistry';
 import { KeyNormalizer } from './KeyNormalizer';
 import { ContextEvaluator } from './ContextEvaluator';
+import { ChordManager } from './ChordManager';
 import type {
   Command,
   KeyboardContext,
@@ -14,6 +15,7 @@ export class KeyboardManager {
   private registry: CommandRegistry;
   private normalizer: KeyNormalizer;
   private contextEvaluator: ContextEvaluator;
+  private chordManager: ChordManager;
   private context: KeyboardContext;
   private listeners: Set<(context: KeyboardContext) => void> = new Set();
   private isInitialized = false;
@@ -24,6 +26,7 @@ export class KeyboardManager {
     this.registry = new CommandRegistry();
     this.normalizer = new KeyNormalizer();
     this.contextEvaluator = new ContextEvaluator();
+    this.chordManager = new ChordManager();
 
     // Initialize default context
     this.context = this.createDefaultContext();
@@ -87,23 +90,43 @@ export class KeyboardManager {
     const normalized = this.normalizer.normalize(event);
     if (!normalized) return;
 
-    // Find matching commands
+    // Handle chord sequences
+    if (this.chordManager.isWaitingForChord()) {
+      const chordKey = this.chordManager.completeChord(normalized);
+
+      if (chordKey) {
+        // Try to find and execute chord command
+        const chordCommands = this.registry.getByKeybinding(chordKey);
+        const validChordCommands = this.filterValidCommands(chordCommands, isInput, isContentEditable);
+
+        if (validChordCommands.length > 0) {
+          const command = validChordCommands[0];
+          event.preventDefault();
+          event.stopPropagation();
+          void this.executeCommand(command.id, command.keybinding?.args);
+          return;
+        }
+      }
+
+      // No chord match, clear state and fall through to normal processing
+      this.chordManager.clearChord();
+    }
+
+    // Check if this key starts a chord sequence
+    if (this.hasChordPrefixes(normalized)) {
+      // Start chord sequence
+      event.preventDefault();
+      this.chordManager.startChord(normalized);
+      this.dispatchChordEvent('keyboard:chord-started', normalized);
+      return;
+    }
+
+    // Find matching single-key commands
     const commands = this.registry.getByKeybinding(normalized);
     if (commands.length === 0) return;
 
     // Filter by context and find the best match
-    const validCommands = commands.filter(cmd => {
-      // Skip disabled commands
-      if (this.disabledCommands.has(cmd.id)) return false;
-
-      // Check if command should work in input fields
-      if ((isInput || isContentEditable) && !cmd.keybinding?.args?.allowInInput) {
-        return false;
-      }
-
-      // Evaluate when clause
-      return this.contextEvaluator.evaluate(cmd.when, this.context);
-    });
+    const validCommands = this.filterValidCommands(commands, isInput, isContentEditable);
 
     if (validCommands.length === 0) return;
 
@@ -122,6 +145,48 @@ export class KeyboardManager {
     // Execute command
     void this.executeCommand(command.id, command.keybinding?.args);
   };
+
+  /**
+   * Filter commands by context and permissions
+   */
+  private filterValidCommands(
+    commands: Command[],
+    isInput: boolean,
+    isContentEditable: boolean
+  ): Command[] {
+    return commands.filter(cmd => {
+      // Skip disabled commands
+      if (this.disabledCommands.has(cmd.id)) return false;
+
+      // Check if command should work in input fields
+      if ((isInput || isContentEditable) && !cmd.keybinding?.args?.allowInInput) {
+        return false;
+      }
+
+      // Evaluate when clause
+      return this.contextEvaluator.evaluate(cmd.when, this.context);
+    });
+  }
+
+  /**
+   * Check if a key combination is a prefix for any chord sequences
+   */
+  private hasChordPrefixes(key: string): boolean {
+    const allCommands = this.registry.getAll();
+    return allCommands.some(cmd => {
+      const cmdKey = cmd.keybinding?.key;
+      return cmdKey && cmdKey.includes(' ') && cmdKey.startsWith(`${key} `);
+    });
+  }
+
+  /**
+   * Dispatch chord-related events for UI feedback
+   */
+  private dispatchChordEvent(eventName: string, prefix?: string): void {
+    window.dispatchEvent(new CustomEvent(eventName, {
+      detail: { prefix }
+    }));
+  }
 
   registerCommand(command: Command): () => void {
     // Apply user overrides if any

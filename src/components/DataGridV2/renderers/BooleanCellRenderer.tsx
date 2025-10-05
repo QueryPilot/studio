@@ -29,6 +29,9 @@ const BooleanCellRenderer: CustomCellRenderer<BooleanCustomCell> = {
   draw: (args, cell) => {
     const { ctx, rect, theme } = args;
     const { value } = cell.data;
+    const fontFamily =
+      "Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif";
+    const baseFont = `${theme.baseFontStyle} ${fontFamily}`;
 
     // Don't fill the background - let the grid handle it
     // This ensures proper borders and hover states
@@ -39,16 +42,17 @@ const BooleanCellRenderer: CustomCellRenderer<BooleanCustomCell> = {
 
     if (value == null) {
       text = "NULL";
-      color = theme.textLight;
-      ctx.font = `italic ${theme.baseFontStyle}`;
+      // Match NULL styling used by default text cells
+      color = "rgba(127,127,127,0.7)";
+      ctx.font = `italic ${baseFont}`;
     } else if (value) {
       text = "TRUE";
       color = "#10b981"; // green-500
-      ctx.font = `500 ${theme.baseFontStyle}`;
+      ctx.font = baseFont; // non-italic
     } else {
       text = "FALSE";
       color = "#ef4444"; // red-500
-      ctx.font = `500 ${theme.baseFontStyle}`;
+      ctx.font = baseFont; // non-italic
     }
 
     // Draw the text with proper alignment

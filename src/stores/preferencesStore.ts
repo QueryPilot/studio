@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type PreferenceCategory = "general" | "editor" | "shortcuts";
+export type PreferenceCategory = "general" | "editor" | "shortcuts" | "globalShortcuts" | "ai";
 
 interface PreferencesState {
   isOpen: boolean;

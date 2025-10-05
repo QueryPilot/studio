@@ -245,8 +245,6 @@ class WindowManager {
       titleBarStyle: "overlay",
       hiddenTitle: true,
       skipTaskbar: false,
-      // Traffic light position for macOS
-      trafficLightPosition: { x: 16, y: 18 },
     };
 
     new WebviewWindow(

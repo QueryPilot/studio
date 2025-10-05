@@ -29,6 +29,9 @@ const EnumCellRenderer: CustomCellRenderer<EnumCustomCell> = {
   draw: (args, cell) => {
     const { ctx, rect, theme } = args;
     const { value } = cell.data;
+    const fontFamily =
+      "Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif";
+    const baseFont = `${theme.baseFontStyle} ${fontFamily}`;
 
     // Determine text and color based on value
     let text: string;
@@ -36,12 +39,13 @@ const EnumCellRenderer: CustomCellRenderer<EnumCustomCell> = {
 
     if (value == null) {
       text = "NULL";
-      color = theme.textLight;
-      ctx.font = `italic ${theme.baseFontStyle}`;
+      // Match NULL styling used by default text cells
+      color = "rgba(127,127,127,0.7)";
+      ctx.font = `italic ${baseFont}`;
     } else {
       text = value;
       color = theme.textDark;
-      ctx.font = theme.baseFontStyle;
+      ctx.font = baseFont; // non-italic
     }
 
     // Draw the text with left alignment

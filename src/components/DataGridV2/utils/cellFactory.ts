@@ -109,6 +109,20 @@ export function buildGridCellV2(opts: {
 
   // Money cells - format with currency symbol
   if (dbType.includes("money")) {
+    if (rawValue == null) {
+      return cacheAndReturn(value, column, {
+        kind: GridCellKind.Text,
+        data: "NULL",
+        displayData: "NULL",
+        allowOverlay: false,
+        readonly: false,
+        contentAlign: "right",
+        themeOverride: {
+          textDark: "rgba(127,127,127,0.7)",
+          baseFontStyle: "italic 12px",
+        },
+      });
+    }
     const num = typeof rawValue === "number" ? rawValue : Number(rawValue);
     return cacheAndReturn(value, column, {
       kind: GridCellKind.Text,
@@ -130,6 +144,20 @@ export function buildGridCellV2(opts: {
     dbType.includes("real") ||
     typeof rawValue === "number"
   ) {
+    if (rawValue == null) {
+      return cacheAndReturn(value, column, {
+        kind: GridCellKind.Text,
+        data: "NULL",
+        displayData: "NULL",
+        allowOverlay: false,
+        readonly: false,
+        contentAlign: "right",
+        themeOverride: {
+          textDark: "rgba(127,127,127,0.7)",
+          baseFontStyle: "italic 12px",
+        },
+      });
+    }
     const num = typeof rawValue === "number" ? rawValue : Number(rawValue);
     return cacheAndReturn(value, column, {
       kind: GridCellKind.Number,
@@ -147,12 +175,28 @@ export function buildGridCellV2(opts: {
     dbType.includes("array") ||
     Array.isArray(rawValue)
   ) {
-    let text = "";
+    // Guard against undefined/null before attempting JSON.stringify
+    if (rawValue == null) {
+      return cacheAndReturn(value, column, {
+        kind: GridCellKind.Text,
+        data: "NULL",
+        displayData: "NULL",
+        allowOverlay: false,
+        readonly: false,
+        contentAlign: "left",
+        themeOverride: {
+          textDark: "rgba(127,127,127,0.7)",
+          baseFontStyle: "italic 12px",
+        },
+      });
+    }
+
+    let text: string;
     try {
       text =
         typeof rawValue === "string"
           ? rawValue
-          : JSON.stringify(rawValue, null, 2);
+          : JSON.stringify(rawValue, null, 2) ?? String(rawValue);
     } catch {
       text = String(rawValue);
     }
@@ -231,6 +275,20 @@ export function buildGridCellV2(opts: {
 
   // UUID cells - render as monospace text
   if (dbType.includes("uuid")) {
+    if (rawValue == null) {
+      return cacheAndReturn(value, column, {
+        kind: GridCellKind.Text,
+        data: "NULL",
+        displayData: "NULL",
+        allowOverlay: false,
+        readonly: false,
+        contentAlign: "left",
+        themeOverride: {
+          textDark: "rgba(127,127,127,0.7)",
+          baseFontStyle: "italic 12px",
+        },
+      });
+    }
     const text = String(rawValue);
     return cacheAndReturn(value, column, {
       kind: GridCellKind.Text,

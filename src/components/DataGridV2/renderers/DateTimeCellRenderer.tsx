@@ -270,8 +270,12 @@ const DateTimeCellRenderer: CustomCellRenderer<DateTimeCustomCell> = {
     const text = formatForDisplay(kind, value);
     const isNull = value == null;
 
-    ctx.fillStyle = isNull ? theme.textLight : theme.textDark;
-    ctx.font = isNull ? `italic ${theme.baseFontStyle}` : theme.baseFontStyle;
+    // Match NULL styling used by default text cells and ensure full font family is set
+    const fontFamily =
+      "Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif";
+    const baseFont = `${theme.baseFontStyle} ${fontFamily}`;
+    ctx.fillStyle = isNull ? "rgba(127,127,127,0.7)" : theme.textDark;
+    ctx.font = isNull ? `italic ${baseFont}` : baseFont; // only NULL italic
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     const padding =
