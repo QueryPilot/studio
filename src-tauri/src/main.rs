@@ -7,6 +7,8 @@ mod adapters;
 mod commands;
 mod core;
 mod error;
+mod vault;
+mod keychain;
 mod state;
 mod storage;
 mod types;
@@ -14,7 +16,7 @@ mod window_state;
 
 use state::AppState;
 use std::sync::Arc;
-use tauri::{Listener, Manager, RunEvent};
+use tauri::Manager;
 
 fn main() {
     // Initialize tracing
@@ -27,9 +29,6 @@ fn main() {
 
     // Create connection manager
     let manager = Arc::new(core::manager::ConnectionManager::new());
-
-    // Create secure storage
-    let storage = Arc::new(storage::SecureStorage::new());
 
     // Create window state manager
     let window_states = Arc::new(window_state::WindowStateManager::new());
@@ -45,7 +44,6 @@ fn main() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(manager)
-        .manage(storage)
         .manage(app_state)
         .setup(|app| {
             // Register default global shortcut to show/activate main window
@@ -56,22 +54,25 @@ fn main() {
 
             use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
-            if let Err(e) = app.global_shortcut().on_shortcut(default_shortcut, |app, _shortcut, _event| {
-                // Try to find main window or any existing window
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                    let _ = window.unminimize();
-                } else {
-                    // If no main window, try to get any window
-                    for (_, window) in app.webview_windows() {
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                        let _ = window.unminimize();
-                        break;
-                    }
-                }
-            }) {
+            if let Err(e) =
+                app.global_shortcut()
+                    .on_shortcut(default_shortcut, |app, _shortcut, _event| {
+                        // Try to find main window or any existing window
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                            let _ = window.unminimize();
+                        } else {
+                            // If no main window, try to get any window
+                            for (_, window) in app.webview_windows() {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                                let _ = window.unminimize();
+                                break;
+                            }
+                        }
+                    })
+            {
                 tracing::warn!("Failed to register default global shortcut: {}", e);
             } else {
                 tracing::info!("Registered global shortcut: {}", default_shortcut);
@@ -80,6 +81,11 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            // App window helpers
+            app_show_main_window,
+            crate::vault::vault_write,
+            crate::vault::vault_read,
+            crate::vault::vault_reset,
             commands::connect,
             commands::disconnect,
             commands::test_connection,
@@ -105,22 +111,9 @@ fn main() {
             commands::stream_query,
             commands::get_connection_health,
             commands::ping,
-            // Storage commands
-            commands::store_connection,
-            commands::db_connect_by_id,
-            commands::list_connections,
-            commands::delete_connection,
-            commands::update_connection,
-            // Window-aware commands
-            commands::set_active_connection,
-            commands::get_active_connection,
-            commands::switch_to_connection_window,
-            commands::get_window_states,
-            commands::remove_window_connection,
-            // Enhanced storage commands with events
-            commands::store_connection_with_event,
-            commands::delete_connection_with_event,
-            commands::update_connection_with_event,
+            // Keychain commands (used by TypeScript)
+            keychain::get_stronghold_password,
+            keychain::delete_stronghold_password,
             // Index operations
             commands::create_index,
             commands::drop_index,
@@ -143,4 +136,17 @@ fn main() {
 
     // Run the app
     app.run(|_app_handle, _event| {});
+}
+
+#[tauri::command]
+fn app_show_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    // If a splash window exists, hide it; then show main window
+    if let Some(splash) = app.get_webview_window("splash") {
+        let _ = splash.close();
+    }
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.show();
+        let _ = main.set_focus();
+    }
+    Ok(())
 }

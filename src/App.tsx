@@ -8,9 +8,10 @@ import { windowManager } from "./services/windowManager";
 import { PreferencesDialog } from "./components/Preferences/PreferencesDialog";
 import { ChordIndicator } from "./components/ChordIndicator";
 import { usePreferencesStore } from "./stores/preferencesStore";
-import { isTauri } from "./utils/tauri";
-import { toast } from "sonner";
+import { isTauri, safeInvoke } from "./utils/tauri";
 import type { Update } from "@tauri-apps/plugin-updater";
+import { strongholdStorage } from "./services/vaultStorage";
+import { Toaster, toast } from "sonner";
 
 function AppContent() {
   const openPreferences = usePreferencesStore((state) => state.open);
@@ -73,7 +74,10 @@ function App() {
 
     const registerWindowHandlers = async () => {
       try {
-        const [{ StateFlags, restoreStateCurrent, saveWindowState }, { getCurrentWindow }] = await Promise.all([
+        const [
+          { StateFlags, restoreStateCurrent, saveWindowState },
+          { getCurrentWindow },
+        ] = await Promise.all([
           import("@tauri-apps/plugin-window-state"),
           import("@tauri-apps/api/window"),
         ]);
@@ -85,6 +89,19 @@ function App() {
         }
 
         const currentWindow = getCurrentWindow();
+
+        // Preload Stronghold and data before showing the main UI
+        try {
+          await strongholdStorage.initialize();
+          await strongholdStorage.preloadAll();
+        } catch (error) {
+          console.error("Preload failed", error);
+        } finally {
+          // Hide splash and show main window (no-op if no splash configured)
+          try {
+            await safeInvoke("app_show_main_window");
+          } catch {}
+        }
         const unlisten = await currentWindow.onCloseRequested(async (event) => {
           event.preventDefault();
 
@@ -92,6 +109,18 @@ function App() {
             await saveWindowState(StateFlags.ALL);
           } catch (error) {
             console.error("Failed to persist window state", error);
+          }
+
+          let dismiss: (() => void) | undefined;
+          try {
+            if (strongholdStorage.hasPendingChanges()) {
+              dismiss = toast.loading("Saving your work…");
+              await strongholdStorage.flushPendingChanges();
+            }
+          } catch (err) {
+            console.error("Flush pending changes failed", err);
+          } finally {
+            if (dismiss) dismiss();
           }
 
           await currentWindow.close();
@@ -166,17 +195,21 @@ function App() {
             })(),
             {
               loading: "Downloading update…",
-              success: "Update downloaded. The application will restart to finish installation.",
+              success:
+                "Update downloaded. The application will restart to finish installation.",
               error: (err) => {
                 console.error("Failed to install update", err);
-                return err instanceof Error ? err.message : "Failed to install update";
+                return err instanceof Error
+                  ? err.message
+                  : "Failed to install update";
               },
             },
           );
         };
 
         toast(`Update ${update.version} available`, {
-          description: update.body ?? "A new version of DevDB Studio is ready to install.",
+          description:
+            update.body ?? "A new version of DevDB Studio is ready to install.",
           action: {
             label: "Install",
             onClick: () => handleInstall(),
@@ -198,6 +231,7 @@ function App() {
 
   return (
     <KeyboardProvider>
+      <Toaster position="top-center" richColors />
       <AppContent />
     </KeyboardProvider>
   );

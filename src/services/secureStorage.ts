@@ -16,11 +16,36 @@ export interface SecureConnectionConfig {
 }
 
 /**
- * Secure Storage Service
- * All sensitive data is stored encrypted in the Rust backend
- * No sensitive data is ever stored in localStorage or sessionStorage
+ * Secure Storage Service - Stronghold Backend
+ * All sensitive data is encrypted in Tauri Stronghold vault
+ * Vault auto-unlocks on app start using keychain-stored password
+ * No user prompts needed - completely seamless
  */
 class SecureStorageService {
+  /**
+   * Lock vault manually (advanced feature)
+   */
+  async lock(): Promise<void> {
+    try {
+      await safeInvoke("vault_lock");
+    } catch (error) {
+      console.error("Failed to lock vault:", error);
+      throw new Error(`Failed to lock vault: ${error}`);
+    }
+  }
+
+  /**
+   * Reset vault completely (delete all data)
+   */
+  async resetVault(): Promise<void> {
+    try {
+      await safeInvoke("vault_reset");
+    } catch (error) {
+      console.error("Failed to reset vault:", error);
+      throw new Error(`Failed to reset vault: ${error}`);
+    }
+  }
+
   /**
    * Store a connection configuration securely
    * @param connection The connection configuration to store
@@ -141,51 +166,6 @@ class SecureStorageService {
     }
   }
 
-  /**
-   * Delete secure data
-   */
-  async deleteSecure(key: string): Promise<void> {
-    try {
-      await safeInvoke("secure_delete", {
-        key,
-      });
-    } catch (error) {
-      console.error("Failed to delete secure data:", error);
-      throw new Error(`Failed to delete secure data: ${error}`);
-    }
-  }
-
-  /**
-   * List all secure storage keys
-   */
-  async listSecureKeys(prefix?: string): Promise<string[]> {
-    try {
-      const keys = await safeInvoke<string[]>("secure_list_keys", {
-        prefix,
-      });
-      return keys;
-    } catch (error) {
-      console.error("Failed to list secure keys:", error);
-      throw new Error(`Failed to list secure keys: ${error}`);
-    }
-  }
-
-  /**
-   * Clear all secure storage (for testing/reset)
-   */
-  async clearAll(confirmation: string): Promise<void> {
-    if (confirmation !== "CONFIRM_DELETE_ALL") {
-      throw new Error("Invalid confirmation");
-    }
-    try {
-      await safeInvoke("clear_all_storage", {
-        confirmation,
-      });
-    } catch (error) {
-      console.error("Failed to clear all storage:", error);
-      throw error;
-    }
-  }
 }
 
 // Export singleton instance

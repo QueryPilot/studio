@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State, Window};
@@ -250,7 +251,7 @@ pub async fn get_type_info(
     // For PostgreSQL, query type information
     if matches!(conn.profile.db_type, DbType::PostgreSQL) {
         let schema = schema.unwrap_or_else(|| "public".to_string());
-        
+
         let query_sql = format!(
             "SELECT \
                 t.typname as type_name, \
@@ -268,12 +269,23 @@ pub async fn get_type_info(
             type_name, schema
         );
 
-        let handle = conn.adapter.open_query(&query_sql).await.map_err(|e| e.to_string())?;
-        let chunk = conn.adapter.fetch_page(&handle, 1).await.map_err(|e| e.to_string())?;
+        let handle = conn
+            .adapter
+            .open_query(&query_sql)
+            .await
+            .map_err(|e| e.to_string())?;
+        let chunk = conn
+            .adapter
+            .fetch_page(&handle, 1)
+            .await
+            .map_err(|e| e.to_string())?;
         let _ = conn.adapter.close_query(&handle).await;
 
         if chunk.rows.is_empty() {
-            return Err(format!("Type '{}' not found in schema '{}'", type_name, schema));
+            return Err(format!(
+                "Type '{}' not found in schema '{}'",
+                type_name, schema
+            ));
         }
 
         let row = &chunk.rows[0];
@@ -297,14 +309,13 @@ pub async fn get_type_info(
             "unknown"
         };
 
-        let enum_values = row.get(2)
-            .and_then(|v| {
-                if !v.display_value.is_empty() {
-                    Some(v.display_value.split(',').map(|s| s.to_string()).collect())
-                } else {
-                    None
-                }
-            });
+        let enum_values = row.get(2).and_then(|v| {
+            if !v.display_value.is_empty() {
+                Some(v.display_value.split(',').map(|s| s.to_string()).collect())
+            } else {
+                None
+            }
+        });
 
         let base_type = row.get(3).map(|v| v.display_value.clone());
 
@@ -444,7 +455,6 @@ pub async fn get_table_count(
         .await
         .map_err(|e| e.to_string())
 }
-
 
 #[tauri::command]
 pub async fn get_connection_health(
@@ -628,281 +638,6 @@ pub async fn stream_query(
     Ok(stream_id)
 }
 
-// Storage commands
-#[tauri::command]
-pub async fn store_connection(
-    connection: ConnectionProfile,
-    storage: State<'_, Arc<crate::storage::SecureStorage>>,
-) -> std::result::Result<String, String> {
-    storage
-        .store_connection(connection)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn db_connect_by_id(
-    connection_id: String,
-    _workspace_id: Option<String>,
-    storage: State<'_, Arc<crate::storage::SecureStorage>>,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<ConnectionInfo, String> {
-    // Get stored connection
-    let stored = storage
-        .get_connection(&connection_id)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    // Mark as used
-    let _ = storage.mark_as_used(&connection_id).await;
-
-    // Connect using the stored profile
-    let conn_id = manager
-        .get_or_create_connection(&stored.profile)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(ConnectionInfo {
-        id: conn_id,
-        db_type: stored.profile.db_type,
-        database: stored.profile.database,
-        version: None,
-    })
-}
-
-#[tauri::command]
-pub async fn list_connections(
-    storage: State<'_, Arc<crate::storage::SecureStorage>>,
-) -> std::result::Result<Vec<crate::storage::StoredConnection>, String> {
-    storage.list_connections().await.map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn delete_connection(
-    connection_id: String,
-    storage: State<'_, Arc<crate::storage::SecureStorage>>,
-) -> std::result::Result<(), String> {
-    storage
-        .delete_connection(&connection_id)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn update_connection(
-    connection_id: String,
-    profile: ConnectionProfile,
-    storage: State<'_, Arc<crate::storage::SecureStorage>>,
-) -> std::result::Result<(), String> {
-    storage
-        .update_connection(&connection_id, profile)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-// ============================================================================
-// Window-Aware Connection Commands
-// ============================================================================
-
-#[tauri::command]
-pub async fn set_active_connection(
-    window: Window,
-    connection_id: String,
-    state: State<'_, crate::state::AppState>,
-    app_handle: AppHandle,
-) -> std::result::Result<(), String> {
-    let window_label = window.label().to_string();
-
-    // Set the active connection for this window
-    state
-        .window_states
-        .set_active_connection(window_label.clone(), connection_id.clone())
-        .map_err(|e| e.to_string())?;
-
-    // Focus the window
-    window
-        .set_focus()
-        .map_err(|e| format!("Failed to focus window: {}", e))?;
-
-    // Emit event for other windows to know about the change
-    app_handle
-        .emit(
-            "active_connection_changed",
-            serde_json::json!({
-                "window": window_label,
-                "connection_id": connection_id
-            }),
-        )
-        .map_err(|e| format!("Failed to emit event: {}", e))?;
-
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn get_active_connection(
-    window: Window,
-    state: State<'_, crate::state::AppState>,
-) -> std::result::Result<Option<String>, String> {
-    let window_label = window.label();
-    Ok(state.window_states.get_active_connection(window_label))
-}
-
-#[tauri::command]
-pub async fn switch_to_connection_window(
-    connection_id: String,
-    state: State<'_, crate::state::AppState>,
-    app_handle: AppHandle,
-) -> std::result::Result<(), String> {
-    // Find window with this connection
-    if let Some(window_label) = state
-        .window_states
-        .get_window_for_connection(&connection_id)
-    {
-        if let Some(window) = app_handle.get_webview_window(&window_label) {
-            window
-                .set_focus()
-                .map_err(|e| format!("Failed to focus window: {}", e))?;
-            return Ok(());
-        }
-    }
-
-    Err(format!("No window found with connection {}", connection_id))
-}
-
-#[tauri::command]
-pub async fn get_window_states(
-    state: State<'_, crate::state::AppState>,
-) -> std::result::Result<serde_json::Value, String> {
-    let states = state
-        .window_states
-        .get_all_states()
-        .map_err(|e| e.to_string())?;
-
-    serde_json::to_value(&states).map_err(|e| format!("Failed to serialize window states: {}", e))
-}
-
-#[tauri::command]
-pub async fn remove_window_connection(
-    window: Window,
-    state: State<'_, crate::state::AppState>,
-) -> std::result::Result<(), String> {
-    let window_label = window.label();
-    state
-        .window_states
-        .remove_window(window_label)
-        .map_err(|e| e.to_string())
-}
-
-// Enhanced storage commands with event emission
-#[tauri::command]
-pub async fn store_connection_with_event(
-    connection: ConnectionProfile,
-    tags: Option<Vec<String>>,
-    storage: State<'_, Arc<crate::storage::SecureStorage>>,
-    app_handle: AppHandle,
-) -> std::result::Result<String, String> {
-    let id = storage
-        .store_connection(connection)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    // Add tags if provided
-    if let Some(tags) = tags {
-        storage
-            .update_tags(&id, tags)
-            .await
-            .map_err(|e| e.to_string())?;
-    }
-
-    // Emit event to all windows
-    app_handle
-        .emit("connections_changed", ())
-        .map_err(|e| format!("Failed to emit event: {}", e))?;
-
-    Ok(id)
-}
-
-#[tauri::command]
-pub async fn delete_connection_with_event(
-    connection_id: String,
-    storage: State<'_, Arc<crate::storage::SecureStorage>>,
-    state: State<'_, crate::state::AppState>,
-    app_handle: AppHandle,
-) -> std::result::Result<(), String> {
-    // Delete the connection
-    storage
-        .delete_connection(&connection_id)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    // Clear from any windows using this connection
-    let affected_windows = state
-        .window_states
-        .clear_connection(&connection_id)
-        .map_err(|e| e.to_string())?;
-
-    // Emit events
-    app_handle
-        .emit("connections_changed", ())
-        .map_err(|e| format!("Failed to emit event: {}", e))?;
-
-    if !affected_windows.is_empty() {
-        app_handle
-            .emit(
-                "connection_deleted",
-                serde_json::json!({
-                    "connection_id": connection_id,
-                    "affected_windows": affected_windows
-                }),
-            )
-            .map_err(|e| format!("Failed to emit event: {}", e))?;
-    }
-
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn update_connection_with_event(
-    connection_id: String,
-    profile: ConnectionProfile,
-    tags: Option<Vec<String>>,
-    storage: State<'_, Arc<crate::storage::SecureStorage>>,
-    app_handle: AppHandle,
-) -> std::result::Result<(), String> {
-    println!(
-        "DEBUG: Starting update_connection_with_event for {}",
-        connection_id
-    );
-
-    println!("DEBUG: Updating connection profile...");
-    storage
-        .update_connection(&connection_id, profile)
-        .await
-        .map_err(|e| e.to_string())?;
-    println!("DEBUG: Connection profile updated successfully");
-
-    // Update tags if provided
-    if let Some(tags) = tags {
-        println!("DEBUG: Updating tags: {:?}", tags);
-        storage
-            .update_tags(&connection_id, tags)
-            .await
-            .map_err(|e| e.to_string())?;
-        println!("DEBUG: Tags updated successfully");
-    }
-
-    // Emit event to all windows
-    println!("DEBUG: Emitting connections_changed event");
-    app_handle
-        .emit("connections_changed", ())
-        .map_err(|e| format!("Failed to emit event: {}", e))?;
-    println!("DEBUG: Event emitted successfully");
-
-    println!("DEBUG: update_connection_with_event completed successfully");
-    Ok(())
-}
-
-
 // Index operation commands
 #[tauri::command]
 pub async fn create_index(
@@ -917,7 +652,12 @@ pub async fn create_index(
         .ok_or_else(|| "Connection not found".to_string())?;
 
     // Guard against indefinite hangs: enforce a 30s timeout
-    match timeout(Duration::from_secs(30), conn.adapter.create_index(&schema, &table, &index)).await {
+    match timeout(
+        Duration::from_secs(30),
+        conn.adapter.create_index(&schema, &table, &index),
+    )
+    .await
+    {
         Ok(res) => res.map_err(|e| e.to_string()),
         Err(_) => Err("Timed out creating index after 30s".to_string()),
     }
@@ -1066,6 +806,54 @@ pub async fn alter_table_drop_foreign_key(
         .alter_table_drop_foreign_key(&schema, &table, &constraint_name)
         .await
         .map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// Stronghold maintenance helpers
+// ============================================================================
+
+#[tauri::command]
+pub async fn reset_stronghold_vault(app_handle: AppHandle) -> std::result::Result<(), String> {
+    let data_dir = app_handle
+        .path()
+        .app_local_data_dir()
+        .map_err(|e| format!("Failed to resolve app data dir: {}", e))?;
+
+    let vault_path = data_dir.join("vault.hold");
+    let salt_path = data_dir.join("salt.txt");
+
+    if vault_path.exists() {
+        if let Err(err) = fs::remove_file(&vault_path) {
+            tracing::warn!(
+                "Failed to remove Stronghold vault file {}: {}",
+                vault_path.display(),
+                err
+            );
+        } else {
+            tracing::info!("Removed Stronghold vault file at {}", vault_path.display());
+        }
+    }
+
+    if salt_path.exists() {
+        if let Err(err) = fs::remove_file(&salt_path) {
+            tracing::warn!(
+                "Failed to remove Stronghold salt file {}: {}",
+                salt_path.display(),
+                err
+            );
+        } else {
+            tracing::info!("Removed Stronghold salt file at {}", salt_path.display());
+        }
+    }
+
+    if let Err(err) = crate::keychain::delete_vault_password() {
+        tracing::warn!(
+            "Failed to delete Stronghold password from keychain: {}",
+            err
+        );
+    }
+
+    Ok(())
 }
 
 // Trigger operation commands

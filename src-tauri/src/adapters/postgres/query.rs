@@ -183,7 +183,8 @@ impl PostgresQueryExecutor {
 
         // Build paginated query - avoid wrapping aggregate queries and JOIN queries
         let offset = portal.rows_fetched;
-        let needs_wrapping = !is_aggregate_query(&portal.original_sql) && !has_joins(&portal.original_sql);
+        let needs_wrapping =
+            !is_aggregate_query(&portal.original_sql) && !has_joins(&portal.original_sql);
 
         // Build query with type casting for range types
         let query = if needs_wrapping {

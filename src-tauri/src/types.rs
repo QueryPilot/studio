@@ -21,14 +21,7 @@ pub struct ConnectionProfile {
 }
 
 impl ConnectionProfile {
-    pub fn connection_key(&self) -> String {
-        // Format: {db_type}://{host}:{port}/{database}#{username}
-        // This ensures unique keys for connections to different database types
-        format!(
-            "{:?}://{}:{}/{}#{}",
-            self.db_type, self.host, self.port, self.database, self.username
-        )
-    }
+    // identity is the provided id (UUID) from the frontend/Stronghold
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -551,12 +544,12 @@ pub struct AddForeignKeyRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateTriggerRequest {
     pub name: String,
-    pub event: Vec<String>,     // INSERT, UPDATE, DELETE, TRUNCATE
-    pub timing: String,          // BEFORE, AFTER, INSTEAD OF
-    pub level: String,           // ROW, STATEMENT
-    pub function_name: String,   // The trigger function to execute
+    pub event: Vec<String>,        // INSERT, UPDATE, DELETE, TRUNCATE
+    pub timing: String,            // BEFORE, AFTER, INSTEAD OF
+    pub level: String,             // ROW, STATEMENT
+    pub function_name: String,     // The trigger function to execute
     pub condition: Option<String>, // WHEN condition for the trigger
-    pub for_each: Option<String>, // Optional: ROW or STATEMENT (defaults to level)
+    pub for_each: Option<String>,  // Optional: ROW or STATEMENT (defaults to level)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,0 +1,306 @@
+import { invoke } from "@tauri-apps/api/core";
+import {
+  type ConnectionMetadata,
+  type ConnectionProfile,
+  type StoredConnection,
+} from "@/types/connection";
+
+const OPERATION_TIMEOUT = 15000; // general non-critical ops
+const READ_TIMEOUT = 60000; // disk IO / JSON parse
+const STORE_TIMEOUT = 60000; // background snapshot write
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  operation: string,
+): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => {
+        reject(new Error(`${operation} timed out after ${timeoutMs}ms`));
+      }, timeoutMs),
+    ),
+  ]);
+}
+
+class VaultStorageService {
+  private initialized = false;
+  private initPromise: Promise<void> | null = null;
+  private saveScheduled = false;
+  private indexCache: string[] | null = null;
+  private connectionCache: Map<string, StoredConnection> = new Map();
+  private dirtyIds: Set<string> = new Set();
+  private deletedIds: Set<string> = new Set();
+  private indexDirty = false;
+  private preloaded = false;
+
+  private scheduleSave(): void {
+    if (this.saveScheduled) return;
+    this.saveScheduled = true;
+    setTimeout(() => {
+      void this.flushPendingChanges();
+    }, 250);
+  }
+
+  async flushPendingChanges(): Promise<void> {
+    await this.ensureInitialized();
+
+    if (
+      !this.indexDirty &&
+      this.dirtyIds.size === 0 &&
+      this.deletedIds.size === 0
+    ) {
+      this.saveScheduled = false;
+      return;
+    }
+
+    const snapshot = Array.from(this.connectionCache.values());
+    try {
+      await withTimeout(
+        invoke("vault_write", { plaintextJson: JSON.stringify(snapshot) }),
+        STORE_TIMEOUT,
+        "Write encrypted snapshot",
+      );
+    } catch (err) {
+      console.error("Failed to write snapshot", err);
+    }
+
+    this.dirtyIds.clear();
+    this.deletedIds.clear();
+    this.indexDirty = false;
+  }
+
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
+    if (this.initPromise) {
+      await this.initPromise;
+      return;
+    }
+    this.initPromise = (async () => {
+      await this.preloadAllInternal();
+      this.initialized = true;
+    })();
+    await this.initPromise;
+    this.initPromise = null;
+  }
+
+  private async ensureInitialized(): Promise<void> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+  }
+
+  private async getIndex(): Promise<string[]> {
+    await this.ensureInitialized();
+    if (this.indexCache) return this.indexCache;
+    const ids = Array.from(this.connectionCache.keys());
+    this.indexCache = ids;
+    return ids;
+  }
+
+  private async storeIndex(ids: string[]): Promise<void> {
+    await this.ensureInitialized();
+    this.indexCache = [...ids];
+    this.indexDirty = true;
+  }
+
+  async storeConnection(profile: ConnectionProfile): Promise<string> {
+    await this.ensureInitialized();
+
+    return withTimeout(
+      (async () => {
+        const profileToStore: ConnectionProfile = { ...profile };
+        if (!profileToStore.id) {
+          profileToStore.id = crypto.randomUUID();
+        }
+
+        const stored: StoredConnection = {
+          profile: profileToStore,
+          metadata: {
+            created_at: new Date().toISOString(),
+            last_used: null,
+            use_count: 0,
+            tags: [],
+            is_favorite: false,
+          },
+        };
+
+        this.connectionCache.set(profileToStore.id, stored);
+
+        const index = await this.getIndex();
+        if (!index.includes(profileToStore.id)) {
+          index.push(profileToStore.id);
+          await this.storeIndex(index);
+        }
+
+        this.dirtyIds.add(profileToStore.id);
+        this.scheduleSave();
+        return profileToStore.id;
+      })(),
+      STORE_TIMEOUT,
+      "Store connection",
+    );
+  }
+
+  async getConnection(id: string): Promise<StoredConnection | null> {
+    await this.ensureInitialized();
+    return withTimeout(
+      (async () => {
+        return this.connectionCache.get(id) ?? null;
+      })(),
+      READ_TIMEOUT,
+      `Get connection ${id}`,
+    );
+  }
+
+  async listConnections(): Promise<StoredConnection[]> {
+    await this.ensureInitialized();
+    return withTimeout(
+      Promise.resolve(Array.from(this.connectionCache.values())),
+      OPERATION_TIMEOUT,
+      "List connections",
+    );
+  }
+
+  async updateConnection(
+    id: string,
+    profile: ConnectionProfile,
+  ): Promise<void> {
+    await this.ensureInitialized();
+    const existing = await this.getConnection(id);
+    if (!existing) {
+      throw new Error(`Connection ${id} not found`);
+    }
+    const profileToStore: ConnectionProfile = { ...profile, id };
+    const metadata: ConnectionMetadata = { ...existing.metadata };
+    this.connectionCache.set(id, { profile: profileToStore, metadata });
+    this.dirtyIds.add(id);
+    this.scheduleSave();
+  }
+
+  async deleteConnection(id: string): Promise<void> {
+    await this.ensureInitialized();
+    return withTimeout(
+      (async () => {
+        const index = await this.getIndex();
+        const newIndex = index.filter((connId) => connId !== id);
+        await this.storeIndex(newIndex);
+        this.connectionCache.delete(id);
+        this.deletedIds.add(id);
+        this.scheduleSave();
+      })(),
+      OPERATION_TIMEOUT,
+      `Delete connection ${id}`,
+    );
+  }
+
+  private async updateMetadataInternal(
+    id: string,
+    metadata: ConnectionMetadata,
+  ): Promise<void> {
+    await this.ensureInitialized();
+    const conn = this.connectionCache.get(id);
+    if (conn) {
+      conn.metadata = metadata;
+      this.connectionCache.set(id, conn);
+    }
+    this.dirtyIds.add(id);
+  }
+
+  async updateMetadata(
+    id: string,
+    metadata: ConnectionMetadata,
+  ): Promise<void> {
+    await this.updateMetadataInternal(id, metadata);
+  }
+
+  async toggleFavorite(id: string): Promise<boolean> {
+    const conn = await this.getConnection(id);
+    if (!conn) {
+      throw new Error(`Connection ${id} not found`);
+    }
+    conn.metadata.is_favorite = !conn.metadata.is_favorite;
+    await this.updateMetadata(id, conn.metadata);
+    return conn.metadata.is_favorite;
+  }
+
+  async updateTags(id: string, tags: string[]): Promise<void> {
+    const conn = await this.getConnection(id);
+    if (!conn) {
+      throw new Error(`Connection ${id} not found`);
+    }
+    conn.metadata.tags = tags;
+    await this.updateMetadata(id, conn.metadata);
+  }
+
+  async markAsUsed(id: string): Promise<void> {
+    const conn = await this.getConnection(id);
+    if (!conn) {
+      throw new Error(`Connection ${id} not found`);
+    }
+    conn.metadata.last_used = new Date().toISOString();
+    conn.metadata.use_count += 1;
+    await this.updateMetadataInternal(id, conn.metadata);
+  }
+
+  async resetVault(): Promise<void> {
+    await this.ensureInitialized();
+    const index = await this.getIndex();
+    for (const id of index) {
+      await this.deleteConnection(id);
+    }
+    await invoke("vault_reset");
+    this.initialized = false;
+    this.indexCache = null;
+    this.connectionCache.clear();
+    this.dirtyIds.clear();
+    this.deletedIds.clear();
+    this.indexDirty = false;
+    this.preloaded = false;
+  }
+
+  private async preloadAllInternal(): Promise<void> {
+    try {
+      const data = await withTimeout(
+        invoke<string | null>("vault_read"),
+        READ_TIMEOUT,
+        "Read connections snapshot",
+      );
+      if (data) {
+        const arr = JSON.parse(data) as StoredConnection[];
+        this.connectionCache.clear();
+        for (const sc of arr) {
+          if (sc?.profile?.id) this.connectionCache.set(sc.profile.id, sc);
+        }
+        if (!this.indexCache) {
+          this.indexCache = arr.map((s) => s.profile.id).filter(Boolean);
+        }
+        this.preloaded = true;
+        return;
+      }
+    } catch (err) {
+      console.warn("Snapshot not available, initializing empty store", err);
+    }
+
+    this.connectionCache.clear();
+    this.indexCache = [];
+    this.preloaded = true;
+    try {
+      await invoke("vault_write", { plaintextJson: JSON.stringify([]) });
+    } catch {}
+  }
+
+  async preloadAll(): Promise<void> {
+    await this.initialize();
+  }
+
+  hasPendingChanges(): boolean {
+    return (
+      this.indexDirty || this.dirtyIds.size > 0 || this.deletedIds.size > 0
+    );
+  }
+}
+
+export const strongholdStorage = new VaultStorageService();
+export type { StoredConnection, ConnectionProfile, ConnectionMetadata };
