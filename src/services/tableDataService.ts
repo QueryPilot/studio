@@ -49,12 +49,6 @@ export class TableDataService {
       console.log("  - Limit:", params.limit || 1000);
       console.log("  - Offset:", params.offset || 0);
 
-      // Get backend connection ID
-      const { databaseService } = await import("./databaseService");
-      const backendConnectionId =
-        databaseService.getBackendConnectionId?.(params.connectionId) ||
-        params.connectionId;
-
       // Use filtered API if filters or sorts are present
       const hasFilters =
         params.filters &&
@@ -72,7 +66,7 @@ export class TableDataService {
       const result =
         hasFilters || hasSorts
           ? await BackendAPI.getTableDataFiltered(
-              backendConnectionId,
+              params.connectionId,
               params.schema || "public",
               params.table,
               params.limit || 1000,
@@ -81,7 +75,7 @@ export class TableDataService {
               params.sorts || undefined,
             )
           : await BackendAPI.getTableData(
-              backendConnectionId,
+              params.connectionId,
               params.schema || "public",
               params.table,
               params.limit || 1000,
@@ -93,7 +87,7 @@ export class TableDataService {
       if (!params.offset || params.offset === 0) {
         try {
           estimatedTotal = await BackendAPI.getTableCount(
-            backendConnectionId,
+            params.connectionId,
             params.schema || "public",
             params.table,
           );
@@ -236,12 +230,8 @@ export class TableDataService {
         abortError.name = "AbortError";
         throw abortError;
       }
-      const { databaseService } = await import("./databaseService");
-      const backendConnectionId =
-        databaseService.getBackendConnectionId?.(connectionId) || connectionId;
-
       const handle: QueryHandle = await BackendAPI.executeQuery(
-        backendConnectionId,
+        connectionId,
         query,
       );
 
@@ -250,7 +240,7 @@ export class TableDataService {
       }
 
       const result = await BackendAPI.fetchResults(
-        backendConnectionId,
+        connectionId,
         handle,
         options.limit || 1000,
       );

@@ -7,13 +7,14 @@ The app now uses the bundle identifier (`com.hieuvd.devdb-studio`) as the keycha
 ### How It Works
 
 - **Consistent Identity**: Uses the same bundle identifier as the Tauri app configuration
-- **No Permission Prompts**: macOS recognizes the app as the same identity across rebuilds  
+- **No Permission Prompts**: macOS recognizes the app as the same identity across rebuilds
 - **Mandatory Security**: Keychain is always used - no fallback options
 - **Production Ready**: Same security model in development and production
 
 ### Setup
 
 Just run the app normally:
+
 ```bash
 npm run tauri:dev
 ```

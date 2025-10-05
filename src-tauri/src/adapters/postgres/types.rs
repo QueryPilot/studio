@@ -1203,18 +1203,16 @@ impl PostgresTypeConverter {
                                         row.try_get::<_, Option<PgEnumText>>(idx)
                                     {
                                         return Ok(CellValue {
-                                            value_type: CellValueType::Enum(
-                                                type_name.to_string(),
-                                            ),
+                                            value_type: CellValueType::Enum(type_name.to_string()),
                                             raw_value: None,
                                             display_value: enum_txt.0,
-                                            db_specific: Some(
-                                                DbSpecificValue::PostgreSQL(PostgresValue {
+                                            db_specific: Some(DbSpecificValue::PostgreSQL(
+                                                PostgresValue {
                                                     oid: type_oid,
                                                     type_name: type_name.to_string(),
                                                     type_modifier: -1,
-                                                }),
-                                            ),
+                                                },
+                                            )),
                                         });
                                     }
                                     // Try alternative methods for complex types

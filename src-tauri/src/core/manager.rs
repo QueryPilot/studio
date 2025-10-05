@@ -78,12 +78,17 @@ impl ConnectionManager {
     }
 
     pub async fn get_or_create_connection(&self, profile: &ConnectionProfile) -> Result<String> {
-        let conn_key = profile.connection_key();
+        // Source of truth for connection identity is the profile.id provided by the frontend
+        let conn_id = profile.id.clone();
+
+        if conn_id.is_empty() {
+            return Err(AppError::internal("Connection profile id must not be empty"));
+        }
 
         // Check if connection exists
-        if let Some(entry) = self.connections.get_mut(&conn_key) {
+        if let Some(entry) = self.connections.get_mut(&conn_id) {
             *entry.last_used.write().await = Instant::now();
-            return Ok(conn_key);
+            return Ok(conn_id);
         }
 
         // Start reaper on first connection if not already running
@@ -96,7 +101,7 @@ impl ConnectionManager {
         adapter.connect(profile).await?;
 
         let live_conn = LiveConnection {
-            id: conn_key.clone(),
+            id: conn_id.clone(),
             adapter,
             profile: profile.clone(),
             created_at: Instant::now(),
@@ -105,9 +110,9 @@ impl ConnectionManager {
             active_queries: Arc::new(AtomicUsize::new(0)),
         };
 
-        self.connections.insert(conn_key.clone(), live_conn);
+        self.connections.insert(conn_id.clone(), live_conn);
         self.total_connections.fetch_add(1, Ordering::SeqCst);
-        Ok(conn_key)
+        Ok(conn_id)
     }
 
     pub fn get_connection(

@@ -1,4 +1,5 @@
 import { isTauri, safeInvoke, safeEmit } from "@/utils/tauri";
+import { strongholdStorage } from "@/services/vaultStorage";
 import { queryManager, type QueryResult } from "./queryManager";
 import {
   BackendAPI,
@@ -92,7 +93,6 @@ export interface ConnectionHealth {
 class DatabaseService {
   private static instance: DatabaseService;
   private activeConnections: Map<string, ConnectResponse> = new Map();
-  private connectionIdMap: Map<string, string> = new Map(); // Maps local ID to backend connection ID
   private healthMonitors: Map<string, NodeJS.Timeout> = new Map();
   private healthListeners: Map<string, ((health: ConnectionHealth) => void)[]> =
     new Map();
@@ -127,30 +127,35 @@ class DatabaseService {
     }
 
     try {
-      // Backend returns ConnectionInfo with 'id' field, not 'connection_id'
-      const backendResponse = await safeInvoke<{
-        id: string;
-        db_type: string;
-        database: string;
-        version?: string;
-      }>("db_connect_by_id", {
-        connectionId: connectionId,
-        workspaceId: workspaceId,
-      });
-
-      if (!backendResponse) {
-        throw new Error("Failed to connect to database");
+      // Load the stored connection profile from Stronghold on the frontend
+      const stored = await strongholdStorage.getConnection(connectionId);
+      if (!stored) {
+        throw new Error(`Connection ${connectionId} not found`);
       }
 
-      // Convert backend response to frontend format
+      // Convert to backend profile type
+      const profile: ConnectionProfile = {
+        id: stored.profile.id,
+        name: stored.profile.name,
+        db_type: stored.profile.db_type as unknown as DbType,
+        host: stored.profile.host,
+        port: stored.profile.port,
+        database: stored.profile.database,
+        username: stored.profile.username,
+        password: stored.profile.password,
+        ssl_mode: stored.profile.ssl_mode as any,
+        options: stored.profile.options || {},
+      };
+
+      // Ask backend to connect using the complete profile
+      const backendInfo = await BackendAPI.connect(profile);
+
       const response: ConnectResponse = {
-        connection_id: backendResponse.id,
-        server_version: backendResponse.version || null,
+        connection_id: backendInfo.id,
+        server_version: backendInfo.version || null,
       };
 
       this.activeConnections.set(connectionId, response);
-      // Map the local connection ID to the backend connection ID
-      this.connectionIdMap.set(connectionId, backendResponse.id);
       this.startHealthMonitoring(connectionId);
 
       // Emit successful connection health
@@ -219,9 +224,6 @@ class DatabaseService {
 
       this.activeConnections.set(config.id, response);
       // Map the local connection ID to the backend connection ID
-      this.connectionIdMap.set(config.id, connectionInfo.id);
-
-      // Start health monitoring
       this.startHealthMonitoring(config.id);
 
       return response;
@@ -240,12 +242,10 @@ class DatabaseService {
       this.stopHealthMonitoring(connectionId);
 
       if (isTauri()) {
-        const backendConnId = this.getBackendConnectionId(connectionId);
-        await BackendAPI.disconnect(backendConnId);
+        await BackendAPI.disconnect(connectionId);
       }
 
       this.activeConnections.delete(connectionId);
-      this.connectionIdMap.delete(connectionId);
     } catch (error) {
       console.error("Failed to disconnect from database:", error);
       throw error;
@@ -257,8 +257,7 @@ class DatabaseService {
    */
   async testConnection(connectionId: string): Promise<boolean> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
-      const result = await BackendAPI.testConnection(backendConnId);
+      const result = await BackendAPI.testConnection(connectionId);
       return result.success;
     } catch (error) {
       console.error("Failed to test connection:", error);
@@ -271,8 +270,7 @@ class DatabaseService {
    */
   async getConnectionHealth(connectionId: string): Promise<ConnectionHealth> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
-      const health = await BackendAPI.getConnectionHealth(backendConnId);
+      const health = await BackendAPI.getConnectionHealth(connectionId);
       return {
         connectionId: health.connection_id,
         status: health.status as "ready" | "degraded" | "error",
@@ -295,8 +293,7 @@ class DatabaseService {
    */
   async ping(connectionId: string): Promise<number> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
-      return await BackendAPI.ping(backendConnId);
+      return await BackendAPI.ping(connectionId);
     } catch (error) {
       console.error("Failed to ping connection:", error);
       throw error;
@@ -426,13 +423,7 @@ class DatabaseService {
    * Get backend connection ID from local connection ID
    */
   getBackendConnectionId(localConnectionId: string): string {
-    // First check if we have a mapped backend connection ID
-    const backendId = this.connectionIdMap.get(localConnectionId);
-
-    if (backendId) {
-      return backendId;
-    }
-    // Fallback to using the local ID (for backward compatibility)
+    // Single source of truth: we now use the same UUID everywhere
     return localConnectionId;
   }
 
@@ -441,8 +432,7 @@ class DatabaseService {
    */
   async listDatabases(connectionId: string): Promise<string[]> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
-      const databases = await BackendAPI.getDatabases(backendConnId);
+      const databases = await BackendAPI.getDatabases(connectionId);
       return databases.map((db) => db.name);
     } catch (error) {
       console.error("Failed to list databases:", error);
@@ -458,8 +448,7 @@ class DatabaseService {
     _database: string,
   ): Promise<string[]> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
-      const schemas = await BackendAPI.getSchemas(backendConnId, _database);
+      const schemas = await BackendAPI.getSchemas(connectionId, _database);
       return schemas.map((s) => s.name);
     } catch (error) {
       console.error("Failed to list schemas:", error);
@@ -476,10 +465,9 @@ class DatabaseService {
     schema: string,
   ): Promise<TableMeta[]> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
       const [tables, views] = await Promise.all([
-        BackendAPI.getTables(backendConnId, schema),
-        BackendAPI.getViews(backendConnId, schema),
+        BackendAPI.getTables(connectionId, schema),
+        BackendAPI.getViews(connectionId, schema),
       ]);
 
       const tableMetas: TableMeta[] = [
@@ -524,8 +512,7 @@ class DatabaseService {
     schema: string,
   ): Promise<FunctionMeta[]> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
-      const functions = await BackendAPI.getFunctions(backendConnId, schema);
+      const functions = await BackendAPI.getFunctions(connectionId, schema);
       return functions.map((f) => ({
         schema: f.schema,
         name: f.name,
@@ -548,9 +535,8 @@ class DatabaseService {
     table: string,
   ): Promise<TriggerMeta[]> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
       const triggers = await BackendAPI.getTriggers(
-        backendConnId,
+        connectionId,
         schema,
         table,
       );
@@ -580,8 +566,7 @@ class DatabaseService {
     table: string,
   ): Promise<ColumnMeta[]> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
-      const columns = await BackendAPI.getColumns(backendConnId, schema, table);
+      const columns = await BackendAPI.getColumns(connectionId, schema, table);
       return columns.map(
         (c, index) =>
           ({
@@ -615,8 +600,7 @@ class DatabaseService {
     table: string,
   ): Promise<TableIndex[]> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
-      const indexes = await BackendAPI.getIndexes(backendConnId, table);
+      const indexes = await BackendAPI.getIndexes(connectionId, table);
       // Normalize index definition pieces (method + WHERE) for UI/editing
       const parseIndexDef = (
         def: string,
@@ -683,8 +667,7 @@ class DatabaseService {
     table: string,
   ): Promise<import("./backend").IndexUsageStats[]> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
-      return await BackendAPI.getIndexUsageStats(backendConnId, table);
+      return await BackendAPI.getIndexUsageStats(connectionId, table);
     } catch (error) {
       console.error("Failed to get index usage stats:", error);
       throw error;
@@ -699,21 +682,19 @@ class DatabaseService {
 
   async getSupportedIndexTypes(connectionId: string): Promise<string[]> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
-
       // Check cache first
-      const cached = this.indexTypeCache.get(backendConnId);
+      const cached = this.indexTypeCache.get(connectionId);
       if (cached && Date.now() - cached.timestamp < this.INDEX_TYPE_CACHE_TTL) {
         return cached.types;
       }
 
       // Fetch from backend - database is source of truth
       const types = await safeInvoke<string[]>("get_supported_index_types", {
-        connId: backendConnId,
+        connId: connectionId,
       });
 
       // Cache the result
-      this.indexTypeCache.set(backendConnId, {
+      this.indexTypeCache.set(connectionId, {
         types,
         timestamp: Date.now(),
       });
@@ -728,8 +709,7 @@ class DatabaseService {
 
   clearIndexTypeCache(connectionId?: string) {
     if (connectionId) {
-      const backendConnId = this.getBackendConnectionId(connectionId);
-      this.indexTypeCache.delete(backendConnId);
+      this.indexTypeCache.delete(connectionId);
     } else {
       this.indexTypeCache.clear();
     }
@@ -743,10 +723,8 @@ class DatabaseService {
 
   async getSupportedColumnTypes(connectionId: string): Promise<string[]> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
-
       // Check cache first
-      const cached = this.columnTypeCache.get(backendConnId);
+      const cached = this.columnTypeCache.get(connectionId);
       if (
         cached &&
         Date.now() - cached.timestamp < this.COLUMN_TYPE_CACHE_TTL
@@ -756,11 +734,11 @@ class DatabaseService {
 
       // Fetch from backend - database is source of truth
       const types = await safeInvoke<string[]>("get_supported_column_types", {
-        connId: backendConnId,
+        connId: connectionId,
       });
 
       // Cache the result
-      this.columnTypeCache.set(backendConnId, {
+      this.columnTypeCache.set(connectionId, {
         types,
         timestamp: Date.now(),
       });
@@ -775,8 +753,7 @@ class DatabaseService {
 
   clearColumnTypeCache(connectionId?: string) {
     if (connectionId) {
-      const backendConnId = this.getBackendConnectionId(connectionId);
-      this.columnTypeCache.delete(backendConnId);
+      this.columnTypeCache.delete(connectionId);
     } else {
       this.columnTypeCache.clear();
     }
@@ -796,15 +773,13 @@ class DatabaseService {
     base_type?: string;
   }> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
-
       const typeInfo = await safeInvoke<{
         type_name: string;
         type_category: string;
         enum_values?: string[];
         base_type?: string;
       }>("get_type_info", {
-        connId: backendConnId,
+        connId: connectionId,
         typeName,
         schema: schema || "public",
       });
@@ -836,26 +811,24 @@ class DatabaseService {
     } = options;
 
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
-
       // Fetch all table metadata in parallel for performance
       const [columns, constraints, indexes, triggers, tables] =
         await Promise.all([
           // Always fetch columns
-          BackendAPI.getColumns(backendConnId, schema, table),
+          BackendAPI.getColumns(connectionId, schema, table),
 
           // Conditionally fetch other metadata
           includeConstraints
-            ? BackendAPI.getConstraints(backendConnId, table)
+            ? BackendAPI.getConstraints(connectionId, table)
             : Promise.resolve([]),
           includeIndexes
-            ? BackendAPI.getIndexes(backendConnId, table)
+            ? BackendAPI.getIndexes(connectionId, table)
             : Promise.resolve([]),
           includeTriggers
-            ? BackendAPI.getTriggers(backendConnId, schema, table)
+            ? BackendAPI.getTriggers(connectionId, schema, table)
             : Promise.resolve([]),
           includeStatistics
-            ? BackendAPI.getTables(backendConnId, schema)
+            ? BackendAPI.getTables(connectionId, schema)
             : Promise.resolve([]),
         ]);
 
@@ -975,13 +948,11 @@ class DatabaseService {
       | "procedure",
   ): Promise<string> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
-
       // Map frontend object type to backend format
       const backendObjectType = objectType.replace("_", "");
 
       const definition = await BackendAPI.getObjectDefinition(
-        backendConnId,
+        connectionId,
         database,
         schema,
         objectName,
@@ -1176,7 +1147,6 @@ class DatabaseService {
     },
   ): Promise<void> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
       // Normalize indexType casing and avoid mutating caller reference
       const indexType = index.indexType;
       // Auto-attach trigram opclass for common GIN-on-text case when user hasn't specified one
@@ -1207,7 +1177,7 @@ class DatabaseService {
         }
       }
       await safeInvoke("create_index", {
-        connId: backendConnId,
+        connId: connectionId,
         schema,
         table,
         index: {
@@ -1248,9 +1218,8 @@ class DatabaseService {
     indexName: string,
   ): Promise<void> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
       await safeInvoke("drop_index", {
-        connId: backendConnId,
+        connId: connectionId,
         schema,
         indexName,
       });
@@ -1270,9 +1239,8 @@ class DatabaseService {
     newName: string,
   ): Promise<void> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
       await safeInvoke("rename_index", {
-        connId: backendConnId,
+        connId: connectionId,
         schema,
         oldName,
         newName,
@@ -1300,9 +1268,8 @@ class DatabaseService {
     },
   ): Promise<void> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
       await safeInvoke("alter_table_add_column", {
-        connId: backendConnId,
+        connId: connectionId,
         schema,
         table,
         column: {
@@ -1330,9 +1297,8 @@ class DatabaseService {
     columnName: string,
   ): Promise<void> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
       await safeInvoke("alter_table_drop_column", {
-        connId: backendConnId,
+        connId: connectionId,
         schema,
         table,
         columnName,
@@ -1363,9 +1329,8 @@ class DatabaseService {
     },
   ): Promise<void> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
       await safeInvoke("alter_table_modify_column", {
-        connId: backendConnId,
+        connId: connectionId,
         schema,
         table,
         column: {
@@ -1397,9 +1362,8 @@ class DatabaseService {
     newName: string,
   ): Promise<void> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
       await safeInvoke("alter_table_rename_column", {
-        connId: backendConnId,
+        connId: connectionId,
         schema,
         table,
         oldName,
@@ -1428,9 +1392,8 @@ class DatabaseService {
     },
   ): Promise<void> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
       await safeInvoke("alter_table_add_foreign_key", {
-        connId: backendConnId,
+        connId: connectionId,
         schema,
         table,
         fk: {
@@ -1458,9 +1421,8 @@ class DatabaseService {
     constraintName: string,
   ): Promise<void> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
       await safeInvoke("alter_table_drop_foreign_key", {
-        connId: backendConnId,
+        connId: connectionId,
         schema,
         table,
         constraintName,
@@ -1488,9 +1450,8 @@ class DatabaseService {
     },
   ): Promise<void> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
       await safeInvoke("create_trigger", {
-        connId: backendConnId,
+        connId: connectionId,
         schema,
         table,
         trigger: {
@@ -1518,9 +1479,8 @@ class DatabaseService {
     triggerName: string,
   ): Promise<void> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
       await safeInvoke("drop_trigger", {
-        connId: backendConnId,
+        connId: connectionId,
         schema,
         table,
         triggerName,
@@ -1542,9 +1502,8 @@ class DatabaseService {
     enabled: boolean,
   ): Promise<void> {
     try {
-      const backendConnId = this.getBackendConnectionId(connectionId);
       await safeInvoke("enable_disable_trigger", {
-        connId: backendConnId,
+        connId: connectionId,
         schema,
         table,
         triggerName,

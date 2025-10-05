@@ -1,3 +1,1 @@
-pub mod secure_store;
-
-pub use secure_store::{SecureStorage, StoredConnection};
+// Storage logic moved to TypeScript using Stronghold JS API

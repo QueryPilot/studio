@@ -103,7 +103,8 @@ export function ConnectionDialog({
   connection,
   onConnect,
 }: ConnectionDialogProps) {
-  const { fetchConnections } = useConnectionStore();
+  const { saveConnection: persistConnection, updateConnection: persistUpdate } =
+    useConnectionStore();
   const isEditMode = !!connection;
 
   // Form state
@@ -691,62 +692,17 @@ export function ConnectionDialog({
 
       try {
         if (isEditMode && connection.id) {
-          // Use the raw invoke to pass tags directly
-          const { invoke } = await import("@tauri-apps/api/core");
-          console.log(
-            "Updating connection:",
-            connection.id,
-            profile,
-            selectedTags,
-          );
-
-          // Add timeout to prevent hanging
-          const updatePromise = invoke("update_connection_with_event", {
-            connectionId: connection.id, // Back to camelCase - Tauri auto-converts
-            profile,
-            tags: selectedTags.length > 0 ? selectedTags : null,
-          });
-
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => {
-              reject(new Error("Update timeout after 10 seconds"));
-            }, 10000),
-          );
-
-          await Promise.race([updatePromise, timeoutPromise]);
+          console.log("Updating connection via Stronghold:", connection.id, profile, selectedTags);
+          await persistUpdate(connection.id, profile, selectedTags);
           console.log("Update successful");
         } else {
-          // Use the raw invoke to pass tags directly
-          const { invoke } = await import("@tauri-apps/api/core");
-          console.log("Creating new connection:", profile, selectedTags);
-
-          // Add timeout to prevent hanging
-          const createPromise = invoke("store_connection_with_event", {
-            connection: profile,
-            tags: selectedTags.length > 0 ? selectedTags : null,
-          });
-
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => {
-              reject(new Error("Create timeout after 10 seconds"));
-            }, 10000),
-          );
-
-          const result = await Promise.race([createPromise, timeoutPromise]);
-          console.log("Create successful, result:", result);
+          console.log("Creating new connection via Stronghold:", profile, selectedTags);
+          await persistConnection(profile, selectedTags);
+          console.log("Create successful");
         }
       } catch (invokeError) {
         console.error("Invoke error:", invokeError);
         throw invokeError;
-      }
-
-      try {
-        console.log("Refreshing connections...");
-        await fetchConnections(); // Refresh the list after saving
-        console.log("Connections refreshed");
-      } catch (fetchError) {
-        console.error("Failed to refresh connections:", fetchError);
-        // Don't throw here, connection was saved successfully
       }
 
       toast.success("Success", {
@@ -814,14 +770,7 @@ export function ConnectionDialog({
         options: {},
       };
 
-      // Save the connection using direct invoke
-      const { invoke } = await import("@tauri-apps/api/core");
-      const connectionId = await invoke<string>("store_connection_with_event", {
-        connection: profile,
-        tags: selectedTags.length > 0 ? selectedTags : null,
-      });
-      await fetchConnections(); // Refresh the list
-
+      const connectionId = await persistConnection(profile, selectedTags);
       if (onConnect) {
         onConnect(connectionId || profile.id);
       }

@@ -839,7 +839,9 @@ impl DbAdapter for PostgresAdapter {
                 "SELECT con.conname FROM pg_constraint con \n                 JOIN pg_class t ON t.oid = con.conrelid \n                 JOIN pg_namespace n ON n.oid = t.relnamespace \n                 WHERE n.nspname = $1 AND t.relname = $2 AND con.contype = 'c' AND pg_get_constraintdef(con.oid) ILIKE $3"
             );
             let pattern = format!("%{}%", working_column_name.trim_matches('"'));
-            let rows = client.query(&drop_sql, &[&schema, &table, &pattern]).await?;
+            let rows = client
+                .query(&drop_sql, &[&schema, &table, &pattern])
+                .await?;
             for row in rows {
                 let conname: String = row.get(0);
                 let sql = format!(
@@ -854,11 +856,7 @@ impl DbAdapter for PostgresAdapter {
 
         if let Some(check) = &column.new_check_constraint {
             // Generate a deterministic constraint name
-            let conname = format!(
-                "chk_{}_{}",
-                table,
-                working_column_name.trim_matches('"')
-            );
+            let conname = format!("chk_{}_{}", table, working_column_name.trim_matches('"'));
             let sql = format!(
                 "ALTER TABLE {}.{} ADD CONSTRAINT {} CHECK ({}) NOT VALID",
                 quote_identifier(schema),
@@ -939,10 +937,13 @@ impl DbAdapter for PostgresAdapter {
 
         if let Some(row) = rows.first() {
             let data_type: String = row.get(0);
-            
+
             // Log the column type for debugging
-            eprintln!("DEBUG: Attempting to add FK on column '{}' with type '{}'", fk.column_name, data_type);
-            
+            eprintln!(
+                "DEBUG: Attempting to add FK on column '{}' with type '{}'",
+                fk.column_name, data_type
+            );
+
             // Check if it's an array type
             if data_type.ends_with("[]") || data_type.starts_with("ARRAY") {
                 return Err(AppError::InvalidInput(format!(

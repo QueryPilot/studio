@@ -1,24 +1,25 @@
 import { type DatabaseConnection } from "@/types/database";
-import { isTauri, safeInvoke } from "@/utils/tauri";
-
-interface SecureConnection {
-  id: string;
-  name: string;
-  host: string;
-  port: number;
-  username: string;
-  password?: string;
-  database: string;
-  connection_type: string;
-  created_at?: string;
-  updated_at?: string;
-}
+import { type ConnectionProfile } from "@/types/connection";
+import { strongholdStorage } from "./vaultStorage";
 
 class SecureConnectionService {
   private static instance: SecureConnectionService;
   private connectionsCache: Map<string, DatabaseConnection> = new Map();
 
-  private constructor() {}
+  private constructor() {
+    // Initialize Stronghold on construction
+    this.initializeStorage();
+  }
+
+  private async initializeStorage() {
+    try {
+      await strongholdStorage.initialize();
+      // Load connections into cache
+      await this.refreshCache();
+    } catch (error) {
+      console.error("Failed to initialize Stronghold storage:", error);
+    }
+  }
 
   static getInstance(): SecureConnectionService {
     if (!SecureConnectionService.instance) {
@@ -28,43 +29,72 @@ class SecureConnectionService {
   }
 
   /**
-   * Refresh connections cache from backend
+   * Refresh connections cache from Stronghold
    */
   async refreshCache(): Promise<void> {
-    if (isTauri()) {
-      this.connectionsCache.clear();
-      await this.getAllConnections(); // This will reload from backend
-    }
+    this.connectionsCache.clear();
+    await this.getAllConnections(); // This will reload from Stronghold
   }
 
   /**
-   * Save a connection to secure storage
+   * Convert Stronghold ConnectionProfile to DatabaseConnection
+   */
+  private toDatabaseConnection(profile: ConnectionProfile): DatabaseConnection {
+    return {
+      id: profile.id,
+      name: profile.name,
+      type: profile.db_type.toLowerCase() as any,
+      host: profile.host,
+      port: profile.port,
+      database: profile.database,
+      username: profile.username,
+      password: profile.password,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      workspace: "default",
+      order: 0,
+      tags: [],
+    };
+  }
+
+  /**
+   * Convert DatabaseConnection to Stronghold ConnectionProfile
+   */
+  private toConnectionProfile(conn: DatabaseConnection): ConnectionProfile {
+    return {
+      id: conn.id,
+      name: conn.name,
+      db_type:
+        conn.type === "postgresql"
+          ? "PostgreSQL"
+          : conn.type === "mysql"
+          ? "MySQL"
+          : conn.type === "sqlite"
+          ? "SQLite"
+          : conn.type === "mssql"
+          ? "SQLServer"
+          : "PostgreSQL",
+      host: conn.host || "localhost",
+      port: conn.port || 5432,
+      database: conn.database || "",
+      username: conn.username || "",
+      password: conn.password,
+      options: {},
+    };
+  }
+
+  /**
+   * Save a connection to Stronghold
    */
   async saveConnection(connection: DatabaseConnection): Promise<void> {
     try {
-      // Save to in-memory cache
+      const profile = this.toConnectionProfile(connection);
+
+      // Save to Stronghold
+      await strongholdStorage.storeConnection(profile);
+
+      // Update cache
       this.connectionsCache.set(connection.id, connection);
-      
-      // Save to backend secure storage if in Tauri
-      if (isTauri()) {
-        const profile = {
-          id: connection.id,
-          name: connection.name,
-          db_type: connection.type === 'postgresql' ? 'PostgreSQL' : 
-                   connection.type === 'mysql' ? 'MySQL' : 
-                   connection.type === 'sqlite' ? 'SQLite' : 
-                   connection.type === 'mssql' ? 'SQLServer' : 'PostgreSQL',
-          host: connection.host || 'localhost',
-          port: connection.port || 5432,
-          database: connection.database || '',
-          username: connection.username || '',
-          password: connection.password,
-          ssl_mode: undefined,
-          options: {},
-        };
-        
-        await safeInvoke("store_connection", { connection: profile });
-      }
     } catch (error) {
       console.error("Failed to save connection:", error);
       throw error;
@@ -72,7 +102,7 @@ class SecureConnectionService {
   }
 
   /**
-   * Save multiple connections to secure storage
+   * Save multiple connections
    */
   async saveConnections(connections: DatabaseConnection[]): Promise<void> {
     const promises = connections.map((conn) => this.saveConnection(conn));
@@ -80,63 +110,60 @@ class SecureConnectionService {
   }
 
   /**
-   * Get all connections from secure storage
+   * Get all connections from Stronghold
    */
   async getAllConnections(): Promise<DatabaseConnection[]> {
-    // Load connections from backend if in Tauri and cache is empty
-    if (isTauri() && this.connectionsCache.size === 0) {
-      try {
-        const storedConnections = await safeInvoke<any[]>("list_connections", {});
+    try {
+      const stored = await strongholdStorage.listConnections();
 
-        if (storedConnections && Array.isArray(storedConnections)) {
-          // Convert backend connections to frontend format and populate cache
-          storedConnections.forEach(stored => {
-            const connection: DatabaseConnection = {
-              id: stored.profile.id,
-              name: stored.profile.name,
-              type: stored.profile.db_type.toLowerCase(),
-              host: stored.profile.host,
-              port: stored.profile.port,
-              database: stored.profile.database,
-              username: stored.profile.username,
-              password: stored.profile.password,
-              filepath: stored.profile.filepath,
-              createdAt: stored.metadata?.created_at ? new Date(stored.metadata.created_at) : new Date(),
-              updatedAt: stored.metadata?.last_used ? new Date(stored.metadata.last_used) : new Date(),
-              workspace: 'default',
-              order: 0,
-            };
-            this.connectionsCache.set(connection.id, connection);
-          });
-        }
-      } catch (error) {
-        console.error("Failed to load connections from backend:", error);
-      }
+      // Convert and populate cache
+      const connections = stored.map((s) => {
+        const conn = this.toDatabaseConnection(s.profile);
+        this.connectionsCache.set(conn.id, conn);
+        return conn;
+      });
+
+      return connections;
+    } catch (error) {
+      console.error("Failed to load connections from Stronghold:", error);
+      return [];
     }
-
-    // Return connections from in-memory cache
-    return Array.from(this.connectionsCache.values());
   }
 
   /**
    * Get a single connection by ID
    */
   async getConnection(id: string): Promise<DatabaseConnection | undefined> {
-    return this.connectionsCache.get(id);
+    // Try cache first
+    if (this.connectionsCache.has(id)) {
+      return this.connectionsCache.get(id);
+    }
+
+    // Load from Stronghold
+    try {
+      const stored = await strongholdStorage.getConnection(id);
+      if (stored) {
+        const conn = this.toDatabaseConnection(stored.profile);
+        this.connectionsCache.set(id, conn);
+        return conn;
+      }
+    } catch (error) {
+      console.error(`Failed to get connection ${id}:`, error);
+    }
+
+    return undefined;
   }
 
   /**
-   * Delete a connection from secure storage
+   * Delete a connection from Stronghold
    */
   async deleteConnection(id: string): Promise<void> {
     try {
-      // Remove from in-memory cache
+      // Remove from cache
       this.connectionsCache.delete(id);
-      
-      // Delete from backend if in Tauri
-      if (isTauri()) {
-        await safeInvoke("delete_connection", { connectionId: id });
-      }
+
+      // Delete from Stronghold
+      await strongholdStorage.deleteConnection(id);
     } catch (error) {
       console.error("Failed to delete connection:", error);
       throw error;

@@ -1,5 +1,11 @@
-import { type UnlistenFn } from '@tauri-apps/api/event';
-import { BackendAPI, type StreamEvent, type CellValue, type ColumnMeta, type TableDataResult } from './backend';
+import { type UnlistenFn } from "@tauri-apps/api/event";
+import {
+  BackendAPI,
+  type StreamEvent,
+  type CellValue,
+  type ColumnMeta,
+  type TableDataResult,
+} from "./backend";
 
 export interface StreamingTableOptions {
   connectionId: string;
@@ -41,12 +47,19 @@ export class StreamingTableService {
    * Stream table data with progress updates
    */
   async streamTable(
-    options: StreamingTableOptions
+    options: StreamingTableOptions,
   ): Promise<StreamingTableResult> {
     // Cancel any existing stream
     this.cancel();
 
-    const { connectionId, schema, table, pageSize = 1000, onProgress, onError } = options;
+    const {
+      connectionId,
+      schema,
+      table,
+      pageSize = 1000,
+      onProgress,
+      onError,
+    } = options;
 
     // Build SQL query
     const sql = `SELECT * FROM ${schema}.${table}`;
@@ -57,7 +70,7 @@ export class StreamingTableService {
         this.isStreaming = false;
         const error: StreamingError = {
           message: `Stream timeout: No response from backend after 30 seconds`,
-          code: 'STREAM_TIMEOUT',
+          code: "STREAM_TIMEOUT",
         };
         if (onError) {
           onError(error);
@@ -70,21 +83,17 @@ export class StreamingTableService {
         this.accumulatedRows = [];
         this.columns = undefined;
 
-        // Get the backend connection ID from databaseService
-        const { databaseService } = await import('./databaseService');
-        const backendConnectionId = (databaseService as any).getBackendConnectionId?.(connectionId) || connectionId;
-
         // Start streaming
         this.currentStreamId = await BackendAPI.streamQuery(
-          backendConnectionId,
+          connectionId,
           sql,
           pageSize,
           (event: StreamEvent) => {
             // Clear timeout on first event
             clearTimeout(timeoutId);
-            
+
             switch (event.type) {
-              case 'Started':
+              case "Started":
                 this.columns = event.columns;
                 if (onProgress) {
                   onProgress({
@@ -95,7 +104,7 @@ export class StreamingTableService {
                 }
                 break;
 
-              case 'Data':
+              case "Data":
                 this.accumulatedRows.push(...event.rows);
                 if (onProgress) {
                   onProgress({
@@ -105,7 +114,7 @@ export class StreamingTableService {
                 }
                 break;
 
-              case 'Progress':
+              case "Progress":
                 if (onProgress) {
                   onProgress({
                     rowsFetched: event.rows_fetched,
@@ -114,7 +123,7 @@ export class StreamingTableService {
                 }
                 break;
 
-              case 'Completed':
+              case "Completed":
                 clearTimeout(timeoutId);
                 this.isStreaming = false;
                 resolve({
@@ -126,7 +135,7 @@ export class StreamingTableService {
                 });
                 break;
 
-              case 'Error':
+              case "Error":
                 clearTimeout(timeoutId);
                 this.isStreaming = false;
                 const error: StreamingError = {
@@ -139,7 +148,7 @@ export class StreamingTableService {
                 reject(new Error(error.message));
                 break;
             }
-          }
+          },
         );
       } catch (error) {
         clearTimeout(timeoutId);
@@ -157,12 +166,9 @@ export class StreamingTableService {
     schema: string,
     table: string,
     limit: number,
-    offset: number
+    offset: number,
   ): Promise<TableDataResult> {
-    // Get the backend connection ID from databaseService
-    const { databaseService } = await import('./databaseService');
-    const backendConnectionId = (databaseService as any).getBackendConnectionId?.(connectionId) || connectionId;
-    return BackendAPI.getTableData(backendConnectionId, schema, table, limit, offset);
+    return BackendAPI.getTableData(connectionId, schema, table, limit, offset);
   }
 
   /**
@@ -171,12 +177,9 @@ export class StreamingTableService {
   async getTableCount(
     connectionId: string,
     schema: string,
-    table: string
+    table: string,
   ): Promise<number> {
-    // Get the backend connection ID from databaseService
-    const { databaseService } = await import('./databaseService');
-    const backendConnectionId = (databaseService as any).getBackendConnectionId?.(connectionId) || connectionId;
-    return BackendAPI.getTableCount(backendConnectionId, schema, table);
+    return BackendAPI.getTableCount(connectionId, schema, table);
   }
 
   /**
@@ -187,7 +190,7 @@ export class StreamingTableService {
     sql: string,
     pageSize?: number,
     onProgress?: (progress: StreamingProgress) => void,
-    onError?: (error: StreamingError) => void
+    onError?: (error: StreamingError) => void,
   ): Promise<StreamingTableResult> {
     // Cancel any existing stream
     this.cancel();
@@ -198,7 +201,7 @@ export class StreamingTableService {
         this.isStreaming = false;
         const error: StreamingError = {
           message: `Stream timeout: No response from backend after 30 seconds`,
-          code: 'STREAM_TIMEOUT',
+          code: "STREAM_TIMEOUT",
         };
         if (onError) {
           onError(error);
@@ -211,21 +214,17 @@ export class StreamingTableService {
         this.accumulatedRows = [];
         this.columns = undefined;
 
-        // Get the backend connection ID from databaseService
-        const { databaseService } = await import('./databaseService');
-        const backendConnectionId = (databaseService as any).getBackendConnectionId?.(connectionId) || connectionId;
-
         // Start streaming
         this.currentStreamId = await BackendAPI.streamQuery(
-          backendConnectionId,
+          connectionId,
           sql,
           pageSize,
           (event: StreamEvent) => {
             // Clear timeout on first event
             clearTimeout(timeoutId);
-            
+
             switch (event.type) {
-              case 'Started':
+              case "Started":
                 this.columns = event.columns;
                 if (onProgress) {
                   onProgress({
@@ -236,7 +235,7 @@ export class StreamingTableService {
                 }
                 break;
 
-              case 'Data':
+              case "Data":
                 this.accumulatedRows.push(...event.rows);
                 if (onProgress) {
                   onProgress({
@@ -245,7 +244,7 @@ export class StreamingTableService {
                 }
                 break;
 
-              case 'Progress':
+              case "Progress":
                 if (onProgress) {
                   onProgress({
                     rowsFetched: event.rows_fetched,
@@ -254,7 +253,7 @@ export class StreamingTableService {
                 }
                 break;
 
-              case 'Completed':
+              case "Completed":
                 clearTimeout(timeoutId);
                 this.isStreaming = false;
                 resolve({
@@ -266,7 +265,7 @@ export class StreamingTableService {
                 });
                 break;
 
-              case 'Error':
+              case "Error":
                 clearTimeout(timeoutId);
                 this.isStreaming = false;
                 const error: StreamingError = {
@@ -279,7 +278,7 @@ export class StreamingTableService {
                 reject(new Error(error.message));
                 break;
             }
-          }
+          },
         );
       } catch (error) {
         clearTimeout(timeoutId);

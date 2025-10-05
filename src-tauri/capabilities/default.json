@@ -33,6 +33,14 @@
     "core:webview:allow-webview-hide",
     "core:webview:allow-webview-show",
     "core:webview:allow-set-webview-focus",
-    "core:webview:allow-internal-toggle-devtools"
+    "core:webview:allow-internal-toggle-devtools",
+    "stronghold:default",
+    "stronghold:allow-initialize",
+    "stronghold:allow-create-client",
+    "stronghold:allow-load-client",
+    "stronghold:allow-save",
+    "stronghold:allow-save-store-record",
+    "stronghold:allow-get-store-record",
+    "stronghold:allow-remove-store-record"
   ]
 }

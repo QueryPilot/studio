@@ -2,6 +2,8 @@ pub mod adapters;
 pub mod commands;
 pub mod core;
 pub mod error;
+pub mod keychain;
+pub mod vault;
 pub mod state;
 pub mod storage;
 pub mod types;
