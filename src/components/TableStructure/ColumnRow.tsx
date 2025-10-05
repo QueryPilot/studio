@@ -246,30 +246,33 @@ export const ColumnRow = memo(function ColumnRow({
             >
               {column.check_constraint
                 ? (() => {
-                     // Balanced outer-paren stripper
-                     const extract = (def: string) => {
-                       let s = def.trim();
-                       const m = s.match(/^CHECK\s*\(([\s\S]*)\)$/i);
-                       if (m && m[1] !== undefined) s = m[1].trim();
-                       const stripOnceIfWrapped = (text: string): string | null => {
-                         if (!text.startsWith("(") || !text.endsWith(")")) return null;
-                         let depth = 0;
-                         for (let i = 0; i < text.length; i++) {
-                           const ch = text[i];
-                           if (ch === "(") depth++;
-                           else if (ch === ")") depth--;
-                           if (depth === 0 && i < text.length - 1) return null;
-                         }
-                         return text.slice(1, -1).trim();
-                       };
-                       while (true) {
-                         const stripped = stripOnceIfWrapped(s);
-                         if (stripped == null) break;
-                         s = stripped;
-                       }
-                       return s;
-                     };
-                     const cond = extract(column.check_constraint);
+                    // Balanced outer-paren stripper
+                    const extract = (def: string) => {
+                      let s = def.trim();
+                      const m = s.match(/^CHECK\s*\(([\s\S]*)\)$/i);
+                      if (m && m[1] !== undefined) s = m[1].trim();
+                      const stripOnceIfWrapped = (
+                        text: string,
+                      ): string | null => {
+                        if (!text.startsWith("(") || !text.endsWith(")"))
+                          return null;
+                        let depth = 0;
+                        for (let i = 0; i < text.length; i++) {
+                          const ch = text[i];
+                          if (ch === "(") depth++;
+                          else if (ch === ")") depth--;
+                          if (depth === 0 && i < text.length - 1) return null;
+                        }
+                        return text.slice(1, -1).trim();
+                      };
+                      while (true) {
+                        const stripped = stripOnceIfWrapped(s);
+                        if (stripped == null) break;
+                        s = stripped;
+                      }
+                      return s;
+                    };
+                    const cond = extract(column.check_constraint);
                     return (
                       <>
                         {cond.substring(0, 30)}
@@ -327,7 +330,7 @@ export const ColumnRow = memo(function ColumnRow({
           )}
         </div>
       </td>
-      <td className="border-b text-foreground/60 dark:text-foreground/50 text-xs min-w-[200px]">
+      <td className="border-b text-foreground/60 dark:text-foreground/50 text-xs min-w-[200px] relative">
         <div
           className={cn(
             "flex items-center justify-between",
@@ -347,7 +350,7 @@ export const ColumnRow = memo(function ColumnRow({
             <span className="italic px-2">{column.comment || "-"}</span>
           )}
           {canEdit && (
-            <div className="absolute right-2">
+            <div className="sticky right-2">
               {(isDeleted || hasChanges) && onReset && (
                 <Button
                   size="icon"

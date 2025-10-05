@@ -31,7 +31,6 @@ interface DatabaseSidebarProps {
   selectedSchema: string;
 }
 
-
 export function DatabaseSidebar({
   connectionId,
   isLoading: initialLoading,
@@ -70,7 +69,6 @@ export function DatabaseSidebar({
       );
     }
   }, [tables]);
-
 
   // Listen for database reconnection events
   useEffect(() => {
@@ -113,10 +111,38 @@ export function DatabaseSidebar({
     viewType: "data" | "structure" | "indexes" = "data",
   ) => {
     // Use workbench panel system
-    const { focusedPanelId, addTab, panelContents, focusPanel } =
-      useWorkbenchStore.getState();
+    const {
+      focusedPanelId,
+      addTab,
+      panelContents,
+      focusPanel,
+      setActiveTab,
+      updateTabMetadata,
+    } = useWorkbenchStore.getState();
 
-    // Determine which panel to use
+    const tabId = `table-${table.schema}-${table.name}`;
+
+    // If this table tab already exists in ANY panel, focus that panel/tab and update view
+    for (const [panelId, content] of panelContents.entries()) {
+      if (content.tabIds.includes(tabId)) {
+        setActiveTab(panelId, tabId);
+        updateTabMetadata(panelId, tabId, {
+          type: "table",
+          title: table.name,
+          connectionId,
+          database: selectedDatabase,
+          schema: table.schema,
+          table: table.name,
+          isView: table.kind !== "Table",
+          kind: table.kind,
+          viewType,
+        });
+        focusPanel(panelId);
+        return;
+      }
+    }
+
+    // Determine which panel to use if none already has the tab
     let targetPanelId = focusedPanelId;
 
     if (!targetPanelId && panelContents.size > 0) {
@@ -130,7 +156,6 @@ export function DatabaseSidebar({
     }
 
     if (targetPanelId) {
-      const tabId = `table-${table.schema}-${table.name}`;
       addTab(targetPanelId, tabId, {
         type: "table",
         title: table.name,

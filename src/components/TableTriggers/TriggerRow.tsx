@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { cn } from "@/lib/utils";
-import { Clock, Trash2, Undo2 } from "lucide-react";
+import { Trash2, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EventSelector } from "./EventSelector";
@@ -102,7 +102,7 @@ export const TriggerRow = memo(function TriggerRow({
             placeholder={isNew ? "trigger_name" : undefined}
             disabled={!isNew && !nameChanged}
             className={cn(
-              "!h-7 px-2 py-1 border-0 bg-transparent !text-xs",
+              "!h-7 px-2 py-1 border-0 bg-transparent !text-xs truncate",
               "focus-visible:ring-1 focus-visible:ring-primary rounded-none",
               nameChanged && "text-primary",
               isNew && "placeholder:text-muted-foreground/50",

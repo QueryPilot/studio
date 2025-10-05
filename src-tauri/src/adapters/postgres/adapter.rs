@@ -860,7 +860,7 @@ impl DbAdapter for PostgresAdapter {
                 working_column_name.trim_matches('"')
             );
             let sql = format!(
-                "ALTER TABLE {}.{} ADD CONSTRAINT {} CHECK ({})",
+                "ALTER TABLE {}.{} ADD CONSTRAINT {} CHECK ({}) NOT VALID",
                 quote_identifier(schema),
                 quote_identifier(table),
                 quote_identifier(&conname),

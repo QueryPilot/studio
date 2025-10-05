@@ -617,17 +617,57 @@ class DatabaseService {
     try {
       const backendConnId = this.getBackendConnectionId(connectionId);
       const indexes = await BackendAPI.getIndexes(backendConnId, table);
-      console.log("Raw indexes from backend:", indexes);
-      const mapped = indexes.map((idx) => ({
-        name: idx.name,
-        unique: idx.is_unique,
-        primary: idx.is_primary,
-        columns: idx.columns,
-        index_type: idx.is_partial ? "PARTIAL" : "BTREE",
-        condition: idx.is_partial ? idx.definition : undefined,
-        foreign_key: idx.is_foreign_key,
-      }));
-      console.log("Mapped indexes:", mapped);
+      // Normalize index definition pieces (method + WHERE) for UI/editing
+      const parseIndexDef = (
+        def: string,
+      ): { method: string; where?: string } => {
+        const usingMatch = def.match(/\bUSING\s+([a-zA-Z0-9_]+)/i);
+        const whereMatch = def.match(/\bWHERE\s+([\s\S]+)$/i);
+        let where = whereMatch ? whereMatch[1].trim() : undefined;
+        if (where && where.endsWith(";")) where = where.slice(0, -1).trim();
+        // Strip redundant outer parentheses like ((expr))
+        const stripParens = (s: string): string => {
+          let out = s.trim();
+          for (let i = 0; i < 3; i++) {
+            if (out.startsWith("(") && out.endsWith(")")) {
+              // quick balanced check
+              let depth = 0;
+              let balanced = true;
+              for (const ch of out) {
+                if (ch === "(") depth++;
+                else if (ch === ")") {
+                  depth--;
+                  if (depth < 0) {
+                    balanced = false;
+                    break;
+                  }
+                }
+              }
+              if (balanced && depth === 0) {
+                out = out.slice(1, -1).trim();
+                continue;
+              }
+            }
+            break;
+          }
+          return out;
+        };
+        if (where) where = stripParens(where);
+        return { method: (usingMatch?.[1] || "btree").toUpperCase(), where };
+      };
+
+      const mapped = indexes.map((idx) => {
+        const parsed = parseIndexDef(idx.definition || "");
+        return {
+          name: idx.name,
+          unique: idx.is_unique,
+          primary: idx.is_primary,
+          columns: idx.columns,
+          index_type: parsed.method,
+          condition: idx.is_partial ? parsed.where : undefined,
+          foreign_key: idx.is_foreign_key,
+        } as TableIndex;
+      });
       return mapped;
     } catch (error) {
       console.error("Failed to get table indexes:", error);
@@ -1190,6 +1230,9 @@ class DatabaseService {
       } else if (/42704/.test(message) && /access method/i.test(message)) {
         message =
           "GIN requires a compatible operator class for text/varchar (e.g., gin_trgm_ops).";
+      } else if (/23514/.test(message) && /check constraint/i.test(message)) {
+        message =
+          "Check constraint is violated by existing rows. We add NOT VALID for new checks, or fix the data then VALIDATE CONSTRAINT.";
       }
       console.error("Failed to create index:", error);
       throw new Error(message);

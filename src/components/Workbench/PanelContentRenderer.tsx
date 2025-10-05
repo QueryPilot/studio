@@ -5,6 +5,7 @@ import React, {
   useCallback,
   Suspense,
   useMemo,
+  useEffect,
 } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ import { useConnectionStore } from "@/stores/connectionStore";
 import { Skeleton } from "../ui/skeleton";
 import { type TabMetadata } from "@/types/workbench";
 import { ERDPanel } from "@/components/Erd";
+import useWorkbenchStore from "@/stores/workbenchStore";
 
 interface PanelContentRendererProps {
   panelId: string;
@@ -69,14 +71,33 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       setViewActions(actions);
     }, []);
 
+    // Keep local activeView in sync with metadata.viewType updates from outside (e.g., sidebar quick actions)
+    useEffect(() => {
+      if (metadata?.viewType && metadata.viewType !== activeView) {
+        setActiveView(metadata.viewType);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [metadata?.viewType]);
+
+    // Persist activeView changes back to metadata so other components can react
+    const updateTabMetadata = useWorkbenchStore((s) => s.updateTabMetadata);
+    useEffect(() => {
+      if (!metadata) return;
+      if (metadata.viewType !== activeView) {
+        updateTabMetadata(panelId, tabId, { viewType: activeView });
+      }
+    }, [activeView, metadata, panelId, tabId, updateTabMetadata]);
+
     // Compute tableGridId unconditionally (before any early returns)
     const tableGridId = useMemo(() => {
       if (!metadata || metadata.type !== "table") return undefined;
-      const connection =
-        metadata.connectionId || activeConnectionId || "unknown";
-      const db = metadata.database || "";
-      const schemaName = metadata.schema || "public";
-      const tableName = metadata.table || "";
+      const connection: string =
+        typeof metadata.connectionId === "string" && metadata.connectionId
+          ? metadata.connectionId
+          : activeConnectionId || "unknown";
+      const db: string = metadata.database || "";
+      const schemaName: string = metadata.schema || "public";
+      const tableName: string = metadata.table || "";
       return `table:${connection}:${db}:${schemaName}:${tableName}`;
     }, [activeConnectionId, metadata]);
 
@@ -89,7 +110,10 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
           connectionId={metadata?.connectionId || ""}
           database={metadata?.database || ""}
           schema={metadata?.schema}
-          dbType={metadata?.dbType || ""}
+          dbType={(() => {
+            const m = metadata as unknown as { dbType?: unknown } | undefined;
+            return typeof m?.dbType === "string" ? m.dbType : "";
+          })()}
           className="h-full"
         />
       );
@@ -98,10 +122,15 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
     if (type === "function" && metadata) {
       return (
         <ObjectDefinition
-          connectionId={metadata.connectionId}
-          database={metadata.database}
-          schema={metadata.schema}
-          objectName={metadata.functionName}
+          connectionId={metadata.connectionId || ""}
+          database={metadata.database || ""}
+          schema={metadata.schema || "public"}
+          objectName={(() => {
+            const m = metadata as unknown as
+              | { functionName?: unknown }
+              | undefined;
+            return typeof m?.functionName === "string" ? m.functionName : "";
+          })()}
           objectType="function"
           className="h-full"
           onDefinitionLoad={(def) => {
@@ -239,10 +268,12 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
               >
                 <TableDataGridV2
                   gridId={tableGridId ?? `table:${tabId}`}
-                  connectionId={activeConnectionId || metadata.connectionId}
-                  database={metadata.database}
+                  connectionId={
+                    activeConnectionId || metadata.connectionId || ""
+                  }
+                  database={metadata.database || ""}
                   schema={metadata.schema}
-                  table={metadata.table}
+                  table={metadata.table || ""}
                   className="h-full"
                   onActionsChange={
                     activeView === "data" ? handleViewActionsChange : undefined
@@ -256,10 +287,12 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                 }`}
               >
                 <TableStructure
-                  connectionId={activeConnectionId || metadata.connectionId}
-                  database={metadata.database}
+                  connectionId={
+                    activeConnectionId || metadata.connectionId || ""
+                  }
+                  database={metadata.database || ""}
                   schema={metadata.schema}
-                  table={metadata.table}
+                  table={metadata.table || ""}
                   onActionsChange={
                     activeView === "structure"
                       ? handleViewActionsChange
@@ -274,10 +307,12 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                 }`}
               >
                 <TableIndexes
-                  connectionId={activeConnectionId || metadata.connectionId}
-                  database={metadata.database}
+                  connectionId={
+                    activeConnectionId || metadata.connectionId || ""
+                  }
+                  database={metadata.database || ""}
                   schema={metadata.schema}
-                  table={metadata.table}
+                  table={metadata.table || ""}
                   onActionsChange={
                     activeView === "indexes"
                       ? handleViewActionsChange
@@ -292,10 +327,12 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                 }`}
               >
                 <TableTriggers
-                  connectionId={activeConnectionId || metadata.connectionId}
-                  database={metadata.database}
+                  connectionId={
+                    activeConnectionId || metadata.connectionId || ""
+                  }
+                  database={metadata.database || ""}
                   schema={metadata.schema}
-                  table={metadata.table}
+                  table={metadata.table || ""}
                   onActionsChange={
                     activeView === "triggers"
                       ? handleViewActionsChange
@@ -309,10 +346,12 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                 }`}
               >
                 <ObjectDefinition
-                  connectionId={activeConnectionId || metadata.connectionId}
-                  database={metadata.database}
+                  connectionId={
+                    activeConnectionId || metadata.connectionId || ""
+                  }
+                  database={metadata.database || ""}
                   schema={metadata.schema || "public"}
-                  objectName={metadata.table}
+                  objectName={metadata.table || ""}
                   objectType={
                     isMaterializedView
                       ? "materialized_view"

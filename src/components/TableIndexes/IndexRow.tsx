@@ -235,7 +235,7 @@ export const IndexRow = memo(function IndexRow({
               availableColumns={availableColumns}
             />
           ) : (
-            <span className="italic px-2 py-1 h-7 flex items-center">
+            <span className="italic px-2 py-1 h-7 flex items-center truncate">
               {index.condition || "-"}
             </span>
           )}
