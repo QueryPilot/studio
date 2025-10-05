@@ -332,11 +332,13 @@ export const TableIndexes = memo(function TableIndexes({
           );
           toast.success(`Dropped index ${indexName}`);
         } catch (err) {
-          errors.push(
-            `Failed to delete ${indexName}: ${
-              err instanceof Error ? err.message : "Unknown error"
-            }`,
-          );
+          const msg =
+            typeof err === "string"
+              ? err
+              : err instanceof Error
+              ? err.message
+              : JSON.stringify(err);
+          errors.push(`Failed to delete ${indexName}: ${msg}`);
         }
       }
 
@@ -365,11 +367,13 @@ export const TableIndexes = memo(function TableIndexes({
               `Renamed index ${editData.originalName} to ${editData.name}`,
             );
           } catch (err) {
-            errors.push(
-              `Failed to rename ${editData.originalName}: ${
-                err instanceof Error ? err.message : "Unknown error"
-              }`,
-            );
+            const msg =
+              typeof err === "string"
+                ? err
+                : err instanceof Error
+                ? err.message
+                : JSON.stringify(err);
+            errors.push(`Failed to rename ${editData.originalName}: ${msg}`);
           }
         }
       }
@@ -397,17 +401,21 @@ export const TableIndexes = memo(function TableIndexes({
           );
           toast.success(`Created index ${newIndex.name}`);
         } catch (err) {
+          const msg =
+            typeof err === "string"
+              ? err
+              : err instanceof Error
+              ? err.message
+              : JSON.stringify(err);
           errors.push(
-            `Failed to create ${newIndex.name || "new index"}: ${
-              err instanceof Error ? err.message : "Unknown error"
-            }`,
+            `Failed to create ${newIndex.name || "new index"}: ${msg}`,
           );
         }
       }
 
       if (errors.length > 0) {
         // Don't hard refresh on partial failure to avoid flashing; keep edits
-        toast.error(`Some changes failed:\n${errors.join("\n")}`);
+        toast.error(`ERROR: ${errors.join(" ")}`);
       } else {
         toast.success("All changes saved successfully");
         setEditingIndexes(new Map());

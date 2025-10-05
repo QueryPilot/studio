@@ -916,10 +916,11 @@ pub async fn create_index(
         .get_connection(&conn_id)
         .ok_or_else(|| "Connection not found".to_string())?;
 
-    conn.adapter
-        .create_index(&schema, &table, &index)
-        .await
-        .map_err(|e| e.to_string())
+    // Guard against indefinite hangs: enforce a 30s timeout
+    match timeout(Duration::from_secs(30), conn.adapter.create_index(&schema, &table, &index)).await {
+        Ok(res) => res.map_err(|e| e.to_string()),
+        Err(_) => Err("Timed out creating index after 30s".to_string()),
+    }
 }
 
 #[tauri::command]

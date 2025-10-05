@@ -127,7 +127,19 @@ export const TableStructureWithResizing = memo(
           default: col.default,
           is_pk: col.is_pk,
           is_fk: col.is_fk,
-          check_constraint: checkConstraint?.definition || null,
+          check_constraint: checkConstraint?.definition
+            ? (() => {
+                let s = checkConstraint.definition.trim();
+                const m = s.match(/^CHECK\s*\(([\s\S]*)\)$/i);
+                if (m && m[1] !== undefined) s = m[1].trim();
+                for (let i = 0; i < 3; i++) {
+                  if (s.startsWith("(") && s.endsWith(")"))
+                    s = s.slice(1, -1).trim();
+                  else break;
+                }
+                return s;
+              })()
+            : null,
           foreign_key_ref: fkInfo
             ? {
                 table: fkInfo.foreignTable,

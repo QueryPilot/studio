@@ -1117,5 +1117,3 @@ export function createContextualCompletionSource(params: {
     }
   };
 }
-
-

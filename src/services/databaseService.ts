@@ -1137,30 +1137,34 @@ class DatabaseService {
   ): Promise<void> {
     try {
       const backendConnId = this.getBackendConnectionId(connectionId);
-      // Auto-opclass for common GIN text scenario to avoid 42704
-      let indexType = index.indexType;
+      // Normalize indexType casing and avoid mutating caller reference
+      const indexType = index.indexType;
+      // Auto-attach trigram opclass for common GIN-on-text case when user hasn't specified one
+      let columnsToSend = [...index.columns];
       if (
         indexType.toLowerCase() === "gin" &&
-        index.columns.length === 1
+        columnsToSend.length === 1 &&
+        !/\s+\w+_ops\b/i.test(columnsToSend[0]) &&
+        !/[()]/.test(columnsToSend[0])
       ) {
-        // If the caller didn't specify opclass and column appears text-like,
-        // attach gin_trgm_ops by appending to column name syntax: col gin_trgm_ops
-        // We only adjust on the client by rewriting the column name tokens.
-        // Detect text-ish columns based on current table structure cache if available.
         try {
-          const structure = await this.getTableStructure(
+          const cols = await this.getTableColumns(
             connectionId,
             "",
             schema,
             table,
-            { includeConstraints: false, includeIndexes: false, includeTriggers: false, includeStatistics: false }
           );
-          const colMeta = structure.columns.find(c => c.name === index.columns[0]);
-          const textish = colMeta?.db_type?.toLowerCase?.().includes("char") || colMeta?.db_type?.toLowerCase?.().includes("text");
-          if (textish && !/\s+gin_trgm_ops\b/i.test(index.columns[0])) {
-            index = { ...index, columns: [ `${index.columns[0]} gin_trgm_ops` ] };
+          const name = columnsToSend[0].replace(/^["']|["']$/g, "");
+          const meta = cols.find((c) => c.name === name);
+          const dt = meta?.db_type ? meta.db_type.toLowerCase() : "";
+          const isTextLike =
+            dt.includes("char") || dt.includes("text") || dt.includes("citext");
+          if (isTextLike) {
+            columnsToSend = [`${name} gin_trgm_ops`];
           }
-        } catch {}
+        } catch {
+          // Best-effort only; silently continue
+        }
       }
       await safeInvoke("create_index", {
         connId: backendConnId,
@@ -1168,22 +1172,27 @@ class DatabaseService {
         table,
         index: {
           name: index.name,
-          columns: index.columns,
+          columns: columnsToSend,
           unique: index.unique,
           index_type: indexType,
           condition: index.condition,
         },
       });
     } catch (error) {
-      // Provide actionable message for common 42704 GIN text errors
-      const msg = String(error);
-      if (/42704/.test(msg) && /access method\s+\"gin\"/i.test(msg)) {
-        throw new Error(
-          "GIN on text/varchar requires an operator class (e.g., gin_trgm_ops). Try adding it or switch to BTREE."
-        );
+      // Surface clear, actionable error messages
+      let message = "Unknown error";
+      if (error instanceof Error) message = error.message;
+      else if (typeof error === "string") message = error;
+      // Common PG errors normalization
+      if (/42703/.test(message)) {
+        // undefined_column often happens when an opclass got quoted as part of the identifier
+        message = `${message} — If you are using an operator class like gin_trgm_ops, ensure it is not quoted as part of the column name.`;
+      } else if (/42704/.test(message) && /access method/i.test(message)) {
+        message =
+          "GIN requires a compatible operator class for text/varchar (e.g., gin_trgm_ops).";
       }
       console.error("Failed to create index:", error);
-      throw error as any;
+      throw new Error(message);
     }
   }
 
