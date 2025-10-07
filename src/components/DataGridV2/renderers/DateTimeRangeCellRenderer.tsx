@@ -53,8 +53,8 @@ const parseRange = (
   const inner = trimmed.substring(1, trimmed.length - 1);
   // naive split – timestamps won't contain top-level commas here
   const parts = inner.split(",");
-  const lower = (parts[0]?.trim() || null) as string | null;
-  const upper = (parts[1]?.trim() || null) as string | null;
+  const lower = (parts[0]?.trim() || null);
+  const upper = (parts[1]?.trim() || null);
   return { lower, upper, bounds: (lb + ub) as Bounds };
 };
 
@@ -102,7 +102,7 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
         readonly: value.readonly,
       };
       setOpenRange(false);
-      Promise.resolve().then(() => onFinishedEditing(next));
+      Promise.resolve().then(() => { onFinishedEditing(next); });
     },
     [bounds, onFinishedEditing, value],
   );
@@ -160,17 +160,17 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
 
   // cycle helpers
   const cycleLower = () =>
-    setBounds((prev) =>
+    { setBounds((prev) =>
       prev[0] === "["
         ? (("(" + prev[1]) as Bounds)
         : (("[" + prev[1]) as Bounds),
-    );
+    ); };
   const cycleUpper = () =>
-    setBounds((prev) =>
+    { setBounds((prev) =>
       prev[1] === "]"
         ? ((prev[0] + ")") as Bounds)
         : ((prev[0] + "]") as Bounds),
-    );
+    ); };
 
   return (
     <div className="w-full h-full flex items-center gap-2 px-2 click-outside-ignore">
@@ -191,7 +191,7 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
         placeholder="lower ISO"
         autoFocus
         value={lowerText}
-        onChange={(e) => setLowerText(e.target.value)}
+        onChange={(e) => { setLowerText(e.target.value); }}
         onKeyDown={handleKeyDown}
       />
 
@@ -202,7 +202,7 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
         className="h-[31px] w-[200px] bg-transparent text-xs leading-6 outline-none"
         placeholder="upper ISO"
         value={upperText}
-        onChange={(e) => setUpperText(e.target.value)}
+        onChange={(e) => { setUpperText(e.target.value); }}
         onKeyDown={handleKeyDown}
       />
 
@@ -223,7 +223,7 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
           variant="ghost"
           className="h-6 w-6 p-0 z-[9999]"
           title="Clear"
-          onClick={() => commit(null, null, bounds)}
+          onClick={() => { commit(null, null, bounds); }}
         >
           <ClearIcon className="h-3 w-3" />
         </Button>

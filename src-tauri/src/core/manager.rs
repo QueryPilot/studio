@@ -85,9 +85,16 @@ impl ConnectionManager {
             return Err(AppError::internal("Connection profile id must not be empty"));
         }
 
-        // Check if connection exists
-        if let Some(entry) = self.connections.get_mut(&conn_id) {
+        // Check if connection exists. If it does but the adapter is no longer connected,
+        // attempt a transparent reconnect to heal broken sessions after reloads/network hiccups.
+        if let Some(mut entry) = self.connections.get_mut(&conn_id) {
             *entry.last_used.write().await = Instant::now();
+
+            if !entry.adapter.is_connected().await {
+                // Reconnect in-place; adapter.connect should cleanly reset any prior state
+                entry.adapter.connect(profile).await?;
+            }
+
             return Ok(conn_id);
         }
 

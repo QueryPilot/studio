@@ -261,6 +261,10 @@ export class BackendAPI {
     return invoke("disconnect", { connId });
   }
 
+  static async disconnectAll(): Promise<void> {
+    return invoke("disconnect_all");
+  }
+
   static async testConnection(connId: string): Promise<ConnectionTestResult> {
     return invoke("test_connection", { connId });
   }
@@ -284,6 +288,14 @@ export class BackendAPI {
     maxRows: number,
   ): Promise<PageChunk> {
     return invoke("fetch_results", { connId, queryHandle, maxRows });
+  }
+
+  static async executeQuerySimple(
+    connId: string,
+    sql: string,
+    maxRows?: number,
+  ): Promise<TableDataResult> {
+    return invoke("execute_query_simple", { connId, sql, maxRows });
   }
 
   // Streaming query

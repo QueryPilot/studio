@@ -1,10 +1,6 @@
-use serde::Deserialize;
-use std::fs;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Manager, State, Window};
-use tokio::io::{AsyncWriteExt, BufReader};
-use tokio::process::Command as TokioCommand;
+use std::fs; // needed for reset_vault_vault
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::time::{timeout, Duration};
 
 use crate::core::ConnectionManager;
@@ -36,6 +32,16 @@ pub async fn disconnect(
 ) -> std::result::Result<(), String> {
     manager
         .disconnect(&conn_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn disconnect_all(
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<(), String> {
+    manager
+        .disconnect_all()
         .await
         .map_err(|e| e.to_string())
 }
@@ -86,6 +92,41 @@ pub async fn fetch_results(
         .fetch_page(&query_handle, max_rows)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Execute a query and return columns + first page of rows in a single call
+#[tauri::command]
+pub async fn execute_query_simple(
+    conn_id: String,
+    sql: String,
+    max_rows: Option<usize>,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<TableDataResult, String> {
+    let conn = manager
+        .get_connection(&conn_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+
+    // Open, fetch one page, then close the query to avoid keeping portal state around
+    let handle = conn
+        .adapter
+        .open_query(&sql)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let chunk = conn
+        .adapter
+        .fetch_page(&handle, max_rows.unwrap_or(1000))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let _ = conn.adapter.close_query(&handle).await;
+
+    Ok(TableDataResult {
+        columns: handle.columns.clone(),
+        rows: chunk.rows,
+        has_more: chunk.has_more,
+        total_count: None,
+    })
 }
 
 #[tauri::command]

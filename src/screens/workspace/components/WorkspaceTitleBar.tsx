@@ -163,6 +163,11 @@ export function WorkspaceTitleBar({
   const handleReconnect = async () => {
     setIsConnecting(true);
     try {
+      try {
+        if (databaseService.isConnectionActive(connectionId)) {
+          await databaseService.disconnect(connectionId);
+        }
+      } catch {}
       await databaseService.connectById(connectionId);
       // Emit event to refresh sidebar data
       await safeEmit("database-reconnected", { connectionId });
@@ -276,8 +281,17 @@ export function WorkspaceTitleBar({
     }
   };
 
-  const handleReload = () => {
-    window.location.reload();
+  const handleReload = async () => {
+    try {
+      // Best-effort: close connections in backend to avoid leaks before reloading UI
+      if (databaseService.isConnectionActive(connectionId)) {
+        await databaseService.disconnect(connectionId);
+      }
+    } catch (err) {
+      console.warn("Pre-reload disconnect failed", err);
+    } finally {
+      window.location.reload();
+    }
   };
 
   const handleSwitchConnection = async (targetConnectionId: string) => {

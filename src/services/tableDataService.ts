@@ -2,7 +2,7 @@
  * TableDataService - Service for loading table data using new streaming backend
  * Provides type-safe streaming interface for table data operations
  */
-import { isTauri, safeInvoke } from "@/utils/tauri";
+import { isTauri } from "@/utils/tauri";
 import type {
   TableDataParams,
   TableDataCallbacks,
@@ -14,6 +14,8 @@ import type {
   CellValue as BackendCellValue,
   QueryHandle,
 } from "./backend";
+import type { ColumnMeta } from "@/types/database";
+import type { CellValue as FrontCellValue } from "@/types/cellValue";
 
 export class TableDataService {
   /**
@@ -93,7 +95,8 @@ export class TableDataService {
           );
           console.log("[TableDataService] Table total count:", estimatedTotal);
         } catch (err) {
-          console.warn("[TableDataService] Failed to get table count:", err);
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn("[TableDataService] Failed to get table count:", msg);
         }
       }
 
@@ -148,27 +151,31 @@ export class TableDataService {
           const dbType = col.db_type || "text";
 
           // Default: treat only explicit Null as null
-          const vt = (cell?.value_type ?? "Text") as string | unknown;
+          const vt =
+            typeof cell?.value_type === "string" ? cell.value_type : "Text";
           const isNull = cell == null || vt === "Null";
 
           let value: unknown = null;
-          let valueType: string = typeof vt === "string" ? vt : "Text";
+          let valueType: FrontCellValue["value_type"] = "Text";
+          if (vt === "Json") valueType = "Json";
+          else if (vt === "Integer") valueType = "Integer";
+          else if (vt === "Decimal") valueType = "Decimal";
+          else if (vt === "Boolean") valueType = "Boolean";
+          else if (vt === "Text") valueType = "Text";
 
           if (!isNull) {
-            const display = cell!.display_value;
-            if (valueType === "Json") {
+            const display = cell.display_value;
+            if (vt === "Json") {
               try {
                 value = JSON.parse(display);
-                valueType = "Json";
               } catch {
                 value = display; // fallback to raw string
-                valueType = "Text";
               }
-            } else if (valueType === "Integer" || valueType === "Decimal") {
+            } else if (vt === "Integer" || vt === "Decimal") {
               const n = Number(display);
               value = Number.isFinite(n) ? n : display;
               if (!Number.isFinite(n)) valueType = "Text";
-            } else if (valueType === "Boolean") {
+            } else if (vt === "Boolean") {
               const s = display.toLowerCase();
               if (["true", "t", "1", "yes"].includes(s)) value = true;
               else if (["false", "f", "0", "no"].includes(s)) value = false;
@@ -181,12 +188,13 @@ export class TableDataService {
             }
           }
 
-          rowObj[col.name] = {
+          const cellValue: FrontCellValue = {
             value,
             db_type: dbType,
-            value_type: valueType as any,
+            value_type: valueType as FrontCellValue["value_type"],
             is_truncated: false,
           };
+          rowObj[col.name] = cellValue;
         });
         return rowObj;
       });
@@ -201,13 +209,13 @@ export class TableDataService {
 
       // Mark as completed
       callbacks.onDone();
-    } catch (error) {
-      console.error("[TableDataService] Error fetching table data:", error);
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.error("[TableDataService] Error fetching table data:", errMsg);
       callbacks.onError({
         type: "error",
         code: "FETCH_ERROR",
-        message:
-          error instanceof Error ? error.message : "Failed to fetch table data",
+        message: errMsg,
       });
     }
   }
@@ -220,7 +228,7 @@ export class TableDataService {
     _database: string,
     query: string,
     options: { limit?: number; signal?: AbortSignal } = {},
-  ): Promise<{ columns: string[]; rows: any[][]; error?: string }> {
+  ): Promise<{ columns: string[]; rows: unknown[][]; error?: string }> {
     try {
       if (!isTauri()) {
         throw new Error("Query execution requires Tauri runtime");
@@ -230,20 +238,36 @@ export class TableDataService {
         abortError.name = "AbortError";
         throw abortError;
       }
-      const handle: QueryHandle = await BackendAPI.executeQuery(
-        connectionId,
-        query,
-      );
-
-      if (!handle) {
-        throw new Error("Failed to execute query: No handle returned");
+      // Fast path: single-call execute that returns columns + first page
+      // Falls back to legacy two-step path if unavailable
+      type SimpleResult = {
+        columns: BackendColumnMeta[];
+        rows: BackendCellValue[][];
+      };
+      let result: SimpleResult;
+      try {
+        const simple = await BackendAPI.executeQuerySimple(
+          connectionId,
+          query,
+          options.limit || 1000,
+        );
+        result = { columns: simple.columns, rows: simple.rows };
+      } catch {
+        // Fallback to legacy two-step API
+        const handle: QueryHandle = await BackendAPI.executeQuery(
+          connectionId,
+          query,
+        );
+        const page = await BackendAPI.fetchResults(
+          connectionId,
+          handle,
+          options.limit || 1000,
+        );
+        result = {
+          columns: handle.columns,
+          rows: page.rows,
+        };
       }
-
-      const result = await BackendAPI.fetchResults(
-        connectionId,
-        handle,
-        options.limit || 1000,
-      );
 
       if (options.signal?.aborted) {
         const abortError = new Error("Query execution cancelled");
@@ -251,41 +275,27 @@ export class TableDataService {
         throw abortError;
       }
 
-      if (!result) {
-        throw new Error("Failed to fetch query results");
-      }
+      const columns = result.columns.map((col: BackendColumnMeta) => col.name);
 
-      const columns = (handle.columns || []).map(
-        (col: BackendColumnMeta) => col.name,
-      );
-
-      const transformedRows = (result.rows || []).map(
-        (row: BackendCellValue[]) =>
-          row.map((cell, columnIndex) =>
-            this.normalizeQueryCellValue(
-              cell,
-              handle.columns?.[columnIndex] as BackendColumnMeta | undefined,
-            ),
+      // Light-touch transform: prefer display_value directly; only parse JSON if obviously JSON
+      const transformedRows = result.rows.map((row) =>
+        row.map((cell, columnIndex) =>
+          this.normalizeQueryCellValue(
+            cell,
+            result.columns[columnIndex] as BackendColumnMeta | undefined,
           ),
+        ),
       );
 
       return {
         columns,
         rows: transformedRows,
       };
-    } catch (error) {
-      console.error("[TableDataService] Query execution error:", error);
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.error("[TableDataService] Query execution error:", errMsg);
 
-      let errorMessage = "Failed to execute query";
-      if (error instanceof Error) {
-        errorMessage = error.message;
-      } else if (typeof error === "string") {
-        errorMessage = error;
-      } else if (error && typeof error === "object" && "message" in error) {
-        errorMessage = String(error.message);
-      }
-
-      throw new Error(errorMessage);
+      throw new Error(errMsg || "Failed to execute query");
     }
   }
 
@@ -294,7 +304,7 @@ export class TableDataService {
    */
   private normalizeQueryCellValue(
     cell: BackendCellValue | null | undefined,
-    column?: BackendColumnMeta,
+    _column?: BackendColumnMeta,
   ): unknown {
     if (!cell) {
       return null;
@@ -314,16 +324,7 @@ export class TableDataService {
     }
 
     if (valueType === "Json") {
-      try {
-        return JSON.parse(cell.display_value);
-      } catch (err) {
-        console.warn("[TableDataService] Failed to parse JSON cell", {
-          column: column?.name,
-          error: err,
-          value: cell.display_value,
-        });
-        return cell.display_value;
-      }
+      return cell.display_value;
     }
 
     // For array/multi-valued types, fallback to display string

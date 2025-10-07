@@ -1,10 +1,11 @@
 pub mod adapters;
+pub mod ai;
 pub mod commands;
 pub mod core;
 pub mod error;
 pub mod keychain;
-pub mod vault;
 pub mod state;
 pub mod storage;
 pub mod types;
+pub mod vault;
 pub mod window_state;

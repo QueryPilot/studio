@@ -12,6 +12,7 @@ import { isTauri, safeInvoke } from "./utils/tauri";
 import type { Update } from "@tauri-apps/plugin-updater";
 import { vaultStorage } from "./services/vaultStorage";
 import { Toaster, toast } from "sonner";
+import { databaseService } from "./services/databaseService";
 
 function AppContent() {
   const openPreferences = usePreferencesStore((state) => state.open);
@@ -64,6 +65,18 @@ function App() {
     return cleanup;
   }, []);
 
+  // Ensure connections are closed on hard reloads as well
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // Fire-and-forget; best effort before webview reload
+      void databaseService.cleanup();
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, []);
+
   useEffect(() => {
     if (!isTauri()) {
       return;
@@ -100,7 +113,9 @@ function App() {
           // Hide splash and show main window (no-op if no splash configured)
           try {
             await safeInvoke("app_show_main_window");
-          } catch {}
+          } catch {
+            // ignore
+          }
         }
         const unlisten = await currentWindow.onCloseRequested(async (event) => {
           event.preventDefault();
@@ -111,16 +126,23 @@ function App() {
             console.error("Failed to persist window state", error);
           }
 
-          let dismiss: (() => void) | undefined;
+          let toastId: string | number | undefined;
           try {
             if (vaultStorage.hasPendingChanges()) {
-              dismiss = toast.loading("Saving your work…");
+              toastId = toast.loading("Saving your work…");
               await vaultStorage.flushPendingChanges();
             }
           } catch (err) {
             console.error("Flush pending changes failed", err);
           } finally {
-            if (dismiss) dismiss();
+            if (toastId !== undefined) toast.dismiss(toastId);
+          }
+
+          // Ensure we close all backend DB connections to avoid leaks
+          try {
+            await databaseService.cleanup();
+          } catch (err) {
+            console.error("Database cleanup failed on window close", err);
           }
 
           await currentWindow.close();
