@@ -2,42 +2,51 @@
 
 ## Executive Summary
 
-Build a terminal-based AI coding assistant specifically for DevDB Studio, inspired by [OpenCode](https://github.com/sst/opencode), with deep integration into our database development workflow. The assistant will support multiple AI providers, custom database tools, persistent sessions, and streaming responses.
+Build an **AI sidebar assistant** deeply integrated into DevDB Studio, inspired by [OpenCode](https://github.com/sst/opencode)'s architecture (MCP protocol, tool system, streaming), but designed as a **GUI-first experience**. The assistant provides contextual help for database development workflows through natural language interaction.
 
 **Core Requirements**:
 
+- ✅ **AI Sidebar Panel** - Always accessible, context-aware assistant
 - ✅ Configurable AI providers (OpenAI, Anthropic, Azure, local models)
 - ✅ API Key and OAuth authentication (OAuth for Claude)
-- ✅ Custom tools for database operations
+- ✅ Custom tools for database operations (schema, queries, data analysis)
 - ✅ Session management with persistence
 - ✅ Streaming support for real-time responses
-- ✅ Deep integration with Tauri backend
+- ✅ Deep integration with DevDB Studio UI and state
+
+**Key Differentiators**:
+
+- 🎯 Not a CLI - fully integrated into DevDB Studio UI
+- 🎯 Context-aware - knows current connection, table, query
+- 🎯 Database-focused tools - schema analysis, query help, data insights
+- 🎯 Visual results - tables, charts, ERDs rendered inline
 
 ---
 
 ## 1. OpenCode Architecture Analysis
 
-### 1.1 Key Components
+### 1.1 What We're Borrowing from OpenCode
 
-Based on OpenCode repository analysis:
+OpenCode is a **terminal-based** AI assistant. We're **NOT building a CLI**, but we'll adopt these architectural patterns:
+
+**Concepts to Adopt**:
 
 ```
-opencode/
-├── src/
-│   ├── cli.ts              # CLI entry point
-│   ├── agent/              # Core AI agent logic
-│   │   ├── chat.ts         # Chat management
-│   │   ├── tools.ts        # Tool execution
-│   │   └── providers/      # AI provider integrations
-│   ├── mcp/                # Model Context Protocol
-│   │   ├── client.ts       # MCP client implementation
-│   │   └── stdio.ts        # stdio transport
-│   ├── session/            # Session management
-│   │   ├── store.ts        # SQLite storage
-│   │   └── summarize.ts    # Session summarization
-│   └── ui/                 # Terminal UI
-│       ├── tui.ts          # Interactive TUI
-│       └── components/     # UI components
+✅ MCP Protocol         → For standardized tool communication
+✅ Multi-Provider       → Support for OpenAI, Claude, Azure, etc.
+✅ Tool System          → Extensible tool registry with JSON schemas
+✅ Session Storage      → SQLite for conversation persistence
+✅ Streaming            → Real-time response rendering
+✅ OAuth Flow           → Secure Claude authentication
+```
+
+**What We're NOT Using**:
+
+```
+❌ CLI/Terminal UI      → We have a GUI sidebar
+❌ stdio Transport      → We use Tauri IPC
+❌ TUI Components       → We use React components
+❌ Command-line args    → We use UI configuration
 ```
 
 ### 1.2 OpenCode Features to Adopt
@@ -69,8 +78,8 @@ opencode/
 **5. Streaming Architecture**
 
 - AsyncIterator for streaming responses
-- Token-by-token rendering in TUI
-- Graceful error handling
+- Token-by-token rendering in React UI
+- Graceful error handling with retry logic
 
 ### 1.3 OAuth Implementation (Claude)
 
@@ -105,43 +114,157 @@ interface ClaudeOAuthConfig {
 
 ## 2. DevDB Studio AI Assistant Architecture
 
-### 2.1 System Overview
+### 2.1 System Overview - AI Sidebar Integration
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      DevDB Studio UI                         │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │          AI Assistant Panel (React Component)          │ │
-│  │  - Chat interface                                       │ │
-│  │  - Tool execution visualization                         │ │
-│  │  - Session management UI                                │ │
-│  └────────────────────────────────────────────────────────┘ │
-└──────────────────────┬──────────────────────────────────────┘
-                       │ IPC (Tauri Commands)
-┌──────────────────────┴──────────────────────────────────────┐
-│                 Tauri Backend (Rust)                         │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │              AI Agent Manager                           │ │
-│  │  - Provider routing                                     │ │
-│  │  - Session management                                   │ │
-│  │  - Tool execution                                       │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                                                              │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
-│  │   AI         │  │   Database   │  │   Secure         │  │
-│  │   Providers  │  │   Tools      │  │   Storage        │  │
-│  └──────────────┘  └──────────────┘  └──────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                      DevDB Studio Main Window                        │
+│                                                                       │
+│  ┌────────────────────────────┬─────────────────────────────────┐   │
+│  │   Main Content Area        │   AI Assistant Sidebar          │   │
+│  │                            │   ┌─────────────────────────┐   │   │
+│  │  • Connection List         │   │  💬 Chat Interface      │   │   │
+│  │  • Schema Browser          │   │  ─────────────────────  │   │   │
+│  │  • Query Editor            │   │  > What tables exist?   │   │   │
+│  │  • Data Grid               │   │  ─────────────────────  │   │   │
+│  │  • ERD Viewer              │   │  📊 Results Inline      │   │   │
+│  │                            │   │  🔧 Tool Executions     │   │   │
+│  │  [Current Context]         │   │  💾 Sessions            │   │   │
+│  │  • Connection: postgres    │   └─────────────────────────┘   │   │
+│  │  • Table: users            │                                 │   │
+│  │  • Query: SELECT * FROM... │   [Context Aware]               │   │
+│  │                            │   Knows your current:           │   │
+│  └────────────────────────────┘   • Connection                 │   │
+│                                    • Table/View                 │   │
+│                                    • Query Editor Content       │   │
+└───────────────────────────────────────────────────────────────────┘
+                                │
+                                │ Tauri IPC Commands + Events
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                       Tauri Backend (Rust)                           │
+│                                                                       │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │                    AI Agent Manager                          │    │
+│  │  • Context extraction (current table, query, connection)     │    │
+│  │  • Tool routing & execution                                  │    │
+│  │  • Streaming response handler                                │    │
+│  │  • Session persistence (SQLite)                              │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                       │
+│  ┌──────────────┐  ┌─────────────────┐  ┌──────────────────────┐   │
+│  │ AI Providers │  │ Database Tools  │  │ DevDB Integration    │   │
+│  │ • OpenAI     │  │ • Schema Query  │  │ • Read connections   │   │
+│  │ • Claude     │  │ • Data Search   │  │ • Execute queries    │   │
+│  │ • Azure      │  │ • Query Help    │  │ • Access schema data │   │
+│  │ • Local      │  │ • ERD Generate  │  │ • Format SQL         │   │
+│  └──────────────┘  └─────────────────┘  └──────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-### 2.2 Technology Stack
+**Key Integration Points**:
+
+- AI sidebar can **read current context** (active connection, selected table, query content)
+- Tools can **invoke existing DevDB services** (schema service, query executor, ERD generator)
+- Results are **rendered inline** with rich formatting (tables, syntax-highlighted SQL, charts)
+- Always accessible via **toggle button** or **keyboard shortcut** (e.g., `Cmd+Shift+A`)
+
+### 2.2 Context-Aware AI Assistance
+
+The AI assistant has **full awareness** of your current workspace context:
+
+**Automatic Context Injection**:
+
+```typescript
+interface SafeConnectionInfo {
+  id: string;
+  name: string;
+  type: DatabaseType; // postgres, mysql, mongodb, etc.
+  schema?: string;
+}
+
+interface SafeColumnInfo {
+  name: string;
+  dataType: string;
+  nullable: boolean;
+}
+
+interface SafeTableInfo {
+  name: string;
+  columns: SafeColumnInfo[];
+  rowCount?: number;
+}
+
+interface AIContext {
+  connection: SafeConnectionInfo;
+  currentTable?: SafeTableInfo;
+  queryEditor?: {
+    content: string;
+    selectedText?: string;
+    cursorPosition?: number;
+  };
+  activePanel?: "query" | "data" | "erd" | "structure";
+  warning?: string;
+}
+```
+
+**Example Use Cases**:
+
+1. **Schema Exploration**
+
+   ```
+   User: "What columns are in this table?"
+   AI: [Reads currentTable context]
+       "The 'users' table has 8 columns: id (uuid), email (varchar),
+       created_at (timestamp), ... [shows structure]"
+   ```
+
+2. **Query Assistance**
+
+   ```
+   User: "Why is this query slow?"
+   AI: [Reads queryEditor.content]
+       [Executes EXPLAIN ANALYZE]
+       "This query is doing a full table scan. Add an index on email:
+       CREATE INDEX idx_users_email ON users(email);"
+   ```
+
+3. **Data Analysis**
+
+   ```
+   User: "Show me the distribution of user signup dates"
+   AI: [Reads currentTable: 'users']
+       [Executes aggregation query]
+       [Renders chart inline]
+   ```
+
+4. **Migration Help**
+
+   ```
+   User: "Add a 'role' column with enum type"
+   AI: [Reads connection.type: postgres]
+       "Here's the migration for PostgreSQL:
+       CREATE TYPE user_role AS ENUM ('admin', 'user', 'guest');
+       ALTER TABLE users ADD COLUMN role user_role DEFAULT 'user';"
+   ```
+
+5. **Code Generation**
+   ```
+   User: "Generate TypeScript types for this table"
+   AI: [Reads currentTable structure]
+       [Generates code with proper types]
+       "export interface User { id: string; email: string; ... }"
+   ```
+
+### 2.3 Technology Stack
 
 **Frontend (TypeScript + React)**:
 
-- React component for chat UI
-- Monaco Editor for code blocks
+- React sidebar component for chat UI
+- Monaco Editor for code blocks (reusing existing instance)
 - Markdown rendering for responses
-- Real-time streaming display
+- Real-time streaming display with Zustand state
+- Integration with existing DevDB stores (connections, schema, etc.)
 
 **Backend (Rust)**:
 
@@ -149,10 +272,11 @@ interface ClaudeOAuthConfig {
 - Tokio for async streaming
 - SQLite for session storage (via `rusqlite`)
 - OAuth2 client library for Claude auth
+- Access to existing database connection pool
 
 **External Dependencies**:
 
-- MCP protocol libraries
+- MCP protocol libraries (for tool standardization)
 - AI provider SDKs (async-openai, anthropic-sdk-rs)
 - OAuth2 crate for authentication
 
@@ -232,7 +356,7 @@ model = "codellama:13b"
 streaming = true
 max_tokens = 4096
 temperature = 0.7
-context_window = 100000
+context_window = 16000 # Default; model-specific overrides recommended
 
 [session]
 auto_save = true
@@ -922,19 +1046,23 @@ pub async fn send_ai_message_streaming(
         .await
         .map_err(|e| e.to_string())?;
 
-    // Create streaming handler
-    let handler = StreamingChatHandler {
-        provider: state.get_active_provider(),
-        window: window.clone(),
-        session_id: session_id.clone(),
-    };
+    // Clone shared state for async task
+    let provider = state.get_active_provider();
+    let session_manager = state.session_manager.clone();
+    let window_handle = window.clone();
 
     // Start streaming (runs in background)
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
+        let handler = StreamingChatHandler {
+            provider,
+            window: window_handle,
+            session_id: session_id.clone(),
+        };
+
         match handler.send_message_streaming(message.clone(), context).await {
             Ok(response) => {
                 // Save to database
-                let _ = state.session_manager.add_message(
+                let _ = session_manager.add_message(
                     session_id,
                     MessageRole::Assistant,
                     response,
@@ -1008,7 +1136,679 @@ export class AIService {
 
 ## 4. Security Considerations
 
-### 4.1 File Operation Restrictions
+> **Critical**: AI chat sessions can contain sensitive database info (table names, queries, data samples, credentials). We apply the **same vault + Keychain security** used for database connections.
+
+### 4.0 Security Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    AI Session Security Layers                    │
+├─────────────────────────────────────────────────────────────────┤
+│ Layer 1: Encrypted Storage                                      │
+│  • Chat history encrypted with ChaCha20-Poly1305                │
+│  • Same encryption approach as DB connections (vault.bin)       │
+│  • Auto-unlocked via OS Keychain master password               │
+├─────────────────────────────────────────────────────────────────┤
+│ Layer 2: Credential Protection                                  │
+│  • AI provider API keys → OS Keychain                           │
+│  • OAuth tokens → OS Keychain                                   │
+│  • Never stored in plaintext, memory-only after load            │
+├─────────────────────────────────────────────────────────────────┤
+│ Layer 3: Data Redaction                                         │
+│  • Auto-redact sensitive patterns in context                    │
+│  • User-configurable exclude patterns                           │
+│  • Strip PII before sending to AI                               │
+├─────────────────────────────────────────────────────────────────┤
+│ Layer 4: Transport Security                                     │
+│  • TLS 1.3 for AI provider communication                        │
+│  • Certificate pinning (optional)                               │
+│  • No telemetry, no analytics                                   │
+├─────────────────────────────────────────────────────────────────┤
+│ Layer 5: Context Isolation                                      │
+│  • Each session sandboxed                                       │
+│  • No cross-session data leakage                                │
+│  • Tool execution in restricted context                         │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 4.1 Encrypted Chat Storage
+
+**Current Connection Storage** (Reference: `src-tauri/src/vault.rs`):
+
+```rust
+// How you currently encrypt connections:
+// 1. Get master password from OS Keychain
+// 2. Encrypt entire JSON with ChaCha20-Poly1305
+// 3. Store as single binary file (vault.bin)
+
+fn key_from_keychain() -> Result<[u8; 32], String> {
+    let pwd = crate::keychain::get_vault_password()?;
+    let bytes = base64::decode(pwd)?;
+    // ... derive 32-byte key
+}
+
+pub fn vault_write(app: AppHandle, plaintext_json: String) -> Result<(), String> {
+    let key = key_from_keychain()?;
+    let cipher = ChaCha20Poly1305::new(&key.into());
+    let nonce = generate_random_nonce();
+    let ciphertext = cipher.encrypt(&nonce, plaintext_json.as_bytes())?;
+
+    // Format: [12-byte nonce][ciphertext]
+    let mut out = Vec::new();
+    out.extend_from_slice(&nonce);
+    out.extend_from_slice(&ciphertext);
+
+    // Atomic write (tmp + rename)
+    fs::write_tmp_then_rename("vault.bin", &out)?;
+}
+```
+
+**AI Chat Storage** (Hybrid Approach - SQLite + Per-Message Encryption):
+
+```rust
+// src-tauri/src/ai/secure_storage.rs
+
+use crate::keychain::get_vault_password;
+use rusqlite::{Connection, params};
+use chacha20poly1305::{
+    aead::{Aead, KeyInit},
+    ChaCha20Poly1305, Nonce,
+};
+use base64::Engine as _;
+
+pub struct SecureAIStorage {
+    db: Connection,
+    cipher: ChaCha20Poly1305,
+}
+
+impl SecureAIStorage {
+    pub fn new() -> Result<Self, String> {
+        // Use SAME master password as connections
+        let master_pwd = get_vault_password()?;
+        let key_bytes = base64::engine::general_purpose::STANDARD
+            .decode(master_pwd)
+            .map_err(|e| format!("Failed to decode key: {}", e))?;
+
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&key_bytes[..32]);
+        let cipher = ChaCha20Poly1305::new(&key.into());
+
+        // SQLite for metadata + encrypted message blobs
+        let db_path = Self::get_db_path()?;
+        let db = Connection::open(db_path)
+            .map_err(|e| format!("Failed to open AI storage: {}", e))?;
+
+        Self::create_tables(&db)?;
+
+        Ok(Self { db, cipher })
+    }
+
+    /// Encrypt and store chat message (same ChaCha20-Poly1305 as connections)
+    pub fn store_message(
+        &self,
+        session_id: &str,
+        message: &AIMessage,
+    ) -> Result<(), String> {
+        // Serialize to JSON
+        let plaintext = serde_json::to_string(message)
+            .map_err(|e| format!("Failed to serialize: {}", e))?;
+
+        // Encrypt (same algorithm as vault.bin)
+        let mut nonce_bytes = [0u8; 12];
+        rand::thread_rng().fill_bytes(&mut nonce_bytes);
+        let nonce = Nonce::from_slice(&nonce_bytes);
+
+        let ciphertext = self.cipher
+            .encrypt(nonce, plaintext.as_bytes())
+            .map_err(|e| format!("Encryption failed: {}", e))?;
+
+        // Store encrypted BLOB in SQLite
+        self.db.execute(
+            "INSERT INTO ai_messages (id, session_id, encrypted_content, nonce, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                message.id,
+                session_id,
+                ciphertext,
+                &nonce_bytes[..],
+                chrono::Utc::now().timestamp(),
+            ],
+        ).map_err(|e| format!("Failed to store: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Decrypt and retrieve message
+    pub fn get_message(&self, message_id: &str) -> Result<AIMessage, String> {
+        let mut stmt = self.db.prepare(
+            "SELECT encrypted_content, nonce FROM ai_messages WHERE id = ?1"
+        )?;
+
+        let (ciphertext, nonce_bytes): (Vec<u8>, Vec<u8>) = stmt
+            .query_row(params![message_id], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?;
+
+        // Decrypt (same as vault_read)
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        let plaintext = self.cipher
+            .decrypt(nonce, ciphertext.as_ref())
+            .map_err(|e| format!("Decryption failed: {}", e))?;
+
+        // Deserialize
+        let message: AIMessage = serde_json::from_slice(&plaintext)?;
+        Ok(message)
+    }
+
+    /// List sessions (metadata only, no decryption needed)
+    pub fn list_sessions(&self) -> Result<Vec<SessionSummary>, String> {
+        let mut stmt = self.db.prepare(
+            "SELECT id, title, provider, created_at, message_count
+             FROM ai_sessions ORDER BY updated_at DESC"
+        )?;
+
+        let sessions = stmt
+            .query_map([], |row| {
+                Ok(SessionSummary {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    provider: row.get(2)?,
+                    created_at: row.get(3)?,
+                    message_count: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(sessions)
+    }
+
+    /// Secure deletion (overwrite then delete)
+    pub fn delete_session(&self, session_id: &str) -> Result<(), String> {
+        // Overwrite encrypted blobs with random data
+        let message_ids: Vec<String> = self.db
+            .prepare("SELECT id FROM ai_messages WHERE session_id = ?1")?
+            .query_map(params![session_id], |row| row.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        for msg_id in &message_ids {
+            let mut random_data = vec![0u8; 1024];
+            rand::thread_rng().fill_bytes(&mut random_data);
+
+            self.db.execute(
+                "UPDATE ai_messages SET encrypted_content = ?1 WHERE id = ?2",
+                params![random_data, msg_id],
+            )?;
+        }
+
+        // Now safe to delete
+        self.db.execute(
+            "DELETE FROM ai_messages WHERE session_id = ?1",
+            params![session_id],
+        )?;
+
+        self.db.execute(
+            "DELETE FROM ai_sessions WHERE id = ?1",
+            params![session_id],
+        )?;
+
+        Ok(())
+    }
+
+    fn create_tables(db: &Connection) -> Result<(), String> {
+        db.execute_batch(
+            "CREATE TABLE IF NOT EXISTS ai_sessions (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                message_count INTEGER DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS ai_messages (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                encrypted_content BLOB NOT NULL,
+                nonce BLOB NOT NULL,
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES ai_sessions(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_messages_session
+            ON ai_messages(session_id, created_at);"
+        )?;
+
+        Ok(())
+    }
+}
+```
+
+**Why SQLite + Per-Message Encryption (not single file like connections)?**
+
+1. **Connections**: Small dataset (10-100 items) → Single encrypted file works great
+2. **AI Chats**: Large dataset (1000s of messages) → Need pagination, search, filtering
+
+**Key Similarities**:
+
+- ✅ Same ChaCha20-Poly1305 encryption
+- ✅ Same master password from OS Keychain
+- ✅ Same 32-byte key derivation
+- ✅ Same 12-byte nonce format
+- ✅ Same security guarantees
+
+**Database Schema**:
+
+```sql
+-- Encrypted chat storage (SQLite)
+-- Location: ~/Library/Application Support/com.hieuvd.devdb-studio/ai_storage.db
+
+CREATE TABLE ai_sessions (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,                  -- Not encrypted (for list view)
+    provider TEXT NOT NULL,                -- Not encrypted
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    message_count INTEGER DEFAULT 0
+);
+
+CREATE TABLE ai_messages (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    encrypted_content BLOB NOT NULL,       -- ChaCha20-Poly1305 encrypted JSON
+    nonce BLOB NOT NULL,                   -- 12-byte nonce
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES ai_sessions(id) ON DELETE CASCADE
+);
+
+-- Metadata only, actual message content encrypted
+```
+
+### 4.2 AI Provider Credentials Security
+
+**Storage**: OS Keychain (same as database passwords)
+
+```rust
+// src-tauri/src/ai/credentials.rs
+
+use keyring::Entry;
+
+const AI_KEYCHAIN_SERVICE: &str = "com.hieuvd.devdb-studio.ai";
+
+pub struct AICredentialManager;
+
+impl AICredentialManager {
+    /// Store AI provider API key in OS Keychain
+    pub fn store_api_key(provider: &str, api_key: &str) -> Result<(), String> {
+        let account = format!("{}_api_key", provider);
+        let entry = Entry::new(AI_KEYCHAIN_SERVICE, &account)
+            .map_err(|e| format!("Keychain access failed: {}", e))?;
+
+        entry.set_password(api_key)
+            .map_err(|e| format!("Failed to store API key: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Retrieve API key from OS Keychain
+    pub fn get_api_key(provider: &str) -> Result<String, String> {
+        let account = format!("{}_api_key", provider);
+        let entry = Entry::new(AI_KEYCHAIN_SERVICE, &account)
+            .map_err(|e| format!("Keychain access failed: {}", e))?;
+
+        entry.get_password()
+            .map_err(|e| format!("API key not found: {}", e))
+    }
+
+    /// Store OAuth tokens in OS Keychain
+    pub fn store_oauth_tokens(
+        provider: &str,
+        access_token: &str,
+        refresh_token: &str,
+        expires_at: i64,
+    ) -> Result<(), String> {
+        let tokens = serde_json::json!({
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "expires_at": expires_at,
+        });
+
+        let account = format!("{}_oauth", provider);
+        let entry = Entry::new(AI_KEYCHAIN_SERVICE, &account)
+            .map_err(|e| format!("Keychain access failed: {}", e))?;
+
+        entry.set_password(&tokens.to_string())
+            .map_err(|e| format!("Failed to store OAuth tokens: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Delete all credentials for a provider
+    pub fn delete_credentials(provider: &str) -> Result<(), String> {
+        // Delete API key
+        let api_account = format!("{}_api_key", provider);
+        if let Ok(entry) = Entry::new(AI_KEYCHAIN_SERVICE, &api_account) {
+            let _ = entry.delete_credential();
+        }
+
+        // Delete OAuth tokens
+        let oauth_account = format!("{}_oauth", provider);
+        if let Ok(entry) = Entry::new(AI_KEYCHAIN_SERVICE, &oauth_account) {
+            let _ = entry.delete_credential();
+        }
+
+        Ok(())
+    }
+}
+
+#[tauri::command]
+pub fn store_ai_api_key(provider: String, api_key: String) -> Result<(), String> {
+    AICredentialManager::store_api_key(&provider, &api_key)
+}
+
+#[tauri::command]
+pub fn get_ai_api_key(provider: String) -> Result<String, String> {
+    AICredentialManager::get_api_key(&provider)
+}
+```
+
+**Key Points**:
+
+- ✅ API keys never stored in config files
+- ✅ OAuth tokens stored in OS Keychain
+- ✅ Auto-retrieved on app launch (same as DB passwords)
+- ✅ No user prompts needed
+- ✅ Platform-specific secure storage (macOS Keychain, Windows Credential Manager, Linux Secret Service)
+
+### 4.3 Sensitive Data Redaction
+
+**Auto-redact patterns before sending to AI**:
+
+```rust
+// src-tauri/src/ai/redactor.rs
+
+use regex::Regex;
+use once_cell::sync::Lazy;
+
+static EMAIL_PATTERN: Lazy<Regex> = Lazy::new(||
+    Regex::new(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b").unwrap()
+);
+
+static IP_PATTERN: Lazy<Regex> = Lazy::new(||
+    Regex::new(r"\b(?:\d{1,3}\.){3}\d{1,3}\b").unwrap()
+);
+
+static PASSWORD_PATTERN: Lazy<Regex> = Lazy::new(||
+    Regex::new(r"(?i)(password|passwd|pwd|secret|token|key)\s*[:=]\s*['\"]?([^'\";\s]+)").unwrap()
+);
+
+static CREDIT_CARD_PATTERN: Lazy<Regex> = Lazy::new(||
+    Regex::new(r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b").unwrap()
+);
+
+pub struct SensitiveDataRedactor {
+    custom_patterns: Vec<Regex>,
+    redaction_enabled: bool,
+}
+
+impl SensitiveDataRedactor {
+    pub fn new() -> Self {
+        Self {
+            custom_patterns: Vec::new(),
+            redaction_enabled: true,
+        }
+    }
+
+    /// Redact sensitive data from text before sending to AI
+    pub fn redact(&self, text: &str) -> String {
+        if !self.redaction_enabled {
+            return text.to_string();
+        }
+
+        let mut redacted = text.to_string();
+
+        // Email addresses
+        redacted = EMAIL_PATTERN.replace_all(&redacted, "[EMAIL]").to_string();
+
+        // IP addresses
+        redacted = IP_PATTERN.replace_all(&redacted, "[IP_ADDRESS]").to_string();
+
+        // Password-like patterns
+        redacted = PASSWORD_PATTERN.replace_all(&redacted, "$1=[REDACTED]").to_string();
+
+        // Credit cards
+        redacted = CREDIT_CARD_PATTERN.replace_all(&redacted, "[CARD_NUMBER]").to_string();
+
+        // Custom patterns
+        for pattern in &self.custom_patterns {
+            redacted = pattern.replace_all(&redacted, "[REDACTED]").to_string();
+        }
+
+        redacted
+    }
+
+    /// Redact table data before sending to AI
+    pub fn redact_table_data(&self, rows: &[Row]) -> Vec<Row> {
+        if !self.redaction_enabled {
+            return rows.to_vec();
+        }
+
+        // Sample only first 10 rows
+        let sample_size = std::cmp::min(10, rows.len());
+
+        rows.iter()
+            .take(sample_size)
+            .map(|row| {
+                // Redact each cell
+                Row {
+                    cells: row.cells.iter()
+                        .map(|cell| self.redact(&cell.to_string()))
+                        .collect()
+                }
+            })
+            .collect()
+    }
+
+    /// Add custom redaction pattern
+    pub fn add_pattern(&mut self, pattern: &str) -> Result<(), String> {
+        let regex = Regex::new(pattern)
+            .map_err(|e| format!("Invalid regex pattern: {}", e))?;
+        self.custom_patterns.push(regex);
+        Ok(())
+    }
+}
+```
+
+**Configuration UI**:
+
+```typescript
+// User preferences for data privacy
+interface AIPrivacySettings {
+  autoRedactEmails: boolean; // Default: true
+  autoRedactIPs: boolean; // Default: true
+  autoRedactPasswords: boolean; // Default: true
+  autoRedactCreditCards: boolean; // Default: true
+  customRedactionPatterns: string[]; // User-defined regex
+  maxRowsSample: number; // Default: 10
+  excludeTablesFromContext: string[]; // Tables to never send
+  excludeColumnsPattern: string[]; // e.g., ["*password*", "*ssn*"]
+}
+```
+
+### 4.4 Context Isolation & Data Minimization
+
+**Principles**:
+
+1. **Only send what's needed**: Don't dump entire table structures
+2. **User confirmation**: Ask before sending large data samples
+3. **Exclude sensitive tables**: User-configurable blocklist
+4. **Column-level filtering**: Auto-exclude columns matching sensitive patterns
+
+```rust
+// src-tauri/src/ai/context.rs
+
+pub struct ContextBuilder {
+    redactor: SensitiveDataRedactor,
+    privacy_settings: AIPrivacySettings,
+}
+
+impl ContextBuilder {
+    /// Build safe context from current workspace state
+    pub async fn build_context(
+        &self,
+        connection: &ConnectionInfo,
+        current_table: Option<&TableInfo>,
+        query_editor: Option<&str>,
+    ) -> Result<AIContext, String> {
+        // Check if table is excluded
+        if let Some(table) = current_table {
+            if self.is_table_excluded(&table.name) {
+                return Ok(AIContext {
+                    connection: self.safe_connection_info(connection),
+                    current_table: None,  // Excluded
+                    query_editor: query_editor.map(|q| self.redactor.redact(q)),
+                    warning: Some("Current table excluded from AI context".to_string()),
+                });
+            }
+        }
+
+        Ok(AIContext {
+            connection: self.safe_connection_info(connection),
+            current_table: current_table.map(|t| self.safe_table_info(t)),
+            query_editor: query_editor.map(|q| self.redactor.redact(q)),
+            warning: None,
+        })
+    }
+
+    fn safe_connection_info(&self, conn: &ConnectionInfo) -> SafeConnectionInfo {
+        SafeConnectionInfo {
+            id: conn.id.clone(),
+            name: conn.name.clone(),
+            db_type: conn.db_type.clone(),
+            schema: conn.schema.clone(),
+            // DO NOT include: host, port, username, password
+        }
+    }
+
+    fn safe_table_info(&self, table: &TableInfo) -> SafeTableInfo {
+        // Filter out sensitive columns
+        let safe_columns = table.columns.iter()
+            .filter(|col| !self.is_column_sensitive(&col.name))
+            .map(|col| SafeColumnInfo {
+                name: col.name.clone(),
+                data_type: col.data_type.clone(),
+                nullable: col.nullable,
+                // DO NOT include: default values, constraints with sensitive data
+            })
+            .collect();
+
+        SafeTableInfo {
+            name: table.name.clone(),
+            columns: safe_columns,
+            row_count: Some(table.row_count),
+            // DO NOT include: actual data samples
+        }
+    }
+
+    fn is_table_excluded(&self, table_name: &str) -> bool {
+        self.privacy_settings.exclude_tables_from_context
+            .iter()
+            .any(|pattern| self.matches_pattern(table_name, pattern))
+    }
+
+    fn is_column_sensitive(&self, column_name: &str) -> bool {
+        let sensitive_patterns = [
+            "password", "passwd", "pwd", "secret", "token",
+            "ssn", "social_security", "credit_card", "cvv",
+            "api_key", "private_key", "salt", "hash"
+        ];
+
+        let lower = column_name.to_lowercase();
+        sensitive_patterns.iter().any(|p| lower.contains(p))
+    }
+}
+```
+
+### 4.5 Tool Execution Security
+
+**Prevent dangerous operations**:
+
+```rust
+// src-tauri/src/ai/tools/safety.rs
+
+pub struct ToolSafetyChecker;
+
+impl ToolSafetyChecker {
+    /// Verify tool execution is safe
+    pub fn check_tool_call(&self, tool: &ToolCall) -> Result<(), String> {
+        match tool.name.as_str() {
+            "execute_query" => self.check_query_safety(&tool.input)?,
+            "write_file" => self.check_file_write_safety(&tool.input)?,
+            "execute_command" => return Err("Command execution not allowed".to_string()),
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn check_query_safety(&self, input: &serde_json::Value) -> Result<(), String> {
+        let sql = input.get("sql")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing SQL")?;
+
+        // Parse SQL
+        let parsed = sqlparser::parse(sql)
+            .map_err(|e| format!("Invalid SQL: {}", e))?;
+
+        // Block mutations
+        for stmt in &parsed {
+            match stmt {
+                Statement::Insert(_)
+                | Statement::Update(_)
+                | Statement::Delete(_)
+                | Statement::Drop(_)
+                | Statement::CreateTable(_)
+                | Statement::AlterTable(_) => {
+                    return Err(format!(
+                        "Mutation queries not allowed in AI context: {:?}",
+                        stmt
+                    ));
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
+    fn check_file_write_safety(&self, input: &serde_json::Value) -> Result<(), String> {
+        let path = input.get("path")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing file path")?;
+
+        // Must be within workspace
+        let workspace = std::env::current_dir()
+            .map_err(|e| format!("Failed to get workspace: {}", e))?;
+
+        let canonical = std::fs::canonicalize(path)
+            .map_err(|e| format!("Invalid path: {}", e))?;
+
+        if !canonical.starts_with(&workspace) {
+            return Err("File write outside workspace not allowed".to_string());
+        }
+
+        // Block sensitive files
+        let sensitive_patterns = vec![".env", "passwords", "secrets"];
+        let path_str = canonical.to_string_lossy().to_lowercase();
+
+        if sensitive_patterns.iter().any(|p| path_str.contains(p)) {
+            return Err("Cannot write to sensitive files".to_string());
+        }
+
+        Ok(())
+    }
+}
+```
+
+### 4.6 File Operation Restrictions
 
 ```rust
 pub struct SecureFileOps {
@@ -1120,16 +1920,121 @@ impl SecureTokenStorage {
 }
 ```
 
+### 4.7 Storage Architecture Summary
+
+**Hybrid Approach**: Different storage strategies for different data types
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│              DevDB Studio Secure Storage                     │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  📦 Connection Storage (vault.bin)                          │
+│  ├── Format: Single encrypted binary file                   │
+│  ├── Encryption: ChaCha20-Poly1305                          │
+│  ├── Location: ~/Library/Application Support/.../vault.bin │
+│  ├── Data: All connections as encrypted JSON blob           │
+│  └── Why: Small dataset (10-100), load-all-at-once         │
+│                                                              │
+│  ✅ Keep this as-is - working perfectly                     │
+│                                                              │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  💬 AI Chat Storage (ai_storage.db)                         │
+│  ├── Format: SQLite with encrypted BLOBs per message        │
+│  ├── Encryption: ChaCha20-Poly1305 (same algorithm)         │
+│  ├── Location: ~/Library/Application Support/.../ai_*.db   │
+│  ├── Data: Per-message encrypted blobs in SQLite            │
+│  └── Why: Large dataset (1000s), need pagination/search    │
+│                                                              │
+│  🆕 New implementation for AI assistant                     │
+│                                                              │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  🔑 Shared Security                                         │
+│  ├── Master Password: Auto-generated, stored in OS Keychain │
+│  ├── Service: com.hieuvd.devdb-studio.vault                │
+│  ├── Key: 32-byte key from base64-encoded password          │
+│  ├── Algorithm: ChaCha20-Poly1305                           │
+│  └── Nonce: 12 random bytes per encryption                  │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Implementation Files**:
+
+```
+src-tauri/src/
+├── keychain.rs            # OS Keychain (keyring crate) - SHARED
+├── vault.rs               # Connection encryption (vault.bin)
+└── ai/
+    ├── secure_storage.rs  # AI chat encryption (SQLite + ChaCha20)
+    └── credentials.rs     # AI provider keys (OS Keychain)
+```
+
+**Why NOT migrate connections to SQLite?**
+
+- ✅ Current approach works perfectly
+- ✅ Single file encryption is simpler for small datasets
+- ✅ Atomic writes with temp file
+- ✅ No migration risk
+- ✅ Fast enough for 100 connections
+
+**Why SQLite for AI chats?**
+
+- ✅ Need to paginate 1000s of messages
+- ✅ Full-text search across sessions
+- ✅ Complex queries (filter by date, provider, etc.)
+- ✅ Incremental writes per message
+- ✅ Relational data (sessions → messages → tools)
+
 ---
 
 ## 5. UI Components
 
-### 5.1 AI Assistant Panel
+### 5.1 AI Assistant Sidebar
+
+**Visual Design**:
+
+```
+┌─────────────────────────────────┐
+│  🤖 AI Assistant        [×] [⚙] │  ← Header with close/settings
+├─────────────────────────────────┤
+│  📂 Session: "Query Help"   [⋮] │  ← Session selector & menu
+├─────────────────────────────────┤
+│                                 │
+│  💬 User Message                │  ← Chat messages
+│  ───────────────────────────    │
+│  🤖 AI Response with            │
+│     [SQL Code Block]            │  ← Syntax highlighted
+│     📊 [Query Results Table]    │  ← Rich inline results
+│     🔧 Tool: analyze_query ✓    │  ← Tool execution badges
+│                                 │
+│  ⚡ Streaming response...       │  ← Live streaming indicator
+│                                 │
+│  ↓  Scroll for more             │
+│                                 │
+├─────────────────────────────────┤
+│  💡 Context: users table        │  ← Current context chip
+├─────────────────────────────────┤
+│  [Type your message...]    [↵]  │  ← Input with send button
+│  [@mention table]  [/command]   │  ← Autocomplete hints
+└─────────────────────────────────┘
+```
+
+**Implementation**:
 
 ```typescript
-// src/components/AIAssistant/AIAssistantPanel.tsx
+// src/components/AIAssistant/AIAssistantSidebar.tsx
 
-export function AIAssistantPanel() {
+type Message = {
+  role: "user" | "assistant" | "system";
+  content: string;
+  timestamp: number;
+  isStreaming?: boolean;
+};
+
+export function AIAssistantSidebar() {
   const [session, setSession] = useState<Session | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -1138,15 +2043,22 @@ export function AIAssistantPanel() {
   const aiService = useAIService();
 
   useEffect(() => {
-    // Load or create session
-    loadSession();
+    // Load or create session once the component mounts
+    void loadSession();
 
-    // Subscribe to streaming events
-    aiService.on("chunk", handleChunk);
-    aiService.on("complete", handleComplete);
-    aiService.on("tool-start", handleToolStart);
-    aiService.on("tool-complete", handleToolComplete);
-  }, []);
+    // Subscribe to streaming events and collect disposers
+    const offChunk = aiService.on("chunk", handleChunk);
+    const offComplete = aiService.on("complete", handleComplete);
+    const offToolStart = aiService.on("tool-start", handleToolStart);
+    const offToolComplete = aiService.on("tool-complete", handleToolComplete);
+
+    return () => {
+      offChunk();
+      offComplete();
+      offToolStart();
+      offToolComplete();
+    };
+  }, [aiService, handleChunk, handleComplete, handleToolStart, handleToolComplete]);
 
   const handleSend = async () => {
     if (!session || !input.trim()) return;
@@ -1165,7 +2077,7 @@ export function AIAssistantPanel() {
     await aiService.sendMessage(session.id, input);
   };
 
-  const handleChunk = (chunk: string) => {
+  const handleChunk = useCallback((chunk: string) => {
     setMessages((prev) => {
       const lastMsg = prev[prev.length - 1];
       if (lastMsg?.role === "assistant" && lastMsg.isStreaming) {
@@ -1187,7 +2099,26 @@ export function AIAssistantPanel() {
         ];
       }
     });
-  };
+  }, []);
+
+  const handleComplete = useCallback(() => {
+    setIsStreaming(false);
+    setMessages((prev) =>
+      prev.map((msg, idx) =>
+        idx === prev.length - 1 && msg.role === "assistant"
+          ? { ...msg, isStreaming: false }
+          : msg
+      )
+    );
+  }, []);
+
+  const handleToolStart = useCallback((payload: ToolExecutionEvent) => {
+    // Optional: surface tool execution status in UI
+  }, []);
+
+  const handleToolComplete = useCallback((payload: ToolExecutionResultEvent) => {
+    // Optional: render tool results once available
+  }, []);
 
   return (
     <div className="flex flex-col h-full">
@@ -1524,19 +2455,29 @@ export function ProviderConfigDialog() {
 // src-tauri/src/ai/tests/provider_tests.rs
 
 #[tokio::test]
-async fn test_openai_provider() {
-    let provider = OpenAIProvider::new(
-        "https://api.openai.com/v1".to_string(),
+async fn test_openai_provider_uses_mock_transport() {
+    let server = httpmock::MockServer::start_async().await;
+    server.mock_async(|when, then| {
+        when.path("/v1/chat/completions");
+        then.status(200)
+            .json_body(serde_json::json!({
+                "id": "cmpl-test",
+                "choices": [{
+                    "message": { "role": "assistant", "content": "4" }
+                }]
+            }));
+    }).await;
+
+    let provider = OpenAIProvider::with_base_url(
+        server.base_url(),
         "test-key".to_string(),
         "gpt-4o".to_string(),
     );
 
-    let messages = vec![
-        Message::user("What is 2+2?".to_string()),
-    ];
+    let messages = vec![Message::user("What is 2+2?".to_string())];
 
     let response = provider.chat(messages).await.unwrap();
-    assert!(response.content.contains("4"));
+    assert_eq!(response.content.trim(), "4");
 }
 
 #[tokio::test]
@@ -1629,6 +2570,7 @@ impl ContextWindowManager {
     ) -> Vec<Message> {
         let mut total_tokens = 0;
         let mut optimized = Vec::new();
+        let mut tail: Vec<Message> = Vec::new();
 
         // Always include system message
         if let Some(system_msg) = messages.first() {
@@ -1644,9 +2586,12 @@ impl ContextWindowManager {
             if total_tokens + tokens > max_tokens {
                 break;
             }
-            optimized.insert(1, msg.clone());
+            tail.push(msg.clone());
             total_tokens += tokens;
         }
+
+        tail.reverse();
+        optimized.extend(tail.into_iter());
 
         optimized
     }
@@ -1692,18 +2637,22 @@ pub struct QueryCache {
 impl QueryCache {
     pub async fn execute_cached(
         &self,
-        sql: String,
+        connection_id: &str,
+        sql: &str,
         ttl: Duration,
     ) -> Result<QueryResult> {
-        let cache_key = format!("{:x}", md5::compute(&sql));
+        let cache_key = format!(
+            "{:x}",
+            md5::compute(format!("{}::{}", connection_id, sql))
+        );
 
-        // Check cache
+        // Check cache scoped by connection + SQL
         if let Some(result) = self.cache.lock().await.get(&cache_key) {
             return Ok(result.clone());
         }
 
-        // Execute and cache
-        let result = execute_query(sql).await?;
+        // Execute read-only query through safety guard
+        let result = execute_query_safe(connection_id.to_string(), sql.to_string()).await?;
         self.cache.lock().await.put(cache_key, result.clone());
 
         Ok(result)
@@ -1743,6 +2692,9 @@ async-trait = "0.1"
 chrono = "0.4"
 lru = "0.12"
 md5 = "0.7"
+
+[dev-dependencies]
+httpmock = "0.7"
 ```
 
 ### 9.2 Frontend Dependencies

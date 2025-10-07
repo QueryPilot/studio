@@ -13,6 +13,7 @@ import {
 import { Play, StopCircle, History, Star } from "lucide-react";
 import { toast } from "sonner";
 import { tableDataService } from "@/services/tableDataService";
+import { streamingTableService } from "@/services/streamingTableService";
 import { queryHistoryService } from "@/services/queryHistoryService";
 import { cn } from "@/lib/utils";
 import {
@@ -105,7 +106,6 @@ export const QueryPanel = memo(function QueryPanel({
     [persistSql],
   );
 
-  
   // Sync state with keyboard context
   useSyncQueryState(isExecuting, !!result);
   useSyncEditorState(hasSelection, query !== "", false);
@@ -135,29 +135,57 @@ export const QueryPanel = memo(function QueryPanel({
       let errorMessage: string | undefined;
 
       try {
-        const response = await tableDataService.executeQuery(
+        // Stream results directly; no wrapping/pagination or SQL rewriting
+        const pageSize = 1000;
+        let started = false;
+        let currentColumns: string[] = [];
+        let rowCount = 0;
+
+        const streamPromise = streamingTableService.streamQuery(
           connectionId,
-          database,
           sql,
-          {
-            limit: 1000,
-            signal: controller.signal,
+          pageSize,
+          (progress) => {
+            if (progress.started && progress.columns && !started) {
+              started = true;
+              currentColumns = progress.columns.map((c) => c.name);
+              setResult({ columns: currentColumns, rows: [], rowCount: 0 });
+            }
+            if (progress.newRows && progress.newRows.length > 0) {
+              // Append display strings immediately
+              const appended = progress.newRows.map((row) =>
+                row.map((cell) => (cell ? cell.display_value : null)),
+              );
+              setResult((prev) => {
+                const prevRows = prev?.rows ?? [];
+                const nextRows = [...prevRows, ...appended];
+                rowCount = nextRows.length;
+                return {
+                  columns: prev?.columns ?? currentColumns,
+                  rows: nextRows,
+                  rowCount,
+                };
+              });
+            }
+          },
+          (err) => {
+            toast.error(err.message || "Stream error");
           },
         );
 
+        const final = await streamPromise;
         executionTime = Date.now() - startTime;
-
-        // Transform response to our format
-        queryResult = {
-          columns: response.columns,
-          rows: response.rows,
-          rowCount: response.rows.length,
+        setResult((prev) => ({
+          columns: prev?.columns ?? final.columns.map((c) => c.name),
+          rows:
+            (prev?.rows ?? []).length > 0
+              ? prev!.rows
+              : final.rows.map((r) => r.map((c) => c.display_value)),
+          rowCount: (prev?.rows ?? final.rows).length,
           executionTime,
-        };
-
-        setResult(queryResult);
+        }));
         toast.success(
-          `Query executed successfully (${queryResult.rowCount} rows)`,
+          `Query executed successfully (${rowCount || final.rows.length} rows)`,
         );
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {

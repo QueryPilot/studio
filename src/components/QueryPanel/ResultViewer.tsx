@@ -151,16 +151,7 @@ export const ResultViewer = memo(function ResultViewer({
     toast.success(`Exported as ${format.toUpperCase()}`);
   };
 
-  if (isLoading) {
-    return (
-      <div className={cn("flex items-center justify-center h-full", className)}>
-        <div className="flex flex-col items-center space-y-2">
-          <div className="animate-spin rounded-full h-8 w-8 border-b border-primary"></div>
-          <p className="text-sm text-muted-foreground">Executing query...</p>
-        </div>
-      </div>
-    );
-  }
+  // Do not block rendering while loading; if we have any rows/columns, show them
 
   if (!result) {
     return (

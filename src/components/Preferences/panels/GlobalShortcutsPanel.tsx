@@ -179,7 +179,7 @@ export function GlobalShortcutsPanel() {
               <Input
                 id="global-shortcut"
                 value={customShortcut}
-                onChange={(e) => setCustomShortcut(e.target.value)}
+                onChange={(e) => { setCustomShortcut(e.target.value); }}
                 placeholder="CommandOrControl+Shift+Space"
                 className="font-mono"
                 disabled={isRecording}

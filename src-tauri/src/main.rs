@@ -4,16 +4,18 @@
 )]
 
 mod adapters;
+mod ai;
 mod commands;
 mod core;
 mod error;
-mod vault;
 mod keychain;
 mod state;
 mod storage;
 mod types;
+mod vault;
 mod window_state;
 
+use ai::manager::AIManager;
 use state::AppState;
 use std::sync::Arc;
 use tauri::Manager;
@@ -30,6 +32,9 @@ fn main() {
     // Create connection manager
     let manager = Arc::new(core::manager::ConnectionManager::new());
 
+    // Create AI manager with default provider
+    let ai_manager = Arc::new(AIManager::new());
+
     // Create window state manager
     let window_states = Arc::new(window_state::WindowStateManager::new());
 
@@ -44,6 +49,7 @@ fn main() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(manager)
+        .manage(ai_manager.clone())
         .manage(app_state)
         .setup(|app| {
             // Register default global shortcut to show/activate main window
@@ -88,8 +94,10 @@ fn main() {
             crate::vault::vault_reset,
             commands::connect,
             commands::disconnect,
+            commands::disconnect_all,
             commands::test_connection,
             commands::execute_query,
+            commands::execute_query_simple,
             commands::fetch_results,
             commands::get_databases,
             commands::get_schemas,
@@ -111,6 +119,10 @@ fn main() {
             commands::stream_query,
             commands::get_connection_health,
             commands::ping,
+            ai::commands::create_ai_session,
+            ai::commands::list_ai_sessions,
+            ai::commands::get_ai_session_history,
+            ai::commands::send_ai_message_streaming,
             // Keychain commands (used by TypeScript)
             keychain::get_vault_password,
             keychain::delete_vault_password,

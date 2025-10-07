@@ -21,6 +21,12 @@ export interface StreamingProgress {
   totalRows?: number;
   percentage?: number;
   executionTimeMs?: number;
+  // New incremental streaming details
+  newRows?: CellValue[][];
+  rowOffset?: number;
+  columns?: ColumnMeta[];
+  started?: boolean;
+  completed?: boolean;
 }
 
 export interface StreamingError {
@@ -231,6 +237,8 @@ export class StreamingTableService {
                     rowsFetched: 0,
                     totalRows: event.estimated_rows,
                     percentage: 0,
+                    columns: event.columns,
+                    started: true,
                   });
                 }
                 break;
@@ -240,6 +248,8 @@ export class StreamingTableService {
                 if (onProgress) {
                   onProgress({
                     rowsFetched: this.accumulatedRows.length,
+                    newRows: event.rows,
+                    rowOffset: event.row_offset,
                   });
                 }
                 break;
@@ -256,13 +266,22 @@ export class StreamingTableService {
               case "Completed":
                 clearTimeout(timeoutId);
                 this.isStreaming = false;
-                resolve({
+                const result = {
                   columns: this.columns || [],
                   rows: this.accumulatedRows,
                   isComplete: true,
                   totalRows: event.total_rows,
                   executionTimeMs: event.execution_time_ms,
-                });
+                } as StreamingTableResult;
+                if (onProgress) {
+                  onProgress({
+                    rowsFetched: this.accumulatedRows.length,
+                    totalRows: event.total_rows,
+                    executionTimeMs: event.execution_time_ms,
+                    completed: true,
+                  });
+                }
+                resolve(result);
                 break;
 
               case "Error":

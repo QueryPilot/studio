@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/resizable";
 import { CommandPalette, useCommandPalette } from "@/components/CommandPalette";
 import { useConnectionAutoReconnect } from "@/hooks/useConnectionAutoReconnect";
+import { AIAssistantSidebar } from "@/components/AIAssistant/AIAssistantSidebar";
 
 export function WorkspaceScreen() {
   const { connectionId } = useParams<{ connectionId: string }>();
@@ -145,9 +146,10 @@ export function WorkspaceScreen() {
               defaultSize={23}
               minSize={15}
               maxSize={40}
-              className="flex flex-col rounded-xl bg-background"
+              className="flex flex-col rounded-xl bg-background overflow-hidden"
             >
-              </ResizablePanel>
+              <AIAssistantSidebar />
+            </ResizablePanel>
           </>
         )}
       </ResizablePanelGroup>

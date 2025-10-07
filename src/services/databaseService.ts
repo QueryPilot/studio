@@ -96,6 +96,8 @@ class DatabaseService {
   private healthMonitors: Map<string, NodeJS.Timeout> = new Map();
   private healthListeners: Map<string, ((health: ConnectionHealth) => void)[]> =
     new Map();
+  // Track in-flight connect calls to dedupe concurrent attempts
+  private inflightConnects: Map<string, Promise<ConnectResponse>> = new Map();
 
   private constructor() {}
 
@@ -113,6 +115,16 @@ class DatabaseService {
     connectionId: string,
     workspaceId?: string,
   ): Promise<ConnectResponse> {
+    // If a connect for this id is already running, return the same promise
+    const inflight = this.inflightConnects.get(connectionId);
+    if (inflight) return inflight;
+
+    // If we already consider it active, just ensure monitoring and return
+    const existing = this.activeConnections.get(connectionId);
+    if (existing && isTauri()) {
+      this.startHealthMonitoring(connectionId);
+      return existing;
+    }
     if (!isTauri()) {
       console.warn(
         "Database operations require Tauri runtime - using mock connection",
@@ -126,61 +138,75 @@ class DatabaseService {
       return mockResponse;
     }
 
-    try {
-      // Load the stored connection profile from vault on the frontend
-      const stored = await vaultStorage.getConnection(connectionId);
-      if (!stored) {
-        throw new Error(`Connection ${connectionId} not found`);
+    const connectPromise = (async () => {
+      try {
+        // Load the stored connection profile from vault on the frontend
+        const stored = await vaultStorage.getConnection(connectionId);
+        if (!stored) {
+          throw new Error(`Connection ${connectionId} not found`);
+        }
+
+        // Convert to backend profile type
+        const profile: ConnectionProfile = {
+          id: stored.profile.id,
+          name: stored.profile.name,
+          db_type: stored.profile.db_type as unknown as DbType,
+          host: stored.profile.host,
+          port: stored.profile.port,
+          database: stored.profile.database,
+          username: stored.profile.username,
+          password: stored.profile.password,
+          ssl_mode: stored.profile.ssl_mode as any,
+          options: stored.profile.options || {},
+        };
+
+        // Ensure any stale backend connection with same id is cleanly closed before reconnect
+        try {
+          await BackendAPI.disconnect(connectionId);
+        } catch {
+          // Ignore if not connected
+        }
+
+        // Ask backend to connect using the complete profile (id is authoritative)
+        const backendInfo = await BackendAPI.connect(profile);
+
+        const response: ConnectResponse = {
+          connection_id: backendInfo.id,
+          server_version: backendInfo.version || null,
+        };
+
+        this.activeConnections.set(connectionId, response);
+        this.startHealthMonitoring(connectionId);
+
+        // Emit successful connection health
+        const health: ConnectionHealth = {
+          connectionId,
+          status: "ready",
+          healthy: true,
+        };
+        this.notifyHealthListeners(connectionId, health);
+
+        return response;
+      } catch (error) {
+        console.error("Failed to connect to database:", error);
+
+        // Emit error health status
+        const health: ConnectionHealth = {
+          connectionId,
+          status: "error",
+          healthy: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+        this.notifyHealthListeners(connectionId, health);
+
+        throw error;
+      } finally {
+        this.inflightConnects.delete(connectionId);
       }
+    })();
 
-      // Convert to backend profile type
-      const profile: ConnectionProfile = {
-        id: stored.profile.id,
-        name: stored.profile.name,
-        db_type: stored.profile.db_type as unknown as DbType,
-        host: stored.profile.host,
-        port: stored.profile.port,
-        database: stored.profile.database,
-        username: stored.profile.username,
-        password: stored.profile.password,
-        ssl_mode: stored.profile.ssl_mode as any,
-        options: stored.profile.options || {},
-      };
-
-      // Ask backend to connect using the complete profile
-      const backendInfo = await BackendAPI.connect(profile);
-
-      const response: ConnectResponse = {
-        connection_id: backendInfo.id,
-        server_version: backendInfo.version || null,
-      };
-
-      this.activeConnections.set(connectionId, response);
-      this.startHealthMonitoring(connectionId);
-
-      // Emit successful connection health
-      const health: ConnectionHealth = {
-        connectionId,
-        status: "ready",
-        healthy: true,
-      };
-      this.notifyHealthListeners(connectionId, health);
-
-      return response;
-    } catch (error) {
-      console.error("Failed to connect to database:", error);
-
-      // Emit error health status
-      const health: ConnectionHealth = {
-        connectionId,
-        status: "error",
-        healthy: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-      this.notifyHealthListeners(connectionId, health);
-
-      throw error;
-    }
+    this.inflightConnects.set(connectionId, connectPromise);
+    return connectPromise;
   }
 
   /**
@@ -1529,7 +1555,16 @@ class DatabaseService {
     // Clean up query manager
     await queryManager.cleanupAll();
 
-    // Disconnect all active connections
+    // Disconnect all active connections in backend first to avoid leaks
+    if (isTauri()) {
+      try {
+        await BackendAPI.disconnectAll();
+      } catch (err) {
+        console.error("disconnectAll failed", err);
+      }
+    }
+
+    // Then clear frontend book-keeping
     const promises = Array.from(this.activeConnections.keys()).map((id) =>
       this.disconnect(id).catch(console.error),
     );
