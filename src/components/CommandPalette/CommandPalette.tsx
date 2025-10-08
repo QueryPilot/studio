@@ -89,7 +89,8 @@ export function CommandPalette({
 
   const ensureAssistantVisible = useCallback(() => {
     const store = useWorkspaceScreenStore.getState();
-    if (!store.sidebars.right) {
+    const sidebars = store.getSidebars();
+    if (!sidebars.right) {
       store.toggleSidebar("right");
     }
   }, []);

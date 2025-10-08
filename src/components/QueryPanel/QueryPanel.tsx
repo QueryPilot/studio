@@ -118,6 +118,7 @@ export const QueryPanel = memo(function QueryPanel({
         const pageSize = 2500; // Increased from 1000 for better performance
         let started = false;
         let currentColumns: string[] = [];
+        let currentColumnMeta: ColumnMeta[] = [];
         let rowCount = 0;
 
         const streamPromise = streamingTableService.streamQuery(
@@ -128,24 +129,30 @@ export const QueryPanel = memo(function QueryPanel({
             if (progress.started && progress.columns && !started) {
               started = true;
               currentColumns = progress.columns.map((c) => c.name);
-              setResult({
-                columns: currentColumns,
-                columnMeta: progress.columns as unknown as ColumnMeta[],
-                rows: [],
-                rowCount: 0,
-              });
+              currentColumnMeta = progress.columns as unknown as ColumnMeta[];
+              // Don't render empty table - wait for first batch
             }
             if (progress.newRows && progress.newRows.length > 0) {
-              // Append raw cell values (no .display_value - that doesn't exist in new fast path)
+              // STREAMING UX: Append rows incrementally as they arrive
               const appended = progress.newRows;
               setResult((prev) => {
-                const prevRows = prev?.rows ?? [];
+                if (!prev) {
+                  // First batch - render table with columns and initial rows
+                  rowCount = appended.length;
+                  return {
+                    columns: currentColumns,
+                    columnMeta: currentColumnMeta,
+                    rows: appended,
+                    rowCount,
+                    executionTime: 0, // Will be updated when query completes
+                  };
+                }
+                // Subsequent batches - append rows
+                const prevRows = prev.rows;
                 const nextRows = [...prevRows, ...appended];
                 rowCount = nextRows.length;
                 return {
                   ...prev,
-                  columns: prev?.columns ?? currentColumns,
-                  columnMeta: prev?.columnMeta,
                   rows: nextRows,
                   rowCount,
                 };
@@ -161,22 +168,24 @@ export const QueryPanel = memo(function QueryPanel({
         // Use backend's actual database execution time, not frontend timer
         executionTime = final.executionTimeMs ?? 0;
 
+        // Don't use final.rows - they're already in state from progress callbacks
+        // Just update execution time and final row count
+        setResult((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            executionTime,
+            rowCount: final.totalRows ?? prev.rows.length,
+          };
+        });
+
         queryResult = {
           columns: final.columns.map((c) => c.name),
           columnMeta: final.columns as unknown as ColumnMeta[],
-          rows: final.rows,
-          rowCount: final.totalRows ?? final.rows.length,
+          rows: [], // Don't store rows again - already in state
+          rowCount: final.totalRows ?? rowCount,
           executionTime,
         };
-
-        setResult((prev) => ({
-          columns: prev?.columns ?? final.columns.map((c) => c.name),
-          columnMeta:
-            prev?.columnMeta ?? (final.columns as unknown as ColumnMeta[]),
-          rows: (prev?.rows ?? []).length > 0 ? prev?.rows ?? [] : final.rows,
-          rowCount: (prev?.rows ?? final.rows).length,
-          executionTime,
-        }));
         toast.success(
           `Query executed successfully (${
             final.totalRows ?? final.rows.length

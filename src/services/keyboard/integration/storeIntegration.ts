@@ -15,9 +15,10 @@ export function setupStoreIntegration(): () => void {
 
   // Subscribe to workspace screen store
   const workspaceUnsubscribe = useWorkspaceScreenStore.subscribe((state) => {
+    const sidebars = state.getSidebars();
     manager.updateContext({
-      leftSidebarVisible: state.sidebars.left,
-      rightSidebarVisible: state.sidebars.right,
+      leftSidebarVisible: sidebars.left,
+      rightSidebarVisible: sidebars.right,
     });
   });
   unsubscribers.push(workspaceUnsubscribe);

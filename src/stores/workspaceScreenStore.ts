@@ -6,13 +6,37 @@ import type {
   TabState,
 } from "@/types/workspaceScreen";
 
-interface WorkspaceScreenStore extends WorkspaceScreenState {
-  // Panel operations
+// Per-connection workspace state
+interface ConnectionWorkspace {
+  panels: Map<string, PanelState>;
+  activePanelId: string;
+  splitMode: "none" | "horizontal" | "vertical";
+  splitPosition: number;
+  sidebars: {
+    left: boolean;
+    right: boolean;
+  };
+}
+
+interface WorkspaceScreenStore {
+  // NEW: Connection-scoped workspaces
+  workspaces: Map<string, ConnectionWorkspace>;
+  activeConnectionId: string | null;
+
+  // Legacy for backward compatibility
+  activeWorkspaceId: string;
+  windows: Map<string, string>;
+
+  // Connection management
+  setActiveConnection: (connectionId: string | null) => void;
+  clearWorkspace: (connectionId: string) => void;
+
+  // Panel operations (connection-aware)
   splitPanel: (direction: "horizontal" | "vertical") => void;
   unsplitPanel: () => void;
   setActivePanel: (panelId: string) => void;
 
-  // Tab operations (panel-aware)
+  // Tab operations (connection-aware, panel-aware)
   addTab: (panelId: string, tab: Partial<TabState>) => string;
   closeTab: (tabId: string, panelId: string) => void;
   moveTab: (tabId: string, fromPanelId: string, toPanelId: string) => void;
@@ -34,71 +58,149 @@ interface WorkspaceScreenStore extends WorkspaceScreenState {
 
   // Initialize workspace
   initWorkspace: (connectionId: string) => void;
+
+  // Getters (connection-aware)
+  getPanels: () => Map<string, PanelState>;
+  getActivePanelId: () => string;
+  getSplitMode: () => "none" | "horizontal" | "vertical";
+  getSplitPosition: () => number;
+  getSidebars: () => { left: boolean; right: boolean };
 }
 
-export const useWorkspaceScreenStore = create<WorkspaceScreenStore>(
-  (set, get) => ({
-    // Initial state
-    activeWorkspaceId: "",
-    windows: new Map(),
-    panels: new Map(),
-    activePanelId: "",
+function createDefaultWorkspace(connectionId: string): ConnectionWorkspace {
+  const primaryPanelId = uuidv4();
+  const primaryPanel: PanelState = {
+    id: primaryPanelId,
+    type: "primary",
+    tabs: new Map(),
+    tabOrder: [],
+    activeTabId: null,
+  };
+
+  // Create a default query tab
+  const defaultTabId = uuidv4();
+  const defaultTab: TabState = {
+    id: defaultTabId,
+    type: "query",
+    connectionId,
+    panelId: primaryPanelId,
+    title: "New Query",
+    payload: { sql: "" },
+    ui: {
+      scrollTop: 0,
+      scrollLeft: 0,
+      columnWidths: {},
+      selectedRows: new Set(),
+      expandedRows: new Set(),
+      hiddenColumns: new Set(),
+      columnOrder: [],
+    },
+    isDirty: false,
+    isLoading: false,
+    createdAt: new Date(),
+    lastAccessedAt: new Date(),
+  };
+
+  primaryPanel.tabs.set(defaultTabId, defaultTab);
+  primaryPanel.tabOrder.push(defaultTabId);
+  primaryPanel.activeTabId = defaultTabId;
+
+  return {
+    panels: new Map([[primaryPanelId, primaryPanel]]),
+    activePanelId: primaryPanelId,
     splitMode: "none",
     splitPosition: 0.5,
     sidebars: {
       left: true,
       right: false,
     },
+  };
+}
 
-    // Initialize workspace
-    initWorkspace: (connectionId) => {
-      const primaryPanelId = uuidv4();
-      const primaryPanel: PanelState = {
-        id: primaryPanelId,
-        type: "primary",
-        tabs: new Map(),
-        tabOrder: [],
-        activeTabId: null,
-      };
+export const useWorkspaceScreenStore = create<WorkspaceScreenStore>(
+  (set, get) => ({
+    // Initial state
+    workspaces: new Map(),
+    activeConnectionId: null,
+    activeWorkspaceId: "",
+    windows: new Map(),
 
-      // Create a default query tab
-      const defaultTabId = uuidv4();
-      const defaultTab: TabState = {
-        id: defaultTabId,
-        type: "query",
-        connectionId,
-        panelId: primaryPanelId,
-        title: "New Query",
-        payload: { sql: "" },
-        ui: {
-          scrollTop: 0,
-          scrollLeft: 0,
-          columnWidths: {},
-          selectedRows: new Set(),
-          expandedRows: new Set(),
-          hiddenColumns: new Set(),
-          columnOrder: [],
-        },
-        isDirty: false,
-        isLoading: false,
-        createdAt: new Date(),
-        lastAccessedAt: new Date(),
-      };
+    // Connection management
+    setActiveConnection: (connectionId) => {
+      console.log(`[WorkspaceStore] Switching to connection: ${connectionId}`);
+      set({ activeConnectionId: connectionId });
 
-      primaryPanel.tabs.set(defaultTabId, defaultTab);
-      primaryPanel.tabOrder.push(defaultTabId);
-      primaryPanel.activeTabId = defaultTabId;
+      // Initialize workspace if it doesn't exist
+      if (connectionId && !get().workspaces.has(connectionId)) {
+        console.log(`[WorkspaceStore] Initializing workspace for: ${connectionId}`);
+        get().initWorkspace(connectionId);
+      }
+    },
 
-      set({
-        panels: new Map([[primaryPanelId, primaryPanel]]),
-        activePanelId: primaryPanelId,
+    clearWorkspace: (connectionId) => {
+      console.log(`[WorkspaceStore] Clearing workspace for: ${connectionId}`);
+      set((state) => {
+        const newWorkspaces = new Map(state.workspaces);
+        newWorkspaces.delete(connectionId);
+        return { workspaces: newWorkspaces };
       });
     },
 
-    // Panel operations
+    // Initialize workspace
+    initWorkspace: (connectionId) => {
+      console.log(`[WorkspaceStore] Creating new workspace for: ${connectionId}`);
+      set((state) => {
+        const newWorkspaces = new Map(state.workspaces);
+        newWorkspaces.set(connectionId, createDefaultWorkspace(connectionId));
+        return { workspaces: newWorkspaces };
+      });
+    },
+
+    // Getters (connection-aware)
+    getPanels: () => {
+      const { activeConnectionId, workspaces } = get();
+      if (!activeConnectionId) return new Map();
+      const workspace = workspaces.get(activeConnectionId);
+      return workspace?.panels || new Map();
+    },
+
+    getActivePanelId: () => {
+      const { activeConnectionId, workspaces } = get();
+      if (!activeConnectionId) return "";
+      const workspace = workspaces.get(activeConnectionId);
+      return workspace?.activePanelId || "";
+    },
+
+    getSplitMode: () => {
+      const { activeConnectionId, workspaces } = get();
+      if (!activeConnectionId) return "none";
+      const workspace = workspaces.get(activeConnectionId);
+      return workspace?.splitMode || "none";
+    },
+
+    getSplitPosition: () => {
+      const { activeConnectionId, workspaces } = get();
+      if (!activeConnectionId) return 0.5;
+      const workspace = workspaces.get(activeConnectionId);
+      return workspace?.splitPosition || 0.5;
+    },
+
+    getSidebars: () => {
+      const { activeConnectionId, workspaces } = get();
+      if (!activeConnectionId) return { left: true, right: false };
+      const workspace = workspaces.get(activeConnectionId);
+      return workspace?.sidebars || { left: true, right: false };
+    },
+
+    // Panel operations (connection-aware)
     splitPanel: (direction) => {
-      const state = get();
-      const primaryPanel = Array.from(state.panels.values()).find(
+      const { activeConnectionId, workspaces } = get();
+      if (!activeConnectionId) return;
+
+      const workspace = workspaces.get(activeConnectionId);
+      if (!workspace) return;
+
+      const primaryPanel = Array.from(workspace.panels.values()).find(
         (p) => p.type === "primary",
       );
 
@@ -129,23 +231,33 @@ export const useWorkspaceScreenStore = create<WorkspaceScreenStore>(
         primaryPanel.activeTabId = primaryPanel.tabOrder[0] || null;
       }
 
-      const newPanels = new Map(state.panels);
+      const newPanels = new Map(workspace.panels);
       newPanels.set(primaryPanel.id, primaryPanel);
       newPanels.set(secondaryPanelId, secondaryPanel);
 
-      set({
+      const updatedWorkspace: ConnectionWorkspace = {
+        ...workspace,
         panels: newPanels,
         splitMode: direction,
         activePanelId: secondaryPanelId,
-      });
+      };
+
+      const newWorkspaces = new Map(workspaces);
+      newWorkspaces.set(activeConnectionId, updatedWorkspace);
+      set({ workspaces: newWorkspaces });
     },
 
     unsplitPanel: () => {
-      const state = get();
-      const primaryPanel = Array.from(state.panels.values()).find(
+      const { activeConnectionId, workspaces } = get();
+      if (!activeConnectionId) return;
+
+      const workspace = workspaces.get(activeConnectionId);
+      if (!workspace) return;
+
+      const primaryPanel = Array.from(workspace.panels.values()).find(
         (p) => p.type === "primary",
       );
-      const secondaryPanel = Array.from(state.panels.values()).find(
+      const secondaryPanel = Array.from(workspace.panels.values()).find(
         (p) => p.type === "secondary",
       );
 
@@ -161,28 +273,51 @@ export const useWorkspaceScreenStore = create<WorkspaceScreenStore>(
       const newPanels = new Map();
       newPanels.set(primaryPanel.id, primaryPanel);
 
-      set({
+      const updatedWorkspace: ConnectionWorkspace = {
+        ...workspace,
         panels: newPanels,
         splitMode: "none",
         activePanelId: primaryPanel.id,
-      });
+      };
+
+      const newWorkspaces = new Map(workspaces);
+      newWorkspaces.set(activeConnectionId, updatedWorkspace);
+      set({ workspaces: newWorkspaces });
     },
 
     setActivePanel: (panelId) => {
-      set({ activePanelId: panelId });
+      const { activeConnectionId, workspaces } = get();
+      if (!activeConnectionId) return;
+
+      const workspace = workspaces.get(activeConnectionId);
+      if (!workspace) return;
+
+      const updatedWorkspace: ConnectionWorkspace = {
+        ...workspace,
+        activePanelId: panelId,
+      };
+
+      const newWorkspaces = new Map(workspaces);
+      newWorkspaces.set(activeConnectionId, updatedWorkspace);
+      set({ workspaces: newWorkspaces });
     },
 
-    // Tab operations
+    // Tab operations (connection-aware)
     addTab: (panelId, tabData) => {
-      const state = get();
-      const panel = state.panels.get(panelId);
+      const { activeConnectionId, workspaces } = get();
+      if (!activeConnectionId) return "";
+
+      const workspace = workspaces.get(activeConnectionId);
+      if (!workspace) return "";
+
+      const panel = workspace.panels.get(panelId);
       if (!panel) return "";
 
       const tabId = uuidv4();
       const newTab: TabState = {
         id: tabId,
         type: "query",
-        connectionId: "",
+        connectionId: activeConnectionId,
         panelId,
         title: "New Tab",
         payload: {},
@@ -206,16 +341,29 @@ export const useWorkspaceScreenStore = create<WorkspaceScreenStore>(
       panel.tabOrder.push(tabId);
       panel.activeTabId = tabId;
 
-      const newPanels = new Map(state.panels);
+      const newPanels = new Map(workspace.panels);
       newPanels.set(panelId, panel);
 
-      set({ panels: newPanels });
+      const updatedWorkspace: ConnectionWorkspace = {
+        ...workspace,
+        panels: newPanels,
+      };
+
+      const newWorkspaces = new Map(workspaces);
+      newWorkspaces.set(activeConnectionId, updatedWorkspace);
+      set({ workspaces: newWorkspaces });
+
       return tabId;
     },
 
     closeTab: (tabId, panelId) => {
-      const state = get();
-      const panel = state.panels.get(panelId);
+      const { activeConnectionId, workspaces } = get();
+      if (!activeConnectionId) return;
+
+      const workspace = workspaces.get(activeConnectionId);
+      if (!workspace) return;
+
+      const panel = workspace.panels.get(panelId);
       if (!panel) return;
 
       panel.tabs.delete(tabId);
@@ -229,16 +377,29 @@ export const useWorkspaceScreenStore = create<WorkspaceScreenStore>(
       if (panel.type === "secondary" && panel.tabs.size === 0) {
         get().unsplitPanel();
       } else {
-        const newPanels = new Map(state.panels);
+        const newPanels = new Map(workspace.panels);
         newPanels.set(panelId, panel);
-        set({ panels: newPanels });
+
+        const updatedWorkspace: ConnectionWorkspace = {
+          ...workspace,
+          panels: newPanels,
+        };
+
+        const newWorkspaces = new Map(workspaces);
+        newWorkspaces.set(activeConnectionId, updatedWorkspace);
+        set({ workspaces: newWorkspaces });
       }
     },
 
     moveTab: (tabId, fromPanelId, toPanelId) => {
-      const state = get();
-      const fromPanel = state.panels.get(fromPanelId);
-      const toPanel = state.panels.get(toPanelId);
+      const { activeConnectionId, workspaces } = get();
+      if (!activeConnectionId) return;
+
+      const workspace = workspaces.get(activeConnectionId);
+      if (!workspace) return;
+
+      const fromPanel = workspace.panels.get(fromPanelId);
+      const toPanel = workspace.panels.get(toPanelId);
 
       if (!fromPanel || !toPanel) return;
 
@@ -260,28 +421,53 @@ export const useWorkspaceScreenStore = create<WorkspaceScreenStore>(
       toPanel.tabOrder.push(tabId);
       toPanel.activeTabId = tabId;
 
-      const newPanels = new Map(state.panels);
+      const newPanels = new Map(workspace.panels);
       newPanels.set(fromPanelId, fromPanel);
       newPanels.set(toPanelId, toPanel);
 
-      set({ panels: newPanels, activePanelId: toPanelId });
+      const updatedWorkspace: ConnectionWorkspace = {
+        ...workspace,
+        panels: newPanels,
+        activePanelId: toPanelId,
+      };
+
+      const newWorkspaces = new Map(workspaces);
+      newWorkspaces.set(activeConnectionId, updatedWorkspace);
+      set({ workspaces: newWorkspaces });
     },
 
     setActiveTab: (panelId, tabId) => {
-      const state = get();
-      const panel = state.panels.get(panelId);
+      const { activeConnectionId, workspaces } = get();
+      if (!activeConnectionId) return;
+
+      const workspace = workspaces.get(activeConnectionId);
+      if (!workspace) return;
+
+      const panel = workspace.panels.get(panelId);
       if (!panel || !panel.tabs.has(tabId)) return;
 
       panel.activeTabId = tabId;
-      const newPanels = new Map(state.panels);
+      const newPanels = new Map(workspace.panels);
       newPanels.set(panelId, panel);
 
-      set({ panels: newPanels });
+      const updatedWorkspace: ConnectionWorkspace = {
+        ...workspace,
+        panels: newPanels,
+      };
+
+      const newWorkspaces = new Map(workspaces);
+      newWorkspaces.set(activeConnectionId, updatedWorkspace);
+      set({ workspaces: newWorkspaces });
     },
 
     updateTab: (panelId, tabId, updates) => {
-      const state = get();
-      const panel = state.panels.get(panelId);
+      const { activeConnectionId, workspaces } = get();
+      if (!activeConnectionId) return;
+
+      const workspace = workspaces.get(activeConnectionId);
+      if (!workspace) return;
+
+      const panel = workspace.panels.get(panelId);
       if (!panel) return;
 
       const tab = panel.tabs.get(tabId);
@@ -290,20 +476,38 @@ export const useWorkspaceScreenStore = create<WorkspaceScreenStore>(
       const updatedTab = { ...tab, ...updates, lastAccessedAt: new Date() };
       panel.tabs.set(tabId, updatedTab);
 
-      const newPanels = new Map(state.panels);
+      const newPanels = new Map(workspace.panels);
       newPanels.set(panelId, panel);
 
-      set({ panels: newPanels });
+      const updatedWorkspace: ConnectionWorkspace = {
+        ...workspace,
+        panels: newPanels,
+      };
+
+      const newWorkspaces = new Map(workspaces);
+      newWorkspaces.set(activeConnectionId, updatedWorkspace);
+      set({ workspaces: newWorkspaces });
     },
 
-    // Sidebar toggles
+    // Sidebar toggles (connection-aware)
     toggleSidebar: (side) => {
-      set((state) => ({
+      const { activeConnectionId, workspaces } = get();
+      if (!activeConnectionId) return;
+
+      const workspace = workspaces.get(activeConnectionId);
+      if (!workspace) return;
+
+      const updatedWorkspace: ConnectionWorkspace = {
+        ...workspace,
         sidebars: {
-          ...state.sidebars,
-          [side]: !state.sidebars[side],
+          ...workspace.sidebars,
+          [side]: !workspace.sidebars[side],
         },
-      }));
+      };
+
+      const newWorkspaces = new Map(workspaces);
+      newWorkspaces.set(activeConnectionId, updatedWorkspace);
+      set({ workspaces: newWorkspaces });
     },
 
     // Window management

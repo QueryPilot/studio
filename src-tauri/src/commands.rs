@@ -495,9 +495,11 @@ pub async fn stream_query(
     channel: tauri::ipc::Channel<StreamMessage>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<(), String> {
-    // Increased from 1000 to 2500 for better performance (fewer IPC round trips)
-    let batch_size = batch_size.unwrap_or(2500);
-    tracing::info!("stream_query: using batch_size={}", batch_size);
+    // Increased from 1000 to 3000 for better performance (fewer IPC round trips)
+    let batch_size = batch_size.unwrap_or(3000);
+    tracing::info!("==========================================");
+    tracing::info!("stream_query START: sql={}, batch_size={}", sql, batch_size);
+    tracing::info!("==========================================");
 
     // Get connection
     let conn = manager
@@ -506,7 +508,7 @@ pub async fn stream_query(
 
     // PERFORMANCE OPTIMIZATION: Use fast path for small queries (<50k rows)
     // This eliminates cursor overhead and reduces IPC round trips
-    // Default batch_size is 2500, so for normal queries we use fast path
+    // Default batch_size is 3000, so for normal queries we use fast path
     let use_fast_path = batch_size < 50000; // Use single fetch for queries likely to return <50k rows
 
     if use_fast_path {
@@ -525,33 +527,63 @@ pub async fn stream_query(
             .ok_or_else(|| "Query executor not available".to_string())?;
 
         // Execute with single fetch
+        let ipc_start = std::time::Instant::now();
+
         match executor.execute_single_fetch(&sql).await {
             Ok((all_rows, columns, db_time_ms)) => {
                 let total_rows = all_rows.len();
 
+                tracing::info!("FAST PATH: Fetched {} rows from database in {}ms", total_rows, db_time_ms);
+
                 // Send started
+                let send_start = std::time::Instant::now();
                 let _ = channel.send(StreamMessage::Started {
                     columns: columns.clone(),
                     estimated_rows: Some(total_rows as i64),
                 });
+                tracing::info!("FAST PATH: Sent Started message in {}ms", send_start.elapsed().as_millis());
 
-                // Send all rows in single batch
-                let _ = channel.send(StreamMessage::Batch {
-                    rows: all_rows,
-                    row_offset: 0,
-                });
+                tracing::info!("FAST PATH: Column count={}, estimated={}", columns.len(), total_rows);
 
-                tracing::info!(
-                    "stream_query FAST PATH complete: {} rows, {}ms DB time",
-                    total_rows,
-                    db_time_ms
-                );
+                // For queries up to 50k rows, send in one batch to minimize IPC overhead
+                // Only chunk for very large result sets (>50k rows) where progressive rendering matters
+                if total_rows < 50000 {
+                    // Single batch - no cloning overhead
+                    let batch_start = std::time::Instant::now();
+                    let _ = channel.send(StreamMessage::Batch {
+                        rows: all_rows,
+                        row_offset: 0,
+                    });
+                    tracing::info!("FAST PATH: Sent single batch of {} rows in {}ms", total_rows, batch_start.elapsed().as_millis());
+                } else {
+                    // Send rows in chunks for progressive rendering of large result sets
+                    const CHUNK_SIZE: usize = 2000; // Larger chunks for better performance
+                    let mut row_offset = 0;
+
+                    for chunk in all_rows.chunks(CHUNK_SIZE) {
+                        let _ = channel.send(StreamMessage::Batch {
+                            rows: chunk.to_vec(),
+                            row_offset,
+                        });
+                        row_offset += chunk.len();
+                        tracing::info!("FAST PATH: Sent chunk of {} rows (offset={})", chunk.len(), row_offset);
+                    }
+                    tracing::info!("FAST PATH: Sent all {} rows in {} chunks", total_rows, (total_rows + CHUNK_SIZE - 1) / CHUNK_SIZE);
+                }
 
                 // Send success
                 let _ = channel.send(StreamMessage::Success {
                     total_rows,
                     execution_time_ms: db_time_ms,
                 });
+
+                let total_time_ms = ipc_start.elapsed().as_millis();
+                tracing::info!("==========================================");
+                tracing::info!("FAST PATH COMPLETE: {} rows", total_rows);
+                tracing::info!("  DB + Conversion: {}ms", db_time_ms);
+                tracing::info!("  IPC Serialization: {}ms", total_time_ms as u64 - db_time_ms);
+                tracing::info!("  Total Backend: {}ms", total_time_ms);
+                tracing::info!("==========================================");
 
                 return Ok(());
             }

@@ -26,7 +26,9 @@ interface WorkbenchStore {
   historyIndex: number;
   dragDropContext: DragDropContext;
   preventAutoInit: boolean;
+  activeConnectionId: string | null;
 
+  setConnectionId: (connectionId: string | null) => void;
   initializeLayout: () => void;
   splitPanelAction: (action: SplitAction) => void;
   closePanelAction: (panelId: string, preventAutoInit?: boolean) => void;
@@ -69,6 +71,7 @@ const useWorkbenchStore = create<WorkbenchStore>()(
     layoutHistory: [],
     historyIndex: -1,
     preventAutoInit: false,
+    activeConnectionId: null,
     dragDropContext: {
       draggedTab: null,
       draggedPanel: null,
@@ -76,10 +79,37 @@ const useWorkbenchStore = create<WorkbenchStore>()(
       dropPosition: null,
     },
 
+    setConnectionId: (connectionId) => {
+      const oldConnectionId = get().activeConnectionId;
+
+      // If switching connections, clear old layout
+      if (oldConnectionId && oldConnectionId !== connectionId) {
+        console.log(`[WorkbenchStore] Switching from ${oldConnectionId} to ${connectionId}`);
+        // Save current layout before switching
+        get().saveLayout();
+      }
+
+      set({ activeConnectionId: connectionId });
+
+      // Initialize layout for new connection
+      if (connectionId) {
+        console.log(`[WorkbenchStore] Initializing layout for connection: ${connectionId}`);
+        get().initializeLayout();
+      }
+    },
+
     initializeLayout: () => {
-      // ALWAYS clear corrupted state on init
-      localStorage.removeItem("workbench-layout");
-      localStorage.removeItem("workbench-layout-backup");
+      const { activeConnectionId } = get();
+      const layoutKey = activeConnectionId
+        ? `workbench-layout-${activeConnectionId}`
+        : "workbench-layout";
+      const backupKey = activeConnectionId
+        ? `workbench-layout-backup-${activeConnectionId}`
+        : "workbench-layout-backup";
+
+      // Clear any corrupted state for this connection
+      localStorage.removeItem(layoutKey);
+      localStorage.removeItem(backupKey);
 
       const defaultPanel = createLeafNode({
         type: "editor",
@@ -331,17 +361,21 @@ const useWorkbenchStore = create<WorkbenchStore>()(
     },
 
     saveLayout: () => {
-      const { layoutTree } = get();
+      const { layoutTree, activeConnectionId } = get();
       if (layoutTree) {
-        localStorage.setItem(
-          "workbench-layout-backup",
-          JSON.stringify(layoutTree),
-        );
+        const backupKey = activeConnectionId
+          ? `workbench-layout-backup-${activeConnectionId}`
+          : "workbench-layout-backup";
+        localStorage.setItem(backupKey, JSON.stringify(layoutTree));
       }
     },
 
     restoreLayout: () => {
-      const saved = localStorage.getItem("workbench-layout-backup");
+      const { activeConnectionId } = get();
+      const backupKey = activeConnectionId
+        ? `workbench-layout-backup-${activeConnectionId}`
+        : "workbench-layout-backup";
+      const saved = localStorage.getItem(backupKey);
       if (saved) {
         try {
           const tree = JSON.parse(saved) as GridNode;

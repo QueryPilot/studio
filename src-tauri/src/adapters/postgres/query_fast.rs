@@ -42,7 +42,7 @@ impl FastPostgresQueryExecutor {
 
     /// Fast path: Execute query with single fetch (no cursor)
     /// Best for small result sets (<50k rows) - avoids cursor overhead
-    pub async fn execute_single_fetch(&self, sql: &str) -> Result<(Vec<Vec<CellValue>>, Vec<ColumnMeta>, u64)> {
+    pub async fn execute_single_fetch(&self, sql: &str) -> Result<(Vec<Vec<serde_json::Value>>, Vec<ColumnMeta>, u64)> {
         let query_start = Instant::now();
 
         // STEP 1: Get or prepare statement (with caching)
@@ -72,14 +72,22 @@ impl FastPostgresQueryExecutor {
             .collect::<Vec<_>>();
 
         // STEP 2: Execute query with single fetch (no cursor, no transaction)
+        let db_start = Instant::now();
         let rows = self.client.query(stmt.as_ref(), &[]).await?;
+        let db_time_ms = db_start.elapsed().as_millis() as u64;
 
+        // STEP 3: Convert rows to JSON (direct, no CellValue overhead)
+        let convert_start = Instant::now();
+        let json_rows = FastPostgresConverter::rows_to_json(&rows)?;
+        let convert_time_ms = convert_start.elapsed().as_millis() as u64;
+
+        tracing::info!("  Postgres Query: {}ms", db_time_ms);
+        tracing::info!("  Row→JSON Conversion: {}ms ({} rows × {} cols)", convert_time_ms, rows.len(), columns.len());
+
+        // Measure total time including conversion (matches TablePlus measurement)
         let fetch_time_ms = query_start.elapsed().as_millis() as u64;
 
-        // STEP 3: Convert rows to cells
-        let cells = FastPostgresConverter::rows_to_cells(&rows)?;
-
-        Ok((cells, columns, fetch_time_ms))
+        Ok((json_rows, columns, fetch_time_ms))
     }
 
     pub async fn open_query(&self, sql: &str) -> Result<QueryHandle> {
@@ -171,8 +179,8 @@ impl FastPostgresQueryExecutor {
 
         let decode_start = Instant::now();
 
-        // Use fast converter - NO display_value allocation
-        let result_rows = FastPostgresConverter::rows_to_cells(&rows)?;
+        // Use fast converter - Direct to JSON, NO CellValue overhead
+        let result_rows = FastPostgresConverter::rows_to_json(&rows)?;
 
         let rows_fetched = state.rows_fetched + result_rows.len();
         state.rows_fetched = rows_fetched;
@@ -214,8 +222,18 @@ impl FastPostgresQueryExecutor {
     pub async fn close_query(&self, handle: &QueryHandle) -> Result<()> {
         // Close cursor and commit transaction before removing from active queries
         if let Some(state) = self.active_queries.get(&handle.id) {
-            let _ = self.client.execute(&format!("CLOSE {}", state.cursor_name), &[]).await;
-            let _ = self.client.execute("COMMIT", &[]).await;
+            // Try to close cursor, but don't fail if it's already closed
+            let close_result = self.client.execute(&format!("CLOSE {}", state.cursor_name), &[]).await;
+            if let Err(e) = close_result {
+                tracing::warn!("Failed to close cursor {}: {}", state.cursor_name, e);
+            }
+
+            // COMMIT must succeed - if it fails, connection is in bad state
+            self.client.execute("COMMIT", &[]).await
+                .map_err(|e| {
+                    tracing::error!("COMMIT failed after query close: {}", e);
+                    AppError::from(e)
+                })?;
         }
 
         self.active_queries.remove(&handle.id);
@@ -223,10 +241,24 @@ impl FastPostgresQueryExecutor {
     }
 
     pub async fn cancel_query(&self, handle: &QueryHandle) -> Result<()> {
+        tracing::info!("Cancelling query: {}", handle.id);
+
         // Close cursor and rollback transaction (cancelled = rollback)
         if let Some(state) = self.active_queries.get(&handle.id) {
-            let _ = self.client.execute(&format!("CLOSE {}", state.cursor_name), &[]).await;
-            let _ = self.client.execute("ROLLBACK", &[]).await;
+            // Try to close cursor, but don't fail if it's already closed
+            let close_result = self.client.execute(&format!("CLOSE {}", state.cursor_name), &[]).await;
+            if let Err(e) = close_result {
+                tracing::warn!("Failed to close cursor {} during cancel: {}", state.cursor_name, e);
+            }
+
+            // ROLLBACK must succeed - if it fails, connection is in bad state
+            self.client.execute("ROLLBACK", &[]).await
+                .map_err(|e| {
+                    tracing::error!("ROLLBACK failed during query cancel: {}. Connection may be stuck!", e);
+                    AppError::from(e)
+                })?;
+
+            tracing::info!("Query cancelled successfully: {}", handle.id);
         }
 
         self.active_queries.remove(&handle.id);

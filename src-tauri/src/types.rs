@@ -89,7 +89,7 @@ pub struct ColumnMeta {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PageChunk {
-    pub rows: Vec<Vec<CellValue>>,
+    pub rows: Vec<Vec<serde_json::Value>>,
     pub has_more: bool,
     pub rows_fetched: usize,
     pub timing: Option<PageTiming>,
@@ -437,7 +437,7 @@ pub struct Trigger {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TableDataResult {
     pub columns: Vec<ColumnMeta>,
-    pub rows: Vec<Vec<CellValue>>,
+    pub rows: Vec<Vec<serde_json::Value>>,
     pub has_more: bool,
     pub total_count: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -628,7 +628,7 @@ pub enum StreamMessage {
         estimated_rows: Option<i64>,
     },
     Batch {
-        rows: Vec<Vec<CellValue>>,
+        rows: Vec<Vec<serde_json::Value>>,
         row_offset: usize,
     },
     Success {
