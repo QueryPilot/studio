@@ -1,7 +1,7 @@
 use dashmap::DashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio_postgres::Client;
+use tokio_postgres::{Client, Statement};
 use uuid::Uuid;
 
 use super::fast_converter::FastPostgresConverter;
@@ -12,6 +12,8 @@ use crate::types::*;
 pub struct FastPostgresQueryExecutor {
     client: Arc<Client>,
     active_queries: DashMap<String, QueryState>,
+    /// Prepared statement cache: SQL -> Statement (saves ~10-20ms per query)
+    statement_cache: DashMap<String, Arc<Statement>>,
 }
 
 struct QueryState {
@@ -29,15 +31,71 @@ impl FastPostgresQueryExecutor {
         Self {
             client,
             active_queries: DashMap::new(),
+            statement_cache: DashMap::new(),
         }
+    }
+
+    /// Clear the prepared statement cache (call after DDL operations)
+    pub fn clear_statement_cache(&self) {
+        self.statement_cache.clear();
+    }
+
+    /// Fast path: Execute query with single fetch (no cursor)
+    /// Best for small result sets (<50k rows) - avoids cursor overhead
+    pub async fn execute_single_fetch(&self, sql: &str) -> Result<(Vec<Vec<CellValue>>, Vec<ColumnMeta>, u64)> {
+        let query_start = Instant::now();
+
+        // STEP 1: Get or prepare statement (with caching)
+        let stmt = if let Some(cached) = self.statement_cache.get(sql) {
+            cached.value().clone()
+        } else {
+            let stmt = Arc::new(self.client.prepare(sql).await?);
+            self.statement_cache.insert(sql.to_string(), stmt.clone());
+            stmt
+        };
+
+        let columns = stmt
+            .columns()
+            .iter()
+            .map(|col| ColumnMeta {
+                name: col.name().to_string(),
+                data_type: PostgresTypeConverter::type_to_cell_type(col.type_()),
+                nullable: true,
+                primary_key: false,
+                db_type: col.type_().name().to_string(),
+                type_oid: Some(col.type_().oid()),
+                default_value: None,
+                comment: None,
+                enum_values: None,
+                type_category: None,
+            })
+            .collect::<Vec<_>>();
+
+        // STEP 2: Execute query with single fetch (no cursor, no transaction)
+        let rows = self.client.query(stmt.as_ref(), &[]).await?;
+
+        let fetch_time_ms = query_start.elapsed().as_millis() as u64;
+
+        // STEP 3: Convert rows to cells
+        let cells = FastPostgresConverter::rows_to_cells(&rows)?;
+
+        Ok((cells, columns, fetch_time_ms))
     }
 
     pub async fn open_query(&self, sql: &str) -> Result<QueryHandle> {
         let handle_id = Uuid::new_v4().to_string();
         let cursor_name = format!("cursor_{}", handle_id.replace("-", "_"));
 
-        // STEP 1: Prepare statement to get column metadata
-        let stmt = self.client.prepare(sql).await?;
+        // STEP 1: Get or prepare statement (with caching)
+        let stmt = if let Some(cached) = self.statement_cache.get(sql) {
+            // Cache hit - reuse prepared statement (saves ~10-20ms)
+            cached.value().clone()
+        } else {
+            // Cache miss - prepare and cache
+            let stmt = Arc::new(self.client.prepare(sql).await?);
+            self.statement_cache.insert(sql.to_string(), stmt.clone());
+            stmt
+        };
 
         let columns = stmt
             .columns()
@@ -173,10 +231,5 @@ impl FastPostgresQueryExecutor {
 
         self.active_queries.remove(&handle.id);
         Ok(())
-    }
-
-    /// Get the real database execution time for a query (first DECLARE + FETCH only)
-    pub fn get_execution_time(&self, handle: &QueryHandle) -> Option<u64> {
-        self.active_queries.get(&handle.id).and_then(|s| s.execution_time_ms)
     }
 }

@@ -51,9 +51,18 @@ impl PostgresAdapter {
             || upper.starts_with("RENAME")
     }
 
-    /// Clear metadata cache after DDL operations
+    /// Clear metadata cache and statement cache after DDL operations
     fn clear_metadata_cache(&self) {
         self.metadata_cache.clear();
+        // Also clear prepared statement cache since schema might have changed
+        if let Some(executor) = &self.query_executor {
+            executor.clear_statement_cache();
+        }
+    }
+
+    /// Get query executor (for fast path optimization)
+    pub fn get_query_executor(&self) -> Option<Arc<FastPostgresQueryExecutor>> {
+        self.query_executor.clone()
     }
 
     fn build_config(profile: &ConnectionProfile) -> Result<Config> {
@@ -73,13 +82,6 @@ impl PostgresAdapter {
         }
 
         Ok(config)
-    }
-
-    /// Get the real database execution time for a query (first DECLARE + FETCH only)
-    pub fn get_query_execution_time(&self, handle: &QueryHandle) -> Option<u64> {
-        self.query_executor
-            .as_ref()
-            .and_then(|executor| executor.get_execution_time(handle))
     }
 }
 

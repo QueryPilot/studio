@@ -1,22 +1,16 @@
 import { memo, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Copy,
-  Download,
-  AlertCircle,
-  CheckCircle2,
-  XCircle,
-  Clipboard,
-} from "lucide-react";
+import { AlertCircle, XCircle, Clipboard } from "lucide-react";
 import { TableDataGridV2 } from "@/components/DataGridV2";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { CodeEditor } from "@/components/CodeEditor";
+import { type ColumnMeta } from "@/types/database";
 
 interface QueryResult {
   columns: string[];
-  columnMeta?: import("@/types/database").ColumnMeta[];
+  columnMeta?: ColumnMeta[];
   rows: unknown[][];
   rowCount: number;
   executionTime?: number;
@@ -35,10 +29,7 @@ interface ResultViewerProps {
 
 export const ResultViewer = memo(function ResultViewer({
   result,
-  isLoading = false,
   className,
-  connectionId = "",
-  database = "",
   gridId,
 }: ResultViewerProps) {
   const [viewMode, setViewMode] = useState<"table" | "json">("table");
@@ -63,96 +54,6 @@ export const ResultViewer = memo(function ResultViewer({
       return "[]";
     }
   }, [result]);
-
-  const handleCopyToClipboard = () => {
-    if (!result || result.error) return;
-
-    const data =
-      viewMode === "json"
-        ? JSON.stringify(
-            result.rows.map((row) => {
-              const obj: Record<string, unknown> = {};
-              result.columns.forEach((col, i) => {
-                obj[col] = row[i];
-              });
-              return obj;
-            }),
-            null,
-            2,
-          )
-        : result.rows
-            .map((row) => row.map((cell) => String(cell ?? "")).join("\t"))
-            .join("\n");
-
-    navigator.clipboard
-      .writeText(data)
-      .then(() => {
-        toast.success("Copied to clipboard");
-      })
-      .catch(() => {
-        toast.error("Failed to copy to clipboard");
-      });
-  };
-
-  const handleExport = (format: "json" | "csv") => {
-    if (!result || result.error) return;
-
-    let data: string;
-    let mimeType: string;
-    let filename: string;
-
-    if (format === "json") {
-      data = JSON.stringify(
-        result.rows.map((row) => {
-          const obj: Record<string, unknown> = {};
-          result.columns.forEach((col, i) => {
-            obj[col] = row[i];
-          });
-          return obj;
-        }),
-        null,
-        2,
-      );
-      mimeType = "application/json";
-      filename = `query-result-${Date.now()}.json`;
-    } else {
-      // CSV format
-      const csvRows = [
-        result.columns.map((col) => `"${col}"`).join(","),
-        ...result.rows.map((row) =>
-          row
-            .map((cell) => {
-              if (cell === null) return "";
-              if (
-                typeof cell === "string" &&
-                (cell.includes(",") ||
-                  cell.includes('"') ||
-                  cell.includes("\n"))
-              ) {
-                return `"${cell.replace(/"/g, '""')}"`;
-              }
-              return cell;
-            })
-            .join(","),
-        ),
-      ];
-      data = csvRows.join("\n");
-      mimeType = "text/csv";
-      filename = `query-result-${Date.now()}.csv`;
-    }
-
-    const blob = new Blob([data], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    toast.success(`Exported as ${format.toUpperCase()}`);
-  };
 
   // Do not block rendering while loading; if we have any rows/columns, show them
 
@@ -245,7 +146,7 @@ export const ResultViewer = memo(function ResultViewer({
                 mode="query"
                 gridId={gridId}
                 data={
-                  result && !result.error
+                  !result.error
                     ? {
                         columns: result.columns,
                         rows: result.rows,
@@ -253,9 +154,9 @@ export const ResultViewer = memo(function ResultViewer({
                       }
                     : undefined
                 }
-                executionTime={result?.executionTime}
+                executionTime={result.executionTime}
                 className="h-full"
-                error={result?.error ?? null}
+                error={result.error ?? null}
               />
             </div>
           </TabsContent>

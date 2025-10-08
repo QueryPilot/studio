@@ -13,7 +13,6 @@ import type {
   ColumnMeta as BackendColumnMeta,
   CellValue as BackendCellValue,
   LegacyCellValue,
-  QueryHandle,
 } from "./backend";
 import type { ColumnMeta } from "@/types/database";
 import type { CellValue as FrontCellValue } from "@/types/cellValue";
@@ -203,79 +202,6 @@ export class TableDataService {
         code: "FETCH_ERROR",
         message: errMsg,
       });
-    }
-  }
-
-  /**
-   * Execute a SQL query and return results
-   */
-  async executeQuery(
-    connectionId: string,
-    _database: string,
-    query: string,
-    options: { limit?: number; signal?: AbortSignal } = {},
-  ): Promise<{ columns: string[]; rows: unknown[][]; error?: string }> {
-    try {
-      if (!isTauri()) {
-        throw new Error("Query execution requires Tauri runtime");
-      }
-      if (options.signal?.aborted) {
-        const abortError = new Error("Query execution cancelled");
-        abortError.name = "AbortError";
-        throw abortError;
-      }
-      // Fast path: single-call execute that returns columns + first page
-      // Falls back to legacy two-step path if unavailable
-      type SimpleResult = {
-        columns: BackendColumnMeta[];
-        rows: BackendCellValue[][];
-      };
-      let result: SimpleResult;
-      try {
-        const simple = await BackendAPI.executeQuerySimple(
-          connectionId,
-          query,
-          options.limit || 1000,
-        );
-        result = { columns: simple.columns, rows: simple.rows };
-      } catch {
-        // Fallback to legacy two-step API
-        const handle: QueryHandle = await BackendAPI.executeQuery(
-          connectionId,
-          query,
-        );
-        const page = await BackendAPI.fetchResults(
-          connectionId,
-          handle,
-          options.limit || 1000,
-        );
-        result = {
-          columns: handle.columns,
-          rows: page.rows,
-        };
-      }
-
-      if (options.signal?.aborted) {
-        const abortError = new Error("Query execution cancelled");
-        abortError.name = "AbortError";
-        throw abortError;
-      }
-
-      const columns = result.columns.map((col: BackendColumnMeta) => col.name);
-
-      // NEW FAST PATH: Pass through raw primitives directly (no normalization)
-      // The new CellValue is already a primitive: null | boolean | number | string | array | object
-      const transformedRows = result.rows; // Direct pass-through
-
-      return {
-        columns,
-        rows: transformedRows,
-      };
-    } catch (error: unknown) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      console.error("[TableDataService] Query execution error:", errMsg);
-
-      throw new Error(errMsg || "Failed to execute query");
     }
   }
 

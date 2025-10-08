@@ -1,6 +1,5 @@
 import { isTauri, safeInvoke, safeEmit } from "@/utils/tauri";
 import { vaultStorage } from "@/services/vaultStorage";
-import { queryManager, type QueryResult } from "./queryManager";
 import {
   BackendAPI,
   ConstraintType,
@@ -8,6 +7,7 @@ import {
   type DbType,
 } from "./backend";
 import { streamingTableService } from "./streamingTableService";
+import type { QueryResult } from "@/types/database";
 import type {
   TableStructure,
   TableStructureOptions,
@@ -1114,48 +1114,14 @@ class DatabaseService {
 
     // Convert to QueryResult format
     return {
-      query_id: crypto.randomUUID(),
-      columns: result.columns.map((c) => ({
-        name: c.name,
-        db_type: c.db_type,
-        nullable: c.nullable,
-      })),
+      columns: result.columns.map((c) => c.name),
+      columnMeta: result.columns,
       rows: result.rows as any,
-      row_count: result.totalRows || result.rows.length,
-      affected_rows: 0,
-      query_time_ms: result.executionTimeMs || 0,
-      has_more: false,
-      error: null,
+      rowCount: result.totalRows || result.rows.length,
+      executionTime: result.executionTimeMs || 0,
     };
   }
 
-  /**
-   * Execute multiple SQL queries in sequence
-   */
-  async executeMultipleQueries(
-    connectionId: string,
-    queries: string[],
-    callbacks?: {
-      onQueryComplete?: (index: number, result: QueryResult) => void;
-      onError?: (
-        index: number,
-        error: { code: string; message: string },
-      ) => void;
-    },
-  ): Promise<QueryResult[]> {
-    return queryManager.executeMultipleQueries(
-      connectionId,
-      queries,
-      callbacks,
-    );
-  }
-
-  /**
-   * Cancel an active query
-   */
-  async cancelQuery(queryId: string): Promise<void> {
-    return queryManager.cancelQuery(queryId);
-  }
 
   /**
    * Create a new index
@@ -1551,9 +1517,6 @@ class DatabaseService {
     });
     this.healthMonitors.clear();
     this.healthListeners.clear();
-
-    // Clean up query manager
-    await queryManager.cleanupAll();
 
     // Disconnect all active connections in backend first to avoid leaks
     if (isTauri()) {

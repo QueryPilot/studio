@@ -62,78 +62,6 @@ pub async fn test_connection(
 }
 
 #[tauri::command]
-pub async fn execute_query(
-    conn_id: String,
-    sql: String,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<QueryHandle, String> {
-    let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
-
-    conn.adapter
-        .open_query(&sql)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn fetch_results(
-    conn_id: String,
-    query_handle: QueryHandle,
-    max_rows: usize,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<PageChunk, String> {
-    let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
-
-    conn.adapter
-        .fetch_page(&query_handle, max_rows)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-/// Execute a query and return columns + first page of rows in a single call
-#[tauri::command]
-pub async fn execute_query_simple(
-    conn_id: String,
-    sql: String,
-    max_rows: Option<usize>,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<TableDataResult, String> {
-    let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
-
-    // Open, fetch one page, then close the query to avoid keeping portal state around
-    let handle = conn
-        .adapter
-        .open_query(&sql)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let chunk = conn
-        .adapter
-        .fetch_page(&handle, max_rows.unwrap_or(1000))
-        .await
-        .map_err(|e| e.to_string())?;
-
-    // Get execution time from chunk (captured before query state removal)
-    let execution_time_ms = chunk.execution_time_ms;
-
-    let _ = conn.adapter.close_query(&handle).await;
-
-    Ok(TableDataResult {
-        columns: handle.columns.clone(),
-        rows: chunk.rows,
-        has_more: chunk.has_more,
-        total_count: None,
-        execution_time_ms,
-    })
-}
-
-#[tauri::command]
 pub async fn get_databases(
     conn_id: String,
     manager: State<'_, Arc<ConnectionManager>>,
@@ -567,12 +495,78 @@ pub async fn stream_query(
     channel: tauri::ipc::Channel<StreamMessage>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<(), String> {
-    let batch_size = batch_size.unwrap_or(1000);
+    // Increased from 1000 to 2500 for better performance (fewer IPC round trips)
+    let batch_size = batch_size.unwrap_or(2500);
+    tracing::info!("stream_query: using batch_size={}", batch_size);
 
     // Get connection
     let conn = manager
         .get_connection(&conn_id)
         .ok_or_else(|| "Connection not found".to_string())?;
+
+    // PERFORMANCE OPTIMIZATION: Use fast path for small queries (<50k rows)
+    // This eliminates cursor overhead and reduces IPC round trips
+    // Default batch_size is 2500, so for normal queries we use fast path
+    let use_fast_path = batch_size < 50000; // Use single fetch for queries likely to return <50k rows
+
+    if use_fast_path {
+        tracing::info!("stream_query: using FAST PATH (single fetch)");
+
+        // Get Postgres adapter
+        let postgres_adapter = conn
+            .adapter
+            .as_any()
+            .downcast_ref::<crate::adapters::postgres::adapter::PostgresAdapter>()
+            .ok_or_else(|| "Not a PostgreSQL connection".to_string())?;
+
+        // Get query executor
+        let executor = postgres_adapter
+            .get_query_executor()
+            .ok_or_else(|| "Query executor not available".to_string())?;
+
+        // Execute with single fetch
+        match executor.execute_single_fetch(&sql).await {
+            Ok((all_rows, columns, db_time_ms)) => {
+                let total_rows = all_rows.len();
+
+                // Send started
+                let _ = channel.send(StreamMessage::Started {
+                    columns: columns.clone(),
+                    estimated_rows: Some(total_rows as i64),
+                });
+
+                // Send all rows in single batch
+                let _ = channel.send(StreamMessage::Batch {
+                    rows: all_rows,
+                    row_offset: 0,
+                });
+
+                tracing::info!(
+                    "stream_query FAST PATH complete: {} rows, {}ms DB time",
+                    total_rows,
+                    db_time_ms
+                );
+
+                // Send success
+                let _ = channel.send(StreamMessage::Success {
+                    total_rows,
+                    execution_time_ms: db_time_ms,
+                });
+
+                return Ok(());
+            }
+            Err(e) => {
+                let _ = channel.send(StreamMessage::Error {
+                    code: "QUERY_ERROR".to_string(),
+                    message: e.to_string(),
+                });
+                return Err(e.to_string());
+            }
+        }
+    }
+
+    // CURSOR PATH (for large queries or non-PostgreSQL)
+    tracing::info!("stream_query: using CURSOR PATH (streaming)");
 
     // Open query
     let handle = match conn.adapter.open_query(&sql).await {
@@ -592,18 +586,17 @@ pub async fn stream_query(
         estimated_rows: handle.estimated_rows,
     });
 
+    // Track total execution time from query start to completion
+    let query_start = std::time::Instant::now();
+
     // Stream batches
     let mut total_rows = 0;
-    let mut execution_time_ms = 0u64;
+    let mut fetch_count = 0;
     loop {
+        fetch_count += 1;
         match conn.adapter.fetch_page(&handle, batch_size).await {
             Ok(chunk) => {
                 let row_count = chunk.rows.len();
-
-                // Capture execution time from first chunk (before query state removal)
-                if total_rows == 0 {
-                    execution_time_ms = chunk.execution_time_ms.unwrap_or(0);
-                }
 
                 // Send batch
                 let _ = channel.send(StreamMessage::Batch {
@@ -632,7 +625,17 @@ pub async fn stream_query(
     // Close query
     let _ = conn.adapter.close_query(&handle).await;
 
-    // Send success message with real database execution time
+    // Calculate total execution time (includes all fetches)
+    let execution_time_ms = query_start.elapsed().as_millis() as u64;
+
+    tracing::info!(
+        "stream_query complete: {} rows in {} fetches, {}ms total",
+        total_rows,
+        fetch_count,
+        execution_time_ms
+    );
+
+    // Send success message with total execution time
     let _ = channel.send(StreamMessage::Success {
         total_rows,
         execution_time_ms,

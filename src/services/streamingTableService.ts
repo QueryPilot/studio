@@ -58,7 +58,7 @@ export class StreamingTableService {
       connectionId,
       schema,
       table,
-      pageSize = 1000,
+      pageSize = 2500, // Increased from 1000 for better performance
       onProgress,
       onError,
     } = options;
