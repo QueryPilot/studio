@@ -115,7 +115,7 @@ export const QueryPanel = memo(function QueryPanel({
 
       try {
         // Stream results directly; no wrapping/pagination or SQL rewriting
-        const pageSize = 1000;
+        const pageSize = 2500; // Increased from 1000 for better performance
         let started = false;
         let currentColumns: string[] = [];
         let rowCount = 0;

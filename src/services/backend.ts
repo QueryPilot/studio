@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { emit, listen } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 
 // Database Types
 export enum DbType {
@@ -296,27 +296,6 @@ export class BackendAPI {
 
   static async ping(connId: string): Promise<number> {
     return invoke("ping", { connId });
-  }
-
-  // Query execution
-  static async executeQuery(connId: string, sql: string): Promise<QueryHandle> {
-    return invoke("execute_query", { connId, sql });
-  }
-
-  static async fetchResults(
-    connId: string,
-    queryHandle: QueryHandle,
-    maxRows: number,
-  ): Promise<PageChunk> {
-    return invoke("fetch_results", { connId, queryHandle, maxRows });
-  }
-
-  static async executeQuerySimple(
-    connId: string,
-    sql: string,
-    maxRows?: number,
-  ): Promise<TableDataResult> {
-    return invoke("execute_query_simple", { connId, sql, maxRows });
   }
 
   // Streaming query

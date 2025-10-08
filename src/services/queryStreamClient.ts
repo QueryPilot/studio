@@ -27,20 +27,17 @@ export interface StreamResult {
  * QueryStreamClient - FAST PATH streaming client using Tauri IPC channels
  * Eliminates 300-350ms window.emit overhead by using direct channel communication
  */
-type ChannelLike<T> = {
+type ChannelLike = {
   [SERIALIZE_TO_IPC_FN]: () => string;
   toJSON: () => string;
 };
 
-function createIpcChannel<T>(handler: (message: T) => void): ChannelLike<T> {
+function createIpcChannel<T>(handler: (message: T) => void): ChannelLike {
   let nextMessageId = 0;
   const pending = new Map<number, T>();
   const callbackId = transformCallback(({ message, id }: { message: T; id?: number }) => {
+    // Suppress ID warnings - messages are delivered sequentially anyway
     if (typeof id !== "number") {
-      console.warn(
-        "[QueryStreamClient] Received channel message missing id; delivering immediately",
-        message,
-      );
       handler(message);
       return;
     }
@@ -197,6 +194,9 @@ export class QueryStreamClient {
       };
 
       const channel = createIpcChannel<StreamMessage>((message) => {
+        // Guard against undefined messages (channel close)
+        if (!message) return;
+
         switch (message.type) {
           case "started":
             this.columns = message.columns;
