@@ -33,6 +33,12 @@
 4. **Service Integration** - Updated streamingTableService and tableDataService
 5. **Legacy Code Removal** - Removed display_value helpers and normalization
 
+### Phase 3: Execution Time Tracking ✅
+1. **PageChunk Enhancement** - Added execution_time_ms field to capture timing before cleanup
+2. **Table Data Timing** - Track query execution time for table data operations
+3. **Query Execution Timing** - Track execution time for user queries
+4. **UI Display** - Show accurate timing in status bar (e.g., "12,887 rows • 45ms")
+
 ## 📁 Files Changed
 
 **Backend**: 8 files (types.rs, fast_converter.rs, query_fast.rs, adapter.rs, commands.rs, etc.)
@@ -74,6 +80,7 @@ Ready for end-to-end testing with live database.
 
 - `PERFORMANCE_RESULTS.md` - Detailed metrics
 - `data-query.spec.md` - Implementation spec
+- `EXECUTION_TIME_TRACKING.md` - Execution time tracking implementation
 - `src-tauri/tests/query_performance.rs` - Runnable benchmarks
 
 🎉 **Primary goal achieved: 92.77ms < 100ms target (13x faster)**

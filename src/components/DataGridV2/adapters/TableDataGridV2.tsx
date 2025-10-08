@@ -49,6 +49,7 @@ import {
 } from "./columnUtils";
 import { useToast } from "@/hooks/use-toast";
 import type { CellValue } from "@/types/cellValue";
+import type { ColumnMeta } from "@/types/database";
 import type { Theme } from "@glideapps/glide-data-grid";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { Button } from "@/components/ui/button";
@@ -313,15 +314,37 @@ const markRowDeletedState = (
   return { state: nextState, changed: true };
 };
 
-export interface TableDataGridV2Props {
+// Base props shared by both modes
+interface BaseTableDataGridV2Props {
+  gridId: string;
+  className?: string;
+}
+
+// Table mode - live database connection with editing capabilities
+interface TableModeProps extends BaseTableDataGridV2Props {
+  mode: 'table';
   connectionId: string;
   database: string;
   table: string;
   schema?: string;
-  gridId: string;
-  className?: string;
   onActionsChange?: (actions: React.ReactNode) => void;
 }
+
+// Query mode - static query results, read-only
+interface QueryModeProps extends BaseTableDataGridV2Props {
+  mode: 'query';
+  data?: {
+    columns: string[];
+    columnMeta?: ColumnMeta[];
+    rows: unknown[][];
+  };
+  isLoading?: boolean;
+  error?: string | null;
+  executionTime?: number;
+}
+
+// Unified props - discriminated union
+export type TableDataGridV2Props = TableModeProps | QueryModeProps;
 
 const DEFAULT_COLUMN_STATE = {
   order: [] as string[],
@@ -333,17 +356,34 @@ const DEFAULT_COLUMN_STATE = {
 export const TableDataGridV2 = memo(function TableDataGridV2(
   props: TableDataGridV2Props,
 ) {
-  const {
-    gridId,
-    connectionId,
-    database,
-    table,
-    schema,
-    className,
-    onActionsChange,
-  } = props;
+  const { gridId, className } = props;
   const { toast } = useToast();
 
+  // Determine mode and extract mode-specific props
+  const isTableMode = props.mode === 'table';
+  const isQueryMode = props.mode === 'query';
+
+  // Extract table mode props for use throughout component
+  const connectionId = isTableMode ? props.connectionId : '';
+  const database = isTableMode ? props.database : '';
+  const table = isTableMode ? props.table : '';
+  const schema = isTableMode ? props.schema : undefined;
+  const onActionsChange = isTableMode ? props.onActionsChange : undefined;
+
+  // Table mode: use infinite table data hook
+  const tableData = isTableMode
+    ? useInfiniteTableData({
+        connectionId: props.connectionId,
+        database: props.database,
+        table: props.table,
+        schema: props.schema,
+      })
+    : null;
+
+  // Query mode: use static data from props
+  const queryData = isQueryMode ? props.data : null;
+
+  // Unified data interface
   const {
     isLoading,
     isLoadingMore,
@@ -354,19 +394,42 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     executionTime,
     loadMore,
     hasNextPage,
-  } = useInfiniteTableData({
-    connectionId,
-    database,
-    table,
-    schema,
-  });
+  } = isTableMode && tableData
+    ? tableData
+    : {
+        isLoading: isQueryMode ? (props.isLoading ?? false) : false,
+        isLoadingMore: false,
+        error: isQueryMode ? (props.error ?? null) : null,
+        columns: queryData?.columnMeta ?? [],
+        rows: (queryData?.rows ?? []).map((row) => {
+          const rowObj: GridRowModel = {};
+          (queryData?.columns ?? []).forEach((colName, colIndex) => {
+            const rawValue = row[colIndex];
+            const colMeta = queryData?.columnMeta?.[colIndex];
+            rowObj[colName] = {
+              value: rawValue,
+              db_type: colMeta?.db_type ?? 'text',
+              value_type: 'Text',
+              is_truncated: false,
+            } as CellValue;
+          });
+          return rowObj;
+        }),
+        estimatedTotal: isQueryMode ? queryData?.rows?.length : undefined,
+        executionTime: isQueryMode ? props.executionTime : undefined,
+        loadMore: undefined,
+        hasNextPage: false,
+      };
 
-  // Load full structure (columns only) to enrich metadata such as enum values
+  // Editing is only enabled in table mode
+  const isEditable = isTableMode;
+
+  // Load full structure (columns only) for table mode to enrich metadata such as enum values
   const { structure: tableStructure } = useTableFullStructure({
-    connectionId,
-    database,
-    table,
-    schema,
+    connectionId: isTableMode ? props.connectionId : '',
+    database: isTableMode ? props.database : '',
+    table: isTableMode ? props.table : '',
+    schema: isTableMode ? props.schema : undefined,
     options: {
       includeIndexes: false,
       includeConstraints: false,
@@ -374,7 +437,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       includeStatistics: false,
       includeForeignKeys: false,
     },
-    enabled: Boolean(connectionId && database && table),
+    enabled: isTableMode,
   });
 
   const structureMetaByName = useMemo(() => {
@@ -1370,7 +1433,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       // Check for infinite scroll trigger
       const threshold = rows.length - 500;
       const nearEnd = region.y + region.height > threshold;
-      if (nearEnd && hasNextPage && !isLoadingMore) {
+      if (nearEnd && hasNextPage && !isLoadingMore && loadMore) {
         void loadMore();
       }
     },
@@ -1421,13 +1484,13 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           await copySelection(gridSelection, "text");
         }
       }
-      // Cmd/Ctrl + Z for undo
-      else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === "z") {
+      // Cmd/Ctrl + Z for undo (table mode only)
+      else if (isEditable && (e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === "z") {
         e.preventDefault();
         history.undo();
       }
-      // Cmd/Ctrl + Shift + Z for redo
-      else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "z") {
+      // Cmd/Ctrl + Shift + Z for redo (table mode only)
+      else if (isEditable && (e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "z") {
         e.preventDefault();
         history.redo();
       }
@@ -1437,7 +1500,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [copySelection, gridSelection, history]); // Remove rows and finalColumns
+  }, [copySelection, gridSelection, history, isEditable]);
 
   const errorMessage = typeof error === "string" ? error : null;
 
@@ -1541,9 +1604,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     [pendingChangedRowIndexes, pendingDeletedRowIndexes, selectedRowsSet],
   );
 
-  // Surface Save/Discard actions in the panel toolbar like other tabs
+  // Surface Save/Discard actions in the panel toolbar like other tabs (only in table mode)
   useEffect(() => {
-    if (!onActionsChange) return;
+    if (!isTableMode || !isEditable || !onActionsChange) return;
     const hasChanges = editingRows.size > 0;
     const actions = hasChanges ? (
       <>
@@ -1577,9 +1640,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       onActionsChange(null);
     };
   }, [
+    isTableMode,
+    isEditable,
+    onActionsChange,
     editingRows.size,
     isSaving,
-    onActionsChange,
     discardAllChanges,
     handleSaveAllChanges,
   ]);
@@ -1636,13 +1701,13 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
               columnIndex: coords.columnIndex,
             });
           }}
-          onCellEditCommit={handleEditCommit}
-          onCellEditCancel={() => {
+          onCellEditCommit={isEditable ? handleEditCommit : undefined}
+          onCellEditCancel={isEditable ? () => {
             setEditingCell(null);
-          }}
-          onRowAppend={handleRowAppend}
-          onRowDelete={handleRowDelete}
-          onPaste={handlePaste}
+          } : undefined}
+          onRowAppend={isEditable ? handleRowAppend : undefined}
+          onRowDelete={isEditable ? handleRowDelete : undefined}
+          onPaste={isEditable ? handlePaste : undefined}
           // Avoid work during drag by not updating overlays when resizing
           onColumnResize={(col, size) => {
             handleColumnResize(col, size);
