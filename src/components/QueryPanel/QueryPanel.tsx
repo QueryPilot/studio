@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/resizable";
 import { Play, StopCircle, History, Star } from "lucide-react";
 import { toast } from "sonner";
-import { tableDataService } from "@/services/tableDataService";
+
 import { streamingTableService } from "@/services/streamingTableService";
 import { queryHistoryService } from "@/services/queryHistoryService";
 import { cn } from "@/lib/utils";
@@ -26,7 +26,7 @@ import {
   useSyncEditorState,
 } from "@/services/keyboard/integration/storeIntegration";
 import useWorkbenchStore from "@/stores/workbenchStore";
-import { safeListen } from "@/utils/tauri";
+import type { ColumnMeta } from "@/types/database";
 
 interface QueryPanelProps {
   panelId: string;
@@ -41,6 +41,7 @@ interface QueryPanelProps {
 
 interface QueryResult {
   columns: string[];
+  columnMeta?: ColumnMeta[];
   rows: unknown[][];
   rowCount: number;
   executionTime?: number;
@@ -85,27 +86,6 @@ export const QueryPanel = memo(function QueryPanel({
     [panelId, tabId, updateTabMetadata],
   );
 
-  const applyInsertByLines = useCallback(
-    function applyInsertByLines(
-      original: string,
-      startLine: number,
-      endLine: number,
-      content: string,
-    ): string {
-      if (!Number.isFinite(startLine) || !Number.isFinite(endLine))
-        return original;
-      const lines = original.split("\n");
-      const s = Math.max(0, Math.min(lines.length, (startLine || 1) - 1));
-      const e = Math.max(s, Math.min(lines.length, endLine || startLine || 1));
-      const insert = content.split("\n");
-      const next = [...lines.slice(0, s), ...insert, ...lines.slice(e)];
-      const joined = next.join("\n");
-      persistSql(joined);
-      return joined;
-    },
-    [persistSql],
-  );
-
   // Sync state with keyboard context
   useSyncQueryState(isExecuting, !!result);
   useSyncEditorState(hasSelection, query !== "", false);
@@ -129,7 +109,6 @@ export const QueryPanel = memo(function QueryPanel({
       const controller = new AbortController();
       setAbortController(controller);
 
-      const startTime = Date.now();
       let executionTime = 0;
       let queryResult: QueryResult | null = null;
       let errorMessage: string | undefined;
@@ -149,19 +128,24 @@ export const QueryPanel = memo(function QueryPanel({
             if (progress.started && progress.columns && !started) {
               started = true;
               currentColumns = progress.columns.map((c) => c.name);
-              setResult({ columns: currentColumns, rows: [], rowCount: 0 });
+              setResult({
+                columns: currentColumns,
+                columnMeta: progress.columns as unknown as ColumnMeta[],
+                rows: [],
+                rowCount: 0,
+              });
             }
             if (progress.newRows && progress.newRows.length > 0) {
-              // Append display strings immediately
-              const appended = progress.newRows.map((row) =>
-                row.map((cell) => (cell ? cell.display_value : null)),
-              );
+              // Append raw cell values (no .display_value - that doesn't exist in new fast path)
+              const appended = progress.newRows;
               setResult((prev) => {
                 const prevRows = prev?.rows ?? [];
                 const nextRows = [...prevRows, ...appended];
                 rowCount = nextRows.length;
                 return {
+                  ...prev,
                   columns: prev?.columns ?? currentColumns,
+                  columnMeta: prev?.columnMeta,
                   rows: nextRows,
                   rowCount,
                 };
@@ -174,26 +158,35 @@ export const QueryPanel = memo(function QueryPanel({
         );
 
         const final = await streamPromise;
-        executionTime = Date.now() - startTime;
+        // Use backend's actual database execution time, not frontend timer
+        executionTime = final.executionTimeMs ?? 0;
+
+        queryResult = {
+          columns: final.columns.map((c) => c.name),
+          columnMeta: final.columns as unknown as ColumnMeta[],
+          rows: final.rows,
+          rowCount: final.totalRows ?? final.rows.length,
+          executionTime,
+        };
+
         setResult((prev) => ({
           columns: prev?.columns ?? final.columns.map((c) => c.name),
-          rows:
-            (prev?.rows ?? []).length > 0
-              ? prev!.rows
-              : final.rows.map((r) => r.map((c) => c.display_value)),
+          columnMeta:
+            prev?.columnMeta ?? (final.columns as unknown as ColumnMeta[]),
+          rows: (prev?.rows ?? []).length > 0 ? prev?.rows ?? [] : final.rows,
           rowCount: (prev?.rows ?? final.rows).length,
           executionTime,
         }));
         toast.success(
-          `Query executed successfully (${rowCount || final.rows.length} rows)`,
+          `Query executed successfully (${
+            final.totalRows ?? final.rows.length
+          } rows)`,
         );
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
           toast.info("Query execution cancelled");
           return;
         } else {
-          executionTime = Date.now() - startTime;
-
           // Extract detailed error message
           if (error instanceof Error) {
             errorMessage = error.message;
@@ -419,6 +412,7 @@ export const QueryPanel = memo(function QueryPanel({
                     result={result}
                     isLoading={isExecuting}
                     connectionId={connectionId}
+                    database={database}
                     height="100%"
                     gridId={queryGridId}
                   />

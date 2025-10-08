@@ -26,6 +26,7 @@ interface TableDataState {
   pageSize: number;
   totalLoadedRows: number;
   estimatedTotal: number | null;
+  executionTime?: number;
 }
 
 // Initial state interface for the hook
@@ -108,6 +109,7 @@ export function useTableData(
       ...prev,
       columns: meta.columns,
       pageSize: meta.page_size,
+      executionTime: meta.execution_time,
       isLoading: false,
       isLoadingMore: false,
       isStreaming: true,

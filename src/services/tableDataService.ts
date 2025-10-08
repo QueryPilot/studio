@@ -12,6 +12,7 @@ import { BackendAPI } from "./backend";
 import type {
   ColumnMeta as BackendColumnMeta,
   CellValue as BackendCellValue,
+  LegacyCellValue,
   QueryHandle,
 } from "./backend";
 import type { ColumnMeta } from "@/types/database";
@@ -141,57 +142,42 @@ export class TableDataService {
         selected: result.columns.map((col) => col.name),
         page_size: params.limit || 1000,
         cursor_key_columns: [],
+        execution_time: result.execution_time_ms,
       });
 
-      // Transform data to expected format
+      // NEW FAST PATH: No normalization - pass through raw CellValue primitives
+      // Formatting is done lazily in the UI using formatters.ts
       const transformedRows: TableDataRow[] = result.rows.map((row) => {
         const rowObj: TableDataRow = {};
         result.columns.forEach((col, index) => {
-          const cell = row[index] as BackendCellValue | undefined;
+          const rawValue = row[index]; // Already a primitive (null | bool | number | string | array | object)
           const dbType = col.db_type || "text";
 
-          // Default: treat only explicit Null as null
-          const vt =
-            typeof cell?.value_type === "string" ? cell.value_type : "Text";
-          const isNull = cell == null || vt === "Null";
-
-          let value: unknown = null;
+          // Infer value_type from the primitive type
           let valueType: FrontCellValue["value_type"] = "Text";
-          if (vt === "Json") valueType = "Json";
-          else if (vt === "Integer") valueType = "Integer";
-          else if (vt === "Decimal") valueType = "Decimal";
-          else if (vt === "Boolean") valueType = "Boolean";
-          else if (vt === "Text") valueType = "Text";
-
-          if (!isNull) {
-            const display = cell.display_value;
-            if (vt === "Json") {
-              try {
-                value = JSON.parse(display);
-              } catch {
-                value = display; // fallback to raw string
-              }
-            } else if (vt === "Integer" || vt === "Decimal") {
-              const n = Number(display);
-              value = Number.isFinite(n) ? n : display;
-              if (!Number.isFinite(n)) valueType = "Text";
-            } else if (vt === "Boolean") {
-              const s = display.toLowerCase();
-              if (["true", "t", "1", "yes"].includes(s)) value = true;
-              else if (["false", "f", "0", "no"].includes(s)) value = false;
-              else {
-                value = display;
-                valueType = "Text";
-              }
+          if (rawValue === null) {
+            valueType = "Text"; // Null is handled as empty text
+          } else if (typeof rawValue === "boolean") {
+            valueType = "Boolean";
+          } else if (typeof rawValue === "number") {
+            // Could be Integer, Decimal, Timestamp, or Date - infer from db_type
+            if (dbType.includes("int") || dbType.includes("serial")) {
+              valueType = "Integer";
+            } else if (dbType.includes("timestamp") || dbType.includes("time")) {
+              valueType = "DateTime";
+            } else if (dbType.includes("date")) {
+              valueType = "Date";
             } else {
-              value = display;
+              valueType = "Decimal";
             }
+          } else if (typeof rawValue === "object" && !Array.isArray(rawValue)) {
+            valueType = "Json";
           }
 
           const cellValue: FrontCellValue = {
-            value,
+            value: rawValue,
             db_type: dbType,
-            value_type: valueType as FrontCellValue["value_type"],
+            value_type: valueType,
             is_truncated: false,
           };
           rowObj[col.name] = cellValue;
@@ -277,15 +263,9 @@ export class TableDataService {
 
       const columns = result.columns.map((col: BackendColumnMeta) => col.name);
 
-      // Light-touch transform: prefer display_value directly; only parse JSON if obviously JSON
-      const transformedRows = result.rows.map((row) =>
-        row.map((cell, columnIndex) =>
-          this.normalizeQueryCellValue(
-            cell,
-            result.columns[columnIndex] as BackendColumnMeta | undefined,
-          ),
-        ),
-      );
+      // NEW FAST PATH: Pass through raw primitives directly (no normalization)
+      // The new CellValue is already a primitive: null | boolean | number | string | array | object
+      const transformedRows = result.rows; // Direct pass-through
 
       return {
         columns,
@@ -297,43 +277,6 @@ export class TableDataService {
 
       throw new Error(errMsg || "Failed to execute query");
     }
-  }
-
-  /**
-   * Normalize backend CellValue objects into primitive values suitable for display/export
-   */
-  private normalizeQueryCellValue(
-    cell: BackendCellValue | null | undefined,
-    _column?: BackendColumnMeta,
-  ): unknown {
-    if (!cell) {
-      return null;
-    }
-
-    const valueType =
-      typeof cell.value_type === "string" ? cell.value_type : undefined;
-
-    if (valueType === "Null") {
-      return null;
-    }
-
-    if (valueType === "Boolean") {
-      const normalized = cell.display_value.toLowerCase();
-      if (["true", "t", "1", "yes"].includes(normalized)) return true;
-      if (["false", "f", "0", "no"].includes(normalized)) return false;
-    }
-
-    if (valueType === "Json") {
-      return cell.display_value;
-    }
-
-    // For array/multi-valued types, fallback to display string
-    if (typeof cell.value_type === "object") {
-      return cell.display_value;
-    }
-
-    // Default to the backend-provided display string
-    return cell.display_value;
   }
 
   /**

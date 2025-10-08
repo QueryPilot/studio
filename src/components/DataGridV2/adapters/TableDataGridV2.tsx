@@ -54,6 +54,7 @@ import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { Button } from "@/components/ui/button";
 import { Loader2, Save, X } from "lucide-react";
 import { CellEditService } from "@/services/cellEditService";
+import { cn } from "@/lib/utils";
 
 interface BooleanCellPayload {
   kind: "boolean-cell";
@@ -350,6 +351,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     columns: columnMeta,
     rows: dataRows,
     estimatedTotal,
+    executionTime,
     loadMore,
     hasNextPage,
   } = useInfiniteTableData({
@@ -1623,7 +1625,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     <div className="flex h-full flex-col">
       <div className="relative flex-1">
         <EditableDataGrid
-          className={className}
+          containerClassName={cn("h-full", className)}
           rows={rows}
           columns={finalColumns}
           getCellContent={handleGetCellContent}
@@ -1667,6 +1669,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         hasMore={hasNextPage}
         selectedRows={selectedRowCount}
         pendingEdits={editingRows.size}
+        executionTime={executionTime}
       />
     </div>
   );

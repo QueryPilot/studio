@@ -1,11 +1,11 @@
 import { type UnlistenFn } from "@tauri-apps/api/event";
 import {
   BackendAPI,
-  type StreamEvent,
   type CellValue,
   type ColumnMeta,
   type TableDataResult,
 } from "./backend";
+import { queryStreamClient } from "./queryStreamClient";
 
 export interface StreamingTableOptions {
   connectionId: string;
@@ -43,21 +43,17 @@ export interface StreamingTableResult {
 }
 
 export class StreamingTableService {
-  private currentStreamId?: string;
   private unlistener?: UnlistenFn;
   private accumulatedRows: CellValue[][] = [];
   private columns?: ColumnMeta[];
   private isStreaming = false;
 
   /**
-   * Stream table data with progress updates
+   * Stream table data with progress updates (NEW FAST PATH using channels)
    */
   async streamTable(
     options: StreamingTableOptions,
   ): Promise<StreamingTableResult> {
-    // Cancel any existing stream
-    this.cancel();
-
     const {
       connectionId,
       schema,
@@ -70,98 +66,8 @@ export class StreamingTableService {
     // Build SQL query
     const sql = `SELECT * FROM ${schema}.${table}`;
 
-    return new Promise(async (resolve, reject) => {
-      // Set a timeout to prevent hanging
-      const timeoutId = setTimeout(() => {
-        this.isStreaming = false;
-        const error: StreamingError = {
-          message: `Stream timeout: No response from backend after 30 seconds`,
-          code: "STREAM_TIMEOUT",
-        };
-        if (onError) {
-          onError(error);
-        }
-        reject(new Error(error.message));
-      }, 30000);
-
-      try {
-        this.isStreaming = true;
-        this.accumulatedRows = [];
-        this.columns = undefined;
-
-        // Start streaming
-        this.currentStreamId = await BackendAPI.streamQuery(
-          connectionId,
-          sql,
-          pageSize,
-          (event: StreamEvent) => {
-            // Clear timeout on first event
-            clearTimeout(timeoutId);
-
-            switch (event.type) {
-              case "Started":
-                this.columns = event.columns;
-                if (onProgress) {
-                  onProgress({
-                    rowsFetched: 0,
-                    totalRows: event.estimated_rows,
-                    percentage: 0,
-                  });
-                }
-                break;
-
-              case "Data":
-                this.accumulatedRows.push(...event.rows);
-                if (onProgress) {
-                  onProgress({
-                    rowsFetched: this.accumulatedRows.length,
-                    percentage: undefined, // Will be updated by Progress event
-                  });
-                }
-                break;
-
-              case "Progress":
-                if (onProgress) {
-                  onProgress({
-                    rowsFetched: event.rows_fetched,
-                    percentage: event.percentage,
-                  });
-                }
-                break;
-
-              case "Completed":
-                clearTimeout(timeoutId);
-                this.isStreaming = false;
-                resolve({
-                  columns: this.columns || [],
-                  rows: this.accumulatedRows,
-                  isComplete: true,
-                  totalRows: event.total_rows,
-                  executionTimeMs: event.execution_time_ms,
-                });
-                break;
-
-              case "Error":
-                clearTimeout(timeoutId);
-                this.isStreaming = false;
-                const error: StreamingError = {
-                  message: event.message,
-                  code: event.code,
-                };
-                if (onError) {
-                  onError(error);
-                }
-                reject(new Error(error.message));
-                break;
-            }
-          },
-        );
-      } catch (error) {
-        clearTimeout(timeoutId);
-        this.isStreaming = false;
-        reject(error);
-      }
-    });
+    // Use the new fast streamQuery method
+    return this.streamQuery(connectionId, sql, pageSize, onProgress, onError);
   }
 
   /**
@@ -189,7 +95,7 @@ export class StreamingTableService {
   }
 
   /**
-   * Stream query results with progress updates
+   * Stream query results with progress updates (NEW FAST PATH using channels)
    */
   async streamQuery(
     connectionId: string,
@@ -201,7 +107,7 @@ export class StreamingTableService {
     // Cancel any existing stream
     this.cancel();
 
-    return new Promise(async (resolve, reject) => {
+    return new Promise((resolve, reject) => {
       // Set a timeout to prevent hanging
       const timeoutId = setTimeout(() => {
         this.isStreaming = false;
@@ -220,89 +126,71 @@ export class StreamingTableService {
         this.accumulatedRows = [];
         this.columns = undefined;
 
-        // Start streaming
-        this.currentStreamId = await BackendAPI.streamQuery(
-          connectionId,
-          sql,
-          pageSize,
-          (event: StreamEvent) => {
-            // Clear timeout on first event
-            clearTimeout(timeoutId);
-
-            switch (event.type) {
-              case "Started":
-                this.columns = event.columns;
-                if (onProgress) {
-                  onProgress({
-                    rowsFetched: 0,
-                    totalRows: event.estimated_rows,
-                    percentage: 0,
-                    columns: event.columns,
-                    started: true,
-                  });
-                }
-                break;
-
-              case "Data":
-                this.accumulatedRows.push(...event.rows);
-                if (onProgress) {
-                  onProgress({
-                    rowsFetched: this.accumulatedRows.length,
-                    newRows: event.rows,
-                    rowOffset: event.row_offset,
-                  });
-                }
-                break;
-
-              case "Progress":
-                if (onProgress) {
-                  onProgress({
-                    rowsFetched: event.rows_fetched,
-                    percentage: event.percentage,
-                  });
-                }
-                break;
-
-              case "Completed":
-                clearTimeout(timeoutId);
-                this.isStreaming = false;
-                const result = {
-                  columns: this.columns || [],
-                  rows: this.accumulatedRows,
-                  isComplete: true,
-                  totalRows: event.total_rows,
-                  executionTimeMs: event.execution_time_ms,
-                } as StreamingTableResult;
-                if (onProgress) {
-                  onProgress({
-                    rowsFetched: this.accumulatedRows.length,
-                    totalRows: event.total_rows,
-                    executionTimeMs: event.execution_time_ms,
-                    completed: true,
-                  });
-                }
-                resolve(result);
-                break;
-
-              case "Error":
-                clearTimeout(timeoutId);
-                this.isStreaming = false;
-                const error: StreamingError = {
-                  message: event.message,
-                  code: event.code,
-                };
-                if (onError) {
-                  onError(error);
-                }
-                reject(new Error(error.message));
-                break;
-            }
+        // NEW: Use fast channel-based streaming client
+        queryStreamClient.streamWithCallbacks(
+          {
+            connId: connectionId,
+            sql,
+            batchSize: pageSize,
+          },
+          {
+            onStarted: (columns, estimatedRows) => {
+              clearTimeout(timeoutId);
+              this.columns = columns;
+              if (onProgress) {
+                onProgress({
+                  rowsFetched: 0,
+                  totalRows: estimatedRows,
+                  percentage: 0,
+                  columns,
+                  started: true,
+                });
+              }
+            },
+            onBatch: (batch, totalSoFar) => {
+              clearTimeout(timeoutId);
+              this.accumulatedRows.push(...batch.rows);
+              if (onProgress) {
+                onProgress({
+                  rowsFetched: totalSoFar,
+                  newRows: batch.rows,
+                  rowOffset: batch.rowOffset,
+                });
+              }
+            },
+            onSuccess: (streamResult) => {
+              clearTimeout(timeoutId);
+              this.isStreaming = false;
+              const finalResult: StreamingTableResult = {
+                columns: streamResult.columns,
+                rows: this.accumulatedRows,
+                isComplete: true,
+                totalRows: streamResult.totalRows,
+                executionTimeMs: streamResult.executionTimeMs,
+              };
+              if (onProgress) {
+                onProgress({
+                  rowsFetched: streamResult.totalRows,
+                  totalRows: streamResult.totalRows,
+                  executionTimeMs: streamResult.executionTimeMs,
+                  completed: true,
+                });
+              }
+              resolve(finalResult);
+            },
+            onError: (err) => {
+              clearTimeout(timeoutId);
+              this.isStreaming = false;
+              // Don't call onError callback - let the component handle via catch
+              // This prevents double error display (toast + banner)
+              reject(err);
+            },
           },
         );
       } catch (error) {
         clearTimeout(timeoutId);
         this.isStreaming = false;
-        reject(error);
+        reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
   }
@@ -315,7 +203,6 @@ export class StreamingTableService {
       this.unlistener();
       this.unlistener = undefined;
     }
-    this.currentStreamId = undefined;
     this.isStreaming = false;
     this.accumulatedRows = [];
     this.columns = undefined;

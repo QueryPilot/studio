@@ -170,6 +170,7 @@ impl PostgresQueryExecutor {
                         fetch_ms: fetch_start.elapsed().as_millis() as u32,
                         decode_ms: 0,
                     }),
+                    execution_time_ms: None,
                 });
             }
         }
@@ -331,6 +332,7 @@ impl PostgresQueryExecutor {
                 fetch_ms: (decode_start.duration_since(fetch_start).as_millis() as u32),
                 decode_ms: decode_start.elapsed().as_millis() as u32,
             }),
+            execution_time_ms: None,
         })
     }
 

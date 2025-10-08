@@ -149,6 +149,8 @@ export const EditableDataGrid = forwardRef<
     onGridSelectionChange,
     gridSelection,
     getRowThemeOverride,
+    containerClassName,
+    className,
     ...rest
   } = props;
 
@@ -355,6 +357,8 @@ export const EditableDataGrid = forwardRef<
   return (
     <DataGridBase
       {...rest}
+      containerClassName={containerClassName}
+      className={className}
       ref={gridRef}
       columns={columns}
       rowCount={rows.length}

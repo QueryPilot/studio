@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tauri::{async_runtime, Emitter, Manager, State, Window};
+use tauri::{async_runtime, Emitter, State, Window};
 
 use crate::ai::manager::AIManager;
 use crate::ai::provider::ProviderEvent;

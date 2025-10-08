@@ -27,11 +27,21 @@ export const DataGridBase = forwardRef(function DataGridBase(
   props: DataGridBaseProps,
   ref: Ref<DataEditorRef>,
 ) {
-  const { columns, rowCount, getCellContent, containerClassName, ...rest } =
-    props;
+  const {
+    columns,
+    rowCount,
+    getCellContent,
+    containerClassName,
+    ...rest
+  } = props;
   const { resolvedTheme } = useTheme();
 
-  const { width = "100%", height = "100%", ...editorProps } = rest;
+  const {
+    width = "100%",
+    height = "100%",
+    className,
+    ...editorProps
+  } = rest;
 
   // Create theme based on app theme (use resolvedTheme to get actual "dark" or "light" even when "system" is selected)
   const theme = useMemo(
@@ -39,8 +49,15 @@ export const DataGridBase = forwardRef(function DataGridBase(
     [resolvedTheme],
   );
 
+  const containerClasses = cn(
+    "relative h-full w-full overflow-hidden rounded-md border border-border bg-background",
+    containerClassName,
+  );
+
+  const editorClasses = cn("gdg-style", className);
+
   return (
-    <div className={cn("relative h-full w-full", containerClassName)}>
+    <div className={containerClasses}>
       <DataEditor
         ref={ref}
         columns={columns}
@@ -49,6 +66,7 @@ export const DataGridBase = forwardRef(function DataGridBase(
         width={width}
         height={height}
         theme={theme}
+        className={editorClasses}
         smoothScrollX={true}
         smoothScrollY={true}
         rowHeight={28}
