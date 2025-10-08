@@ -19,7 +19,8 @@ import { AIAssistantSidebar } from "@/components/AIAssistant/AIAssistantSidebar"
 
 export function WorkspaceScreen() {
   const { connectionId } = useParams<{ connectionId: string }>();
-  const { sidebars, toggleSidebar, initWorkspace } = useWorkspaceScreenStore();
+  const { toggleSidebar, initWorkspace, getSidebars } = useWorkspaceScreenStore();
+  const sidebars = getSidebars();
   const { loadSchemas } = useSchemaStore();
   const { initialize: initializePanels } = usePanelStore();
   const commandPalette = useCommandPalette();

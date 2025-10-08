@@ -31,6 +31,7 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
   const {
     layoutTree,
     focusedPanelId,
+    setConnectionId,
     initializeLayout,
     splitPanelAction,
     focusAdjacentPanel,
@@ -55,6 +56,13 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
       },
     }),
   );
+
+  // Set connection ID when component mounts or connection changes
+  useEffect(() => {
+    if (connectionId) {
+      setConnectionId(connectionId);
+    }
+  }, [connectionId, setConnectionId]);
 
   useEffect(() => {
     if (!layoutTree) {

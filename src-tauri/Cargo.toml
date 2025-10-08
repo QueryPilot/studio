@@ -53,6 +53,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 regex = "1.10"
 dirs = "5.0"
+rayon = "1.8"  # Parallel processing for row conversion
 
 # Security
 keyring = { version = "3.3", features = ["apple-native", "windows-native", "linux-native"] }

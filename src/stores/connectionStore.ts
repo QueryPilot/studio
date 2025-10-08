@@ -126,8 +126,32 @@ export const useConnectionStore = create<ConnectionStore>()((set, get) => ({
     }));
   },
 
-  setActiveConnection: (id) => {
+  setActiveConnection: async (id) => {
+    const oldId = get().activeConnectionId;
+
+    // Disconnect old connection if switching
+    if (oldId && oldId !== id) {
+      console.log(`[ConnectionStore] Switching from ${oldId} to ${id}`);
+      try {
+        // Import databaseService dynamically to avoid circular dependency
+        const { databaseService } = await import("@/services/databaseService");
+        if (databaseService.isConnectionActive(oldId)) {
+          console.log(`[ConnectionStore] Disconnecting old connection: ${oldId}`);
+          await databaseService.disconnect(oldId);
+        }
+      } catch (err) {
+        console.warn(`[ConnectionStore] Failed to disconnect old connection: ${err}`);
+      }
+    }
+
+    // Update active connection
     set({ activeConnectionId: id });
+
+    // Update workspace store
+    if (id) {
+      const { useWorkspaceScreenStore } = await import("@/stores/workspaceScreenStore");
+      useWorkspaceScreenStore.getState().setActiveConnection(id);
+    }
   },
 
   loadConnections: async () => {

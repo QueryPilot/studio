@@ -281,17 +281,10 @@ export function WorkspaceTitleBar({
     }
   };
 
-  const handleReload = async () => {
-    try {
-      // Best-effort: close connections in backend to avoid leaks before reloading UI
-      if (databaseService.isConnectionActive(connectionId)) {
-        await databaseService.disconnect(connectionId);
-      }
-    } catch (err) {
-      console.warn("Pre-reload disconnect failed", err);
-    } finally {
-      window.location.reload();
-    }
+  const handleReload = () => {
+    // Don't disconnect before reload - backend connections persist across frontend refreshes
+    // Disconnecting causes blank screen because connection is gone after reload
+    window.location.reload();
   };
 
   const handleSwitchConnection = async (targetConnectionId: string) => {
