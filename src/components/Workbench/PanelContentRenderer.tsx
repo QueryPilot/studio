@@ -267,6 +267,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                 }`}
               >
                 <TableDataGridV2
+                  mode="table"
                   gridId={tableGridId ?? `table:${tabId}`}
                   connectionId={
                     activeConnectionId || metadata.connectionId || ""

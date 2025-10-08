@@ -1,3 +1,30 @@
+/**
+ * @deprecated This component has been deprecated and will be removed in a future version.
+ * Use TableDataGridV2 with mode="query" instead:
+ *
+ * @example
+ * ```tsx
+ * // BEFORE (deprecated)
+ * <QueryDataGridV2
+ *   gridId="query-results"
+ *   data={queryResults}
+ *   isLoading={isLoading}
+ *   error={error}
+ *   executionTime={executionTime}
+ * />
+ *
+ * // AFTER (recommended)
+ * <TableDataGridV2
+ *   mode="query"
+ *   gridId="query-results"
+ *   data={queryResults}
+ *   isLoading={isLoading}
+ *   error={error}
+ *   executionTime={executionTime}
+ * />
+ * ```
+ */
+
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   GridSelection,
@@ -36,6 +63,9 @@ import { DataGridSkeleton } from "@/components/DataGridV2/components/DataGridSke
 import { DataGridStatusBar } from "@/components/DataGridV2/components/DataGridStatusBar";
 import { cn } from "@/lib/utils";
 
+/**
+ * @deprecated Use TableDataGridV2 with mode="query" instead
+ */
 export interface QueryDataGridV2Props extends GlideQueryDataGridProps {
   gridId: string;
   className?: string;
