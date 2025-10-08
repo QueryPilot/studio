@@ -1,5 +1,4 @@
-use serde::{Deserialize, Serialize};
-use std::fmt;
+use serde::Serialize;
 use thiserror::Error;
 
 #[derive(Debug, Error)]

@@ -38,6 +38,7 @@ export interface TableDataMetaEvent {
   selected: string[];
   page_size: number;
   cursor_key_columns: string[];
+  execution_time?: number;
 }
 
 export interface TableDataRowsEvent {

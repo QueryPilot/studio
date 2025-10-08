@@ -16,6 +16,7 @@ import { CodeEditor } from "@/components/CodeEditor";
 
 interface QueryResult {
   columns: string[];
+  columnMeta?: import("@/types/database").ColumnMeta[];
   rows: unknown[][];
   rowCount: number;
   executionTime?: number;
@@ -28,6 +29,7 @@ interface ResultViewerProps {
   className?: string;
   height?: string;
   connectionId?: string;
+  database?: string;
   gridId: string;
 }
 
@@ -36,6 +38,7 @@ export const ResultViewer = memo(function ResultViewer({
   isLoading = false,
   className,
   connectionId = "",
+  database = "",
   gridId,
 }: ResultViewerProps) {
   const [viewMode, setViewMode] = useState<"table" | "json">("table");
@@ -218,43 +221,6 @@ export const ResultViewer = memo(function ResultViewer({
 
   return (
     <div className={cn("overflow-hidden h-full flex flex-col", className)}>
-      {/* Header with status and actions */}
-      <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/20 flex-shrink-0">
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2">
-            <CheckCircle2 className="h-4 w-4 text-green-600" />
-            <span className="text-xs font-medium">{result.rowCount} rows</span>
-          </div>
-          {result.executionTime && (
-            <span className="text-xs text-muted-foreground">
-              {result.executionTime}ms
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-center space-x-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7"
-            onClick={handleCopyToClipboard}
-          >
-            <Copy className="h-3 w-3" />
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7"
-            onClick={() => {
-              handleExport(viewMode === "json" ? "json" : "csv");
-            }}
-          >
-            <Download className="h-3 w-3" />
-          </Button>
-        </div>
-      </div>
-
       {/* Results with tabs */}
       <div className="flex-1 min-h-0">
         <Tabs
@@ -274,18 +240,26 @@ export const ResultViewer = memo(function ResultViewer({
           </TabsList>
 
           <TabsContent value="table" className="flex-1 mt-2 mx-0">
-            <QueryDataGridV2
-              gridId={gridId}
-              connectionId={connectionId}
-              query=""
-              data={
-                result && !result.error
-                  ? { columns: result.columns, rows: result.rows }
-                  : undefined
-              }
-              className="h-full"
-              error={result?.error ?? null}
-            />
+            <div className="h-full px-3 pb-3">
+              <QueryDataGridV2
+                gridId={gridId}
+                connectionId={connectionId}
+                database={database}
+                query=""
+                data={
+                  result && !result.error
+                    ? {
+                        columns: result.columns,
+                        rows: result.rows,
+                        columnMeta: result.columnMeta,
+                      }
+                    : undefined
+                }
+                executionTime={result?.executionTime}
+                className="h-full"
+                error={result?.error ?? null}
+              />
+            </div>
           </TabsContent>
 
           <TabsContent value="json" className="flex-1 mt-2 mx-0 h-full">

@@ -101,7 +101,7 @@ src-tauri/           # Rust backend
 
 5. **Virtual Scrolling**: Large result sets use TanStack Virtual for performance
 
-6. **Component Structure**: 
+6. **Component Structure**:
    - UI components from shadcn/ui in `components/ui/`
    - Screen-specific components colocated with their screens
    - Shared business components in root `components/`

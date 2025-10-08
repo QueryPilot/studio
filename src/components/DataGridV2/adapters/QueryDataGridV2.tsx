@@ -13,6 +13,7 @@ import {
   useGridPreferences,
   useGridPreferencesHydrated,
   upsertGridColumnsState,
+  useGridPreferencesStore,
 } from "../stores";
 import {
   useColumnPinning,
@@ -33,12 +34,14 @@ import {
 } from "@/components/DataGridV2/components/DataGridStates";
 import { DataGridSkeleton } from "@/components/DataGridV2/components/DataGridSkeleton";
 import { DataGridStatusBar } from "@/components/DataGridV2/components/DataGridStatusBar";
+import { cn } from "@/lib/utils";
 
 export interface QueryDataGridV2Props extends GlideQueryDataGridProps {
   gridId: string;
   className?: string;
   isLoading?: boolean;
   error?: string | null;
+  executionTime?: number;
 }
 
 const DEFAULT_COLUMN_STATE = {
@@ -51,7 +54,7 @@ const DEFAULT_COLUMN_STATE = {
 export const QueryDataGridV2 = memo(function QueryDataGridV2(
   props: QueryDataGridV2Props,
 ) {
-  const { gridId, data, isLoading = false, error, className } = props;
+  const { gridId, data, isLoading = false, error, executionTime, className } = props;
 
   const preferences = useGridPreferences(gridId);
   const hydrated = useGridPreferencesHydrated();
@@ -185,14 +188,29 @@ export const QueryDataGridV2 = memo(function QueryDataGridV2(
     },
   });
 
+  const handlePinnedColumnsChange = useCallback(
+    (pinned: string[]) => {
+      setTimeout(() => {
+        const state = useGridPreferencesStore.getState();
+        const current = state.preferences[gridId]?.columns.pinned ?? [];
+        if (
+          current.length === pinned.length &&
+          current.every((id, index) => id === pinned[index])
+        ) {
+          return;
+        }
+        upsertGridColumnsState(gridId, (draft) => {
+          draft.pinned = pinned;
+        });
+      }, 0);
+    },
+    [gridId],
+  );
+
   const { pinnedColumns: _pinnedColumns } = useColumnPinning({
     columns: sizedColumns,
     initialPinned: columnState.pinned,
-    onChange: (pinned) => {
-      upsertGridColumnsState(gridId, (draft) => {
-        draft.pinned = pinned;
-      });
-    },
+    onChange: handlePinnedColumnsChange,
   });
 
   const { columns: finalColumns, freezeColumns } = useMemo(() => {
@@ -317,7 +335,7 @@ export const QueryDataGridV2 = memo(function QueryDataGridV2(
   return (
     <div className="flex h-full flex-col">
       <EditableDataGrid
-        className={className}
+        containerClassName={cn("h-full", className)}
         rows={rows}
         columns={finalColumns}
         getCellContent={handleGetCellContent}
@@ -344,6 +362,7 @@ export const QueryDataGridV2 = memo(function QueryDataGridV2(
       <DataGridStatusBar
         loadedRows={rows.length}
         selectedRows={selectedRowCount}
+        executionTime={executionTime}
       />
     </div>
   );

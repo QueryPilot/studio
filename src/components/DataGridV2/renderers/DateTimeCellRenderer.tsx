@@ -35,7 +35,7 @@ export interface DateTimeCustomCell extends CustomCell {
   readonly?: boolean;
 }
 
-const parseDate = (value: string | null | undefined) => {
+const parseDate = (value: string | number | null | undefined) => {
   if (!value) return null;
   // Try ISO first; fall back to Date parsing for YYYY-MM-DD
   const iso = new Date(value);
@@ -43,22 +43,26 @@ const parseDate = (value: string | null | undefined) => {
   return Number.isNaN(iso.getTime()) ? null : iso;
 };
 
-const formatForDisplay = (kind: DateTimeKind, value: string | null): string => {
+const formatForDisplay = (kind: DateTimeKind, value: string | number | null): string => {
   if (value == null) return "NULL";
+
+  // Convert to string if it's a number (raw CellValue from fast path)
+  const strValue = typeof value === 'number' ? String(value) : value;
+
   // Keep as-is for now; do not localize to avoid surprises
   if (kind === "date-cell") {
     // If a full ISO string is present, slice the date part
-    const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
-    return match?.[1] ?? value;
+    const match = strValue.match(/^(\d{4}-\d{2}-\d{2})/);
+    return match?.[1] ?? strValue;
   }
   if (kind === "time-cell") {
     // Extract time portion if included
-    const timeMatch = value.match(
+    const timeMatch = strValue.match(
       /(\d{2}:\d{2}(:\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/,
     );
-    return timeMatch?.[1] ?? value;
+    return timeMatch?.[1] ?? strValue;
   }
-  return value;
+  return strValue;
 };
 
 // Editor

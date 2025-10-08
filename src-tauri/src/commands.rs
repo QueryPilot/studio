@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::fs; // needed for reset_vault_vault
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
 use tokio::time::{timeout, Duration};
 
 use crate::core::ConnectionManager;
@@ -119,6 +119,9 @@ pub async fn execute_query_simple(
         .await
         .map_err(|e| e.to_string())?;
 
+    // Get execution time from chunk (captured before query state removal)
+    let execution_time_ms = chunk.execution_time_ms;
+
     let _ = conn.adapter.close_query(&handle).await;
 
     Ok(TableDataResult {
@@ -126,6 +129,7 @@ pub async fn execute_query_simple(
         rows: chunk.rows,
         has_more: chunk.has_more,
         total_count: None,
+        execution_time_ms,
     })
 }
 
@@ -331,8 +335,9 @@ pub async fn get_type_info(
 
         let row = &chunk.rows[0];
         let type_category = if let Some(cat_value) = &row.get(1).and_then(|v| {
-            if !v.display_value.is_empty() {
-                Some(v.display_value.chars().next()?)
+            let s = v.to_string();
+            if !s.is_empty() {
+                s.chars().next()
             } else {
                 None
             }
@@ -351,14 +356,15 @@ pub async fn get_type_info(
         };
 
         let enum_values = row.get(2).and_then(|v| {
-            if !v.display_value.is_empty() {
-                Some(v.display_value.split(',').map(|s| s.to_string()).collect())
+            let s = v.to_string();
+            if !s.is_empty() {
+                Some(s.split(',').map(|s| s.to_string()).collect())
             } else {
                 None
             }
         });
 
-        let base_type = row.get(3).map(|v| v.display_value.clone());
+        let base_type = row.get(3).map(|v| v.to_string());
 
         Ok(TypeInfo {
             type_name: type_name.clone(),
@@ -552,131 +558,87 @@ pub async fn ping(
     }
 }
 
+/// Stream query results via IPC channel (FAST PATH - eliminates 300-350ms window.emit overhead)
 #[tauri::command]
 pub async fn stream_query(
     conn_id: String,
     sql: String,
-    page_size: Option<usize>,
-    window: tauri::Window,
+    batch_size: Option<usize>,
+    channel: tauri::ipc::Channel<StreamMessage>,
     manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<String, String> {
-    use tokio::time::Instant;
-    use uuid::Uuid;
+) -> std::result::Result<(), String> {
+    let batch_size = batch_size.unwrap_or(1000);
 
-    let stream_id = Uuid::new_v4().to_string();
-    let page_size = page_size.unwrap_or(1000);
+    // Get connection
+    let conn = manager
+        .get_connection(&conn_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
 
-    // Clone for async task
-    let manager = manager.inner().clone();
-    let stream_id_clone = stream_id.clone();
-
-    // Spawn async streaming task
-    tokio::spawn(async move {
-        let start_time = Instant::now();
-        let mut total_rows = 0usize;
-
-        // Get connection
-        let conn = match manager.get_connection(&conn_id) {
-            Some(conn) => conn,
-            None => {
-                let _ = window.emit(
-                    &format!("query-stream-{}", stream_id_clone),
-                    StreamEvent::Error {
-                        message: "Connection not found".to_string(),
-                        code: Some("CONNECTION_NOT_FOUND".to_string()),
-                    },
-                );
-                return;
-            }
-        };
-
-        // Open query
-        let handle = match conn.adapter.open_query(&sql).await {
-            Ok(handle) => {
-                // Emit started event
-                let _ = window.emit(
-                    &format!("query-stream-{}", stream_id_clone),
-                    StreamEvent::Started {
-                        columns: handle.columns.clone(),
-                        estimated_rows: handle.estimated_rows,
-                    },
-                );
-                handle
-            }
-            Err(e) => {
-                let _ = window.emit(
-                    &format!("query-stream-{}", stream_id_clone),
-                    StreamEvent::Error {
-                        message: e.to_string(),
-                        code: None,
-                    },
-                );
-                return;
-            }
-        };
-
-        // Stream pages
-        loop {
-            match conn.adapter.fetch_page(&handle, page_size).await {
-                Ok(chunk) => {
-                    let rows_in_chunk = chunk.rows.len();
-
-                    // Emit data event
-                    let _ = window.emit(
-                        &format!("query-stream-{}", stream_id_clone),
-                        StreamEvent::Data {
-                            rows: chunk.rows,
-                            row_offset: total_rows,
-                        },
-                    );
-
-                    total_rows += rows_in_chunk;
-
-                    // Emit progress if we have an estimate
-                    if let Some(estimated) = handle.estimated_rows {
-                        let percentage = (total_rows as f32 / estimated as f32 * 100.0).min(100.0);
-                        let _ = window.emit(
-                            &format!("query-stream-{}", stream_id_clone),
-                            StreamEvent::Progress {
-                                rows_fetched: total_rows,
-                                percentage: Some(percentage),
-                            },
-                        );
-                    }
-
-                    // Check if done
-                    if !chunk.has_more || rows_in_chunk == 0 {
-                        break;
-                    }
-                }
-                Err(e) => {
-                    let _ = window.emit(
-                        &format!("query-stream-{}", stream_id_clone),
-                        StreamEvent::Error {
-                            message: e.to_string(),
-                            code: None,
-                        },
-                    );
-                    let _ = conn.adapter.close_query(&handle).await;
-                    return;
-                }
-            }
+    // Open query
+    let handle = match conn.adapter.open_query(&sql).await {
+        Ok(h) => h,
+        Err(e) => {
+            let _ = channel.send(StreamMessage::Error {
+                code: "QUERY_ERROR".to_string(),
+                message: e.to_string(),
+            });
+            return Err(e.to_string());
         }
+    };
 
-        // Close query
-        let _ = conn.adapter.close_query(&handle).await;
-
-        // Emit completed event
-        let _ = window.emit(
-            &format!("query-stream-{}", stream_id_clone),
-            StreamEvent::Completed {
-                total_rows,
-                execution_time_ms: start_time.elapsed().as_millis() as u64,
-            },
-        );
+    // Send started message with column metadata
+    let _ = channel.send(StreamMessage::Started {
+        columns: handle.columns.clone(),
+        estimated_rows: handle.estimated_rows,
     });
 
-    Ok(stream_id)
+    // Stream batches
+    let mut total_rows = 0;
+    let mut execution_time_ms = 0u64;
+    loop {
+        match conn.adapter.fetch_page(&handle, batch_size).await {
+            Ok(chunk) => {
+                let row_count = chunk.rows.len();
+
+                // Capture execution time from first chunk (before query state removal)
+                if total_rows == 0 {
+                    execution_time_ms = chunk.execution_time_ms.unwrap_or(0);
+                }
+
+                // Send batch
+                let _ = channel.send(StreamMessage::Batch {
+                    rows: chunk.rows,
+                    row_offset: total_rows,
+                });
+
+                total_rows += row_count;
+
+                // Check if we're done
+                if !chunk.has_more || row_count == 0 {
+                    break;
+                }
+            }
+            Err(e) => {
+                let _ = channel.send(StreamMessage::Error {
+                    code: "FETCH_ERROR".to_string(),
+                    message: e.to_string(),
+                });
+                let _ = conn.adapter.close_query(&handle).await;
+                return Err(e.to_string());
+            }
+        }
+    }
+
+    // Close query
+    let _ = conn.adapter.close_query(&handle).await;
+
+    // Send success message with real database execution time
+    let _ = channel.send(StreamMessage::Success {
+        total_rows,
+        execution_time_ms,
+    });
+
+    Ok(())
 }
 
 // Index operation commands

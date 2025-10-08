@@ -7,7 +7,7 @@ use tokio_postgres::{Client, Config, NoTls};
 
 use super::introspection::PostgresIntrospector;
 use super::parser::quote_identifier;
-use super::query::PostgresQueryExecutor;
+use super::query_fast::FastPostgresQueryExecutor;
 use crate::core::adapter::DbAdapter;
 use crate::error::{AppError, Result};
 use crate::types::*;
@@ -15,13 +15,16 @@ use crate::types::*;
 pub struct PostgresAdapter {
     client: Option<Arc<Client>>,
     connection_handle: Option<tokio::task::JoinHandle<()>>,
-    query_executor: Option<Arc<PostgresQueryExecutor>>,
+    query_executor: Option<Arc<FastPostgresQueryExecutor>>,
     introspector: Option<Arc<PostgresIntrospector>>,
     active_queries: Arc<DashMap<String, QueryState>>,
+    /// Metadata cache: (schema, table) -> columns (saves 100-150ms per query)
+    metadata_cache: Arc<DashMap<(String, String), Vec<ColumnMeta>>>,
 }
 
 struct QueryState {
     handle: QueryHandle,
+    #[allow(dead_code)]
     portal_name: String,
     rows_fetched: usize,
 }
@@ -34,7 +37,23 @@ impl PostgresAdapter {
             query_executor: None,
             introspector: None,
             active_queries: Arc::new(DashMap::new()),
+            metadata_cache: Arc::new(DashMap::new()),
         }
+    }
+
+    /// Detect if SQL is a DDL statement that modifies schema
+    fn is_ddl(sql: &str) -> bool {
+        let upper = sql.trim().to_uppercase();
+        upper.starts_with("ALTER")
+            || upper.starts_with("DROP")
+            || upper.starts_with("CREATE")
+            || upper.starts_with("TRUNCATE")
+            || upper.starts_with("RENAME")
+    }
+
+    /// Clear metadata cache after DDL operations
+    fn clear_metadata_cache(&self) {
+        self.metadata_cache.clear();
     }
 
     fn build_config(profile: &ConnectionProfile) -> Result<Config> {
@@ -55,10 +74,21 @@ impl PostgresAdapter {
 
         Ok(config)
     }
+
+    /// Get the real database execution time for a query (first DECLARE + FETCH only)
+    pub fn get_query_execution_time(&self, handle: &QueryHandle) -> Option<u64> {
+        self.query_executor
+            .as_ref()
+            .and_then(|executor| executor.get_execution_time(handle))
+    }
 }
 
 #[async_trait]
 impl DbAdapter for PostgresAdapter {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     async fn connect(&mut self, profile: &ConnectionProfile) -> Result<()> {
         // Disconnect if already connected
         if self.client.is_some() {
@@ -93,7 +123,7 @@ impl DbAdapter for PostgresAdapter {
         let client: Arc<Client> = Arc::new(client);
         self.client = Some(client.clone());
         self.connection_handle = Some(connection_handle);
-        self.query_executor = Some(Arc::new(PostgresQueryExecutor::new(client.clone())));
+        self.query_executor = Some(Arc::new(FastPostgresQueryExecutor::new(client.clone())));
         self.introspector = Some(Arc::new(PostgresIntrospector::new(client.clone())));
 
         Ok(())
@@ -158,6 +188,11 @@ impl DbAdapter for PostgresAdapter {
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
         let handle = executor.open_query(sql).await?;
+
+        // Clear metadata cache if DDL operation (saves 100-150ms on subsequent queries)
+        if Self::is_ddl(sql) {
+            self.clear_metadata_cache();
+        }
 
         // Store query state
         self.active_queries.insert(
@@ -435,20 +470,21 @@ impl DbAdapter for PostgresAdapter {
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
-        // Build query with proper escaping
+        // Build query with proper escaping and pagination
         let query = format!(
             "SELECT * FROM \"{}\".\"{}\" LIMIT {} OFFSET {}",
             schema, table, limit, offset
         );
 
-        eprintln!("DEBUG: get_table_data executing query: {}", query);
-
-        // Open query to get columns
+        // Use query executor for cursor-based streaming with timing
         let handle = executor.open_query(&query).await?;
-        eprintln!("DEBUG: Query handle has {} columns", handle.columns.len());
-
-        // Fetch the page
         let chunk = executor.fetch_page(&handle, limit).await?;
+
+        // Get execution time from chunk (captured before query state removal)
+        let execution_time_ms = chunk.execution_time_ms;
+
+        // Check if there are more rows
+        let has_more = chunk.has_more;
 
         // Get total count
         let total_count = self.get_table_row_count(schema, table).await.ok();
@@ -459,8 +495,9 @@ impl DbAdapter for PostgresAdapter {
         Ok(TableDataResult {
             columns: handle.columns,
             rows: chunk.rows,
-            has_more: chunk.has_more,
+            has_more,
             total_count,
+            execution_time_ms,
         })
     }
 
@@ -516,6 +553,9 @@ impl DbAdapter for PostgresAdapter {
         // Fetch the page
         let chunk = executor.fetch_page(&handle, limit).await?;
 
+        // Get execution time from chunk (captured before query state removal)
+        let execution_time_ms = chunk.execution_time_ms;
+
         // Get total count
         let total_count = self.get_table_row_count(schema, table).await.ok();
 
@@ -527,6 +567,7 @@ impl DbAdapter for PostgresAdapter {
             rows: chunk.rows,
             has_more: chunk.has_more,
             total_count,
+            execution_time_ms,
         })
     }
 

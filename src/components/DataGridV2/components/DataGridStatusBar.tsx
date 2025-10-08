@@ -8,6 +8,7 @@ interface DataGridStatusBarProps {
   selectedRows?: number;
   className?: string;
   pendingEdits?: number;
+  executionTime?: number;
 }
 
 export const DataGridStatusBar = memo(function DataGridStatusBar({
@@ -16,6 +17,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   hasMore,
   selectedRows = 0,
   pendingEdits = 0,
+  executionTime,
   className,
 }: DataGridStatusBarProps) {
   const getRowCountDisplay = () => {
@@ -49,8 +51,12 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
           </span>
         )}
       </div>
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-1.5">
         <span>{getRowCountDisplay()}</span>
+        <span className="text-muted-foreground">•</span>
+        {executionTime !== undefined && (
+          <span className="text-muted-foreground">{executionTime}ms</span>
+        )}
       </div>
     </div>
   );

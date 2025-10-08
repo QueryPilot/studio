@@ -82,7 +82,19 @@ export interface PageTiming {
   decode_ms: number;
 }
 
-export interface CellValue {
+// NEW: CellValue from Rust fast path - lightweight primitives (no display_value)
+// Matches Rust CellValue enum serialization (untagged)
+export type CellValue =
+  | null // Null
+  | boolean // Bool
+  | number // I16, I32, I64, F32, F64, Timestamp (micros), Date (days)
+  | string // Text
+  | number[] // Bytes (JSON array of u8)
+  | { [key: string]: unknown }; // Json
+
+// DEPRECATED: Old CellValue interface (kept for backward compatibility during migration)
+/** @deprecated Use new CellValue type instead - display_value no longer exists */
+export interface LegacyCellValue {
   value_type: CellValueType;
   raw_value?: Uint8Array;
   display_value: string;
@@ -240,6 +252,7 @@ export interface TableDataResult {
   rows: CellValue[][];
   has_more: boolean;
   total_count?: number;
+  execution_time_ms?: number;
 }
 
 // Streaming types
@@ -249,6 +262,14 @@ export type StreamEvent =
   | { type: "Progress"; rows_fetched: number; percentage?: number }
   | { type: "Completed"; total_rows: number; execution_time_ms: number }
   | { type: "Error"; message: string; code?: string };
+
+// NEW: Channel-based streaming (matches Rust StreamMessage enum)
+export type StreamMessage =
+  | { type: "started"; columns: ColumnMeta[]; estimated_rows?: number }
+  | { type: "batch"; rows: CellValue[][]; row_offset: number }
+  | { type: "success"; total_rows: number; execution_time_ms: number }
+  | { type: "error"; code: string; message: string }
+  | { type: "interrupted"; resumable: boolean; message: string };
 
 // Backend API
 export class BackendAPI {
@@ -445,36 +466,6 @@ export class BackendAPI {
   }
 }
 
-// Helper functions for working with CellValues
-export function getCellDisplayValue(cell: CellValue): string {
-  return cell.display_value;
-}
-
-export function isCellNull(cell: CellValue): boolean {
-  return cell.value_type === "Null";
-}
-
-export function getCellType(cell: CellValue): string {
-  if (typeof cell.value_type === "string") {
-    return cell.value_type;
-  }
-
-  // Handle complex types
-  if ("Array" in cell.value_type) {
-    return "Array";
-  }
-  if ("Composite" in cell.value_type) {
-    return "Composite";
-  }
-  if ("Range" in cell.value_type) {
-    return "Range";
-  }
-  if ("Multirange" in cell.value_type) {
-    return "Multirange";
-  }
-  if ("CustomType" in cell.value_type) {
-    return `Custom(${cell.value_type.CustomType})`;
-  }
-
-  return "Unknown";
-}
+// REMOVED: Legacy helper functions for old CellValue interface
+// The new CellValue is a primitive type union (null | boolean | number | string | array | object)
+// Use formatters.ts for display formatting instead

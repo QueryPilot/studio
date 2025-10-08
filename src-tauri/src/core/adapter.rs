@@ -4,6 +4,9 @@ use async_trait::async_trait;
 
 #[async_trait]
 pub trait DbAdapter: Send + Sync {
+    // Downcasting support for database-specific features
+    fn as_any(&self) -> &dyn std::any::Any;
+
     // Connection management
     async fn connect(&mut self, profile: &ConnectionProfile) -> Result<()>;
     async fn disconnect(&mut self) -> Result<()>;

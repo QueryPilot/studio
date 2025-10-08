@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Instant;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionProfile {
@@ -94,6 +93,8 @@ pub struct PageChunk {
     pub has_more: bool,
     pub rows_fetched: usize,
     pub timing: Option<PageTiming>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_time_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,49 +103,102 @@ pub struct PageTiming {
     pub decode_ms: u32,
 }
 
+// NEW: Lightweight streaming value - NO display_value allocation
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CellValue {
-    pub value_type: CellValueType,
-    pub raw_value: Option<Vec<u8>>,
-    pub display_value: String,
-    pub db_specific: Option<DbSpecificValue>,
+#[serde(untagged)]
+pub enum CellValue {
+    Null,
+    Bool(bool),
+    I16(i16),
+    I32(i32),
+    I64(i64),
+    F32(f32),
+    F64(f64),
+    Text(String),
+    Bytes(Vec<u8>),
+    // Timestamps stored as microseconds since epoch
+    Timestamp(i64),
+    // Dates stored as days since epoch
+    Date(i32),
+    // Arrays and complex types as JSON
+    Json(serde_json::Value),
 }
 
 impl CellValue {
     pub fn null() -> Self {
-        CellValue {
-            value_type: CellValueType::Null,
-            raw_value: None,
-            display_value: String::new(),
-            db_specific: None,
-        }
+        CellValue::Null
     }
 
     pub fn text(value: impl Into<String>) -> Self {
-        let val = value.into();
-        CellValue {
-            value_type: CellValueType::Text,
-            raw_value: None,
-            display_value: val,
-            db_specific: None,
-        }
+        CellValue::Text(value.into())
     }
 
     pub fn integer(value: i64) -> Self {
-        CellValue {
-            value_type: CellValueType::Integer,
-            raw_value: None,
-            display_value: value.to_string(),
-            db_specific: None,
-        }
+        CellValue::I64(value)
     }
 
     pub fn boolean(value: bool) -> Self {
-        CellValue {
-            value_type: CellValueType::Boolean,
-            raw_value: None,
-            display_value: value.to_string(),
-            db_specific: None,
+        CellValue::Bool(value)
+    }
+
+    pub fn bytes(value: Vec<u8>) -> Self {
+        CellValue::Bytes(value)
+    }
+
+    pub fn timestamp(micros: i64) -> Self {
+        CellValue::Timestamp(micros)
+    }
+
+    pub fn date(days: i32) -> Self {
+        CellValue::Date(days)
+    }
+
+    pub fn json(value: serde_json::Value) -> Self {
+        CellValue::Json(value)
+    }
+
+    /// Extract string representation for backward compatibility
+    pub fn to_string(&self) -> String {
+        match self {
+            CellValue::Null => String::new(),
+            CellValue::Bool(b) => b.to_string(),
+            CellValue::I16(i) => i.to_string(),
+            CellValue::I32(i) => i.to_string(),
+            CellValue::I64(i) => i.to_string(),
+            CellValue::F32(f) => f.to_string(),
+            CellValue::F64(f) => f.to_string(),
+            CellValue::Text(s) => s.clone(),
+            CellValue::Bytes(b) => format!("<Binary {} bytes>", b.len()),
+            CellValue::Timestamp(micros) => {
+                // Format timestamp
+                use chrono::DateTime;
+                if let Some(dt) = DateTime::from_timestamp_micros(*micros) {
+                    dt.format("%Y-%m-%d %H:%M:%S").to_string()
+                } else {
+                    micros.to_string()
+                }
+            }
+            CellValue::Date(days) => {
+                // Format date
+                use chrono::NaiveDate;
+                if let Some(date) = NaiveDate::from_ymd_opt(1970, 1, 1)
+                    .and_then(|epoch| epoch.checked_add_days(chrono::Days::new(*days as u64)))
+                {
+                    date.format("%Y-%m-%d").to_string()
+                } else {
+                    days.to_string()
+                }
+            }
+            CellValue::Json(v) => v.to_string(),
+        }
+    }
+
+    /// Check if value is empty (null or empty string)
+    pub fn is_empty(&self) -> bool {
+        match self {
+            CellValue::Null => true,
+            CellValue::Text(s) => s.is_empty(),
+            _ => false,
         }
     }
 }
@@ -386,6 +440,8 @@ pub struct TableDataResult {
     pub rows: Vec<Vec<CellValue>>,
     pub has_more: bool,
     pub total_count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_time_ms: Option<u64>,
 }
 
 // Filter and Sort types
@@ -556,4 +612,42 @@ pub struct CreateTriggerRequest {
 pub struct EnableDisableTriggerRequest {
     pub name: String,
     pub enabled: bool,
+}
+
+
+// ============================================================================
+// STREAMING PROTOCOL TYPES - For channel-based query streaming
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum StreamMessage {
+    Started {
+        columns: Vec<ColumnMeta>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        estimated_rows: Option<i64>,
+    },
+    Batch {
+        rows: Vec<Vec<CellValue>>,
+        row_offset: usize,
+    },
+    Success {
+        total_rows: usize,
+        execution_time_ms: u64,
+    },
+    Error {
+        code: String,
+        message: String,
+    },
+    Interrupted {
+        resumable: bool,
+        message: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamQueryParams {
+    pub conn_id: String,
+    pub sql: String,
+    pub batch_size: Option<usize>,
 }
