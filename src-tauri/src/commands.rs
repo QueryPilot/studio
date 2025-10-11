@@ -486,7 +486,8 @@ pub async fn ping(
     }
 }
 
-/// Stream query results via IPC channel (FAST PATH - eliminates 300-350ms window.emit overhead)
+/// Stream query results via cursor-based streaming (exponential progressive loading)
+/// Strategy: 16 → 32 → 64 → 128 → 256 → 512 → 1024 (capped at 1024)
 #[tauri::command]
 pub async fn stream_query(
     conn_id: String,
@@ -495,10 +496,13 @@ pub async fn stream_query(
     channel: tauri::ipc::Channel<StreamMessage>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<(), String> {
-    // Increased from 1000 to 3000 for better performance (fewer IPC round trips)
-    let batch_size = batch_size.unwrap_or(3000);
+    // Exponential batching: start small, double each time, cap at max_batch_size
+    let max_batch_size = batch_size.unwrap_or(1024);
+    let query_start = std::time::Instant::now();
+
     tracing::info!("==========================================");
-    tracing::info!("stream_query START: sql={}, batch_size={}", sql, batch_size);
+    tracing::info!("EXPONENTIAL STREAM START: sql={}", sql);
+    tracing::info!("Strategy: 16→32→64→128→256→512→{}(max)", max_batch_size);
     tracing::info!("==========================================");
 
     // Get connection
@@ -506,101 +510,8 @@ pub async fn stream_query(
         .get_connection(&conn_id)
         .ok_or_else(|| "Connection not found".to_string())?;
 
-    // PERFORMANCE OPTIMIZATION: Use fast path for small queries (<50k rows)
-    // This eliminates cursor overhead and reduces IPC round trips
-    // Default batch_size is 3000, so for normal queries we use fast path
-    let use_fast_path = batch_size < 50000; // Use single fetch for queries likely to return <50k rows
-
-    if use_fast_path {
-        tracing::info!("stream_query: using FAST PATH (single fetch)");
-
-        // Get Postgres adapter
-        let postgres_adapter = conn
-            .adapter
-            .as_any()
-            .downcast_ref::<crate::adapters::postgres::adapter::PostgresAdapter>()
-            .ok_or_else(|| "Not a PostgreSQL connection".to_string())?;
-
-        // Get query executor
-        let executor = postgres_adapter
-            .get_query_executor()
-            .ok_or_else(|| "Query executor not available".to_string())?;
-
-        // Execute with single fetch
-        let ipc_start = std::time::Instant::now();
-
-        match executor.execute_single_fetch(&sql).await {
-            Ok((all_rows, columns, db_time_ms)) => {
-                let total_rows = all_rows.len();
-
-                tracing::info!("FAST PATH: Fetched {} rows from database in {}ms", total_rows, db_time_ms);
-
-                // Send started
-                let send_start = std::time::Instant::now();
-                let _ = channel.send(StreamMessage::Started {
-                    columns: columns.clone(),
-                    estimated_rows: Some(total_rows as i64),
-                });
-                tracing::info!("FAST PATH: Sent Started message in {}ms", send_start.elapsed().as_millis());
-
-                tracing::info!("FAST PATH: Column count={}, estimated={}", columns.len(), total_rows);
-
-                // For queries up to 50k rows, send in one batch to minimize IPC overhead
-                // Only chunk for very large result sets (>50k rows) where progressive rendering matters
-                if total_rows < 50000 {
-                    // Single batch - no cloning overhead
-                    let batch_start = std::time::Instant::now();
-                    let _ = channel.send(StreamMessage::Batch {
-                        rows: all_rows,
-                        row_offset: 0,
-                    });
-                    tracing::info!("FAST PATH: Sent single batch of {} rows in {}ms", total_rows, batch_start.elapsed().as_millis());
-                } else {
-                    // Send rows in chunks for progressive rendering of large result sets
-                    const CHUNK_SIZE: usize = 2000; // Larger chunks for better performance
-                    let mut row_offset = 0;
-
-                    for chunk in all_rows.chunks(CHUNK_SIZE) {
-                        let _ = channel.send(StreamMessage::Batch {
-                            rows: chunk.to_vec(),
-                            row_offset,
-                        });
-                        row_offset += chunk.len();
-                        tracing::info!("FAST PATH: Sent chunk of {} rows (offset={})", chunk.len(), row_offset);
-                    }
-                    tracing::info!("FAST PATH: Sent all {} rows in {} chunks", total_rows, (total_rows + CHUNK_SIZE - 1) / CHUNK_SIZE);
-                }
-
-                // Send success
-                let _ = channel.send(StreamMessage::Success {
-                    total_rows,
-                    execution_time_ms: db_time_ms,
-                });
-
-                let total_time_ms = ipc_start.elapsed().as_millis();
-                tracing::info!("==========================================");
-                tracing::info!("FAST PATH COMPLETE: {} rows", total_rows);
-                tracing::info!("  DB + Conversion: {}ms", db_time_ms);
-                tracing::info!("  IPC Serialization: {}ms", total_time_ms as u64 - db_time_ms);
-                tracing::info!("  Total Backend: {}ms", total_time_ms);
-                tracing::info!("==========================================");
-
-                return Ok(());
-            }
-            Err(e) => {
-                let _ = channel.send(StreamMessage::Error {
-                    code: "QUERY_ERROR".to_string(),
-                    message: e.to_string(),
-                });
-                return Err(e.to_string());
-            }
-        }
-    }
-
-    // CURSOR PATH (for large queries or non-PostgreSQL)
-    tracing::info!("stream_query: using CURSOR PATH (streaming)");
-
-    // Open query
+    // Open cursor (BEGIN + DECLARE CURSOR)
+    let cursor_start = std::time::Instant::now();
     let handle = match conn.adapter.open_query(&sql).await {
         Ok(h) => h,
         Err(e) => {
@@ -611,6 +522,8 @@ pub async fn stream_query(
             return Err(e.to_string());
         }
     };
+    let cursor_time_ms = cursor_start.elapsed().as_millis() as u64;
+    tracing::info!("Cursor opened in {}ms", cursor_time_ms);
 
     // Send started message with column metadata
     let _ = channel.send(StreamMessage::Started {
@@ -618,30 +531,55 @@ pub async fn stream_query(
         estimated_rows: handle.estimated_rows,
     });
 
-    // Track total execution time from query start to completion
-    let query_start = std::time::Instant::now();
-
-    // Stream batches
     let mut total_rows = 0;
     let mut fetch_count = 0;
+    let mut execution_time_ms = None;
+    let mut current_batch_size = 16; // Start with 16 rows
+
+    // Exponential fetching loop: 16, 32, 64, 128, 256, 512, 1024, 1024, ...
     loop {
         fetch_count += 1;
-        match conn.adapter.fetch_page(&handle, batch_size).await {
+        let fetch_start = std::time::Instant::now();
+
+        match conn.adapter.fetch_page(&handle, current_batch_size).await {
             Ok(chunk) => {
                 let row_count = chunk.rows.len();
+                let fetch_ms = fetch_start.elapsed().as_millis() as u64;
 
-                // Send batch
+                // Track execution time from first fetch only
+                if fetch_count == 1 {
+                    execution_time_ms = chunk.execution_time_ms;
+                }
+
+                // Check if we're done
+                let is_complete = !chunk.has_more || row_count == 0;
+
+                // Send batch with has_more flag
                 let _ = channel.send(StreamMessage::Batch {
                     rows: chunk.rows,
                     row_offset: total_rows,
+                    has_more: !is_complete,
                 });
 
                 total_rows += row_count;
 
-                // Check if we're done
-                if !chunk.has_more || row_count == 0 {
+                tracing::info!(
+                    "Batch #{}: fetched {} rows in {}ms (batch_size={}, total={}, has_more={})",
+                    fetch_count,
+                    row_count,
+                    fetch_ms,
+                    current_batch_size,
+                    total_rows,
+                    !is_complete
+                );
+
+                // Break if complete
+                if is_complete {
                     break;
                 }
+
+                // Double the batch size for next fetch, cap at max_batch_size
+                current_batch_size = (current_batch_size * 2).min(max_batch_size);
             }
             Err(e) => {
                 let _ = channel.send(StreamMessage::Error {
@@ -654,23 +592,26 @@ pub async fn stream_query(
         }
     }
 
-    // Close query
+    // Close cursor
     let _ = conn.adapter.close_query(&handle).await;
 
-    // Calculate total execution time (includes all fetches)
-    let execution_time_ms = query_start.elapsed().as_millis() as u64;
+    let total_time_ms = query_start.elapsed().as_millis() as u64;
 
-    tracing::info!(
-        "stream_query complete: {} rows in {} fetches, {}ms total",
-        total_rows,
-        fetch_count,
-        execution_time_ms
-    );
+    tracing::info!("==========================================");
+    tracing::info!("EXPONENTIAL STREAM COMPLETE: {} rows in {} fetches", total_rows, fetch_count);
+    tracing::info!("  Cursor setup: {}ms", cursor_time_ms);
+    tracing::info!("  Query execution: {:?}ms", execution_time_ms);
+    tracing::info!("  Total streaming: {}ms", total_time_ms);
+    tracing::info!("  Avg per fetch: {}ms", if fetch_count > 0 { total_time_ms / fetch_count as u64 } else { 0 });
+    tracing::info!("==========================================");
 
-    // Send success message with total execution time
+    // Send success message with detailed timing metrics
     let _ = channel.send(StreamMessage::Success {
         total_rows,
-        execution_time_ms,
+        execution_time_ms: execution_time_ms.unwrap_or(total_time_ms),
+        cursor_setup_ms: Some(cursor_time_ms),
+        total_streaming_ms: Some(total_time_ms),
+        fetch_count: Some(fetch_count as u64),
     });
 
     Ok(())

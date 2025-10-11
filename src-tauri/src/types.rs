@@ -630,10 +630,18 @@ pub enum StreamMessage {
     Batch {
         rows: Vec<Vec<serde_json::Value>>,
         row_offset: usize,
+        has_more: bool,
     },
     Success {
         total_rows: usize,
         execution_time_ms: u64,
+        // Detailed timing metrics
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cursor_setup_ms: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        total_streaming_ms: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        fetch_count: Option<u64>,
     },
     Error {
         code: String,
