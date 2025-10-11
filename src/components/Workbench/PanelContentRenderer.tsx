@@ -9,7 +9,7 @@ import React, {
 } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Table, Bolt, BookMarked, Zap, Code, Copy } from "lucide-react";
+import { Table, Bolt, BookMarked, Zap, Code, Copy, ClipboardCheck } from "lucide-react";
 import { TableDataGridV2 } from "@/components/DataGridV2";
 import { TableStructure } from "@/components/TableStructure";
 import { TableIndexes } from "@/components/TableIndexes";
@@ -51,6 +51,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
     const [activeView, setActiveView] = useState(metadata?.viewType || "data");
     const definitionRef = useRef<string>("");
     const [viewActions, setViewActions] = useState<React.ReactNode>(null);
+    const [copied, setCopied] = useState(false);
 
     const handleDefinitionLoad = useCallback((def: string) => {
       definitionRef.current = def;
@@ -60,6 +61,10 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       if (activeView === "definition" && definitionRef.current) {
         try {
           await navigator.clipboard.writeText(definitionRef.current);
+          setCopied(true);
+          setTimeout(() => {
+            setCopied(false);
+          }, 3000);
         } catch (err) {
           console.error("Failed to copy to clipboard:", err);
         }
@@ -249,7 +254,11 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                     className="h-6 text-xs px-2 py-0"
                     onClick={handleCopy}
                   >
-                    <Copy className="h-3 w-3 mr-1" />
+                    {copied ? (
+                      <ClipboardCheck className="h-3 w-3 mr-1" />
+                    ) : (
+                      <Copy className="h-3 w-3 mr-1" />
+                    )}
                     Copy
                   </Button>
                 )}

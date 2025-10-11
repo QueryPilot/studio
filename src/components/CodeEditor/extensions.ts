@@ -341,6 +341,32 @@ export const createExecuteKeymap = (
   );
 };
 
+// Create read-only keymap that blocks all editing commands
+const createReadOnlyKeymap = (): Extension => {
+  // List of keys that should do nothing in read-only mode
+  const blockedKeys = [
+    "Backspace",
+    "Delete",
+    "Enter",
+    "Mod-d", // Delete line
+    "Shift-Mod-k", // Delete line
+    "Mod-Backspace",
+    "Mod-Delete",
+    "Ctrl-d",
+    "Ctrl-h",
+    "Ctrl-k",
+  ];
+
+  return Prec.highest(
+    keymap.of(
+      blockedKeys.map((key) => ({
+        key,
+        run: () => true, // Block the command by returning true
+      })),
+    ),
+  );
+};
+
 // Get editor extensions based on configuration
 export const getEditorExtensions = (
   language: CodeEditorLanguage = "sql",
@@ -389,9 +415,19 @@ export const getEditorExtensions = (
     // Custom SQL folding for nested blocks
     sqlFoldService,
 
-    // Keymaps including fold keymap, search keymap, and completion keymap
-    keymap.of([...defaultKeymap, ...searchKeymap, ...foldKeymap]),
+    // Keymaps for search and folding (always enabled)
+    keymap.of([...searchKeymap, ...foldKeymap]),
   ];
+
+  // Add read-only keymap with highest precedence to block editing commands
+  if (readOnly) {
+    extensions.unshift(createReadOnlyKeymap());
+  }
+
+  // Add default keymap only when not read-only (allows editing commands)
+  if (!readOnly) {
+    extensions.push(keymap.of(defaultKeymap));
+  }
 
   // Add line numbers and fold gutter if enabled
   if (showLineNumbers) {

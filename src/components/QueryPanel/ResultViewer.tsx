@@ -131,7 +131,7 @@ export const ResultViewer = memo(function ResultViewer({
           }}
           className="h-full flex flex-col"
         >
-          <TabsList className="grid w-full grid-cols-2 mx-3 mt-2 mb-0">
+          <TabsList className="grid grid-cols-2 mx-1 mt-1 mb-0">
             <TabsTrigger value="table" className="text-xs">
               Table
             </TabsTrigger>
@@ -141,7 +141,7 @@ export const ResultViewer = memo(function ResultViewer({
           </TabsList>
 
           <TabsContent value="table" className="flex-1 mt-2 mx-0">
-            <div className="h-full px-3 pb-3">
+            <div className="h-full px-1">
               <TableDataGridV2
                 mode="query"
                 gridId={gridId}
