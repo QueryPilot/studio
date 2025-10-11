@@ -79,7 +79,7 @@ class WindowManager {
       skipTaskbar: false,
       // Traffic light position for macOS (available in Tauri v2.8+)
       // This will be ignored on other platforms
-      trafficLightPosition: { x: 16, y: 20 },
+      trafficLightPosition: { x: 16, y: 22 },
     };
 
     const webview = new WebviewWindow(
