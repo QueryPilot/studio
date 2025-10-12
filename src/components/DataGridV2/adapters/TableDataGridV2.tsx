@@ -15,7 +15,7 @@ import type {
   GridPasteEvent,
   GridHistoryEntry,
 } from "../types";
-import { useInfiniteTableData } from "../hooks/useInfiniteTableData";
+import { useTableDataQuery } from "@/hooks/useTableDataQuery";
 import { buildGridCellV2 } from "../utils/cellFactory";
 import { truncateTextToWidth } from "../utils/textUtils";
 import {
@@ -371,19 +371,38 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const onActionsChange = isTableMode ? props.onActionsChange : undefined;
 
   // Table mode: use infinite table data hook
-  const tableData = isTableMode
-    ? useInfiniteTableData({
-        connectionId: props.connectionId,
-        database: props.database,
-        table: props.table,
-        schema: props.schema,
-      })
-    : null;
+  const tableDataQuery = useTableDataQuery({
+    connectionId,
+    database,
+    schema,
+    entityName: table,
+    entityType: "table",
+    enabled: isTableMode,
+  });
+
+  const cancelStream = tableDataQuery.cancelStream;
+
+  useEffect(() => {
+    if (!isTableMode) {
+      return;
+    }
+    return () => {
+      cancelStream();
+    };
+  }, [isTableMode, cancelStream]);
 
   // Query mode: use static data from props
   const queryData = isQueryMode ? props.data : null;
 
   // Unified data interface
+  const tableQueryError = tableDataQuery.error;
+  const tableQueryErrorMessage =
+    tableQueryError instanceof Error
+      ? tableQueryError.message
+      : typeof tableQueryError === "string"
+        ? tableQueryError
+        : null;
+
   const {
     isLoading,
     isLoadingMore,
@@ -394,8 +413,26 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     executionTime,
     loadMore,
     hasNextPage,
-  } = isTableMode && tableData
-    ? tableData
+  } = isTableMode
+    ? {
+        isLoading:
+          tableDataQuery.status === "loading" && !tableDataQuery.data,
+        isLoadingMore: tableDataQuery.isFetchingNextPage,
+        error: tableQueryErrorMessage,
+        columns: tableDataQuery.columns,
+        rows: tableDataQuery.rows,
+        estimatedTotal:
+          tableDataQuery.data?.pages.at(-1)?.estimatedTotal ??
+          tableDataQuery.data?.pages[0]?.estimatedTotal ??
+          tableDataQuery.rows.length,
+        executionTime:
+          tableDataQuery.data?.pages.at(-1)?.executionTimeMs ??
+          tableDataQuery.data?.pages[0]?.executionTimeMs,
+        loadMore: tableDataQuery.hasNextPage
+          ? () => tableDataQuery.fetchNextPage()
+          : undefined,
+        hasNextPage: !!tableDataQuery.hasNextPage,
+      }
     : {
         isLoading: isQueryMode ? (props.isLoading ?? false) : false,
         isLoadingMore: false,

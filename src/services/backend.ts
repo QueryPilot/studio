@@ -405,37 +405,6 @@ export class BackendAPI {
     });
   }
 
-  // Table operations
-  static async getTableData(
-    connId: string,
-    schema: string,
-    table: string,
-    limit: number,
-    offset: number,
-  ): Promise<TableDataResult> {
-    return invoke("get_table_data", { connId, schema, table, limit, offset });
-  }
-
-  static async getTableDataFiltered(
-    connId: string,
-    schema: string,
-    table: string,
-    limit: number,
-    offset: number,
-    filters?: any,
-    sorts?: any[],
-  ): Promise<TableDataResult> {
-    return invoke("get_table_data_filtered", {
-      connId,
-      schema,
-      table,
-      limit,
-      offset,
-      filters: filters || undefined,
-      sorts: sorts || undefined,
-    });
-  }
-
   static async getTableCount(
     connId: string,
     schema: string,

@@ -110,8 +110,6 @@ fn main() {
             commands::get_columns,
             commands::get_triggers,
             commands::get_object_definition,
-            commands::get_table_data,
-            commands::get_table_data_filtered,
             commands::get_table_count,
             commands::stream_query,
             commands::get_connection_health,

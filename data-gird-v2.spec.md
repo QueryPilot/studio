@@ -4,7 +4,7 @@
 The current `src/components/DataGrid` implementation grew organically around two entry points (`GlideTableDataGrid` and `GlideQueryDataGrid`). Each wrapper composes a monolithic `EnhancedGlideWrapper` that mixes rendering, data fetching concerns, hover affordances, formatting, copy/paste handlers, selection tracking, and ad-hoc persistence. This coupling makes the grid hard to reuse outside the current table/query views, blocks cell editing workflows, and complicates new UX requests such as pinned rows, paste-to-add, or scroll state persistence.
 
 ## Pain Points Observed in v1
-- **Impure component contract**: `GlideTableDataGrid` reads from hooks (`useInfiniteTableData`) and mutates state internally, so parents cannot control rows, selection, or scroll offsets.
+- **Impure component contract**: `GlideTableDataGrid` reads from hooks (`useTableDataQuery`) and mutates state internally, so parents cannot control rows, selection, or scroll offsets.
 - **Leaky responsibilities**: `EnhancedGlideWrapper` owns theming, hover toolbars, editing overlays, column state, copy/paste, and infinite scroll side effects in one 900+ line file, increasing regression risk.
 - **Editing disabled**: All generated cells are `readonly`, custom editors exist but are not wired. `onCellEdited` never fires, so upstream cannot be notified of changes.
 - **Row add/remove not supported**: No trailing row configuration or append callbacks; paste-based inserts are not handled. New-row UX cannot be implemented without large rewrites.
@@ -28,7 +28,7 @@ The current `src/components/DataGrid` implementation grew organically around two
 - **Clipboard paste** adds or updates cells/rows following Glide paste demo patterns.
 - Provide **column hide/show, reorder, resize** UI with persisted preferences keyed by context (e.g., table signature or query hash).
 - Highlight **row hover** consistently with existing theme while keeping selection intact.
-- Offer **infinite streaming compatibility** with the existing `useInfiniteTableData` service without locking the grid to that hook.
+- Offer **infinite streaming compatibility** with the unified `useTableDataQuery` hook without locking the grid to that implementation.
 - Remain **pure and composable** so multiple grids can render side-by-side (split panes) without state collisions.
 
 ## Proposed Architecture
@@ -117,7 +117,7 @@ Expose callbacks through props so parent layers/stores coordinate persistence:
 2. **Behavior hooks**: Re-implement hover actions, clipboard, paste, column sizing, pinning, undo stack, and persistence as dedicated hooks with unit coverage where feasible.
 3. **Editing pipeline**: Wire custom editors, `onCellEdited`, trailing-row add-on-top, bulk paste, row delete, and undo/redo. Validate against Glide “small editable grid” sample behavior.
 4. **Persistence layer**: Add Zustand store with IndexedDB persistence, include hydration guards, and smoke test simultaneous grids in split view.
-5. **Loading integration**: Support skeleton rows, infinite scroll trigger, streaming updates, and status bar interop. Ensure `useInfiniteTableData` adapter pushes props and responds to `onRequestMore`.
+5. **Loading integration**: Support skeleton rows, infinite scroll trigger, streaming updates, and status bar interop. Ensure `useTableDataQuery` adapter pushes props and responds to `onRequestMore`.
 6. **Query adapter & parity**: Replace `GlideQueryDataGrid` with new adapter, ensuring copy/paste, column personalization, selection persistence, and synthetic row id logic work for ad-hoc results.
 7. **Rollout**: Convert Table/Query consumers to v2, keep v1 behind feature flag, run regression tests, remove dead code post-stabilization, and update docs/tests.
 
@@ -151,7 +151,7 @@ Expose callbacks through props so parent layers/stores coordinate persistence:
 - [x] Verify multiple concurrent grids (split panes) maintain independent state slices without collisions.
 
 ### Stage 5 – Data Adapters & Loading UX
-- [x] Build `TableDataGridV2` adapter that consumes `useInfiniteTableData`, maps rows via primary keys, and wires infinite scroll callbacks.
+- [x] Build `TableDataGridV2` adapter that consumes `useTableDataQuery`, maps rows via primary keys, and wires infinite scroll callbacks.
 - [x] Build `QueryDataGridV2` adapter that maps query arrays to synthetic row models and reuses grid behaviors.
 - [x] Implement skeleton loading rows and status bar messaging driven by adapter `loadingState` props.
 - [x] Surface `onRequestMore` triggers when viewport nears loaded range, respecting estimated totals.

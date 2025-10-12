@@ -1,14 +1,11 @@
-/**
- * React hook for fetching comprehensive table structure
- * Includes columns, indexes, constraints, triggers, and statistics
- */
-import useSWR from "swr";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { databaseService } from "@/services/databaseService";
 import type {
   TableStructure,
   TableStructureOptions,
 } from "@/types/tableStructure";
+import { tableStructureQueryKey } from "./queryKeys";
 
 interface UseTableFullStructureParams {
   connectionId: string;
@@ -26,80 +23,107 @@ interface UseTableFullStructureReturn {
   refresh: () => Promise<void>;
 }
 
+export interface TableStructureQueryParams {
+  connectionId: string;
+  database: string;
+  schema: string;
+  table: string;
+  options?: TableStructureOptions;
+}
+
+export async function fetchTableStructure(
+  params: TableStructureQueryParams,
+): Promise<TableStructure> {
+  const { connectionId, database, schema, table, options } = params;
+
+  if (!connectionId || !database || !table) {
+    throw new Error("Connection, database, and table are required");
+  }
+
+  await databaseService.connectById(connectionId);
+
+  return databaseService.getTableStructure(
+    connectionId,
+    database,
+    schema,
+    table,
+    options,
+  );
+}
+
+const defaultStructureOptions: TableStructureOptions = {
+  includeIndexes: false,
+  includeConstraints: false,
+  includeTriggers: false,
+  includeStatistics: false,
+  includeForeignKeys: false,
+};
+
+function normalizeOptions(options?: TableStructureOptions): TableStructureOptions {
+  if (!options) {
+    return { ...defaultStructureOptions };
+  }
+
+  return {
+    includeIndexes: options.includeIndexes ?? false,
+    includeConstraints: options.includeConstraints ?? false,
+    includeTriggers: options.includeTriggers ?? false,
+    includeStatistics: options.includeStatistics ?? false,
+    includeForeignKeys: options.includeForeignKeys ?? false,
+  };
+}
+
 export function useTableFullStructure({
   connectionId,
   database,
   table,
   schema = "public",
-  options = {},
+  options,
   enabled = true,
 }: UseTableFullStructureParams): UseTableFullStructureReturn {
-  const { data, isLoading, error, mutate } = useSWR(
-    enabled
-      ? [
-          "table-full-structure",
-          connectionId,
-          database,
-          table,
-          schema,
-          options,
-          enabled,
-        ]
-      : null,
-    async () => {
-      if (!connectionId || !database || !table || !enabled) return;
+  const queryClient = useQueryClient();
 
-      try {
-        // Ensure connection mapping is established
-        await databaseService.connectById(connectionId);
-
-        const fullStructure = await databaseService.getTableStructure(
-          connectionId,
-          database,
-          schema,
-          table,
-          options,
-        );
-        console.log(">>>", "fullStructure", fullStructure);
-        return fullStructure;
-      } catch (err) {
-        console.error("Error fetching table structure:", err);
-        throw err;
-      }
-    },
+  const normalizedOptions = useMemo(
+    () => normalizeOptions(options),
+    [options],
   );
 
-  const refresh = useCallback(async () => {
-    try {
-      // Ensure connection mapping is established
-      await databaseService.connectById(connectionId);
+  const queryKey = tableStructureQueryKey({
+    connectionId,
+    database,
+    schema,
+    table,
+    options: normalizedOptions,
+  });
 
-      const fullStructure = await databaseService.getTableStructure(
+  const shouldEnable =
+    enabled && Boolean(connectionId && database && table && schema);
+
+  const { data, isPending, isFetching, error } = useQuery({
+    queryKey,
+    queryFn: () =>
+      fetchTableStructure({
         connectionId,
         database,
         schema,
         table,
-        options,
-      );
-      console.log(">>>", "fullStructure", fullStructure);
-      void mutate(fullStructure);
-    } catch (err) {
-      console.error("Error refreshing table structure:", err);
-      throw err;
-    }
-  }, [mutate, connectionId, database, schema, table, options]);
+        options: normalizedOptions,
+      }),
+    enabled: shouldEnable,
+  });
+
+  const refresh = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey });
+  }, [queryClient, queryKey]);
 
   return {
-    structure: data || null,
-    isLoading,
-    error,
+    structure: data ?? null,
+    isLoading: shouldEnable && (isPending || isFetching),
+    error: error ? (error instanceof Error ? error.message : String(error)) : null,
     refresh,
   };
 }
 
-/**
- * Helper hook to get just the columns (backward compatibility)
- */
 export function useTableColumns(params: UseTableFullStructureParams) {
   const { structure, isLoading, error } = useTableFullStructure({
     ...params,
@@ -119,9 +143,6 @@ export function useTableColumns(params: UseTableFullStructureParams) {
   };
 }
 
-/**
- * Helper hook to get foreign key relationships
- */
 export function useTableForeignKeys(params: UseTableFullStructureParams) {
   const { structure, isLoading, error } = useTableFullStructure({
     ...params,
@@ -139,9 +160,6 @@ export function useTableForeignKeys(params: UseTableFullStructureParams) {
   };
 }
 
-/**
- * Helper hook to get table statistics
- */
 export function useTableStatistics(params: UseTableFullStructureParams) {
   const { structure, isLoading, error, refresh } = useTableFullStructure({
     ...params,

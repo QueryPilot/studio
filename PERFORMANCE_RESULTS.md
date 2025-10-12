@@ -160,8 +160,8 @@ cargo test --manifest-path src-tauri/Cargo.toml --test query_performance -- --no
 - `src/services/queryStreamClient.ts` - New channel stream client
 - `src/services/backend.ts` - Added `StreamMessage` type + `execution_time_ms`
 - `src/services/tableDataService.ts` - Pass through execution time
-- `src/hooks/useTableData.ts` - Store execution time in state
-- `src/components/DataGridV2/hooks/useInfiniteTableData.ts` - Expose execution time
+- `src/services/tableDataTransform.ts` - Shared row mapping helpers
+- `src/hooks/useTableDataQuery.ts` - Expose execution time from streaming pages
 - `src/components/DataGridV2/adapters/TableDataGridV2.tsx` - Display execution time
 - `src/utils/formatters.ts` - Lazy cell formatters
 

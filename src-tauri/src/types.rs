@@ -434,16 +434,6 @@ pub struct Trigger {
     pub condition: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TableDataResult {
-    pub columns: Vec<ColumnMeta>,
-    pub rows: Vec<Vec<serde_json::Value>>,
-    pub has_more: bool,
-    pub total_count: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub execution_time_ms: Option<u64>,
-}
-
 // Filter and Sort types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FilterConfig {
