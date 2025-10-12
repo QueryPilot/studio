@@ -560,29 +560,6 @@ pub struct Trigger {
 
 ### Table Data Operations
 
-#### `get_table_data`
-
-Retrieves paginated table data with database-specific query optimization.
-
-**Parameters:**
-
-- `conn_id: String`
-- `schema: String`
-- `table: String`
-- `limit: usize` - Number of rows to fetch
-- `offset: usize` - Number of rows to skip
-
-**Returns:** `TableDataResult`
-
-```rust
-pub struct TableDataResult {
-    pub columns: Vec<ColumnMeta>,
-    pub rows: Vec<Vec<CellValue>>,
-    pub has_more: bool,
-    pub total_count: Option<i64>,
-}
-```
-
 #### `get_table_count`
 
 Retrieves the total row count for a table.
@@ -671,7 +648,6 @@ pub trait DbAdapter: Send + Sync {
     
     // Table operations
     async fn get_triggers(&self, schema: &str, table: &str) -> Result<Vec<Trigger>>;
-    async fn get_table_data(&self, schema: &str, table: &str, limit: usize, offset: usize) -> Result<TableDataResult>;
     async fn get_table_count(&self, schema: &str, table: &str) -> Result<i64>;
     
     // Database-specific features

@@ -50,7 +50,7 @@ This document outlines the performance issues identified in the current DataGrid
 
 ```
 TableDataGrid.tsx
-├── useInfiniteTableData (TanStack Virtual)
+├── useTableDataQuery (streaming)
 ├── useGridSelection
 ├── DataGridRow (memo)
 └── OptimizedCell (memo)

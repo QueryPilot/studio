@@ -734,12 +734,21 @@ export const LookupCell: CustomRenderer<LookupCellProps> = {
         const loadOptions = async () => {
           setLoading(true);
           const { fk_reference } = props.value.data.metadata;
-          const data = await databaseService.getTableData({
-            table: fk_reference.referenced_table,
+          const { columns, rows } = await tableStreamingService.streamEntityPage({
+            connectionId: props.connectionId,
+            database: props.database,
             schema: fk_reference.referenced_schema,
+            entityName: fk_reference.referenced_table,
+            entityType: "table",
             limit: 100,
           });
-          setOptions(data.rows);
+          const formatted = rows.map((row) =>
+            columns.reduce((acc, column) => {
+              acc[column.name] = row[column.name]?.value ?? null;
+              return acc;
+            }, {} as Record<string, unknown>),
+          );
+          setOptions(formatted);
           setLoading(false);
         };
         loadOptions();

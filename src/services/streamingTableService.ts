@@ -1,10 +1,5 @@
 import { type UnlistenFn } from "@tauri-apps/api/event";
-import {
-  BackendAPI,
-  type CellValue,
-  type ColumnMeta,
-  type TableDataResult,
-} from "./backend";
+import { BackendAPI, type CellValue, type ColumnMeta } from "./backend";
 import { queryStreamClient } from "./queryStreamClient";
 
 export interface StreamingTableOptions {
@@ -68,19 +63,6 @@ export class StreamingTableService {
 
     // Use the new fast streamQuery method
     return this.streamQuery(connectionId, sql, pageSize, onProgress, onError);
-  }
-
-  /**
-   * Load table data with pagination (non-streaming)
-   */
-  async loadTablePage(
-    connectionId: string,
-    schema: string,
-    table: string,
-    limit: number,
-    offset: number,
-  ): Promise<TableDataResult> {
-    return BackendAPI.getTableData(connectionId, schema, table, limit, offset);
   }
 
   /**

@@ -31,14 +31,14 @@ Measures: `BEGIN` + `DECLARE CURSOR` + first `FETCH` (matches TablePlus methodol
 
 Data flow:
 1. `TableDataResult.execution_time_ms` → `TableDataMetaEvent.execution_time`
-2. `useTableData` → `executionTime` state
-3. `useInfiniteTableData` → exposes to components
+2. `useTableDataQuery` → surfaces `executionTimeMs` per streamed page
+3. `TableDataGridV2` adapter → feeds the status bar props
 4. `DataGridStatusBar` → displays in UI
 
 ## Key Files
 
 **Backend**: types.rs, query_fast.rs, adapter.rs, commands.rs
-**Frontend**: backend.ts, tableDataTypes.ts, tableDataService.ts, useTableData.ts, useInfiniteTableData.ts, TableDataGridV2.tsx
+**Frontend**: backend.ts, tableDataTypes.ts, tableDataService.ts, tableDataTransform.ts, useTableDataQuery.ts, TableDataGridV2.tsx
 
 ## Result
 

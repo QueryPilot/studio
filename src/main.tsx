@@ -4,6 +4,8 @@ import "./styles/globals.css";
 import App from "./App";
 import { ThemeProvider } from "./components/theme-provider";
 import { Toaster } from "./components/ui/sonner";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { queryClient } from "./lib/react-query-client";
 
 // Suppress external script errors in development
 if (process.env.NODE_ENV === "development") {
@@ -24,13 +26,16 @@ if (process.env.NODE_ENV === "development") {
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <ThemeProvider
-      attribute="class"
-      defaultTheme="system"
-      enableSystem
-      storageKey="devdb-theme"
-    >
-      <App />
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="system"
+        enableSystem
+        storageKey="devdb-theme"
+      >
+        <App />
+        <Toaster richColors closeButton />
+      </ThemeProvider>
+    </QueryClientProvider>
   </React.StrictMode>,
 );

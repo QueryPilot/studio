@@ -375,46 +375,6 @@ pub async fn get_object_definition(
 }
 
 #[tauri::command]
-pub async fn get_table_data(
-    conn_id: String,
-    schema: String,
-    table: String,
-    limit: usize,
-    offset: usize,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<TableDataResult, String> {
-    let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
-
-    conn.adapter
-        .get_table_data(&schema, &table, limit, offset)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn get_table_data_filtered(
-    conn_id: String,
-    schema: String,
-    table: String,
-    limit: usize,
-    offset: usize,
-    filters: Option<FilterConfig>,
-    sorts: Option<Vec<SortConfig>>,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<TableDataResult, String> {
-    let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
-
-    conn.adapter
-        .get_table_data_filtered(&schema, &table, limit, offset, filters, sorts)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 pub async fn get_table_count(
     conn_id: String,
     schema: String,
