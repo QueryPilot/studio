@@ -1,4 +1,7 @@
-import type { ColumnMeta as BackendColumnMeta, CellValue as BackendCellValue } from "./backend";
+import type {
+  ColumnMeta as BackendColumnMeta,
+  CellValue as BackendCellValue,
+} from "./backend";
 import type { ColumnMeta } from "@/types/database";
 import type { TableDataRow } from "./tableDataTypes";
 import type { CellValue as FrontCellValue } from "@/types/cellValue";
@@ -10,7 +13,9 @@ export function mapBackendColumnsToColumnMeta(
     name: col.name,
     db_type: col.db_type,
     nullable: col.nullable,
-    default: (col as unknown as { default_value?: string | null }).default_value ?? null,
+    default:
+      (col as unknown as { default_value?: string | null }).default_value ??
+      null,
     is_pk: col.primary_key,
     is_fk: false,
     ordinal: index,
@@ -23,10 +28,10 @@ export function mapBackendColumnsToColumnMeta(
 }
 
 function deriveValueType(
-  rawValue: BackendCellValue,
+  rawValue: BackendCellValue | undefined,
   dbType: string,
 ): FrontCellValue["value_type"] {
-  if (rawValue === null) {
+  if (rawValue === null || rawValue === undefined) {
     return "Null";
   }
 
@@ -39,7 +44,10 @@ function deriveValueType(
     if (normalizedType.includes("int") || normalizedType.includes("serial")) {
       return "Integer";
     }
-    if (normalizedType.includes("timestamp") || normalizedType.includes("time")) {
+    if (
+      normalizedType.includes("timestamp") ||
+      normalizedType.includes("time")
+    ) {
       return "DateTime";
     }
     if (normalizedType.includes("date")) {

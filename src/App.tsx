@@ -11,7 +11,7 @@ import { usePreferencesStore } from "./stores/preferencesStore";
 import { isTauri, safeInvoke } from "./utils/tauri";
 import type { Update } from "@tauri-apps/plugin-updater";
 import { vaultStorage } from "./services/vaultStorage";
-import { Toaster, toast } from "sonner";
+import { toast } from "sonner";
 import { databaseService } from "./services/databaseService";
 
 function AppContent() {
@@ -253,7 +253,6 @@ function App() {
 
   return (
     <KeyboardProvider>
-      <Toaster position="top-center" richColors />
       <AppContent />
     </KeyboardProvider>
   );
