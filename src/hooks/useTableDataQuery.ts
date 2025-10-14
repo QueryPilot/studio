@@ -50,7 +50,9 @@ export interface UseTableDataQueryResult {
   isFetchingNextPage: boolean;
   hasNextPage: boolean;
   fetchNextPage: () => Promise<void>;
-  refetch: () => Promise<QueryObserverResult<InfiniteData<TableDataPage>, unknown>>;
+  refetch: () => Promise<
+    QueryObserverResult<InfiniteData<TableDataPage>, unknown>
+  >;
   cancelStream: () => void;
   progress: StreamProgress | null;
 }
@@ -172,9 +174,12 @@ export function useTableDataQuery(
         estimatedTotalHint = structure?.rowCount ?? undefined;
       }
 
-      const existing = queryClient.getQueryData<InfiniteData<TableDataPage>>(queryKey);
+      const existing =
+        queryClient.getQueryData<InfiniteData<TableDataPage>>(queryKey);
       if (!columnsHint) {
-        columnsHint = existing?.pages.find((page) => page.columns.length > 0)?.columns;
+        columnsHint = existing?.pages.find(
+          (page) => page.columns.length > 0,
+        )?.columns;
       }
       if (estimatedTotalHint == null) {
         estimatedTotalHint = existing?.pages.find(
@@ -205,7 +210,10 @@ export function useTableDataQuery(
         return {
           ...pageResult,
           estimatedTotal:
-            pageResult.estimatedTotal ?? structureRowCount ?? estimatedTotalHint ?? undefined,
+            pageResult.estimatedTotal ??
+            structureRowCount ??
+            estimatedTotalHint ??
+            undefined,
           offset: currentOffset,
         };
       } finally {
@@ -239,9 +247,15 @@ export function useTableDataQuery(
     initialPageParam: { offset: 0 },
     getNextPageParam: (lastPage) => {
       if (!lastPage.hasMore) {
+        console.log(
+          `🟢 No more pages (lastPage.offset=${lastPage.offset}, rows=${lastPage.rows.length})`,
+        );
         return undefined;
       }
       const nextOffset = lastPage.offset + lastPage.rows.length;
+      console.log(
+        `🟢 Next page: lastPage.offset=${lastPage.offset}, lastPage.rows.length=${lastPage.rows.length}, nextOffset=${nextOffset}`,
+      );
       return { offset: nextOffset };
     },
   });
@@ -255,7 +269,30 @@ export function useTableDataQuery(
     if (!infiniteQuery.data) {
       return [];
     }
-    return infiniteQuery.data.pages.flatMap((page) => page.rows);
+
+    // Deduplicate pages by offset (safety check for React StrictMode double-renders)
+    const seenOffsets = new Set<number>();
+    const uniquePages = infiniteQuery.data.pages.filter((page) => {
+      if (seenOffsets.has(page.offset)) {
+        console.warn(
+          `⚠️ Duplicate page detected at offset ${page.offset}, skipping`,
+        );
+        return false;
+      }
+      seenOffsets.add(page.offset);
+      return true;
+    });
+
+    const flattened = uniquePages.flatMap((page) => page.rows);
+    console.log(
+      `🟢 Rows flattened: ${uniquePages.length} pages (${infiniteQuery.data.pages.length} total), ${flattened.length} rows`,
+    );
+    uniquePages.forEach((page, i) => {
+      console.log(
+        `  Page ${i}: offset=${page.offset}, rows=${page.rows.length}, hasMore=${page.hasMore}`,
+      );
+    });
+    return flattened;
   }, [infiniteQuery.data]);
 
   const columns = useMemo(() => {

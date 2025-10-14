@@ -7,6 +7,7 @@ import {
   mapBackendColumnsToColumnMeta,
   mapRowsToTableData,
 } from "./tableDataTransform";
+import { BackendAPI } from "./backend";
 
 export interface StreamProgress {
   rowsFetched: number;
@@ -75,7 +76,9 @@ function buildOrderBy(sorts?: SortConfig[]): string {
     .filter((sort) => sort.column)
     .map(
       (sort) =>
-        `${quoteIdentifier(sort.column)} ${sort.direction.toUpperCase() === "DESC" ? "DESC" : "ASC"}`,
+        `${quoteIdentifier(sort.column)} ${
+          sort.direction.toUpperCase() === "DESC" ? "DESC" : "ASC"
+        }`,
     );
 
   if (clauses.length === 0) {
@@ -85,12 +88,18 @@ function buildOrderBy(sorts?: SortConfig[]): string {
   return ` ORDER BY ${clauses.join(", ")}`;
 }
 
-function buildTableSql(params: StreamEntityPageParams, limit: number, offset: number): string {
+function buildTableSql(
+  params: StreamEntityPageParams,
+  limit: number,
+  offset: number,
+): string {
   const { schema, entityName, select, sorts } = params;
   const base = buildQualifiedName(schema, entityName);
   const orderClause = buildOrderBy(sorts);
 
-  return `SELECT ${buildSelectClause(select)} FROM ${base}${orderClause} LIMIT ${limit} OFFSET ${offset}`;
+  return `SELECT ${buildSelectClause(
+    select,
+  )} FROM ${base}${orderClause} LIMIT ${limit} OFFSET ${offset}`;
 }
 
 export async function streamEntityPage(
@@ -111,12 +120,18 @@ export async function streamEntityPage(
     estimatedTotalHint,
   } = params;
 
-  const basePageSize = limit ?? pageSize ?? DEFAULT_PAGE_SIZE;
+  const basePageSize = limit ?? pageSize;
   const effectivePageSize = Math.max(1, basePageSize);
   const fetchLimit =
-    rowLimit != null ? Math.max(1, Math.min(effectivePageSize, rowLimit)) : effectivePageSize;
+    rowLimit != null
+      ? Math.max(1, Math.min(effectivePageSize, rowLimit))
+      : effectivePageSize;
   const limitReachedByRowCap =
     rowLimit != null && offset >= rowLimit ? true : undefined;
+
+  console.log(
+    `🔷 streamEntityPage: table=${entityName}, offset=${offset}, fetchLimit=${fetchLimit}, limit=${limit}, pageSize=${pageSize}`,
+  );
 
   if (!isTauri()) {
     throw new Error(
@@ -129,25 +144,24 @@ export async function streamEntityPage(
   }
 
   const sql = buildTableSql(params, fetchLimit, offset);
+  console.log(`🔷 SQL: ${sql}`);
 
-  let resolvedColumns: ColumnMeta[] | null = columnsHint ?? null;
-  const rows: TableDataRow[] = [];
-  let executionTimeMs: number | undefined;
+  // CRITICAL FIX: Wrap in promise to ensure we only resolve after ALL callbacks complete
+  return new Promise<StreamEntityPageResult>((resolve, reject) => {
+    let resolvedColumns: ColumnMeta[] | null = columnsHint ?? null;
+    const rows: TableDataRow[] = [];
+    let executionTimeMs: number | undefined;
 
-  const abortPromise = signal
-    ? new Promise<never>((_, reject) => {
-        signal.addEventListener(
-          "abort",
-          () => {
-            reject(new DOMException("Streaming aborted", "AbortError"));
-          },
-          { once: true },
-        );
-      })
-    : null;
+    const abortHandler = () => {
+      reject(new DOMException("Streaming aborted", "AbortError"));
+    };
 
-  const streamPromise = queryStreamClient
-    .streamWithCallbacks(
+    if (signal) {
+      signal.addEventListener("abort", abortHandler, { once: true });
+    }
+
+    // Wait for stream to complete
+    void queryStreamClient.streamWithCallbacks(
       {
         connId: connectionId,
         sql,
@@ -158,7 +172,9 @@ export async function streamEntityPage(
           if (!resolvedColumns) {
             const mapped = mapBackendColumnsToColumnMeta(columns);
             if (columnsHint?.length) {
-              const hintByName = new Map(columnsHint.map((col) => [col.name, col]));
+              const hintByName = new Map(
+                columnsHint.map((col) => [col.name, col]),
+              );
               resolvedColumns = mapped.map((col, index) => {
                 const fromHint = hintByName.get(col.name);
                 return fromHint
@@ -166,15 +182,22 @@ export async function streamEntityPage(
                   : { ...col, ordinal: index };
               });
             } else {
-              resolvedColumns = mapped.map((col, index) => ({ ...col, ordinal: index }));
+              resolvedColumns = mapped.map((col, index) => ({
+                ...col,
+                ordinal: index,
+              }));
             }
           }
 
           if (onProgress) {
-            onProgress({ rowsFetched: 0, totalRows: estimatedRows, started: true });
+            onProgress({
+              rowsFetched: 0,
+              totalRows: estimatedRows,
+              started: true,
+            });
           }
         },
-        onBatch: (batch, totalSoFar) => {
+        onBatch: (batch, _totalSoFar) => {
           if (!resolvedColumns) {
             return;
           }
@@ -196,15 +219,18 @@ export async function streamEntityPage(
             return;
           }
 
-      const mappedRows = mapRowsToTableData(resolvedColumns, rawRows);
-      rows.push(...mappedRows);
-      if (onBatch) {
-        onBatch(mappedRows, rows.length - mappedRows.length);
-      }
+          const mappedRows = mapRowsToTableData(resolvedColumns, rawRows);
+          rows.push(...mappedRows);
+          console.log(
+            `🔷 onBatch: added ${mappedRows.length} rows, total in page: ${rows.length}, batch.rowOffset=${batch.rowOffset}`,
+          );
+          if (onBatch) {
+            onBatch(mappedRows, rows.length - mappedRows.length);
+          }
 
-      if (onProgress) {
-        onProgress({ rowsFetched: rows.length });
-      }
+          if (onProgress) {
+            onProgress({ rowsFetched: rows.length });
+          }
         },
         onSuccess: (result) => {
           executionTimeMs = result.executionTimeMs;
@@ -216,50 +242,94 @@ export async function streamEntityPage(
               completed: true,
             });
           }
+
+          // CRITICAL FIX: Poll until all batches are accumulated
+          // The backend sends success before all batch messages are processed
+          const expectedRows = result.totalRows;
+          const pollInterval = setInterval(() => {
+            if (rows.length >= expectedRows) {
+              clearInterval(pollInterval);
+
+              (async () => {
+                try {
+                  if (signal) {
+                    signal.removeEventListener("abort", abortHandler);
+                  }
+
+                  if (!resolvedColumns) {
+                    resolvedColumns = columnsHint ?? [];
+                  }
+
+                  const limitReached =
+                    (rowLimit != null && offset + rows.length >= rowLimit) ||
+                    limitReachedByRowCap === true;
+                  const hasMoreFromEstimate =
+                    estimatedTotalHint != null
+                      ? offset + rows.length < estimatedTotalHint
+                      : rows.length === fetchLimit;
+                  const hasMore = !limitReached && hasMoreFromEstimate;
+
+                  console.log(
+                    `🔷 Page complete: rows.length=${rows.length}, fetchLimit=${fetchLimit}, hasMore=${hasMore}, offset=${offset}, estimatedTotalHint=${estimatedTotalHint}`,
+                  );
+                  console.log(
+                    `🔷 streamResult.totalRows=${result.totalRows}, accumulated rows.length=${rows.length}`,
+                  );
+
+                  let estimatedTotal: number | undefined;
+                  if (offset === 0) {
+                    try {
+                      estimatedTotal = await BackendAPI.getTableCount(
+                        connectionId,
+                        schema,
+                        entityName,
+                      );
+                      console.log(`🔷 Got table count: ${estimatedTotal}`);
+                    } catch (error) {
+                      console.warn("Failed to fetch estimated total:", error);
+                    }
+                  }
+
+                  resolve({
+                    columns: resolvedColumns,
+                    rows,
+                    hasMore,
+                    estimatedTotal,
+                    executionTimeMs,
+                  });
+                } catch (error) {
+                  reject(
+                    error instanceof Error ? error : new Error(String(error)),
+                  );
+                }
+              })();
+            }
+          }, 10);
+
+          // Safety timeout: resolve after 5 seconds even if count doesn't match
+          setTimeout(() => {
+            clearInterval(pollInterval);
+            console.warn(
+              `⚠️ Timeout waiting for batches: expected ${expectedRows}, got ${rows.length}`,
+            );
+            resolve({
+              columns: resolvedColumns ?? columnsHint ?? [],
+              rows,
+              hasMore: false,
+              estimatedTotal: undefined,
+              executionTimeMs,
+            });
+          }, 5000);
         },
-        onError: () => {
-          if (signal?.aborted) {
-            return;
+        onError: (error) => {
+          if (signal) {
+            signal.removeEventListener("abort", abortHandler);
+          }
+          if (!signal?.aborted) {
+            reject(error instanceof Error ? error : new Error(String(error)));
           }
         },
       },
-    )
-    .then((result) => {
-      executionTimeMs = executionTimeMs ?? result.executionTimeMs;
-    });
-
-  await (abortPromise ? Promise.race([streamPromise, abortPromise]) : streamPromise);
-
-  if (!resolvedColumns) {
-    resolvedColumns = columnsHint ?? [];
-  }
-
-  const limitReached =
-    (rowLimit != null && offset + rows.length >= rowLimit) || limitReachedByRowCap === true;
-  const hasMoreFromEstimate =
-    estimatedTotalHint != null
-      ? offset + rows.length < estimatedTotalHint
-      : rows.length === fetchLimit;
-  const hasMore = !limitReached && hasMoreFromEstimate;
-
-  let estimatedTotal: number | undefined;
-  if (offset === 0) {
-    try {
-      estimatedTotal = await BackendAPI.getTableCount(
-        connectionId,
-        schema,
-        entityName,
-      );
-    } catch (error) {
-      console.warn("Failed to fetch estimated total:", error);
-    }
-  }
-
-  return {
-    columns: resolvedColumns,
-    rows,
-    hasMore,
-    estimatedTotal,
-    executionTimeMs,
-  };
+    );
+  });
 }
