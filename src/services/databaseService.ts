@@ -1044,6 +1044,7 @@ class DatabaseService {
 
   /**
    * Subscribe to connection health updates
+   * Immediately calls listener with current health if connection is active
    */
   onHealthChange(
     connectionId: string,
@@ -1052,6 +1053,21 @@ class DatabaseService {
     const listeners = this.healthListeners.get(connectionId) || [];
     listeners.push(listener);
     this.healthListeners.set(connectionId, listeners);
+
+    // Immediately provide current health if connection is active
+    if (this.isConnectionActive(connectionId)) {
+      void this.getConnectionHealth(connectionId)
+        .then(listener)
+        .catch(() => {
+          // If health check fails, emit error status
+          listener({
+            connectionId,
+            status: "error",
+            healthy: false,
+            error: "Failed to get connection health",
+          });
+        });
+    }
 
     // Return unsubscribe function
     return () => {
@@ -1121,7 +1137,6 @@ class DatabaseService {
       executionTime: result.executionTimeMs || 0,
     };
   }
-
 
   /**
    * Create a new index

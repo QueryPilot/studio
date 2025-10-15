@@ -218,31 +218,56 @@ impl DbAdapter for PostgresAdapter {
     }
 
     async fn test_connection(&self) -> Result<ConnectionTestResult> {
-        let client = self
-            .client
-            .as_ref()
-            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+        // Use pool if available (new connection pooling), otherwise fall back to client
+        if let Some(pool) = &self.pool {
+            let conn = pool.get().await
+                .map_err(|e| AppError::ConnectionClosed(format!("Failed to get connection from pool: {}", e)))?;
+            
+            // Test query and get version
+            let row = conn
+                .query_one("SELECT version(), current_database(), current_user", &[])
+                .await?;
 
-        // Test query and get version
-        let row = client
-            .query_one("SELECT version(), current_database(), current_user", &[])
-            .await?;
+            let version: String = row.get(0);
+            let database: String = row.get(1);
+            let user: String = row.get(2);
 
-        let version: String = row.get(0);
-        let database: String = row.get(1);
-        let user: String = row.get(2);
+            Ok(ConnectionTestResult {
+                success: true,
+                message: format!("Connected to {} as {}", database, user),
+                version: Some(version),
+                warnings: vec![],
+            })
+        } else if let Some(client) = &self.client {
+            // Fallback for old single-connection model
+            let row = client
+                .query_one("SELECT version(), current_database(), current_user", &[])
+                .await?;
 
-        Ok(ConnectionTestResult {
-            success: true,
-            message: format!("Connected to {} as {}", database, user),
-            version: Some(version),
-            warnings: vec![],
-        })
+            let version: String = row.get(0);
+            let database: String = row.get(1);
+            let user: String = row.get(2);
+
+            Ok(ConnectionTestResult {
+                success: true,
+                message: format!("Connected to {} as {}", database, user),
+                version: Some(version),
+                warnings: vec![],
+            })
+        } else {
+            Err(AppError::ConnectionClosed("Not connected".into()))
+        }
     }
 
     async fn is_connected(&self) -> bool {
-        if let Some(client) = &self.client {
-            // Try a simple query to check connection
+        // Check pool first (new model), then client (old model)
+        if let Some(pool) = &self.pool {
+            // Try to get a connection from the pool and run a simple query
+            if let Ok(conn) = pool.get().await {
+                return conn.query_one("SELECT 1", &[]).await.is_ok();
+            }
+            false
+        } else if let Some(client) = &self.client {
             client.query_one("SELECT 1", &[]).await.is_ok()
         } else {
             false
