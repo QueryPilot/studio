@@ -117,7 +117,6 @@ export function WorkspaceTitleBar({
       connectionId,
       (health) => {
         setConnectionHealth(health);
-        setIsConnecting(false);
 
         // Show toast on error status change
         if (health.status === "error" && previousHealth?.status !== "error") {
