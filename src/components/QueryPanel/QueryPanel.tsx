@@ -434,11 +434,14 @@ export const QueryPanel = memo(function QueryPanel({
 
             {showHistory && (
               <>
-                <ResizableHandle />
+                <ResizableHandle className="bg-secondary w-1" />
 
                 {/* History and Saved Queries */}
                 <ResizablePanel defaultSize={30} minSize={20}>
-                  <Tabs defaultValue="history" className="h-full flex flex-col">
+                  <Tabs
+                    defaultValue="history"
+                    className="h-full flex flex-col px-1 rounded-lg"
+                  >
                     <TabsList className="grid w-full grid-cols-2">
                       <TabsTrigger value="history" className="text-xs">
                         <History className="h-3 w-3 mr-1" />

@@ -14,7 +14,9 @@ interface QueryLimitControlProps {
 
 export function QueryLimitControl({ appliedLimit }: QueryLimitControlProps) {
   const { smartQueryLimit, setSmartQueryLimit } = usePreferencesStore();
-  const limits = [100, 1000, 5000, 10000, 50000, 100000];
+  const limits = [
+    100, 1000, 5000, 10000, 50000, 100000, 250000, 500000, 1000000,
+  ];
 
   return (
     <div className="flex items-center gap-2">
@@ -22,12 +24,10 @@ export function QueryLimitControl({ appliedLimit }: QueryLimitControlProps) {
         <>
           <AlertCircle className="h-3.5 w-3.5 text-yellow-600" />
           <span className="text-xs text-yellow-700 dark:text-yellow-300">
-            Limited to {appliedLimit.toLocaleString()} rows
+            Auto limited
           </span>
-          <span className="text-xs text-muted-foreground">•</span>
         </>
       ) : null}
-      <span className="text-xs text-muted-foreground">Auto limit:</span>
       <Select
         value={smartQueryLimit?.toString() ?? "null"}
         onValueChange={(value) => {
@@ -38,10 +38,13 @@ export function QueryLimitControl({ appliedLimit }: QueryLimitControlProps) {
           }
         }}
       >
-        <SelectTrigger size="sm" className="h-7 w-[130px] text-xs">
+        <SelectTrigger size="sm" className="!h-7 w-[130px] text-xs">
           <SelectValue />
         </SelectTrigger>
         <SelectContent className="text-xs">
+          <SelectItem value="null" className="text-xs">
+            No limit
+          </SelectItem>
           {limits.map((limit) => (
             <SelectItem
               key={limit}
@@ -51,9 +54,6 @@ export function QueryLimitControl({ appliedLimit }: QueryLimitControlProps) {
               {limit.toLocaleString()} rows
             </SelectItem>
           ))}
-          <SelectItem value="null" className="text-xs">
-            No limit
-          </SelectItem>
         </SelectContent>
       </Select>
     </div>

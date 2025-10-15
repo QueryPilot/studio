@@ -1,9 +1,7 @@
-use dashmap::DashMap;
 use deadpool_postgres::Pool;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
-use tokio_postgres::{Client, Statement};
 
 use super::fast_converter::FastPostgresConverter;
 use super::types::PostgresTypeConverter;
@@ -12,36 +10,14 @@ use crate::types::*;
 
 pub struct FastPostgresQueryExecutor {
     pool: Pool,
-    client: Option<Arc<Client>>, // Keep for backwards compatibility during migration
-    /// DEPRECATED: Statement cache disabled for connection pooling compatibility
-    /// Prepared statements are per-connection, so caching them globally causes
-    /// "prepared statement does not exist" errors when different pool connections are used.
-    #[allow(dead_code)]
-    statement_cache: DashMap<String, Arc<Statement>>,
     /// Track concurrent pre-warming operations (rate limiting)
     prewarm_in_progress: AtomicUsize,
 }
 
 impl FastPostgresQueryExecutor {
-    #[allow(dead_code)]
-    pub fn new(client: Arc<Client>) -> Self {
-        // Legacy constructor - will be removed after full migration
-        Self {
-            pool: Pool::builder(deadpool_postgres::Manager::new(
-                tokio_postgres::Config::new(),
-                tokio_postgres::NoTls,
-            )).max_size(1).build().unwrap(),
-            client: Some(client),
-            statement_cache: DashMap::new(),
-            prewarm_in_progress: AtomicUsize::new(0),
-        }
-    }
-
     pub fn new_with_pool(pool: Pool) -> Self {
         Self {
             pool,
-            client: None,
-            statement_cache: DashMap::new(),
             prewarm_in_progress: AtomicUsize::new(0),
         }
     }
@@ -50,11 +26,6 @@ impl FastPostgresQueryExecutor {
     async fn get_connection(&self) -> Result<deadpool_postgres::Object> {
         self.pool.get().await
             .map_err(|e| AppError::Internal(format!("Failed to get connection from pool: {}", e)))
-    }
-
-    /// Clear the prepared statement cache (call after DDL operations)
-    pub fn clear_statement_cache(&self) {
-        self.statement_cache.clear();
     }
 
     /// Fast path: Execute query with single fetch (no cursor)

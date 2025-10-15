@@ -11,7 +11,7 @@ pub struct PostgresPoolBuilder {
 impl Default for PostgresPoolBuilder {
     fn default() -> Self {
         Self {
-            pool_size: 3,                              // Max 3 connections per window
+            pool_size: 10,                             // Max 10 connections per window (increased for concurrent queries)
             idle_timeout: Duration::from_secs(15 * 60), // 15 minutes (configurable)
             max_lifetime: Duration::from_secs(60 * 60), // 1 hour max lifetime
         }

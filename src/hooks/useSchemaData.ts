@@ -141,14 +141,21 @@ export function useSchemaData(
         functions: uniqueFunctions,
       });
 
-      // Smart pre-warming: Pre-warm first 3-5 tables for small schemas
-      if (tableList.length > 0 && tableList.length <= 20) {
+      // Smart pre-warming: Backend will determine how many tables to pre-warm based on schema size
+      if (tableList.length > 0) {
+        console.log(
+          `[useSchemaData] Triggering pre-warming for schema "${schema}" (${tableList.length} tables)`,
+        );
         Backend.prewarmSchemaTables(
           connectionId,
           schema,
           tableList.map((t) => t.name),
-        ).catch(() => {
-          // Ignore errors - pre-warming is optional optimization
+        ).catch((err) => {
+          // Log errors for debugging but don't fail schema load
+          console.warn(
+            `[useSchemaData] Pre-warming failed for schema "${schema}":`,
+            err,
+          );
         });
       }
     } catch (err) {
