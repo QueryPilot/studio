@@ -446,8 +446,132 @@ pub async fn ping(
     }
 }
 
+/// Extract LIMIT value from SQL query (simple regex-based parser)
+fn extract_limit_from_sql(sql: &str) -> Option<usize> {
+    use regex::Regex;
+    
+    // Match LIMIT clause at end of query (case-insensitive)
+    // Handles: LIMIT 1000, LIMIT 1000;, LIMIT 1000 OFFSET 50
+    let re = Regex::new(r"(?i)\bLIMIT\s+(\d+)").ok()?;
+    let caps = re.captures(sql)?;
+    caps.get(1)?.as_str().parse::<usize>().ok()
+}
+
+/// Execute query with TRUE streaming (rows arrive as they're fetched from PostgreSQL)
+async fn execute_single_fetch_stream(
+    sql: &str,
+    channel: &tauri::ipc::Channel<StreamMessage>,
+    conn: &crate::core::manager::LiveConnection,
+) -> std::result::Result<(), String> {
+    use futures::StreamExt;
+    
+    let query_start = std::time::Instant::now();
+    
+    // Try to get FastPostgresQueryExecutor
+    let executor = conn.adapter.as_any()
+        .downcast_ref::<crate::adapters::postgres::PostgresAdapter>()
+        .and_then(|adapter| adapter.get_query_executor())
+        .ok_or_else(|| "Fast query executor not available".to_string())?;
+    
+    // Prepare statement and get columns
+    let (stmt, columns) = executor.prepare_streaming_query(&sql).await
+        .map_err(|e| e.to_string())?;
+    
+    // Send started message immediately
+    let _ = channel.send(StreamMessage::Started {
+        columns: columns.clone(),
+        estimated_rows: None, // Unknown until we start fetching
+    });
+    
+    // Get client for raw streaming
+    let client = executor.get_client();
+    
+    // Execute query with TRUE streaming - rows arrive as PostgreSQL sends them
+    let row_stream = client.query_raw(stmt.as_ref(), std::iter::empty::<i32>())
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    let mut row_stream = Box::pin(row_stream);
+    
+    tracing::info!("TRUE STREAMING: Query executing, rows will arrive progressively...");
+    
+    let mut total_rows = 0;
+    let mut chunk_buffer = Vec::new();
+    const CHUNK_SIZE: usize = 50; // Send rows in batches of 50 for efficiency
+    let mut first_row_elapsed_ms: Option<u64> = None;
+    
+    // Stream rows as they arrive from PostgreSQL
+    while let Some(row_result) = row_stream.next().await {
+        match row_result {
+            Ok(row) => {
+                // Mark when first row arrives
+                if first_row_elapsed_ms.is_none() {
+                    let elapsed = query_start.elapsed().as_millis() as u64;
+                    first_row_elapsed_ms = Some(elapsed);
+                    tracing::info!("  First row arrived in {}ms", elapsed);
+                }
+                
+                // Convert row to JSON
+                let json_row = crate::adapters::postgres::fast_converter::FastPostgresConverter::convert_row(&row)
+                    .map_err(|e| e.to_string())?;
+                
+                chunk_buffer.push(json_row);
+                total_rows += 1;
+                
+                // Send chunk when buffer is full
+                if chunk_buffer.len() >= CHUNK_SIZE {
+                    let _ = channel.send(StreamMessage::Batch {
+                        rows: chunk_buffer.clone(),
+                        row_offset: total_rows - chunk_buffer.len(),
+                        has_more: true,
+                    });
+                    chunk_buffer.clear();
+                }
+            }
+            Err(e) => {
+                let _ = channel.send(StreamMessage::Error {
+                    code: "FETCH_ERROR".to_string(),
+                    message: e.to_string(),
+                });
+                return Err(e.to_string());
+            }
+        }
+    }
+    
+    // Send any remaining rows
+    if !chunk_buffer.is_empty() {
+        let offset = total_rows - chunk_buffer.len();
+        let _ = channel.send(StreamMessage::Batch {
+            rows: chunk_buffer,
+            row_offset: offset,
+            has_more: false,
+        });
+    }
+    
+    let total_time = query_start.elapsed().as_millis() as u64;
+    let first_row_ms = first_row_elapsed_ms.unwrap_or(0);
+    
+    tracing::info!("==========================================");
+    tracing::info!("TRUE STREAMING COMPLETE: {} rows", total_rows);
+    tracing::info!("  First row: {}ms", first_row_ms);
+    tracing::info!("  Total time: {}ms", total_time);
+    tracing::info!("  Rows/sec: {:.0}", (total_rows as f64 / total_time as f64) * 1000.0);
+    tracing::info!("==========================================");
+    
+    // Send success
+    let _ = channel.send(StreamMessage::Success {
+        total_rows,
+        execution_time_ms: total_time,
+        cursor_setup_ms: None,
+        total_streaming_ms: Some(total_time),
+        fetch_count: Some(((total_rows + CHUNK_SIZE - 1) / CHUNK_SIZE) as u64),
+    });
+    
+    Ok(())
+}
+
 /// Stream query results via cursor-based streaming (exponential progressive loading)
-/// Strategy: 16 → 32 → 64 → 128 → 256 → 512 → 1024 (capped at 1024)
+/// Strategy: Single fetch for small datasets (<10K rows), cursor streaming for large datasets
 #[tauri::command]
 pub async fn stream_query(
     conn_id: String,
@@ -456,19 +580,36 @@ pub async fn stream_query(
     channel: tauri::ipc::Channel<StreamMessage>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<(), String> {
-    // Exponential batching: start small, double each time, cap at max_batch_size
-    let max_batch_size = batch_size.unwrap_or(1024);
     let query_start = std::time::Instant::now();
-
-    tracing::info!("==========================================");
-    tracing::info!("EXPONENTIAL STREAM START: sql={}", sql);
-    tracing::info!("Strategy: 16→32→64→128→256→512→{}(max)", max_batch_size);
-    tracing::info!("==========================================");
-
+    
     // Get connection
     let conn = manager
         .get_connection(&conn_id)
         .ok_or_else(|| "Connection not found".to_string())?;
+    
+    // SMART PATH SELECTION: Detect LIMIT clause for small datasets
+    let limit_threshold = 10_000;
+    let detected_limit = extract_limit_from_sql(&sql);
+    
+    // Use fast single-fetch path for small datasets (like TablePlus does)
+    if let Some(limit) = detected_limit {
+        if limit <= limit_threshold {
+            tracing::info!("==========================================");
+            tracing::info!("FAST PATH (single fetch): sql={}", sql);
+            tracing::info!("Detected LIMIT {}, using execute_single_fetch", limit);
+            tracing::info!("==========================================");
+            
+            return execute_single_fetch_stream(&sql, &channel, &conn).await;
+        }
+    }
+    
+    // Use cursor streaming for large datasets
+    let max_batch_size = batch_size.unwrap_or(1024);
+
+    tracing::info!("==========================================");
+    tracing::info!("CURSOR STREAM (progressive): sql={}", sql);
+    tracing::info!("Strategy: 16→32→64→128→256→512→{}(max)", max_batch_size);
+    tracing::info!("==========================================");
 
     // Open cursor (BEGIN + DECLARE CURSOR)
     let cursor_start = std::time::Instant::now();
@@ -849,4 +990,52 @@ pub async fn enable_disable_trigger(
         .enable_disable_trigger(&schema, &table, &trigger_name, enabled)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Pre-warm statement cache by preparing a query in background
+/// This is fire-and-forget, errors are logged but not returned to caller
+/// Used to eliminate cold start delays on first query execution
+#[tauri::command]
+pub async fn prewarm_query(
+    connection_id: String,
+    sql: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<(), String> {
+    // Get connection
+    let conn = manager
+        .get_connection(&connection_id)
+        .ok_or_else(|| {
+            tracing::debug!("Pre-warm failed: connection {} not found", connection_id);
+            "Connection not found".to_string()
+        })?;
+    
+    // Try to get FastPostgresQueryExecutor (PostgreSQL only)
+    let executor = conn.adapter.as_any()
+        .downcast_ref::<crate::adapters::postgres::PostgresAdapter>()
+        .and_then(|adapter| adapter.get_query_executor())
+        .ok_or_else(|| {
+            tracing::debug!("Pre-warm skipped: fast query executor not available");
+            "Fast query executor not available".to_string()
+        })?;
+    
+    // Prepare statement with timeout (10s max)
+    let prepare_result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        executor.prepare_streaming_query(&sql)
+    ).await;
+    
+    match prepare_result {
+        Ok(Ok(_)) => {
+            tracing::info!("✅ Pre-warmed statement: {}", sql);
+            Ok(())
+        }
+        Ok(Err(e)) => {
+            tracing::debug!("Pre-warm failed: {}", e);
+            Err(e.to_string())
+        }
+        Err(_) => {
+            tracing::warn!("Pre-warm timeout after 10s: {}", sql);
+            Err("Statement preparation timeout".to_string())
+        }
+    }
 }

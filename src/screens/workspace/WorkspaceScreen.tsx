@@ -8,6 +8,7 @@ import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import { useSchemaStore } from "@/stores/schemaStore";
 import { usePanelStore } from "@/stores/panelStore";
 import { databaseService } from "@/services/databaseService";
+import { Backend } from "@/services/backend";
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -19,7 +20,8 @@ import { AIAssistantSidebar } from "@/components/AIAssistant/AIAssistantSidebar"
 
 export function WorkspaceScreen() {
   const { connectionId } = useParams<{ connectionId: string }>();
-  const { toggleSidebar, initWorkspace, getSidebars } = useWorkspaceScreenStore();
+  const { toggleSidebar, initWorkspace, getSidebars } =
+    useWorkspaceScreenStore();
   const sidebars = getSidebars();
   const { loadSchemas } = useSchemaStore();
   const { initialize: initializePanels } = usePanelStore();
@@ -41,6 +43,13 @@ export function WorkspaceScreen() {
       void databaseService
         .connectById(connectionId)
         .then(() => {
+          // Minimal pre-warming: Prepare tiny queries to "prime" the statement cache
+          // These run in ~15ms total and eliminate cold start on first real query
+          Backend.prewarmQuery(connectionId, "SELECT 1").catch(() => {});
+          Backend.prewarmQuery(connectionId, "SELECT current_database()").catch(
+            () => {},
+          );
+
           // Load schemas after successful connection
           return loadSchemas(connectionId);
         })
@@ -74,6 +83,7 @@ export function WorkspaceScreen() {
       <WorkspaceTitleBar
         connectionId={connectionId}
         onToggleSidebar={toggleSidebar}
+        isConnecting={isLoading}
       />
 
       {/* Main Content Area */}

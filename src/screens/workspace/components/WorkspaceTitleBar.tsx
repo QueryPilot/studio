@@ -58,11 +58,13 @@ import useWorkbenchStore from "@/stores/workbenchStore";
 interface WorkspaceTitleBarProps {
   connectionId: string;
   onToggleSidebar: (side: "left" | "right") => void;
+  isConnecting?: boolean;
 }
 
 export function WorkspaceTitleBar({
   connectionId,
   onToggleSidebar,
+  isConnecting: isInitiallyConnecting = false,
 }: WorkspaceTitleBarProps) {
   const { connections, loadConnections } = useConnectionStore();
   const connection = connections.find((c) => c.id === connectionId);
@@ -72,8 +74,11 @@ export function WorkspaceTitleBar({
   const [serverVersion, setServerVersion] = useState<string | null>(null);
   const [connectionHealth, setConnectionHealth] =
     useState<ConnectionHealth | null>(null);
-  const [isConnecting, setIsConnecting] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
   const { theme, setTheme } = useTheme();
+
+  // Combined connecting state (initial + reconnecting)
+  const isConnecting = isInitiallyConnecting || isReconnecting;
 
   // Load connections if not already loaded
   useEffect(() => {
@@ -161,7 +166,7 @@ export function WorkspaceTitleBar({
   }, []);
 
   const handleReconnect = async () => {
-    setIsConnecting(true);
+    setIsReconnecting(true);
     try {
       try {
         if (databaseService.isConnectionActive(connectionId)) {
@@ -186,7 +191,7 @@ export function WorkspaceTitleBar({
         variant: "destructive",
       });
     } finally {
-      setIsConnecting(false);
+      setIsReconnecting(false);
     }
   };
 
