@@ -22,6 +22,7 @@ argon2 = { version = "0.5", default-features = false, features = ["std"] }
 # Async runtime
 tokio = { version = "1.35", features = ["full"] }
 async-trait = "0.1"
+futures = "0.3"
 
 # PostgreSQL
 tokio-postgres = { version = "0.7", features = [
@@ -54,6 +55,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 regex = "1.10"
 dirs = "5.0"
 rayon = "1.8"  # Parallel processing for row conversion
+moka = { version = "0.12", features = ["sync"] }  # LRU cache for prepared statements
 
 # Security
 keyring = { version = "3.3", features = ["apple-native", "windows-native", "linux-native"] }

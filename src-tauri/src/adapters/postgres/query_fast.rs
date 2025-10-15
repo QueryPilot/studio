@@ -1,5 +1,6 @@
 use dashmap::DashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 use tokio_postgres::{Client, Statement};
 use uuid::Uuid;
@@ -14,6 +15,8 @@ pub struct FastPostgresQueryExecutor {
     active_queries: DashMap<String, QueryState>,
     /// Prepared statement cache: SQL -> Statement (saves ~10-20ms per query)
     statement_cache: DashMap<String, Arc<Statement>>,
+    /// Track concurrent pre-warming operations (rate limiting)
+    prewarm_in_progress: AtomicUsize,
 }
 
 struct QueryState {
@@ -32,6 +35,7 @@ impl FastPostgresQueryExecutor {
             client,
             active_queries: DashMap::new(),
             statement_cache: DashMap::new(),
+            prewarm_in_progress: AtomicUsize::new(0),
         }
     }
 
@@ -90,6 +94,79 @@ impl FastPostgresQueryExecutor {
         Ok((json_rows, columns, fetch_time_ms))
     }
 
+    /// TRUE streaming: Execute query and stream rows as they arrive (like TablePlus)
+    /// Returns statement and columns, caller can then stream rows
+    pub async fn prepare_streaming_query(&self, sql: &str) -> Result<(Arc<tokio_postgres::Statement>, Vec<ColumnMeta>)> {
+        // Deduplication: Check cache first (avoid re-preparing)
+        if let Some(cached) = self.statement_cache.get(sql) {
+            let stmt = cached.value().clone();
+            drop(cached); // Release lock early
+            
+            let columns = stmt
+                .columns()
+                .iter()
+                .map(|col| ColumnMeta {
+                    name: col.name().to_string(),
+                    data_type: PostgresTypeConverter::type_to_cell_type(col.type_()),
+                    nullable: true,
+                    primary_key: false,
+                    db_type: col.type_().name().to_string(),
+                    type_oid: Some(col.type_().oid()),
+                    default_value: None,
+                    comment: None,
+                    enum_values: None,
+                    type_category: None,
+                })
+                .collect::<Vec<_>>();
+
+            tracing::debug!("Statement cache HIT: {}", sql);
+            return Ok((stmt, columns));
+        }
+
+        // Rate limiting: Limit concurrent preparations to 5
+        let in_progress = self.prewarm_in_progress.fetch_add(1, Ordering::Relaxed);
+        if in_progress >= 5 {
+            self.prewarm_in_progress.fetch_sub(1, Ordering::Relaxed);
+            tracing::warn!("Too many concurrent preparations ({}), skipping: {}", in_progress, sql);
+            return Err(AppError::Internal("Too many concurrent statement preparations".to_string()));
+        }
+
+        // Prepare statement
+        let result = async {
+            let stmt = Arc::new(self.client.prepare(sql).await?);
+            self.statement_cache.insert(sql.to_string(), stmt.clone());
+
+            let columns = stmt
+                .columns()
+                .iter()
+                .map(|col| ColumnMeta {
+                    name: col.name().to_string(),
+                    data_type: PostgresTypeConverter::type_to_cell_type(col.type_()),
+                    nullable: true,
+                    primary_key: false,
+                    db_type: col.type_().name().to_string(),
+                    type_oid: Some(col.type_().oid()),
+                    default_value: None,
+                    comment: None,
+                    enum_values: None,
+                    type_category: None,
+                })
+                .collect::<Vec<_>>();
+
+            tracing::debug!("Statement cache MISS, prepared: {}", sql);
+            Ok((stmt, columns))
+        }.await;
+
+        // Decrement counter
+        self.prewarm_in_progress.fetch_sub(1, Ordering::Relaxed);
+        result
+    }
+
+    /// Get the underlying client for streaming queries
+    pub fn get_client(&self) -> Arc<Client> {
+        self.client.clone()
+    }
+
     pub async fn open_query(&self, sql: &str) -> Result<QueryHandle> {
         let handle_id = Uuid::new_v4().to_string();
         let cursor_name = format!("cursor_{}", handle_id.replace("-", "_"));
@@ -122,16 +199,17 @@ impl FastPostgresQueryExecutor {
             })
             .collect::<Vec<_>>();
 
-        // STEP 2: BEGIN transaction (REQUIRED for DECLARE CURSOR)
-        self.client.execute("BEGIN", &[]).await?;
-
-        // STEP 3: DECLARE CURSOR for streaming (avoids LIMIT/OFFSET re-execution)
+        // STEP 2+3: BEGIN + DECLARE CURSOR in single batch (saves 1 round-trip = 400-700ms)
         let sql_trimmed = sql.trim().trim_end_matches(';');
-        let declare_sql = format!("DECLARE {} NO SCROLL CURSOR FOR {}", cursor_name, sql_trimmed);
+        let batch_sql = format!(
+            "BEGIN;\nDECLARE {} NO SCROLL CURSOR FOR {}",
+            cursor_name, sql_trimmed
+        );
 
-        // If DECLARE fails, rollback transaction
-        if let Err(e) = self.client.execute(&declare_sql, &[]).await {
-            let _ = self.client.execute("ROLLBACK", &[]).await;
+        // If batch fails, try to rollback to clean up any partial transaction state
+        if let Err(e) = self.client.batch_execute(&batch_sql).await {
+            // Attempt rollback to recover connection (ignore errors - connection might already be bad)
+            let _ = self.client.batch_execute("ROLLBACK").await;
             return Err(e.into());
         }
 

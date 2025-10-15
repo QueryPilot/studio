@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { usePanelStore } from "@/stores/panelStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { type TableMeta, type FunctionMeta } from "@/services/databaseService";
+import { Backend } from "@/services/backend";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { safeListen } from "@/utils/tauri";
@@ -344,15 +345,41 @@ export function DatabaseSidebar({
     );
   };
 
-  if (initialLoading) {
+  // Show loading skeleton during initial connection or when actively loading schema data
+  const showLoadingSkeleton =
+    initialLoading || (isLoadingData && selectedSchema);
+
+  if (showLoadingSkeleton) {
     return (
-      <div className="flex flex-col h-full p-2 space-y-2">
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-8 w-full" />
-        <div className="space-y-2">
-          <Skeleton className="h-6 w-full" />
-          <Skeleton className="h-6 w-full" />
-          <Skeleton className="h-6 w-full" />
+      <div className="flex flex-col h-full p-2 space-y-3">
+        {/* Search bar skeleton */}
+        <Skeleton className="h-7 w-full" />
+
+        {/* Tables section skeleton */}
+        <div className="space-y-1">
+          <Skeleton className="h-6 w-24" />
+          <div className="ml-2 space-y-1">
+            <Skeleton className="h-5 w-full" />
+            <Skeleton className="h-5 w-full" />
+            <Skeleton className="h-5 w-full" />
+          </div>
+        </div>
+
+        {/* Views section skeleton */}
+        <div className="space-y-1">
+          <Skeleton className="h-6 w-20" />
+          <div className="ml-2 space-y-1">
+            <Skeleton className="h-5 w-full" />
+            <Skeleton className="h-5 w-full" />
+          </div>
+        </div>
+
+        {/* Functions section skeleton */}
+        <div className="space-y-1">
+          <Skeleton className="h-6 w-28" />
+          <div className="ml-2 space-y-1">
+            <Skeleton className="h-5 w-full" />
+          </div>
         </div>
       </div>
     );

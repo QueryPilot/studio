@@ -76,6 +76,13 @@ impl PostgresAdapter {
             config.password(password);
         }
 
+        // TCP optimizations: Reduce network latency and improve responsiveness
+        use std::time::Duration;
+        config.tcp_user_timeout(Duration::from_secs(60));
+        config.connect_timeout(Duration::from_secs(10));
+        config.keepalives(true);
+        config.keepalives_idle(Duration::from_secs(30));
+
         // Add additional options
         for (key, value) in &profile.options {
             config.options(&format!("{}={}", key, value));

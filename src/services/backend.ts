@@ -412,7 +412,19 @@ export class BackendAPI {
   ): Promise<number> {
     return invoke("get_table_count", { connId, schema, table });
   }
+
+  /**
+   * Pre-warm statement cache by preparing a query in background
+   * Fire-and-forget operation to eliminate cold start delays
+   * Errors are logged but not propagated to caller
+   */
+  static async prewarmQuery(connectionId: string, sql: string): Promise<void> {
+    return invoke("prewarm_query", { connectionId, sql });
+  }
 }
+
+// Alias for convenience (matches naming convention in other parts of codebase)
+export const Backend = BackendAPI;
 
 // REMOVED: Legacy helper functions for old CellValue interface
 // The new CellValue is a primitive type union (null | boolean | number | string | array | object)

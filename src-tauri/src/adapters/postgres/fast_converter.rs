@@ -201,7 +201,20 @@ impl FastPostgresConverter {
         }
     }
 
+    /// Convert a single Row to Vec<JsonValue> (for streaming)
+    pub fn convert_row(row: &Row) -> Result<Vec<JsonValue>> {
+        let mut json_row = Vec::with_capacity(row.len());
+        for idx in 0..row.len() {
+            match Self::row_to_json(row, idx) {
+                Ok(val) => json_row.push(val),
+                Err(_) => json_row.push(JsonValue::Null),
+            }
+        }
+        Ok(json_row)
+    }
+
     /// Batch convert multiple rows to JSON (parallelized for performance)
+
     pub fn rows_to_json(rows: &[Row]) -> Result<Vec<Vec<JsonValue>>> {
         // Use parallel iterator for multi-core speedup (4-8x faster)
         // Each row is converted independently across CPU cores

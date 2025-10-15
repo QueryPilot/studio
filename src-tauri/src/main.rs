@@ -112,6 +112,7 @@ fn main() {
             commands::get_object_definition,
             commands::get_table_count,
             commands::stream_query,
+            commands::prewarm_query,
             commands::get_connection_health,
             commands::ping,
             ai::commands::create_ai_session,
