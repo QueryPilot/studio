@@ -421,6 +421,18 @@ export class BackendAPI {
   static async prewarmQuery(connectionId: string, sql: string): Promise<void> {
     return invoke("prewarm_query", { connectionId, sql });
   }
+
+  /**
+   * Pre-warm schema tables after schema loads (smart table pre-warming)
+   * Only pre-warms first 3-5 tables based on schema size
+   */
+  static async prewarmSchemaTables(
+    connectionId: string,
+    schema: string,
+    tables: string[],
+  ): Promise<void> {
+    return invoke("prewarm_schema_tables", { connectionId, schema, tables });
+  }
 }
 
 // Alias for convenience (matches naming convention in other parts of codebase)

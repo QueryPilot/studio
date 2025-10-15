@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::ops::Deref;
 use tokio_postgres::Client;
 
 use super::parser::quote_index_definition;
@@ -8,11 +9,32 @@ use crate::types::*;
 
 pub struct PostgresIntrospector {
     client: Arc<Client>,
+    #[allow(dead_code)]
+    pooled_client: Option<deadpool_postgres::Object>,
 }
 
 impl PostgresIntrospector {
     pub fn new(client: Arc<Client>) -> Self {
-        Self { client }
+        Self { 
+            client,
+            pooled_client: None,
+        }
+    }
+
+    pub fn new_with_pooled(pooled: deadpool_postgres::Object) -> Self {
+        // Clone the client reference from the pooled connection
+        // The pooled connection is stored to keep it alive
+        let client_ref: &Client = pooled.deref();
+        // SAFETY: We store pooled_client to keep the connection alive
+        // as long as this introspector exists
+        let client = unsafe {
+            Arc::new(std::ptr::read(client_ref as *const Client))
+        };
+        
+        Self {
+            client,
+            pooled_client: Some(pooled),
+        }
     }
 
     /// Convert PostgreSQL type names to their shorthand forms

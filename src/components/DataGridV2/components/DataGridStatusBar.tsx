@@ -40,8 +40,12 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
     return Math.min(Math.round((loadedRows / estimatedTotal) * 100), 99);
   };
 
-  const showProgress =
+  // Show progress bar ONLY when we have estimatedTotal (table browsing)
+  // For queries, we don't pass estimatedTotal, so only spinner shows (no flashing)
+  const showProgressBar =
     isStreaming && estimatedTotal && estimatedTotal > loadedRows;
+
+  const showStreamingSpinner = isStreaming && !showProgressBar;
 
   return (
     <div
@@ -63,7 +67,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
         )}
       </div>
       <div className="flex items-center gap-2">
-        {showProgress && (
+        {showProgressBar && (
           <>
             <Loader2 className="h-3 w-3 animate-spin" />
             <span className="text-primary">
@@ -75,6 +79,13 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
                 style={{ width: `${getProgressPercentage()}%` }}
               />
             </div>
+            <span className="text-muted-foreground">•</span>
+          </>
+        )}
+        {showStreamingSpinner && (
+          <>
+            <Loader2 className="h-3 w-3 animate-spin text-primary" />
+            <span className="text-primary">Streaming...</span>
             <span className="text-muted-foreground">•</span>
           </>
         )}

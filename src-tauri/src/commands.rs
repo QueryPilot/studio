@@ -483,11 +483,13 @@ async fn execute_single_fetch_stream(
         estimated_rows: None, // Unknown until we start fetching
     });
     
-    // Get client for raw streaming
-    let client = executor.get_client();
+    // Get pool for raw streaming
+    let pool = executor.get_pool();
     
     // Execute query with TRUE streaming - rows arrive as PostgreSQL sends them
-    let row_stream = client.query_raw(stmt.as_ref(), std::iter::empty::<i32>())
+    let conn = pool.get().await
+        .map_err(|e| format!("Failed to get connection from pool: {}", e))?;
+    let row_stream = conn.query_raw(stmt.as_ref(), std::iter::empty::<i32>())
         .await
         .map_err(|e| e.to_string())?;
     
@@ -990,6 +992,30 @@ pub async fn enable_disable_trigger(
         .enable_disable_trigger(&schema, &table, &trigger_name, enabled)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Pre-warm schema tables after schema loads (smart table pre-warming)
+#[tauri::command]
+pub async fn prewarm_schema_tables(
+    connection_id: String,
+    schema: String,
+    tables: Vec<String>,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<(), String> {
+    let conn = manager
+        .get_connection(&connection_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+    
+    // Try to get PostgresAdapter
+    if let Some(postgres_adapter) = conn.adapter.as_any()
+        .downcast_ref::<crate::adapters::postgres::PostgresAdapter>()
+    {
+        postgres_adapter.prewarm_tables(&schema, tables)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    
+    Ok(())
 }
 
 /// Pre-warm statement cache by preparing a query in background
