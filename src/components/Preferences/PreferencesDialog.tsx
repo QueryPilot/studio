@@ -1,89 +1,70 @@
-import { useEffect, lazy, Suspense } from "react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { usePreferencesStore } from "@/stores/preferencesStore";
-import { PreferencesSidebar } from "./PreferencesSidebar";
-import { Loader2 } from "lucide-react";
 
-const categoryPanels = {
-  general: lazy(() => import("./panels/GeneralPanel")),
-  editor: lazy(() => import("./panels/EditorPanel")),
-  shortcuts: lazy(() => import("./panels/ShortcutsPanel")),
-  globalShortcuts: lazy(() => import("./panels/GlobalShortcutsPanel").then(m => ({ default: m.GlobalShortcutsPanel }))),
-};
+interface PreferencesDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
 
-export function PreferencesDialog() {
-  const { isOpen, close, activeCategory, unsavedChanges } =
-    usePreferencesStore();
-
-  const handleClose = () => {
-    if (unsavedChanges) {
-      const confirmed = confirm(
-        "You have unsaved changes. Are you sure you want to close?",
-      );
-      if (!confirmed) return;
-    }
-    close();
-  };
-
-  const handleSave = () => {
-    // Save logic will be implemented in each panel
-    close();
-  };
-
-  const handleReset = () => {
-    const confirmed = confirm(
-      "Are you sure you want to reset all settings to defaults?",
-    );
-    if (!confirmed) return;
-    // Reset logic to be implemented
-  };
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isOpen) {
-        handleClose();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isOpen, unsavedChanges]);
-
-  const PanelComponent = categoryPanels[activeCategory];
+export function PreferencesDialog({
+  open,
+  onOpenChange,
+}: PreferencesDialogProps) {
+  const { smartQueryLimit, setSmartQueryLimit } = usePreferencesStore();
+  const limits = [100, 1000, 5000, 10000, 50000, 100000];
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="min-w-[80vw] max-w-[95vw] max-h-[85vh] p-0 overflow-hidden">
-        <div className="flex h-[700px]">
-          <PreferencesSidebar />
-          <div className="flex-1 flex flex-col min-w-0">
-            <div className="flex-1 overflow-y-auto p-6">
-              <Suspense
-                fallback={
-                  <div className="flex items-center justify-center h-full">
-                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                  </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[500px]">
+        <DialogHeader>
+          <DialogTitle>Preferences</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label htmlFor="query-limit">Default Query Limit</Label>
+            <p className="text-xs text-muted-foreground">
+              Automatically limit queries without LIMIT clause to prevent
+              accidentally fetching too many rows
+            </p>
+            <Select
+              value={smartQueryLimit?.toString() ?? "null"}
+              onValueChange={(value) => {
+                if (value === "null") {
+                  setSmartQueryLimit(null);
+                } else {
+                  setSmartQueryLimit(Number(value));
                 }
-              >
-                <PanelComponent />
-              </Suspense>
-            </div>
-            <div className="flex items-center justify-between px-6 py-4 border-t bg-background">
-              <Button variant="outline" onClick={handleReset}>
-                Reset to Defaults
-              </Button>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" onClick={handleClose}>
-                  Cancel
-                </Button>
-                <Button onClick={handleSave} disabled={!unsavedChanges}>
-                  Save
-                </Button>
-              </div>
-            </div>
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {limits.map((limit) => (
+                  <SelectItem key={limit} value={limit.toString()}>
+                    {limit.toLocaleString()} rows
+                  </SelectItem>
+                ))}
+                <SelectItem value="null">No limit (not recommended)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Default: 10,000 rows. Use "No limit" with caution on large tables.
+            </p>
           </div>
         </div>
       </DialogContent>

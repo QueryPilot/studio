@@ -3,14 +3,14 @@ import { QueryEditor } from "./QueryEditor";
 import { ResultViewer } from "./ResultViewer";
 import { QueryHistory } from "./QueryHistory";
 import { SavedQueries } from "./SavedQueries";
-import { Button } from "@/components/ui/button";
+import { QueryToolbar } from "./QueryToolbar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ResizablePanelGroup,
   ResizablePanel,
   ResizableHandle,
 } from "@/components/ui/resizable";
-import { Play, StopCircle, History, Star } from "lucide-react";
+import { History, Star } from "lucide-react";
 import { toast } from "sonner";
 
 import { streamingTableService } from "@/services/streamingTableService";
@@ -26,6 +26,7 @@ import {
   useSyncEditorState,
 } from "@/services/keyboard/integration/storeIntegration";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { usePreferencesStore } from "@/stores/preferencesStore";
 import type { ColumnMeta } from "@/types/database";
 
 interface QueryPanelProps {
@@ -66,6 +67,15 @@ export const QueryPanel = memo(function QueryPanel({
     useState<AbortController | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [hasSelection] = useState(false);
+  const [appliedLimit, setAppliedLimit] = useState<{
+    originalSql: string;
+    limit: number;
+  } | null>(null);
+  const [viewMode, setViewMode] = useState<"table" | "json">("table");
+
+  const smartQueryLimit = usePreferencesStore(
+    (state) => state.smartQueryLimit as number | null,
+  );
   const updateTabMetadata = useWorkbenchStore(
     (state) => state.updateTabMetadata,
   );
@@ -126,8 +136,13 @@ export const QueryPanel = memo(function QueryPanel({
         let rafId: number | undefined;
 
         // Throttle updates using requestAnimationFrame
-        const scheduleUpdate = () => {
-          if (rafId !== undefined) return; // Already scheduled
+        const scheduleUpdate = (force = false) => {
+          if (!force && rafId !== undefined) return; // Already scheduled
+
+          if (rafId !== undefined && force) {
+            cancelAnimationFrame(rafId);
+            rafId = undefined;
+          }
 
           rafId = requestAnimationFrame(() => {
             rafId = undefined;
@@ -175,23 +190,30 @@ export const QueryPanel = memo(function QueryPanel({
           (err) => {
             toast.error(err.message || "Stream error");
           },
+          smartQueryLimit ?? undefined, // Convert null to undefined for backend
+          (originalSql, appliedLimit) => {
+            setAppliedLimit({ originalSql, limit: appliedLimit });
+          },
         );
 
         const final = await streamPromise;
 
-        // Cancel any pending animation frame
+        // Cancel any pending animation frame - we'll do immediate final update
         if (rafId !== undefined) {
           cancelAnimationFrame(rafId);
+          rafId = undefined;
         }
 
         // Use backend's actual database execution time, not frontend timer
         executionTime = final.executionTimeMs ?? 0;
 
-        // Final update with all rows and execution time
+        // CRITICAL: Direct state update (bypass RAF) to ensure ALL rows are immediately visible
+        // This fixes the issue where RAF throttling could cause the last batch to not render
+        // Create new array reference to force React re-render
         setResult({
           columns: currentColumns,
           columnMeta: currentColumnMeta,
-          rows: accumulatedRows,
+          rows: [...accumulatedRows], // New array reference forces React to detect change
           rowCount: final.totalRows ?? accumulatedRows.length,
           executionTime,
         });
@@ -262,7 +284,7 @@ export const QueryPanel = memo(function QueryPanel({
         }
       }
     },
-    [query, connectionId, database],
+    [query, connectionId, database, smartQueryLimit],
   );
 
   const handleCancel = useCallback(() => {
@@ -376,65 +398,23 @@ export const QueryPanel = memo(function QueryPanel({
                   />
                 </ResizablePanel>
 
-                {/* Toolbar - Compact and cozy */}
-                <div className="flex items-center justify-end gap-1 px-2 py-1 border-y bg-muted/20 flex-shrink-0">
-                  <Button
-                    size="sm"
-                    variant={isExecuting ? "destructive" : "default"}
-                    onClick={isExecuting ? handleCancel : () => handleExecute()}
-                    disabled={!query.trim() && !isExecuting}
-                    className="h-7 text-xs"
-                    title={
-                      isExecuting
-                        ? "Cancel execution"
-                        : executeHint
-                        ? `Execute query (${executeHint})`
-                        : "Execute query"
-                    }
-                  >
-                    {isExecuting ? (
-                      <>
-                        <StopCircle className="h-3.5 w-3.5 mr-1" />
-                        Cancel
-                      </>
-                    ) : (
-                      <>
-                        <Play className="h-3.5 w-3.5 mr-1" />
-                        Execute
-                      </>
-                    )}
-                  </Button>
-
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={handleBeautify}
-                    disabled={isExecuting || !query.trim()}
-                    className="h-7 text-xs"
-                    title={
-                      beautifyHint
-                        ? `Format SQL (${beautifyHint})`
-                        : "Format SQL"
-                    }
-                  >
-                    Beautify
-                  </Button>
-
-                  <div className="w-px h-4 bg-border mx-1" />
-
-                  <Button
-                    size="sm"
-                    variant={showHistory ? "secondary" : "ghost"}
-                    onClick={() => {
-                      setShowHistory(!showHistory);
-                    }}
-                    className="h-7 text-xs"
-                    title="Toggle history panel (⌥+H)"
-                  >
-                    <History className="h-3.5 w-3.5 mr-1" />
-                    History
-                  </Button>
-                </div>
+                {/* Toolbar */}
+                <QueryToolbar
+                  isExecuting={isExecuting}
+                  query={query}
+                  showHistory={showHistory}
+                  viewMode={viewMode}
+                  appliedLimit={appliedLimit?.limit}
+                  executeHint={executeHint}
+                  beautifyHint={beautifyHint}
+                  onExecute={() => handleExecute()}
+                  onCancel={handleCancel}
+                  onBeautify={handleBeautify}
+                  onToggleHistory={() => {
+                    setShowHistory(!showHistory);
+                  }}
+                  onViewModeChange={setViewMode}
+                />
 
                 {/* Results */}
                 <ResizablePanel defaultSize={50} minSize={20}>
@@ -446,6 +426,7 @@ export const QueryPanel = memo(function QueryPanel({
                     database={database}
                     height="100%"
                     gridId={queryGridId}
+                    viewMode={viewMode}
                   />
                 </ResizablePanel>
               </ResizablePanelGroup>

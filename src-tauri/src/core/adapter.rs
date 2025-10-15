@@ -13,13 +13,8 @@ pub trait DbAdapter: Send + Sync {
     async fn test_connection(&self) -> Result<ConnectionTestResult>;
     async fn is_connected(&self) -> bool;
 
-    // Query execution with streaming
-    async fn open_query(&self, sql: &str) -> Result<QueryHandle>;
-    async fn fetch_page(&self, handle: &QueryHandle, max_rows: usize) -> Result<PageChunk>;
-    async fn close_query(&self, handle: &QueryHandle) -> Result<()>;
-    async fn cancel_query(&self, handle: &QueryHandle) -> Result<()>;
-
-    // Simple query execution (for DDL, etc)
+    // Query execution
+    async fn query(&self, sql: &str) -> Result<QueryResult>;
     async fn execute(&self, sql: &str) -> Result<u64>;
 
     // Complete introspection

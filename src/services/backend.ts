@@ -265,6 +265,7 @@ export type StreamEvent =
 
 // NEW: Channel-based streaming (matches Rust StreamMessage enum)
 export type StreamMessage =
+  | { type: "limitApplied"; original_sql: string; applied_limit: number }
   | { type: "started"; columns: ColumnMeta[]; estimated_rows?: number }
   | { type: "batch"; rows: CellValue[][]; row_offset: number }
   | { type: "success"; total_rows: number; execution_time_ms: number }

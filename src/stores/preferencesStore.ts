@@ -1,44 +1,19 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type PreferenceCategory = "general" | "editor" | "shortcuts" | "globalShortcuts" | "ai";
-
 interface PreferencesState {
-  isOpen: boolean;
-  activeCategory: PreferenceCategory;
-  unsavedChanges: boolean;
-
-  // Actions
-  open: () => void;
-  close: () => void;
-  setActiveCategory: (category: PreferenceCategory) => void;
-  setUnsavedChanges: (hasChanges: boolean) => void;
+  smartQueryLimit: number | null; // null = no auto-limit, number = apply limit
+  setSmartQueryLimit: (limit: number | null) => void;
 }
-
 
 export const usePreferencesStore = create<PreferencesState>()(
   persist(
     (set) => ({
-      isOpen: false,
-      activeCategory: "general",
-      unsavedChanges: false,
-
-      open: () => {
-        set({ isOpen: true });
-      },
-      close: () => {
-        set({ isOpen: false, unsavedChanges: false });
-      },
-
-      setActiveCategory: (category) => {
-        set({ activeCategory: category });
-      },
-      setUnsavedChanges: (hasChanges) => {
-        set({ unsavedChanges: hasChanges });
-      },
+      smartQueryLimit: 10000, // Default: 10000 rows
+      setSmartQueryLimit: (limit) => set({ smartQueryLimit: limit }),
     }),
     {
-      name: "preferences-store",
+      name: "devdb-preferences",
     },
   ),
 );

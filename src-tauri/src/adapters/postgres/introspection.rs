@@ -8,33 +8,19 @@ use crate::error::{AppError, Result};
 use crate::types::*;
 
 pub struct PostgresIntrospector {
-    client: Arc<Client>,
-    #[allow(dead_code)]
-    pooled_client: Option<deadpool_postgres::Object>,
+    pool: deadpool_postgres::Pool, // Use pool instead of holding single connection
 }
 
 impl PostgresIntrospector {
-    pub fn new(client: Arc<Client>) -> Self {
-        Self { 
-            client,
-            pooled_client: None,
-        }
+    pub fn new_with_pool(pool: deadpool_postgres::Pool) -> Self {
+        Self { pool }
     }
-
-    pub fn new_with_pooled(pooled: deadpool_postgres::Object) -> Self {
-        // Clone the client reference from the pooled connection
-        // The pooled connection is stored to keep it alive
-        let client_ref: &Client = pooled.deref();
-        // SAFETY: We store pooled_client to keep the connection alive
-        // as long as this introspector exists
-        let client = unsafe {
-            Arc::new(std::ptr::read(client_ref as *const Client))
-        };
-        
-        Self {
-            client,
-            pooled_client: Some(pooled),
-        }
+    
+    /// Get a fresh connection from pool for introspection operations
+    /// This prevents using stale connections after idle timeout
+    async fn get_client(&self) -> Result<deadpool_postgres::Object> {
+        self.pool.get().await
+            .map_err(|e| AppError::Internal(format!("Failed to get connection for introspection: {}", e)))
     }
 
     /// Convert PostgreSQL type names to their shorthand forms
@@ -78,7 +64,8 @@ impl PostgresIntrospector {
             ORDER BY datname
         "#;
 
-        let rows = self.client.query(sql, &[]).await?;
+        let client = self.get_client().await?;
+        let rows = client.query(sql, &[]).await?;
 
         let databases = rows
             .iter()
@@ -106,7 +93,8 @@ impl PostgresIntrospector {
             ORDER BY nspname
         "#;
 
-        let rows = self.client.query(sql, &[]).await?;
+        let client = self.get_client().await?;
+        let rows = client.query(sql, &[]).await?;
 
         let schemas = rows
             .iter()
@@ -141,7 +129,8 @@ impl PostgresIntrospector {
             ORDER BY c.relname
         "#;
 
-        let rows = self.client.query(sql, &[&schema]).await?;
+        let client = self.get_client().await?;
+        let rows = client.query(sql, &[&schema]).await?;
 
         let tables = rows
             .iter()
@@ -184,7 +173,8 @@ impl PostgresIntrospector {
             ORDER BY c.relname
         "#;
 
-        let rows = self.client.query(sql, &[&schema]).await?;
+        let client = self.get_client().await?;
+        let rows = client.query(sql, &[&schema]).await?;
 
         let views = rows
             .iter()
@@ -221,7 +211,8 @@ impl PostgresIntrospector {
             ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid)
         "#;
 
-        let rows = self.client.query(sql, &[&schema]).await?;
+        let client = self.get_client().await?;
+        let rows = client.query(sql, &[&schema]).await?;
 
         let functions = rows
             .iter()
@@ -289,7 +280,8 @@ impl PostgresIntrospector {
             ORDER BY i.relname
         "#;
 
-        let rows = self.client.query(sql, &[&table]).await?;
+        let client = self.get_client().await?;
+        let rows = client.query(sql, &[&table]).await?;
 
         let indexes = rows
             .iter()
@@ -315,7 +307,8 @@ impl PostgresIntrospector {
     pub async fn get_index_usage_stats(&self, table: &str) -> Result<Vec<IndexUsageStats>> {
         // First check PostgreSQL version to see if last_idx_scan is available (PG 16+)
         let version_sql = "SELECT current_setting('server_version_num')::int";
-        let version_row = self.client.query_one(version_sql, &[]).await?;
+        let client = self.get_client().await?;
+        let version_row = client.query_one(version_sql, &[]).await?;
         let version_num: i32 = version_row.get(0);
         let has_last_idx_scan = version_num >= 160000; // PostgreSQL 16.0+
 
@@ -377,7 +370,8 @@ impl PostgresIntrospector {
             "#
         };
 
-        let rows = self.client.query(sql, &[&table]).await?;
+        let client = self.get_client().await?;
+        let rows = client.query(sql, &[&table]).await?;
 
         // Debug logging
         println!(
@@ -463,7 +457,8 @@ impl PostgresIntrospector {
             ORDER BY con.conname
         "#;
 
-        let rows = self.client.query(sql, &[&table]).await?;
+        let client = self.get_client().await?;
+        let rows = client.query(sql, &[&table]).await?;
 
         let constraints = rows
             .iter()
@@ -534,7 +529,8 @@ impl PostgresIntrospector {
             ORDER BY a.attnum
         "#;
 
-        let rows = self.client.query(sql, &[&schema, &table]).await?;
+        let client = self.get_client().await?;
+        let rows = client.query(sql, &[&schema, &table]).await?;
 
         let columns = rows
             .iter()
@@ -625,7 +621,8 @@ impl PostgresIntrospector {
             ORDER BY t.tgname
         "#;
 
-        let rows = self.client.query(sql, &[&schema, &table]).await?;
+        let client = self.get_client().await?;
+        let rows = client.query(sql, &[&schema, &table]).await?;
 
         let triggers = rows
             .iter()
@@ -723,8 +720,8 @@ impl PostgresIntrospector {
             ORDER BY a.attnum
         "#;
 
-        let columns = self
-            .client
+        let client = self.get_client().await?;
+        let columns = client
             .query(columns_sql, &[&schema, &table_name])
             .await?;
 
@@ -769,8 +766,8 @@ impl PostgresIntrospector {
         // Get indexes
         let indexes_sql =
             "SELECT indexdef FROM pg_indexes WHERE schemaname = $1 AND tablename = $2";
-        let indexes = self
-            .client
+        let client = self.get_client().await?;
+        let indexes = client
             .query(indexes_sql, &[&schema, &table_name])
             .await?;
 
@@ -794,8 +791,8 @@ impl PostgresIntrospector {
                 AND contype IN ('f', 'c', 'u')
         "#;
 
-        let constraints = self
-            .client
+        let client = self.get_client().await?;
+        let constraints = client
             .query(constraints_sql, &[&schema, &table_name])
             .await?;
 
@@ -840,8 +837,8 @@ impl PostgresIntrospector {
                 AND n.nspname NOT IN ('pg_catalog', 'information_schema')
         "#;
 
-        let custom_types = self
-            .client
+        let client = self.get_client().await?;
+        let custom_types = client
             .query(custom_types_sql, &[&schema, &table_name])
             .await?;
 
@@ -891,7 +888,8 @@ impl PostgresIntrospector {
             WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'v'
         "#;
 
-        let rows = self.client.query(sql, &[&schema, &view_name]).await?;
+        let client = self.get_client().await?;
+        let rows = client.query(sql, &[&schema, &view_name]).await?;
 
         if rows.is_empty() {
             return Err(AppError::NotFound(format!(
@@ -919,7 +917,8 @@ impl PostgresIntrospector {
             WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'm'
         "#;
 
-        let rows = self.client.query(sql, &[&schema, &view_name]).await?;
+        let client = self.get_client().await?;
+        let rows = client.query(sql, &[&schema, &view_name]).await?;
 
         if rows.is_empty() {
             return Err(AppError::NotFound(format!(
@@ -937,8 +936,8 @@ impl PostgresIntrospector {
         // Get indexes on materialized view
         let indexes_sql =
             "SELECT indexdef FROM pg_indexes WHERE schemaname = $1 AND tablename = $2";
-        let indexes = self
-            .client
+        let client = self.get_client().await?;
+        let indexes = client
             .query(indexes_sql, &[&schema, &view_name])
             .await?;
 
@@ -965,7 +964,8 @@ impl PostgresIntrospector {
             LIMIT 1
         "#;
 
-        let rows = self.client.query(sql, &[&schema, &function_name]).await?;
+        let client = self.get_client().await?;
+        let rows = client.query(sql, &[&schema, &function_name]).await?;
 
         if rows.is_empty() {
             return Err(AppError::NotFound(format!(
@@ -989,7 +989,8 @@ impl PostgresIntrospector {
             LIMIT 1
         "#;
 
-        let rows = self.client.query(sql, &[&schema, &procedure_name]).await?;
+        let client = self.get_client().await?;
+        let rows = client.query(sql, &[&schema, &procedure_name]).await?;
 
         if rows.is_empty() {
             // Try as function if procedure not found (for older PostgreSQL versions)
