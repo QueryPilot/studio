@@ -129,10 +129,6 @@ export async function streamEntityPage(
   const limitReachedByRowCap =
     rowLimit != null && offset >= rowLimit ? true : undefined;
 
-  console.log(
-    `🔷 streamEntityPage: table=${entityName}, offset=${offset}, fetchLimit=${fetchLimit}, limit=${limit}, pageSize=${pageSize}`,
-  );
-
   if (!isTauri()) {
     throw new Error(
       "Table streaming requires the Tauri runtime. Run the desktop shell to stream table data.",
@@ -144,13 +140,13 @@ export async function streamEntityPage(
   }
 
   const sql = buildTableSql(params, fetchLimit, offset);
-  console.log(`🔷 SQL: ${sql}`);
 
   // CRITICAL FIX: Wrap in promise to ensure we only resolve after ALL callbacks complete
   return new Promise<StreamEntityPageResult>((resolve, reject) => {
     let resolvedColumns: ColumnMeta[] | null = columnsHint ?? null;
     const rows: TableDataRow[] = [];
     let executionTimeMs: number | undefined;
+    let estimatedTotal: number | undefined = estimatedTotalHint;
 
     const abortHandler = () => {
       reject(new DOMException("Streaming aborted", "AbortError"));
@@ -159,6 +155,32 @@ export async function streamEntityPage(
     if (signal) {
       signal.addEventListener("abort", abortHandler, { once: true });
     }
+
+    // Fetch estimated total count early for progress reporting (on first page only)
+    const fetchEstimatedTotal = async () => {
+      if (offset === 0 && !estimatedTotal) {
+        try {
+          estimatedTotal = await BackendAPI.getTableCount(
+            connectionId,
+            schema,
+            entityName,
+          );
+          // Notify progress with estimated total immediately
+          if (onProgress) {
+            onProgress({
+              rowsFetched: 0,
+              totalRows: estimatedTotal,
+              started: true,
+            });
+          }
+        } catch (error) {
+          console.warn("Failed to fetch estimated total:", error);
+        }
+      }
+    };
+
+    // Start fetching estimated total in parallel (don't wait for it)
+    void fetchEstimatedTotal();
 
     // Wait for stream to complete
     void queryStreamClient.streamWithCallbacks(
@@ -221,15 +243,15 @@ export async function streamEntityPage(
 
           const mappedRows = mapRowsToTableData(resolvedColumns, rawRows);
           rows.push(...mappedRows);
-          console.log(
-            `🔷 onBatch: added ${mappedRows.length} rows, total in page: ${rows.length}, batch.rowOffset=${batch.rowOffset}`,
-          );
           if (onBatch) {
             onBatch(mappedRows, rows.length - mappedRows.length);
           }
 
           if (onProgress) {
-            onProgress({ rowsFetched: rows.length });
+            onProgress({
+              rowsFetched: rows.length,
+              totalRows: estimatedTotal,
+            });
           }
         },
         onSuccess: (result) => {
@@ -237,7 +259,7 @@ export async function streamEntityPage(
           if (onProgress) {
             onProgress({
               rowsFetched: result.totalRows,
-              totalRows: result.totalRows,
+              totalRows: estimatedTotal ?? result.totalRows,
               executionTimeMs: result.executionTimeMs,
               completed: true,
             });
@@ -250,59 +272,36 @@ export async function streamEntityPage(
             if (rows.length >= expectedRows) {
               clearInterval(pollInterval);
 
-              (async () => {
-                try {
-                  if (signal) {
-                    signal.removeEventListener("abort", abortHandler);
-                  }
-
-                  if (!resolvedColumns) {
-                    resolvedColumns = columnsHint ?? [];
-                  }
-
-                  const limitReached =
-                    (rowLimit != null && offset + rows.length >= rowLimit) ||
-                    limitReachedByRowCap === true;
-                  const hasMoreFromEstimate =
-                    estimatedTotalHint != null
-                      ? offset + rows.length < estimatedTotalHint
-                      : rows.length === fetchLimit;
-                  const hasMore = !limitReached && hasMoreFromEstimate;
-
-                  console.log(
-                    `🔷 Page complete: rows.length=${rows.length}, fetchLimit=${fetchLimit}, hasMore=${hasMore}, offset=${offset}, estimatedTotalHint=${estimatedTotalHint}`,
-                  );
-                  console.log(
-                    `🔷 streamResult.totalRows=${result.totalRows}, accumulated rows.length=${rows.length}`,
-                  );
-
-                  let estimatedTotal: number | undefined;
-                  if (offset === 0) {
-                    try {
-                      estimatedTotal = await BackendAPI.getTableCount(
-                        connectionId,
-                        schema,
-                        entityName,
-                      );
-                      console.log(`🔷 Got table count: ${estimatedTotal}`);
-                    } catch (error) {
-                      console.warn("Failed to fetch estimated total:", error);
-                    }
-                  }
-
-                  resolve({
-                    columns: resolvedColumns,
-                    rows,
-                    hasMore,
-                    estimatedTotal,
-                    executionTimeMs,
-                  });
-                } catch (error) {
-                  reject(
-                    error instanceof Error ? error : new Error(String(error)),
-                  );
+              try {
+                if (signal) {
+                  signal.removeEventListener("abort", abortHandler);
                 }
-              })();
+
+                if (!resolvedColumns) {
+                  resolvedColumns = columnsHint ?? [];
+                }
+
+                const limitReached =
+                  (rowLimit != null && offset + rows.length >= rowLimit) ||
+                  limitReachedByRowCap === true;
+                const hasMoreFromEstimate =
+                  estimatedTotal != null
+                    ? offset + rows.length < estimatedTotal
+                    : rows.length === fetchLimit;
+                const hasMore = !limitReached && hasMoreFromEstimate;
+
+                resolve({
+                  columns: resolvedColumns,
+                  rows,
+                  hasMore,
+                  estimatedTotal,
+                  executionTimeMs,
+                });
+              } catch (error) {
+                reject(
+                  error instanceof Error ? error : new Error(String(error)),
+                );
+              }
             }
           }, 10);
 

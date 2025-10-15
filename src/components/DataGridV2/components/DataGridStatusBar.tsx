@@ -1,5 +1,6 @@
 import { memo } from "react";
 import { cn } from "@/lib/utils";
+import { Loader2 } from "lucide-react";
 
 interface DataGridStatusBarProps {
   loadedRows: number;
@@ -9,6 +10,7 @@ interface DataGridStatusBarProps {
   className?: string;
   pendingEdits?: number;
   executionTime?: number;
+  isStreaming?: boolean;
 }
 
 export const DataGridStatusBar = memo(function DataGridStatusBar({
@@ -18,11 +20,12 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   selectedRows = 0,
   pendingEdits = 0,
   executionTime,
+  isStreaming = false,
   className,
 }: DataGridStatusBarProps) {
   const getRowCountDisplay = () => {
     if (estimatedTotal && estimatedTotal > loadedRows) {
-      return `${loadedRows.toLocaleString()} rows (~${estimatedTotal.toLocaleString()} total)`;
+      return `${loadedRows.toLocaleString()} / ${estimatedTotal.toLocaleString()} rows`;
     }
 
     if (hasMore) {
@@ -31,6 +34,14 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
 
     return `${loadedRows.toLocaleString()} rows`;
   };
+
+  const getProgressPercentage = () => {
+    if (!estimatedTotal || estimatedTotal === 0) return 0;
+    return Math.min(Math.round((loadedRows / estimatedTotal) * 100), 99);
+  };
+
+  const showProgress =
+    isStreaming && estimatedTotal && estimatedTotal > loadedRows;
 
   return (
     <div
@@ -51,11 +62,28 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
           </span>
         )}
       </div>
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-2">
+        {showProgress && (
+          <>
+            <Loader2 className="h-3 w-3 animate-spin" />
+            <span className="text-primary">
+              Streaming {getProgressPercentage()}%
+            </span>
+            <div className="w-24 h-1 bg-muted rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary transition-all duration-300 ease-out"
+                style={{ width: `${getProgressPercentage()}%` }}
+              />
+            </div>
+            <span className="text-muted-foreground">•</span>
+          </>
+        )}
         <span>{getRowCountDisplay()}</span>
-        <span className="text-muted-foreground">•</span>
         {executionTime !== undefined && (
-          <span className="text-muted-foreground">{executionTime}ms</span>
+          <>
+            <span className="text-muted-foreground">•</span>
+            <span className="text-muted-foreground">{executionTime}ms</span>
+          </>
         )}
       </div>
     </div>

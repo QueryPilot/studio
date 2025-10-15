@@ -79,6 +79,7 @@ export function useTableDataQuery(
   const queryClient = useQueryClient();
   const abortControllerRef = useRef<AbortController | null>(null);
   const [progress, setProgress] = useState<StreamProgress | null>(null);
+  const isStreamingRef = useRef(false); // Track if currently streaming a page
 
   const queryKey = tableDataQueryKey({
     connectionId,
@@ -188,6 +189,88 @@ export function useTableDataQuery(
       }
 
       try {
+        // Mark as streaming to prevent overlapping page fetches
+        isStreamingRef.current = true;
+
+        // Progressive loading: update cache as batches arrive
+        const accumulatedRows: TableDataRow[] = [];
+        let rafId: number | undefined;
+        let updateScheduled = false;
+
+        const scheduleUpdate = (currentEstimatedTotal?: number) => {
+          if (updateScheduled) return;
+          updateScheduled = true;
+
+          rafId = requestAnimationFrame(() => {
+            updateScheduled = false;
+
+            // Update the cache with partial page data for progressive rendering
+            queryClient.setQueryData<InfiniteData<TableDataPage>>(
+              queryKey,
+              (old) => {
+                // Use the most recent estimated total (from progress or hint)
+                const bestEstimate =
+                  currentEstimatedTotal ?? estimatedTotalHint;
+
+                // CRITICAL: Initialize data structure on first batch if needed
+                if (!old) {
+                  return {
+                    pages: [
+                      {
+                        columns: columnsHint ?? [],
+                        rows: [...accumulatedRows],
+                        hasMore: false, // Mark as false during streaming to prevent auto-fetch
+                        estimatedTotal: bestEstimate,
+                        executionTimeMs: undefined,
+                        offset: currentOffset,
+                      } as TableDataPage,
+                    ],
+                    pageParams: [{ offset: currentOffset }],
+                  };
+                }
+
+                // Find the current page being loaded
+                const pageIndex = old.pages.findIndex(
+                  (p) => p.offset === currentOffset,
+                );
+
+                if (pageIndex === -1) {
+                  // Page doesn't exist yet, add it
+                  return {
+                    pages: [
+                      ...old.pages,
+                      {
+                        columns: columnsHint ?? [],
+                        rows: [...accumulatedRows], // Shallow copy for immutability
+                        hasMore: false, // Mark as false during streaming to prevent auto-fetch
+                        estimatedTotal: bestEstimate,
+                        executionTimeMs: undefined,
+                        offset: currentOffset,
+                      } as TableDataPage,
+                    ],
+                    pageParams: [...old.pageParams, { offset: currentOffset }],
+                  };
+                } else {
+                  // Update existing page - minimize allocations
+                  const newPages = [...old.pages];
+                  const existingPage = newPages[pageIndex];
+                  newPages[pageIndex] = {
+                    ...existingPage,
+                    rows: [...accumulatedRows], // Shallow copy for immutability
+                    hasMore: false, // Keep false during streaming
+                    estimatedTotal:
+                      bestEstimate ?? existingPage?.estimatedTotal,
+                  } as TableDataPage;
+                  return {
+                    ...old,
+                    pages: newPages,
+                  };
+                }
+              },
+            );
+          });
+        };
+
         const pageResult = await streamEntityPage({
           connectionId,
           database,
@@ -204,8 +287,27 @@ export function useTableDataQuery(
           columnsHint,
           estimatedTotalHint,
           signal: controller.signal,
-          onProgress: setProgress,
+          onProgress: (progress) => {
+            setProgress(progress);
+            // Update estimated total if we received it in progress
+            if (progress.totalRows) {
+              estimatedTotalHint = progress.totalRows;
+            }
+          },
+          onBatch: (batchRows, _rowOffset) => {
+            // Accumulate rows - use push for O(1) instead of spread O(n)
+            accumulatedRows.push(...batchRows);
+
+            // Schedule update on next animation frame (throttled)
+            // Pass the current estimated total for progress bar
+            scheduleUpdate(estimatedTotalHint);
+          },
         });
+
+        // Cancel any pending RAF update
+        if (rafId !== undefined) {
+          cancelAnimationFrame(rafId);
+        }
 
         return {
           ...pageResult,
@@ -217,6 +319,8 @@ export function useTableDataQuery(
           offset: currentOffset,
         };
       } finally {
+        // Mark streaming as complete
+        isStreamingRef.current = false;
         abortControllerRef.current = null;
       }
     },
@@ -247,15 +351,9 @@ export function useTableDataQuery(
     initialPageParam: { offset: 0 },
     getNextPageParam: (lastPage) => {
       if (!lastPage.hasMore) {
-        console.log(
-          `🟢 No more pages (lastPage.offset=${lastPage.offset}, rows=${lastPage.rows.length})`,
-        );
         return undefined;
       }
       const nextOffset = lastPage.offset + lastPage.rows.length;
-      console.log(
-        `🟢 Next page: lastPage.offset=${lastPage.offset}, lastPage.rows.length=${lastPage.rows.length}, nextOffset=${nextOffset}`,
-      );
       return { offset: nextOffset };
     },
   });
@@ -283,16 +381,7 @@ export function useTableDataQuery(
       return true;
     });
 
-    const flattened = uniquePages.flatMap((page) => page.rows);
-    console.log(
-      `🟢 Rows flattened: ${uniquePages.length} pages (${infiniteQuery.data.pages.length} total), ${flattened.length} rows`,
-    );
-    uniquePages.forEach((page, i) => {
-      console.log(
-        `  Page ${i}: offset=${page.offset}, rows=${page.rows.length}, hasMore=${page.hasMore}`,
-      );
-    });
-    return flattened;
+    return uniquePages.flatMap((page) => page.rows);
   }, [infiniteQuery.data]);
 
   const columns = useMemo(() => {
@@ -311,12 +400,18 @@ export function useTableDataQuery(
     data: infiniteQuery.data,
     rows,
     columns,
-    status: infiniteQuery.status,
+    status:
+      infiniteQuery.status === "pending" ? "loading" : infiniteQuery.status,
     error: infiniteQuery.error,
     isFetching: infiniteQuery.isFetching,
     isFetchingNextPage: infiniteQuery.isFetchingNextPage,
-    hasNextPage: !!infiniteQuery.hasNextPage,
+    hasNextPage: !!infiniteQuery.hasNextPage && !isStreamingRef.current,
     fetchNextPage: async () => {
+      // Prevent overlapping fetches while streaming
+      if (isStreamingRef.current) {
+        console.log("⚠️ Blocked fetchNextPage - currently streaming");
+        return;
+      }
       await infiniteQuery.fetchNextPage();
     },
     refetch: async () => infiniteQuery.refetch(),

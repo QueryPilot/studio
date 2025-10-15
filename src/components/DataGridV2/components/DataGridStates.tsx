@@ -44,18 +44,42 @@ export const DataGridEmptyState = memo(function DataGridEmptyState({
 
 interface DataGridLoadingIndicatorProps {
   tableWidth?: number;
+  currentRows?: number;
+  estimatedTotal?: number;
+  isStreaming?: boolean;
 }
 
-export const DataGridLoadingIndicator = memo(function DataGridLoadingIndicator(
-  _: DataGridLoadingIndicatorProps,
-) {
+export const DataGridLoadingIndicator = memo(function DataGridLoadingIndicator({
+  currentRows,
+  estimatedTotal,
+  isStreaming = false,
+}: DataGridLoadingIndicatorProps) {
+  const showProgress =
+    currentRows !== undefined && estimatedTotal !== undefined;
+  const percentage = showProgress
+    ? Math.min(Math.round((currentRows / estimatedTotal) * 100), 99)
+    : undefined;
+
   return (
     <div className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t w-full">
-      <div className="flex items-center justify-center py-3">
-        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-        <span className="text-xs text-muted-foreground">
-          Loading more rows...
-        </span>
+      <div className="flex items-center justify-center py-3 gap-3">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">
+            {isStreaming ? "Streaming" : "Loading"}{" "}
+            {showProgress &&
+              `${currentRows.toLocaleString()} / ${estimatedTotal.toLocaleString()} rows`}
+            {percentage !== undefined && ` (${percentage}%)`}
+          </span>
+          {showProgress && (
+            <div className="w-48 h-1 bg-muted rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary transition-all duration-300 ease-out"
+                style={{ width: `${percentage}%` }}
+              />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

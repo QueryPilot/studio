@@ -21,7 +21,6 @@ import { truncateTextToWidth } from "../utils/textUtils";
 import {
   DataGridEmptyState,
   DataGridErrorState,
-  DataGridLoadingIndicator,
 } from "../components/DataGridStates";
 import { DataGridSkeleton } from "../components/DataGridSkeleton";
 import { DataGridStatusBar } from "../components/DataGridStatusBar";
@@ -322,7 +321,7 @@ interface BaseTableDataGridV2Props {
 
 // Table mode - live database connection with editing capabilities
 interface TableModeProps extends BaseTableDataGridV2Props {
-  mode: 'table';
+  mode: "table";
   connectionId: string;
   database: string;
   table: string;
@@ -332,7 +331,7 @@ interface TableModeProps extends BaseTableDataGridV2Props {
 
 // Query mode - static query results, read-only
 interface QueryModeProps extends BaseTableDataGridV2Props {
-  mode: 'query';
+  mode: "query";
   data?: {
     columns: string[];
     columnMeta?: ColumnMeta[];
@@ -360,13 +359,13 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const { toast } = useToast();
 
   // Determine mode and extract mode-specific props
-  const isTableMode = props.mode === 'table';
-  const isQueryMode = props.mode === 'query';
+  const isTableMode = props.mode === "table";
+  const isQueryMode = props.mode === "query";
 
   // Extract table mode props for use throughout component
-  const connectionId = isTableMode ? props.connectionId : '';
-  const database = isTableMode ? props.database : '';
-  const table = isTableMode ? props.table : '';
+  const connectionId = isTableMode ? props.connectionId : "";
+  const database = isTableMode ? props.database : "";
+  const table = isTableMode ? props.table : "";
   const schema = isTableMode ? props.schema : undefined;
   const onActionsChange = isTableMode ? props.onActionsChange : undefined;
 
@@ -378,6 +377,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     entityName: table,
     entityType: "table",
     enabled: isTableMode,
+    pageSize: 300, // Load 300 rows per page for better initial performance
   });
 
   const cancelStream = tableDataQuery.cancelStream;
@@ -400,8 +400,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     tableQueryError instanceof Error
       ? tableQueryError.message
       : typeof tableQueryError === "string"
-        ? tableQueryError
-        : null;
+      ? tableQueryError
+      : null;
 
   const {
     isLoading,
@@ -415,8 +415,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     hasNextPage,
   } = isTableMode
     ? {
-        isLoading:
-          tableDataQuery.status === "loading" && !tableDataQuery.data,
+        isLoading: tableDataQuery.status === "loading" && !tableDataQuery.data,
         isLoadingMore: tableDataQuery.isFetchingNextPage,
         error: tableQueryErrorMessage,
         columns: tableDataQuery.columns,
@@ -434,9 +433,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         hasNextPage: !!tableDataQuery.hasNextPage,
       }
     : {
-        isLoading: isQueryMode ? (props.isLoading ?? false) : false,
+        isLoading: isQueryMode ? props.isLoading ?? false : false,
         isLoadingMore: false,
-        error: isQueryMode ? (props.error ?? null) : null,
+        error: isQueryMode ? props.error ?? null : null,
         columns: queryData?.columnMeta ?? [],
         rows: (queryData?.rows ?? []).map((row) => {
           const rowObj: GridRowModel = {};
@@ -445,8 +444,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             const colMeta = queryData?.columnMeta?.[colIndex];
             rowObj[colName] = {
               value: rawValue,
-              db_type: colMeta?.db_type ?? 'text',
-              value_type: 'Text',
+              db_type: colMeta?.db_type ?? "text",
+              value_type: "Text",
               is_truncated: false,
             } as CellValue;
           });
@@ -463,9 +462,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   // Load full structure (columns only) for table mode to enrich metadata such as enum values
   const { structure: tableStructure } = useTableFullStructure({
-    connectionId: isTableMode ? props.connectionId : '',
-    database: isTableMode ? props.database : '',
-    table: isTableMode ? props.table : '',
+    connectionId: isTableMode ? props.connectionId : "",
+    database: isTableMode ? props.database : "",
+    table: isTableMode ? props.table : "",
     schema: isTableMode ? props.schema : undefined,
     options: {
       includeIndexes: false,
@@ -1522,12 +1521,22 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         }
       }
       // Cmd/Ctrl + Z for undo (table mode only)
-      else if (isEditable && (e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === "z") {
+      else if (
+        isEditable &&
+        (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey &&
+        e.key === "z"
+      ) {
         e.preventDefault();
         history.undo();
       }
       // Cmd/Ctrl + Shift + Z for redo (table mode only)
-      else if (isEditable && (e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "z") {
+      else if (
+        isEditable &&
+        (e.metaKey || e.ctrlKey) &&
+        e.shiftKey &&
+        e.key === "z"
+      ) {
         e.preventDefault();
         history.redo();
       }
@@ -1739,9 +1748,13 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             });
           }}
           onCellEditCommit={isEditable ? handleEditCommit : undefined}
-          onCellEditCancel={isEditable ? () => {
-            setEditingCell(null);
-          } : undefined}
+          onCellEditCancel={
+            isEditable
+              ? () => {
+                  setEditingCell(null);
+                }
+              : undefined
+          }
           onRowAppend={isEditable ? handleRowAppend : undefined}
           onRowDelete={isEditable ? handleRowDelete : undefined}
           onPaste={isEditable ? handlePaste : undefined}
@@ -1762,13 +1775,13 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           getRowThemeOverride={getRowThemeOverride}
           highlightRegions={cellHighlightRegions}
         />
-        {isLoadingMore ? <DataGridLoadingIndicator /> : null}
       </div>
 
       <DataGridStatusBar
         loadedRows={rows.length}
         estimatedTotal={estimatedTotal ?? undefined}
         hasMore={hasNextPage}
+        isStreaming={isLoadingMore}
         selectedRows={selectedRowCount}
         pendingEdits={editingRows.size}
         executionTime={executionTime}
