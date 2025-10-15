@@ -473,15 +473,29 @@ async fn execute_single_fetch_stream(
     // Get pool for raw streaming
     let pool = executor.get_pool();
     
-    // Get connection from pool FIRST - we'll prepare on this same connection
+    // Get connection from pool FIRST
+    let conn_start = std::time::Instant::now();
     let pool_conn = pool.get().await
         .map_err(|e| format!("Failed to get connection from pool: {}", e))?;
+    let conn_elapsed = conn_start.elapsed().as_millis();
+    tracing::info!("  ⏱ Got connection from pool: {}ms", conn_elapsed);
     
-    // Prepare statement on THIS connection (not cached - fresh prepare per connection)
+    // PREPARE statement - this is where the slowness happens on remote connections!
+    let prepare_start = std::time::Instant::now();
     let stmt = pool_conn.prepare(&sql).await
         .map_err(|e| format!("Failed to prepare statement: {}", e))?;
+    let prepare_elapsed = prepare_start.elapsed().as_millis();
+    tracing::info!("  ⏱ PREPARE statement: {}ms ⚠️", prepare_elapsed);
     
-    // Extract column metadata
+    // Execute query with prepared statement
+    let query_start = std::time::Instant::now();
+    let row_stream = pool_conn.query_raw(&stmt, std::iter::empty::<i32>())
+        .await
+        .map_err(|e| e.to_string())?;
+    let exec_elapsed = query_start.elapsed().as_millis();
+    tracing::info!("  ⏱ Started query_raw: {}ms", exec_elapsed);
+    
+    // Extract column metadata from prepared statement
     let columns = stmt
         .columns()
         .iter()
@@ -499,17 +513,11 @@ async fn execute_single_fetch_stream(
         })
         .collect::<Vec<_>>();
     
-    // Send started message immediately
+    // Send column metadata immediately
     let _ = channel.send(StreamMessage::Started {
         columns: columns.clone(),
-        estimated_rows: None, // Unknown until we start fetching
+        estimated_rows: None,
     });
-    
-    // Execute query with TRUE streaming - rows arrive as PostgreSQL sends them
-    // Using the SAME connection we prepared on
-    let row_stream = pool_conn.query_raw(&stmt, std::iter::empty::<i32>())
-        .await
-        .map_err(|e| e.to_string())?;
     
     let mut row_stream = Box::pin(row_stream);
     
@@ -535,7 +543,7 @@ async fn execute_single_fetch_stream(
                 if first_row_elapsed_ms.is_none() {
                     let elapsed = query_start.elapsed().as_millis() as u64;
                     first_row_elapsed_ms = Some(elapsed);
-                    tracing::info!("  First row arrived in {}ms", elapsed);
+                    tracing::info!("  ⏱ First row arrived: {}ms", elapsed);
                 }
                 
                 row_buffer.push(row);
@@ -961,17 +969,31 @@ pub async fn prewarm_schema_tables(
     tables: Vec<String>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<(), String> {
+    tracing::debug!("prewarm_schema_tables called: connection_id={}, schema={}, table_count={}", 
+        connection_id, schema, tables.len());
+    
     let conn = manager
         .get_connection(&connection_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
+        .ok_or_else(|| {
+            let err = format!("Connection not found: {}", connection_id);
+            tracing::warn!("{}", err);
+            err
+        })?;
     
     // Try to get PostgresAdapter
     if let Some(postgres_adapter) = conn.adapter.as_any()
         .downcast_ref::<crate::adapters::postgres::PostgresAdapter>()
     {
+        tracing::debug!("Calling prewarm_tables for schema: {}", schema);
         postgres_adapter.prewarm_tables(&schema, tables)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                let err_msg = format!("Pre-warming failed: {}", e);
+                tracing::warn!("{}", err_msg);
+                err_msg
+            })?;
+    } else {
+        tracing::debug!("Not a PostgreSQL connection, skipping pre-warming");
     }
     
     Ok(())

@@ -34,14 +34,57 @@ export const QueryToolbar = memo(function QueryToolbar({
   onViewModeChange,
 }: QueryToolbarProps) {
   return (
-    <div className="flex items-center justify-between gap-1 px-2 py-1 border-y bg-muted/20 flex-shrink-0">
+    <div className="flex items-center justify-between gap-1 p-1 border-b bg-muted/20 flex-shrink-0">
       <div className="flex items-center gap-1">
+        <Tabs
+          value={viewMode}
+          onValueChange={(value) => {
+            onViewModeChange(value as "table" | "json");
+          }}
+        >
+          <TabsList className="!h-7">
+            <TabsTrigger value="table" className="text-xs h-6">
+              Table
+            </TabsTrigger>
+            <TabsTrigger value="json" className="text-xs h-6">
+              JSON
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <QueryLimitControl appliedLimit={appliedLimit} />
+
+        <Button
+          size="sm"
+          variant={showHistory ? "secondary" : "ghost"}
+          onClick={onToggleHistory}
+          className="!h-7 text-xs"
+          title="Toggle history panel (⌥+H)"
+        >
+          <History className="h-3.5 w-3.5 mr-1" />
+          History
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onBeautify}
+          disabled={isExecuting || !query.trim()}
+          className="!h-7 text-xs"
+          title={beautifyHint ? `Format SQL (${beautifyHint})` : "Format SQL"}
+        >
+          Beautify
+        </Button>
+
+        <div className="w-px h-4 bg-border mx-1" />
+
         <Button
           size="sm"
           variant={isExecuting ? "destructive" : "default"}
           onClick={isExecuting ? onCancel : onExecute}
           disabled={!query.trim() && !isExecuting}
-          className="h-7 text-xs"
+          className="!h-7 text-xs"
           title={
             isExecuting
               ? "Cancel execution"
@@ -62,50 +105,6 @@ export const QueryToolbar = memo(function QueryToolbar({
             </>
           )}
         </Button>
-
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={onBeautify}
-          disabled={isExecuting || !query.trim()}
-          className="h-7 text-xs"
-          title={beautifyHint ? `Format SQL (${beautifyHint})` : "Format SQL"}
-        >
-          Beautify
-        </Button>
-
-        <div className="w-px h-4 bg-border mx-1" />
-
-        <Button
-          size="sm"
-          variant={showHistory ? "secondary" : "ghost"}
-          onClick={onToggleHistory}
-          className="h-7 text-xs"
-          title="Toggle history panel (⌥+H)"
-        >
-          <History className="h-3.5 w-3.5 mr-1" />
-          History
-        </Button>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <QueryLimitControl appliedLimit={appliedLimit} />
-
-        <Tabs
-          value={viewMode}
-          onValueChange={(value) => {
-            onViewModeChange(value as "table" | "json");
-          }}
-        >
-          <TabsList className="h-7">
-            <TabsTrigger value="table" className="text-xs h-6">
-              Table
-            </TabsTrigger>
-            <TabsTrigger value="json" className="text-xs h-6">
-              JSON
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
       </div>
     </div>
   );

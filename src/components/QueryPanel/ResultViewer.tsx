@@ -158,17 +158,15 @@ interface JsonViewerProps {
 
 const JsonViewer = memo(function JsonViewer({ content }: JsonViewerProps) {
   return (
-    <div className="h-full px-3 pb-3">
-      <div className="h-full overflow-hidden rounded-md border bg-background">
-        <CodeEditor
-          value={content}
-          language="json"
-          readOnly
-          height="100%"
-          className="h-full"
-          lineNumbers
-        />
-      </div>
+    <div className="h-full overflow-hidden px-1 bg-background">
+      <CodeEditor
+        value={content}
+        language="json"
+        readOnly
+        height="100%"
+        className="h-full"
+        lineNumbers
+      />
     </div>
   );
 });

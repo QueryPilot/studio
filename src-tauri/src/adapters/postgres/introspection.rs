@@ -1,7 +1,3 @@
-use std::sync::Arc;
-use std::ops::Deref;
-use tokio_postgres::Client;
-
 use super::parser::quote_index_definition;
 use super::types::PostgresTypeConverter;
 use crate::error::{AppError, Result};
