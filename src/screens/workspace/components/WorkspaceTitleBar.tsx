@@ -54,6 +54,7 @@ import {
 import { useTheme } from "@/components/theme-provider";
 import { toast } from "@/hooks/use-toast";
 import useWorkbenchStore from "@/stores/workbenchStore";
+import { PreferencesDialog } from "@/components/Preferences/PreferencesDialog";
 
 interface WorkspaceTitleBarProps {
   connectionId: string;
@@ -75,6 +76,7 @@ export function WorkspaceTitleBar({
   const [connectionHealth, setConnectionHealth] =
     useState<ConnectionHealth | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
   const { theme, setTheme } = useTheme();
 
   // Combined connecting state (initial + reconnecting)
@@ -641,13 +643,19 @@ export function WorkspaceTitleBar({
               </DropdownMenuSubContent>
             </DropdownMenuSub>
             <DropdownMenuSeparator />
-            <DropdownMenuItem disabled>
+            <DropdownMenuItem onClick={() => setPreferencesOpen(true)}>
               <Settings className="mr-2 h-4 w-4" />
               <span>Preferences</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      {/* Preferences Dialog */}
+      <PreferencesDialog
+        open={preferencesOpen}
+        onOpenChange={setPreferencesOpen}
+      />
     </div>
   );
 }

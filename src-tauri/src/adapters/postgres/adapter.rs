@@ -26,17 +26,9 @@ pub struct PostgresAdapter {
     connection_handle: Option<tokio::task::JoinHandle<()>>,
     query_executor: Option<Arc<FastPostgresQueryExecutor>>,
     introspector: Option<Arc<PostgresIntrospector>>,
-    active_queries: Arc<DashMap<String, QueryState>>,
     /// Metadata cache: (schema, table) -> columns (saves 100-150ms per query)
     metadata_cache: Arc<DashMap<(String, String), Vec<ColumnMeta>>>,
     prewarm_state: Arc<tokio::sync::Mutex<PrewarmState>>,
-}
-
-struct QueryState {
-    handle: QueryHandle,
-    #[allow(dead_code)]
-    portal_name: String,
-    rows_fetched: usize,
 }
 
 impl PostgresAdapter {
@@ -47,7 +39,6 @@ impl PostgresAdapter {
             connection_handle: None,
             query_executor: None,
             introspector: None,
-            active_queries: Arc::new(DashMap::new()),
             metadata_cache: Arc::new(DashMap::new()),
             prewarm_state: Arc::new(tokio::sync::Mutex::new(PrewarmState {
                 connection_prewarmed: false,
@@ -180,10 +171,8 @@ impl DbAdapter for PostgresAdapter {
         // Initialize components with pool
         let executor = Arc::new(FastPostgresQueryExecutor::new_with_pool(pool.clone()));
         
-        // Create introspector with a fresh connection from pool
-        let intro_conn = pool.get().await
-            .map_err(|e| AppError::Internal(format!("Failed to get connection for introspector: {}", e)))?;
-        let introspector = Arc::new(PostgresIntrospector::new_with_pooled(intro_conn));
+        // Create introspector with pool (gets fresh connections for each operation)
+        let introspector = Arc::new(PostgresIntrospector::new_with_pool(pool.clone()));
 
         self.pool = Some(pool);
         self.query_executor = Some(executor.clone());
@@ -197,12 +186,6 @@ impl DbAdapter for PostgresAdapter {
     }
 
     async fn disconnect(&mut self) -> Result<()> {
-        // Cancel all active queries
-        for entry in self.active_queries.iter() {
-            let _ = self.cancel_query(&entry.value().handle).await;
-        }
-        self.active_queries.clear();
-
         // Drop pool and client
         self.pool = None;
         self.client = None;
@@ -274,75 +257,18 @@ impl DbAdapter for PostgresAdapter {
         }
     }
 
-    async fn open_query(&self, sql: &str) -> Result<QueryHandle> {
+    async fn query(&self, sql: &str) -> Result<QueryResult> {
         let executor = self
             .query_executor
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
-        let handle = executor.open_query(sql).await?;
+        let (rows, columns, _execution_time) = executor.execute_single_fetch(sql).await?;
 
-        // Clear metadata cache if DDL operation (saves 100-150ms on subsequent queries)
-        if Self::is_ddl(sql) {
-            self.clear_metadata_cache();
-        }
-
-        // Store query state
-        self.active_queries.insert(
-            handle.id.clone(),
-            QueryState {
-                handle: handle.clone(),
-                portal_name: format!("portal_{}", handle.id),
-                rows_fetched: 0,
-            },
-        );
-
-        Ok(handle)
-    }
-
-    async fn fetch_page(&self, handle: &QueryHandle, max_rows: usize) -> Result<PageChunk> {
-        let executor = self
-            .query_executor
-            .as_ref()
-            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-
-        let chunk = executor.fetch_page(handle, max_rows).await?;
-
-        // Update rows fetched count
-        if let Some(mut state) = self.active_queries.get_mut(&handle.id) {
-            state.rows_fetched += chunk.rows.len();
-        }
-
-        // Clean up if done
-        if !chunk.has_more {
-            self.active_queries.remove(&handle.id);
-        }
-
-        Ok(chunk)
-    }
-
-    async fn close_query(&self, handle: &QueryHandle) -> Result<()> {
-        let executor = self
-            .query_executor
-            .as_ref()
-            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-
-        executor.close_query(handle).await?;
-        self.active_queries.remove(&handle.id);
-
-        Ok(())
-    }
-
-    async fn cancel_query(&self, handle: &QueryHandle) -> Result<()> {
-        let executor = self
-            .query_executor
-            .as_ref()
-            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-
-        executor.cancel_query(handle).await?;
-        self.active_queries.remove(&handle.id);
-
-        Ok(())
+        Ok(QueryResult {
+            columns,
+            rows,
+        })
     }
 
     async fn execute(&self, sql: &str) -> Result<u64> {

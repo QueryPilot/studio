@@ -85,6 +85,8 @@ export class StreamingTableService {
     pageSize?: number,
     onProgress?: (progress: StreamingProgress) => void,
     onError?: (error: StreamingError) => void,
+    userLimitPreference?: number,
+    onLimitApplied?: (originalSql: string, appliedLimit: number) => void,
   ): Promise<StreamingTableResult> {
     // Cancel any existing stream
     this.cancel();
@@ -114,8 +116,15 @@ export class StreamingTableService {
             connId: connectionId,
             sql,
             batchSize: pageSize,
+            userLimitPreference,
           },
           {
+            onLimitApplied: (originalSql, appliedLimit) => {
+              clearTimeout(timeoutId);
+              if (onLimitApplied) {
+                onLimitApplied(originalSql, appliedLimit);
+              }
+            },
             onStarted: (columns, estimatedRows) => {
               clearTimeout(timeoutId);
               this.columns = columns;

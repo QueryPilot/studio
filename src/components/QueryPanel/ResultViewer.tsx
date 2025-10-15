@@ -1,6 +1,5 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo } from "react";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlertCircle, XCircle, Clipboard } from "lucide-react";
 import { TableDataGridV2 } from "@/components/DataGridV2";
 import { toast } from "sonner";
@@ -26,6 +25,7 @@ interface ResultViewerProps {
   database?: string;
   gridId: string;
   isStreaming?: boolean;
+  viewMode: "table" | "json";
 }
 
 export const ResultViewer = memo(function ResultViewer({
@@ -33,9 +33,8 @@ export const ResultViewer = memo(function ResultViewer({
   className,
   gridId,
   isStreaming = false,
+  viewMode,
 }: ResultViewerProps) {
-  const [viewMode, setViewMode] = useState<"table" | "json">("table");
-
   const jsonContent = useMemo(() => {
     if (!result || result.error) {
       return "[]";
@@ -124,51 +123,31 @@ export const ResultViewer = memo(function ResultViewer({
 
   return (
     <div className={cn("overflow-hidden h-full flex flex-col", className)}>
-      {/* Results with tabs */}
-      <div className="flex-1 min-h-0">
-        <Tabs
-          value={viewMode}
-          onValueChange={(value) => {
-            setViewMode(value as "table" | "json");
-          }}
-          className="h-full flex flex-col"
-        >
-          <TabsList className="grid grid-cols-2 mx-1 mt-1 mb-0">
-            <TabsTrigger value="table" className="text-xs">
-              Table
-            </TabsTrigger>
-            <TabsTrigger value="json" className="text-xs">
-              JSON
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="table" className="flex-1 mt-2 mx-0">
-            <div className="h-full px-1">
-              <TableDataGridV2
-                mode="query"
-                gridId={gridId}
-                data={
-                  !result.error
-                    ? {
-                        columns: result.columns,
-                        rows: result.rows,
-                        columnMeta: result.columnMeta,
-                      }
-                    : undefined
-                }
-                executionTime={result.executionTime}
-                isStreaming={isStreaming}
-                className="h-full"
-                error={result.error ?? null}
-              />
-            </div>
-          </TabsContent>
-
-          <TabsContent value="json" className="flex-1 mt-2 mx-0 h-full">
-            <JsonViewer content={jsonContent} />
-          </TabsContent>
-        </Tabs>
-      </div>
+      {viewMode === "table" ? (
+        <div className="h-full px-1 pt-1">
+          <TableDataGridV2
+            mode="query"
+            gridId={gridId}
+            data={
+              !result.error
+                ? {
+                    columns: result.columns,
+                    rows: result.rows,
+                    columnMeta: result.columnMeta,
+                  }
+                : undefined
+            }
+            executionTime={result.executionTime}
+            isStreaming={isStreaming}
+            className="h-full"
+            error={result.error ?? null}
+          />
+        </div>
+      ) : (
+        <div className="h-full pt-1">
+          <JsonViewer content={jsonContent} />
+        </div>
+      )}
     </div>
   );
 });

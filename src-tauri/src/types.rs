@@ -103,6 +103,12 @@ pub struct PageTiming {
     pub decode_ms: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryResult {
+    pub columns: Vec<ColumnMeta>,
+    pub rows: Vec<Vec<serde_json::Value>>,
+}
+
 // NEW: Lightweight streaming value - NO display_value allocation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -640,6 +646,10 @@ pub enum StreamMessage {
     Interrupted {
         resumable: bool,
         message: String,
+    },
+    LimitApplied {
+        original_sql: String,
+        applied_limit: usize,
     },
 }
 

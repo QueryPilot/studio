@@ -10,6 +10,7 @@ export interface QueryStreamParams {
   connId: string;
   sql: string;
   batchSize?: number;
+  userLimitPreference?: number;
 }
 
 export interface StreamBatch {
@@ -35,30 +36,32 @@ type ChannelLike = {
 function createIpcChannel<T>(handler: (message: T) => void): ChannelLike {
   let nextMessageId = 0;
   const pending = new Map<number, T>();
-  const callbackId = transformCallback(({ message, id }: { message: T; id?: number }) => {
-    // Suppress ID warnings - messages are delivered sequentially anyway
-    if (typeof id !== "number") {
-      handler(message);
-      return;
-    }
-
-    if (id === nextMessageId) {
-      nextMessageId++;
-      handler(message);
-
-      while (pending.has(nextMessageId)) {
-        const next = pending.get(nextMessageId)!;
-        pending.delete(nextMessageId);
-        nextMessageId++;
-        handler(next);
+  const callbackId = transformCallback(
+    ({ message, id }: { message: T; id?: number }) => {
+      // Suppress ID warnings - messages are delivered sequentially anyway
+      if (typeof id !== "number") {
+        handler(message);
+        return;
       }
-    } else if (id > nextMessageId) {
-      pending.set(id, message);
-    } else {
-      // Late arrival; deliver but do not disturb ordering state
-      handler(message);
-    }
-  });
+
+      if (id === nextMessageId) {
+        nextMessageId++;
+        handler(message);
+
+        while (pending.has(nextMessageId)) {
+          const next = pending.get(nextMessageId)!;
+          pending.delete(nextMessageId);
+          nextMessageId++;
+          handler(next);
+        }
+      } else if (id > nextMessageId) {
+        pending.set(id, message);
+      } else {
+        // Late arrival; deliver but do not disturb ordering state
+        handler(message);
+      }
+    },
+  );
 
   const serializedId = `__CHANNEL__:${String(callbackId)}`;
   return {
@@ -159,18 +162,19 @@ export class QueryStreamClient {
       onBatch?: (batch: StreamBatch, totalSoFar: number) => void;
       onSuccess?: (result: StreamResult) => void;
       onError?: (error: Error) => void;
-    }
+      onLimitApplied?: (originalSql: string, appliedLimit: number) => void;
+    },
   ): Promise<StreamResult> {
     // Check if running in Tauri context
     if (!isTauri()) {
       const error = new Error(
-        "Query streaming requires Tauri context. Please run the app with 'pnpm tauri:dev' instead of 'pnpm dev'"
+        "Query streaming requires Tauri context. Please run the app with 'pnpm tauri:dev' instead of 'pnpm dev'",
       );
       callbacks.onError?.(error);
       return Promise.reject(error);
     }
 
-    const { connId, sql, batchSize = 1000 } = params;
+    const { connId, sql, batchSize = 1000, userLimitPreference } = params;
 
     return new Promise((resolve, reject) => {
       this.columns = undefined;
@@ -198,6 +202,13 @@ export class QueryStreamClient {
         if (!message) return;
 
         switch (message.type) {
+          case "limitApplied":
+            callbacks.onLimitApplied?.(
+              message.original_sql,
+              message.applied_limit,
+            );
+            break;
+
           case "started":
             this.columns = message.columns;
             this.estimatedRows = message.estimated_rows;
@@ -234,7 +245,7 @@ export class QueryStreamClient {
           case "interrupted":
             {
               const interruptError = new Error(
-                `Stream interrupted (resumable: ${message.resumable}): ${message.message}`
+                `Stream interrupted (resumable: ${message.resumable}): ${message.message}`,
               );
               callbacks.onError?.(interruptError);
               settleReject(interruptError);
@@ -248,6 +259,7 @@ export class QueryStreamClient {
           connId,
           sql,
           batchSize,
+          userLimitPreference,
           channel,
         }).catch((error) => {
           const normalized = normalizeError(error);
