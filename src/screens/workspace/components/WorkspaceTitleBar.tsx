@@ -197,7 +197,13 @@ export function WorkspaceTitleBar({
 
   const getStatusColor = () => {
     if (isConnecting) return "text-yellow-500";
-    if (!connectionHealth) return "text-gray-500";
+
+    // Check if connection is active before showing gray
+    if (!connectionHealth) {
+      return databaseService.isConnectionActive(connectionId)
+        ? "text-yellow-500" // Still connecting (waiting for health check)
+        : "text-gray-500"; // Actually disconnected
+    }
 
     switch (connectionHealth.status) {
       case "ready":
@@ -213,7 +219,13 @@ export function WorkspaceTitleBar({
 
   const getStatusText = () => {
     if (isConnecting) return "Connecting";
-    if (!connectionHealth) return "Disconnected";
+
+    // Check if connection is actually active before showing "Disconnected"
+    if (!connectionHealth) {
+      return databaseService.isConnectionActive(connectionId)
+        ? "Connecting"
+        : "Disconnected";
+    }
 
     switch (connectionHealth.status) {
       case "ready":
@@ -233,6 +245,11 @@ export function WorkspaceTitleBar({
 
   const getStatusIcon = () => {
     if (isConnecting) {
+      return <Loader2 className="h-2 w-2 animate-spin" />;
+    }
+
+    // Show spinner if connection is active but health check hasn't fired yet
+    if (!connectionHealth && databaseService.isConnectionActive(connectionId)) {
       return <Loader2 className="h-2 w-2 animate-spin" />;
     }
 

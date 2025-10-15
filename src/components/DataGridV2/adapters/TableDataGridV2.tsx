@@ -340,6 +340,8 @@ interface QueryModeProps extends BaseTableDataGridV2Props {
   isLoading?: boolean;
   error?: string | null;
   executionTime?: number;
+  isStreaming?: boolean;
+  // Note: estimatedTotal removed - causes UI flashing when it arrives late during streaming
 }
 
 // Unified props - discriminated union
@@ -434,7 +436,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       }
     : {
         isLoading: isQueryMode ? props.isLoading ?? false : false,
-        isLoadingMore: false,
+        isLoadingMore: isQueryMode ? props.isStreaming ?? false : false,
         error: isQueryMode ? props.error ?? null : null,
         columns: queryData?.columnMeta ?? [],
         rows: (queryData?.rows ?? []).map((row) => {
@@ -451,7 +453,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           });
           return rowObj;
         }),
-        estimatedTotal: isQueryMode ? queryData?.rows?.length : undefined,
+        // Don't pass estimatedTotal for queries - it arrives late and causes UI flashing
+        estimatedTotal: undefined,
         executionTime: isQueryMode ? props.executionTime : undefined,
         loadMore: undefined,
         hasNextPage: false,

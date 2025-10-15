@@ -1,4 +1,5 @@
 use dashmap::DashMap;
+use deadpool_postgres::Pool;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
@@ -11,9 +12,13 @@ use crate::error::{AppError, Result};
 use crate::types::*;
 
 pub struct FastPostgresQueryExecutor {
-    client: Arc<Client>,
+    pool: Pool,
+    client: Option<Arc<Client>>, // Keep for backwards compatibility during migration
     active_queries: DashMap<String, QueryState>,
-    /// Prepared statement cache: SQL -> Statement (saves ~10-20ms per query)
+    /// DEPRECATED: Statement cache disabled for connection pooling compatibility
+    /// Prepared statements are per-connection, so caching them globally causes
+    /// "prepared statement does not exist" errors when different pool connections are used.
+    #[allow(dead_code)]
     statement_cache: DashMap<String, Arc<Statement>>,
     /// Track concurrent pre-warming operations (rate limiting)
     prewarm_in_progress: AtomicUsize,
@@ -30,13 +35,35 @@ struct QueryState {
 }
 
 impl FastPostgresQueryExecutor {
+    #[allow(dead_code)]
     pub fn new(client: Arc<Client>) -> Self {
+        // Legacy constructor - will be removed after full migration
         Self {
-            client,
+            pool: Pool::builder(deadpool_postgres::Manager::new(
+                tokio_postgres::Config::new(),
+                tokio_postgres::NoTls,
+            )).max_size(1).build().unwrap(),
+            client: Some(client),
             active_queries: DashMap::new(),
             statement_cache: DashMap::new(),
             prewarm_in_progress: AtomicUsize::new(0),
         }
+    }
+
+    pub fn new_with_pool(pool: Pool) -> Self {
+        Self {
+            pool,
+            client: None,
+            active_queries: DashMap::new(),
+            statement_cache: DashMap::new(),
+            prewarm_in_progress: AtomicUsize::new(0),
+        }
+    }
+
+    /// Get connection from pool for each operation
+    async fn get_connection(&self) -> Result<deadpool_postgres::Object> {
+        self.pool.get().await
+            .map_err(|e| AppError::Internal(format!("Failed to get connection from pool: {}", e)))
     }
 
     /// Clear the prepared statement cache (call after DDL operations)
@@ -49,14 +76,13 @@ impl FastPostgresQueryExecutor {
     pub async fn execute_single_fetch(&self, sql: &str) -> Result<(Vec<Vec<serde_json::Value>>, Vec<ColumnMeta>, u64)> {
         let query_start = Instant::now();
 
-        // STEP 1: Get or prepare statement (with caching)
-        let stmt = if let Some(cached) = self.statement_cache.get(sql) {
-            cached.value().clone()
-        } else {
-            let stmt = Arc::new(self.client.prepare(sql).await?);
-            self.statement_cache.insert(sql.to_string(), stmt.clone());
-            stmt
-        };
+        // Get connection from pool
+        let conn = self.get_connection().await?;
+        
+        // STEP 1: Prepare statement
+        // NOTE: We can't cache statements with connection pooling because prepared
+        // statements are per-connection. Each pool connection needs its own preparation.
+        let stmt = Arc::new(conn.prepare(sql).await?);
 
         let columns = stmt
             .columns()
@@ -77,7 +103,8 @@ impl FastPostgresQueryExecutor {
 
         // STEP 2: Execute query with single fetch (no cursor, no transaction)
         let db_start = Instant::now();
-        let rows = self.client.query(stmt.as_ref(), &[]).await?;
+        let conn = self.get_connection().await?;
+        let rows = conn.query(stmt.as_ref(), &[]).await?;
         let db_time_ms = db_start.elapsed().as_millis() as u64;
 
         // STEP 3: Convert rows to JSON (direct, no CellValue overhead)
@@ -97,32 +124,6 @@ impl FastPostgresQueryExecutor {
     /// TRUE streaming: Execute query and stream rows as they arrive (like TablePlus)
     /// Returns statement and columns, caller can then stream rows
     pub async fn prepare_streaming_query(&self, sql: &str) -> Result<(Arc<tokio_postgres::Statement>, Vec<ColumnMeta>)> {
-        // Deduplication: Check cache first (avoid re-preparing)
-        if let Some(cached) = self.statement_cache.get(sql) {
-            let stmt = cached.value().clone();
-            drop(cached); // Release lock early
-            
-            let columns = stmt
-                .columns()
-                .iter()
-                .map(|col| ColumnMeta {
-                    name: col.name().to_string(),
-                    data_type: PostgresTypeConverter::type_to_cell_type(col.type_()),
-                    nullable: true,
-                    primary_key: false,
-                    db_type: col.type_().name().to_string(),
-                    type_oid: Some(col.type_().oid()),
-                    default_value: None,
-                    comment: None,
-                    enum_values: None,
-                    type_category: None,
-                })
-                .collect::<Vec<_>>();
-
-            tracing::debug!("Statement cache HIT: {}", sql);
-            return Ok((stmt, columns));
-        }
-
         // Rate limiting: Limit concurrent preparations to 5
         let in_progress = self.prewarm_in_progress.fetch_add(1, Ordering::Relaxed);
         if in_progress >= 5 {
@@ -131,10 +132,10 @@ impl FastPostgresQueryExecutor {
             return Err(AppError::Internal("Too many concurrent statement preparations".to_string()));
         }
 
-        // Prepare statement
+        // Prepare statement (no caching with connection pooling - statements are per-connection)
         let result = async {
-            let stmt = Arc::new(self.client.prepare(sql).await?);
-            self.statement_cache.insert(sql.to_string(), stmt.clone());
+            let conn = self.get_connection().await?;
+            let stmt = Arc::new(conn.prepare(sql).await?);
 
             let columns = stmt
                 .columns()
@@ -153,7 +154,7 @@ impl FastPostgresQueryExecutor {
                 })
                 .collect::<Vec<_>>();
 
-            tracing::debug!("Statement cache MISS, prepared: {}", sql);
+            tracing::debug!("Prepared statement for streaming: {}", sql);
             Ok((stmt, columns))
         }.await;
 
@@ -162,25 +163,20 @@ impl FastPostgresQueryExecutor {
         result
     }
 
-    /// Get the underlying client for streaming queries
-    pub fn get_client(&self) -> Arc<Client> {
-        self.client.clone()
+    /// Get the underlying pool for streaming queries
+    pub fn get_pool(&self) -> Pool {
+        self.pool.clone()
     }
 
     pub async fn open_query(&self, sql: &str) -> Result<QueryHandle> {
         let handle_id = Uuid::new_v4().to_string();
         let cursor_name = format!("cursor_{}", handle_id.replace("-", "_"));
 
-        // STEP 1: Get or prepare statement (with caching)
-        let stmt = if let Some(cached) = self.statement_cache.get(sql) {
-            // Cache hit - reuse prepared statement (saves ~10-20ms)
-            cached.value().clone()
-        } else {
-            // Cache miss - prepare and cache
-            let stmt = Arc::new(self.client.prepare(sql).await?);
-            self.statement_cache.insert(sql.to_string(), stmt.clone());
-            stmt
-        };
+        // Get connection from pool
+        let conn = self.get_connection().await?;
+        
+        // STEP 1: Prepare statement (no caching with connection pooling)
+        let stmt = Arc::new(conn.prepare(sql).await?);
 
         let columns = stmt
             .columns()
@@ -205,11 +201,12 @@ impl FastPostgresQueryExecutor {
             "BEGIN;\nDECLARE {} NO SCROLL CURSOR FOR {}",
             cursor_name, sql_trimmed
         );
-
+        
         // If batch fails, try to rollback to clean up any partial transaction state
-        if let Err(e) = self.client.batch_execute(&batch_sql).await {
+        let conn = self.get_connection().await?;
+        if let Err(e) = conn.batch_execute(&batch_sql).await {
             // Attempt rollback to recover connection (ignore errors - connection might already be bad)
-            let _ = self.client.batch_execute("ROLLBACK").await;
+            let _ = conn.batch_execute("ROLLBACK").await;
             return Err(e.into());
         }
 
@@ -243,7 +240,8 @@ impl FastPostgresQueryExecutor {
         let fetch_sql = format!("FETCH {} FROM {}", max_rows, state.cursor_name);
 
         // Execute FETCH - retrieves next batch from cursor
-        let rows = self.client.query(&fetch_sql, &[]).await?;
+        let conn = self.get_connection().await?;
+        let rows = conn.query(&fetch_sql, &[]).await?;
 
         // Track execution time ONLY on first fetch (comparable to TablePlus)
         // Measures: BEGIN + DECLARE CURSOR + first FETCH (true database execution time)
@@ -278,8 +276,10 @@ impl FastPostgresQueryExecutor {
 
             if !cursor_name.is_empty() {
                 // Close cursor and commit transaction
-                let _ = self.client.execute(&format!("CLOSE {}", cursor_name), &[]).await;
-                let _ = self.client.execute("COMMIT", &[]).await;
+                if let Ok(conn) = self.get_connection().await {
+                    let _ = conn.execute(&format!("CLOSE {}", cursor_name), &[]).await;
+                    let _ = conn.execute("COMMIT", &[]).await;
+                }
             }
 
             self.active_queries.remove(&handle.id);
@@ -300,14 +300,16 @@ impl FastPostgresQueryExecutor {
     pub async fn close_query(&self, handle: &QueryHandle) -> Result<()> {
         // Close cursor and commit transaction before removing from active queries
         if let Some(state) = self.active_queries.get(&handle.id) {
+            let conn = self.get_connection().await?;
+            
             // Try to close cursor, but don't fail if it's already closed
-            let close_result = self.client.execute(&format!("CLOSE {}", state.cursor_name), &[]).await;
+            let close_result = conn.execute(&format!("CLOSE {}", state.cursor_name), &[]).await;
             if let Err(e) = close_result {
                 tracing::warn!("Failed to close cursor {}: {}", state.cursor_name, e);
             }
 
             // COMMIT must succeed - if it fails, connection is in bad state
-            self.client.execute("COMMIT", &[]).await
+            conn.execute("COMMIT", &[]).await
                 .map_err(|e| {
                     tracing::error!("COMMIT failed after query close: {}", e);
                     AppError::from(e)
@@ -323,14 +325,16 @@ impl FastPostgresQueryExecutor {
 
         // Close cursor and rollback transaction (cancelled = rollback)
         if let Some(state) = self.active_queries.get(&handle.id) {
+            let conn = self.get_connection().await?;
+            
             // Try to close cursor, but don't fail if it's already closed
-            let close_result = self.client.execute(&format!("CLOSE {}", state.cursor_name), &[]).await;
+            let close_result = conn.execute(&format!("CLOSE {}", state.cursor_name), &[]).await;
             if let Err(e) = close_result {
                 tracing::warn!("Failed to close cursor {} during cancel: {}", state.cursor_name, e);
             }
 
             // ROLLBACK must succeed - if it fails, connection is in bad state
-            self.client.execute("ROLLBACK", &[]).await
+            conn.execute("ROLLBACK", &[]).await
                 .map_err(|e| {
                     tracing::error!("ROLLBACK failed during query cancel: {}. Connection may be stuck!", e);
                     AppError::from(e)

@@ -113,6 +113,7 @@ fn main() {
             commands::get_table_count,
             commands::stream_query,
             commands::prewarm_query,
+            commands::prewarm_schema_tables,
             commands::get_connection_health,
             commands::ping,
             ai::commands::create_ai_session,

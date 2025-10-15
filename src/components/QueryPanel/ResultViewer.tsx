@@ -25,12 +25,14 @@ interface ResultViewerProps {
   connectionId?: string;
   database?: string;
   gridId: string;
+  isStreaming?: boolean;
 }
 
 export const ResultViewer = memo(function ResultViewer({
   result,
   className,
   gridId,
+  isStreaming = false,
 }: ResultViewerProps) {
   const [viewMode, setViewMode] = useState<"table" | "json">("table");
 
@@ -155,6 +157,7 @@ export const ResultViewer = memo(function ResultViewer({
                     : undefined
                 }
                 executionTime={result.executionTime}
+                isStreaming={isStreaming}
                 className="h-full"
                 error={result.error ?? null}
               />

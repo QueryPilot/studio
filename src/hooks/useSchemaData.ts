@@ -4,6 +4,7 @@ import {
   type TableMeta,
   type FunctionMeta,
 } from "@/services/databaseService";
+import { Backend } from "@/services/backend";
 
 interface SchemaData {
   tables: TableMeta[];
@@ -139,6 +140,17 @@ export function useSchemaData(
         views: viewList,
         functions: uniqueFunctions,
       });
+
+      // Smart pre-warming: Pre-warm first 3-5 tables for small schemas
+      if (tableList.length > 0 && tableList.length <= 20) {
+        Backend.prewarmSchemaTables(
+          connectionId,
+          schema,
+          tableList.map((t) => t.name),
+        ).catch(() => {
+          // Ignore errors - pre-warming is optional optimization
+        });
+      }
     } catch (err) {
       console.error("Failed to load schema data:", err);
       setError("Failed to load schema objects");

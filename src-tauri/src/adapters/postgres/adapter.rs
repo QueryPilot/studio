@@ -1,25 +1,35 @@
 use async_trait::async_trait;
 use dashmap::DashMap;
+use deadpool_postgres::Pool;
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tokio_postgres::{Client, Config, NoTls};
 
 use super::introspection::PostgresIntrospector;
 use super::parser::quote_identifier;
+use super::pool::PostgresPoolBuilder;
 use super::query_fast::FastPostgresQueryExecutor;
 use crate::core::adapter::DbAdapter;
 use crate::error::{AppError, Result};
 use crate::types::*;
 
+struct PrewarmState {
+    connection_prewarmed: bool,
+    prewarmed_tables: HashSet<String>,
+}
+
 pub struct PostgresAdapter {
-    client: Option<Arc<Client>>,
+    pool: Option<Pool>,
+    client: Option<Arc<Client>>, // Keep for backwards compatibility during migration
     connection_handle: Option<tokio::task::JoinHandle<()>>,
     query_executor: Option<Arc<FastPostgresQueryExecutor>>,
     introspector: Option<Arc<PostgresIntrospector>>,
     active_queries: Arc<DashMap<String, QueryState>>,
     /// Metadata cache: (schema, table) -> columns (saves 100-150ms per query)
     metadata_cache: Arc<DashMap<(String, String), Vec<ColumnMeta>>>,
+    prewarm_state: Arc<tokio::sync::Mutex<PrewarmState>>,
 }
 
 struct QueryState {
@@ -32,12 +42,17 @@ struct QueryState {
 impl PostgresAdapter {
     pub fn new() -> Self {
         Self {
+            pool: None,
             client: None,
             connection_handle: None,
             query_executor: None,
             introspector: None,
             active_queries: Arc::new(DashMap::new()),
             metadata_cache: Arc::new(DashMap::new()),
+            prewarm_state: Arc::new(tokio::sync::Mutex::new(PrewarmState {
+                connection_prewarmed: false,
+                prewarmed_tables: HashSet::new(),
+            })),
         }
     }
 
@@ -90,6 +105,52 @@ impl PostgresAdapter {
 
         Ok(config)
     }
+
+    /// Pre-warm connection in background (Phase 1: basic queries)
+    async fn prewarm_connection(
+        executor: Arc<FastPostgresQueryExecutor>,
+        connection_id: String,
+    ) {
+        tracing::info!("Starting connection pre-warming for {}", connection_id);
+        
+        // Phase 1: Minimal connection warm-up (~15ms)
+        let _ = executor.prepare_streaming_query("SELECT 1").await;
+        let _ = executor.prepare_streaming_query("SELECT current_database()").await;
+        
+        tracing::info!("Phase 1 complete: Basic queries pre-warmed for {}", connection_id);
+    }
+
+    /// Pre-warm tables after schema is loaded (Phase 2: smart table pre-warming)
+    pub async fn prewarm_tables(&self, schema: &str, tables: Vec<String>) -> Result<()> {
+        let executor = self.query_executor.as_ref()
+            .ok_or_else(|| AppError::Internal("Query executor not initialized".to_string()))?;
+        
+        let table_count = tables.len();
+        
+        // Smart pre-warming strategy based on schema size
+        let tables_to_prewarm = if table_count <= 10 {
+            tables.iter().take(5).cloned().collect::<Vec<_>>()  // First 5 tables
+        } else if table_count <= 20 {
+            tables.iter().take(3).cloned().collect::<Vec<_>>()  // First 3 tables
+        } else {
+            Vec::new()  // Skip pre-warming for large schemas
+        };
+        
+        if tables_to_prewarm.is_empty() {
+            tracing::info!("Skipping table pre-warming: schema too large ({} tables)", table_count);
+            return Ok(());
+        }
+        
+        tracing::info!("Pre-warming {} tables from schema {}", tables_to_prewarm.len(), schema);
+        
+        for table in tables_to_prewarm {
+            let sql = format!("SELECT * FROM {}.{} LIMIT 1", schema, table);
+            let _ = executor.prepare_streaming_query(&sql).await;
+        }
+        
+        tracing::info!("Table pre-warming complete for schema {}", schema);
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -100,40 +161,37 @@ impl DbAdapter for PostgresAdapter {
 
     async fn connect(&mut self, profile: &ConnectionProfile) -> Result<()> {
         // Disconnect if already connected
-        if self.client.is_some() {
+        if self.pool.is_some() || self.client.is_some() {
             self.disconnect().await?;
         }
 
         let config = Self::build_config(profile)?;
 
-        // Connect based on SSL mode
-        let (client, connection) = if matches!(profile.ssl_mode, Some(SslMode::Disable) | None) {
-            config.connect(NoTls).await?
-        } else {
-            // Use native TLS for SSL connections
-            let connector = TlsConnector::builder()
-                .danger_accept_invalid_certs(true) // For development
-                .build()
-                .map_err(|e| AppError::driver_error(e))?;
-            let _connector = MakeTlsConnector::new(connector);
+        // Create connection pool (2-3 connections per window)
+        let pool = PostgresPoolBuilder::default()
+            .with_idle_timeout(std::time::Duration::from_secs(15 * 60))
+            .build(config)
+            .map_err(|e| AppError::Internal(format!("Failed to create connection pool: {}", e)))?;
 
-            // This won't work with different connection types - we need a different approach
-            // For now, just use NoTls for simplicity
-            config.connect(NoTls).await?
-        };
+        // Get a connection to verify pool is working
+        let conn = pool.get().await
+            .map_err(|e| AppError::Internal(format!("Failed to get connection from pool: {}", e)))?;
+        
+        // Initialize components with pool
+        let executor = Arc::new(FastPostgresQueryExecutor::new_with_pool(pool.clone()));
+        
+        // Create introspector with a fresh connection from pool
+        let intro_conn = pool.get().await
+            .map_err(|e| AppError::Internal(format!("Failed to get connection for introspector: {}", e)))?;
+        let introspector = Arc::new(PostgresIntrospector::new_with_pooled(intro_conn));
 
-        // Spawn connection handler
-        let connection_handle = tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                eprintln!("PostgreSQL connection error: {}", e);
-            }
-        });
+        self.pool = Some(pool);
+        self.query_executor = Some(executor.clone());
+        self.introspector = Some(introspector);
 
-        let client: Arc<Client> = Arc::new(client);
-        self.client = Some(client.clone());
-        self.connection_handle = Some(connection_handle);
-        self.query_executor = Some(Arc::new(FastPostgresQueryExecutor::new(client.clone())));
-        self.introspector = Some(Arc::new(PostgresIntrospector::new(client.clone())));
+        // Background pre-warming (fire-and-forget)
+        let connection_id = profile.id.clone();
+        tokio::spawn(Self::prewarm_connection(executor.clone(), connection_id));
 
         Ok(())
     }
@@ -145,7 +203,8 @@ impl DbAdapter for PostgresAdapter {
         }
         self.active_queries.clear();
 
-        // Drop client
+        // Drop pool and client
+        self.pool = None;
         self.client = None;
         self.query_executor = None;
         self.introspector = None;

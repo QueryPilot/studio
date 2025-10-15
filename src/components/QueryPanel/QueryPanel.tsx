@@ -61,6 +61,7 @@ export const QueryPanel = memo(function QueryPanel({
   const [query, setQuery] = useState(initialSql);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [abortController, setAbortController] =
     useState<AbortController | null>(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -103,6 +104,7 @@ export const QueryPanel = memo(function QueryPanel({
       }
 
       setIsExecuting(true);
+      setIsStreaming(true);
       setResult(null);
 
       // Create abort controller for cancellation
@@ -120,6 +122,35 @@ export const QueryPanel = memo(function QueryPanel({
         let currentColumns: string[] = [];
         let currentColumnMeta: ColumnMeta[] = [];
         let rowCount = 0;
+        const accumulatedRows: unknown[][] = [];
+        let rafId: number | undefined;
+
+        // Throttle updates using requestAnimationFrame
+        const scheduleUpdate = () => {
+          if (rafId !== undefined) return; // Already scheduled
+
+          rafId = requestAnimationFrame(() => {
+            rafId = undefined;
+            setResult((prev) => {
+              if (!prev) {
+                // First update
+                return {
+                  columns: currentColumns,
+                  columnMeta: currentColumnMeta,
+                  rows: [...accumulatedRows],
+                  rowCount: accumulatedRows.length,
+                  executionTime: 0,
+                };
+              }
+              // Update with accumulated rows
+              return {
+                ...prev,
+                rows: [...accumulatedRows],
+                rowCount: accumulatedRows.length,
+              };
+            });
+          });
+        };
 
         const streamPromise = streamingTableService.streamQuery(
           connectionId,
@@ -133,30 +164,12 @@ export const QueryPanel = memo(function QueryPanel({
               // Don't render empty table - wait for first batch
             }
             if (progress.newRows && progress.newRows.length > 0) {
-              // STREAMING UX: Append rows incrementally as they arrive
-              const appended = progress.newRows;
-              setResult((prev) => {
-                if (!prev) {
-                  // First batch - render table with columns and initial rows
-                  rowCount = appended.length;
-                  return {
-                    columns: currentColumns,
-                    columnMeta: currentColumnMeta,
-                    rows: appended,
-                    rowCount,
-                    executionTime: 0, // Will be updated when query completes
-                  };
-                }
-                // Subsequent batches - append rows
-                const prevRows = prev.rows;
-                const nextRows = [...prevRows, ...appended];
-                rowCount = nextRows.length;
-                return {
-                  ...prev,
-                  rows: nextRows,
-                  rowCount,
-                };
-              });
+              // Accumulate rows
+              accumulatedRows.push(...progress.newRows);
+              rowCount = accumulatedRows.length;
+
+              // Schedule throttled update (max 60 FPS)
+              scheduleUpdate();
             }
           },
           (err) => {
@@ -165,19 +178,26 @@ export const QueryPanel = memo(function QueryPanel({
         );
 
         const final = await streamPromise;
+
+        // Cancel any pending animation frame
+        if (rafId !== undefined) {
+          cancelAnimationFrame(rafId);
+        }
+
         // Use backend's actual database execution time, not frontend timer
         executionTime = final.executionTimeMs ?? 0;
 
-        // Don't use final.rows - they're already in state from progress callbacks
-        // Just update execution time and final row count
-        setResult((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            executionTime,
-            rowCount: final.totalRows ?? prev.rows.length,
-          };
+        // Final update with all rows and execution time
+        setResult({
+          columns: currentColumns,
+          columnMeta: currentColumnMeta,
+          rows: accumulatedRows,
+          rowCount: final.totalRows ?? accumulatedRows.length,
+          executionTime,
         });
+
+        // Streaming complete - stop streaming indicator
+        setIsStreaming(false);
 
         queryResult = {
           columns: final.columns.map((c) => c.name),
@@ -225,6 +245,7 @@ export const QueryPanel = memo(function QueryPanel({
         }
       } finally {
         setIsExecuting(false);
+        setIsStreaming(false);
         setAbortController(null);
 
         // Save to history
@@ -420,6 +441,7 @@ export const QueryPanel = memo(function QueryPanel({
                   <ResultViewer
                     result={result}
                     isLoading={isExecuting}
+                    isStreaming={isStreaming}
                     connectionId={connectionId}
                     database={database}
                     height="100%"
