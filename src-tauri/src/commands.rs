@@ -462,8 +462,6 @@ async fn execute_single_fetch_stream(
 ) -> std::result::Result<(), String> {
     use futures::StreamExt;
     
-    let query_start = std::time::Instant::now();
-    
     // Try to get FastPostgresQueryExecutor
     let executor = conn.adapter.as_any()
         .downcast_ref::<crate::adapters::postgres::PostgresAdapter>()
@@ -526,14 +524,32 @@ async fn execute_single_fetch_stream(
     let mut total_rows = 0;
     let mut json_buffer: Vec<Vec<JsonValue>> = Vec::new(); // Final JSON output buffer
     let mut row_buffer: Vec<Row> = Vec::new(); // Temporary Row buffer for batch conversion
-    const MICRO_BATCH_SIZE: usize = 200; // Convert this many rows in parallel (optimal for cache)
-    const SEND_CHUNK_SIZE: usize = 1000; // Send this many rows to frontend at once (optimal for IPC)
+    const MICRO_BATCH_SIZE: usize = 500; // Convert this many rows in parallel (optimal for cache)
+    
+    // Incremental batch sizes: start small for instant feedback, grow for efficiency
+    const FIRST_BATCH_SIZE: usize = 32;   // Ultra-fast first render
+    const SECOND_BATCH_SIZE: usize = 512; // Quick follow-up batches
+    const LARGE_BATCH_SIZE: usize = 2048; // Efficient bulk transfer
+    
     let mut first_row_elapsed_ms: Option<u64> = None;
     
     // Performance tracking
     let mut conversion_time_ms = 0u64;
     let mut send_time_ms = 0u64;
     let mut send_count = 0usize;
+    
+    // Dynamic batch sizing - determines when to send based on rows seen
+    let get_send_threshold = |rows_sent: usize| -> usize {
+        if rows_sent == 0 {
+            FIRST_BATCH_SIZE  // First batch: 32 rows for instant feedback
+        } else if rows_sent == FIRST_BATCH_SIZE {
+            SECOND_BATCH_SIZE // Second batch: 512 rows
+        } else {
+            LARGE_BATCH_SIZE  // Rest: 2048 rows for efficiency
+        }
+    };
+    
+    let mut rows_sent = 0usize;
     
     // Stream rows as they arrive from PostgreSQL
     while let Some(row_result) = row_stream.next().await {
@@ -559,16 +575,19 @@ async fn execute_single_fetch_stream(
                     row_buffer.clear();
                 }
                 
-                // Send chunk to frontend when output buffer is full
-                if json_buffer.len() >= SEND_CHUNK_SIZE {
+                // Send chunk to frontend when output buffer reaches dynamic threshold
+                let current_threshold = get_send_threshold(rows_sent);
+                if json_buffer.len() >= current_threshold {
                     let send_start = std::time::Instant::now();
+                    let batch_size = json_buffer.len();
                     let _ = channel.send(StreamMessage::Batch {
                         rows: std::mem::take(&mut json_buffer),
-                        row_offset: total_rows - SEND_CHUNK_SIZE,
+                        row_offset: total_rows - batch_size,
                         has_more: true,
                     });
                     send_time_ms += send_start.elapsed().as_millis() as u64;
                     send_count += 1;
+                    rows_sent += batch_size;
                 }
             }
             Err(e) => {
@@ -618,16 +637,19 @@ async fn execute_single_fetch_stream(
     tracing::info!("  │  Network/DB: {}ms ({:.1}%)", network_time_ms, (network_time_ms as f64 / total_time as f64) * 100.0);
     tracing::info!("  │  Conversion: {}ms ({:.1}%)", conversion_time_ms, (conversion_time_ms as f64 / total_time as f64) * 100.0);
     tracing::info!("  │  IPC Send: {}ms ({:.1}%, {} chunks)", send_time_ms, (send_time_ms as f64 / total_time as f64) * 100.0, send_count);
-    tracing::info!("  └─ Batch size: {}x{} (micro/send)", MICRO_BATCH_SIZE, SEND_CHUNK_SIZE);
+    tracing::info!("  └─ Batch sizes: 32→512→2048 (incremental), micro: {}", MICRO_BATCH_SIZE);
     tracing::info!("==========================================");
     
-    // Send success
+    // Send success with detailed breakdown
     let _ = channel.send(StreamMessage::Success {
         total_rows,
         execution_time_ms: total_time,
         cursor_setup_ms: None,
         total_streaming_ms: Some(total_time),
-        fetch_count: Some(((total_rows + SEND_CHUNK_SIZE - 1) / SEND_CHUNK_SIZE) as u64),
+        fetch_count: Some(send_count as u64),
+        network_ms: Some(network_time_ms),
+        conversion_ms: Some(conversion_time_ms),
+        ipc_send_ms: Some(send_time_ms),
     });
     
     Ok(())

@@ -35,6 +35,12 @@ export interface StreamingTableResult {
   isComplete: boolean;
   totalRows?: number;
   executionTimeMs?: number;
+  cursorSetupMs?: number;
+  totalStreamingMs?: number;
+  fetchCount?: number;
+  networkMs?: number;
+  conversionMs?: number;
+  ipcSendMs?: number;
 }
 
 export class StreamingTableService {
@@ -158,6 +164,12 @@ export class StreamingTableService {
                 isComplete: true,
                 totalRows: streamResult.totalRows,
                 executionTimeMs: streamResult.executionTimeMs,
+                cursorSetupMs: streamResult.cursorSetupMs,
+                totalStreamingMs: streamResult.totalStreamingMs,
+                fetchCount: streamResult.fetchCount,
+                networkMs: streamResult.networkMs,
+                conversionMs: streamResult.conversionMs,
+                ipcSendMs: streamResult.ipcSendMs,
               };
               if (onProgress) {
                 onProgress({

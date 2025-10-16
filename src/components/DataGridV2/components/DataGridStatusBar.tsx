@@ -1,6 +1,12 @@
 import { memo } from "react";
 import { cn } from "@/lib/utils";
 import { Loader2 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface DataGridStatusBarProps {
   loadedRows: number;
@@ -10,6 +16,12 @@ interface DataGridStatusBarProps {
   className?: string;
   pendingEdits?: number;
   executionTime?: number;
+  cursorSetupMs?: number;
+  totalStreamingMs?: number;
+  fetchCount?: number;
+  networkMs?: number;
+  conversionMs?: number;
+  ipcSendMs?: number;
   isStreaming?: boolean;
 }
 
@@ -20,6 +32,10 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   selectedRows = 0,
   pendingEdits = 0,
   executionTime,
+  fetchCount,
+  networkMs,
+  conversionMs,
+  ipcSendMs,
   isStreaming = false,
   className,
 }: DataGridStatusBarProps) {
@@ -93,7 +109,59 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
         {executionTime !== undefined && (
           <>
             <span className="text-muted-foreground">•</span>
-            <span className="text-muted-foreground">{executionTime}ms</span>
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="text-muted-foreground cursor-help">
+                    {executionTime}ms
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  <div className="space-y-1">
+                    <div className="font-semibold mb-2">
+                      Performance Breakdown
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span>Total:</span>
+                      <span className="font-mono">{executionTime}ms</span>
+                    </div>
+                    {networkMs !== undefined && (
+                      <div className="flex justify-between gap-4">
+                        <span>Network/DB:</span>
+                        <span className="font-mono">
+                          {networkMs}ms (
+                          {((networkMs / executionTime) * 100).toFixed(1)}%)
+                        </span>
+                      </div>
+                    )}
+                    {conversionMs !== undefined && (
+                      <div className="flex justify-between gap-4">
+                        <span>Conversion:</span>
+                        <span className="font-mono">
+                          {conversionMs}ms (
+                          {((conversionMs / executionTime) * 100).toFixed(1)}%)
+                        </span>
+                      </div>
+                    )}
+                    {ipcSendMs !== undefined && (
+                      <div className="flex justify-between gap-4">
+                        <span>IPC Send:</span>
+                        <span className="font-mono">
+                          {ipcSendMs}ms (
+                          {((ipcSendMs / executionTime) * 100).toFixed(1)}%)
+                        </span>
+                      </div>
+                    )}
+                    {fetchCount !== undefined && (
+                      <div className="flex justify-between gap-4">
+                        <span>Batches:</span>
+                        <span className="font-mono">{fetchCount}</span>
+                      </div>
+                    )}
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </>
         )}
       </div>

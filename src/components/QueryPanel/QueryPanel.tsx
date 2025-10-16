@@ -46,6 +46,12 @@ interface QueryResult {
   rows: unknown[][];
   rowCount: number;
   executionTime?: number;
+  cursorSetupMs?: number;
+  totalStreamingMs?: number;
+  fetchCount?: number;
+  networkMs?: number;
+  conversionMs?: number;
+  ipcSendMs?: number;
   error?: string;
 }
 
@@ -216,6 +222,12 @@ export const QueryPanel = memo(function QueryPanel({
           rows: [...accumulatedRows], // New array reference forces React to detect change
           rowCount: final.totalRows ?? accumulatedRows.length,
           executionTime,
+          cursorSetupMs: final.cursorSetupMs,
+          totalStreamingMs: final.totalStreamingMs,
+          fetchCount: final.fetchCount,
+          networkMs: final.networkMs,
+          conversionMs: final.conversionMs,
+          ipcSendMs: final.ipcSendMs,
         });
 
         // Streaming complete - stop streaming indicator
@@ -381,53 +393,74 @@ export const QueryPanel = memo(function QueryPanel({
             >
               <ResizablePanelGroup direction="vertical" className="h-full">
                 {/* Editor */}
-                <ResizablePanel defaultSize={50} minSize={20}>
-                  <QueryEditor
-                    connectionId={connectionId}
-                    database={database}
-                    schema={schema}
-                    dbType={dbType}
-                    value={query}
-                    onChange={(value) => {
-                      const nextValue = value ?? "";
-                      setQuery(nextValue);
-                      persistSql(nextValue);
-                    }}
-                    onExecute={handleExecute}
-                    height="100%"
-                  />
+                <ResizablePanel
+                  defaultSize={50}
+                  minSize={20}
+                  className="border-none"
+                >
+                  <div className="flex flex-col h-full">
+                    <QueryEditor
+                      connectionId={connectionId}
+                      database={database}
+                      schema={schema}
+                      dbType={dbType}
+                      value={query}
+                      onChange={(value) => {
+                        const nextValue = value ?? "";
+                        setQuery(nextValue);
+                        persistSql(nextValue);
+                      }}
+                      onExecute={handleExecute}
+                      isExecuting={isExecuting}
+                      height="100%"
+                    />
+                    {/* Toolbar */}
+                    <QueryToolbar
+                      isExecuting={isExecuting}
+                      query={query}
+                      showHistory={showHistory}
+                      viewMode={viewMode}
+                      appliedLimit={appliedLimit?.limit}
+                      executeHint={executeHint}
+                      beautifyHint={beautifyHint}
+                      onExecute={() => handleExecute()}
+                      onCancel={handleCancel}
+                      onBeautify={handleBeautify}
+                      onToggleHistory={() => {
+                        setShowHistory(!showHistory);
+                      }}
+                      onViewModeChange={setViewMode}
+                    />
+                  </div>
                 </ResizablePanel>
 
-                {/* Toolbar */}
-                <QueryToolbar
-                  isExecuting={isExecuting}
-                  query={query}
-                  showHistory={showHistory}
-                  viewMode={viewMode}
-                  appliedLimit={appliedLimit?.limit}
-                  executeHint={executeHint}
-                  beautifyHint={beautifyHint}
-                  onExecute={() => handleExecute()}
-                  onCancel={handleCancel}
-                  onBeautify={handleBeautify}
-                  onToggleHistory={() => {
-                    setShowHistory(!showHistory);
-                  }}
-                  onViewModeChange={setViewMode}
-                />
+                <div className="px-1">
+                  <ResizableHandle className="bg-secondary" />
+                </div>
 
                 {/* Results */}
                 <ResizablePanel defaultSize={50} minSize={20}>
-                  <ResultViewer
-                    result={result}
-                    isLoading={isExecuting}
-                    isStreaming={isStreaming}
-                    connectionId={connectionId}
-                    database={database}
-                    height="100%"
-                    gridId={queryGridId}
-                    viewMode={viewMode}
-                  />
+                  <div className="flex flex-col h-full">
+                    {/* Results */}
+                    <div className="flex-1 min-h-0">
+                      <ResultViewer
+                        result={result}
+                        isLoading={isExecuting}
+                        isStreaming={isStreaming}
+                        connectionId={connectionId}
+                        database={database}
+                        height="100%"
+                        gridId={queryGridId}
+                        viewMode={viewMode}
+                        cursorSetupMs={result?.cursorSetupMs}
+                        totalStreamingMs={result?.totalStreamingMs}
+                        fetchCount={result?.fetchCount}
+                        networkMs={result?.networkMs}
+                        conversionMs={result?.conversionMs}
+                        ipcSendMs={result?.ipcSendMs}
+                      />
+                    </div>
+                  </div>
                 </ResizablePanel>
               </ResizablePanelGroup>
             </ResizablePanel>

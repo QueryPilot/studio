@@ -638,6 +638,13 @@ pub enum StreamMessage {
         total_streaming_ms: Option<u64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         fetch_count: Option<u64>,
+        // Performance breakdown
+        #[serde(skip_serializing_if = "Option::is_none")]
+        network_ms: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        conversion_ms: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        ipc_send_ms: Option<u64>,
     },
     Error {
         code: String,

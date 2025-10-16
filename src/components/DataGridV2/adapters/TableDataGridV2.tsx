@@ -340,6 +340,12 @@ interface QueryModeProps extends BaseTableDataGridV2Props {
   isLoading?: boolean;
   error?: string | null;
   executionTime?: number;
+  cursorSetupMs?: number;
+  totalStreamingMs?: number;
+  fetchCount?: number;
+  networkMs?: number;
+  conversionMs?: number;
+  ipcSendMs?: number;
   isStreaming?: boolean;
   // Note: estimatedTotal removed - causes UI flashing when it arrives late during streaming
 }
@@ -413,6 +419,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     rows: dataRows,
     estimatedTotal,
     executionTime,
+    cursorSetupMs,
+    totalStreamingMs,
+    fetchCount,
+    networkMs,
+    conversionMs,
+    ipcSendMs,
     loadMore,
     hasNextPage,
   } = isTableMode
@@ -429,6 +441,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         executionTime:
           tableDataQuery.data?.pages.at(-1)?.executionTimeMs ??
           tableDataQuery.data?.pages[0]?.executionTimeMs,
+        cursorSetupMs: undefined,
+        totalStreamingMs: undefined,
+        fetchCount: undefined,
+        networkMs: undefined,
+        conversionMs: undefined,
+        ipcSendMs: undefined,
         loadMore: tableDataQuery.hasNextPage
           ? () => tableDataQuery.fetchNextPage()
           : undefined,
@@ -456,6 +474,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         // Don't pass estimatedTotal for queries - it arrives late and causes UI flashing
         estimatedTotal: undefined,
         executionTime: isQueryMode ? props.executionTime : undefined,
+        cursorSetupMs: isQueryMode ? props.cursorSetupMs : undefined,
+        totalStreamingMs: isQueryMode ? props.totalStreamingMs : undefined,
+        fetchCount: isQueryMode ? props.fetchCount : undefined,
+        networkMs: isQueryMode ? props.networkMs : undefined,
+        conversionMs: isQueryMode ? props.conversionMs : undefined,
+        ipcSendMs: isQueryMode ? props.ipcSendMs : undefined,
         loadMore: undefined,
         hasNextPage: false,
       };
@@ -1788,6 +1812,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         selectedRows={selectedRowCount}
         pendingEdits={editingRows.size}
         executionTime={executionTime}
+        cursorSetupMs={cursorSetupMs}
+        totalStreamingMs={totalStreamingMs}
+        fetchCount={fetchCount}
+        networkMs={networkMs}
+        conversionMs={conversionMs}
+        ipcSendMs={ipcSendMs}
       />
     </div>
   );
