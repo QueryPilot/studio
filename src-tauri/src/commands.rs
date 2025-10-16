@@ -479,6 +479,12 @@ async fn execute_single_fetch_stream(
     let conn_elapsed = conn_start.elapsed().as_millis();
     tracing::info!("  ⏱ Got connection from pool: {}ms", conn_elapsed);
     
+    // Get backend PID for cancellation (query it since we're using pooled connections)
+    let pid_row = pool_conn.query_one("SELECT pg_backend_pid()", &[]).await
+        .map_err(|e| format!("Failed to get backend PID: {}", e))?;
+    let backend_pid: i32 = pid_row.get(0);
+    tracing::info!("  🔍 Query running on PostgreSQL backend PID: {}", backend_pid);
+    
     // PREPARE statement - this is where the slowness happens on remote connections!
     let prepare_start = std::time::Instant::now();
     let stmt = pool_conn.prepare(&sql).await
@@ -553,7 +559,39 @@ async fn execute_single_fetch_stream(
     let mut rows_sent = 0usize;
     
     // Stream rows as they arrive from PostgreSQL
+    // Track iterations for periodic cancellation checks (every 100 rows)
+    let mut check_interval = 0u32;
+    
     while let Some(row_result) = row_stream.next().await {
+        // CRITICAL: Check for cancellation periodically (every 100 rows)
+        // This ensures we detect cancellation even if no batches have been sent yet
+        check_interval += 1;
+        if check_interval % 100 == 0 {
+            // Attempt to send to data channel - if it fails, user cancelled
+            if data_channel.send(tauri::ipc::Response::new(vec![])).is_err() {
+                tracing::info!("  ⚠️  Channel closed during row fetch (user cancelled early)");
+                tracing::info!("  🛑 Cancelling PostgreSQL backend PID: {}", backend_pid);
+                
+                // Cancel the running query in PostgreSQL
+                let cancel_pool = pool.clone();
+                tokio::spawn(async move {
+                    if let Ok(cancel_conn) = cancel_pool.get().await {
+                        let cancel_sql = format!("SELECT pg_cancel_backend({})", backend_pid);
+                        match cancel_conn.execute(&cancel_sql, &[]).await {
+                            Ok(_) => tracing::info!("  ✅ Successfully cancelled backend query"),
+                            Err(e) => tracing::warn!("  ⚠️  Failed to cancel backend: {}", e),
+                        }
+                    }
+                });
+                
+                let _ = metadata_channel.send(StreamMessage::Interrupted {
+                    resumable: false,
+                    message: "Query cancelled by user".to_string(),
+                });
+                return Err("Query cancelled by user".to_string());
+            }
+        }
+        
         match row_result {
             Ok(row) => {
                 // Mark when first row arrives
@@ -590,10 +628,34 @@ async fn execute_single_fetch_stream(
                     
                     // Send raw binary via Response (ZERO serialization overhead!)
                     let send_start = std::time::Instant::now();
-                    let _ = data_channel.send(tauri::ipc::Response::new(rows_msgpack));
+                    let send_result = data_channel.send(tauri::ipc::Response::new(rows_msgpack));
                     send_time_ms += send_start.elapsed().as_millis() as u64;
                     send_count += 1;
                     rows_sent += batch_size;
+                    
+                    // Check if channel closed (user cancelled) - stop streaming early
+                    if send_result.is_err() {
+                        tracing::info!("  ⚠️  Channel closed (user cancelled), stopping stream early");
+                        tracing::info!("  🛑 Cancelling PostgreSQL backend PID: {}", backend_pid);
+                        
+                        // Cancel the running query in PostgreSQL
+                        let cancel_pool = pool.clone();
+                        tokio::spawn(async move {
+                            if let Ok(cancel_conn) = cancel_pool.get().await {
+                                let cancel_sql = format!("SELECT pg_cancel_backend({})", backend_pid);
+                                match cancel_conn.execute(&cancel_sql, &[]).await {
+                                    Ok(_) => tracing::info!("  ✅ Successfully cancelled backend query"),
+                                    Err(e) => tracing::warn!("  ⚠️  Failed to cancel backend: {}", e),
+                                }
+                            }
+                        });
+                        
+                        let _ = metadata_channel.send(StreamMessage::Interrupted {
+                            resumable: false,
+                            message: "Query cancelled by user".to_string(),
+                        });
+                        return Err("Query cancelled by user".to_string());
+                    }
                 }
             }
             Err(e) => {
@@ -628,9 +690,33 @@ async fn execute_single_fetch_stream(
         
         // Send raw binary via Response (ZERO serialization overhead!)
         let send_start = std::time::Instant::now();
-        let _ = data_channel.send(tauri::ipc::Response::new(rows_msgpack));
+        let send_result = data_channel.send(tauri::ipc::Response::new(rows_msgpack));
         send_time_ms += send_start.elapsed().as_millis() as u64;
         send_count += 1;
+        
+        // Check if channel closed (user cancelled) - stop streaming early
+        if send_result.is_err() {
+            tracing::info!("  ⚠️  Channel closed (user cancelled), stopping stream early");
+            tracing::info!("  🛑 Cancelling PostgreSQL backend PID: {}", backend_pid);
+            
+            // Cancel the running query in PostgreSQL
+            let cancel_pool = pool.clone();
+            tokio::spawn(async move {
+                if let Ok(cancel_conn) = cancel_pool.get().await {
+                    let cancel_sql = format!("SELECT pg_cancel_backend({})", backend_pid);
+                    match cancel_conn.execute(&cancel_sql, &[]).await {
+                        Ok(_) => tracing::info!("  ✅ Successfully cancelled backend query"),
+                        Err(e) => tracing::warn!("  ⚠️  Failed to cancel backend: {}", e),
+                    }
+                }
+            });
+            
+            let _ = metadata_channel.send(StreamMessage::Interrupted {
+                resumable: false,
+                message: "Query cancelled by user".to_string(),
+            });
+            return Err("Query cancelled by user".to_string());
+        }
     }
     
     let total_time = query_start.elapsed().as_millis() as u64;
@@ -652,8 +738,9 @@ async fn execute_single_fetch_stream(
     tracing::info!("  └─ Batch sizes: 32→512→4096 (incremental), micro: {} | Format: msgpack", MICRO_BATCH_SIZE);
     tracing::info!("==========================================");
     
-    // Send success with detailed breakdown
-    let _ = metadata_channel.send(StreamMessage::Success {
+    // CRITICAL: Check if channel was closed before sending success
+    // User might have cancelled while we were processing the last batch
+    let test_send = metadata_channel.send(StreamMessage::Success {
         total_rows,
         execution_time_ms: total_time,
         cursor_setup_ms: None,
@@ -663,6 +750,23 @@ async fn execute_single_fetch_stream(
         conversion_ms: Some(conversion_time_ms),
         ipc_send_ms: Some(send_time_ms),
     });
+    
+    // If channel closed, it means user cancelled - don't return success
+    if test_send.is_err() {
+        tracing::info!("  ⚠️  Channel closed before sending success (user cancelled)");
+        tracing::info!("  🛑 Cancelling PostgreSQL backend PID: {}", backend_pid);
+        
+        // Cancel the running query in PostgreSQL (might already be done, but be safe)
+        let cancel_pool = pool.clone();
+        tokio::spawn(async move {
+            if let Ok(cancel_conn) = cancel_pool.get().await {
+                let cancel_sql = format!("SELECT pg_cancel_backend({})", backend_pid);
+                let _ = cancel_conn.execute(&cancel_sql, &[]).await;
+            }
+        });
+        
+        return Err("Query cancelled by user".to_string());
+    }
     
     Ok(())
 }
