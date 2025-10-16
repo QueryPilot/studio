@@ -538,12 +538,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const preferences = useGridPreferences(gridId);
   const hydrated = useGridPreferencesHydrated();
   const history = useGridHistory();
-  const {
-    persistedView,
-    persistSelection,
-    persistScrollOffset,
-    persistActiveCell,
-  } = usePersistentViewState(gridId);
+  const { persistSelection, persistScrollOffset, persistActiveCell } =
+    usePersistentViewState(gridId);
 
   const [gridSelection, setGridSelection] = useState<GridSelection | undefined>(
     undefined,
@@ -609,14 +605,17 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     },
   });
 
-  // Initialize selection from persisted state only once after hydration
-  useEffect(() => {
-    if (!hydrated) return;
-    if (persistedView.selection && !gridSelection) {
-      setGridSelection(persistedView.selection);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated]); // Only depend on hydrated to run once after store loads
+  // REMOVED: Automatic state restoration disabled for tab isolation
+  // With the new gridId scheme (including panelId and tabId), each tab maintains
+  // its own state while mounted. Restoring state on mount is no longer needed
+  // and can cause confusing "ghost" selections when switching tabs.
+  // useEffect(() => {
+  //   if (!hydrated) return;
+  //   if (persistedView.selection && !gridSelection) {
+  //     setGridSelection(persistedView.selection);
+  //   }
+  //   // eslint-disable-next-line react-hooks/exhaustive-deps
+  // }, [hydrated]); // Only depend on hydrated to run once after store loads
 
   const baseColumns = useMemo<GridColumnV2[]>(
     () =>

@@ -1,7 +1,7 @@
 import { memo } from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Play, StopCircle, History } from "lucide-react";
+import { Play, StopCircle, History, Wand2 } from "lucide-react";
 import { QueryLimitControl } from "./QueryLimitControl";
 
 interface QueryToolbarProps {
@@ -63,8 +63,8 @@ export const QueryToolbar = memo(function QueryToolbar({
           className="!h-7 text-xs"
           title="Toggle history panel (⌥+H)"
         >
-          <History className="h-3.5 w-3.5 mr-1" />
-          History
+          <History className="h-3.5 w-3.5 sm:mr-1" />
+          <span className="hidden sm:inline">History</span>
         </Button>
         <Button
           size="sm"
@@ -74,7 +74,8 @@ export const QueryToolbar = memo(function QueryToolbar({
           className="!h-7 text-xs"
           title={beautifyHint ? `Format SQL (${beautifyHint})` : "Format SQL"}
         >
-          Beautify
+          <Wand2 className="h-3.5 w-3.5 sm:mr-1" />
+          <span className="hidden sm:inline">Beautify</span>
         </Button>
 
         <div className="w-px h-4 bg-border mx-1" />
@@ -95,13 +96,13 @@ export const QueryToolbar = memo(function QueryToolbar({
         >
           {isExecuting ? (
             <>
-              <StopCircle className="h-3.5 w-3.5 mr-1" />
-              Cancel
+              <StopCircle className="h-3.5 w-3.5 sm:mr-1" />
+              <span className="hidden sm:inline">Cancel</span>
             </>
           ) : (
             <>
-              <Play className="h-3.5 w-3.5 mr-1" />
-              Execute
+              <Play className="h-3.5 w-3.5 sm:mr-1" />
+              <span className="hidden sm:inline">Execute</span>
             </>
           )}
         </Button>
