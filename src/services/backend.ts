@@ -268,7 +268,17 @@ export type StreamMessage =
   | { type: "limitApplied"; original_sql: string; applied_limit: number }
   | { type: "started"; columns: ColumnMeta[]; estimated_rows?: number }
   | { type: "batch"; rows: CellValue[][]; row_offset: number }
-  | { type: "success"; total_rows: number; execution_time_ms: number }
+  | {
+      type: "success";
+      total_rows: number;
+      execution_time_ms: number;
+      cursor_setup_ms?: number;
+      total_streaming_ms?: number;
+      fetch_count?: number;
+      network_ms?: number;
+      conversion_ms?: number;
+      ipc_send_ms?: number;
+    }
   | { type: "error"; code: string; message: string }
   | { type: "interrupted"; resumable: boolean; message: string };
 

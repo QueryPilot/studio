@@ -34,7 +34,7 @@ export const QueryToolbar = memo(function QueryToolbar({
   onViewModeChange,
 }: QueryToolbarProps) {
   return (
-    <div className="flex items-center justify-between gap-1 p-1 border-b bg-muted/20 flex-shrink-0">
+    <div className="flex items-center justify-between gap-1 p-1 bg-muted/20 flex-shrink-0">
       <div className="flex items-center gap-1">
         <Tabs
           value={viewMode}

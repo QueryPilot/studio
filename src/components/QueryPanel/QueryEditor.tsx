@@ -10,6 +10,7 @@ interface QueryEditorProps {
   value?: string;
   onChange?: (value: string | undefined) => void;
   onExecute?: (query: string) => void;
+  isExecuting?: boolean;
   height?: string;
   readOnly?: boolean;
 }
@@ -22,6 +23,7 @@ export const QueryEditor = memo(function QueryEditor({
   value = "",
   onChange,
   onExecute,
+  isExecuting = false,
   height = "100%",
   readOnly = false,
 }: QueryEditorProps) {
@@ -34,6 +36,11 @@ export const QueryEditor = memo(function QueryEditor({
       : "postgresql";
 
   const handleExecute = (query?: string) => {
+    // Prevent execution if already executing
+    if (isExecuting) {
+      return;
+    }
+
     if (onExecute) {
       // Use the query passed from CodeMirror (selected text or query at cursor)
       // If no query is passed, use the entire editor value

@@ -22,6 +22,12 @@ export interface StreamResult {
   columns: ColumnMeta[];
   totalRows: number;
   executionTimeMs: number;
+  cursorSetupMs?: number;
+  totalStreamingMs?: number;
+  fetchCount?: number;
+  networkMs?: number;
+  conversionMs?: number;
+  ipcSendMs?: number;
 }
 
 /**
@@ -229,6 +235,12 @@ export class QueryStreamClient {
               columns: this.columns || [],
               totalRows: message.total_rows,
               executionTimeMs: message.execution_time_ms,
+              cursorSetupMs: message.cursor_setup_ms,
+              totalStreamingMs: message.total_streaming_ms,
+              fetchCount: message.fetch_count,
+              networkMs: message.network_ms,
+              conversionMs: message.conversion_ms,
+              ipcSendMs: message.ipc_send_ms,
             };
             callbacks.onSuccess?.(result);
             settleResolve(result);

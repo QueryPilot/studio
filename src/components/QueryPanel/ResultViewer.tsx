@@ -2,6 +2,7 @@ import { memo, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { AlertCircle, XCircle, Clipboard } from "lucide-react";
 import { TableDataGridV2 } from "@/components/DataGridV2";
+import { DataGridSkeleton } from "@/components/DataGridV2/components/DataGridSkeleton";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { CodeEditor } from "@/components/CodeEditor";
@@ -26,14 +27,27 @@ interface ResultViewerProps {
   gridId: string;
   isStreaming?: boolean;
   viewMode: "table" | "json";
+  cursorSetupMs?: number;
+  totalStreamingMs?: number;
+  fetchCount?: number;
+  networkMs?: number;
+  conversionMs?: number;
+  ipcSendMs?: number;
 }
 
 export const ResultViewer = memo(function ResultViewer({
   result,
+  isLoading = false,
   className,
   gridId,
   isStreaming = false,
   viewMode,
+  cursorSetupMs,
+  totalStreamingMs,
+  fetchCount,
+  networkMs,
+  conversionMs,
+  ipcSendMs,
 }: ResultViewerProps) {
   const jsonContent = useMemo(() => {
     if (!result || result.error) {
@@ -55,6 +69,15 @@ export const ResultViewer = memo(function ResultViewer({
       return "[]";
     }
   }, [result]);
+
+  // Show skeleton when loading and no result yet
+  if (isLoading && !result) {
+    return (
+      <div className={cn("h-full", className)}>
+        <DataGridSkeleton />
+      </div>
+    );
+  }
 
   // Do not block rendering while loading; if we have any rows/columns, show them
 
@@ -138,6 +161,12 @@ export const ResultViewer = memo(function ResultViewer({
                 : undefined
             }
             executionTime={result.executionTime}
+            cursorSetupMs={cursorSetupMs}
+            totalStreamingMs={totalStreamingMs}
+            fetchCount={fetchCount}
+            networkMs={networkMs}
+            conversionMs={conversionMs}
+            ipcSendMs={ipcSendMs}
             isStreaming={isStreaming}
             className="h-full"
             error={result.error ?? null}
