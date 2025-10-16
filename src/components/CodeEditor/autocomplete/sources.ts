@@ -6,6 +6,7 @@ import type {
 // (No direct import needed here; enum values provided via schemaCache)
 import { schemaCache } from "@/services/schemaCache";
 import type { QueryContext } from "./parser";
+import { fuzzyMatch } from "@/utils/fuzzyMatch";
 
 type DbType = "PostgreSQL" | "MySQL" | "SQLite" | "MSSQL";
 
@@ -183,6 +184,23 @@ function quoteIdentifier(name: string, dbType: DbType): string {
   }
 }
 
+/**
+ * Helper to check if a string matches the current word using fuzzy matching
+ */
+function matchesQuery(
+  text: string,
+  query: string,
+): {
+  matches: boolean;
+  score: number;
+} {
+  if (!query) {
+    return { matches: true, score: 0 };
+  }
+  const result = fuzzyMatch(query, text, false);
+  return { matches: result.matches, score: result.score };
+}
+
 export function createContextualCompletionSource(params: {
   connectionId: string;
   dbType: DbType;
@@ -345,11 +363,16 @@ export function createContextualCompletionSource(params: {
             const cached = columnFastCache.get(fastKey);
 
             if (cached && now - cached.ts < COLUMN_FASTCACHE_TTL) {
-              completions = cached.cols.filter(
-                (c) =>
-                  !partialColumn ||
-                  c.label.toLowerCase().startsWith(partialColumn),
-              );
+              completions = cached.cols
+                .map((c) => {
+                  const match = matchesQuery(c.label, partialColumn);
+                  return {
+                    ...c,
+                    matches: match.matches,
+                    score: c.score + match.score,
+                  };
+                })
+                .filter((c) => c.matches);
             } else {
               console.debug(
                 `[Autocomplete] Fetching columns for ${tableName} (schema: ${effective}, alias: ${tableOrAlias})`,
@@ -374,11 +397,16 @@ export function createContextualCompletionSource(params: {
                   score: 200,
                 }));
               columnFastCache.set(fastKey, { cols: built, ts: now });
-              completions = built.filter(
-                (c) =>
-                  !partialColumn ||
-                  c.label.toLowerCase().startsWith(partialColumn),
-              );
+              completions = built
+                .map((c) => {
+                  const match = matchesQuery(c.label, partialColumn);
+                  return {
+                    ...c,
+                    matches: match.matches,
+                    score: c.score + match.score,
+                  };
+                })
+                .filter((c) => c.matches);
             }
 
             // Add * for SELECT clause
@@ -441,10 +469,8 @@ export function createContextualCompletionSource(params: {
                 // Add columns - prioritize qualified if multiple tables in scope
                 const useQualified = queryContext.tablesInScope.length > 1;
                 for (const col of columns) {
-                  if (
-                    !currentWord ||
-                    col.name.toLowerCase().startsWith(currentWord)
-                  ) {
+                  const colMatch = matchesQuery(col.name, currentWord);
+                  if (colMatch.matches) {
                     if (useQualified) {
                       // Add qualified version when multiple tables
                       const prefix = table.alias || table.table;
@@ -456,7 +482,7 @@ export function createContextualCompletionSource(params: {
                         )}.${quoteIdentifier(col.name, dbType)}`,
                         type: "property",
                         detail: col.db_type,
-                        score: 100,
+                        score: 100 + colMatch.score,
                       });
                     } else {
                       // Add unqualified when single table
@@ -465,7 +491,7 @@ export function createContextualCompletionSource(params: {
                         apply: quoteIdentifier(col.name, dbType),
                         type: "property",
                         detail: col.db_type,
-                        score: 100,
+                        score: 100 + colMatch.score,
                       });
                     }
                   }
@@ -507,31 +533,29 @@ export function createContextualCompletionSource(params: {
             );
 
             completions = tables
-              .filter(
-                (table) =>
-                  !currentWord ||
-                  table.name.toLowerCase().startsWith(currentWord),
-              )
-              .map((table) => ({
-                label: table.name,
-                apply: quoteIdentifier(table.name, dbType),
-                type: "type",
-                detail: "table",
-                score: 100,
-              }));
+              .map((table) => {
+                const match = matchesQuery(table.name, currentWord);
+                return {
+                  label: table.name,
+                  apply: quoteIdentifier(table.name, dbType),
+                  type: "type",
+                  detail: "table",
+                  score: 100 + match.score,
+                  matches: match.matches,
+                };
+              })
+              .filter((item) => item.matches);
 
             // Add CTEs to table suggestions
             for (const [cteName] of queryContext.ctes) {
-              if (
-                !currentWord ||
-                cteName.toLowerCase().startsWith(currentWord)
-              ) {
+              const match = matchesQuery(cteName, currentWord);
+              if (match.matches) {
                 completions.push({
                   label: cteName,
                   apply: quoteIdentifier(cteName, dbType),
                   type: "type",
                   detail: "CTE",
-                  score: 110, // Higher priority than regular tables
+                  score: 110 + match.score, // Higher priority than regular tables
                 });
               }
             }
@@ -554,16 +578,14 @@ export function createContextualCompletionSource(params: {
                 );
 
                 for (const col of columns) {
-                  if (
-                    !currentWord ||
-                    col.name.toLowerCase().startsWith(currentWord)
-                  ) {
+                  const match = matchesQuery(col.name, currentWord);
+                  if (match.matches) {
                     completions.push({
                       label: col.name,
                       apply: quoteIdentifier(col.name, dbType),
                       type: "property",
                       detail: col.db_type,
-                      score: 70,
+                      score: 70 + match.score,
                     });
                   }
                 }
@@ -572,16 +594,14 @@ export function createContextualCompletionSource(params: {
                 // (avoid duplicating: user types "u" → sees "users." → selects → gets "u.users.")
                 if (!textBefore.match(/[a-zA-Z_][\w.]*\.$/)) {
                   const prefix = table.alias || table.table;
-                  if (
-                    !currentWord ||
-                    prefix.toLowerCase().startsWith(currentWord)
-                  ) {
+                  const match = matchesQuery(prefix, currentWord);
+                  if (match.matches) {
                     completions.push({
                       label: `${prefix}.`,
                       apply: `${quoteIdentifier(prefix, dbType)}.`,
                       type: "variable",
                       detail: table.alias ? "alias" : "table",
-                      score: 90,
+                      score: 90 + match.score,
                     });
                   }
                 }
@@ -1117,5 +1137,3 @@ export function createContextualCompletionSource(params: {
     }
   };
 }
-
-

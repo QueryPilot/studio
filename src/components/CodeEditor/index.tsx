@@ -7,10 +7,8 @@ import {
 } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { EditorView } from "@codemirror/view";
-// Autocomplete and triggers are provided via getEditorExtensions
-import { githubLight, githubDarkInit } from "@uiw/codemirror-theme-github";
 import { useTheme } from "@/components/theme-provider";
-import { foldGutterTheme } from "./themes";
+import { getThemeExtensions } from "./themes";
 import { getEditorExtensions } from "./extensions";
 import type { CodeEditorProps } from "./types";
 import "./autocomplete.css";
@@ -90,23 +88,9 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
       return theme;
     }, [theme, resolvedTheme]);
 
-    // Memoize the theme object to prevent recreation
-    const editorTheme = useMemo(() => {
-      return actualTheme === "dark"
-        ? githubDarkInit({
-            settings: {
-              background: "#09090B",
-              backgroundImage: "",
-              foreground: "#c9d1d9",
-              caret: "#c9d1d9",
-              selection: "#3392FF44",
-              selectionMatch: "#17E5E633",
-              lineHighlight: "#0d1117",
-              gutterBackground: "#09090B",
-              gutterForeground: "#8b949e",
-            },
-          })
-        : githubLight;
+    // Memoize the theme extensions
+    const themeExtensions = useMemo(() => {
+      return getThemeExtensions(actualTheme);
     }, [actualTheme]);
 
     // Create extensions
@@ -122,7 +106,7 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
           database,
           schema,
         ),
-        foldGutterTheme,
+        ...themeExtensions,
         EditorView.theme({
           "&": {
             height: "100%",
@@ -155,6 +139,7 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
       connectionId,
       database,
       schema,
+      themeExtensions,
     ]);
 
     // Handle auto-focus - focus on mount and when autoFocus changes
@@ -188,7 +173,7 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
           height={height}
           minHeight={minHeight}
           maxHeight={maxHeight}
-          theme={editorTheme}
+          theme="none"
           style={{ height: "100%", display: "flex", flexDirection: "column" }}
           onCreateEditor={(view) => {
             editorRef.current = view;
