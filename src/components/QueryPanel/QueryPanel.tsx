@@ -29,6 +29,8 @@ import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { useTabStateStore, type QueryResult } from "@/stores/tabStateStore";
 import type { ColumnMeta } from "@/types/database";
+import { formatSql } from "@/utils/codeFormatter";
+import type { SqlDialect } from "@/components/CodeEditor/types";
 
 interface QueryPanelProps {
   panelId: string;
@@ -405,29 +407,28 @@ export const QueryPanel = memo(function QueryPanel({
   );
 
   const handleBeautify = useCallback(() => {
-    // Basic SQL formatting
     if (!query.trim()) return;
 
-    const beautified = query
-      .replace(/\s+/g, " ")
-      .replace(/\s*,\s*/g, ", ")
-      .replace(/\s*(=|<|>|<=|>=|!=|<>)\s*/g, " $1 ")
-      .replace(/\bSELECT\b/gi, "SELECT")
-      .replace(/\bFROM\b/gi, "\nFROM")
-      .replace(/\bWHERE\b/gi, "\nWHERE")
-      .replace(/\bJOIN\b/gi, "\nJOIN")
-      .replace(/\bINNER\s+JOIN\b/gi, "\nINNER JOIN")
-      .replace(/\bLEFT\s+JOIN\b/gi, "\nLEFT JOIN")
-      .replace(/\bRIGHT\s+JOIN\b/gi, "\nRIGHT JOIN")
-      .replace(/\bORDER\s+BY\b/gi, "\nORDER BY")
-      .replace(/\bGROUP\s+BY\b/gi, "\nGROUP BY")
-      .replace(/\bHAVING\b/gi, "\nHAVING")
-      .trim();
+    // Map dbType to SqlDialect
+    const dialectMap: Record<string, SqlDialect> = {
+      postgres: "postgresql",
+      mysql: "mysql",
+      sqlite: "sqlite",
+      mariadb: "mysql",
+      sqlserver: "mssql",
+      mssql: "mssql",
+      oracle: "plsql",
+    };
 
-    setQuery(beautified);
-    persistSql(beautified);
-    toast.success("Query formatted");
-  }, [query, persistSql, setQuery]);
+    const dialect = dialectMap[dbType.toLowerCase()] || "postgresql";
+    const beautified = formatSql(query, dialect);
+
+    if (beautified !== query) {
+      setQuery(beautified);
+      persistSql(beautified);
+      toast.success("Query formatted");
+    }
+  }, [query, dbType, persistSql, setQuery]);
 
   // Removed cmd+enter shortcut - now handled directly by CodeMirror editor
 

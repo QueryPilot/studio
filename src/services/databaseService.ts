@@ -272,6 +272,10 @@ class DatabaseService {
       }
 
       this.activeConnections.delete(connectionId);
+
+      // Clear pre-warm cache for this connection
+      const { clearPrewarmCache } = await import("@/hooks/useSchemaData");
+      clearPrewarmCache(connectionId);
     } catch (error) {
       console.error("Failed to disconnect from database:", error);
       throw error;
