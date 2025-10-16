@@ -27,6 +27,7 @@ import {
 } from "@/services/keyboard/integration/storeIntegration";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
+import { useTabStateStore, type QueryResult } from "@/stores/tabStateStore";
 import type { ColumnMeta } from "@/types/database";
 
 interface QueryPanelProps {
@@ -40,21 +41,6 @@ interface QueryPanelProps {
   initialSql?: string;
 }
 
-interface QueryResult {
-  columns: string[];
-  columnMeta?: ColumnMeta[];
-  rows: unknown[][];
-  rowCount: number;
-  executionTime?: number;
-  cursorSetupMs?: number;
-  totalStreamingMs?: number;
-  fetchCount?: number;
-  networkMs?: number;
-  conversionMs?: number;
-  ipcSendMs?: number;
-  error?: string;
-}
-
 export const QueryPanel = memo(function QueryPanel({
   panelId,
   tabId,
@@ -65,19 +51,95 @@ export const QueryPanel = memo(function QueryPanel({
   className,
   initialSql = "",
 }: QueryPanelProps) {
-  const [query, setQuery] = useState(initialSql);
-  const [result, setResult] = useState<QueryResult | null>(null);
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [isStreaming, setIsStreaming] = useState(false);
+  // Use global tab state store to persist across panel moves
+  const { getQueryState, setQueryState } = useTabStateStore();
+  const globalState = getQueryState(tabId);
+
+  const [query, setQueryInternal] = useState(globalState?.query || initialSql);
+  const [result, setResultInternal] = useState<QueryResult | null>(
+    globalState?.result || null,
+  );
+  const [isExecuting, setIsExecutingInternal] = useState(
+    globalState?.isExecuting || false,
+  );
+  const [isStreaming, setIsStreamingInternal] = useState(
+    globalState?.isStreaming || false,
+  );
   const [abortController, setAbortController] =
     useState<AbortController | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [hasSelection] = useState(false);
-  const [appliedLimit, setAppliedLimit] = useState<{
+  const [appliedLimit, setAppliedLimitInternal] = useState<{
     originalSql: string;
     limit: number;
-  } | null>(null);
-  const [viewMode, setViewMode] = useState<"table" | "json">("table");
+  } | null>(globalState?.appliedLimit || null);
+  const [viewMode, setViewModeInternal] = useState<"table" | "json">(
+    globalState?.viewMode || "table",
+  );
+
+  // Wrapper setters that update both local and global state
+  const setQuery = useCallback(
+    (value: string) => {
+      setQueryInternal(value);
+      setQueryState(tabId, { query: value });
+    },
+    [tabId, setQueryState],
+  );
+
+  const setResult = useCallback(
+    (
+      value:
+        | QueryResult
+        | null
+        | ((prev: QueryResult | null) => QueryResult | null),
+    ) => {
+      setResultInternal(value);
+      // If it's a function updater, we need to get the current value first
+      if (typeof value === "function") {
+        setResultInternal((prev) => {
+          const newValue = value(prev);
+          setQueryState(tabId, { result: newValue });
+          return newValue;
+        });
+      } else {
+        setResultInternal(value);
+        setQueryState(tabId, { result: value });
+      }
+    },
+    [tabId, setQueryState],
+  );
+
+  const setIsExecuting = useCallback(
+    (value: boolean) => {
+      setIsExecutingInternal(value);
+      setQueryState(tabId, { isExecuting: value });
+    },
+    [tabId, setQueryState],
+  );
+
+  const setIsStreaming = useCallback(
+    (value: boolean) => {
+      setIsStreamingInternal(value);
+      setQueryState(tabId, { isStreaming: value });
+    },
+    [tabId, setQueryState],
+  );
+
+  const setAppliedLimit = useCallback(
+    (value: { originalSql: string; limit: number } | null) => {
+      setAppliedLimitInternal(value);
+      setQueryState(tabId, { appliedLimit: value });
+    },
+    [tabId, setQueryState],
+  );
+
+  const setViewMode = useCallback(
+    (value: "table" | "json") => {
+      setViewModeInternal(value);
+      setQueryState(tabId, { viewMode: value });
+    },
+    [tabId, setQueryState],
+  );
 
   const smartQueryLimit = usePreferencesStore(
     (state) => state.smartQueryLimit as number | null,
@@ -93,7 +155,11 @@ export const QueryPanel = memo(function QueryPanel({
 
   useEffect(() => {
     setQuery(initialSql);
-  }, [initialSql]);
+  }, [initialSql, setQuery]);
+
+  // Cleanup global state when component fully unmounts (tab closed, not just moved)
+  // We don't clear on unmount because tab might just be moving between panels
+  // Instead, workbenchStore should call clearQueryState when tab is actually removed
 
   const persistSql = useCallback(
     (value: string) => {
@@ -304,7 +370,16 @@ export const QueryPanel = memo(function QueryPanel({
         }
       }
     },
-    [query, connectionId, database, smartQueryLimit],
+    [
+      query,
+      connectionId,
+      database,
+      smartQueryLimit,
+      setIsExecuting,
+      setIsStreaming,
+      setResult,
+      setAppliedLimit,
+    ],
   );
 
   const handleCancel = useCallback(() => {
@@ -319,14 +394,14 @@ export const QueryPanel = memo(function QueryPanel({
 
       toast.info("Query cancelled");
     }
-  }, [abortController]);
+  }, [abortController, setIsExecuting, setIsStreaming]);
 
   const handleSelectQuery = useCallback(
     (selectedQuery: string) => {
       setQuery(selectedQuery);
       persistSql(selectedQuery);
     },
-    [persistSql],
+    [persistSql, setQuery],
   );
 
   const handleBeautify = useCallback(() => {
@@ -352,7 +427,7 @@ export const QueryPanel = memo(function QueryPanel({
     setQuery(beautified);
     persistSql(beautified);
     toast.success("Query formatted");
-  }, [query, persistSql]);
+  }, [query, persistSql, setQuery]);
 
   // Removed cmd+enter shortcut - now handled directly by CodeMirror editor
 
@@ -449,7 +524,7 @@ export const QueryPanel = memo(function QueryPanel({
                 </ResizablePanel>
 
                 <div className="px-1">
-                  <ResizableHandle className="bg-secondary" />
+                  <ResizableHandle className="bg-secondary !h-1 rounded-lg" />
                 </div>
 
                 {/* Results */}

@@ -9,7 +9,15 @@ import React, {
 } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Table, Bolt, BookMarked, Zap, Code, Copy, ClipboardCheck } from "lucide-react";
+import {
+  Table,
+  Bolt,
+  BookMarked,
+  Zap,
+  Code,
+  Copy,
+  ClipboardCheck,
+} from "lucide-react";
 import { TableDataGridV2 } from "@/components/DataGridV2";
 import { TableStructure } from "@/components/TableStructure";
 import { TableIndexes } from "@/components/TableIndexes";
@@ -94,6 +102,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
     }, [activeView, metadata, panelId, tabId, updateTabMetadata]);
 
     // Compute tableGridId unconditionally (before any early returns)
+    // CRITICAL: Include panelId and tabId for proper tab isolation
     const tableGridId = useMemo(() => {
       if (!metadata || metadata.type !== "table") return undefined;
       const connection: string =
@@ -103,8 +112,9 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       const db: string = metadata.database || "";
       const schemaName: string = metadata.schema || "public";
       const tableName: string = metadata.table || "";
-      return `table:${connection}:${db}:${schemaName}:${tableName}`;
-    }, [activeConnectionId, metadata]);
+      // Include panelId and tabId to ensure each tab instance has isolated state
+      return `table:${connection}:${db}:${schemaName}:${tableName}:${panelId}:${tabId}`;
+    }, [activeConnectionId, metadata, panelId, tabId]);
 
     if (type === "query") {
       return (

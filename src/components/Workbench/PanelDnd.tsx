@@ -267,14 +267,29 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
       </div>
 
       <div className="panel-body flex-1 overflow-hidden relative">
-        {content.activeTabId && (
-          <PanelContentRenderer
-            panelId={content.id}
-            tabId={content.activeTabId}
-            metadata={content.metadata?.[content.activeTabId]}
-          />
-        )}
-        {!content.activeTabId && (
+        {/* Render ALL tab contents - keep them mounted to preserve state */}
+        {content.tabIds.map((tabId) => {
+          const isActive = content.activeTabId === tabId;
+          const metadata = content.metadata?.[tabId];
+
+          return (
+            <div
+              key={tabId}
+              className={cn(
+                "absolute inset-0",
+                isActive ? "block z-10" : "hidden",
+              )}
+            >
+              <PanelContentRenderer
+                panelId={content.id}
+                tabId={tabId}
+                metadata={metadata}
+              />
+            </div>
+          );
+        })}
+
+        {content.tabIds.length === 0 && (
           <div className="h-full flex items-center justify-center text-muted-foreground p-4">
             <div className="text-center">
               <p className="text-sm">Empty Panel</p>
