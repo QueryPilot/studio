@@ -7,6 +7,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { formatExecutionTime } from "@/utils/formatTime";
 
 interface DataGridStatusBarProps {
   loadedRows: number;
@@ -113,7 +114,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="text-muted-foreground cursor-help">
-                    {executionTime}ms
+                    {formatExecutionTime(executionTime)}
                   </span>
                 </TooltipTrigger>
                 <TooltipContent side="top" className="text-xs">
@@ -123,7 +124,9 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
                     </div>
                     <div className="flex justify-between gap-4">
                       <span>Total:</span>
-                      <span className="font-mono">{executionTime}ms</span>
+                      <span className="font-mono">
+                        {formatExecutionTime(executionTime)} ({executionTime}ms)
+                      </span>
                     </div>
                     {networkMs !== undefined && (
                       <div className="flex justify-between gap-4">

@@ -214,6 +214,12 @@ export class QueryStreamClient {
         try {
           // ArrayBuffer → Uint8Array → MessagePack decode
           const bytes = new Uint8Array(buffer);
+
+          // Skip empty buffers (used for cancellation checks)
+          if (bytes.length === 0) {
+            return;
+          }
+
           parsedRows = decode(bytes) as CellValue[][];
         } catch (err: unknown) {
           console.error(
@@ -221,6 +227,11 @@ export class QueryStreamClient {
             err,
           );
           parsedRows = [];
+        }
+
+        // Skip if no rows decoded
+        if (!parsedRows || parsedRows.length === 0) {
+          return;
         }
 
         totalRows += parsedRows.length;

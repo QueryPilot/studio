@@ -1,14 +1,31 @@
 import { useEffect, useState } from "react";
-import { queryHistoryService, type QueryHistoryEntry } from "@/services/queryHistoryService";
+import {
+  queryHistoryService,
+  type QueryHistoryEntry,
+} from "@/services/queryHistoryService";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Trash2, Clock, AlertCircle, CheckCircle2, Search, X, Star } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Trash2,
+  Clock,
+  AlertCircle,
+  CheckCircle2,
+  Search,
+  X,
+  Star,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
+import { formatExecutionTime } from "@/utils/formatTime";
 
 dayjs.extend(relativeTime);
 
@@ -18,11 +35,18 @@ interface QueryHistoryProps {
   onSelectQuery: (query: string) => void;
 }
 
-export function QueryHistory({ connectionId, database, onSelectQuery }: QueryHistoryProps) {
+export function QueryHistory({
+  connectionId,
+  database,
+  onSelectQuery,
+}: QueryHistoryProps) {
   const [history, setHistory] = useState<QueryHistoryEntry[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(true);
-  const [editingFavorite, setEditingFavorite] = useState<{ id: number; currentName: string } | null>(null);
+  const [editingFavorite, setEditingFavorite] = useState<{
+    id: number;
+    currentName: string;
+  } | null>(null);
   const [favoriteName, setFavoriteName] = useState("");
 
   useEffect(() => {
@@ -32,7 +56,10 @@ export function QueryHistory({ connectionId, database, onSelectQuery }: QueryHis
   const loadHistory = async () => {
     setIsLoading(true);
     try {
-      const entries = await queryHistoryService.getHistory(connectionId, database);
+      const entries = await queryHistoryService.getHistory(
+        connectionId,
+        database,
+      );
       setHistory(entries);
     } catch (error) {
       console.error("Failed to load query history:", error);
@@ -43,7 +70,10 @@ export function QueryHistory({ connectionId, database, onSelectQuery }: QueryHis
 
   const handleSearch = async () => {
     if (searchTerm.trim()) {
-      const results = await queryHistoryService.searchHistory(connectionId, searchTerm);
+      const results = await queryHistoryService.searchHistory(
+        connectionId,
+        searchTerm,
+      );
       setHistory(results);
     } else {
       loadHistory();
@@ -64,12 +94,13 @@ export function QueryHistory({ connectionId, database, onSelectQuery }: QueryHis
 
   const handleToggleFavorite = async (id: number, query: string) => {
     try {
-      const entry = history.find(h => h.id === id);
+      const entry = history.find((h) => h.id === id);
       if (entry?.isFavorite) {
         await queryHistoryService.toggleFavorite(id);
         toast.success("Removed from favorites");
       } else {
-        const defaultName = query.length > 50 ? `${query.substring(0, 50)}...` : query;
+        const defaultName =
+          query.length > 50 ? `${query.substring(0, 50)}...` : query;
         setEditingFavorite({ id, currentName: defaultName });
         setFavoriteName(defaultName);
       }
@@ -82,7 +113,10 @@ export function QueryHistory({ connectionId, database, onSelectQuery }: QueryHis
   const handleSaveFavorite = async () => {
     if (editingFavorite && favoriteName.trim()) {
       try {
-        await queryHistoryService.toggleFavorite(editingFavorite.id, favoriteName.trim());
+        await queryHistoryService.toggleFavorite(
+          editingFavorite.id,
+          favoriteName.trim(),
+        );
         toast.success("Added to favorites");
         setEditingFavorite(null);
         setFavoriteName("");
@@ -91,13 +125,6 @@ export function QueryHistory({ connectionId, database, onSelectQuery }: QueryHis
         toast.error("Failed to save favorite");
       }
     }
-  };
-
-
-  const formatExecutionTime = (ms?: number) => {
-    if (!ms) return "";
-    if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(2)}s`;
   };
 
   if (isLoading) {
@@ -116,7 +143,9 @@ export function QueryHistory({ connectionId, database, onSelectQuery }: QueryHis
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               value={searchTerm}
-              onChange={(e) => { setSearchTerm(e.target.value); }}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+              }}
               onKeyDown={(e) => e.key === "Enter" && handleSearch()}
               placeholder="Search query history..."
               className="pl-8 h-8"
@@ -159,9 +188,11 @@ export function QueryHistory({ connectionId, database, onSelectQuery }: QueryHis
                 key={entry.id}
                 className={cn(
                   "group relative p-3 rounded-md border cursor-pointer hover:bg-muted/50 transition-colors",
-                  entry.error && "border-destructive/50"
+                  entry.error && "border-destructive/50",
                 )}
-                onClick={() => { onSelectQuery(entry.query); }}
+                onClick={() => {
+                  onSelectQuery(entry.query);
+                }}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
@@ -191,7 +222,9 @@ export function QueryHistory({ connectionId, database, onSelectQuery }: QueryHis
                         : entry.query}
                     </pre>
                     {entry.error && (
-                      <p className="text-xs text-destructive mt-1">{entry.error}</p>
+                      <p className="text-xs text-destructive mt-1">
+                        {entry.error}
+                      </p>
                     )}
                   </div>
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
@@ -204,10 +237,15 @@ export function QueryHistory({ connectionId, database, onSelectQuery }: QueryHis
                       size="icon"
                       className={cn(
                         "h-7 w-7",
-                        entry.isFavorite && "opacity-100 text-yellow-500"
+                        entry.isFavorite && "opacity-100 text-yellow-500",
                       )}
                     >
-                      <Star className={cn("h-3 w-3", entry.isFavorite && "fill-current")} />
+                      <Star
+                        className={cn(
+                          "h-3 w-3",
+                          entry.isFavorite && "fill-current",
+                        )}
+                      />
                     </Button>
                     <Button
                       onClick={(e) => {
@@ -235,12 +273,15 @@ export function QueryHistory({ connectionId, database, onSelectQuery }: QueryHis
       </ScrollArea>
 
       {/* Edit Favorite Dialog */}
-      <Dialog open={!!editingFavorite} onOpenChange={(open) => {
-        if (!open) {
-          setEditingFavorite(null);
-          setFavoriteName("");
-        }
-      }}>
+      <Dialog
+        open={!!editingFavorite}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingFavorite(null);
+            setFavoriteName("");
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Add to Favorites</DialogTitle>
@@ -250,7 +291,9 @@ export function QueryHistory({ connectionId, database, onSelectQuery }: QueryHis
               <label className="text-sm font-medium">Name</label>
               <Input
                 value={favoriteName}
-                onChange={(e) => { setFavoriteName(e.target.value); }}
+                onChange={(e) => {
+                  setFavoriteName(e.target.value);
+                }}
                 placeholder="Enter a name for this query..."
                 className="mt-1"
                 onKeyDown={(e) => e.key === "Enter" && handleSaveFavorite()}

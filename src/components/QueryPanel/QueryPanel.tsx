@@ -246,9 +246,16 @@ export const QueryPanel = memo(function QueryPanel({
           } rows)`,
         );
       } catch (error) {
-        if (error instanceof Error && error.name === "AbortError") {
-          toast.info("Query execution cancelled");
-          return;
+        // Check if this is a user cancellation
+        const isCancellation =
+          (error instanceof Error && error.name === "AbortError") ||
+          (error instanceof Error && error.message.includes("cancelled")) ||
+          (error instanceof Error && error.message.includes("interrupted"));
+
+        if (isCancellation) {
+          // User cancelled - don't show as error
+          console.log("Query cancelled by user");
+          return; // Exit early, no toast (already shown in handleCancel)
         } else {
           // Extract detailed error message
           if (error instanceof Error) {
@@ -282,8 +289,9 @@ export const QueryPanel = memo(function QueryPanel({
         setIsStreaming(false);
         setAbortController(null);
 
-        // Save to history
-        if (sql.trim() && !controller.signal.aborted) {
+        // Save to history (skip if cancelled)
+        const wasCancelled = controller.signal.aborted;
+        if (sql.trim() && !wasCancelled) {
           await queryHistoryService.addEntry({
             connectionId,
             database,
@@ -303,7 +311,13 @@ export const QueryPanel = memo(function QueryPanel({
     if (abortController) {
       abortController.abort();
       setIsExecuting(false);
+      setIsStreaming(false);
       setAbortController(null);
+
+      // Cancel backend streaming
+      streamingTableService.cancel();
+
+      toast.info("Query cancelled");
     }
   }, [abortController]);
 
