@@ -3,6 +3,7 @@ import {
   SERIALIZE_TO_IPC_FN,
   transformCallback,
 } from "@tauri-apps/api/core";
+import { decode } from "@msgpack/msgpack";
 import type { ColumnMeta, CellValue, StreamMessage } from "./backend";
 import { isTauri } from "../utils/tauri";
 
@@ -203,10 +204,36 @@ export class QueryStreamClient {
         reject(error);
       };
 
-      const channel = createIpcChannel<StreamMessage>((message) => {
-        // Guard against undefined messages (channel close)
-        if (!message) return;
+      // DUAL CHANNEL: metadata (JSON) + data (raw ArrayBuffer)
+      let batchCount = 0;
 
+      // Data channel: receives raw MessagePack ArrayBuffers (Response type)
+      const dataChannel = createIpcChannel<ArrayBuffer>((buffer) => {
+        // Decode MessagePack binary data directly from ArrayBuffer
+        let parsedRows: CellValue[][];
+        try {
+          // ArrayBuffer → Uint8Array → MessagePack decode
+          const bytes = new Uint8Array(buffer);
+          parsedRows = decode(bytes) as CellValue[][];
+        } catch (err: unknown) {
+          console.error(
+            "[QueryStreamClient] Failed to decode MessagePack batch",
+            err,
+          );
+          parsedRows = [];
+        }
+
+        totalRows += parsedRows.length;
+        const batch: StreamBatch = {
+          rows: parsedRows,
+          rowOffset: batchCount * (batchSize || 1000),
+        };
+        batchCount++;
+        callbacks.onBatch?.(batch, totalRows);
+      });
+
+      // Metadata channel: receives JSON StreamMessages
+      const metadataChannel = createIpcChannel<StreamMessage>((message) => {
         switch (message.type) {
           case "limitApplied":
             callbacks.onLimitApplied?.(
@@ -221,16 +248,7 @@ export class QueryStreamClient {
             callbacks.onStarted?.(message.columns, message.estimated_rows);
             break;
 
-          case "batch":
-            totalRows += message.rows.length;
-            const batch: StreamBatch = {
-              rows: message.rows,
-              rowOffset: message.row_offset,
-            };
-            callbacks.onBatch?.(batch, totalRows);
-            break;
-
-          case "success":
+          case "success": {
             const result: StreamResult = {
               columns: this.columns || [],
               totalRows: message.total_rows,
@@ -245,14 +263,14 @@ export class QueryStreamClient {
             callbacks.onSuccess?.(result);
             settleResolve(result);
             break;
+          }
 
-          case "error":
-            {
-              const error = new Error(`[${message.code}] ${message.message}`);
-              callbacks.onError?.(error);
-              settleReject(error);
-            }
+          case "error": {
+            const error = new Error(`[${message.code}] ${message.message}`);
+            callbacks.onError?.(error);
+            settleReject(error);
             break;
+          }
 
           case "interrupted":
             {
@@ -272,7 +290,8 @@ export class QueryStreamClient {
           sql,
           batchSize,
           userLimitPreference,
-          channel,
+          metadataChannel,
+          dataChannel,
         }).catch((error) => {
           const normalized = normalizeError(error);
           callbacks.onError?.(normalized);

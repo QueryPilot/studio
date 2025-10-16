@@ -457,7 +457,8 @@ fn extract_limit_from_sql(sql: &str) -> Option<usize> {
 /// Execute query with TRUE streaming (rows arrive as they're fetched from PostgreSQL)
 async fn execute_single_fetch_stream(
     sql: &str,
-    channel: &tauri::ipc::Channel<StreamMessage>,
+    metadata_channel: &tauri::ipc::Channel<StreamMessage>,
+    data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
     conn: &crate::core::manager::LiveConnection,
 ) -> std::result::Result<(), String> {
     use futures::StreamExt;
@@ -512,7 +513,7 @@ async fn execute_single_fetch_stream(
         .collect::<Vec<_>>();
     
     // Send column metadata immediately
-    let _ = channel.send(StreamMessage::Started {
+    let _ = metadata_channel.send(StreamMessage::Started {
         columns: columns.clone(),
         estimated_rows: None,
     });
@@ -526,10 +527,10 @@ async fn execute_single_fetch_stream(
     let mut row_buffer: Vec<Row> = Vec::new(); // Temporary Row buffer for batch conversion
     const MICRO_BATCH_SIZE: usize = 500; // Convert this many rows in parallel (optimal for cache)
     
-    // Incremental batch sizes: start small for instant feedback, grow for efficiency
-    const FIRST_BATCH_SIZE: usize = 32;   // Ultra-fast first render
-    const SECOND_BATCH_SIZE: usize = 512; // Quick follow-up batches
-    const LARGE_BATCH_SIZE: usize = 2048; // Efficient bulk transfer
+    // Incremental batch sizes: start small for instant feedback, then go big
+    const FIRST_BATCH_SIZE: usize = 32;   // Ultra-fast first render (~4ms IPC)
+    const SECOND_BATCH_SIZE: usize = 512; // Quick second batch (~25ms IPC)
+    const LARGE_BATCH_SIZE: usize = 4096; // Large bulk transfer (~80-100ms IPC but fewer calls)
     
     let mut first_row_elapsed_ms: Option<u64> = None;
     
@@ -578,20 +579,25 @@ async fn execute_single_fetch_stream(
                 // Send chunk to frontend when output buffer reaches dynamic threshold
                 let current_threshold = get_send_threshold(rows_sent);
                 if json_buffer.len() >= current_threshold {
-                    let send_start = std::time::Instant::now();
                     let batch_size = json_buffer.len();
-                    let _ = channel.send(StreamMessage::Batch {
-                        rows: std::mem::take(&mut json_buffer),
-                        row_offset: total_rows - batch_size,
-                        has_more: true,
-                    });
+                    
+                    // Serialize to MessagePack RAW bytes (no base64!)
+                    let serialize_start = std::time::Instant::now();
+                    let rows_msgpack = rmp_serde::to_vec(&json_buffer)
+                        .unwrap_or_else(|_| Vec::new());
+                    conversion_time_ms += serialize_start.elapsed().as_millis() as u64;
+                    json_buffer.clear();
+                    
+                    // Send raw binary via Response (ZERO serialization overhead!)
+                    let send_start = std::time::Instant::now();
+                    let _ = data_channel.send(tauri::ipc::Response::new(rows_msgpack));
                     send_time_ms += send_start.elapsed().as_millis() as u64;
                     send_count += 1;
                     rows_sent += batch_size;
                 }
             }
             Err(e) => {
-                let _ = channel.send(StreamMessage::Error {
+                let _ = metadata_channel.send(StreamMessage::Error {
                     code: "FETCH_ERROR".to_string(),
                     message: e.to_string(),
                 });
@@ -611,13 +617,18 @@ async fn execute_single_fetch_stream(
     
     // Send any remaining JSON rows
     if !json_buffer.is_empty() {
+        let batch_size = json_buffer.len();
+        let offset = total_rows - batch_size;
+        
+        // Serialize to MessagePack RAW bytes
+        let serialize_start = std::time::Instant::now();
+        let rows_msgpack = rmp_serde::to_vec(&json_buffer)
+            .unwrap_or_else(|_| Vec::new());
+        conversion_time_ms += serialize_start.elapsed().as_millis() as u64;
+        
+        // Send raw binary via Response (ZERO serialization overhead!)
         let send_start = std::time::Instant::now();
-        let offset = total_rows - json_buffer.len();
-        let _ = channel.send(StreamMessage::Batch {
-            rows: json_buffer,
-            row_offset: offset,
-            has_more: false,
-        });
+        let _ = data_channel.send(tauri::ipc::Response::new(rows_msgpack));
         send_time_ms += send_start.elapsed().as_millis() as u64;
         send_count += 1;
     }
@@ -625,8 +636,9 @@ async fn execute_single_fetch_stream(
     let total_time = query_start.elapsed().as_millis() as u64;
     let first_row_ms = first_row_elapsed_ms.unwrap_or(0);
     
-    // Calculate breakdown (network time = total - conversion - send)
-    let network_time_ms = total_time.saturating_sub(conversion_time_ms + send_time_ms);
+    // NOTE: send_time_ms shows queue time only (channel.send is non-blocking)
+    // Real IPC overhead is async/overlapped with conversion & network time
+    let network_time_ms = total_time.saturating_sub(conversion_time_ms);
     
     tracing::info!("==========================================");
     tracing::info!("TRUE STREAMING COMPLETE: {} rows", total_rows);
@@ -635,13 +647,13 @@ async fn execute_single_fetch_stream(
     tracing::info!("  Rows/sec: {:.0}", (total_rows as f64 / total_time as f64) * 1000.0);
     tracing::info!("  ┌─ Performance Breakdown:");
     tracing::info!("  │  Network/DB: {}ms ({:.1}%)", network_time_ms, (network_time_ms as f64 / total_time as f64) * 100.0);
-    tracing::info!("  │  Conversion: {}ms ({:.1}%)", conversion_time_ms, (conversion_time_ms as f64 / total_time as f64) * 100.0);
-    tracing::info!("  │  IPC Send: {}ms ({:.1}%, {} chunks)", send_time_ms, (send_time_ms as f64 / total_time as f64) * 100.0, send_count);
-    tracing::info!("  └─ Batch sizes: 32→512→2048 (incremental), micro: {}", MICRO_BATCH_SIZE);
+    tracing::info!("  │  Conversion+Serialization: {}ms ({:.1}%)", conversion_time_ms, (conversion_time_ms as f64 / total_time as f64) * 100.0);
+    tracing::info!("  │  IPC: Overlapped/async ({}ms queue, {} batches) - Response bypasses JSON!", send_time_ms, send_count);
+    tracing::info!("  └─ Batch sizes: 32→512→4096 (incremental), micro: {} | Format: msgpack", MICRO_BATCH_SIZE);
     tracing::info!("==========================================");
     
     // Send success with detailed breakdown
-    let _ = channel.send(StreamMessage::Success {
+    let _ = metadata_channel.send(StreamMessage::Success {
         total_rows,
         execution_time_ms: total_time,
         cursor_setup_ms: None,
@@ -663,7 +675,8 @@ pub async fn stream_query(
     sql: String,
     _batch_size: Option<usize>,
     user_limit_preference: Option<usize>,
-    channel: tauri::ipc::Channel<StreamMessage>,
+    metadata_channel: tauri::ipc::Channel<StreamMessage>,
+    data_channel: tauri::ipc::Channel<tauri::ipc::Response>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<(), String> {
     let conn = manager
@@ -691,7 +704,7 @@ pub async fn stream_query(
     
     // Send metadata about limit application before starting query
     if let Some(limit) = applied_limit {
-        let _ = channel.send(StreamMessage::LimitApplied {
+        let _ = metadata_channel.send(StreamMessage::LimitApplied {
             original_sql: sql.clone(),
             applied_limit: limit,
         });
@@ -706,7 +719,7 @@ pub async fn stream_query(
     }
     tracing::info!("==========================================");
     
-    execute_single_fetch_stream(&final_sql, &channel, &conn).await
+    execute_single_fetch_stream(&final_sql, &metadata_channel, &data_channel, &conn).await
 }
 
 // Index operation commands

@@ -264,10 +264,10 @@ export type StreamEvent =
   | { type: "Error"; message: string; code?: string };
 
 // NEW: Channel-based streaming (matches Rust StreamMessage enum)
+// NOTE: Batch data sent via separate data channel as ArrayBuffer (not in metadata messages)
 export type StreamMessage =
   | { type: "limitApplied"; original_sql: string; applied_limit: number }
   | { type: "started"; columns: ColumnMeta[]; estimated_rows?: number }
-  | { type: "batch"; rows: CellValue[][]; row_offset: number }
   | {
       type: "success";
       total_rows: number;

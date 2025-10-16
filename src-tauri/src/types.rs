@@ -623,11 +623,8 @@ pub enum StreamMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         estimated_rows: Option<i64>,
     },
-    Batch {
-        rows: Vec<Vec<serde_json::Value>>,
-        row_offset: usize,
-        has_more: bool,
-    },
+    // NOTE: Batch data now sent via separate data_channel as Response (raw binary)
+    // Metadata-only messages below:
     Success {
         total_rows: usize,
         execution_time_ms: u64,
