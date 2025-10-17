@@ -41,6 +41,8 @@ native-tls = "0.2"
 postgres-native-tls = "0.5"
 
 # Data types
+fallible-iterator = "0.2"
+bytes = "1"
 uuid = { version = "1.6", features = ["serde", "v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 bigdecimal = { version = "0.4", features = ["serde"] }

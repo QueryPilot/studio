@@ -3,7 +3,6 @@ pub mod fast_converter;
 pub mod introspection;
 pub mod parser;
 pub mod pool;
-// pub mod query;  // OLD: Replaced by query_fast (aggressive refactor)
 pub mod query_fast;
 pub mod query_builder;
 pub mod types;

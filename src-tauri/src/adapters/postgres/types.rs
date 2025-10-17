@@ -105,6 +105,10 @@ impl PostgresTypeConverter {
             Type::PG_LSN => CellValueType::PgLsn,
             Type::PG_SNAPSHOT => CellValueType::PgSnapshot,
 
+            // Full-text search types
+            Type::TS_VECTOR => CellValueType::TsVector,
+            Type::TSQUERY => CellValueType::TsQuery,
+
             // Record/Composite
             Type::RECORD => CellValueType::Composite(vec![]),
 
@@ -205,6 +209,10 @@ impl PostgresTypeConverter {
             3908 => CellValueType::Range(Box::new(CellValueType::DateTime)), // TSRANGE
             3910 => CellValueType::Range(Box::new(CellValueType::DateTime)), // TSTZRANGE
             3912 => CellValueType::Range(Box::new(CellValueType::Date)),     // DATERANGE
+
+            // Full-text search types
+            3614 => CellValueType::TsVector, // TSVECTOR
+            3615 => CellValueType::TsQuery,  // TSQUERY
 
             // Default fallback
             _ => CellValueType::CustomType("unknown".to_string()),
