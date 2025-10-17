@@ -3,6 +3,8 @@ import {
   type TableMeta,
   type ColumnMeta,
 } from "@/services/databaseService";
+import { relationshipService } from "@/services/relationshipService";
+import type { TableRelationshipGraph } from "@/types/relationships";
 
 interface CacheEntry<T> {
   data: T;
@@ -56,6 +58,7 @@ class SchemaCache {
     tables: 10 * 60 * 1000, // 10 min - can change
     columns: 10 * 60 * 1000, // 10 min - can change
     functions: 30 * 60 * 1000, // 30 min - rarely changes
+    relationships: 15 * 60 * 1000, // 15 min - FK constraints rarely change
     recent: 2 * 60 * 1000, // 2 min - for frequently accessed items
   };
 
@@ -188,6 +191,56 @@ class SchemaCache {
   /**
    * Get enum (or set) values for a specific column, cached and deduped.
    */
+  /**
+   * Get relationship graph for a schema (foreign key relationships)
+   */
+  async getRelationshipGraph(
+    connectionId: string,
+    schema: string,
+  ): Promise<TableRelationshipGraph> {
+    const key = `relationships:${connectionId}:${schema}`;
+    const cached = this.get<TableRelationshipGraph>(key);
+
+    if (cached) {
+      this.recordAccess(key);
+      return cached;
+    }
+
+    // Coalesce concurrent fetches
+    const existing = this.inFlight.get(key) as
+      | Promise<TableRelationshipGraph>
+      | undefined;
+    if (existing) {
+      return existing;
+    }
+
+    this.metrics.misses++;
+    const promise = (async () => {
+      // Get all tables in schema first
+      const tables = await this.getTables(connectionId, schema);
+
+      // Build relationship graph
+      const graph = await relationshipService.buildRelationshipGraph(
+        connectionId,
+        schema,
+        tables,
+      );
+
+      this.set(key, graph, {
+        ttl: this.ttlConfig.relationships,
+        priority: "medium",
+        connectionId,
+      });
+
+      return graph;
+    })().finally(() => {
+      this.inFlight.delete(key);
+    });
+
+    this.inFlight.set(key, promise);
+    return promise;
+  }
+
   async getColumnEnumValues(
     connectionId: string,
     schema: string,

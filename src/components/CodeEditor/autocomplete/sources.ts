@@ -7,6 +7,11 @@ import type {
 import { schemaCache } from "@/services/schemaCache";
 import type { QueryContext } from "./parser";
 import { fuzzyMatch } from "@/utils/fuzzyMatch";
+import { relationshipService } from "@/services/relationshipService";
+import { SQL_FUNCTIONS, getFunctionsForDialect } from "@/data/sqlFunctions";
+import { getValueSuggestionsForColumn } from "./valueSuggestions";
+import { SQL_SNIPPETS } from "@/data/sqlSnippets";
+import { createSnippetCompletion } from "./snippetHandler";
 
 type DbType = "PostgreSQL" | "MySQL" | "SQLite" | "MSSQL";
 
@@ -306,7 +311,16 @@ export function createContextualCompletionSource(params: {
         // Sanitize alias/table by trimming trailing dots/spaces, e.g. "u." -> "u"
         const rawAlias = tableColumnMatch[1].toLowerCase();
         const tableOrAlias = rawAlias.replace(/[\s.]+$/g, "");
-        const partialColumn = tableColumnMatch[2].toLowerCase();
+        const partialColumn = tableColumnMatch[2]
+          ? tableColumnMatch[2].toLowerCase()
+          : "";
+
+        console.debug(
+          `[Autocomplete] Table.Column pattern matched! textBefore="${textBefore.slice(
+            -50,
+          )}"`,
+          `tableOrAlias="${tableOrAlias}" partialColumn="${partialColumn}"`,
+        );
 
         // First check aliases from AST
         let tableName: string | undefined;
@@ -363,7 +377,13 @@ export function createContextualCompletionSource(params: {
             const cached = columnFastCache.get(fastKey);
 
             if (cached && now - cached.ts < COLUMN_FASTCACHE_TTL) {
-              completions = cached.cols
+              console.debug(
+                `[Autocomplete] Using cached columns for ${tableOrAlias}, filtering with "${partialColumn}"`,
+                `All columns:`,
+                cached.cols.map((c) => c.label).join(", "),
+              );
+
+              const allCols = cached.cols
                 .map((c) => {
                   const match = matchesQuery(c.label, partialColumn);
                   return {
@@ -373,6 +393,13 @@ export function createContextualCompletionSource(params: {
                   };
                 })
                 .filter((c) => c.matches);
+
+              console.debug(
+                `[Autocomplete] Matched columns: ${allCols
+                  .map((c) => c.label)
+                  .join(", ")} (${allCols.length}/${cached.cols.length})`,
+              );
+              completions = allCols;
             } else {
               console.debug(
                 `[Autocomplete] Fetching columns for ${tableName} (schema: ${effective}, alias: ${tableOrAlias})`,
@@ -385,6 +412,8 @@ export function createContextualCompletionSource(params: {
 
               console.debug(
                 `[Autocomplete] Found ${columns.length} columns for ${tableName}`,
+                `Column names:`,
+                columns.map((c) => c.name).join(", "),
               );
 
               const built: RankedCompletion[] = columns
@@ -397,7 +426,7 @@ export function createContextualCompletionSource(params: {
                   score: 200,
                 }));
               columnFastCache.set(fastKey, { cols: built, ts: now });
-              completions = built
+              const matched = built
                 .map((c) => {
                   const match = matchesQuery(c.label, partialColumn);
                   return {
@@ -407,6 +436,15 @@ export function createContextualCompletionSource(params: {
                   };
                 })
                 .filter((c) => c.matches);
+
+              console.debug(
+                `[Autocomplete] Matched columns: ${matched
+                  .map((c) => c.label)
+                  .join(", ")} (${matched.length}/${
+                  built.length
+                }) for "${partialColumn}"`,
+              );
+              completions = matched;
             }
 
             // Add * for SELECT clause
@@ -422,15 +460,18 @@ export function createContextualCompletionSource(params: {
               });
             }
 
+            const finalOptions = completions.slice(0, MAX_COMPLETIONS);
             console.debug(
-              `[Autocomplete] Returning ${completions.length} suggestions for ${tableOrAlias}.${partialColumn}`,
+              `[Autocomplete] Returning ${finalOptions.length} suggestions for ${tableOrAlias}.${partialColumn}`,
+              `Options:`,
+              finalOptions.map((c) => `${c.label}(${c.score})`).join(", "),
             );
 
             // Always return when we have a table.column pattern match
             // Even if empty, to prevent fallthrough to other suggestions
             return {
               from: word.from + tableOrAlias.length + 1,
-              options: completions.slice(0, MAX_COMPLETIONS),
+              options: finalOptions,
               validFor: /^[\w.]*$/,
             };
           } catch (error) {
@@ -501,14 +542,29 @@ export function createContextualCompletionSource(params: {
               }
             }
 
-            // Add aggregate functions
-            const aggregates = ["COUNT", "SUM", "AVG", "MIN", "MAX"];
-            for (const agg of aggregates) {
-              if (!currentWord || agg.toLowerCase().startsWith(currentWord)) {
+            // Add SQL functions (aggregate, window, string, etc.)
+            const dialectFunctions = getFunctionsForDialect(dbType);
+            for (const func of dialectFunctions) {
+              const funcMatch = matchesQuery(func.name, currentWord);
+              if (funcMatch.matches) {
+                // Build function signature for display
+                const params = func.parameters
+                  .map((p) => (p.optional ? `[${p.name}]` : p.name))
+                  .join(", ");
+                const signature = `${func.name}(${params})`;
+
                 completions.push({
-                  label: agg,
+                  label: func.name,
+                  apply: `${func.name}()`,
                   type: "function",
-                  score: 70,
+                  detail: func.category,
+                  info: `${signature}\n\n${func.description}${
+                    func.example ? `\n\nExample: ${func.example}` : ""
+                  }`,
+                  score:
+                    func.category === "aggregate"
+                      ? 90 + funcMatch.score
+                      : 70 + funcMatch.score,
                 });
               }
             }
@@ -759,52 +815,111 @@ export function createContextualCompletionSource(params: {
                 }
               }
             }
+
+            // Add SQL functions (date/time functions particularly useful in WHERE)
+            const dialectFunctions = getFunctionsForDialect(dbType);
+            for (const func of dialectFunctions) {
+              const funcMatch = matchesQuery(func.name, currentWord);
+              if (funcMatch.matches) {
+                // Build function signature for display
+                const params = func.parameters
+                  .map((p) => (p.optional ? `[${p.name}]` : p.name))
+                  .join(", ");
+                const signature = `${func.name}(${params})`;
+
+                completions.push({
+                  label: func.name,
+                  apply: `${func.name}()`,
+                  type: "function",
+                  detail: func.category,
+                  info: `${signature}\n\n${func.description}${
+                    func.example ? `\n\nExample: ${func.example}` : ""
+                  }`,
+                  score: 60 + funcMatch.score,
+                });
+              }
+            }
           }
           break;
 
         case "JOIN":
-          // In JOIN clause, always suggest tables and CTEs first
+          // In JOIN clause, suggest tables based on FK relationships
           try {
             const tables = await schemaCache.getTables(
               connectionId,
               effectiveSchema,
             );
 
-            // Check if current word could be a complete table name
-            const matchingTables = tables.filter(
-              (table) =>
-                !currentWord ||
-                table.name.toLowerCase().startsWith(currentWord),
-            );
+            // Get relationship graph for smart suggestions
+            let relationshipGraph = null;
+            try {
+              relationshipGraph = await schemaCache.getRelationshipGraph(
+                connectionId,
+                effectiveSchema,
+              );
+            } catch (err) {
+              console.debug("Could not load relationship graph:", err);
+            }
 
-            if (matchingTables.length > 0) {
-              // Suggest matching tables
-              completions = matchingTables.map((table) => ({
-                label: table.name,
-                apply: quoteIdentifier(table.name, dbType),
-                type: "type",
-                detail: "table",
-                score: 100,
-              }));
+            // If we have tables in scope, prioritize FK-related tables
+            if (queryContext.tablesInScope.length > 0 && relationshipGraph) {
+              // Get smart join suggestions with alias support
+              const joinSuggestions = relationshipService.getJoinSuggestions(
+                relationshipGraph,
+                queryContext.tablesInScope,
+                effectiveSchema,
+              );
+
+              // Add FK-related tables with higher scores
+              for (const suggestion of joinSuggestions) {
+                const match = matchesQuery(suggestion.table, currentWord);
+                if (match.matches) {
+                  completions.push({
+                    label: suggestion.table,
+                    apply: `${quoteIdentifier(suggestion.table, dbType)} ON ${
+                      suggestion.onCondition
+                    }`,
+                    type: "type",
+                    detail: suggestion.description || "table",
+                    info: suggestion.onCondition,
+                    score: 150 + match.score, // Higher score for FK-related
+                  });
+                }
+              }
+            }
+
+            // Add all other tables (with fuzzy matching)
+            for (const table of tables) {
+              const match = matchesQuery(table.name, currentWord);
+              if (match.matches) {
+                // Check if already suggested via FK
+                if (!completions.some((c) => c.label === table.name)) {
+                  completions.push({
+                    label: table.name,
+                    apply: quoteIdentifier(table.name, dbType),
+                    type: "type",
+                    detail: "table",
+                    score: 100 + match.score,
+                  });
+                }
+              }
             }
 
             // Add CTEs to JOIN suggestions
             for (const [cteName] of queryContext.ctes) {
-              if (
-                !currentWord ||
-                cteName.toLowerCase().startsWith(currentWord)
-              ) {
+              const match = matchesQuery(cteName, currentWord);
+              if (match.matches) {
                 completions.push({
                   label: cteName,
                   apply: quoteIdentifier(cteName, dbType),
                   type: "type",
                   detail: "CTE",
-                  score: 110,
+                  score: 140 + match.score,
                 });
               }
             }
 
-            // Only suggest ON if we have a complete table name and it matches exactly
+            // Suggest ON keyword after table name
             const exactTableMatch = tables.find(
               (table) =>
                 table.name.toLowerCase() === (currentWord || "").toLowerCase(),
@@ -814,11 +929,12 @@ export function createContextualCompletionSource(params: {
               exactTableMatch ||
               textBeforeLower.match(/\bjoin\s+[a-zA-Z_]\w+\s+$/i)
             ) {
-              if (!currentWord || "on".startsWith(currentWord)) {
+              const onMatch = matchesQuery("ON", currentWord);
+              if (onMatch.matches) {
                 completions.push({
                   label: "ON",
                   type: "keyword",
-                  score: 150,
+                  score: 200,
                 });
               }
             }
@@ -880,6 +996,88 @@ export function createContextualCompletionSource(params: {
           break;
       }
 
+      // 2.5. Type-aware value suggestions
+      // Detect if we're after a comparison operator and suggest values based on column type
+      const comparisonMatch = textBeforeLower.match(
+        /\b([a-zA-Z_][\w.]*)\s*(=|!=|<>|<|>|<=|>=|<=>|is|is\s+not|in|not\s+in|like|not\s+like)\s+([^,\s]*)$/i,
+      );
+
+      if (comparisonMatch && queryContext.tablesInScope.length > 0) {
+        const columnRef = comparisonMatch[1]; // Could be "column" or "table.column"
+        const operator = comparisonMatch[2];
+
+        // Try to find the column
+        let foundColumn = null;
+        let columnName = columnRef;
+        let tableFilter: string | null = null;
+
+        // Check if it's a qualified reference (table.column)
+        if (columnRef.includes(".")) {
+          const parts = columnRef.split(".");
+          tableFilter = parts[0];
+          columnName = parts[1];
+        }
+
+        // Search for the column in tables in scope
+        for (const table of queryContext.tablesInScope) {
+          // Skip if we have a table filter and it doesn't match
+          if (
+            tableFilter &&
+            tableFilter !== table.table &&
+            tableFilter !== table.alias
+          ) {
+            continue;
+          }
+
+          try {
+            const columns = await schemaCache.getTableColumns(
+              connectionId,
+              table.schema || effectiveSchema,
+              table.table,
+            );
+
+            const column = columns.find((c) => c.name === columnName);
+            if (column) {
+              foundColumn = column;
+              break;
+            }
+          } catch (error) {
+            console.debug(
+              "Failed to get columns for value suggestions:",
+              error,
+            );
+          }
+        }
+
+        // If we found the column, suggest appropriate values
+        if (foundColumn) {
+          const valueSuggestions = getValueSuggestionsForColumn(
+            foundColumn,
+            dbType,
+          );
+
+          // Adjust scores based on operator
+          const scoreAdjustment = operator.toLowerCase().includes("is")
+            ? 10
+            : 0;
+
+          for (const suggestion of valueSuggestions) {
+            // Filter NULL suggestions for operators that don't support NULL
+            if (
+              suggestion.label === "NULL" &&
+              !operator.toLowerCase().includes("is")
+            ) {
+              continue;
+            }
+
+            completions.push({
+              ...suggestion,
+              score: suggestion.score + scoreAdjustment,
+            });
+          }
+        }
+      }
+
       // 3. Check for special patterns regardless of AST clause
 
       // Pattern-based fallbacks when AST parsing fails
@@ -893,6 +1091,91 @@ export function createContextualCompletionSource(params: {
             .sort((a, b) => b.score - a.score),
           validFor: /^[\w.]*$/,
         };
+      }
+
+      // After "JOIN table_name ON" - suggest FK-based conditions (but NOT after AND/OR)
+      // Check we're not in the middle of an ON condition (after AND/OR)
+      const inOnCondition = /\bon\s+.*\b(and|or)\s+[a-zA-Z_.\w]*$/i.test(
+        textBeforeLower,
+      );
+
+      const joinOnMatch =
+        /\bjoin\s+([a-zA-Z_]\w+)(?:\s+([a-zA-Z_]\w+))?\s+on\s+([a-zA-Z_.\w]*)?$/i.exec(
+          textBeforeLower,
+        );
+
+      if (
+        joinOnMatch &&
+        !inOnCondition &&
+        queryContext.tablesInScope.length > 0
+      ) {
+        const joinedTable = joinOnMatch[1];
+        const partialCondition = joinOnMatch[3] || "";
+
+        try {
+          const relationshipGraph = await schemaCache.getRelationshipGraph(
+            connectionId,
+            effectiveSchema,
+          );
+
+          // Find the ON condition between existing tables and the joined table
+          for (const tableInScope of queryContext.tablesInScope) {
+            const onCondition = relationshipService.getJoinCondition(
+              relationshipGraph,
+              tableInScope,
+              joinedTable,
+            );
+
+            if (onCondition) {
+              // Suggest the complete ON condition
+              const match = matchesQuery(onCondition, partialCondition);
+              if (match.matches) {
+                completions.push({
+                  label: onCondition,
+                  apply: onCondition,
+                  type: "keyword",
+                  detail: "FK relationship",
+                  info: "Based on foreign key constraint",
+                  score: 200 + match.score,
+                });
+              }
+            }
+          }
+
+          // Also suggest individual columns from the joined table
+          const columns = await schemaCache.getTableColumns(
+            connectionId,
+            effectiveSchema,
+            joinedTable,
+          );
+
+          for (const col of columns) {
+            const colName = `${joinedTable}.${col.name}`;
+            const match = matchesQuery(colName, partialCondition);
+            if (match.matches) {
+              completions.push({
+                label: colName,
+                apply: `${quoteIdentifier(
+                  joinedTable,
+                  dbType,
+                )}.${quoteIdentifier(col.name, dbType)}`,
+                type: "property",
+                detail: col.db_type,
+                score: 100 + match.score,
+              });
+            }
+          }
+
+          if (completions.length > 0) {
+            return {
+              from: word.from,
+              options: completions.slice(0, 50),
+              validFor: /^[\w.=\s]*$/,
+            };
+          }
+        } catch (error) {
+          console.debug("Failed to get FK suggestions for JOIN ON:", error);
+        }
       }
 
       // After JOIN partial word - suggest tables
@@ -1038,9 +1321,13 @@ export function createContextualCompletionSource(params: {
       }
 
       // After FROM table, suggest WHERE/JOIN/GROUP BY/ORDER BY
+      // But NOT if we're already after a JOIN keyword (which needs table suggestions)
       if (
         textBeforeLower.match(
           /\bfrom\s+[a-zA-Z_]\w*(?:\s+[a-zA-Z_]\w*)?\s+\w*$/i,
+        ) &&
+        !textBeforeLower.match(
+          /\b(join|left\s+join|right\s+join|inner\s+join|outer\s+join|cross\s+join|full\s+join)\s+\w*$/i,
         )
       ) {
         const afterFromKeywords = [
@@ -1104,6 +1391,49 @@ export function createContextualCompletionSource(params: {
 
       // Sort by score
       completions.sort((a, b) => b.score - a.score);
+
+      // 4. Add SQL snippets for common patterns
+      // Only add snippets when:
+      // - We're not in a qualified column reference (table.column)
+      // - We don't have many context-specific suggestions already
+      // - We're likely at the start of a statement
+      const isQualifiedReference = /[a-zA-Z_][\w."]*?\.\w*$/.test(textBefore);
+      const hasContextSuggestions = completions.length > 5;
+      const isInMiddleOfClause = /\b(where|having|and|or|set|on)\s+\S+/i.test(
+        textBeforeLower,
+      );
+
+      if (
+        !isQualifiedReference &&
+        !hasContextSuggestions &&
+        !isInMiddleOfClause &&
+        currentWord.length >= 2
+      ) {
+        // Filter snippets based on current word and context
+        for (const snippet of SQL_SNIPPETS) {
+          // Check if snippet matches current word
+          const snippetMatch = fuzzyMatch(currentWord, snippet.id);
+          const labelMatch = fuzzyMatch(
+            currentWord,
+            snippet.label.toLowerCase(),
+          );
+
+          if (snippetMatch.matches || labelMatch.matches) {
+            // Check dialect compatibility
+            if (!snippet.dialects || snippet.dialects.includes(dbType)) {
+              const snippetCompletion = createSnippetCompletion(
+                `⚡ ${snippet.label}`,
+                snippet.template,
+                snippet.category,
+                `${snippet.description}\n\n${snippet.template}`,
+                50 + (snippetMatch.score || labelMatch.score),
+              );
+
+              completions.push(snippetCompletion as RankedCompletion);
+            }
+          }
+        }
+      }
 
       return {
         from: word.from,

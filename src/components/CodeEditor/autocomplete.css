@@ -1,14 +1,14 @@
 /* Autocomplete tooltip styling */
 .cm-autocomplete {
   background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1),
-    0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1),
+    0 4px 6px -2px rgba(0, 0, 0, 0.05);
   font-family: "JetBrains Mono", "Fira Code", monospace;
   font-size: 13px;
-  max-height: 350px;
-  min-width: 320px;
+  max-height: 400px;
+  min-width: 400px;
   overflow: hidden;
 }
 
@@ -19,170 +19,118 @@
 }
 
 .cm-autocomplete > ul > li {
-  padding: 8px 12px;
+  padding: 6px 10px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  line-height: 1.5;
-  color: #0a0a0b;
+  gap: 8px;
+  line-height: 1.4;
+  color: #111827;
   border-radius: 4px;
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition: all 0.15s ease;
 }
 
 /* Selected item */
 .cm-autocomplete > ul > li[aria-selected] {
-  background: #fca31130;
-  color: #0a0a0b;
-  font-weight: 500;
+  background: #3b82f6;
+  color: #ffffff;
 }
 
 /* Hover effect */
 .cm-autocomplete > ul > li:hover {
-  background: #f9fafb;
+  background: #f3f4f6;
 }
 
 .cm-autocomplete > ul > li[aria-selected]:hover {
-  background: #fca31140;
+  background: #2563eb;
 }
 
-/* Completion icons using CSS */
+/* Completion icons - hide them */
 .cm-completionIcon {
-  font-size: 11px;
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 3px;
-  font-weight: bold;
-  margin-right: 4px;
-  flex-shrink: 0;
-}
-
-/* Icon types */
-.cm-completion-type .cm-completionIcon::after {
-  content: "T";
-  background: #4caf50;
-  color: white;
-  padding: 2px 4px;
-  border-radius: 2px;
-}
-
-.cm-completion-property .cm-completionIcon::after {
-  content: "C";
-  background: #2196f3;
-  color: white;
-  padding: 2px 4px;
-  border-radius: 2px;
-}
-
-.cm-completion-function .cm-completionIcon::after {
-  content: "F";
-  background: #ff9800;
-  color: white;
-  padding: 2px 4px;
-  border-radius: 2px;
-}
-
-.cm-completion-keyword .cm-completionIcon::after {
-  content: "K";
-  background: #9c27b0;
-  color: white;
-  padding: 2px 4px;
-  border-radius: 2px;
-}
-
-.cm-completion-namespace .cm-completionIcon::after {
-  content: "S";
-  background: #00bcd4;
-  color: white;
-  padding: 2px 4px;
-  border-radius: 2px;
-}
-
-.cm-completion-variable .cm-completionIcon::after {
-  content: "A";
-  background: #cddc39;
-  color: #333;
-  padding: 2px 4px;
-  border-radius: 2px;
-}
-
-.cm-completion-operator .cm-completionIcon::after {
-  content: "O";
-  background: #795548;
-  color: white;
-  padding: 2px 4px;
-  border-radius: 2px;
+  display: none !important;
 }
 
 /* Label and detail */
 .cm-completionLabel {
   flex: 1;
-  font-weight: 450;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
+  order: 2;
+  font-size: 13px;
 }
 
 .cm-completionDetail {
   color: #6b7280;
   font-size: 11px;
-  opacity: 0.8;
-  margin-left: auto;
-  padding-left: 12px;
-  font-weight: 400;
+  font-weight: 500;
+  text-transform: lowercase;
+  min-width: 70px;
+  max-width: 70px;
+  order: 1;
+  flex-shrink: 0;
+  text-align: left;
+}
+
+/* Selected state for detail */
+.cm-autocomplete > ul > li[aria-selected] .cm-completionDetail {
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .dark .cm-autocomplete > ul > li[aria-selected] .cm-completionDetail {
-  color: #d1d5db;
-  opacity: 0.9;
+  color: rgba(255, 255, 255, 0.7);
 }
 
 /* Match highlighting */
 .cm-completionMatchedText {
-  font-weight: bold;
+  font-weight: 600;
+  color: #3b82f6;
+}
+
+.cm-autocomplete > ul > li[aria-selected] .cm-completionMatchedText {
+  color: #ffffff;
   text-decoration: underline;
-  text-decoration-color: #fca311;
+  text-decoration-color: rgba(255, 255, 255, 0.6);
   text-underline-offset: 2px;
 }
 
 /* Info panel */
 .cm-completionInfo {
   background: #f9fafb;
-  border-left: 3px solid #fca311;
-  padding: 12px;
+  border-left: 3px solid #3b82f6;
+  padding: 12px 14px;
   font-size: 12px;
-  max-width: 500px;
+  max-width: 450px;
   font-family: system-ui, -apple-system, sans-serif;
+  line-height: 1.6;
+  color: #374151;
 }
 
 /* Dark mode adjustments */
 .dark .cm-autocomplete {
-  background: #18181b;
-  border-color: #3f3f46;
+  background: #1f2937;
+  border-color: #374151;
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5),
     0 4px 6px -2px rgba(0, 0, 0, 0.3);
 }
 
 .dark .cm-autocomplete > ul > li {
-  color: #e5e5e5;
+  color: #f3f4f6;
 }
 
 .dark .cm-autocomplete > ul > li[aria-selected] {
-  background: #fca31135;
+  background: #3b82f6;
   color: #ffffff;
-  font-weight: 500;
 }
 
 .dark .cm-autocomplete > ul > li:hover {
-  background: #27272a;
+  background: #374151;
 }
 
 .dark .cm-autocomplete > ul > li[aria-selected]:hover {
-  background: #fca31145;
+  background: #2563eb;
 }
 
 .dark .cm-completionDetail {
@@ -190,13 +138,14 @@
 }
 
 .dark .cm-completionInfo {
-  background: #27272a;
-  border-left-color: #fca311;
+  background: #374151;
+  border-left-color: #3b82f6;
+  color: #e5e7eb;
 }
 
 /* Scrollbar styling */
 .cm-autocomplete > ul::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
 }
 
 .cm-autocomplete > ul::-webkit-scrollbar-track {
@@ -204,20 +153,283 @@
 }
 
 .cm-autocomplete > ul::-webkit-scrollbar-thumb {
-  background: rgba(107, 114, 128, 0.3);
-  border-radius: 4px;
+  background: rgba(156, 163, 175, 0.4);
+  border-radius: 3px;
 }
 
 .cm-autocomplete > ul::-webkit-scrollbar-thumb:hover {
-  background: rgba(107, 114, 128, 0.5);
+  background: rgba(156, 163, 175, 0.6);
 }
 
 .dark .cm-autocomplete > ul::-webkit-scrollbar-thumb {
-  background: rgba(156, 163, 175, 0.3);
+  background: rgba(107, 114, 128, 0.4);
 }
 
 .dark .cm-autocomplete > ul::-webkit-scrollbar-thumb:hover {
-  background: rgba(156, 163, 175, 0.5);
+  background: rgba(107, 114, 128, 0.6);
+}
+
+/* Function signature tooltip */
+.cm-signature-tooltip {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  padding: 10px 14px;
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 12px;
+  max-width: 450px;
+  margin-top: 4px;
+  z-index: 100;
+}
+
+.cm-signature {
+  font-weight: 600;
+  color: #0a0a0b;
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cm-signature-desc {
+  color: #6b7280;
+  font-size: 11px;
+  line-height: 1.4;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* Dark mode signature tooltip */
+.dark .cm-signature-tooltip {
+  background: #18181b;
+  border-color: #3f3f46;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+}
+
+.dark .cm-signature {
+  color: #e5e5e5;
+}
+
+.dark .cm-signature-desc {
+  color: #9ca3af;
+}
+
+/* Hover tooltip */
+.cm-hover-tooltip {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  padding: 12px 14px;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 12px;
+  max-width: 450px;
+  line-height: 1.6;
+}
+
+.cm-hover-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #9ca3af;
+  margin-bottom: 8px;
+}
+
+.cm-hover-header {
+  font-size: 13px;
+  margin-bottom: 10px;
+  color: #0a0a0b;
+}
+
+.cm-hover-identifier {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0a0a0b;
+  background: #f9fafb;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.cm-hover-type-row {
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cm-hover-type {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: #6b7280;
+  padding: 2px 6px;
+  background: #f3f4f6;
+  border-radius: 3px;
+}
+
+.cm-hover-badges {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.cm-info-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.cm-badge-pk {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.cm-badge-fk {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.cm-badge-required {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.cm-badge-identity,
+.cm-badge-unique {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.cm-badge-table {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.cm-badge-view {
+  background: #ddd6fe;
+  color: #5b21b6;
+}
+
+.cm-badge-mv {
+  background: #fce7f3;
+  color: #9f1239;
+}
+
+.cm-hover-detail {
+  font-size: 11px;
+  color: #374151;
+  margin-top: 6px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.cm-hover-detail code {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  background: #f3f4f6;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+.cm-detail-label {
+  font-weight: 600;
+  color: #6b7280;
+  min-width: 60px;
+  flex-shrink: 0;
+}
+
+.cm-hover-comment {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #e5e7eb;
+  font-size: 11px;
+  color: #6b7280;
+  font-style: italic;
+}
+
+/* Dark mode hover tooltip */
+.dark .cm-hover-tooltip {
+  background: #18181b;
+  border-color: #3f3f46;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+}
+
+.dark .cm-hover-title {
+  color: #71717a;
+}
+
+.dark .cm-hover-header {
+  color: #e5e5e5;
+}
+
+.dark .cm-hover-identifier {
+  background: #27272a;
+  color: #e5e5e5;
+}
+
+.dark .cm-hover-type {
+  background: #27272a;
+  color: #9ca3af;
+}
+
+.dark .cm-hover-detail {
+  color: #d1d5db;
+}
+
+.dark .cm-hover-detail code {
+  background: #27272a;
+  color: #e5e5e5;
+}
+
+.dark .cm-detail-label {
+  color: #9ca3af;
+}
+
+.dark .cm-hover-comment {
+  border-top-color: #3f3f46;
+  color: #9ca3af;
+}
+
+.dark .cm-badge-pk {
+  background: #1e3a8a;
+  color: #93c5fd;
+}
+
+.dark .cm-badge-fk {
+  background: #78350f;
+  color: #fcd34d;
+}
+
+.dark .cm-badge-required {
+  background: #7f1d1d;
+  color: #fca5a5;
+}
+
+.dark .cm-badge-identity,
+.dark .cm-badge-unique {
+  background: #312e81;
+  color: #c7d2fe;
+}
+
+.dark .cm-badge-table {
+  background: #064e3b;
+  color: #6ee7b7;
+}
+
+.dark .cm-badge-view {
+  background: #4c1d95;
+  color: #ddd6fe;
+}
+
+.dark .cm-badge-mv {
+  background: #831843;
+  color: #fbcfe8;
 }
 
 /* Lint diagnostics */

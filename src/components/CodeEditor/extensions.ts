@@ -37,6 +37,8 @@ import { createSqlAutocomplete } from "./autocomplete";
 import { acceptCompletion } from "@codemirror/autocomplete";
 import { dbmlMixed } from "./languages/dbml/dbml-mixed";
 import { createSqlLinter } from "./languages/sql/sql-linter";
+import { parameterHints } from "./autocomplete/parameterHints";
+import { createSqlHoverTooltip } from "./autocomplete/hoverTooltip";
 
 // Enhanced SQL folding service using syntax tree for better nested support
 const sqlFoldService = foldService.of((state, from) => {
@@ -526,6 +528,16 @@ export const getEditorExtensions = (
         "CodeEditor: skipping SQL autocomplete because no connectionId was provided.",
       );
     } else {
+      // Map dialect to dbType for hover tooltip
+      const dbTypeMap: Record<string, string> = {
+        postgresql: "PostgreSQL",
+        mysql: "MySQL",
+        sqlite: "SQLite",
+        plsql: "PostgreSQL",
+        mssql: "MSSQL",
+      };
+      const dbType = dbTypeMap[dialect || "postgresql"] || "PostgreSQL";
+
       extensions.push(
         createSqlAutocomplete({
           connectionId,
@@ -535,6 +547,14 @@ export const getEditorExtensions = (
         }),
         // Add Tab key support for accepting autocomplete
         keymap.of([{ key: "Tab", run: acceptCompletion }]),
+        // Add function parameter hints
+        parameterHints(),
+        // Add hover documentation
+        createSqlHoverTooltip({
+          connectionId,
+          schema,
+          dbType,
+        }),
       );
     }
   }
