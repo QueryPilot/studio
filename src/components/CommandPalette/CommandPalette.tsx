@@ -19,9 +19,6 @@ import {
   Command as CommandIcon,
   Sparkles,
 } from "lucide-react";
-import { KeyboardManager } from "@/services/keyboard/KeyboardManager";
-
-import { useKeyboardStore } from "@/stores/keyboardStore";
 import { fuzzyMatch } from "./fuzzyMatch";
 import { DatabaseCommandProvider } from "./providers/DatabaseCommandProvider";
 import { useParams } from "react-router-dom";
@@ -77,7 +74,6 @@ export function CommandPalette({
   const [search, setSearch] = useState("");
   const [mode, setMode] = useState<PaletteMode>(initialMode);
   const inputRef = useRef<HTMLInputElement>(null);
-  const { context } = useKeyboardStore();
   const [recentCommands, setRecentCommands] = useState<string[]>([]);
   const { connectionId } = useParams<{ connectionId: string }>();
   const dbProvider = useMemo(() => {
@@ -131,21 +127,6 @@ export function CommandPalette({
       }
     };
   }, [dbProvider]);
-
-  // Get commands from registry
-  useMemo(() => {
-    const manager = KeyboardManager.getInstance();
-    const allCommands = manager.getAllCommands();
-
-    // Filter by context
-    return allCommands.filter((cmd) => {
-      if (!cmd.when) {
-        return true;
-      }
-      // Simple context evaluation - enhance this later
-      return true;
-    });
-  }, [context]);
 
   // Build command items based on mode
   const commandItems = useMemo((): CommandItem[] => {

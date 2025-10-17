@@ -16,15 +16,6 @@ import { toast } from "sonner";
 import { streamingTableService } from "@/services/streamingTableService";
 import { queryHistoryService } from "@/services/queryHistoryService";
 import { cn } from "@/lib/utils";
-import {
-  useShortcut,
-  useKeybindingHint,
-  KeyboardScope,
-} from "@/services/keyboard";
-import {
-  useSyncQueryState,
-  useSyncEditorState,
-} from "@/services/keyboard/integration/storeIntegration";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { useTabStateStore, type QueryResult } from "@/stores/tabStateStore";
@@ -70,7 +61,6 @@ export const QueryPanel = memo(function QueryPanel({
   const [abortController, setAbortController] =
     useState<AbortController | null>(null);
   const [showHistory, setShowHistory] = useState(false);
-  const [hasSelection] = useState(false);
   const [appliedLimit, setAppliedLimitInternal] = useState<{
     originalSql: string;
     limit: number;
@@ -170,10 +160,6 @@ export const QueryPanel = memo(function QueryPanel({
     },
     [panelId, tabId, updateTabMetadata],
   );
-
-  // Sync state with keyboard context
-  useSyncQueryState(isExecuting, !!result);
-  useSyncEditorState(hasSelection, query !== "", false);
 
   const handleExecute = useCallback(
     async (queryToExecute?: string) => {
@@ -430,30 +416,6 @@ export const QueryPanel = memo(function QueryPanel({
     }
   }, [query, dbType, persistSql, setQuery]);
 
-  // Removed cmd+enter shortcut - now handled directly by CodeMirror editor
-
-  useShortcut("alt+f", handleBeautify, {
-    when: "queryEditor.focus && query",
-    preventDefault: true,
-    description: "Format SQL",
-  });
-
-  useShortcut(
-    "alt+h",
-    () => {
-      setShowHistory((prev) => !prev);
-    },
-    {
-      when: "queryEditor.focus",
-      preventDefault: true,
-      description: "Toggle history",
-    },
-  );
-
-  // Get keybinding hints for UI
-  const executeHint = useKeybindingHint("query.execute");
-  const beautifyHint = useKeybindingHint("query.beautify");
-
   // Focus panel when QueryPanel is clicked or focused
   const handleFocusPanel = useCallback(() => {
     if (panelId) {
@@ -463,140 +425,136 @@ export const QueryPanel = memo(function QueryPanel({
   }, [panelId]);
 
   return (
-    <KeyboardScope context="queryEditor">
-      <div
-        className={cn("flex flex-col h-full", className)}
-        onMouseDown={handleFocusPanel}
-        onFocus={handleFocusPanel}
-      >
-        {/* Main Content */}
-        <div className="flex-1 min-h-0 overflow-hidden">
-          <ResizablePanelGroup
-            direction="horizontal"
-            className="h-full rounded-xl overflow-hidden"
+    <div
+      className={cn("flex flex-col h-full", className)}
+      onMouseDown={handleFocusPanel}
+      onFocus={handleFocusPanel}
+    >
+      {/* Main Content */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <ResizablePanelGroup
+          direction="horizontal"
+          className="h-full rounded-xl overflow-hidden"
+        >
+          {/* Editor and Results */}
+          <ResizablePanel
+            defaultSize={showHistory ? 70 : 100}
+            minSize={30}
+            className="rounded-xl overflow-hidden"
           >
-            {/* Editor and Results */}
-            <ResizablePanel
-              defaultSize={showHistory ? 70 : 100}
-              minSize={30}
-              className="rounded-xl overflow-hidden"
-            >
-              <ResizablePanelGroup direction="vertical" className="h-full">
-                {/* Editor */}
-                <ResizablePanel
-                  defaultSize={50}
-                  minSize={20}
-                  className="border-none"
-                >
-                  <div className="flex flex-col h-full">
-                    <QueryEditor
+            <ResizablePanelGroup direction="vertical" className="h-full">
+              {/* Editor */}
+              <ResizablePanel
+                defaultSize={50}
+                minSize={20}
+                className="border-none"
+              >
+                <div className="flex flex-col h-full">
+                  <QueryEditor
+                    connectionId={connectionId}
+                    database={database}
+                    schema={schema}
+                    dbType={dbType}
+                    value={query}
+                    onChange={(value) => {
+                      const nextValue = value ?? "";
+                      setQuery(nextValue);
+                      persistSql(nextValue);
+                    }}
+                    onExecute={handleExecute}
+                    isExecuting={isExecuting}
+                    height="100%"
+                  />
+                  {/* Toolbar */}
+                  <QueryToolbar
+                    isExecuting={isExecuting}
+                    query={query}
+                    showHistory={showHistory}
+                    viewMode={viewMode}
+                    appliedLimit={appliedLimit?.limit}
+                    onExecute={() => handleExecute()}
+                    onCancel={handleCancel}
+                    onBeautify={handleBeautify}
+                    onToggleHistory={() => {
+                      setShowHistory(!showHistory);
+                    }}
+                    onViewModeChange={setViewMode}
+                  />
+                </div>
+              </ResizablePanel>
+
+              <div className="px-1">
+                <ResizableHandle className="bg-secondary !h-1 rounded-lg" />
+              </div>
+
+              {/* Results */}
+              <ResizablePanel defaultSize={50} minSize={20}>
+                <div className="flex flex-col h-full">
+                  {/* Results */}
+                  <div className="flex-1 min-h-0">
+                    <ResultViewer
+                      result={result}
+                      isLoading={isExecuting}
+                      isStreaming={isStreaming}
                       connectionId={connectionId}
                       database={database}
-                      schema={schema}
-                      dbType={dbType}
-                      value={query}
-                      onChange={(value) => {
-                        const nextValue = value ?? "";
-                        setQuery(nextValue);
-                        persistSql(nextValue);
-                      }}
-                      onExecute={handleExecute}
-                      isExecuting={isExecuting}
                       height="100%"
-                    />
-                    {/* Toolbar */}
-                    <QueryToolbar
-                      isExecuting={isExecuting}
-                      query={query}
-                      showHistory={showHistory}
+                      gridId={queryGridId}
                       viewMode={viewMode}
-                      appliedLimit={appliedLimit?.limit}
-                      executeHint={executeHint}
-                      beautifyHint={beautifyHint}
-                      onExecute={() => handleExecute()}
-                      onCancel={handleCancel}
-                      onBeautify={handleBeautify}
-                      onToggleHistory={() => {
-                        setShowHistory(!showHistory);
-                      }}
-                      onViewModeChange={setViewMode}
+                      cursorSetupMs={result?.cursorSetupMs}
+                      totalStreamingMs={result?.totalStreamingMs}
+                      fetchCount={result?.fetchCount}
+                      networkMs={result?.networkMs}
+                      conversionMs={result?.conversionMs}
+                      ipcSendMs={result?.ipcSendMs}
                     />
                   </div>
-                </ResizablePanel>
-
-                <div className="px-1">
-                  <ResizableHandle className="bg-secondary !h-1 rounded-lg" />
                 </div>
+              </ResizablePanel>
+            </ResizablePanelGroup>
+          </ResizablePanel>
 
-                {/* Results */}
-                <ResizablePanel defaultSize={50} minSize={20}>
-                  <div className="flex flex-col h-full">
-                    {/* Results */}
-                    <div className="flex-1 min-h-0">
-                      <ResultViewer
-                        result={result}
-                        isLoading={isExecuting}
-                        isStreaming={isStreaming}
-                        connectionId={connectionId}
-                        database={database}
-                        height="100%"
-                        gridId={queryGridId}
-                        viewMode={viewMode}
-                        cursorSetupMs={result?.cursorSetupMs}
-                        totalStreamingMs={result?.totalStreamingMs}
-                        fetchCount={result?.fetchCount}
-                        networkMs={result?.networkMs}
-                        conversionMs={result?.conversionMs}
-                        ipcSendMs={result?.ipcSendMs}
-                      />
-                    </div>
-                  </div>
-                </ResizablePanel>
-              </ResizablePanelGroup>
-            </ResizablePanel>
+          {showHistory && (
+            <>
+              <ResizableHandle className="bg-secondary w-1" />
 
-            {showHistory && (
-              <>
-                <ResizableHandle className="bg-secondary w-1" />
-
-                {/* History and Saved Queries */}
-                <ResizablePanel defaultSize={30} minSize={20}>
-                  <Tabs
-                    defaultValue="history"
-                    className="h-full flex flex-col px-1 rounded-lg"
-                  >
-                    <TabsList className="grid w-full grid-cols-2">
-                      <TabsTrigger value="history" className="text-xs">
-                        <History className="h-3 w-3 mr-1" />
-                        History
-                      </TabsTrigger>
-                      <TabsTrigger value="saved" className="text-xs">
-                        <Star className="h-3 w-3 mr-1" />
-                        Saved
-                      </TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="history" className="flex-1 mt-0">
-                      <QueryHistory
-                        connectionId={connectionId}
-                        database={database}
-                        onSelectQuery={handleSelectQuery}
-                      />
-                    </TabsContent>
-                    <TabsContent value="saved" className="flex-1 mt-0">
-                      <SavedQueries
-                        connectionId={connectionId}
-                        database={database}
-                        currentQuery={query}
-                        onSelectQuery={handleSelectQuery}
-                      />
-                    </TabsContent>
-                  </Tabs>
-                </ResizablePanel>
-              </>
-            )}
-          </ResizablePanelGroup>
-        </div>
+              {/* History and Saved Queries */}
+              <ResizablePanel defaultSize={30} minSize={20}>
+                <Tabs
+                  defaultValue="history"
+                  className="h-full flex flex-col px-1 rounded-lg"
+                >
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="history" className="text-xs">
+                      <History className="h-3 w-3 mr-1" />
+                      History
+                    </TabsTrigger>
+                    <TabsTrigger value="saved" className="text-xs">
+                      <Star className="h-3 w-3 mr-1" />
+                      Saved
+                    </TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="history" className="flex-1 mt-0">
+                    <QueryHistory
+                      connectionId={connectionId}
+                      database={database}
+                      onSelectQuery={handleSelectQuery}
+                    />
+                  </TabsContent>
+                  <TabsContent value="saved" className="flex-1 mt-0">
+                    <SavedQueries
+                      connectionId={connectionId}
+                      database={database}
+                      currentQuery={query}
+                      onSelectQuery={handleSelectQuery}
+                    />
+                  </TabsContent>
+                </Tabs>
+              </ResizablePanel>
+            </>
+          )}
+        </ResizablePanelGroup>
       </div>
-    </KeyboardScope>
+    </div>
   );
 });
