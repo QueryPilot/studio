@@ -1,4 +1,3 @@
-import { KeyboardManager } from "@/services/keyboard/KeyboardManager";
 import type { CommandItem } from "../index";
 import {
   Database,
@@ -12,48 +11,12 @@ import {
 } from "lucide-react";
 
 export class DatabaseCommandProvider {
-  private connectionId: string;
-  private registeredCommands: (() => void)[] = [];
-
-  constructor(connectionId: string) {
-    this.connectionId = connectionId;
-    this.registerKeyboardCommands();
-  }
-
-  private registerKeyboardCommands() {
-    const manager = KeyboardManager.getInstance();
-    const allCommands = this.getAllCommands();
-
-    allCommands.forEach((command) => {
-      if (command.shortcut) {
-        const dispose = manager.registerCommand({
-          id: command.id,
-          title: command.label,
-          handler: command.action,
-          keybinding: {
-            key: this.convertShortcut(command.shortcut),
-            when: command.when,
-          },
-        });
-        this.registeredCommands.push(dispose);
-      }
-    });
-  }
-
-  private convertShortcut(shortcut: string): string {
-    return shortcut
-      .replace(/Cmd\+/g, "cmd+")
-      .replace(/Alt\+/g, "alt+")
-      .replace(/Shift\+/g, "shift+")
-      .replace(/Enter/g, "enter")
-      .toLowerCase();
+  constructor(_connectionId: string) {
+    // Connection ID might be used in the future
   }
 
   dispose() {
-    this.registeredCommands.forEach((dispose) => {
-      dispose();
-    });
-    this.registeredCommands = [];
+    // Cleanup if needed
   }
 
   getQueryCommands(): CommandItem[] {

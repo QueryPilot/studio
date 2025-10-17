@@ -1,13 +1,7 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { MainScreen } from "./screens/main/MainScreen";
 import { WorkspaceScreen } from "./screens/workspace/WorkspaceScreen";
-import { KeyboardProvider, useShortcut } from "./services/keyboard";
 import { useEffect } from "react";
-import { setupStoreIntegration } from "./services/keyboard/integration/storeIntegration";
-import { windowManager } from "./services/windowManager";
-import { PreferencesDialog } from "./components/Preferences/PreferencesDialog";
-import { ChordIndicator } from "./components/ChordIndicator";
-import { usePreferencesStore } from "./stores/preferencesStore";
 import { isTauri, safeInvoke } from "./utils/tauri";
 import type { Update } from "@tauri-apps/plugin-updater";
 import { vaultStorage } from "./services/vaultStorage";
@@ -15,56 +9,17 @@ import { toast } from "sonner";
 import { databaseService } from "./services/databaseService";
 
 function AppContent() {
-  const openPreferences = usePreferencesStore((state) => state.open);
-
-  // Register global keyboard shortcut for new window
-  useShortcut(
-    "cmd+shift+n",
-    async () => {
-      await windowManager.openNewMainWindow();
-    },
-    {
-      preventDefault: true,
-      description: "Open new window",
-    },
-  );
-
-  // Register global keyboard shortcut for preferences
-  useShortcut(
-    "cmd+,",
-    () => {
-      openPreferences();
-    },
-    {
-      preventDefault: true,
-      description: "Open preferences",
-    },
-  );
-
   return (
-    <>
-      <Router>
-        <Routes>
-          <Route path="/" element={<MainScreen />} />
-          <Route
-            path="/workspace/:connectionId"
-            element={<WorkspaceScreen />}
-          />
-        </Routes>
-      </Router>
-      <PreferencesDialog />
-      <ChordIndicator />
-    </>
+    <Router>
+      <Routes>
+        <Route path="/" element={<MainScreen />} />
+        <Route path="/workspace/:connectionId" element={<WorkspaceScreen />} />
+      </Routes>
+    </Router>
   );
 }
 
 function App() {
-  useEffect(() => {
-    // Setup store integration for keyboard context
-    const cleanup = setupStoreIntegration();
-    return cleanup;
-  }, []);
-
   // Ensure connections are closed on hard reloads as well
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -251,11 +206,7 @@ function App() {
     };
   }, []);
 
-  return (
-    <KeyboardProvider>
-      <AppContent />
-    </KeyboardProvider>
-  );
+  return <AppContent />;
 }
 
 export default App;
