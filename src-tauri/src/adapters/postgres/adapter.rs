@@ -1,11 +1,7 @@
 use async_trait::async_trait;
-use dashmap::DashMap;
 use deadpool_postgres::Pool;
-use native_tls::TlsConnector;
-use postgres_native_tls::MakeTlsConnector;
-use std::collections::HashSet;
 use std::sync::Arc;
-use tokio_postgres::{Config, NoTls};
+use tokio_postgres::Config;
 
 use super::introspection::PostgresIntrospector;
 use super::parser::quote_identifier;
@@ -15,19 +11,11 @@ use crate::core::adapter::DbAdapter;
 use crate::error::{AppError, Result};
 use crate::types::*;
 
-struct PrewarmState {
-    connection_prewarmed: bool,
-    prewarmed_tables: HashSet<String>,
-}
-
 pub struct PostgresAdapter {
     pool: Option<Pool>,
     connection_handle: Option<tokio::task::JoinHandle<()>>,
     query_executor: Option<Arc<FastPostgresQueryExecutor>>,
     introspector: Option<Arc<PostgresIntrospector>>,
-    /// Metadata cache: (schema, table) -> columns (saves 100-150ms per query)
-    metadata_cache: Arc<DashMap<(String, String), Vec<ColumnMeta>>>,
-    prewarm_state: Arc<tokio::sync::Mutex<PrewarmState>>,
 }
 
 impl PostgresAdapter {
@@ -37,28 +25,7 @@ impl PostgresAdapter {
             connection_handle: None,
             query_executor: None,
             introspector: None,
-            metadata_cache: Arc::new(DashMap::new()),
-            prewarm_state: Arc::new(tokio::sync::Mutex::new(PrewarmState {
-                connection_prewarmed: false,
-                prewarmed_tables: HashSet::new(),
-            })),
         }
-    }
-
-    /// Detect if SQL is a DDL statement that modifies schema
-    fn is_ddl(sql: &str) -> bool {
-        let upper = sql.trim().to_uppercase();
-        upper.starts_with("ALTER")
-            || upper.starts_with("DROP")
-            || upper.starts_with("CREATE")
-            || upper.starts_with("TRUNCATE")
-            || upper.starts_with("RENAME")
-    }
-
-    /// Clear metadata cache and statement cache after DDL operations
-    fn clear_metadata_cache(&self) {
-        self.metadata_cache.clear();
-        // Metadata cache cleared above (DDL operations may have changed schema)
     }
 
     /// Get query executor (for fast path optimization)
