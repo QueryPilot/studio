@@ -521,7 +521,8 @@ export const getEditorExtensions = (
   );
 
   if (language === "sql") {
-    extensions.push(createSqlLinter(), lintGutter());
+    // Pass dialect to linter for dialect-aware validation
+    extensions.push(createSqlLinter(dialect), lintGutter());
 
     if (!connectionId) {
       console.warn(

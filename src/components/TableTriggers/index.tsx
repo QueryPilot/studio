@@ -279,7 +279,7 @@ export const TableTriggers = memo(function TableTriggers({
             size="sm"
             variant="outline"
             onClick={handleAddTrigger}
-            className="h-7 text-xs"
+            className="h-6 text-xs"
           >
             <Plus className="h-3 w-3 mr-1" />
             Add Trigger
@@ -293,7 +293,7 @@ export const TableTriggers = memo(function TableTriggers({
               variant="default"
               onClick={handleSaveChanges}
               disabled={isSaving}
-              className="h-7 text-xs"
+              className="h-6 text-xs"
             >
               Save Changes
             </Button>
@@ -302,7 +302,7 @@ export const TableTriggers = memo(function TableTriggers({
               variant="outline"
               onClick={handleCancelChanges}
               disabled={isSaving}
-              className="h-7 text-xs"
+              className="h-6 text-xs"
             >
               Cancel
             </Button>
@@ -310,7 +310,7 @@ export const TableTriggers = memo(function TableTriggers({
               size="sm"
               variant="outline"
               onClick={handleAddTrigger}
-              className="h-7 text-xs"
+              className="h-6 text-xs"
             >
               <Plus className="h-3 w-3 mr-1" />
               Add Trigger
