@@ -1,6 +1,8 @@
 import { syntaxTree } from "@codemirror/language";
 import { type Diagnostic, linter } from "@codemirror/lint";
 import type { Extension, EditorState } from "@codemirror/state";
+import type { SqlDialect } from "@/components/CodeEditor/types";
+import { getDialectValidator, type SyntaxError } from "./dialect-validators";
 
 const SQL_KEYWORDS = [
   "SELECT",
@@ -44,21 +46,24 @@ const levenshtein = (a: string, b: string): number => {
   }
 
   for (let j = 0; j <= a.length; j++) {
+    if (!matrix[0]) matrix[0] = [];
     matrix[0][j] = j;
   }
 
   for (let i = 1; i <= b.length; i++) {
+    const currentRow = matrix[i] || [];
+    matrix[i] = currentRow;
     for (let j = 1; j <= a.length; j++) {
       if (b[i - 1] === a[j - 1]) {
-        matrix[i][j] = matrix[i - 1]?.[j - 1] ?? 0;
+        currentRow[j] = matrix[i - 1]?.[j - 1] ?? 0;
         continue;
       }
 
       const substitution = (matrix[i - 1]?.[j - 1] ?? 0) + 1;
-      const insertion = (matrix[i]?.[j - 1] ?? 0) + 1;
+      const insertion = (currentRow[j - 1] ?? 0) + 1;
       const deletion = (matrix[i - 1]?.[j] ?? 0) + 1;
 
-      matrix[i][j] = Math.min(substitution, insertion, deletion);
+      currentRow[j] = Math.min(substitution, insertion, deletion);
     }
   }
 
@@ -109,21 +114,63 @@ const toSnippet = (state: EditorState, from: number, to: number): string => {
   return normalized;
 };
 
-const collectDiagnostics = (state: EditorState): Diagnostic[] => {
+/**
+ * Get context around an error position for dialect-specific validation
+ */
+const getErrorContext = (
+  state: EditorState,
+  from: number,
+  to: number,
+  contextSize = 200,
+): string => {
+  const doc = state.doc;
+  const contextFrom = Math.max(0, from - contextSize);
+  const contextTo = Math.min(doc.length, to + contextSize);
+  return doc.sliceString(contextFrom, contextTo);
+};
+
+/**
+ * Collect diagnostics with dialect-aware error filtering
+ */
+const collectDiagnostics = (
+  state: EditorState,
+  dialect?: SqlDialect,
+): Diagnostic[] => {
   const diagnostics: Diagnostic[] = [];
   const tree = syntaxTree(state);
+  const validator = getDialectValidator(dialect);
 
   tree.iterate({
     enter: (node) => {
       if (node.type.isError) {
         const from = node.from;
-        const to = node.to > node.from ? node.to : Math.min(state.doc.length, node.from + 1);
+        const to =
+          node.to > node.from
+            ? node.to
+            : Math.min(state.doc.length, node.from + 1);
+        const snippet = toSnippet(state, from, to);
+        const context = getErrorContext(state, from, to);
 
+        // Create a syntax error object for the validator
+        const syntaxError: SyntaxError = {
+          from,
+          to,
+          message: `Syntax error near "${snippet}"`,
+          snippet,
+        };
+
+        // Check if this error should be suppressed based on dialect-specific patterns
+        if (validator.shouldSuppressError(syntaxError, context)) {
+          // Error is suppressed - it's valid dialect-specific syntax
+          return;
+        }
+
+        // Report the error
         diagnostics.push({
           from,
           to,
           severity: "error",
-          message: `Syntax error near "${toSnippet(state, from, to)}"`,
+          message: syntaxError.message,
         });
         return;
       }
@@ -151,8 +198,19 @@ const collectDiagnostics = (state: EditorState): Diagnostic[] => {
     },
   });
 
+  // Add dialect-specific validations
+  const dialectDiagnostics = validator.validateDialectSyntax(state);
+  diagnostics.push(...dialectDiagnostics);
+
+  // Add best practice checks if available
+  if (validator.validateBestPractices) {
+    const bestPracticeDiagnostics = validator.validateBestPractices(state);
+    diagnostics.push(...bestPracticeDiagnostics);
+  }
+
   if (!diagnostics.length) return diagnostics;
 
+  // Deduplicate diagnostics
   const deduped: Diagnostic[] = [];
   const seen = new Set<string>();
   for (const diag of diagnostics) {
@@ -165,8 +223,13 @@ const collectDiagnostics = (state: EditorState): Diagnostic[] => {
   return deduped;
 };
 
-export const createSqlLinter = (): Extension =>
-  linter((view) => collectDiagnostics(view.state), {
+/**
+ * Create a SQL linter extension with dialect-aware validation
+ * @param dialect - The SQL dialect (postgresql, mysql, sqlite, mssql, plsql)
+ * @returns CodeMirror linter extension
+ */
+export const createSqlLinter = (dialect?: SqlDialect): Extension =>
+  linter((view) => collectDiagnostics(view.state, dialect), {
     delay: 400,
     needsRefresh: (update) => update.docChanged,
   });
