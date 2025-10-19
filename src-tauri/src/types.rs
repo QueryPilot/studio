@@ -610,7 +610,6 @@ pub struct EnableDisableTriggerRequest {
     pub enabled: bool,
 }
 
-
 // ============================================================================
 // STREAMING PROTOCOL TYPES - For channel-based query streaming
 // ============================================================================

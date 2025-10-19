@@ -1,8 +1,7 @@
 /// Standalone performance test for fast query path
 /// Run with: cargo test --test query_performance -- --nocapture
-
 use std::time::Instant;
-use tokio_postgres::{NoTls, Config};
+use tokio_postgres::{Config, NoTls};
 
 #[tokio::test]
 async fn test_query_performance() {
@@ -35,7 +34,10 @@ async fn test_query_performance() {
 
     // Check row count
     println!("\n=== Checking database ===");
-    let count_result = client.query("SELECT COUNT(*) FROM todos", &[]).await.expect("Count query failed");
+    let count_result = client
+        .query("SELECT COUNT(*) FROM todos", &[])
+        .await
+        .expect("Count query failed");
     let row_count: i64 = count_result[0].get(0);
     println!("✓ Todos table has {} rows", row_count);
 
@@ -50,7 +52,10 @@ async fn test_query_performance() {
     println!("Current: ~1200ms (10x slower - before optimizations)\n");
 
     let query_start = Instant::now();
-    let rows = client.query("SELECT * FROM todos", &[]).await.expect("Query failed");
+    let rows = client
+        .query("SELECT * FROM todos", &[])
+        .await
+        .expect("Query failed");
     let query_time = query_start.elapsed();
 
     println!("✓ Query executed: {} rows in {:?}", rows.len(), query_time);
@@ -71,17 +76,26 @@ async fn test_query_performance() {
     }
     let convert_time = convert_start.elapsed();
 
-    println!("✓ Type conversion: {} cells in {:?}", cell_count, convert_time);
+    println!(
+        "✓ Type conversion: {} cells in {:?}",
+        cell_count, convert_time
+    );
 
     // Total time
     let total_time = query_time + convert_time;
     let total_ms = total_time.as_millis();
 
     println!("\n📊 Results:");
-    println!("  Query time:      {:?} ({:.1}%)", query_time,
-        query_time.as_millis() as f64 / total_ms as f64 * 100.0);
-    println!("  Conversion time: {:?} ({:.1}%)", convert_time,
-        convert_time.as_millis() as f64 / total_ms as f64 * 100.0);
+    println!(
+        "  Query time:      {:?} ({:.1}%)",
+        query_time,
+        query_time.as_millis() as f64 / total_ms as f64 * 100.0
+    );
+    println!(
+        "  Conversion time: {:?} ({:.1}%)",
+        convert_time,
+        convert_time.as_millis() as f64 / total_ms as f64 * 100.0
+    );
     println!("  Total time:      {:?}", total_time);
 
     // Performance verdict
@@ -95,7 +109,10 @@ async fn test_query_performance() {
         println!("\n⚠️  SLOW: Still above 500ms (baseline was 1200ms)");
     }
 
-    println!("\nSpeedup vs baseline: {:.2}x faster", 1200.0 / total_ms as f64);
+    println!(
+        "\nSpeedup vs baseline: {:.2}x faster",
+        1200.0 / total_ms as f64
+    );
 }
 
 #[tokio::test]

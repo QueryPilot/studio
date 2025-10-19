@@ -82,7 +82,9 @@ impl ConnectionManager {
         let conn_id = profile.id.clone();
 
         if conn_id.is_empty() {
-            return Err(AppError::internal("Connection profile id must not be empty"));
+            return Err(AppError::internal(
+                "Connection profile id must not be empty",
+            ));
         }
 
         // Check if connection exists. If it does but the adapter is no longer connected,

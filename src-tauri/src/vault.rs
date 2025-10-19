@@ -90,5 +90,3 @@ pub fn vault_reset(app: tauri::AppHandle) -> Result<(), String> {
     }
     Ok(())
 }
-
-
