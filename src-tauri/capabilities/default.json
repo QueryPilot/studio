@@ -2,7 +2,9 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": ["*"],
+  "windows": [
+    "*"
+  ],
   "macosprivateapi": true,
   "permissions": [
     "core:default",
@@ -33,6 +35,7 @@
     "core:webview:allow-webview-hide",
     "core:webview:allow-webview-show",
     "core:webview:allow-set-webview-focus",
-    "core:webview:allow-internal-toggle-devtools"
+    "core:webview:allow-internal-toggle-devtools",
+    "os:default"
   ]
 }
