@@ -203,12 +203,12 @@ impl PostgresTypeConverter {
             1022 => CellValueType::Array(Box::new(CellValueType::Decimal)), // FLOAT8[]
 
             // Range types
-            3904 => CellValueType::Range(Box::new(CellValueType::Integer)),  // INT4RANGE
-            3926 => CellValueType::Range(Box::new(CellValueType::Integer)),  // INT8RANGE
-            3906 => CellValueType::Range(Box::new(CellValueType::Decimal)),  // NUMRANGE
+            3904 => CellValueType::Range(Box::new(CellValueType::Integer)), // INT4RANGE
+            3926 => CellValueType::Range(Box::new(CellValueType::Integer)), // INT8RANGE
+            3906 => CellValueType::Range(Box::new(CellValueType::Decimal)), // NUMRANGE
             3908 => CellValueType::Range(Box::new(CellValueType::DateTime)), // TSRANGE
             3910 => CellValueType::Range(Box::new(CellValueType::DateTime)), // TSTZRANGE
-            3912 => CellValueType::Range(Box::new(CellValueType::Date)),     // DATERANGE
+            3912 => CellValueType::Range(Box::new(CellValueType::Date)),    // DATERANGE
 
             // Full-text search types
             3614 => CellValueType::TsVector, // TSVECTOR

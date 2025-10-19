@@ -19,11 +19,16 @@ pub struct FastPostgresConverter;
 struct RawValue<'a>(&'a [u8]);
 
 impl<'a> FromSql<'a> for RawValue<'a> {
-    fn from_sql(_: &Type, raw: &'a [u8]) -> std::result::Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+    fn from_sql(
+        _: &Type,
+        raw: &'a [u8],
+    ) -> std::result::Result<Self, Box<dyn std::error::Error + Sync + Send>> {
         Ok(Self(raw))
     }
 
-    fn from_sql_null(_: &Type) -> std::result::Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+    fn from_sql_null(
+        _: &Type,
+    ) -> std::result::Result<Self, Box<dyn std::error::Error + Sync + Send>> {
         Err("unexpected NULL".into())
     }
 
@@ -41,14 +46,13 @@ impl FastPostgresConverter {
 
         // OPTIMIZATION: Cache column types once for entire batch
         // Avoids 6000 rows × 10 cols = 60,000 repeated lookups!
-        let column_types: Vec<&Type> = rows[0].columns().iter()
-            .map(|col| col.type_())
-            .collect();
+        let column_types: Vec<&Type> = rows[0].columns().iter().map(|col| col.type_()).collect();
         let num_columns = column_types.len();
 
         // Use parallel iterator for multi-core speedup (4-8x faster)
         // Each row is converted independently across CPU cores
-        let result = rows.par_iter()
+        let result = rows
+            .par_iter()
             .map(|row| {
                 let mut json_row = Vec::with_capacity(num_columns);
                 for idx in 0..num_columns {
@@ -95,10 +99,16 @@ impl FastPostgresConverter {
             Type::BOOL => JsonValue::Bool(proto::bool_from_sql(raw).map_err(Self::map_decode_err)?),
             Type::INT2 => JsonValue::from(proto::int2_from_sql(raw).map_err(Self::map_decode_err)?),
             Type::INT4 => JsonValue::from(proto::int4_from_sql(raw).map_err(Self::map_decode_err)?),
-            Type::OID => JsonValue::from(proto::oid_from_sql(raw).map_err(Self::map_decode_err)? as u64),
+            Type::OID => {
+                JsonValue::from(proto::oid_from_sql(raw).map_err(Self::map_decode_err)? as u64)
+            }
             Type::INT8 => JsonValue::from(proto::int8_from_sql(raw).map_err(Self::map_decode_err)?),
-            Type::FLOAT4 => JsonValue::from(proto::float4_from_sql(raw).map_err(Self::map_decode_err)? as f64),
-            Type::FLOAT8 => JsonValue::from(proto::float8_from_sql(raw).map_err(Self::map_decode_err)?),
+            Type::FLOAT4 => {
+                JsonValue::from(proto::float4_from_sql(raw).map_err(Self::map_decode_err)? as f64)
+            }
+            Type::FLOAT8 => {
+                JsonValue::from(proto::float8_from_sql(raw).map_err(Self::map_decode_err)?)
+            }
             Type::NUMERIC => Self::convert_numeric(pg_type, raw)?,
             Type::MONEY => Self::convert_money(raw),
             Type::TEXT | Type::VARCHAR | Type::BPCHAR | Type::NAME | Type::CHAR | Type::UNKNOWN => {
@@ -108,9 +118,7 @@ impl FastPostgresConverter {
                 let bytes = proto::uuid_from_sql(raw).map_err(Self::map_decode_err)?;
                 JsonValue::String(Uuid::from_bytes(bytes).to_string())
             }
-            Type::BYTEA => {
-                JsonValue::String(BASE64_STANDARD.encode(raw))
-            }
+            Type::BYTEA => JsonValue::String(BASE64_STANDARD.encode(raw)),
             Type::JSON => Self::convert_json_text(raw)?,
             Type::JSONB => Self::convert_jsonb(raw)?,
             Type::XML => Self::convert_text(raw),
@@ -192,17 +200,17 @@ impl FastPostgresConverter {
         }
         // First byte is version marker (currently 1)
         let payload = &raw[1..];
-        
+
         // Parse JSON and convert back to compact string (single line, no indentation)
         match serde_json::from_slice::<serde_json::Value>(payload) {
             Ok(json_val) => {
                 // Use compact serialization (no pretty printing)
                 match serde_json::to_string(&json_val) {
                     Ok(compact_str) => Ok(JsonValue::String(compact_str)),
-                    Err(_) => Ok(JsonValue::String(BASE64_STANDARD.encode(payload)))
+                    Err(_) => Ok(JsonValue::String(BASE64_STANDARD.encode(payload))),
                 }
             }
-            Err(_) => Ok(JsonValue::String(BASE64_STANDARD.encode(payload)))
+            Err(_) => Ok(JsonValue::String(BASE64_STANDARD.encode(payload))),
         }
     }
 
@@ -425,8 +433,8 @@ impl FastPostgresConverter {
         let path = proto::path_from_sql(raw).map_err(Self::map_decode_err)?;
         let mut points = Vec::new();
         let mut iter = path.points();
-        while let Some(point) = fallible_iterator::FallibleIterator::next(&mut iter)
-            .map_err(Self::map_decode_err)?
+        while let Some(point) =
+            fallible_iterator::FallibleIterator::next(&mut iter).map_err(Self::map_decode_err)?
         {
             points.push(json!({"x": point.x(), "y": point.y()}));
         }
@@ -507,7 +515,11 @@ impl FastPostgresConverter {
 
     fn convert_inet(raw: &[u8]) -> Result<JsonValue> {
         let inet = proto::inet_from_sql(raw).map_err(Self::map_decode_err)?;
-        Ok(JsonValue::String(format!("{}/{}", inet.addr(), inet.netmask())))
+        Ok(JsonValue::String(format!(
+            "{}/{}",
+            inet.addr(),
+            inet.netmask()
+        )))
     }
 
     fn convert_macaddr(raw: &[u8], len: usize) -> JsonValue {
@@ -548,7 +560,13 @@ impl FastPostgresConverter {
         let hours = offset_abs / 3600;
         let minutes = (offset_abs % 3600) / 60;
 
-        Ok(format!("{}{}{:02}:{:02}", time.format("%H:%M:%S%.f"), sign, hours, minutes))
+        Ok(format!(
+            "{}{}{:02}:{:02}",
+            time.format("%H:%M:%S%.f"),
+            sign,
+            hours,
+            minutes
+        ))
     }
 
     fn convert_interval(raw: &[u8]) -> JsonValue {
@@ -579,8 +597,8 @@ impl FastPostgresConverter {
         let mut entries = proto::hstore_from_sql(raw).map_err(Self::map_decode_err)?;
         let mut parts = Vec::new();
 
-        while let Some((key, value)) = fallible_iterator::FallibleIterator::next(&mut entries)
-            .map_err(Self::map_decode_err)?
+        while let Some((key, value)) =
+            fallible_iterator::FallibleIterator::next(&mut entries).map_err(Self::map_decode_err)?
         {
             let escaped_key = Self::escape_hstore_component(key);
             let formatted_value = value
@@ -603,14 +621,14 @@ impl FastPostgresConverter {
         // Parse tsvector binary format directly
         // Format: [u32 num_lexemes][for each: null-terminated text, u16 npos, npos × u16 positions]
         // Position encoding: top 2 bits = weight (A-D), lower 14 bits = position (1-16383)
-        
+
         if raw.len() < 4 {
             return Ok(Self::fallback_value(raw));
         }
 
         let mut cursor = raw;
         let num_lexemes = Self::read_i32(&mut cursor)? as usize;
-        
+
         if num_lexemes == 0 {
             return Ok(JsonValue::String("".to_string()));
         }
@@ -628,7 +646,7 @@ impl FastPostgresConverter {
             while end < cursor.len() && cursor[end] != 0 {
                 end += 1;
             }
-            
+
             if end >= cursor.len() {
                 // Unterminated string, return what we have so far
                 break;
@@ -643,7 +661,7 @@ impl FastPostgresConverter {
                     continue;
                 }
             };
-            
+
             // Move cursor past null terminator
             cursor = &cursor[end + 1..];
 
@@ -664,11 +682,11 @@ impl FastPostgresConverter {
             for _ in 0..num_positions {
                 let wep = u16::from_be_bytes([cursor[0], cursor[1]]);
                 cursor = &cursor[2..];
-                
+
                 // Extract weight (top 2 bits) and position (lower 14 bits)
                 let weight_bits = (wep >> 14) & 0b11;
                 let pos = wep & 0x3fff; // 14-bit position (max 16383)
-                
+
                 // Weight: 3=A, 2=B, 1=C, 0=D
                 let weight_char = match weight_bits {
                     3 => 'A',
@@ -676,7 +694,7 @@ impl FastPostgresConverter {
                     1 => 'C',
                     _ => '\0', // D (default weight, not displayed)
                 };
-                
+
                 if weight_char == '\0' {
                     positions.push(pos.to_string());
                 } else {
@@ -689,7 +707,11 @@ impl FastPostgresConverter {
                 lexemes.push(format!("'{}'", lexeme_text.replace('\'', "''")));
             } else {
                 let positions_str = positions.join(",");
-                lexemes.push(format!("'{}':{}", lexeme_text.replace('\'', "''"), positions_str));
+                lexemes.push(format!(
+                    "'{}':{}",
+                    lexeme_text.replace('\'', "''"),
+                    positions_str
+                ));
             }
         }
 
@@ -715,9 +737,7 @@ impl FastPostgresConverter {
     }
 
     fn escape_hstore_component(input: &str) -> String {
-        input
-            .replace('\\', "\\\\")
-            .replace('"', "\\\"")
+        input.replace('\\', "\\\\").replace('"', "\\\"")
     }
 
     fn fallback_value(raw: &[u8]) -> JsonValue {
@@ -737,7 +757,9 @@ impl FastPostgresConverter {
 
     fn read_i32(buf: &mut &[u8]) -> Result<i32> {
         if buf.len() < 4 {
-            return Err(AppError::Internal("buffer underflow reading i32".to_string()));
+            return Err(AppError::Internal(
+                "buffer underflow reading i32".to_string(),
+            ));
         }
         let mut bytes = [0u8; 4];
         bytes.copy_from_slice(&buf[..4]);
@@ -749,9 +771,9 @@ impl FastPostgresConverter {
         data.iter().map(|b| format!("{:02x}", b)).collect()
     }
 
-fn map_decode_err<E: std::fmt::Display>(err: E) -> AppError {
-    AppError::Internal(format!("PostgreSQL decode error: {}", err))
-}
+    fn map_decode_err<E: std::fmt::Display>(err: E) -> AppError {
+        AppError::Internal(format!("PostgreSQL decode error: {}", err))
+    }
 }
 
 struct RangeEndpoint {
@@ -763,9 +785,9 @@ struct RangeEndpoint {
 mod tests {
     use super::*;
     use bytes::BytesMut;
-    use postgres_protocol::IsNull;
     use postgres_protocol::types as proto;
     use postgres_protocol::types::ArrayDimension;
+    use postgres_protocol::IsNull;
     use postgres_types::Type;
 
     #[test]
@@ -822,7 +844,10 @@ mod tests {
     fn converts_int_array() {
         let mut buf = BytesMut::new();
         proto::array_to_sql(
-            [ArrayDimension { len: 3, lower_bound: 1 }],
+            [ArrayDimension {
+                len: 3,
+                lower_bound: 1,
+            }],
             Type::INT4.oid(),
             [1i32, 2, 3],
             |value, buf| {
@@ -856,5 +881,4 @@ mod tests {
         let json = FastPostgresConverter::convert_range(&Type::INT4, buf.as_ref()).unwrap();
         assert_eq!(json, JsonValue::String("[1, 5)".to_string()));
     }
-
 }

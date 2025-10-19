@@ -1,5 +1,5 @@
-use keyring::Entry;
 use base64::Engine as _;
+use keyring::Entry;
 use rand::RngCore;
 
 const KEYCHAIN_SERVICE: &str = "com.hieuvd.devdb-studio.vault";

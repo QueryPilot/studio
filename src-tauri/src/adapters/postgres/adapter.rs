@@ -60,57 +60,66 @@ impl PostgresAdapter {
     }
 
     /// Pre-warm connection in background (Phase 1: basic queries)
-    async fn prewarm_connection(
-        executor: Arc<FastPostgresQueryExecutor>,
-        connection_id: String,
-    ) {
+    async fn prewarm_connection(executor: Arc<FastPostgresQueryExecutor>, connection_id: String) {
         tracing::info!("Starting connection pre-warming for {}", connection_id);
-        
+
         // Phase 1: Minimal connection warm-up (~15ms)
         let _ = executor.prepare_streaming_query("SELECT 1").await;
-        let _ = executor.prepare_streaming_query("SELECT current_database()").await;
-        
-        tracing::info!("Phase 1 complete: Basic queries pre-warmed for {}", connection_id);
+        let _ = executor
+            .prepare_streaming_query("SELECT current_database()")
+            .await;
+
+        tracing::info!(
+            "Phase 1 complete: Basic queries pre-warmed for {}",
+            connection_id
+        );
     }
 
     /// Pre-warm tables after schema is loaded (Phase 2: smart table pre-warming)
     pub async fn prewarm_tables(&self, schema: &str, tables: Vec<String>) -> Result<()> {
-        let executor = self.query_executor.as_ref()
+        let executor = self
+            .query_executor
+            .as_ref()
             .ok_or_else(|| AppError::Internal("Query executor not initialized".to_string()))?;
-        
-        let pool = self.pool.as_ref()
+
+        let pool = self
+            .pool
+            .as_ref()
             .ok_or_else(|| AppError::Internal("Pool not initialized".to_string()))?;
-        
+
         let table_count = tables.len();
-        
+
         if table_count == 0 {
             return Ok(());
         }
-        
+
         // Filter out log/audit tables (usually huge and rarely accessed in development)
-        let filtered_tables: Vec<String> = tables.into_iter()
+        let filtered_tables: Vec<String> = tables
+            .into_iter()
             .filter(|t| {
                 let lower = t.to_lowercase();
                 // Skip tables that are likely logs/audit/large data dumps
-                !lower.contains("log") 
-                    && !lower.contains("audit") 
-                    && !lower.contains("migrations") 
+                !lower.contains("log")
+                    && !lower.contains("audit")
+                    && !lower.contains("migrations")
                     && !lower.contains("history")
                     && !lower.contains("archive")
                     && !lower.contains("backup")
             })
             .collect();
-        
+
         if filtered_tables.is_empty() {
             tracing::info!("No suitable tables to pre-warm (all filtered out)");
             return Ok(());
         }
-        
+
         // Get table row counts to sort by (most records first = most actively used)
         // Use the same query as get_tables() for consistency
-        let client = pool.get().await
+        let client = pool
+            .get()
+            .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
-        
+
         let row_count_query = r#"
             SELECT c.relname, c.reltuples::bigint as row_count
             FROM pg_class c
@@ -121,67 +130,70 @@ impl PostgresAdapter {
               AND c.reltuples > 100
             ORDER BY c.reltuples DESC
         "#;
-        
-        let table_counts = client.query(row_count_query, &[&schema, &filtered_tables])
+
+        let table_counts = client
+            .query(row_count_query, &[&schema, &filtered_tables])
             .await
             .unwrap_or_else(|_| {
                 // Fallback: use original order if row count query fails
                 vec![]
             });
-        
+
         let sorted_tables: Vec<String> = if !table_counts.is_empty() {
-            table_counts.iter()
+            table_counts
+                .iter()
                 .map(|row| row.get::<_, String>(0))
                 .collect()
         } else {
             filtered_tables.clone()
         };
-        
+
         // Smart strategy: Pre-warm 20% of tables, minimum 16, maximum 20%
         let target_count = std::cmp::max(16, (sorted_tables.len() * 20) / 100);
-        
-        let tables_to_prewarm: Vec<String> = sorted_tables.into_iter()
-            .take(target_count)
-            .collect();
-        
+
+        let tables_to_prewarm: Vec<String> = sorted_tables.into_iter().take(target_count).collect();
+
         tracing::info!(
-            "Pre-warming {} tables from schema {} (filtered: {}, total: {}) - parallel batch of 4", 
-            tables_to_prewarm.len(), 
+            "Pre-warming {} tables from schema {} (filtered: {}, total: {}) - parallel batch of 4",
+            tables_to_prewarm.len(),
             schema,
             filtered_tables.len(),
             table_count
         );
-        
+
         // Pre-warm tables in parallel batches of 4 for faster warmup
         use futures::stream::{self, StreamExt};
-        
+
         let schema_str = schema.to_string();
         let pool_clone = pool.clone();
-        let prewarm_futures: Vec<_> = tables_to_prewarm.into_iter().map(|table| {
-            let pool = pool_clone.clone();
-            let schema_clone = schema_str.clone();
-            
-            async move {
-                // Actually EXECUTE a query to warm PostgreSQL's cache (not just prepare)
-                let sql = format!("SELECT * FROM {}.{} LIMIT 1", schema_clone, table);
-                if let Ok(conn) = pool.get().await {
-                    // Execute the query to warm up the table in PostgreSQL's cache
-                    let _ = conn.query(&sql, &[]).await;
+        let prewarm_futures: Vec<_> = tables_to_prewarm
+            .into_iter()
+            .map(|table| {
+                let pool = pool_clone.clone();
+                let schema_clone = schema_str.clone();
+
+                async move {
+                    // Actually EXECUTE a query to warm PostgreSQL's cache (not just prepare)
+                    let sql = format!("SELECT * FROM {}.{} LIMIT 1", schema_clone, table);
+                    if let Ok(conn) = pool.get().await {
+                        // Execute the query to warm up the table in PostgreSQL's cache
+                        let _ = conn.query(&sql, &[]).await;
+                    }
+                    (schema_clone, table)
                 }
-                (schema_clone, table)
-            }
-        }).collect();
-        
+            })
+            .collect();
+
         // Run max 4 concurrent pre-warming operations
         let results: Vec<_> = stream::iter(prewarm_futures)
             .buffer_unordered(4)
             .collect()
             .await;
-        
+
         for (schema_name, table) in results {
             tracing::info!("  ✅ Pre-warmed: {}.{}", schema_name, table);
         }
-        
+
         tracing::info!("Table pre-warming complete for schema {}", schema);
         Ok(())
     }
@@ -208,12 +220,13 @@ impl DbAdapter for PostgresAdapter {
             .map_err(|e| AppError::Internal(format!("Failed to create connection pool: {}", e)))?;
 
         // Get a connection to verify pool is working
-        let conn = pool.get().await
-            .map_err(|e| AppError::Internal(format!("Failed to get connection from pool: {}", e)))?;
-        
+        let conn = pool.get().await.map_err(|e| {
+            AppError::Internal(format!("Failed to get connection from pool: {}", e))
+        })?;
+
         // Initialize components with pool
         let executor = Arc::new(FastPostgresQueryExecutor::new_with_pool(pool.clone()));
-        
+
         // Create introspector with pool (gets fresh connections for each operation)
         let introspector = Arc::new(PostgresIntrospector::new_with_pool(pool.clone()));
 
@@ -245,9 +258,10 @@ impl DbAdapter for PostgresAdapter {
     async fn test_connection(&self) -> Result<ConnectionTestResult> {
         // Use pool if available (new connection pooling), otherwise fall back to client
         if let Some(pool) = &self.pool {
-            let conn = pool.get().await
-                .map_err(|e| AppError::ConnectionClosed(format!("Failed to get connection from pool: {}", e)))?;
-            
+            let conn = pool.get().await.map_err(|e| {
+                AppError::ConnectionClosed(format!("Failed to get connection from pool: {}", e))
+            })?;
+
             // Test query and get version
             let row = conn
                 .query_one("SELECT version(), current_database(), current_user", &[])
@@ -288,10 +302,7 @@ impl DbAdapter for PostgresAdapter {
 
         let (rows, columns, _execution_time) = executor.execute_single_fetch(sql).await?;
 
-        Ok(QueryResult {
-            columns,
-            rows,
-        })
+        Ok(QueryResult { columns, rows })
     }
 
     async fn execute(&self, sql: &str) -> Result<u64> {
@@ -299,7 +310,9 @@ impl DbAdapter for PostgresAdapter {
             .pool
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-        let client = pool.get().await
+        let client = pool
+            .get()
+            .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         let rows_affected = client.execute(sql, &[]).await?;
@@ -374,7 +387,9 @@ impl DbAdapter for PostgresAdapter {
             .pool
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-        let client = pool.get().await
+        let client = pool
+            .get()
+            .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         let query = "SELECT amname AS index_type FROM pg_am WHERE amtype = 'i' ORDER BY 1";
@@ -393,7 +408,9 @@ impl DbAdapter for PostgresAdapter {
             .pool
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-        let client = pool.get().await
+        let client = pool
+            .get()
+            .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         let query = r#"
@@ -473,7 +490,9 @@ impl DbAdapter for PostgresAdapter {
             .pool
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-        let client = pool.get().await
+        let client = pool
+            .get()
+            .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         let query = format!("SELECT COUNT(*) FROM \"{}\".\"{}\"", schema, table);
@@ -566,7 +585,9 @@ impl DbAdapter for PostgresAdapter {
             .pool
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-        let client = pool.get().await
+        let client = pool
+            .get()
+            .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         let unique_str = if index.unique { "UNIQUE " } else { "" };
@@ -622,7 +643,9 @@ impl DbAdapter for PostgresAdapter {
             .pool
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-        let client = pool.get().await
+        let client = pool
+            .get()
+            .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         let sql = format!(
@@ -641,7 +664,9 @@ impl DbAdapter for PostgresAdapter {
             .pool
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-        let client = pool.get().await
+        let client = pool
+            .get()
+            .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         let sql = format!(
@@ -667,7 +692,9 @@ impl DbAdapter for PostgresAdapter {
             .pool
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-        let client = pool.get().await
+        let client = pool
+            .get()
+            .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         let mut sql = format!(
@@ -718,7 +745,9 @@ impl DbAdapter for PostgresAdapter {
             .pool
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-        let client = pool.get().await
+        let client = pool
+            .get()
+            .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         let sql = format!(
@@ -743,7 +772,9 @@ impl DbAdapter for PostgresAdapter {
             .pool
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-        let client = pool.get().await
+        let client = pool
+            .get()
+            .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         let current_column_name = quote_identifier(&column.name);
@@ -884,7 +915,9 @@ impl DbAdapter for PostgresAdapter {
             .pool
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-        let client = pool.get().await
+        let client = pool
+            .get()
+            .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         let sql = format!(
@@ -910,7 +943,9 @@ impl DbAdapter for PostgresAdapter {
             .pool
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-        let client = pool.get().await
+        let client = pool
+            .get()
+            .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         // Check if the column is an array type (cannot have FK)
@@ -984,7 +1019,9 @@ impl DbAdapter for PostgresAdapter {
             .pool
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-        let client = pool.get().await
+        let client = pool
+            .get()
+            .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         let sql = format!(
@@ -1008,7 +1045,9 @@ impl DbAdapter for PostgresAdapter {
             .pool
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-        let client = pool.get().await
+        let client = pool
+            .get()
+            .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         // Parse timing to handle "INSTEAD OF" case
@@ -1052,7 +1091,9 @@ impl DbAdapter for PostgresAdapter {
             .pool
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-        let client = pool.get().await
+        let client = pool
+            .get()
+            .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         let sql = format!(
@@ -1078,7 +1119,9 @@ impl DbAdapter for PostgresAdapter {
             .pool
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-        let client = pool.get().await
+        let client = pool
+            .get()
+            .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         let action = if enabled { "ENABLE" } else { "DISABLE" };

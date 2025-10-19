@@ -1,5 +1,5 @@
 use std::time::Instant;
-use tokio_postgres::{NoTls, Config};
+use tokio_postgres::{Config, NoTls};
 
 /// Performance benchmark test for the fast query path
 /// Tests against real PostgreSQL database with 13k rows
@@ -68,16 +68,25 @@ async fn benchmark_fast_query_13k_rows() {
     } else if actual_ms <= 200 {
         println!("⚠️  GOOD: Within 2x target ({}ms)", actual_ms);
     } else if actual_ms <= 500 {
-        println!("⚡ IMPROVED: Better than baseline but not at target ({}ms)", actual_ms);
+        println!(
+            "⚡ IMPROVED: Better than baseline but not at target ({}ms)",
+            actual_ms
+        );
     } else {
         println!("❌ SLOW: Above 500ms ({}ms)", actual_ms);
     }
 
     println!("\n=== Breakdown ===");
-    println!("Query:      {:?} ({:.1}%)", query_time,
-        query_time.as_millis() as f64 / total_time.as_millis() as f64 * 100.0);
-    println!("Conversion: {:?} ({:.1}%)", conversion_time,
-        conversion_time.as_millis() as f64 / total_time.as_millis() as f64 * 100.0);
+    println!(
+        "Query:      {:?} ({:.1}%)",
+        query_time,
+        query_time.as_millis() as f64 / total_time.as_millis() as f64 * 100.0
+    );
+    println!(
+        "Conversion: {:?} ({:.1}%)",
+        conversion_time,
+        conversion_time.as_millis() as f64 / total_time.as_millis() as f64 * 100.0
+    );
 }
 
 /// Test fast converter performance specifically
@@ -128,10 +137,14 @@ async fn benchmark_fast_converter() {
     let elapsed = start.elapsed();
 
     println!("Converted {} cells in {:?}", cell_count, elapsed);
-    println!("Average per cell: {:.2}µs",
-        elapsed.as_micros() as f64 / cell_count as f64);
-    println!("Average per row: {:.2}µs",
-        elapsed.as_micros() as f64 / rows.len() as f64);
+    println!(
+        "Average per cell: {:.2}µs",
+        elapsed.as_micros() as f64 / cell_count as f64
+    );
+    println!(
+        "Average per row: {:.2}µs",
+        elapsed.as_micros() as f64 / rows.len() as f64
+    );
 }
 
 /// Benchmark streaming vs single query
@@ -175,9 +188,13 @@ async fn benchmark_streaming_batch_sizes() {
         }
 
         let elapsed = start.elapsed();
-        println!("Batch size {}: {:?} for {} rows ({:.2} ms/1000 rows)",
-            batch_size, elapsed, total_rows,
-            elapsed.as_millis() as f64 / (total_rows as f64 / 1000.0));
+        println!(
+            "Batch size {}: {:?} for {} rows ({:.2} ms/1000 rows)",
+            batch_size,
+            elapsed,
+            total_rows,
+            elapsed.as_millis() as f64 / (total_rows as f64 / 1000.0)
+        );
     }
 }
 
@@ -203,7 +220,10 @@ async fn benchmark_metadata_caching() {
 
     // First query - cold cache
     let start = Instant::now();
-    let stmt = client.prepare("SELECT * FROM todos LIMIT 10").await.expect("Prepare failed");
+    let stmt = client
+        .prepare("SELECT * FROM todos LIMIT 10")
+        .await
+        .expect("Prepare failed");
     let cold_time = start.elapsed();
     let _rows = client.query(&stmt, &[]).await.expect("Query failed");
 
@@ -215,7 +235,10 @@ async fn benchmark_metadata_caching() {
     let warm_time = start.elapsed();
 
     println!("Warm cache (reuse stmt):  {:?}", warm_time);
-    println!("Speedup: {:.2}x", cold_time.as_micros() as f64 / warm_time.as_micros() as f64);
+    println!(
+        "Speedup: {:.2}x",
+        cold_time.as_micros() as f64 / warm_time.as_micros() as f64
+    );
 }
 
 /// Count actual rows in todos table
@@ -236,7 +259,10 @@ async fn check_todos_row_count() {
         }
     });
 
-    let rows = client.query("SELECT COUNT(*) as count FROM todos", &[]).await.expect("Query failed");
+    let rows = client
+        .query("SELECT COUNT(*) as count FROM todos", &[])
+        .await
+        .expect("Query failed");
     let count: i64 = rows[0].get(0);
 
     println!("\n=== Database Stats ===");

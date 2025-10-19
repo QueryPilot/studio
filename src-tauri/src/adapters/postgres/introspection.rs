@@ -11,12 +11,13 @@ impl PostgresIntrospector {
     pub fn new_with_pool(pool: deadpool_postgres::Pool) -> Self {
         Self { pool }
     }
-    
+
     /// Get a fresh connection from pool for introspection operations
     /// This prevents using stale connections after idle timeout
     async fn get_client(&self) -> Result<deadpool_postgres::Object> {
-        self.pool.get().await
-            .map_err(|e| AppError::Internal(format!("Failed to get connection for introspection: {}", e)))
+        self.pool.get().await.map_err(|e| {
+            AppError::Internal(format!("Failed to get connection for introspection: {}", e))
+        })
     }
 
     /// Convert PostgreSQL type names to their shorthand forms
@@ -717,9 +718,7 @@ impl PostgresIntrospector {
         "#;
 
         let client = self.get_client().await?;
-        let columns = client
-            .query(columns_sql, &[&schema, &table_name])
-            .await?;
+        let columns = client.query(columns_sql, &[&schema, &table_name]).await?;
 
         let mut definition = format!("CREATE TABLE \"{}\".\"{}\" (\n", schema, table_name);
 
@@ -763,9 +762,7 @@ impl PostgresIntrospector {
         let indexes_sql =
             "SELECT indexdef FROM pg_indexes WHERE schemaname = $1 AND tablename = $2";
         let client = self.get_client().await?;
-        let indexes = client
-            .query(indexes_sql, &[&schema, &table_name])
-            .await?;
+        let indexes = client.query(indexes_sql, &[&schema, &table_name]).await?;
 
         if !indexes.is_empty() {
             definition.push_str("-- Indexes\n");
@@ -933,9 +930,7 @@ impl PostgresIntrospector {
         let indexes_sql =
             "SELECT indexdef FROM pg_indexes WHERE schemaname = $1 AND tablename = $2";
         let client = self.get_client().await?;
-        let indexes = client
-            .query(indexes_sql, &[&schema, &view_name])
-            .await?;
+        let indexes = client.query(indexes_sql, &[&schema, &view_name]).await?;
 
         if !indexes.is_empty() {
             definition.push_str("\n\n-- Indexes\n");

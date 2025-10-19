@@ -7,6 +7,7 @@ import type { Update } from "@tauri-apps/plugin-updater";
 import { vaultStorage } from "./services/vaultStorage";
 import { toast } from "sonner";
 import { databaseService } from "./services/databaseService";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 function AppContent() {
   return (
@@ -42,20 +43,6 @@ function App() {
 
     const registerWindowHandlers = async () => {
       try {
-        const [
-          { StateFlags, restoreStateCurrent, saveWindowState },
-          { getCurrentWindow },
-        ] = await Promise.all([
-          import("@tauri-apps/plugin-window-state"),
-          import("@tauri-apps/api/window"),
-        ]);
-
-        try {
-          await restoreStateCurrent(StateFlags.ALL);
-        } catch (error) {
-          console.debug("No window state to restore yet", error);
-        }
-
         const currentWindow = getCurrentWindow();
 
         // Preload vault and data before showing the main UI
@@ -74,12 +61,6 @@ function App() {
         }
         const unlisten = await currentWindow.onCloseRequested(async (event) => {
           event.preventDefault();
-
-          try {
-            await saveWindowState(StateFlags.ALL);
-          } catch (error) {
-            console.error("Failed to persist window state", error);
-          }
 
           let toastId: string | number | undefined;
           try {
