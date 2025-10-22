@@ -118,7 +118,7 @@ export const EnumCellEditor: React.FC<EnumCellEditorProps> = ({
         <SelectTrigger className="h-full text-xs border-0 focus:ring-0 focus:ring-offset-0 bg-transparent w-full shadow-none">
           <SelectValue />
         </SelectTrigger>
-        <SelectContent className="max-h-[300px] click-outside-ignore z-[9999]">
+        <SelectContent className="max-h-[300px] click-outside-ignore z-50">
           {options.map((option) => (
             <SelectItem
               key={option}

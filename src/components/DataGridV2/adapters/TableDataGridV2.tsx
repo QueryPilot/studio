@@ -987,8 +987,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           kind: GridCellKind.Text,
           data: "",
           displayData: "",
-          allowOverlay: false,
-          readonly: true,
+          allowOverlay: true,
+          readonly: false,
         } as const;
       }
 
@@ -1081,23 +1081,47 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             typeof customData === "object" &&
             customData !== null &&
             "kind" in customData &&
-            (customData as { kind?: unknown }).kind &&
-            ["date-cell", "time-cell", "datetime-cell"].includes(
-              String((customData as { kind: unknown }).kind),
-            )
+            (customData as { kind?: unknown }).kind
           ) {
-            // For date/time kinds we store raw string (or null)
-            const v = (customData as { value?: unknown }).value;
-            if (v == null) {
-              cellValue = null;
-            } else if (typeof v === "string") {
-              cellValue = v;
-            } else if (v instanceof Date) {
-              // Persist as ISO date string
-              cellValue = v.toISOString();
-            } else {
-              // Unknown object shape; avoid implicit stringification
-              cellValue = null;
+            const cellKind = String((customData as { kind: unknown }).kind);
+
+            // Date/time cells
+            if (
+              ["date-cell", "time-cell", "datetime-cell"].includes(cellKind)
+            ) {
+              const v = (customData as { value?: unknown }).value;
+              if (v == null) {
+                cellValue = null;
+              } else if (typeof v === "string") {
+                cellValue = v;
+              } else if (v instanceof Date) {
+                cellValue = v.toISOString();
+              } else {
+                cellValue = null;
+              }
+            }
+            // JSON cells
+            else if (cellKind === "json-cell") {
+              const v = (customData as { value?: unknown }).value;
+              cellValue = v == null ? null : v;
+            }
+            // UUID cells
+            else if (cellKind === "uuid-cell") {
+              const v = (customData as { value?: unknown }).value;
+              cellValue = v == null ? null : v;
+            }
+            // Text cells (single and multi-line)
+            else if (
+              cellKind === "text-single-cell" ||
+              cellKind === "text-multi-cell"
+            ) {
+              const v = (customData as { value?: unknown }).value;
+              cellValue = v == null ? null : v;
+            }
+            // Reference cells (FK)
+            else if (cellKind === "reference-cell") {
+              const v = (customData as { value?: unknown }).value;
+              cellValue = v == null ? null : v;
             }
           }
         } else if (newValue.kind === GridCellKind.Boolean) {
