@@ -169,12 +169,49 @@ export function buildGridCellV2(opts: {
     });
   }
 
-  // JSON/Array cells - render as formatted text
-  if (
-    dbType.includes("json") ||
-    dbType.includes("array") ||
-    Array.isArray(rawValue)
-  ) {
+  // JSON/JSONB cells - use custom JSON editor
+  if (dbType.includes("json")) {
+    let jsonString: string | null = null;
+    let isValid = true;
+
+    if (rawValue != null) {
+      if (typeof rawValue === "string") {
+        jsonString = rawValue;
+      } else {
+        try {
+          jsonString = JSON.stringify(rawValue, null, 2);
+        } catch {
+          jsonString = String(rawValue);
+          isValid = false;
+        }
+      }
+
+      // Validate JSON
+      if (jsonString) {
+        try {
+          JSON.parse(jsonString);
+        } catch {
+          isValid = false;
+        }
+      }
+    }
+
+    return cacheAndReturn(value, column, {
+      kind: GridCellKind.Custom,
+      data: {
+        kind: "json-cell",
+        value: jsonString,
+        nullable: Boolean(column.meta?.nullable),
+        isValid,
+      },
+      copyData: jsonString ?? "NULL",
+      allowOverlay: true,
+      readonly: false,
+    });
+  }
+
+  // Array cells - render as formatted text (keeping existing behavior for arrays)
+  if (dbType.includes("array") || Array.isArray(rawValue)) {
     // Guard against undefined/null before attempting JSON.stringify
     if (rawValue == null) {
       return cacheAndReturn(value, column, {
@@ -196,7 +233,7 @@ export function buildGridCellV2(opts: {
       text =
         typeof rawValue === "string"
           ? rawValue
-          : JSON.stringify(rawValue, null, 2) ?? String(rawValue);
+          : JSON.stringify(rawValue, null, 2);
     } catch {
       text = String(rawValue);
     }
@@ -273,32 +310,104 @@ export function buildGridCellV2(opts: {
     });
   }
 
-  // UUID cells - render as monospace text
+  // UUID cells - use custom UUID editor with generation
   if (dbType.includes("uuid")) {
-    if (rawValue == null) {
-      return cacheAndReturn(value, column, {
-        kind: GridCellKind.Text,
-        data: "NULL",
-        displayData: "NULL",
-        allowOverlay: false,
-        readonly: false,
-        contentAlign: "left",
-        themeOverride: {
-          textDark: "rgba(127,127,127,0.7)",
-          baseFontStyle: "italic 12px",
-        },
-      });
-    }
-    const text = String(rawValue);
+    const uuidString = rawValue == null ? null : String(rawValue);
+
+    // Validate UUID format
+    const UUID_REGEX =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const isValid = uuidString ? UUID_REGEX.test(uuidString) : true;
+
     return cacheAndReturn(value, column, {
-      kind: GridCellKind.Text,
-      data: text,
-      displayData: text,
-      allowOverlay: false,
-      readonly: false,
-      themeOverride: {
-        baseFontStyle: "400 11px monospace",
+      kind: GridCellKind.Custom,
+      data: {
+        kind: "uuid-cell",
+        value: uuidString,
+        nullable: Boolean(column.meta?.nullable),
+        isValid,
       },
+      copyData: uuidString ?? "NULL",
+      allowOverlay: true,
+      readonly: false,
+    });
+  }
+
+  // Reference/FK cells - use custom reference editor with search
+  // Check if column has FK reference data (may be EnhancedColumnMeta)
+  const metaWithFk = column.meta as
+    | {
+        fk_reference?: {
+          referenced_schema: string;
+          referenced_table: string;
+          referenced_column: string;
+        };
+      }
+    | null
+    | undefined;
+  const fkRef = metaWithFk?.fk_reference;
+  if (column.meta?.is_fk && fkRef) {
+    const refValue = rawValue == null ? null : rawValue;
+
+    return cacheAndReturn(value, column, {
+      kind: GridCellKind.Custom,
+      data: {
+        kind: "reference-cell",
+        value: refValue as string | number | null,
+        nullable: column.meta.nullable,
+        fkReference: {
+          schema: fkRef.referenced_schema,
+          table: fkRef.referenced_table,
+          column: fkRef.referenced_column,
+        },
+      },
+      copyData: refValue ? String(refValue) : "NULL",
+      allowOverlay: true,
+      readonly: false,
+    });
+  }
+
+  // Single-line text cells (char, varchar, nvarchar, etc. with length < 200)
+  const textValue = rawValue == null ? null : String(rawValue);
+  const textLength = textValue ? textValue.length : 0;
+
+  if (
+    (dbType.includes("char") || dbType.includes("varying")) &&
+    textLength < 200
+  ) {
+    // Check for character_maximum_length (may be EnhancedColumnMeta)
+    const metaWithMaxLen = column.meta as
+      | { character_maximum_length?: number | null }
+      | null
+      | undefined;
+    const maxLength = metaWithMaxLen?.character_maximum_length;
+
+    return cacheAndReturn(value, column, {
+      kind: GridCellKind.Custom,
+      data: {
+        kind: "text-single-cell",
+        value: textValue,
+        nullable: column.meta ? column.meta.nullable : false,
+        maxLength: maxLength ?? undefined,
+      },
+      copyData: textValue ?? "NULL",
+      allowOverlay: true,
+      readonly: false,
+    });
+  }
+
+  // Multi-line text cells (text, longtext, mediumtext, ntext, clob, or long content)
+  if (dbType.includes("text") || dbType.includes("clob") || textLength >= 200) {
+    return cacheAndReturn(value, column, {
+      kind: GridCellKind.Custom,
+      data: {
+        kind: "text-multi-cell",
+        value: textValue,
+        nullable: column.meta ? column.meta.nullable : false,
+      },
+      copyData: textValue !== null ? textValue : "NULL",
+      allowOverlay: true,
+      readonly: false,
     });
   }
 

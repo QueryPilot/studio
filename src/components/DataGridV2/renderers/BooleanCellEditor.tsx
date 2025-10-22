@@ -121,7 +121,7 @@ export const BooleanCellEditor: React.FC<BooleanCellEditorProps> = ({
         <SelectTrigger className="h-full text-xs border-0 focus:ring-0 focus:ring-offset-0 bg-transparent w-full shadow-none">
           <SelectValue />
         </SelectTrigger>
-        <SelectContent className="min-w-[100px] click-outside-ignore z-[9999]">
+        <SelectContent className="min-w-[100px] click-outside-ignore z-50">
           <SelectItem value="null" className="text-xs">
             <span className="text-muted-foreground">NULL</span>
           </SelectItem>

@@ -53,8 +53,8 @@ const parseRange = (
   const inner = trimmed.substring(1, trimmed.length - 1);
   // naive split – timestamps won't contain top-level commas here
   const parts = inner.split(",");
-  const lower = (parts[0]?.trim() || null);
-  const upper = (parts[1]?.trim() || null);
+  const lower = parts[0]?.trim() || null;
+  const upper = parts[1]?.trim() || null;
   return { lower, upper, bounds: (lb + ub) as Bounds };
 };
 
@@ -102,7 +102,9 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
         readonly: value.readonly,
       };
       setOpenRange(false);
-      Promise.resolve().then(() => { onFinishedEditing(next); });
+      Promise.resolve().then(() => {
+        onFinishedEditing(next);
+      });
     },
     [bounds, onFinishedEditing, value],
   );
@@ -159,18 +161,20 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
   };
 
   // cycle helpers
-  const cycleLower = () =>
-    { setBounds((prev) =>
+  const cycleLower = () => {
+    setBounds((prev) =>
       prev[0] === "["
         ? (("(" + prev[1]) as Bounds)
         : (("[" + prev[1]) as Bounds),
-    ); };
-  const cycleUpper = () =>
-    { setBounds((prev) =>
+    );
+  };
+  const cycleUpper = () => {
+    setBounds((prev) =>
       prev[1] === "]"
         ? ((prev[0] + ")") as Bounds)
         : ((prev[0] + "]") as Bounds),
-    ); };
+    );
+  };
 
   return (
     <div className="w-full h-full flex items-center gap-2 px-2 click-outside-ignore">
@@ -191,7 +195,9 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
         placeholder="lower ISO"
         autoFocus
         value={lowerText}
-        onChange={(e) => { setLowerText(e.target.value); }}
+        onChange={(e) => {
+          setLowerText(e.target.value);
+        }}
         onKeyDown={handleKeyDown}
       />
 
@@ -202,7 +208,9 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
         className="h-[31px] w-[200px] bg-transparent text-xs leading-6 outline-none"
         placeholder="upper ISO"
         value={upperText}
-        onChange={(e) => { setUpperText(e.target.value); }}
+        onChange={(e) => {
+          setUpperText(e.target.value);
+        }}
         onKeyDown={handleKeyDown}
       />
 
@@ -221,9 +229,11 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
       <div className="ml-auto flex items-center gap-1">
         <Button
           variant="ghost"
-          className="h-6 w-6 p-0 z-[9999]"
+          className="h-6 w-6 p-0 z-50"
           title="Clear"
-          onClick={() => { commit(null, null, bounds); }}
+          onClick={() => {
+            commit(null, null, bounds);
+          }}
         >
           <ClearIcon className="h-3 w-3" />
         </Button>
@@ -232,7 +242,7 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
           <PopoverTrigger asChild>
             <Button
               variant="ghost"
-              className="h-6 w-6 p-0 z-[9999]"
+              className="h-6 w-6 p-0 z-50"
               title="Pick range"
             >
               <CalendarIcon className="h-3 w-3" />
@@ -241,7 +251,7 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
           <PopoverContent
             align="end"
             sideOffset={8}
-            className="p-2 rounded-xl click-outside-ignore z-[9999]"
+            className="p-2 rounded-xl click-outside-ignore z-50"
           >
             <div className="flex items-start gap-3">
               <Calendar
