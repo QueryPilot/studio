@@ -24,6 +24,7 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
       value,
       onChange,
       onExecute,
+      onEnter,
       language = "sql",
       dialect = "plsql",
       connectionId,
@@ -102,6 +103,7 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
           readOnly,
           lineNumbers,
           onExecute,
+          onEnter,
           connectionId,
           database,
           schema,
@@ -136,6 +138,7 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
       readOnly,
       lineNumbers,
       onExecute,
+      onEnter,
       connectionId,
       database,
       schema,
@@ -163,7 +166,10 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
     }, [value, autoFocus]);
 
     return (
-      <div className={`code-editor h-full flex flex-col ${className}`}>
+      <div
+        className={`code-editor h-full flex flex-col select-text ${className}`}
+        style={{ userSelect: "text" }}
+      >
         <CodeMirror
           value={value}
           onChange={onChange}
@@ -188,6 +194,7 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
             lineNumbers: false, // We handle this in extensions
             foldGutter: false,
             autocompletion: false, // Managed by extensions
+            defaultKeymap: false, // We add this manually in extensions
           }}
         />
       </div>
