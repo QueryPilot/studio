@@ -1,6 +1,7 @@
 import { type GridCellKind, type CustomCell } from "@glideapps/glide-data-grid";
 import type { CustomCellRenderer } from "../types";
 import { UuidCellEditorWithProps } from "./UuidCellEditor";
+import { truncateTextMiddleToWidth } from "../utils/textUtils";
 
 interface UuidCellData {
   kind: "uuid-cell";
@@ -68,16 +69,11 @@ const UuidCellRenderer: CustomCellRenderer<UuidCustomCell> = {
         ? theme.cellHorizontalPadding
         : 8;
 
-    // Truncate middle of UUID if needed: 123e4567-...-426614174000
-    let displayText = text;
-    if (value && text.length > 36) {
-      const maxChars = Math.floor((rect.width - padding * 2) / 7); // Approx char width
-      if (maxChars < text.length) {
-        const start = text.substring(0, Math.floor(maxChars / 2) - 2);
-        const end = text.substring(text.length - Math.floor(maxChars / 2) + 2);
-        displayText = `${start}...${end}`;
-      }
-    }
+    const availableWidth = rect.width - padding * 2;
+    const displayText =
+      availableWidth > 0
+        ? truncateTextMiddleToWidth(text, availableWidth, { ctx })
+        : text;
 
     const x = rect.x + padding;
     const centerY = rect.y + rect.height / 2;
