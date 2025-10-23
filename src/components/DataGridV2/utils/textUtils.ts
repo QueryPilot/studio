@@ -64,3 +64,94 @@ export const truncateTextToWidth = (
 
   return bestLength > 0 ? text.substring(0, bestLength) + ellipsis : ellipsis;
 };
+
+interface TruncateTextMiddleOptions {
+  ctx?: CanvasRenderingContext2D;
+  font?: string;
+}
+
+export const truncateTextMiddleToWidth = (
+  text: string,
+  maxWidth: number,
+  options?: TruncateTextMiddleOptions,
+): string => {
+  if (!text) return text;
+
+  const ellipsis = "...";
+  const measuringCtx = options?.ctx ?? getMeasurementContext();
+
+  if (!measuringCtx) {
+    const avgCharWidth = 7;
+    const maxChars = Math.floor(maxWidth / avgCharWidth);
+    if (text.length <= maxChars) return text;
+    if (maxChars <= ellipsis.length) return ellipsis;
+
+    const keep = maxChars - ellipsis.length;
+    const leftKeep = Math.ceil(keep / 2);
+    const rightKeep = Math.floor(keep / 2);
+    return (
+      text.substring(0, leftKeep) +
+      ellipsis +
+      text.substring(text.length - rightKeep)
+    );
+  }
+
+  const originalFont = measuringCtx.font;
+  if (options?.font) {
+    measuringCtx.font = options.font;
+  }
+
+  const restoreFont = () => {
+    if (options?.font) {
+      measuringCtx.font = originalFont;
+    }
+  };
+
+  try {
+    const ellipsisWidth = measuringCtx.measureText(ellipsis).width;
+    if (ellipsisWidth >= maxWidth) return ellipsis;
+
+    const textWidth = measuringCtx.measureText(text).width;
+    if (textWidth <= maxWidth) {
+      return text;
+    }
+
+    let left = 0;
+    let right = text.length;
+    let best = 0;
+
+    while (left <= right) {
+      const mid = Math.floor((left + right) / 2);
+      const leftCount = Math.ceil(mid / 2);
+      const rightCount = Math.floor(mid / 2);
+
+      const leftText = text.substring(0, leftCount);
+      const rightText =
+        rightCount > 0 ? text.substring(text.length - rightCount) : "";
+
+      const width =
+        measuringCtx.measureText(leftText).width +
+        ellipsisWidth +
+        measuringCtx.measureText(rightText).width;
+
+      if (width <= maxWidth) {
+        best = mid;
+        left = mid + 1;
+      } else {
+        right = mid - 1;
+      }
+    }
+
+    if (best === 0) return ellipsis;
+
+    const leftCount = Math.ceil(best / 2);
+    const rightCount = Math.floor(best / 2);
+    const leftText = text.substring(0, leftCount);
+    const rightText =
+      rightCount > 0 ? text.substring(text.length - rightCount) : "";
+
+    return leftText + ellipsis + rightText;
+  } finally {
+    restoreFont();
+  }
+};
