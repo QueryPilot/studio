@@ -7,7 +7,13 @@ import {
   highlightActiveLineGutter,
   highlightActiveLine,
 } from "@codemirror/view";
-import { defaultKeymap, indentWithTab } from "@codemirror/commands";
+import {
+  defaultKeymap,
+  indentWithTab,
+  history,
+  historyKeymap,
+  selectAll,
+} from "@codemirror/commands";
 import {
   sql,
   PLSQL,
@@ -343,6 +349,41 @@ export const createExecuteKeymap = (
   );
 };
 
+// Create Enter keymap for custom handlers
+export const createEnterKeymap = (onEnter?: () => boolean): Extension => {
+  if (!onEnter) return [];
+
+  return Prec.highest(
+    keymap.of([
+      {
+        key: "Enter",
+        run: () => {
+          return onEnter();
+        },
+      },
+      {
+        key: "Cmd-Enter",
+        mac: "Cmd-Enter",
+        run: () => {
+          return onEnter();
+        },
+      },
+      {
+        key: "Ctrl-Enter",
+        run: () => {
+          return onEnter();
+        },
+      },
+      {
+        key: "Shift-Enter",
+        run: () => {
+          return false; // Allow default behavior (insert newline)
+        },
+      },
+    ]),
+  );
+};
+
 // Create read-only keymap that blocks all editing commands
 const createReadOnlyKeymap = (): Extension => {
   // List of keys that should do nothing in read-only mode
@@ -376,6 +417,7 @@ export const getEditorExtensions = (
   readOnly = false,
   showLineNumbers = true,
   onExecute?: (query?: string) => void,
+  onEnter?: () => boolean,
   connectionId?: string,
   database?: string,
   schema?: string,
@@ -388,6 +430,9 @@ export const getEditorExtensions = (
 
     // Set indent unit for SQL
     indentUnit.of("  "),
+
+    // History (undo/redo)
+    history(),
 
     // Disable line wrapping - horizontal scroll instead
     // EditorView.lineWrapping, // Commented out to prevent wrapping
@@ -417,14 +462,17 @@ export const getEditorExtensions = (
     // Custom SQL folding for nested blocks
     sqlFoldService,
 
-    // Keymaps for search and folding (always enabled)
-    keymap.of([...searchKeymap, ...foldKeymap]),
+    // Keymaps for search, folding, and history (always enabled)
+    keymap.of([...searchKeymap, ...foldKeymap, ...historyKeymap]),
   ];
 
   // Add read-only keymap with highest precedence to block editing commands
   if (readOnly) {
     extensions.unshift(createReadOnlyKeymap());
   }
+
+  // Add select all shortcut (Cmd+A / Ctrl+A) - always enabled
+  extensions.push(keymap.of([{ key: "Mod-a", run: selectAll }]));
 
   // Add default keymap only when not read-only (allows editing commands)
   if (!readOnly) {
@@ -502,6 +550,11 @@ export const getEditorExtensions = (
     extensions.unshift(createExecuteKeymap(onExecute));
   }
 
+  // Add Enter keymap if handler provided
+  if (onEnter) {
+    extensions.unshift(createEnterKeymap(onEnter));
+  }
+
   // Add read-only extension if needed (but still allow selection)
   if (readOnly) {
     extensions.push(
@@ -516,6 +569,36 @@ export const getEditorExtensions = (
       ".cm-scroller": {
         fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
         fontSize: "12px",
+      },
+      ".cm-content": {
+        userSelect: "text !important",
+        WebkitUserSelect: "text !important",
+        MozUserSelect: "text !important",
+        msUserSelect: "text !important",
+      },
+      ".cm-line": {
+        userSelect: "text !important",
+        WebkitUserSelect: "text !important",
+        MozUserSelect: "text !important",
+        msUserSelect: "text !important",
+      },
+    }),
+  );
+
+  // Enable clipboard operations
+  extensions.push(
+    EditorView.domEventHandlers({
+      copy: (event, view) => {
+        // Let the browser handle copy natively
+        return false;
+      },
+      cut: (event, view) => {
+        // Let the browser handle cut natively
+        return false;
+      },
+      paste: (event, view) => {
+        // Let the browser handle paste natively
+        return false;
       },
     }),
   );

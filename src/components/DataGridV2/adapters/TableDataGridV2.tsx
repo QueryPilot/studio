@@ -1556,18 +1556,31 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   // Keyboard event handler for clipboard operations
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {
+      // Don't intercept keyboard events if user is in an input/textarea/editor
+      const target = e.target as HTMLElement;
+      const isInEditor =
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable ||
+        target.closest(".cm-content") || // CodeMirror editor
+        target.closest(".click-outside-ignore"); // Cell editors
+
       // Cmd/Ctrl + Shift + C for JSON copy
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "c") {
-        e.preventDefault();
-        if (gridSelection) {
-          await copySelection(gridSelection, "json");
+        if (!isInEditor) {
+          e.preventDefault();
+          if (gridSelection) {
+            await copySelection(gridSelection, "json");
+          }
         }
       }
       // Standard Cmd/Ctrl + C for regular copy
       else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === "c") {
-        e.preventDefault();
-        if (gridSelection) {
-          await copySelection(gridSelection, "text");
+        if (!isInEditor) {
+          e.preventDefault();
+          if (gridSelection) {
+            await copySelection(gridSelection, "text");
+          }
         }
       }
       // Cmd/Ctrl + Z for undo (table mode only)
@@ -1577,8 +1590,10 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         !e.shiftKey &&
         e.key === "z"
       ) {
-        e.preventDefault();
-        history.undo();
+        if (!isInEditor) {
+          e.preventDefault();
+          history.undo();
+        }
       }
       // Cmd/Ctrl + Shift + Z for redo (table mode only)
       else if (
@@ -1587,8 +1602,10 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         e.shiftKey &&
         e.key === "z"
       ) {
-        e.preventDefault();
-        history.redo();
+        if (!isInEditor) {
+          e.preventDefault();
+          history.redo();
+        }
       }
     };
 

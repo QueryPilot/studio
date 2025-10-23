@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import type { TextSingleLineCustomCell } from "./TextSingleLineCellRenderer";
 import { Button } from "@/components/ui/button";
-import { XIcon } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 interface TextSingleLineCellEditorProps {
@@ -99,14 +99,14 @@ export const TextSingleLineCellEditor: React.FC<
         )}
         placeholder={value.data.nullable ? "NULL" : ""}
       />
-      {!value.data.nullable && (
+      {value.data.nullable && (
         <Button
           variant="ghost"
           className="h-5 w-5 p-0 absolute right-2 top-1/2 -translate-y-1/2"
           onClick={handleClear}
           title="Clear (NULL)"
         >
-          <XIcon className="h-3 w-3" />
+          <Trash2 className="h-3 w-3" />
         </Button>
       )}
     </div>

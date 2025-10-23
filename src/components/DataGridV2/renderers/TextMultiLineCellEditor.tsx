@@ -1,8 +1,14 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
 import type { TextMultiLineCustomCell } from "./TextMultiLineCellRenderer";
 import { Button } from "@/components/ui/button";
-import { XIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { Trash2 } from "lucide-react";
 
 interface TextMultiLineCellEditorProps {
   value: TextMultiLineCustomCell;
@@ -19,27 +25,25 @@ export const TextMultiLineCellEditor: React.FC<
   const [text, setText] = useState<string>(initialValue);
   const finishedRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const linesCount = useMemo(() => {
+    return text.split("\n").length;
+  }, [text]);
+  const [size, setSize] = useState({
+    width: 400,
+    height: linesCount * 20 + 60,
+  });
 
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.focus();
       textareaRef.current.select();
-
-      // Auto-resize
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${Math.min(
-        textareaRef.current.scrollHeight,
-        400,
-      )}px`;
     }
   }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setText(e.target.value);
-
-    // Auto-resize
-    e.target.style.height = "auto";
-    e.target.style.height = `${Math.min(e.target.scrollHeight, 400)}px`;
   };
 
   const commit = useCallback(
@@ -71,7 +75,8 @@ export const TextMultiLineCellEditor: React.FC<
       e.stopPropagation();
       finishedRef.current = true;
       onFinishedEditing(undefined);
-    } else if (e.key === "Enter" && e.ctrlKey) {
+    } else if (e.key === "Enter" && !e.shiftKey) {
+      // Enter or Cmd/Ctrl+Enter saves, Shift+Enter adds newline
       e.preventDefault();
       e.stopPropagation();
       const trimmed = text.trim();
@@ -97,22 +102,83 @@ export const TextMultiLineCellEditor: React.FC<
     }
   };
 
+  // Resize handling
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    let isResizing = false;
+    let startX = 0;
+    let startY = 0;
+    let startWidth = 0;
+    let startHeight = 0;
+
+    const handleMouseDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.classList.contains("resize-handle")) {
+        isResizing = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        startWidth = container.offsetWidth;
+        startHeight = container.offsetHeight;
+        e.preventDefault();
+      }
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+
+      const deltaX = e.clientX - startX;
+      const deltaY = e.clientY - startY;
+
+      const newWidth = Math.max(400, Math.min(800, startWidth + deltaX));
+      const newHeight = Math.max(100, Math.min(600, startHeight + deltaY));
+
+      setSize({ width: newWidth, height: newHeight });
+    };
+
+    const handleMouseUp = () => {
+      isResizing = false;
+    };
+
+    container.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      container.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, []);
+
   return (
-    <div className="w-full h-full click-outside-ignore pt-2">
-      <textarea
-        ref={textareaRef}
-        value={text}
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        className={cn(
-          "flex-1 w-full text-xs font-mono bg-transparent resize-none outline-none p-2 pt-0",
-        )}
-        placeholder={value.data.nullable ? "NULL" : ""}
-      />
-      <div className="text-xs text-muted-foreground bg-background rounded-none p-1 px-2 mt-2 flex items-center justify-between">
-        <span className="font-bold">Ctrl</span>+
-        <span className="font-bold">Enter</span> to save,{" "}
-        <span className="font-bold">Esc</span> to cancel
+    <div
+      ref={containerRef}
+      className="flex flex-col bg-popover border border-border rounded-lg shadow-lg click-outside-ignore"
+      style={{
+        width: `${size.width}px`,
+        height: `${size.height}px`,
+        position: "relative",
+      }}
+    >
+      <div className="flex-1 overflow-hidden p-2">
+        <textarea
+          ref={textareaRef}
+          value={text}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          className={cn(
+            "w-full h-full text-xs font-mono bg-transparent resize-none outline-none",
+          )}
+          placeholder={value.data.nullable ? "NULL" : ""}
+        />
+      </div>
+
+      <div className="flex items-center justify-between text-xs text-muted-foreground px-2 py-1 shrink-0 sticky bottom-0 bg-popover">
+        <div className="flex-1">
+          Enter to save, Shift+Enter for new line, Esc to cancel
+        </div>
         {value.data.nullable && (
           <Button
             variant="ghost"
@@ -121,11 +187,21 @@ export const TextMultiLineCellEditor: React.FC<
             onClick={handleClear}
             title="Clear (NULL)"
           >
-            <XIcon className="h-3 w-3 mr-1" />
+            <Trash2 className="h-3 w-3 mr-1" />
             Clear
           </Button>
         )}
       </div>
+
+      {/* Resize handle */}
+      <div
+        className="resize-handle absolute bottom-0 right-0 w-4 h-4 cursor-se-resize"
+        style={{
+          background:
+            "linear-gradient(135deg, transparent 50%, currentColor 50%)",
+          opacity: 0.3,
+        }}
+      />
     </div>
   );
 };

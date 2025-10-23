@@ -6,6 +6,7 @@ export interface CodeEditorProps {
   value: string;
   onChange?: (value: string) => void;
   onExecute?: (query?: string) => void;
+  onEnter?: () => boolean; // Return true to prevent default behavior
   language?: CodeEditorLanguage;
   dialect?: SqlDialect;
   connectionId?: string;

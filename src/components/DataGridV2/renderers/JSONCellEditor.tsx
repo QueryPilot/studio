@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import type { JsonCustomCell } from "./JSONCellRenderer";
 import { CodeEditor } from "@/components/CodeEditor";
+import { Button } from "@/components/ui/button";
+import { Trash2 } from "lucide-react";
 
 interface JsonCellEditorProps {
   value: JsonCustomCell;
@@ -93,6 +95,18 @@ export const JsonCellEditor: React.FC<JsonCellEditorProps> = ({
     [onFinishedEditing, value, validateJson],
   );
 
+  const handleEnter = useCallback(() => {
+    if (finishedRef.current) return false;
+
+    const trimmed = text.trim();
+    if (!trimmed && value.data.nullable) {
+      commit(null);
+    } else if (isValid) {
+      commit(trimmed);
+    }
+    return true; // Prevent default
+  }, [text, value.data.nullable, isValid, commit]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (finishedRef.current) return;
@@ -102,15 +116,6 @@ export const JsonCellEditor: React.FC<JsonCellEditorProps> = ({
         e.stopPropagation();
         finishedRef.current = true;
         onFinishedEditing(undefined);
-      } else if (e.key === "Enter" && e.ctrlKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        const trimmed = text.trim();
-        if (!trimmed && value.data.nullable) {
-          commit(null);
-        } else if (isValid) {
-          commit(trimmed);
-        }
       }
     };
 
@@ -118,7 +123,7 @@ export const JsonCellEditor: React.FC<JsonCellEditorProps> = ({
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [text, value.data.nullable, isValid, commit, onFinishedEditing]);
+  }, [onFinishedEditing]);
 
   // Resize handling
   useEffect(() => {
@@ -184,6 +189,7 @@ export const JsonCellEditor: React.FC<JsonCellEditorProps> = ({
         <CodeEditor
           value={text}
           onChange={handleChange}
+          onEnter={handleEnter}
           language="json"
           autoFocus={true}
           lineNumbers={true}
@@ -197,9 +203,23 @@ export const JsonCellEditor: React.FC<JsonCellEditorProps> = ({
           {!isValid && errorMessage ? (
             <span className="text-destructive">{errorMessage}</span>
           ) : (
-            "Ctrl+Enter to commit, Esc to cancel"
+            "Enter to save, Shift+Enter for new line, Esc to cancel"
           )}
         </div>
+        {value.data.nullable && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs"
+            onClick={() => {
+              commit(null);
+            }}
+            title="Clear (NULL)"
+          >
+            <Trash2 className="h-3 w-3 mr-1" />
+            Clear
+          </Button>
+        )}
       </div>
 
       {/* Resize handle */}
