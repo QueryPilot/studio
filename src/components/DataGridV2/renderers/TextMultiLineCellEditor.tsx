@@ -1,10 +1,4 @@
-import React, {
-  useState,
-  useRef,
-  useEffect,
-  useCallback,
-  useMemo,
-} from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import type { TextMultiLineCustomCell } from "./TextMultiLineCellRenderer";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
@@ -27,12 +21,9 @@ export const TextMultiLineCellEditor: React.FC<
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const linesCount = useMemo(() => {
-    return text.split("\n").length;
-  }, [text]);
   const [size, setSize] = useState({
     width: 400,
-    height: linesCount * 20 + 60,
+    height: 100, // Start with minimum height
   });
 
   useEffect(() => {
@@ -40,6 +31,58 @@ export const TextMultiLineCellEditor: React.FC<
       textareaRef.current.focus();
       textareaRef.current.select();
     }
+  }, []);
+
+  // Auto-resize based on content
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    // Simple approach: just adjust height when text changes
+    const adjustHeight = () => {
+      // Reset height to auto to get the correct scrollHeight
+      textarea.style.height = "auto";
+      const scrollHeight = textarea.scrollHeight;
+      const newHeight = Math.max(100, Math.min(600, scrollHeight + 40)); // 40px for padding and footer
+
+      setSize((prev) => {
+        // Only update if height actually changed significantly
+        if (Math.abs(newHeight - prev.height) > 5) {
+          return { ...prev, height: newHeight };
+        }
+        return prev;
+      });
+
+      textarea.style.height = `${scrollHeight}px`;
+    };
+
+    // Use setTimeout to ensure this runs after the DOM has updated
+    const timeoutId = setTimeout(adjustHeight, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [text]);
+
+  // Handle container resize (for manual resizing)
+  useEffect(() => {
+    const container = containerRef.current;
+    const textarea = textareaRef.current;
+    if (!container || !textarea) return;
+
+    const handleResize = () => {
+      // When container is manually resized, adjust textarea height to fit content
+      textarea.style.height = "auto";
+      const scrollHeight = textarea.scrollHeight;
+      textarea.style.height = `${scrollHeight}px`;
+    };
+
+    const resizeObserver = new ResizeObserver(handleResize);
+    resizeObserver.observe(container);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
   }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -131,7 +174,7 @@ export const TextMultiLineCellEditor: React.FC<
       const deltaX = e.clientX - startX;
       const deltaY = e.clientY - startY;
 
-      const newWidth = Math.max(400, Math.min(800, startWidth + deltaX));
+      const newWidth = Math.max(300, Math.min(800, startWidth + deltaX));
       const newHeight = Math.max(100, Math.min(600, startHeight + deltaY));
 
       setSize({ width: newWidth, height: newHeight });
@@ -169,9 +212,13 @@ export const TextMultiLineCellEditor: React.FC<
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           className={cn(
-            "w-full h-full text-xs font-mono bg-transparent resize-none outline-none",
+            "w-full text-xs font-mono bg-transparent resize-none outline-none overflow-hidden",
           )}
           placeholder={value.data.nullable ? "NULL" : ""}
+          style={{
+            minHeight: "60px", // Ensure minimum usable height
+            maxHeight: "560px", // Leave space for footer (600px - 40px)
+          }}
         />
       </div>
 
