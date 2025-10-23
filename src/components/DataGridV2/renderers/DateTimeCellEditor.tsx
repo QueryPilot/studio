@@ -11,9 +11,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { PopoverAnchor } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Calendar } from "@/components/ui/calendar";
 import {
   Select,
   SelectContent,
@@ -21,7 +21,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Calendar as CalendarIcon, Trash2, Clock } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
+  Calendar as CalendarIcon,
+  Trash2,
+  Clock,
+  ChevronDown,
+  Save,
+} from "lucide-react";
 import { cn } from "@/lib/cn";
 import { type DateTimeCustomCell } from "./DateTimeCellRenderer";
 import dayjs from "dayjs";
@@ -33,23 +44,6 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 dayjs.extend(customParseFormat);
 
-// Common timezones for quick access
-const COMMON_TIMEZONES = [
-  "UTC",
-  "America/New_York",
-  "America/Chicago",
-  "America/Denver",
-  "America/Los_Angeles",
-  "Europe/London",
-  "Europe/Paris",
-  "Europe/Berlin",
-  "Asia/Tokyo",
-  "Asia/Shanghai",
-  "Asia/Hong_Kong",
-  "Asia/Singapore",
-  "Australia/Sydney",
-];
-
 const parseDateTime = (
   value: string | number | null | undefined,
   kind: "date-cell" | "time-cell" | "datetime-cell",
@@ -58,15 +52,15 @@ const parseDateTime = (
 
   const strValue = typeof value === "number" ? String(value) : value;
 
-  // Extract timezone if present (e.g., +05:30, -07:00, Z)
-  const tzMatch = strValue.match(/([+-]\d{2}:?\d{2}|Z)$/);
+  // Extract timezone if present (e.g., +05:30, +00:00, -07:00, Z)
+  const tzMatch = strValue.match(/([+-]\d{2}:\d{2}|Z)$/);
   const timezone = tzMatch ? tzMatch[1] : null;
 
   if (kind === "time-cell") {
     const timeMatch = strValue.match(
       /(\d{2}):(\d{2})(?::(\d{2}))?(?:\.(\d+))?/,
     );
-    if (timeMatch) {
+    if (timeMatch && timeMatch[1] && timeMatch[2]) {
       return {
         date: null,
         time: {
@@ -99,127 +93,40 @@ const parseDateTime = (
   };
 };
 
-// Custom Calendar with Shadcn Select for month/year
-interface CustomCalendarProps {
-  selected?: Date;
-  onSelect: (date: Date) => void;
+// Time Picker Component (following shadcn pattern)
+interface TimePickerProps {
+  hour: string;
+  minute: string;
+  second: string;
+  onHourChange: (hour: string) => void;
+  onMinuteChange: (minute: string) => void;
+  onSecondChange: (second: string) => void;
   className?: string;
 }
 
-const CustomCalendar: React.FC<CustomCalendarProps> = ({
-  selected,
-  onSelect,
+const TimePicker: React.FC<TimePickerProps> = ({
+  hour,
+  minute,
+  second,
+  onHourChange,
+  onMinuteChange,
+  onSecondChange,
   className,
 }) => {
-  const [month, setMonth] = useState(
-    selected?.getMonth() ?? new Date().getMonth(),
-  );
-  const [year, setYear] = useState(
-    selected?.getFullYear() ?? new Date().getFullYear(),
-  );
-
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const firstDayOfMonth = new Date(year, month, 1).getDay();
-
-  const handleDayClick = (day: number) => {
-    const date = new Date(year, month, day);
-    onSelect(date);
-  };
-
-  const monthNames = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-  ];
-
-  // Generate year options (current year ± 100 years)
-  const currentYear = new Date().getFullYear();
-  const yearOptions = Array.from(
-    { length: 201 },
-    (_, i) => currentYear - 100 + i,
-  );
-
   return (
-    <div className={cn("p-3", className)}>
-      <div className="flex items-center justify-center gap-2 mb-4">
-        <Select
-          value={month.toString()}
-          onValueChange={(v) => {
-            setMonth(Number(v));
-          }}
-        >
-          <SelectTrigger size="sm" className="w-[120px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {monthNames.map((name, idx) => (
-              <SelectItem key={idx} value={idx.toString()}>
-                {name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select
-          value={year.toString()}
-          onValueChange={(v) => {
-            setYear(Number(v));
-          }}
-        >
-          <SelectTrigger size="sm" className="w-[100px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {yearOptions.map((y) => (
-              <SelectItem key={y} value={y.toString()}>
-                {y}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="grid grid-cols-7 gap-1">
-        {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((day) => (
-          <div
-            key={day}
-            className="text-center text-xs font-medium text-muted-foreground p-2"
-          >
-            {day}
-          </div>
-        ))}
-        {Array.from({ length: firstDayOfMonth }).map((_, i) => (
-          <div key={`empty-${i}`} />
-        ))}
-        {Array.from({ length: daysInMonth }).map((_, i) => {
-          const day = i + 1;
-          const isSelected =
-            selected &&
-            selected.getDate() === day &&
-            selected.getMonth() === month &&
-            selected.getFullYear() === year;
-          return (
-            <Button
-              key={day}
-              variant={isSelected ? "default" : "ghost"}
-              size="icon"
-              className="h-8 w-8 p-0 text-xs"
-              onClick={() => {
-                handleDayClick(day);
-              }}
-            >
-              {day}
-            </Button>
-          );
-        })}
-      </div>
+    <div className={cn("flex items-center gap-2", className)}>
+      <Input
+        type="time"
+        step="1"
+        value={`${hour}:${minute}:${second}`}
+        onChange={(e) => {
+          const [h, m, s] = e.target.value.split(":");
+          if (h) onHourChange(h);
+          if (m) onMinuteChange(m);
+          if (s) onSecondChange(s);
+        }}
+        className="bg-background w-full"
+      />
     </div>
   );
 };
@@ -253,9 +160,10 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
     initialParsed.time?.millisecond ?? "",
   );
   const [selectedTimezone, setSelectedTimezone] = useState<string>(
-    initialParsed.timezone ?? "",
+    initialParsed.timezone ?? "none",
   );
   const [open, setOpen] = useState(false);
+  const [timeCollapsed, setTimeCollapsed] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -270,7 +178,7 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
     if (kind === "time-cell") {
       let result = `${hour}:${minute}:${second}`;
       if (millisecond) result += `.${millisecond}`;
-      if (selectedTimezone)
+      if (selectedTimezone && selectedTimezone !== "none")
         result += selectedTimezone === "Z" ? "Z" : selectedTimezone;
       return result;
     }
@@ -288,7 +196,7 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
     // datetime-cell
     let result = `${y}-${m}-${d} ${hour}:${minute}:${second}`;
     if (millisecond) result += `.${millisecond}`;
-    if (selectedTimezone)
+    if (selectedTimezone && selectedTimezone !== "none")
       result += selectedTimezone === "Z" ? "Z" : selectedTimezone;
     return result;
   }, [kind, selectedDate, hour, minute, second, millisecond, selectedTimezone]);
@@ -315,11 +223,6 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
     [onFinishedEditing, value],
   );
 
-  const handleSave = useCallback(() => {
-    const result = buildDateTimeString();
-    commit(result);
-  }, [buildDateTimeString, commit]);
-
   const handleCancel = useCallback(() => {
     if (finishedRef.current) return;
     finishedRef.current = true;
@@ -327,16 +230,46 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
     onFinishedEditing(undefined);
   }, [onFinishedEditing]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleSetNow = useCallback(() => {
+    const now = new Date();
+    if (kind !== "time-cell") {
+      setSelectedDate(now);
+    }
+    setHour(String(now.getHours()).padStart(2, "0"));
+    setMinute(String(now.getMinutes()).padStart(2, "0"));
+    setSecond(String(now.getSeconds()).padStart(2, "0"));
+    setMillisecond(String(now.getMilliseconds()).padStart(3, "0"));
+    setTimeCollapsed(true);
+  }, [kind]);
+
+  const handleSetToday = useCallback(() => {
+    const today = new Date();
+    setSelectedDate(today);
+  }, []);
+
+  const handleSave = useCallback(() => {
+    const result = buildDateTimeString();
+    commit(result);
+  }, [buildDateTimeString, commit]);
+
+  const [manualText, setManualText] = useState<string>(raw ?? "");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (finishedRef.current) return;
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
       handleCancel();
-    } else if (e.key === "Enter" && !e.shiftKey) {
+    } else if (e.key === "Enter") {
       e.preventDefault();
       e.stopPropagation();
-      handleSave();
+      const trimmed = manualText.trim();
+      if (!trimmed && nullable) {
+        commit(null);
+      } else {
+        commit(trimmed);
+      }
     } else if (e.key === "Tab") {
       e.preventDefault();
       e.stopPropagation();
@@ -349,183 +282,282 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
     }
   };
 
+  // Sync manual text with picker selections
+  useEffect(() => {
+    const built = buildDateTimeString();
+    if (built !== null) {
+      setManualText(built);
+    }
+  }, [buildDateTimeString]);
+
   return (
-    <div
-      className="w-full h-full flex items-center gap-1 px-2 click-outside-ignore relative"
-      onKeyDown={handleKeyDown}
-    >
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverAnchor asChild>
-          <div className="flex items-center gap-1 flex-1">
-            <span className="text-xs text-muted-foreground">
-              {buildDateTimeString() ?? "NULL"}
-            </span>
-          </div>
-        </PopoverAnchor>
-        <PopoverTrigger asChild>
+    <div className="w-full h-full flex items-center gap-1 px-2 click-outside-ignore relative justify-between">
+      <input
+        ref={inputRef}
+        className={cn(
+          "h-[31px] w-[200px] bg-transparent z-50 text-xs leading-6 outline-none flex-1 min-w-0",
+          !manualText ? "italic text-muted-foreground" : "",
+        )}
+        placeholder={
+          kind === "date-cell"
+            ? "YYYY-MM-DD"
+            : kind === "time-cell"
+            ? "HH:mm[:ss]"
+            : "YYYY-MM-DD HH:mm[:ss]"
+        }
+        autoFocus
+        value={manualText}
+        onChange={(e) => {
+          setManualText(e.target.value);
+          // Try to parse and update picker state
+          const parsed = parseDateTime(e.target.value, kind);
+          if (parsed.date) setSelectedDate(parsed.date);
+          if (parsed.time) {
+            if (parsed.time.hour) setHour(parsed.time.hour);
+            if (parsed.time.minute) setMinute(parsed.time.minute);
+            if (parsed.time.second) setSecond(parsed.time.second);
+            if (parsed.time.millisecond)
+              setMillisecond(parsed.time.millisecond);
+          }
+          if (parsed.timezone) {
+            setSelectedTimezone(parsed.timezone);
+          } else {
+            setSelectedTimezone("none");
+          }
+        }}
+        onKeyDown={handleInputKeyDown}
+      />
+      <div className="flex items-center gap-0">
+        {nullable && (
           <Button
             variant="ghost"
             className="h-6 w-6 p-0 z-50"
-            title={kind === "time-cell" ? "Pick time" : "Pick date/time"}
+            title="Clear"
+            onClick={() => {
+              commit(null);
+            }}
           >
-            {kind === "time-cell" ? (
-              <Clock className="h-3 w-3" />
-            ) : (
-              <CalendarIcon className="h-3 w-3" />
-            )}
+            <Trash2 className="h-3 w-3" />
           </Button>
-        </PopoverTrigger>
-        <PopoverContent
-          align="end"
-          sideOffset={12}
-          className="w-auto rounded-xl click-outside-ignore z-50 p-4"
-        >
-          <div className="flex flex-col gap-4">
-            {/* Calendar for date/datetime */}
-            {kind !== "time-cell" && (
-              <CustomCalendar
-                selected={selectedDate ?? undefined}
-                onSelect={setSelectedDate}
-              />
-            )}
-
-            {/* Time picker for time/datetime */}
-            {kind !== "date-cell" && (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="text"
-                    placeholder="HH"
-                    value={hour}
-                    onChange={(e) => {
-                      const val = e.target.value.replace(/\D/g, "").slice(0, 2);
-                      if (val === "") {
-                        setHour("00");
-                      } else if (Number(val) >= 0 && Number(val) <= 23) {
-                        setHour(val);
-                      }
-                    }}
-                    onBlur={(e) => {
-                      const val = e.target.value.replace(/\D/g, "");
-                      if (val && Number(val) >= 0 && Number(val) <= 23) {
-                        setHour(val.padStart(2, "0"));
-                      }
-                    }}
-                    className="w-14 text-center"
-                  />
-                  <span>:</span>
-                  <Input
-                    type="text"
-                    placeholder="MM"
-                    value={minute}
-                    onChange={(e) => {
-                      const val = e.target.value.replace(/\D/g, "").slice(0, 2);
-                      if (val === "") {
-                        setMinute("00");
-                      } else if (Number(val) >= 0 && Number(val) <= 59) {
-                        setMinute(val);
-                      }
-                    }}
-                    onBlur={(e) => {
-                      const val = e.target.value.replace(/\D/g, "");
-                      if (val && Number(val) >= 0 && Number(val) <= 59) {
-                        setMinute(val.padStart(2, "0"));
-                      }
-                    }}
-                    className="w-14 text-center"
-                  />
-                  <span>:</span>
-                  <Input
-                    type="text"
-                    placeholder="SS"
-                    value={second}
-                    onChange={(e) => {
-                      const val = e.target.value.replace(/\D/g, "").slice(0, 2);
-                      if (val === "") {
-                        setSecond("00");
-                      } else if (Number(val) >= 0 && Number(val) <= 59) {
-                        setSecond(val);
-                      }
-                    }}
-                    onBlur={(e) => {
-                      const val = e.target.value.replace(/\D/g, "");
-                      if (val && Number(val) >= 0 && Number(val) <= 59) {
-                        setSecond(val.padStart(2, "0"));
-                      }
-                    }}
-                    className="w-14 text-center"
-                  />
-                  <span className="text-muted-foreground">.</span>
-                  <Input
-                    type="text"
-                    placeholder="000"
-                    value={millisecond}
-                    onChange={(e) => {
-                      const val = e.target.value.replace(/\D/g, "").slice(0, 3);
-                      setMillisecond(val);
-                    }}
-                    className="w-16 text-center"
-                  />
-                </div>
-
-                {/* Timezone selector */}
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">
-                    Timezone:
-                  </span>
-                  <Select
-                    value={selectedTimezone}
-                    onValueChange={setSelectedTimezone}
-                  >
-                    <SelectTrigger size="sm" className="w-[180px]">
-                      <SelectValue placeholder="No timezone" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">None</SelectItem>
-                      <SelectItem value="Z">UTC (Z)</SelectItem>
-                      {COMMON_TIMEZONES.filter((tz) => tz !== "UTC").map(
-                        (tz) => {
-                          const offset = dayjs().tz(tz).format("Z");
-                          return (
-                            <SelectItem key={tz} value={offset}>
-                              {tz} ({offset})
-                            </SelectItem>
-                          );
-                        },
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            )}
-
-            {/* Action buttons */}
-            <div className="flex items-center justify-between gap-2 pt-2 border-t">
-              {nullable && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    commit(null);
-                  }}
-                  className="gap-1"
-                >
-                  <Trash2 className="h-3 w-3" />
-                  Clear
-                </Button>
+        )}
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              className="h-6 w-6 p-0 z-50"
+              title={kind === "time-cell" ? "Pick time" : "Pick date/time"}
+            >
+              {kind === "time-cell" ? (
+                <Clock className="h-3 w-3" />
+              ) : (
+                <CalendarIcon className="h-3 w-3" />
               )}
-              <div className="flex gap-2 ml-auto">
-                <Button variant="ghost" size="sm" onClick={handleCancel}>
-                  Cancel
-                </Button>
-                <Button size="sm" onClick={handleSave}>
-                  Save
-                </Button>
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            sideOffset={12}
+            className="w-auto rounded-xl click-outside-ignore p-0 z-[100]"
+            onOpenAutoFocus={(e) => {
+              e.preventDefault();
+            }}
+            onInteractOutside={(e) => {
+              // Prevent closing when clicking on Select dropdown
+              const target = e.target as HTMLElement;
+              const isSelectContent =
+                target.closest('[role="listbox"]') ||
+                target.closest("[data-radix-select-content]") ||
+                target.closest("[data-radix-select-viewport]") ||
+                target.closest('[data-slot="select-content"]') ||
+                target.hasAttribute("data-radix-select-item") ||
+                target.closest("[data-radix-popper-content-wrapper]");
+
+              if (isSelectContent) {
+                e.preventDefault();
+              }
+            }}
+          >
+            <div className="flex flex-col gap-2 p-3">
+              {/* Quick action buttons */}
+              <div className="flex items-center gap-2 pb-2 border-b">
+                {kind !== "time-cell" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs flex-1"
+                    onClick={handleSetToday}
+                  >
+                    Today
+                  </Button>
+                )}
+                {kind !== "date-cell" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs flex-1"
+                    onClick={handleSetNow}
+                  >
+                    <Clock className="h-3 w-3 mr-1" />
+                    Now
+                  </Button>
+                )}
+                <div className="flex gap-2 ml-auto">
+                  <Button
+                    title="Save"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSave}
+                    className="h-7 py-0 text-xs"
+                  >
+                    <Save className="h-3 w-3" />
+                  </Button>
+                </div>
               </div>
+
+              {/* Calendar for date/datetime */}
+              {kind !== "time-cell" && (
+                <Calendar
+                  mode="single"
+                  selected={selectedDate ?? undefined}
+                  onSelect={(date) => {
+                    if (date) setSelectedDate(date);
+                  }}
+                  captionLayout="dropdown"
+                  className="border-0 p-0"
+                  startMonth={new Date(1900, 0)}
+                  endMonth={new Date(2100, 0)}
+                  defaultMonth={selectedDate ?? new Date()}
+                />
+              )}
+
+              {/* Time picker for time/datetime - Collapsible */}
+              {kind !== "date-cell" && (
+                <Collapsible
+                  open={timeCollapsed}
+                  onOpenChange={setTimeCollapsed}
+                  className="border-t pt-2"
+                >
+                  <CollapsibleTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full justify-between h-8 px-2"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-3.5 w-3.5" />
+                        <span className="text-xs font-medium">
+                          Time & Timezone
+                        </span>
+                      </div>
+                      <ChevronDown
+                        className={cn(
+                          "h-4 w-4 transition-transform",
+                          !timeCollapsed && "rotate-0",
+                          timeCollapsed && "rotate-180",
+                        )}
+                      />
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="space-y-3 pt-3">
+                    {/* Time and Milliseconds on same row */}
+                    <div className="space-y-2">
+                      <span className="text-xs font-medium">Time</span>
+                      <div className="flex items-center gap-1 w-full">
+                        <div className="flex-1 w-full flex items-center gap-1 overflow-hidden">
+                          <TimePicker
+                            className="w-full"
+                            hour={hour}
+                            minute={minute}
+                            second={second}
+                            onHourChange={setHour}
+                            onMinuteChange={setMinute}
+                            onSecondChange={setSecond}
+                          />
+                          <span className="text-muted-foreground">.</span>
+                        </div>
+
+                        <Input
+                          type="text"
+                          placeholder="000"
+                          value={millisecond}
+                          onChange={(e) => {
+                            const val = e.target.value
+                              .replace(/\D/g, "")
+                              .slice(0, 3);
+                            setMillisecond(val);
+                          }}
+                          className="bg-background w-20"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Timezone selector */}
+                    <div className="flex flex-col gap-2">
+                      <span className="text-xs font-medium">Timezone</span>
+                      <Select
+                        value={selectedTimezone}
+                        onValueChange={setSelectedTimezone}
+                      >
+                        <SelectTrigger
+                          size="sm"
+                          className="bg-background w-full"
+                        >
+                          <SelectValue placeholder="No timezone" />
+                        </SelectTrigger>
+                        <SelectContent
+                          className="click-outside-ignore z-[110] max-h-64"
+                          sideOffset={4}
+                        >
+                          <SelectItem value="Z">UTC (Z)</SelectItem>
+                          <SelectItem value="+00:00">+00:00</SelectItem>
+                          <SelectItem value="+01:00">+01:00</SelectItem>
+                          <SelectItem value="+02:00">+02:00</SelectItem>
+                          <SelectItem value="+03:00">+03:00</SelectItem>
+                          <SelectItem value="+03:30">+03:30</SelectItem>
+                          <SelectItem value="+04:00">+04:00</SelectItem>
+                          <SelectItem value="+04:30">+04:30</SelectItem>
+                          <SelectItem value="+05:00">+05:00</SelectItem>
+                          <SelectItem value="+05:30">+05:30</SelectItem>
+                          <SelectItem value="+05:45">+05:45</SelectItem>
+                          <SelectItem value="+06:00">+06:00</SelectItem>
+                          <SelectItem value="+06:30">+06:30</SelectItem>
+                          <SelectItem value="+07:00">+07:00</SelectItem>
+                          <SelectItem value="+08:00">+08:00</SelectItem>
+                          <SelectItem value="+08:30">+08:30</SelectItem>
+                          <SelectItem value="+08:45">+08:45</SelectItem>
+                          <SelectItem value="+09:00">+09:00</SelectItem>
+                          <SelectItem value="+09:30">+09:30</SelectItem>
+                          <SelectItem value="+10:00">+10:00</SelectItem>
+                          <SelectItem value="+10:30">+10:30</SelectItem>
+                          <SelectItem value="+11:00">+11:00</SelectItem>
+                          <SelectItem value="+12:00">+12:00</SelectItem>
+                          <SelectItem value="+12:45">+12:45</SelectItem>
+                          <SelectItem value="+13:00">+13:00</SelectItem>
+                          <SelectItem value="+14:00">+14:00</SelectItem>
+                          <SelectItem value="-01:00">-01:00</SelectItem>
+                          <SelectItem value="-02:00">-02:00</SelectItem>
+                          <SelectItem value="-03:00">-03:00</SelectItem>
+                          <SelectItem value="-03:30">-03:30</SelectItem>
+                          <SelectItem value="-04:00">-04:00</SelectItem>
+                          <SelectItem value="-05:00">-05:00</SelectItem>
+                          <SelectItem value="-06:00">-06:00</SelectItem>
+                          <SelectItem value="-07:00">-07:00</SelectItem>
+                          <SelectItem value="-08:00">-08:00</SelectItem>
+                          <SelectItem value="-09:00">-09:00</SelectItem>
+                          <SelectItem value="-09:30">-09:30</SelectItem>
+                          <SelectItem value="-10:00">-10:00</SelectItem>
+                          <SelectItem value="-11:00">-11:00</SelectItem>
+                          <SelectItem value="-12:00">-12:00</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
             </div>
-          </div>
-        </PopoverContent>
-      </Popover>
+          </PopoverContent>
+        </Popover>
+      </div>
     </div>
   );
 };

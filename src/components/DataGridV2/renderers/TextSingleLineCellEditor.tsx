@@ -94,8 +94,9 @@ export const TextSingleLineCellEditor: React.FC<
         onKeyDown={handleKeyDown}
         maxLength={value.data.maxLength}
         className={cn(
-          "h-8 w-full bg-transparent py-1 px-2 text-xs outline-none pr-8",
+          "h-8 w-full bg-transparent py-1 px-2 text-xs outline-none",
           !value.data.value ? "italic text-muted-foreground" : "",
+          { "pr-8": value.data.nullable },
         )}
         placeholder={value.data.nullable ? "NULL" : ""}
       />
