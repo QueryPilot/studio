@@ -1,0 +1,233 @@
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import {
+  v1 as uuidv1,
+  v3 as uuidv3,
+  v4 as uuidv4,
+  v5 as uuidv5,
+  v6 as uuidv6,
+  v7 as uuidv7,
+} from "uuid";
+import type { UuidCustomCell } from "./types";
+import { isValidUuid } from "./utils";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { XIcon, RefreshCcw } from "lucide-react";
+import { cn } from "@/lib/cn";
+
+interface UuidCellEditorProps {
+  value: UuidCustomCell;
+  onFinishedEditing: (
+    newValue?: UuidCustomCell,
+    movement?: readonly [-1 | 0 | 1, -1 | 0 | 1],
+  ) => void;
+}
+
+type UuidVersion = "1" | "3" | "4" | "5" | "6" | "7";
+
+interface UuidVersionOption {
+  value: UuidVersion;
+  label: string;
+}
+
+const UUID_VERSIONS: UuidVersionOption[] = [
+  { value: "4", label: "v4" },
+  { value: "5", label: "v5" },
+  { value: "6", label: "v6" },
+  { value: "7", label: "v7" },
+  { value: "3", label: "v3" },
+  { value: "1", label: "v1" },
+];
+
+export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
+  value,
+  onFinishedEditing,
+}) => {
+  const initialValue = value.data.value || "";
+  const [text, setText] = useState<string>(initialValue);
+  const [selectedVersion, setSelectedVersion] = useState<UuidVersion>("4");
+  const [isValid, setIsValid] = useState<boolean>(
+    !initialValue || isValidUuid(initialValue),
+  );
+  const finishedRef = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, []);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newText = e.target.value;
+    setText(newText);
+    setIsValid(!newText || isValidUuid(newText));
+  };
+
+  const generateUuid = (version?: UuidVersion) => {
+    const versionToUse = version || selectedVersion;
+    let newUuid: string;
+
+    switch (versionToUse) {
+      case "1":
+        newUuid = uuidv1();
+        break;
+      case "3":
+        // v3 requires namespace and name - using DNS namespace with timestamp-based name
+        newUuid = uuidv3(`debdb-uuid-${Date.now()}`, uuidv3.DNS);
+        break;
+      case "6":
+        newUuid = uuidv6();
+        break;
+      case "7":
+        newUuid = uuidv7();
+        break;
+      case "5":
+        // v5 requires namespace and name - using DNS namespace with timestamp-based name
+        newUuid = uuidv5(`debdb-uuid-${Date.now()}`, uuidv5.DNS);
+        break;
+      case "4":
+      default:
+        newUuid = uuidv4();
+        break;
+    }
+
+    setText(newUuid);
+    setIsValid(true);
+    setSelectedVersion(versionToUse);
+  };
+
+  const commit = useCallback(
+    (nextValue: string | null) => {
+      if (finishedRef.current) return;
+      finishedRef.current = true;
+
+      const newCell: UuidCustomCell = {
+        kind: value.kind,
+        data: {
+          ...value.data,
+          value: nextValue,
+          isValid: nextValue ? isValidUuid(nextValue) : true,
+        },
+        copyData: nextValue ?? "NULL",
+        allowOverlay: value.allowOverlay,
+        readonly: value.readonly,
+      };
+
+      onFinishedEditing(newCell);
+    },
+    [onFinishedEditing, value],
+  );
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (finishedRef.current) return;
+
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      finishedRef.current = true;
+      onFinishedEditing(undefined);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+      const trimmed = text.trim();
+      if (!trimmed && value.data.nullable) {
+        commit(null);
+      } else if (isValid) {
+        commit(trimmed);
+      }
+    } else if (e.key === "Tab") {
+      e.preventDefault();
+      e.stopPropagation();
+      const movement: readonly [-1 | 0 | 1, -1 | 0 | 1] = e.shiftKey
+        ? [-1, 0]
+        : [1, 0];
+      finishedRef.current = true;
+      onFinishedEditing(value, movement);
+    }
+  };
+
+  const handleClear = () => {
+    if (value.data.nullable) {
+      commit(null);
+    }
+  };
+
+  return (
+    <div
+      className={cn(
+        "w-full h-7 flex items-center gap-1 pl-2 click-outside-ignore",
+        {
+          "min-w-[330px]": value.data.nullable,
+          "min-w-[310px]": !value.data.nullable,
+        },
+      )}
+    >
+      <input
+        ref={inputRef}
+        type="text"
+        value={text}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        className={cn(
+          "flex-1 h-full bg-transparent text-xs font-mono outline-none",
+          !isValid ? "text-destructive" : "",
+          !value.data.value ? "italic text-muted-foreground" : "",
+        )}
+        placeholder={
+          value.data.nullable ? "NULL" : "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        }
+      />
+      <div className="flex items-center gap-0">
+        {value.data.nullable && (
+          <Button
+            variant="ghost"
+            className="h-6 w-6 p-0"
+            onClick={handleClear}
+            title="Clear (NULL)"
+          >
+            <XIcon className="h-3 w-3" />
+          </Button>
+        )}
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              className="h-6 px-2 text-[11px] font-mono gap-1 hover:bg-muted"
+              title={`Generate UUID v${selectedVersion}`}
+            >
+              <RefreshCcw className="h-3 w-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            className="w-auto click-outside-ignore z-50"
+            align="end"
+          >
+            {UUID_VERSIONS.map((version) => (
+              <DropdownMenuItem
+                key={version.value}
+                className="text-xs font-mono"
+                onClick={() => {
+                  generateUuid(version.value);
+                }}
+              >
+                Generate v{version.value}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </div>
+  );
+};
+
+export const UuidCellEditorWithProps = Object.assign(UuidCellEditor, {
+  disablePadding: true,
+  disableStyling: false,
+});

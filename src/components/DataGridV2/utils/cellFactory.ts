@@ -1,9 +1,35 @@
 import { GridCellKind, type GridCell } from "@glideapps/glide-data-grid";
 import type { CellValue } from "@/types/cellValue";
 import type { GridColumnV2 } from "../types";
+import { computeArrayStringsFromRaw } from "../utils/arrayFormat";
+import { coerceToHstoreString } from "../renderers/HStoreCell/hstoreFormat";
 
 // Cache for memoizing cell creation
 const cellCache = new WeakMap<CellValue, Map<string, GridCell>>();
+
+const NUMERIC_TYPE_TOKENS = new Set([
+  "number",
+  "numeric",
+  "decimal",
+  "dec",
+  "float",
+  "float4",
+  "float8",
+  "double",
+  "real",
+  "int",
+  "int2",
+  "int4",
+  "int8",
+  "integer",
+  "bigint",
+  "smallint",
+  "tinyint",
+  "mediumint",
+  "serial",
+  "bigserial",
+  "smallserial",
+]);
 
 /**
  * Helper to cache cell results
@@ -45,6 +71,16 @@ export function buildGridCellV2(opts: {
 
   const rawValue = value?.value;
   const dbType = column.meta?.db_type.toLowerCase() || "";
+  const normalizedDbType = dbType.replace(/[(),]/g, " ");
+  const dbTypeTokens = normalizedDbType
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+  const isNumericDbType = dbTypeTokens.some((token) =>
+    NUMERIC_TYPE_TOKENS.has(token),
+  );
+  const isArrayDbType =
+    dbType.includes("array") || dbType.startsWith("_") || dbType.endsWith("[]");
 
   // Enum cells - use custom cell to support enum values
   if (column.meta?.enum_values && column.meta.enum_values.length > 0) {
@@ -134,36 +170,33 @@ export function buildGridCellV2(opts: {
     });
   }
 
-  // Number cells
+  // Number cells - preserve precision by round-tripping as strings
   if (
-    dbType.includes("int") ||
-    dbType.includes("numeric") ||
-    dbType.includes("decimal") ||
-    dbType.includes("float") ||
-    dbType.includes("double") ||
-    dbType.includes("real") ||
-    typeof rawValue === "number"
+    isNumericDbType ||
+    typeof rawValue === "number" ||
+    typeof rawValue === "bigint"
   ) {
-    if (rawValue == null) {
-      return cacheAndReturn(value, column, {
-        kind: GridCellKind.Text,
-        data: "NULL",
-        displayData: "NULL",
-        allowOverlay: false,
-        readonly: false,
-        contentAlign: "right",
-        themeOverride: {
-          textDark: "rgba(127,127,127,0.7)",
-          baseFontStyle: "italic 12px",
-        },
-      });
-    }
-    const num = typeof rawValue === "number" ? rawValue : Number(rawValue);
+    const numericString =
+      rawValue === null || rawValue === undefined
+        ? null
+        : typeof rawValue === "bigint"
+        ? rawValue.toString()
+        : typeof rawValue === "number"
+        ? Number.isFinite(rawValue)
+          ? rawValue.toString()
+          : String(rawValue)
+        : String(rawValue);
+
     return cacheAndReturn(value, column, {
-      kind: GridCellKind.Number,
-      data: isNaN(num) ? 0 : num,
-      displayData: String(rawValue),
-      allowOverlay: false,
+      kind: GridCellKind.Custom,
+      data: {
+        kind: "number-cell",
+        value: numericString,
+        nullable: Boolean(column.meta?.nullable),
+        dbType,
+      },
+      copyData: numericString ?? "NULL",
+      allowOverlay: true,
       readonly: false,
       contentAlign: "right",
     });
@@ -210,39 +243,44 @@ export function buildGridCellV2(opts: {
     });
   }
 
-  // Array cells - render as formatted text (keeping existing behavior for arrays)
-  if (dbType.includes("array") || Array.isArray(rawValue)) {
-    // Guard against undefined/null before attempting JSON.stringify
-    if (rawValue == null) {
-      return cacheAndReturn(value, column, {
-        kind: GridCellKind.Text,
-        data: "NULL",
-        displayData: "NULL",
-        allowOverlay: false,
-        readonly: false,
-        contentAlign: "left",
-        themeOverride: {
-          textDark: "rgba(127,127,127,0.7)",
-          baseFontStyle: "italic 12px",
-        },
-      });
-    }
+  if (dbType.includes("hstore")) {
+    const hstoreString = coerceToHstoreString(rawValue);
 
-    let text: string;
-    try {
-      text =
-        typeof rawValue === "string"
-          ? rawValue
-          : JSON.stringify(rawValue, null, 2);
-    } catch {
-      text = String(rawValue);
-    }
     return cacheAndReturn(value, column, {
-      kind: GridCellKind.Text,
-      data: text,
-      displayData: text.length > 50 ? text.substring(0, 47) + "..." : text,
+      kind: GridCellKind.Custom,
+      data: {
+        kind: "hstore-cell",
+        value: hstoreString,
+        nullable: Boolean(column.meta?.nullable),
+      },
+      copyData: hstoreString ?? "NULL",
       allowOverlay: true,
       readonly: false,
+      contentAlign: "left",
+      themeOverride: {
+        baseFontStyle: "400 11px monospace",
+      },
+    });
+  }
+
+  // Array cells - inline display with formatted editor
+  if (isArrayDbType || Array.isArray(rawValue)) {
+    const { pretty, inline } = computeArrayStringsFromRaw(rawValue);
+
+    return cacheAndReturn(value, column, {
+      kind: GridCellKind.Custom,
+      data: {
+        kind: "text-multi-cell",
+        value: pretty,
+        displayValue: inline,
+        nullable: Boolean(column.meta?.nullable),
+        showLineBadge: false,
+        formatDisplayMode: "array-inline",
+      },
+      copyData: inline ?? "NULL",
+      allowOverlay: true,
+      readonly: false,
+      contentAlign: "left",
       themeOverride: {
         baseFontStyle: "400 11px monospace",
       },
