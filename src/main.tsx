@@ -7,7 +7,14 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./lib/react-query-client";
 import { enableMapSet } from "immer";
 import { StrictMode } from "react";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
+import customParseFormat from "dayjs/plugin/customParseFormat";
 
+dayjs.extend(utc);
+dayjs.extend(timezone);
+dayjs.extend(customParseFormat);
 enableMapSet();
 
 // Suppress external script errors in development

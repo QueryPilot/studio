@@ -7,6 +7,7 @@ import {
   type DbType,
 } from "./backend";
 import { streamingTableService } from "./streamingTableService";
+import { QueryStreamClient } from "./queryStreamClient";
 import type { QueryResult } from "@/types/database";
 import type {
   TableStructure,
@@ -278,6 +279,63 @@ class DatabaseService {
       clearPrewarmCache(connectionId);
     } catch (error) {
       console.error("Failed to disconnect from database:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update the active schema/search path for the current connection.
+   * Currently only implemented for PostgreSQL.
+   */
+  async switchSchema(connectionId: string, schema: string): Promise<void> {
+    if (!connectionId) {
+      throw new Error("Connection ID is required to switch schemas");
+    }
+    if (!schema) {
+      return;
+    }
+
+    if (!isTauri()) {
+      return;
+    }
+
+    // Ensure the connection exists before executing search_path changes
+    if (!this.isConnectionActive(connectionId)) {
+      await this.connectById(connectionId);
+    }
+
+    const stored = await vaultStorage.getConnection(connectionId);
+    const dbType = stored?.profile.db_type ?? "PostgreSQL";
+
+    if (stored && dbType !== "PostgreSQL") {
+      console.warn(
+        `[DatabaseService] Schema switching not implemented for ${dbType}`,
+      );
+      return;
+    }
+
+    const quotedSchema = this.quoteIdentifier(schema);
+    const sql =
+      schema.toLowerCase() === "public"
+        ? `SET search_path TO ${quotedSchema}`
+        : `SET search_path TO ${quotedSchema}, public`;
+
+    const client = new QueryStreamClient();
+
+    try {
+      await client.streamWithCallbacks(
+        {
+          connId: connectionId,
+          sql,
+          batchSize: 1,
+        },
+        {},
+      );
+    } catch (error) {
+      console.error(
+        `[DatabaseService] Failed to switch schema to ${schema} for connection ${connectionId}:`,
+        error,
+      );
       throw error;
     }
   }
@@ -1553,6 +1611,10 @@ class DatabaseService {
     await Promise.all(promises);
 
     this.activeConnections.clear();
+  }
+
+  private quoteIdentifier(identifier: string): string {
+    return `"${identifier.replace(/"/g, '""')}"`;
   }
 }
 
