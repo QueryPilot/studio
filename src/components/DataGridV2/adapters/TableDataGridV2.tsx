@@ -1100,6 +1100,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
                 cellValue = null;
               }
             }
+            // Number cells
+            else if (cellKind === "number-cell") {
+              const v = (customData as { value?: unknown }).value;
+              cellValue = v == null ? null : v;
+            }
             // JSON cells
             else if (cellKind === "json-cell") {
               const v = (customData as { value?: unknown }).value;
@@ -1120,6 +1125,16 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             }
             // Reference cells (FK)
             else if (cellKind === "reference-cell") {
+              const v = (customData as { value?: unknown }).value;
+              cellValue = v == null ? null : v;
+            }
+            // HStore cells
+            else if (cellKind === "hstore-cell") {
+              const v = (customData as { value?: unknown }).value;
+              cellValue = v == null ? null : v;
+            }
+            // DateTime range cells
+            else if (cellKind === "tstzrange-cell") {
               const v = (customData as { value?: unknown }).value;
               cellValue = v == null ? null : v;
             }

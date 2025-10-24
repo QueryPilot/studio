@@ -194,6 +194,8 @@ export function buildGridCellV2(opts: {
         value: numericString,
         nullable: Boolean(column.meta?.nullable),
         dbType,
+        precision: column.meta?.precision,
+        scale: column.meta?.scale,
       },
       copyData: numericString ?? "NULL",
       allowOverlay: true,

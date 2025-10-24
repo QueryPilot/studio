@@ -5,6 +5,8 @@ export interface NumberCellData {
   value: string | null;
   nullable?: boolean;
   dbType?: string;
+  precision?: number | null;
+  scale?: number | null;
 }
 
 export interface NumberCustomCell extends CustomCell {

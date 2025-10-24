@@ -25,11 +25,20 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
 }) => {
   const initialText = useMemo(() => value.data.value ?? "", [value.data.value]);
   const [text, setText] = useState(initialText);
-  const [isValid, setIsValid] = useState(() => isValidNumberText(initialText));
+  const [isValid, setIsValid] = useState(() =>
+    isValidNumberText(
+      initialText,
+      value.data.precision,
+      value.data.scale,
+      value.data.dbType,
+    ),
+  );
   const finishedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const nullable = Boolean(value.data.nullable);
+  const precision = value.data.precision;
+  const scale = value.data.scale;
 
   useEffect(() => {
     const input = inputRef.current;
@@ -100,7 +109,7 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
 
   const handleChange = (next: string) => {
     setText(next);
-    setIsValid(isValidNumberText(next));
+    setIsValid(isValidNumberText(next, precision, scale, value.data.dbType));
   };
 
   const handleClear = () => {
@@ -108,35 +117,56 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
     commit(null);
   };
 
+  // Build validation hint
+  const validationHint = useMemo(() => {
+    if (precision != null && scale != null) {
+      return `DECIMAL(${precision},${scale}): max ${
+        precision - scale
+      } integer, ${scale} decimal digits`;
+    } else if (precision != null) {
+      return `Max ${precision} digits`;
+    } else if (scale != null) {
+      return `Max ${scale} decimal places`;
+    }
+    return undefined;
+  }, [precision, scale]);
+
   return (
-    <div className="w-full h-full flex items-center gap-1 px-2 click-outside-ignore">
-      <input
-        ref={inputRef}
-        className={cn(
-          "h-[31px] w-full bg-transparent text-xs font-mono outline-none leading-6",
-          !isMeaningful(text) ? "italic text-muted-foreground" : "",
-          !isValid
-            ? "border-b border-destructive focus:border-destructive"
-            : "",
+    <div className="w-full h-full flex flex-col justify-center px-2 click-outside-ignore">
+      <div className="flex items-center gap-1">
+        <input
+          ref={inputRef}
+          className={cn(
+            "h-[31px] w-full bg-transparent text-xs font-mono outline-none leading-6",
+            !isMeaningful(text) ? "italic text-muted-foreground" : "",
+            !isValid
+              ? "border-b border-destructive focus:border-destructive"
+              : "",
+          )}
+          spellCheck={false}
+          value={text}
+          onChange={(e) => {
+            handleChange(e.target.value);
+          }}
+          onKeyDown={handleKeyDown}
+          placeholder={nullable ? "NULL" : undefined}
+          aria-invalid={!isValid}
+        />
+        {nullable && (
+          <Button
+            variant="ghost"
+            className="h-6 w-6 p-0 z-50"
+            title="Clear"
+            onClick={handleClear}
+          >
+            <Trash2 className="h-3 w-3" />
+          </Button>
         )}
-        spellCheck={false}
-        value={text}
-        onChange={(e) => {
-          handleChange(e.target.value);
-        }}
-        onKeyDown={handleKeyDown}
-        placeholder={nullable ? "NULL" : undefined}
-        aria-invalid={!isValid}
-      />
-      {nullable && (
-        <Button
-          variant="ghost"
-          className="h-6 w-6 p-0 z-50"
-          title="Clear"
-          onClick={handleClear}
-        >
-          <Trash2 className="h-3 w-3" />
-        </Button>
+      </div>
+      {!isValid && validationHint && (
+        <div className="text-[10px] text-destructive mt-0.5 leading-tight">
+          {validationHint}
+        </div>
       )}
     </div>
   );
