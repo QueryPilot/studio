@@ -58,6 +58,7 @@ import { CellEditService } from "@/services/cellEditService";
 import { cn } from "@/lib/utils";
 import { GridContextMenu } from "../components/GridContextMenu";
 import { useConnectionStore } from "@/stores";
+import { useTheme } from "next-themes";
 
 interface BooleanCellPayload {
   kind: "boolean-cell";
@@ -368,6 +369,36 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 ) {
   const { gridId, className } = props;
   const { toast } = useToast();
+  const { resolvedTheme } = useTheme();
+  const isDarkTheme = resolvedTheme === "dark";
+
+  const highlightColors = useMemo(
+    () =>
+      isDarkTheme
+        ? {
+            primaryText: "#BFDBFE",
+            primaryCellHighlight: "rgba(96, 165, 250, 0.18)",
+            primaryCellActive: "rgba(147, 197, 253, 0.24)",
+            primaryRowBg: "rgba(37, 99, 235, 0.14)",
+            primaryRowBgMedium: "rgba(37, 99, 235, 0.18)",
+            insertText: "#BBF7D0",
+            insertCellHighlight: "rgba(74, 222, 128, 0.20)",
+            insertRowBg: "rgba(22, 163, 74, 0.16)",
+            insertRowBgMedium: "rgba(22, 163, 74, 0.20)",
+          }
+        : {
+            primaryText: "#1D4ED8",
+            primaryCellHighlight: "rgba(59, 130, 246, 0.12)",
+            primaryCellActive: "rgba(37, 99, 235, 0.18)",
+            primaryRowBg: "rgba(59, 130, 246, 0.05)",
+            primaryRowBgMedium: "rgba(59, 130, 246, 0.08)",
+            insertText: "#166534",
+            insertCellHighlight: "rgba(34, 197, 94, 0.12)",
+            insertRowBg: "rgba(34, 197, 94, 0.06)",
+            insertRowBgMedium: "rgba(34, 197, 94, 0.09)",
+          },
+    [isDarkTheme],
+  );
 
   // Determine mode and extract mode-specific props
   const isTableMode = props.mode === "table";
@@ -1032,15 +1063,33 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       const rowKey = getRowKey(row, rowIndex);
       const editingRowDraft = editingRowsRef.current.get(rowKey);
 
-      if (editingRowDraft && editingRowDraft.cells.has(column.field)) {
-        // Use the edited value if there's a pending edit
-        const editedCell = editingRowDraft.cells.get(column.field);
-        if (editedCell && editedCell.hasChanged) {
-          cellValue = editedCell.draftValue;
-        }
+      const editedCellDraft =
+        editingRowDraft?.cells.get(column.field) ?? undefined;
+
+      if (editedCellDraft && editedCellDraft.hasChanged) {
+        cellValue = editedCellDraft.draftValue;
       }
 
       const gridCell = buildGridCellV2({ value: cellValue, column });
+
+      let cellThemeOverride: Partial<Theme> | undefined;
+      if (editingRowDraft) {
+        if (editingRowDraft.action === "insert") {
+          cellThemeOverride = {
+            textDark: highlightColors.insertText,
+            textMedium: highlightColors.insertText,
+            bgCell: highlightColors.insertRowBg,
+            bgCellMedium: highlightColors.insertRowBgMedium,
+          };
+        } else if (editedCellDraft?.hasChanged) {
+          cellThemeOverride = {
+            textDark: highlightColors.primaryText,
+            textMedium: highlightColors.primaryText,
+            bgCell: highlightColors.primaryRowBg,
+            bgCellMedium: highlightColors.primaryRowBgMedium,
+          };
+        }
+      }
 
       // Apply text truncation for text cells
       const widthCap =
@@ -1055,15 +1104,29 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         const text = gridCell.data || "";
         const availableWidth = widthCap - 16; // Account for padding
         const truncated = truncateTextToWidth(text, availableWidth);
-        return {
+        const themedTextCell = {
           ...gridCell,
           displayData: truncated, // Truncated text for display
+          themeOverride: cellThemeOverride
+            ? { ...gridCell.themeOverride, ...cellThemeOverride }
+            : gridCell.themeOverride,
+        };
+        return themedTextCell;
+      }
+
+      if (cellThemeOverride) {
+        return {
+          ...gridCell,
+          themeOverride: {
+            ...gridCell.themeOverride,
+            ...cellThemeOverride,
+          },
         };
       }
 
       return gridCell;
     },
-    [finalColumns, getRowKey],
+    [finalColumns, getRowKey, highlightColors],
   );
 
   const handleSelectionChange = useCallback(
@@ -1205,6 +1268,19 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         | CellValue
         | null
         | undefined;
+
+      if (areCellValuesEqual(previousValue ?? null, updatedCell ?? null)) {
+        console.log("ℹ️ Cell edit ignored – no change detected", {
+          table,
+          row: rowIndex,
+          column: column.field,
+        });
+        setEditingCell(null);
+        return {
+          undo: () => {},
+          redo: () => {},
+        };
+      }
 
       const previousSnapshot = cloneEditingState(editingRowsRef.current);
       const { state: nextEditingState, changed: editingChanged } =
@@ -1716,11 +1792,21 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     return result;
   }, [editingRows]);
 
-  const pendingChangedRowIndexes = useMemo(() => {
+  const pendingInsertedRowIndexes = useMemo(() => {
     const result = new Set<number>();
     editingRows.forEach((draft) => {
-      if (draft.action === "delete") return;
-      if (draft.action === "insert" || draft.cells.size > 0) {
+      if (draft.action === "insert") {
+        result.add(draft.rowIndex);
+      }
+    });
+    return result;
+  }, [editingRows]);
+
+  const pendingUpdatedRowIndexes = useMemo(() => {
+    const result = new Set<number>();
+    editingRows.forEach((draft) => {
+      if (draft.action === "delete" || draft.action === "insert") return;
+      if (draft.cells.size > 0) {
         result.add(draft.rowIndex);
       }
     });
@@ -1747,13 +1833,16 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         const colIndex = columnIndexById.get(columnId);
         if (colIndex == null) return;
         regions.push({
-          color: "rgba(252, 163, 17, 0.22)",
+          color:
+            draft.action === "insert"
+              ? highlightColors.insertCellHighlight
+              : highlightColors.primaryCellHighlight,
           range: { x: colIndex, y: draft.rowIndex, width: 1, height: 1 },
         });
       });
     });
     return regions;
-  }, [columnIndexById, editingRows]);
+  }, [columnIndexById, editingRows, highlightColors]);
 
   const getRowThemeOverride = useCallback(
     (rowIndex: number) => {
@@ -1762,14 +1851,18 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         return {
           bgCell: "rgba(239, 68, 68, 0.10)", // red-500 @ 10%
           bgCellMedium: "rgba(239, 68, 68, 0.12)",
-          textMedium: undefined,
         } as Partial<Theme>;
       }
-      // Pending insert/update highlight (persists across focus changes)
-      if (pendingChangedRowIndexes.has(rowIndex)) {
+      if (pendingInsertedRowIndexes.has(rowIndex)) {
         return {
-          bgCell: "rgba(252, 163, 17, 0.10)", // accent @ 10%
-          bgCellMedium: "rgba(252, 163, 17, 0.12)",
+          bgCell: highlightColors.insertRowBg,
+          bgCellMedium: highlightColors.insertRowBgMedium,
+        } as Partial<Theme>;
+      }
+      if (pendingUpdatedRowIndexes.has(rowIndex)) {
+        return {
+          bgCell: highlightColors.primaryRowBg,
+          bgCellMedium: highlightColors.primaryRowBgMedium,
         } as Partial<Theme>;
       }
       // Pinned rows (blue tint)
@@ -1789,10 +1882,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       return undefined;
     },
     [
-      pendingChangedRowIndexes,
+      pendingInsertedRowIndexes,
+      pendingUpdatedRowIndexes,
       pendingDeletedRowIndexes,
       selectedRowsSet,
       pinnedRows.length,
+      highlightColors,
     ],
   );
 
@@ -1851,7 +1946,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     const regions = [...editedCellRegions];
     if (editingCell) {
       regions.push({
-        color: "rgba(252, 163, 17, 0.28)",
+        color: highlightColors.primaryCellActive,
         range: {
           x: editingCell.columnIndex,
           y: editingCell.rowIndex,
@@ -1861,7 +1956,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       });
     }
     return regions;
-  }, [editedCellRegions, editingCell]);
+  }, [editedCellRegions, editingCell, highlightColors]);
 
   // Context menu handlers (defined before early returns)
   const handlePinRowsFromMenu = useCallback(

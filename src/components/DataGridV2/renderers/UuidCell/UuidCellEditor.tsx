@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { XIcon, RefreshCcw } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
 interface UuidCellEditorProps {
   value: UuidCustomCell;
@@ -124,6 +125,15 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
     [onFinishedEditing, value],
   );
 
+  const commitCurrentText = useCallback(() => {
+    const trimmed = text.trim();
+    if (!trimmed && value.data.nullable) {
+      commit(null);
+    } else if (isValid) {
+      commit(trimmed);
+    }
+  }, [commit, isValid, text, value.data.nullable]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (finishedRef.current) return;
 
@@ -135,12 +145,7 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
     } else if (e.key === "Enter") {
       e.preventDefault();
       e.stopPropagation();
-      const trimmed = text.trim();
-      if (!trimmed && value.data.nullable) {
-        commit(null);
-      } else if (isValid) {
-        commit(trimmed);
-      }
+      commitCurrentText();
     } else if (e.key === "Tab") {
       e.preventDefault();
       e.stopPropagation();
@@ -157,6 +162,8 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
       commit(null);
     }
   };
+
+  useCommitOnUnmount(finishedRef, commitCurrentText);
 
   return (
     <div

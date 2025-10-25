@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { parseRange } from "./utils";
 import type { Bounds, TstzRangeCustomCell } from "./types";
+import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
 interface RangeEditorProps {
   value: TstzRangeCustomCell;
@@ -64,6 +65,12 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
     [bounds, onFinishedEditing, value],
   );
 
+  const commitCurrentValues = useCallback(() => {
+    const nextLower = lowerText.trim() || null;
+    const nextUpper = upperText.trim() || null;
+    commit(nextLower, nextUpper, bounds);
+  }, [bounds, commit, lowerText, upperText]);
+
   const handleKeyDown: React.KeyboardEventHandler<HTMLInputElement> = (e) => {
     if (finishedRef.current) return;
     if (e.key === "Escape") {
@@ -75,7 +82,7 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
     } else if (e.key === "Enter") {
       e.preventDefault();
       e.stopPropagation();
-      commit(lowerText.trim() || null, upperText.trim() || null);
+      commitCurrentValues();
     } else if (e.key === "Tab") {
       e.preventDefault();
       e.stopPropagation();
@@ -136,6 +143,8 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
   const lowerTimeValue = dayjs(displayLowerDate).format("HH:mm:ss");
   const upperTimeValue = dayjs(displayUpperDate).format("HH:mm:ss");
 
+  useCommitOnUnmount(finishedRef, commitCurrentValues);
+
   return (
     <div className="w-full h-full flex items-center gap-2 px-2 click-outside-ignore">
       {/* Left bound toggle */}
@@ -191,9 +200,9 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
           variant="ghost"
           className="h-6 w-6 p-0 z-50"
           title="Clear"
-          onClick={() => {
-            commit(null, null, bounds);
-          }}
+      onClick={() => {
+          commit(null, null, bounds);
+        }}
         >
           <ClearIcon className="h-3 w-3" />
         </Button>

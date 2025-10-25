@@ -3,6 +3,7 @@ import type { ReferenceCustomCell } from "./types";
 import { Button } from "@/components/ui/button";
 import { XIcon, SearchIcon, Loader2Icon } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
 interface ReferenceCellEditorProps {
   value: ReferenceCustomCell;
@@ -107,22 +108,46 @@ export const ReferenceCellEditor: React.FC<ReferenceCellEditorProps> = ({
     [onFinishedEditing, value],
   );
 
-  const handleSelectResult = (result: SearchResult) => {
-    const pkColumn = value.data.fkReference?.column || "id";
-    const pkValue = result[pkColumn];
+  const handleSelectResult = useCallback(
+    (result: SearchResult) => {
+      const pkColumn = value.data.fkReference?.column || "id";
+      const pkValue = result[pkColumn];
 
-    // Try to find a display value (first string column that's not the PK)
-    const displayCol = Object.keys(result).find(
-      (key) => key !== pkColumn && typeof result[key] === "string",
-    );
-    const displayValue = displayCol
-      ? String(result[displayCol])
-      : String(pkValue);
+      // Try to find a display value (first string column that's not the PK)
+      const displayCol = Object.keys(result).find(
+        (key) => key !== pkColumn && typeof result[key] === "string",
+      );
+      const displayValue = displayCol
+        ? String(result[displayCol])
+        : String(pkValue);
 
-    if (pkValue !== null && pkValue !== undefined) {
-      commit(pkValue as string | number, displayValue);
+      if (pkValue !== null && pkValue !== undefined) {
+        commit(pkValue as string | number, displayValue);
+      }
+    },
+    [commit, value.data.fkReference],
+  );
+
+  const commitCurrentValue = useCallback(() => {
+    if (selectedIndex >= 0 && results[selectedIndex]) {
+      handleSelectResult(results[selectedIndex]);
+      return;
     }
-  };
+
+    const trimmed = searchText.trim();
+    if (!trimmed && value.data.nullable) {
+      commit(null);
+    } else if (trimmed) {
+      commit(trimmed);
+    }
+  }, [
+    commit,
+    handleSelectResult,
+    results,
+    searchText,
+    selectedIndex,
+    value.data.nullable,
+  ]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (finishedRef.current) return;
@@ -135,17 +160,7 @@ export const ReferenceCellEditor: React.FC<ReferenceCellEditorProps> = ({
     } else if (e.key === "Enter") {
       e.preventDefault();
       e.stopPropagation();
-
-      if (selectedIndex >= 0 && results[selectedIndex]) {
-        handleSelectResult(results[selectedIndex]);
-      } else {
-        const trimmed = searchText.trim();
-        if (!trimmed && value.data.nullable) {
-          commit(null);
-        } else if (trimmed) {
-          commit(trimmed);
-        }
-      }
+      commitCurrentValue();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
       setSelectedIndex((prev) => Math.min(prev + 1, results.length - 1));
@@ -168,6 +183,8 @@ export const ReferenceCellEditor: React.FC<ReferenceCellEditorProps> = ({
       commit(null);
     }
   };
+
+  useCommitOnUnmount(finishedRef, commitCurrentValue);
 
   const fkRef = value.data.fkReference;
   const refTableName = fkRef ? `${fkRef.schema}.${fkRef.table}` : "unknown";

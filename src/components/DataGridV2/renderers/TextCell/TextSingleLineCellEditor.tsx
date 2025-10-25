@@ -3,6 +3,7 @@ import type { TextSingleLineCustomCell } from "./types";
 import { Button } from "@/components/ui/button";
 import { Trash2 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
 interface TextSingleLineCellEditorProps {
   value: TextSingleLineCustomCell;
@@ -48,6 +49,15 @@ export const TextSingleLineCellEditor: React.FC<
     [onFinishedEditing, value],
   );
 
+  const commitCurrentText = useCallback(() => {
+    const trimmed = text.trim();
+    if (!trimmed && value.data.nullable) {
+      commit(null);
+    } else {
+      commit(trimmed || text);
+    }
+  }, [commit, text, value.data.nullable]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (finishedRef.current) return;
 
@@ -59,12 +69,7 @@ export const TextSingleLineCellEditor: React.FC<
     } else if (e.key === "Enter") {
       e.preventDefault();
       e.stopPropagation();
-      const trimmed = text.trim();
-      if (!trimmed && value.data.nullable) {
-        commit(null);
-      } else {
-        commit(trimmed || text);
-      }
+      commitCurrentText();
     } else if (e.key === "Tab") {
       e.preventDefault();
       e.stopPropagation();
@@ -75,6 +80,8 @@ export const TextSingleLineCellEditor: React.FC<
       onFinishedEditing(value, movement);
     }
   };
+
+  useCommitOnUnmount(finishedRef, commitCurrentText);
 
   const handleClear = () => {
     if (value.data.nullable) {
