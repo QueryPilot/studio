@@ -9,6 +9,7 @@ import {
   PanelBottom,
   PanelLeft,
   PanelTop,
+  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,6 +23,8 @@ import {
 import { PanelContentRenderer } from "./PanelContentRenderer";
 import { useDroppable } from "@dnd-kit/core";
 import { DraggableTab } from "./DraggableTab";
+import { useConnectionStore } from "@/stores/connectionStore";
+import { useSchemaStore } from "@/stores/schemaStore";
 
 interface DroppableZoneProps {
   panelId: string;
@@ -91,6 +94,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
     splitPanelAction,
     setActiveTab,
     removeTab,
+    addTab,
   } = useWorkbenchStore();
 
   const tabsContainerRef = useRef<HTMLDivElement>(null);
@@ -143,6 +147,51 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
     },
     [splitPanelAction, content.id],
   );
+
+  const handleNewQueryTab = useCallback(() => {
+    const uuid =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now().toString(36)}-${Math.random()
+            .toString(36)
+            .slice(2, 8)}`;
+    const tabId = `query-${uuid}`;
+
+    const { activeConnectionId, panelContents } =
+      useWorkbenchStore.getState();
+    const { getConnection } = useConnectionStore.getState();
+    const { selectedSchema } = useSchemaStore.getState();
+
+    const connectionId = activeConnectionId ?? "";
+    const connection = connectionId ? getConnection(connectionId) : null;
+
+    const totalQueryCount = Array.from(panelContents.values()).reduce(
+      (count, panelContent) => {
+        return (
+          count +
+          panelContent.tabIds.filter((id) => {
+            const metadata = panelContent.metadata?.[id];
+            return metadata?.type === "query" || id.startsWith("query-");
+          }).length
+        );
+      },
+      0,
+    );
+
+    const title =
+      totalQueryCount > 0 ? `Query ${totalQueryCount + 1}` : "New Query";
+
+    addTab(content.id, tabId, {
+      type: "query",
+      title,
+      connectionId,
+      database: connection?.database || "",
+      schema: selectedSchema || "",
+      sql: "",
+    });
+    setActiveTab(content.id, tabId);
+    focusPanel(content.id);
+  }, [addTab, content.id, focusPanel, setActiveTab]);
 
   return (
     <div
@@ -204,6 +253,15 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
         </div>
 
         <div className="flex items-center gap-1 pr-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={handleNewQueryTab}
+            title="New query tab"
+          >
+            <Plus className="h-3 w-3" />
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="h-6 w-6">
