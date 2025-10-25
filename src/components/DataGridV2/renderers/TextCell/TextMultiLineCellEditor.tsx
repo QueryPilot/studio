@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { Trash2 } from "lucide-react";
 import { computeArrayStringsFromText } from "../../utils/arrayFormat";
+import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
 interface TextMultiLineCellEditorProps {
   value: TextMultiLineCustomCell;
@@ -126,6 +127,15 @@ export const TextMultiLineCellEditor: React.FC<
     [onFinishedEditing, value],
   );
 
+  const commitCurrentText = useCallback(() => {
+    const trimmed = text.trim();
+    if (!trimmed && value.data.nullable) {
+      commit(null);
+    } else {
+      commit(text);
+    }
+  }, [commit, text, value.data.nullable]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (finishedRef.current) return;
 
@@ -138,12 +148,7 @@ export const TextMultiLineCellEditor: React.FC<
       // Enter or Cmd/Ctrl+Enter saves, Shift+Enter adds newline
       e.preventDefault();
       e.stopPropagation();
-      const trimmed = text.trim();
-      if (!trimmed && value.data.nullable) {
-        commit(null);
-      } else {
-        commit(text);
-      }
+      commitCurrentText();
     } else if (e.key === "Tab") {
       e.preventDefault();
       e.stopPropagation();
@@ -154,6 +159,8 @@ export const TextMultiLineCellEditor: React.FC<
       onFinishedEditing(value, movement);
     }
   };
+
+  useCommitOnUnmount(finishedRef, commitCurrentText);
 
   const handleClear = () => {
     if (value.data.nullable) {

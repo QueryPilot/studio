@@ -37,6 +37,7 @@ import { cn } from "@/lib/cn";
 
 import { type DateTimeCustomCell } from "./types";
 import { parseDateTime } from "./utils";
+import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
 // Time Picker Component (following shadcn pattern)
 interface TimePickerProps {
@@ -109,7 +110,9 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
   );
   const [open, setOpen] = useState(false);
   const [timeCollapsed, setTimeCollapsed] = useState(false);
-
+  const [manualText, setManualText] = useState<string>(raw ?? "");
+  const [manualDirty, setManualDirty] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     const t = setTimeout(() => {
       setOpen(true);
@@ -168,6 +171,15 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
     [onFinishedEditing, value],
   );
 
+  const commitCurrentValue = useCallback(() => {
+    const trimmed = manualText.trim();
+    if (!trimmed && nullable) {
+      commit(null);
+    } else {
+      commit(trimmed);
+    }
+  }, [commit, manualText, nullable]);
+
   const handleCancel = useCallback(() => {
     if (finishedRef.current) return;
     finishedRef.current = true;
@@ -185,20 +197,19 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
     setSecond(String(now.getSeconds()).padStart(2, "0"));
     setMillisecond(String(now.getMilliseconds()).padStart(3, "0"));
     setTimeCollapsed(true);
+    setManualDirty(false);
   }, [kind]);
 
   const handleSetToday = useCallback(() => {
     const today = new Date();
     setSelectedDate(today);
+    setManualDirty(false);
   }, []);
 
   const handleSave = useCallback(() => {
     const result = buildDateTimeString();
     commit(result);
   }, [buildDateTimeString, commit]);
-
-  const [manualText, setManualText] = useState<string>(raw ?? "");
-  const inputRef = useRef<HTMLInputElement>(null);
 
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (finishedRef.current) return;
@@ -209,12 +220,7 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
     } else if (e.key === "Enter") {
       e.preventDefault();
       e.stopPropagation();
-      const trimmed = manualText.trim();
-      if (!trimmed && nullable) {
-        commit(null);
-      } else {
-        commit(trimmed);
-      }
+      commitCurrentValue();
     } else if (e.key === "Tab") {
       e.preventDefault();
       e.stopPropagation();
@@ -227,13 +233,48 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
     }
   };
 
-  // Sync manual text with picker selections
+  const handleDateSelect = useCallback(
+    (date: Date | undefined) => {
+      setSelectedDate(date ?? null);
+      setManualDirty(false);
+    },
+    [],
+  );
+
+  const handleHourChange = useCallback((next: string) => {
+    setHour(next);
+    setManualDirty(false);
+  }, []);
+
+  const handleMinuteChange = useCallback((next: string) => {
+    setMinute(next);
+    setManualDirty(false);
+  }, []);
+
+  const handleSecondChange = useCallback((next: string) => {
+    setSecond(next);
+    setManualDirty(false);
+  }, []);
+
+  const handleMillisecondChange = useCallback((value: string) => {
+    setMillisecond(value);
+    setManualDirty(false);
+  }, []);
+
+  const handleTimezoneChange = useCallback((tz: string) => {
+    setSelectedTimezone(tz);
+    setManualDirty(false);
+  }, []);
+
+  // Sync manual text with picker selections unless user is typing
   useEffect(() => {
+    if (manualDirty) return;
     const built = buildDateTimeString();
-    if (built !== null) {
-      setManualText(built);
-    }
-  }, [buildDateTimeString]);
+    const nextText = built ?? "";
+    setManualText((current) => (current === nextText ? current : nextText));
+  }, [buildDateTimeString, manualDirty]);
+
+  useCommitOnUnmount(finishedRef, commitCurrentValue);
 
   return (
     <div className="w-full h-full flex items-center gap-1 px-2 click-outside-ignore relative justify-between">
@@ -253,10 +294,18 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
         autoFocus
         value={manualText}
         onChange={(e) => {
-          setManualText(e.target.value);
-          // Try to parse and update picker state
-          const parsed = parseDateTime(e.target.value, kind);
-          if (parsed.date) setSelectedDate(parsed.date);
+          const nextValue = e.target.value;
+          setManualText(nextValue);
+          setManualDirty(true);
+          // Try to parse and update picker state when the text is a valid value
+          const parsed = parseDateTime(nextValue, kind);
+          const hasParsedValue = Boolean(parsed.date) || Boolean(parsed.time);
+          if (!hasParsedValue) {
+            return;
+          }
+          if (parsed.date) {
+            setSelectedDate(parsed.date);
+          }
           if (parsed.time) {
             if (parsed.time.hour) setHour(parsed.time.hour);
             if (parsed.time.minute) setMinute(parsed.time.minute);
@@ -264,11 +313,8 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
             if (parsed.time.millisecond)
               setMillisecond(parsed.time.millisecond);
           }
-          if (parsed.timezone) {
-            setSelectedTimezone(parsed.timezone);
-          } else {
-            setSelectedTimezone("none");
-          }
+          const timezoneValue = parsed.timezone ?? "none";
+          setSelectedTimezone(timezoneValue);
         }}
         onKeyDown={handleInputKeyDown}
       />
@@ -364,9 +410,7 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
                 <Calendar
                   mode="single"
                   selected={selectedDate ?? undefined}
-                  onSelect={(date) => {
-                    if (date) setSelectedDate(date);
-                  }}
+                  onSelect={handleDateSelect}
                   captionLayout="dropdown"
                   className="border-0 p-0"
                   startMonth={new Date(1900, 0)}
@@ -414,9 +458,9 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
                             hour={hour}
                             minute={minute}
                             second={second}
-                            onHourChange={setHour}
-                            onMinuteChange={setMinute}
-                            onSecondChange={setSecond}
+                            onHourChange={handleHourChange}
+                            onMinuteChange={handleMinuteChange}
+                            onSecondChange={handleSecondChange}
                           />
                           <span className="text-muted-foreground">.</span>
                         </div>
@@ -429,7 +473,7 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
                             const val = e.target.value
                               .replace(/\D/g, "")
                               .slice(0, 3);
-                            setMillisecond(val);
+                            handleMillisecondChange(val);
                           }}
                           className="bg-background w-20"
                         />
@@ -441,7 +485,7 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
                       <span className="text-xs font-medium">Timezone</span>
                       <Select
                         value={selectedTimezone}
-                        onValueChange={setSelectedTimezone}
+                        onValueChange={handleTimezoneChange}
                       >
                         <SelectTrigger
                           size="sm"

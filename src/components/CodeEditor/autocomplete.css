@@ -32,7 +32,7 @@
 
 /* Selected item */
 .cm-autocomplete > ul > li[aria-selected] {
-  background: #3b82f6;
+  background: var(--primary);
   color: #ffffff;
 }
 
@@ -42,7 +42,7 @@
 }
 
 .cm-autocomplete > ul > li[aria-selected]:hover {
-  background: #2563eb;
+  background: var(--primary);
 }
 
 /* Completion icons - hide them */
@@ -86,7 +86,7 @@
 /* Match highlighting */
 .cm-completionMatchedText {
   font-weight: 600;
-  color: #3b82f6;
+  color: var(--primary);
 }
 
 .cm-autocomplete > ul > li[aria-selected] .cm-completionMatchedText {
@@ -99,7 +99,7 @@
 /* Info panel */
 .cm-completionInfo {
   background: #f9fafb;
-  border-left: 3px solid #3b82f6;
+  border-left: 3px solid var(--primary);
   padding: 12px 14px;
   font-size: 12px;
   max-width: 450px;
@@ -121,7 +121,7 @@
 }
 
 .dark .cm-autocomplete > ul > li[aria-selected] {
-  background: #3b82f6;
+  background: var(--primary);
   color: #ffffff;
 }
 
@@ -130,7 +130,7 @@
 }
 
 .dark .cm-autocomplete > ul > li[aria-selected]:hover {
-  background: #2563eb;
+  background: var(--primary);
 }
 
 .dark .cm-completionDetail {
@@ -139,7 +139,7 @@
 
 .dark .cm-completionInfo {
   background: #374151;
-  border-left-color: #3b82f6;
+  border-left-color: var(--primary);
   color: #e5e7eb;
 }
 

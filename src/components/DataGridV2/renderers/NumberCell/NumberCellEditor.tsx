@@ -10,6 +10,7 @@ import { Trash2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { NumberCustomCell } from "./types";
 import { isMeaningful, isValidNumberText, normalizeValue } from "./utils";
+import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
 interface NumberCellEditorProps {
   value: NumberCustomCell;
@@ -71,6 +72,19 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
     [onFinishedEditing, value],
   );
 
+  const commitCurrentValue = useCallback(() => {
+    const normalized = normalizeValue(text);
+    if (!normalized) {
+      if (nullable) {
+        commit(null);
+      } else {
+        commit("");
+      }
+    } else {
+      commit(normalized);
+    }
+  }, [commit, nullable, text]);
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (finishedRef.current) return;
@@ -83,17 +97,7 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
       } else if (e.key === "Enter") {
         e.preventDefault();
         e.stopPropagation();
-
-        const normalized = normalizeValue(text);
-        if (!normalized) {
-          if (nullable) {
-            commit(null);
-          } else {
-            commit("");
-          }
-        } else {
-          commit(normalized);
-        }
+        commitCurrentValue();
       } else if (e.key === "Tab") {
         e.preventDefault();
         e.stopPropagation();
@@ -104,13 +108,15 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
         onFinishedEditing(value, movement);
       }
     },
-    [commit, nullable, onFinishedEditing, text, value],
+    [commitCurrentValue, onFinishedEditing, value],
   );
 
   const handleChange = (next: string) => {
     setText(next);
     setIsValid(isValidNumberText(next, precision, scale, value.data.dbType));
   };
+
+  useCommitOnUnmount(finishedRef, commitCurrentValue);
 
   const handleClear = () => {
     if (!nullable) return;

@@ -10,6 +10,7 @@ import { Trash2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { HStoreCustomCell } from "./types";
 import { hstoreToEditorText, normalizeHstoreEditorText } from "./hstoreFormat";
+import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
 interface HStoreCellEditorProps {
   value: HStoreCustomCell;
@@ -71,6 +72,15 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
     [nullable, onFinishedEditing, value],
   );
 
+  const commitCurrentText = useCallback(() => {
+    const trimmed = text.trim();
+    if (!trimmed && nullable) {
+      commit(null);
+    } else {
+      commit(trimmed);
+    }
+  }, [commit, nullable, text]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (finishedRef.current) return;
 
@@ -86,12 +96,7 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
       e.preventDefault();
       e.stopPropagation();
 
-      const trimmed = text.trim();
-      if (!trimmed && nullable) {
-        commit(null);
-      } else {
-        commit(trimmed);
-      }
+      commitCurrentText();
       return;
     }
 
@@ -112,13 +117,10 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
   };
 
   const handleSave = () => {
-    const trimmed = text.trim();
-    if (!trimmed && nullable) {
-      commit(null);
-    } else {
-      commit(trimmed);
-    }
+    commitCurrentText();
   };
+
+  useCommitOnUnmount(finishedRef, commitCurrentText);
 
   return (
     <div className="w-full h-full flex flex-col gap-2 p-2 click-outside-ignore">

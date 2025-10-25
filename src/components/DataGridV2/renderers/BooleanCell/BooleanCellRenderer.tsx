@@ -26,20 +26,18 @@ const BooleanCellRenderer: CustomCellRenderer<BooleanCustomCell> = {
 
     // Determine text and color based on value
     let text: string;
-    let color: string;
+    const color: string = "rgba(127,127,127,0.7)";
 
     if (value == null) {
       text = "NULL";
       // Match NULL styling used by default text cells
-      color = "rgba(127,127,127,0.7)";
+
       ctx.font = `italic ${baseFont}`;
     } else if (value) {
       text = "TRUE";
-      color = "#10b981"; // green-500
       ctx.font = baseFont; // non-italic
     } else {
       text = "FALSE";
-      color = "#ef4444"; // red-500
       ctx.font = baseFont; // non-italic
     }
 

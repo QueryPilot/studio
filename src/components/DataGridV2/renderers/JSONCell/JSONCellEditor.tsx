@@ -3,6 +3,7 @@ import type { JsonCustomCell } from "./types";
 import { CodeEditor } from "@/components/CodeEditor";
 import { Button } from "@/components/ui/button";
 import { Trash2 } from "lucide-react";
+import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
 interface JsonCellEditorProps {
   value: JsonCustomCell;
@@ -95,17 +96,21 @@ export const JsonCellEditor: React.FC<JsonCellEditorProps> = ({
     [onFinishedEditing, value, validateJson],
   );
 
-  const handleEnter = useCallback(() => {
-    if (finishedRef.current) return false;
-
+  const commitCurrentText = useCallback(() => {
     const trimmed = text.trim();
     if (!trimmed && value.data.nullable) {
       commit(null);
     } else if (isValid) {
       commit(trimmed);
     }
+  }, [commit, isValid, text, value.data.nullable]);
+
+  const handleEnter = useCallback(() => {
+    if (finishedRef.current) return false;
+
+    commitCurrentText();
     return true; // Prevent default
-  }, [text, value.data.nullable, isValid, commit]);
+  }, [commitCurrentText]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -124,6 +129,8 @@ export const JsonCellEditor: React.FC<JsonCellEditorProps> = ({
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [onFinishedEditing]);
+
+  useCommitOnUnmount(finishedRef, commitCurrentText);
 
   // Resize handling
   useEffect(() => {
