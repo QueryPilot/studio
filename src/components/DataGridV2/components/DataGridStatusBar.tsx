@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { cn } from "@/lib/utils";
-import { Loader2 } from "lucide-react";
+import { Loader2, Eye } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
@@ -24,6 +25,7 @@ interface DataGridStatusBarProps {
   conversionMs?: number;
   ipcSendMs?: number;
   isStreaming?: boolean;
+  onViewDetails?: () => void;
 }
 
 export const DataGridStatusBar = memo(function DataGridStatusBar({
@@ -38,6 +40,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   conversionMs,
   ipcSendMs,
   isStreaming = false,
+  onViewDetails,
   className,
 }: DataGridStatusBarProps) {
   const getRowCountDisplay = () => {
@@ -71,16 +74,38 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
         className,
       )}
     >
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
         {pendingEdits > 0 && (
-          <span className="text-amber-600">
+          <span className="text-amber-600 font-medium">
             {pendingEdits} pending {pendingEdits === 1 ? "change" : "changes"}
           </span>
         )}
         {selectedRows > 0 && (
-          <span className="text-primary">
-            {selectedRows} row{selectedRows !== 1 ? "s" : ""} selected
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-primary font-medium">
+              {selectedRows.toLocaleString()}{" "}
+              {selectedRows !== 1 ? "rows" : "row"} selected
+            </span>
+            {onViewDetails && (
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5"
+                      onClick={onViewDetails}
+                    >
+                      <Eye className="h-3 w-3" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs">
+                    View Details
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+          </div>
         )}
       </div>
       <div className="flex items-center gap-2">
