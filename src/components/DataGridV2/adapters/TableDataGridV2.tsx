@@ -39,6 +39,7 @@ import {
   useColumnPinning,
   useColumnSizing,
   useColumnVisibility,
+  useRowPinning,
 } from "../hooks";
 import {
   applyPinnedOrdering,
@@ -55,6 +56,8 @@ import { Button } from "@/components/ui/button";
 import { Loader2, Save, X } from "lucide-react";
 import { CellEditService } from "@/services/cellEditService";
 import { cn } from "@/lib/utils";
+import { GridContextMenu } from "../components/GridContextMenu";
+import { useConnectionStore } from "@/stores";
 
 interface BooleanCellPayload {
   kind: "boolean-cell";
@@ -450,7 +453,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         loadMore: tableDataQuery.hasNextPage
           ? () => tableDataQuery.fetchNextPage()
           : undefined,
-        hasNextPage: !!tableDataQuery.hasNextPage,
+        hasNextPage: tableDataQuery.hasNextPage ? true : false,
       }
     : {
         isLoading: isQueryMode ? props.isLoading ?? false : false,
@@ -540,6 +543,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const history = useGridHistory();
   const { persistSelection, persistScrollOffset, persistActiveCell } =
     usePersistentViewState(gridId);
+
+  // Get connection for database type detection
+  const connection = useConnectionStore((state) =>
+    isTableMode ? state.getConnection(connectionId) : null,
+  );
 
   const [gridSelection, setGridSelection] = useState<GridSelection | undefined>(
     undefined,
@@ -694,6 +702,31 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     },
     [primaryKeyColumns, schema, table],
   );
+
+  // Row pinning - persist to grid preferences
+  const handlePinnedRowsChange = useCallback(
+    (pinnedRowIds: string[]) => {
+      if (!hydrated) return;
+      useGridPreferencesStore
+        .getState()
+        .updatePinnedRows(gridId, () => pinnedRowIds);
+    },
+    [gridId, hydrated],
+  );
+
+  const { pinnedRows, unpinnedRows, pinnedRowIds, pinRow, unpinRow } =
+    useRowPinning({
+      rows,
+      initialPinned: preferences?.pinnedRows ?? [],
+      maxPinnedRows: 5,
+      getRowId: getRowKey,
+      onChange: handlePinnedRowsChange,
+    });
+
+  // Combine pinned and unpinned rows for display
+  const displayRows = useMemo(() => {
+    return [...pinnedRows, ...unpinnedRows];
+  }, [pinnedRows, unpinnedRows]);
 
   // Discard all pending edits and revert to last loaded data snapshot
   const discardAllChanges = useCallback(() => {
@@ -934,8 +967,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     return applyPinnedOrdering(filtered, columnState.pinned);
   }, [columnState.pinned, columnState.visibility, visibleColumns]);
 
-  const rowsRef = useRef(rows);
-  rowsRef.current = rows;
+  const rowsRef = useRef(displayRows);
+  rowsRef.current = displayRows;
 
   useEffect(() => {
     if (rows.length === 0 && editingRowsRef.current.size === 0) {
@@ -1046,6 +1079,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     rowIndex: number;
     columnIndex: number;
   } | null>(null);
+
+  // Track row details sheet visibility
+  const [showDetailsSheet, setShowDetailsSheet] = useState(false);
 
   const handleEditCommit = useCallback(
     (event: GridEditCommitEvent): GridHistoryEntry => {
@@ -1654,6 +1690,22 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     return set;
   }, [gridSelection]);
 
+  // Get selected rows and their keys for context menu
+  const selectedRows = useMemo(() => {
+    return Array.from(selectedRowsSet)
+      .map((idx) => displayRows[idx])
+      .filter((row): row is GridRowModel => Boolean(row));
+  }, [selectedRowsSet, displayRows]);
+
+  const selectedRowKeys = useMemo(() => {
+    return Array.from(selectedRowsSet)
+      .map((idx) => {
+        const row = displayRows[idx];
+        return row ? getRowKey(row, idx) : null;
+      })
+      .filter((key): key is string => key !== null);
+  }, [selectedRowsSet, displayRows, getRowKey]);
+
   const pendingDeletedRowIndexes = useMemo(() => {
     const result = new Set<number>();
     editingRows.forEach((draft) => {
@@ -1720,6 +1772,13 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           bgCellMedium: "rgba(252, 163, 17, 0.12)",
         } as Partial<Theme>;
       }
+      // Pinned rows (blue tint)
+      if (rowIndex < pinnedRows.length) {
+        return {
+          bgCell: "rgba(59, 130, 246, 0.08)", // blue-500 @ 8%
+          bgCellMedium: "rgba(59, 130, 246, 0.10)",
+        } as Partial<Theme>;
+      }
       // Selected rows subtle highlight
       if (selectedRowsSet.has(rowIndex)) {
         return {
@@ -1729,7 +1788,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       }
       return undefined;
     },
-    [pendingChangedRowIndexes, pendingDeletedRowIndexes, selectedRowsSet],
+    [
+      pendingChangedRowIndexes,
+      pendingDeletedRowIndexes,
+      selectedRowsSet,
+      pinnedRows.length,
+    ],
   );
 
   // Surface Save/Discard actions in the panel toolbar like other tabs (only in table mode)
@@ -1777,7 +1841,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     handleSaveAllChanges,
   ]);
 
-  const selectedRowCount = gridSelection ? gridSelection.rows.length : 0;
+  // Calculate selected row count from the set
+  const selectedRowCount = selectedRowsSet.size;
 
   // (rectangular rows merged into selectedRowsSet above)
 
@@ -1798,6 +1863,85 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     return regions;
   }, [editedCellRegions, editingCell]);
 
+  // Context menu handlers (defined before early returns)
+  const handlePinRowsFromMenu = useCallback(
+    (rowKeys: string[]) => {
+      rowKeys.forEach((key) => {
+        pinRow(key);
+      });
+    },
+    [pinRow],
+  );
+
+  const handleUnpinRowsFromMenu = useCallback(
+    (rowKeys: string[]) => {
+      rowKeys.forEach((key) => {
+        unpinRow(key);
+      });
+    },
+    [unpinRow],
+  );
+
+  const handleDeleteFromMenu = useCallback(() => {
+    const rowIndexes = Array.from(selectedRowsSet);
+    if (rowIndexes.length === 0 || !isEditable || !gridSelection) return;
+    const rowsToDelete = rowIndexes
+      .map((index) => displayRows[index])
+      .filter((row): row is GridRowModel => Boolean(row));
+    const result = handleRowDelete({
+      selection: gridSelection,
+      rowIndexes,
+      rows: rowsToDelete,
+    });
+    history.push(result);
+  }, [
+    selectedRowsSet,
+    isEditable,
+    displayRows,
+    handleRowDelete,
+    gridSelection,
+    history,
+  ]);
+
+  const handlePasteFromMenu = useCallback(() => {
+    if (!isEditable) return;
+    void navigator.clipboard
+      .readText()
+      .then((text) => {
+        // Trigger paste at current active cell or (0,0)
+        const target: Item = [0, displayRows.length];
+        const values = text
+          .trim()
+          .split("\n")
+          .map((line) => line.split("\t"));
+        const event: GridPasteEvent = { target, values };
+        handlePaste(event);
+      })
+      .catch(() => {
+        toast({
+          description: "Failed to read clipboard",
+          variant: "destructive",
+        });
+      });
+  }, [isEditable, displayRows.length, handlePaste, toast]);
+
+  const handleAddRowFromMenu = useCallback(() => {
+    if (!isEditable) return;
+    const position: GridRowAppendEvent["position"] = "top";
+    const baseRow: GridRowModel = {};
+    finalColumns.forEach((col) => {
+      baseRow[col.field] = {
+        value: null,
+        db_type: col.meta?.db_type ?? "text",
+        value_type: "Null",
+        is_truncated: false,
+      };
+    });
+    const result = handleRowAppend({ position, draftRow: baseRow });
+    history.push(result);
+  }, [isEditable, handleRowAppend, finalColumns, history]);
+
+  // Early returns for loading/error states
   if (!hydrated) {
     return null;
   }
@@ -1817,50 +1961,69 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   return (
     <div className="flex h-full flex-col">
       <div className="relative flex-1">
-        <EditableDataGrid
-          containerClassName={cn("h-full", className)}
-          rows={rows}
+        <GridContextMenu
+          selectedRows={selectedRows}
+          selectedRowKeys={selectedRowKeys}
+          allRows={displayRows}
           columns={finalColumns}
-          getCellContent={handleGetCellContent}
-          history={history}
-          onCellEditStart={(coords) => {
-            setEditingCell({
-              rowIndex: coords.rowIndex,
-              columnIndex: coords.columnIndex,
-            });
-          }}
-          onCellEditCommit={isEditable ? handleEditCommit : undefined}
-          onCellEditCancel={
-            isEditable
-              ? () => {
-                  setEditingCell(null);
-                }
-              : undefined
-          }
-          onRowAppend={isEditable ? handleRowAppend : undefined}
-          onRowDelete={isEditable ? handleRowDelete : undefined}
-          onPaste={isEditable ? handlePaste : undefined}
-          // Avoid work during drag by not updating overlays when resizing
-          onColumnResize={(col, size) => {
-            handleColumnResize(col, size);
-          }}
-          onColumnResizeEnd={(column, size) => {
-            handleColumnResizeEnd(column, size);
-            flushWidths();
-          }}
-          onColumnMoved={handleColumnMoved}
-          onActiveCellChange={persistActiveCell}
-          onVisibleRegionChanged={handleVisibleRegionChanged}
-          gridSelection={gridSelection}
-          onSelectionChange={handleSelectionChange}
-          freezeColumns={freezeColumns}
-          getRowThemeOverride={getRowThemeOverride}
-          highlightRegions={cellHighlightRegions}
-        />
+          pinnedRowKeys={pinnedRowIds}
+          maxPinnedRows={5}
+          tableName={isTableMode ? table : "query"}
+          schema={isTableMode ? schema : undefined}
+          databaseType={connection?.type ?? "postgresql"}
+          onPinRows={isEditable ? handlePinRowsFromMenu : undefined}
+          onUnpinRows={isEditable ? handleUnpinRowsFromMenu : undefined}
+          onAddRow={isEditable ? handleAddRowFromMenu : undefined}
+          onDeleteRows={isEditable ? handleDeleteFromMenu : undefined}
+          onPaste={isEditable ? handlePasteFromMenu : undefined}
+          showDetailsSheet={showDetailsSheet}
+          onShowDetailsSheetChange={setShowDetailsSheet}
+        >
+          <EditableDataGrid
+            containerClassName={cn("h-full", className)}
+            rows={displayRows}
+            columns={finalColumns}
+            getCellContent={handleGetCellContent}
+            history={history}
+            onCellEditStart={(coords) => {
+              setEditingCell({
+                rowIndex: coords.rowIndex,
+                columnIndex: coords.columnIndex,
+              });
+            }}
+            onCellEditCommit={isEditable ? handleEditCommit : undefined}
+            onCellEditCancel={
+              isEditable
+                ? () => {
+                    setEditingCell(null);
+                  }
+                : undefined
+            }
+            onRowAppend={isEditable ? handleRowAppend : undefined}
+            onRowDelete={isEditable ? handleRowDelete : undefined}
+            onPaste={isEditable ? handlePaste : undefined}
+            // Avoid work during drag by not updating overlays when resizing
+            onColumnResize={(col, size) => {
+              handleColumnResize(col, size);
+            }}
+            onColumnResizeEnd={(column, size) => {
+              handleColumnResizeEnd(column, size);
+              flushWidths();
+            }}
+            onColumnMoved={handleColumnMoved}
+            onActiveCellChange={persistActiveCell}
+            onVisibleRegionChanged={handleVisibleRegionChanged}
+            gridSelection={gridSelection}
+            onSelectionChange={handleSelectionChange}
+            freezeColumns={freezeColumns}
+            getRowThemeOverride={getRowThemeOverride}
+            highlightRegions={cellHighlightRegions}
+          />
+        </GridContextMenu>
       </div>
 
       <DataGridStatusBar
-        loadedRows={rows.length}
+        loadedRows={displayRows.length}
         estimatedTotal={estimatedTotal ?? undefined}
         hasMore={hasNextPage}
         isStreaming={isLoadingMore}
@@ -1873,6 +2036,13 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         networkMs={networkMs}
         conversionMs={conversionMs}
         ipcSendMs={ipcSendMs}
+        onViewDetails={
+          selectedRowCount > 0
+            ? () => {
+                setShowDetailsSheet(true);
+              }
+            : undefined
+        }
       />
     </div>
   );
