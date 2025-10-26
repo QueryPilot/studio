@@ -7,6 +7,8 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { CodeEditor } from "@/components/CodeEditor";
 import { type ColumnMeta } from "@/types/database";
+import type { CellValue as BackendCellValue } from "@/services/backend";
+import { normalizeBackendValue } from "@/services/tableDataTransform";
 
 interface QueryResult {
   columns: string[];
@@ -57,7 +59,8 @@ export const ResultViewer = memo(function ResultViewer({
     const objects = result.rows.map((row) => {
       const obj: Record<string, unknown> = {};
       result.columns.forEach((col, i) => {
-        obj[col] = row[i];
+        const rawValue = row[i] as BackendCellValue | undefined;
+        obj[col] = normalizeBackendValue(rawValue);
       });
       return obj;
     });

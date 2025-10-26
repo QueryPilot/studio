@@ -27,7 +27,7 @@ export function mapBackendColumnsToColumnMeta(
   }));
 }
 
-function deriveValueType(
+export function deriveValueType(
   rawValue: BackendCellValue | undefined,
   dbType: string,
 ): FrontCellValue["value_type"] {
@@ -84,9 +84,11 @@ function deriveValueType(
   return "Text";
 }
 
-function normalizeBackendValue(value: BackendCellValue): unknown {
+export function normalizeBackendValue(
+  value: BackendCellValue | undefined,
+): unknown {
   if (value === null || value === undefined) {
-    return value ?? null;
+    return value;
   }
 
   if (typeof value === "bigint") {
@@ -98,10 +100,12 @@ function normalizeBackendValue(value: BackendCellValue): unknown {
   }
 
   if (typeof value === "object") {
-    const normalizedEntries = Object.entries(value).map(([key, inner]) => [
-      key,
-      normalizeBackendValue(inner as BackendCellValue),
-    ]);
+    const normalizedEntries = Object.entries(value).map(([key, inner]) => {
+      const normalized = normalizeBackendValue(
+        inner as BackendCellValue | undefined,
+      );
+      return [key, normalized];
+    });
     return Object.fromEntries(normalizedEntries);
   }
 
