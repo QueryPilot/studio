@@ -220,7 +220,7 @@ export class QueryStreamClient {
             return;
           }
 
-          parsedRows = decode(bytes) as CellValue[][];
+          parsedRows = decode(bytes, { useBigInt64: true }) as CellValue[][];
         } catch (err: unknown) {
           console.error(
             "[QueryStreamClient] Failed to decode MessagePack batch",

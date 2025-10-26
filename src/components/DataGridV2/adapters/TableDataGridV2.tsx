@@ -474,7 +474,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           finalColumns.forEach((col) => {
             const value = row?.[col.field];
             if (value && typeof value === "object" && "value" in value) {
-              jsonRow[col.field] = value.value;
+              const cellValue = value.value;
+              jsonRow[col.field] =
+                typeof cellValue === "bigint"
+                  ? cellValue.toString()
+                  : cellValue;
             }
           });
           return jsonRow;
