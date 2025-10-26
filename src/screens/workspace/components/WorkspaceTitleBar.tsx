@@ -55,6 +55,7 @@ import { useTheme } from "@/components/theme-provider";
 import { toast } from "@/hooks/use-toast";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { PreferencesDialog } from "@/components/Preferences/PreferencesDialog";
+import { PendingEditsIndicator } from "@/components/PendingEditsIndicator";
 
 interface WorkspaceTitleBarProps {
   connectionId: string;
@@ -560,6 +561,9 @@ export function WorkspaceTitleBar({
 
       {/* Right Section */}
       <div className="flex items-center gap-2 pr-3">
+        {/* Pending Edits Indicator */}
+        <PendingEditsIndicator connectionId={connectionId} />
+
         <Button
           variant="ghost"
           size="sm"

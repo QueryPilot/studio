@@ -10,6 +10,12 @@ import { ConstraintType } from "@/services/backend";
 import { ColumnRow, type ColumnRowData } from "./ColumnRow";
 import { toast } from "sonner";
 import { databaseService } from "@/services/databaseService";
+import type { EditingScopeKey } from "@/stores/tableEditStore.types";
+import {
+  useTableEditStructure,
+  useEnsureScope,
+} from "@/stores/tableEditStore.selectors";
+import { applyChangesService } from "@/services/applyChangesService";
 
 interface TableStructureProps {
   connectionId: string;
@@ -61,13 +67,42 @@ export const TableStructure = memo(function TableStructure({
     [structure?.constraints],
   );
 
-  // State for editing
-  const [editingColumns, setEditingColumns] = useState<
-    Map<string, Partial<ColumnRowData>>
-  >(new Map());
-  const [deletedColumns, setDeletedColumns] = useState<Set<string>>(new Set());
-  const [newColumns, setNewColumns] = useState<ColumnRowData[]>([]);
+  // Define editing scope for centralized store
+  const scope: EditingScopeKey = useMemo(
+    () => ({
+      connectionId,
+      database,
+      schema: schema || "public",
+      table,
+    }),
+    [connectionId, database, schema, table],
+  );
+
+  // Ensure scope exists in store
+  useEnsureScope(scope);
+
+  // Use centralized store for editing state
+  const {
+    editedColumns,
+    newColumns: newColumnsMap,
+    deletedColumns,
+    addDraft,
+    updateDraft,
+    deleteDraft,
+    removeDraft,
+    discardAll: discardAllStore,
+  } = useTableEditStructure(scope);
+
   const [isSaving, setIsSaving] = useState(false);
+
+  // Convert Maps to arrays for compatibility with existing render logic
+  const editingColumns = useMemo(() => {
+    return editedColumns;
+  }, [editedColumns]);
+
+  const newColumns = useMemo(() => {
+    return Array.from(newColumnsMap.values());
+  }, [newColumnsMap]);
 
   // Convert column data to ColumnRowData format
   const columnsData = useMemo(() => {
@@ -110,7 +145,7 @@ export const TableStructure = memo(function TableStructure({
 
   // Check if there are any changes
   const hasChanges =
-    editingColumns.size > 0 || deletedColumns.size > 0 || newColumns.length > 0;
+    editedColumns.size > 0 || deletedColumns.size > 0 || newColumnsMap.size > 0;
 
   // Get all available columns including new ones
   const availableColumns = useMemo(() => {
@@ -143,28 +178,30 @@ export const TableStructure = memo(function TableStructure({
   // Update editing data for a column
   const updateEditingData = useCallback(
     (columnName: string, updates: Partial<ColumnRowData>) => {
-      setEditingColumns((prev) => {
-        const newMap = new Map(prev);
-        const currentData = newMap.get(columnName) || {};
-        newMap.set(columnName, { ...currentData, ...updates });
-        return newMap;
-      });
+      const originalColumn = columnsData.find((col) => col.name === columnName);
+      if (!originalColumn) return;
+
+      const currentEdits = editedColumns.get(columnName) || {};
+      const mergedData = { ...originalColumn, ...currentEdits, ...updates };
+
+      updateDraft(columnName, mergedData, originalColumn);
     },
-    [],
+    [columnsData, editedColumns, updateDraft],
   );
 
   // Handle column deletion
-  const handleDeleteColumn = useCallback((columnName: string) => {
-    setDeletedColumns((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(columnName)) {
-        newSet.delete(columnName);
+  const handleDeleteColumn = useCallback(
+    (columnName: string) => {
+      if (deletedColumns.has(columnName)) {
+        // Undo deletion - remove from deleted set
+        removeDraft(columnName);
       } else {
-        newSet.add(columnName);
+        // Mark as deleted
+        deleteDraft(columnName);
       }
-      return newSet;
-    });
-  }, []);
+    },
+    [deletedColumns, deleteDraft, removeDraft],
+  );
 
   // Add new column
   const addNewColumn = useCallback(() => {
@@ -179,38 +216,60 @@ export const TableStructure = memo(function TableStructure({
       foreign_key_ref: null,
       comment: null,
     };
-    setNewColumns((prev) => [...prev, newColumn]);
-  }, []);
+
+    // Generate unique ID for new column
+    const newId = `new_column_${Date.now()}`;
+    addDraft(newId, newColumn);
+  }, [addDraft]);
 
   // Update new column
   const updateNewColumn = useCallback(
     (index: number, updates: Partial<ColumnRowData>) => {
-      setNewColumns((prev) => {
-        const newArray = [...prev];
-        newArray[index] = { ...newArray[index], ...updates } as ColumnRowData;
-        return newArray;
-      });
+      const newColumnArray = Array.from(newColumnsMap.entries());
+      if (index < 0 || index >= newColumnArray.length) return;
+
+      const [columnId, currentData] = newColumnArray[index];
+      const mergedData = { ...currentData, ...updates } as ColumnRowData;
+
+      updateDraft(columnId, mergedData);
     },
-    [],
+    [newColumnsMap, updateDraft],
   );
 
   // Remove new column
-  const removeNewColumn = useCallback((index: number) => {
-    setNewColumns((prev) => prev.filter((_, i) => i !== index));
-  }, []);
+  const removeNewColumn = useCallback(
+    (index: number) => {
+      const newColumnArray = Array.from(newColumnsMap.entries());
+      if (index < 0 || index >= newColumnArray.length) return;
+
+      const [columnId] = newColumnArray[index];
+      removeDraft(columnId);
+    },
+    [newColumnsMap, removeDraft],
+  );
 
   // Discard all changes
   const discardAllChanges = useCallback(() => {
-    setEditingColumns(new Map());
-    setDeletedColumns(new Set());
-    setNewColumns([]);
-  }, []);
+    discardAllStore();
+    toast({ description: "Discarded all changes" });
+  }, [discardAllStore, toast]);
 
-  // Save all changes
+  // Save all changes using centralized apply service
   const handleSaveAllChanges = useCallback(async () => {
+    if (
+      editedColumns.size === 0 &&
+      deletedColumns.size === 0 &&
+      newColumnsMap.size === 0
+    ) {
+      return;
+    }
+
     setIsSaving(true);
     try {
       const currentSchema = schema || "public";
+
+      // For now, keep the existing implementation but use store state
+      // TODO: Replace with applyChangesService.applyScope() once fully implemented
 
       // 1. Drop deleted columns
       for (const columnName of deletedColumns) {
@@ -229,8 +288,6 @@ export const TableStructure = memo(function TableStructure({
           throw new Error("Column name is required");
         }
 
-        // Normalize default to prevent accidental column references in DEFAULT
-        // expressions (e.g., bare identifiers on text types)
         const { normalizeDefaultForType } = await import("@/utils/sql");
         const normalizedDefault = normalizeDefaultForType(
           newColumn.default ?? undefined,
@@ -249,7 +306,7 @@ export const TableStructure = memo(function TableStructure({
       }
 
       // 3. Alter modified columns
-      for (const [originalName, changes] of editingColumns) {
+      for (const [originalName, changes] of editedColumns) {
         const originalColumn = columnsData.find(
           (col) => col.name === originalName,
         );
@@ -269,12 +326,10 @@ export const TableStructure = memo(function TableStructure({
 
         // Check for foreign key changes
         if (changes.foreign_key_ref !== undefined) {
-          // If foreign key was removed (set to null)
           if (
             changes.foreign_key_ref === null &&
             originalColumn.foreign_key_ref
           ) {
-            // Find the constraint name for this foreign key
             const fk = foreignKeys.find((fk) =>
               fk.columns.includes(originalName),
             );
@@ -292,9 +347,7 @@ export const TableStructure = memo(function TableStructure({
                 `Could not find foreign key constraint for ${originalName}`,
               );
             }
-          }
-          // If foreign key was added or modified
-          else if (
+          } else if (
             changes.foreign_key_ref &&
             (!originalColumn.foreign_key_ref ||
               changes.foreign_key_ref.table !==
@@ -302,7 +355,6 @@ export const TableStructure = memo(function TableStructure({
               changes.foreign_key_ref.column !==
                 originalColumn.foreign_key_ref.column)
           ) {
-            // First drop existing foreign key if it exists
             if (originalColumn.foreign_key_ref) {
               const fk = foreignKeys.find((fk) =>
                 fk.columns.includes(originalName),
@@ -316,7 +368,6 @@ export const TableStructure = memo(function TableStructure({
                 );
               }
             }
-            // Then add new foreign key
             await databaseService.addForeignKey(
               connectionId,
               currentSchema,
@@ -400,10 +451,8 @@ export const TableStructure = memo(function TableStructure({
 
       toast.success("All column changes saved successfully");
 
-      // Reset state after successful save
-      setEditingColumns(new Map());
-      setDeletedColumns(new Set());
-      setNewColumns([]);
+      // Discard changes from store after successful save
+      discardAllStore();
 
       // Refresh the structure
       await refresh();
@@ -418,11 +467,13 @@ export const TableStructure = memo(function TableStructure({
     connectionId,
     schema,
     table,
+    editedColumns,
     deletedColumns,
+    newColumnsMap,
     newColumns,
-    editingColumns,
     columnsData,
     foreignKeys,
+    discardAllStore,
     refresh,
   ]);
 
@@ -491,7 +542,7 @@ export const TableStructure = memo(function TableStructure({
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center h-full p-8">
+      <div className="flex flex-col items-center justify-center h-full p-8 select-text">
         <AlertCircle className="h-12 w-12 text-destructive mb-4" />
         <h3 className="text-lg font-semibold mb-2">Failed to load structure</h3>
         <p className="text-sm text-muted-foreground max-w-md text-center select-text">
@@ -664,11 +715,7 @@ export const TableStructure = memo(function TableStructure({
                 onUpdate={(updates) => {
                   // Clear deletion if user starts editing
                   if (isDeleted) {
-                    setDeletedColumns((prev) => {
-                      const newSet = new Set(prev);
-                      newSet.delete(column.name);
-                      return newSet;
-                    });
+                    removeDraft(column.name);
                   }
                   updateEditingData(column.name, updates);
                 }}
@@ -680,20 +727,9 @@ export const TableStructure = memo(function TableStructure({
                     : undefined
                 }
                 onReset={() => {
-                  if (isDeleted) {
-                    // Undo deletion
-                    setDeletedColumns((prev) => {
-                      const newSet = new Set(prev);
-                      newSet.delete(column.name);
-                      return newSet;
-                    });
-                  } else if (hasRowChanges) {
-                    // Reset changes to original values
-                    setEditingColumns((prev) => {
-                      const newMap = new Map(prev);
-                      newMap.delete(column.name);
-                      return newMap;
-                    });
+                  if (isDeleted || hasRowChanges) {
+                    // Remove from store (undoes both deletion and edits)
+                    removeDraft(column.name);
                   }
                 }}
               />

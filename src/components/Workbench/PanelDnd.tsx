@@ -1,6 +1,10 @@
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { type PanelContent, type DropPosition } from "@/types/workbench";
+import {
+  type PanelContent,
+  type DropPosition,
+  type TabMetadata,
+} from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import {
   X,
@@ -25,6 +29,8 @@ import { useDroppable } from "@dnd-kit/core";
 import { DraggableTab } from "./DraggableTab";
 import { useConnectionStore } from "@/stores/connectionStore";
 import { useSchemaStore } from "@/stores/schemaStore";
+import { useTableEditStore, createScopeKey } from "@/stores/tableEditStore";
+import { TabCloseConfirmDialog } from "./TabCloseConfirmDialog";
 
 interface DroppableZoneProps {
   panelId: string;
@@ -97,7 +103,17 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
     addTab,
   } = useWorkbenchStore();
 
+  const activeConnectionId = useConnectionStore(
+    (state) => state.activeConnectionId,
+  );
+
   const tabsContainerRef = useRef<HTMLDivElement>(null);
+
+  // State for close confirmation dialog
+  const [confirmCloseTab, setConfirmCloseTab] = useState<{
+    tabId: string;
+    metadata: TabMetadata | undefined;
+  } | null>(null);
 
   // Subscribe to drag state
   const draggedTab = useWorkbenchStore(
@@ -157,8 +173,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
             .slice(2, 8)}`;
     const tabId = `query-${uuid}`;
 
-    const { activeConnectionId, panelContents } =
-      useWorkbenchStore.getState();
+    const { activeConnectionId, panelContents } = useWorkbenchStore.getState();
     const { getConnection } = useConnectionStore.getState();
     const { selectedSchema } = useSchemaStore.getState();
 
@@ -238,6 +253,34 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                     focusPanel(content.id);
                   }}
                   onClose={() => {
+                    // Check if tab has pending edits
+                    if (
+                      metadata &&
+                      metadata.type !== "query" &&
+                      metadata.table &&
+                      activeConnectionId
+                    ) {
+                      const scopeKey = createScopeKey({
+                        connectionId: activeConnectionId,
+                        database: metadata.database || "",
+                        schema: metadata.schema || "public",
+                        table: metadata.table,
+                      });
+
+                      const scopeState = useTableEditStore
+                        .getState()
+                        .scopes.get(scopeKey);
+                      const hasPendingChanges =
+                        scopeState && scopeState.summary.totalChanges > 0;
+
+                      if (hasPendingChanges) {
+                        // Show confirmation dialog
+                        setConfirmCloseTab({ tabId, metadata });
+                        return;
+                      }
+                    }
+
+                    // No pending changes, close directly
                     removeTab(content.id, tabId);
                   }}
                 />
@@ -383,6 +426,26 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
           isVisible={showDropZones}
         />
       </div>
+
+      {/* Close Confirmation Dialog */}
+      {confirmCloseTab && activeConnectionId && (
+        <TabCloseConfirmDialog
+          open={!!confirmCloseTab}
+          onOpenChange={(open) => {
+            if (!open) {
+              setConfirmCloseTab(null);
+            }
+          }}
+          onConfirm={() => {
+            if (confirmCloseTab) {
+              removeTab(content.id, confirmCloseTab.tabId);
+              setConfirmCloseTab(null);
+            }
+          }}
+          metadata={confirmCloseTab.metadata}
+          connectionId={activeConnectionId}
+        />
+      )}
     </div>
   );
 };

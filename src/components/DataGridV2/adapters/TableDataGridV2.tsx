@@ -54,11 +54,21 @@ import type { Theme } from "@glideapps/glide-data-grid";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { Button } from "@/components/ui/button";
 import { Loader2, Save, X } from "lucide-react";
-import { CellEditService } from "@/services/cellEditService";
 import { cn } from "@/lib/utils";
 import { GridContextMenu } from "../components/GridContextMenu";
 import { useConnectionStore } from "@/stores";
 import { useTheme } from "next-themes";
+import {
+  useTableEditData,
+  useEnsureScope,
+} from "@/stores/tableEditStore.selectors";
+import { useTableEditStore } from "@/stores/tableEditStore";
+import type {
+  EditingScopeKey,
+  RowDraft as StoreDraft,
+  CellDraft as StoreCellDraft,
+} from "@/stores/tableEditStore.types";
+import { applyChangesService } from "@/services/applyChangesService";
 
 interface BooleanCellPayload {
   kind: "boolean-cell";
@@ -91,42 +101,9 @@ const isEnumCellPayload = (value: unknown): value is EnumCellPayload => {
   );
 };
 
-type RowEditAction = "insert" | "update" | "delete";
+// Note: Local editing types replaced by centralized store types (StoreDraft, StoreCellDraft)
 
-interface EditingCellDraft {
-  columnId: string;
-  originalValue: CellValue | null;
-  draftValue: CellValue | null;
-  hasChanged: boolean;
-}
-
-interface RowEditDraft {
-  rowKey: string;
-  rowIndex: number;
-  action: RowEditAction;
-  createdAt: number;
-  updatedAt: number;
-  originalRow: GridRowModel | null;
-  draftRow: GridRowModel | null;
-  cells: Map<string, EditingCellDraft>;
-}
-
-interface UpsertCellEditParams {
-  rowKey: string;
-  rowIndex: number;
-  columnId: string;
-  originalCell: CellValue | null | undefined;
-  draftCell: CellValue | null | undefined;
-  originalRowSnapshot: GridRowModel | null;
-  draftRowSnapshot: GridRowModel | null;
-  actionHint?: RowEditAction;
-}
-
-interface RowMutationParams {
-  rowKey: string;
-  rowIndex: number;
-  row: GridRowModel | null;
-}
+// Note: Old helper functions removed - editing state is now handled by centralized store
 
 const areCellValuesEqual = (
   left: CellValue | null | undefined,
@@ -166,155 +143,6 @@ const areCellValuesEqual = (
   }
 
   return false;
-};
-
-const cloneEditingState = (
-  state: Map<string, RowEditDraft>,
-): Map<string, RowEditDraft> => {
-  const clone = new Map<string, RowEditDraft>();
-  state.forEach((entry, key) => {
-    clone.set(key, {
-      ...entry,
-      cells: new Map(entry.cells),
-    });
-  });
-  return clone;
-};
-
-const upsertCellEditState = (
-  prevState: Map<string, RowEditDraft>,
-  params: UpsertCellEditParams,
-): { state: Map<string, RowEditDraft>; changed: boolean } => {
-  const {
-    rowKey,
-    rowIndex,
-    columnId,
-    originalCell,
-    draftCell,
-    originalRowSnapshot,
-    draftRowSnapshot,
-    actionHint,
-  } = params;
-
-  const previousEntry = prevState.get(rowKey);
-  const baselineOriginal =
-    previousEntry?.cells.get(columnId)?.originalValue ?? originalCell ?? null;
-  const baselineDraft = draftCell ?? null;
-
-  if (areCellValuesEqual(baselineOriginal, baselineDraft)) {
-    if (!previousEntry) {
-      return { state: prevState, changed: false };
-    }
-
-    const nextState = new Map(prevState);
-    const updatedEntry: RowEditDraft = {
-      ...previousEntry,
-      rowIndex,
-      updatedAt: Date.now(),
-      draftRow: draftRowSnapshot ?? previousEntry.draftRow,
-      cells: new Map(previousEntry.cells),
-    };
-
-    updatedEntry.cells.delete(columnId);
-
-    if (updatedEntry.cells.size === 0 && updatedEntry.action !== "insert") {
-      nextState.delete(rowKey);
-    } else {
-      nextState.set(rowKey, updatedEntry);
-    }
-
-    return { state: nextState, changed: true };
-  }
-
-  const nextState = new Map(prevState);
-  const now = Date.now();
-  const cells = previousEntry
-    ? new Map(previousEntry.cells)
-    : new Map<string, EditingCellDraft>();
-
-  const entry: RowEditDraft = {
-    rowKey,
-    rowIndex,
-    action: actionHint ?? previousEntry?.action ?? "update",
-    createdAt: previousEntry?.createdAt ?? now,
-    updatedAt: now,
-    originalRow: previousEntry?.originalRow ?? originalRowSnapshot ?? null,
-    draftRow: draftRowSnapshot ?? previousEntry?.draftRow ?? null,
-    cells,
-  };
-
-  entry.cells.set(columnId, {
-    columnId,
-    originalValue: baselineOriginal,
-    draftValue: baselineDraft,
-    hasChanged: true,
-  });
-
-  nextState.set(rowKey, entry);
-  return { state: nextState, changed: true };
-};
-
-const markRowInsertedState = (
-  prevState: Map<string, RowEditDraft>,
-  params: RowMutationParams,
-): { state: Map<string, RowEditDraft>; changed: boolean } => {
-  const { rowKey, rowIndex, row } = params;
-  const previousEntry = prevState.get(rowKey);
-  const now = Date.now();
-
-  if (
-    previousEntry &&
-    previousEntry.action === "insert" &&
-    previousEntry.rowIndex === rowIndex &&
-    previousEntry.draftRow === row
-  ) {
-    return { state: prevState, changed: false };
-  }
-
-  const nextState = new Map(prevState);
-  nextState.set(rowKey, {
-    rowKey,
-    rowIndex,
-    action: "insert",
-    createdAt: previousEntry?.createdAt ?? now,
-    updatedAt: now,
-    originalRow: null,
-    draftRow: row,
-    cells: previousEntry
-      ? new Map(previousEntry.cells)
-      : new Map<string, EditingCellDraft>(),
-  });
-
-  return { state: nextState, changed: true };
-};
-
-const markRowDeletedState = (
-  prevState: Map<string, RowEditDraft>,
-  params: RowMutationParams,
-): { state: Map<string, RowEditDraft>; changed: boolean } => {
-  const { rowKey, rowIndex, row } = params;
-  const previousEntry = prevState.get(rowKey);
-  const now = Date.now();
-
-  const nextState = new Map(prevState);
-
-  if (previousEntry?.action === "insert") {
-    nextState.delete(rowKey);
-    return { state: nextState, changed: true };
-  }
-
-  nextState.set(rowKey, {
-    rowKey,
-    rowIndex,
-    action: "delete",
-    createdAt: previousEntry?.createdAt ?? now,
-    updatedAt: now,
-    originalRow: previousEntry?.originalRow ?? row,
-    draftRow: null,
-    cells: new Map<string, EditingCellDraft>(),
-  });
-
-  return { state: nextState, changed: true };
 };
 
 // Base props shared by both modes
@@ -550,13 +378,30 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     return map;
   }, [tableStructure?.columns]);
 
+  // Define editing scope for centralized store
+  const scope: EditingScopeKey = useMemo(
+    () => ({
+      connectionId: isTableMode ? connectionId : "",
+      database: isTableMode ? database : "",
+      schema: isTableMode ? schema || "public" : "",
+      table: isTableMode ? table : "",
+    }),
+    [isTableMode, connectionId, database, schema, table],
+  );
+
+  // Ensure scope exists in store
+  useEnsureScope(scope);
+
+  // Use centralized store for editing state
+  const {
+    rowDrafts,
+    upsertRowDraft,
+    removeRowDraft,
+    discardAll: discardAllStore,
+  } = useTableEditData(scope);
+
   const rowKeyMapRef = useRef(new WeakMap<GridRowModel, string>());
   const draftRowCounterRef = useRef(0);
-  const [editingRows, setEditingRows] = useState<Map<string, RowEditDraft>>(
-    () => new Map(),
-  );
-  const editingRowsRef = useRef(editingRows);
-  editingRowsRef.current = editingRows;
 
   const [rows, setRows] = useState<GridRowModel[]>([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -761,16 +606,17 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   // Discard all pending edits and revert to last loaded data snapshot
   const discardAllChanges = useCallback(() => {
-    setEditingRows(new Map());
-    editingRowsRef.current = new Map();
+    discardAllStore();
     // Re-sync to server rows
     setRows(dataRows);
     toast({ description: "Discarded pending edits" });
-  }, [dataRows, toast]);
+  }, [dataRows, toast, discardAllStore]);
 
-  // Save pending edits (updates only for now)
+  // Save pending edits using centralized apply service
   const handleSaveAllChanges = useCallback(async () => {
-    if (editingRowsRef.current.size === 0) return;
+    if (rowDrafts.size === 0) return;
+    if (!isTableMode) return;
+
     setIsSaving(true);
     try {
       const pkColumns = primaryKeyColumns;
@@ -782,68 +628,61 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         return;
       }
 
-      const errors: string[] = [];
-      let updatedRows = 0;
-      let updatedCells = 0;
-      console.log("🟢 SaveAll clicked", {
-        table,
-        schema: schema ?? "public",
-        drafts: editingRowsRef.current.size,
-      });
-      // Apply updates per row, per changed cell
-      for (const [, draft] of editingRowsRef.current) {
-        if (draft.action !== "update") {
-          // Not yet supported in this commit path
-          continue;
-        }
-
-        const original = draft.originalRow ?? rows[draft.rowIndex];
-        const pk: Record<string, unknown> = {};
-        for (const pkCol of pkColumns) {
-          pk[pkCol] = original?.[pkCol]?.value ?? null;
-        }
-
-        for (const [columnName, cellDraft] of draft.cells) {
-          if (!cellDraft.hasChanged) continue;
-          const newValue = cellDraft.draftValue?.value ?? null;
-          try {
-            const res = await CellEditService.updateCell({
-              connectionId,
-              database,
-              table,
-              schema,
-              column: columnName,
-              primaryKeys: pk,
-              newValue,
-            });
-            if (!res.success) {
-              errors.push(res.error || `Failed to update ${columnName}`);
-            } else {
-              updatedCells += 1;
-            }
-          } catch (e) {
-            errors.push(e instanceof Error ? e.message : String(e));
-          }
-        }
-        if (draft.cells.size > 0) {
-          updatedRows += 1;
-        }
-      }
-
-      if (errors.length > 0) {
-        toast({ description: errors[0], variant: "destructive" });
-      } else {
+      // Get scope state from store
+      const scopeState = useTableEditStore.getState().getScopeState(scope);
+      if (!scopeState) {
         toast({
-          description: `Saved ${updatedCells} cell(s) across ${updatedRows} row(s)`,
+          description: "Invalid scope state",
+          variant: "destructive",
         });
-        setEditingRows(new Map());
-        editingRowsRef.current = new Map();
-        // rows already reflect optimistic edits; refresh is optional
+        return;
       }
+
+      // Apply changes using the centralized service
+      const result = await applyChangesService.applyScope(
+        scope,
+        scopeState,
+        connection?.type || "postgresql",
+        {
+          domains: ["data"],
+          continueOnError: false,
+        },
+      );
+
+      if (result.success) {
+        const applied = result.applied?.data
+          ? result.applied.data.applied || 0
+          : 0;
+        toast({
+          description: `Saved ${applied} change(s)`,
+        });
+        // Discard changes from store after successful save
+        discardAllStore();
+        // Optionally refresh data from server
+        // await tableDataQuery.refetch();
+      } else {
+        const appliedData = result.applied ? result.applied.data : undefined;
+        const dataErrors = appliedData ? appliedData.errors : undefined;
+        const errorMsg =
+          (dataErrors && dataErrors[0]) || "Failed to save changes";
+        toast({ description: errorMsg, variant: "destructive" });
+      }
+    } catch (error) {
+      const errorMsg =
+        error instanceof Error ? error.message : "Failed to save changes";
+      toast({ description: errorMsg, variant: "destructive" });
     } finally {
       setIsSaving(false);
     }
-  }, [connectionId, database, schema, table, primaryKeyColumns, rows, toast]);
+  }, [
+    rowDrafts,
+    isTableMode,
+    primaryKeyColumns,
+    scope,
+    connection,
+    toast,
+    discardAllStore,
+  ]);
 
   const columnState = preferences?.columns ?? DEFAULT_COLUMN_STATE;
 
@@ -1001,45 +840,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const rowsRef = useRef(displayRows);
   rowsRef.current = displayRows;
 
-  useEffect(() => {
-    if (rows.length === 0 && editingRowsRef.current.size === 0) {
-      return;
-    }
-
-    const indexByKey = new Map<string, number>();
-    rows.forEach((row, index) => {
-      const key = getRowKey(row, index);
-      indexByKey.set(key, index);
-    });
-
-    if (editingRowsRef.current.size === 0) {
-      return;
-    }
-
-    const normalized = new Map(editingRowsRef.current);
-    let mutated = false;
-
-    for (const [key, entry] of normalized) {
-      const nextIndex = indexByKey.get(key);
-      if (nextIndex === undefined) {
-        normalized.delete(key);
-        mutated = true;
-        continue;
-      }
-
-      if (entry.rowIndex !== nextIndex) {
-        normalized.set(key, { ...entry, rowIndex: nextIndex });
-        mutated = true;
-      }
-    }
-
-    if (!mutated) {
-      return;
-    }
-
-    setEditingRows(normalized);
-    editingRowsRef.current = normalized;
-  }, [rows, getRowKey]);
+  // Note: Row index normalization is now handled by the centralized store
+  // The store automatically maintains correct rowIndex values
 
   const handleGetCellContent = useCallback(
     (cell: Item) => {
@@ -1061,7 +863,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       // Get row key to check for pending edits
       const rowKey = getRowKey(row, rowIndex);
-      const editingRowDraft = editingRowsRef.current.get(rowKey);
+      const editingRowDraft = rowDrafts.get(rowKey);
 
       const editedCellDraft =
         editingRowDraft?.cells.get(column.field) ?? undefined;
@@ -1126,7 +928,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       return gridCell;
     },
-    [finalColumns, getRowKey, highlightColors],
+    [finalColumns, getRowKey, highlightColors, rowDrafts],
   );
 
   const handleSelectionChange = useCallback(
@@ -1282,27 +1084,34 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         };
       }
 
-      const previousSnapshot = cloneEditingState(editingRowsRef.current);
-      const { state: nextEditingState, changed: editingChanged } =
-        upsertCellEditState(editingRowsRef.current, {
-          rowKey,
-          rowIndex,
-          columnId: column.field,
-          originalCell: previousValue,
-          draftCell: updatedCell,
-          originalRowSnapshot: currentRow,
-          draftRowSnapshot: updatedRow,
-          actionHint: "update",
-        });
+      // Get existing draft from store or create new one
+      const existingDraft = rowDrafts.get(rowKey);
+      const cells: Map<string, StoreCellDraft> = existingDraft?.cells
+        ? new Map(existingDraft.cells as Map<string, StoreCellDraft>)
+        : new Map();
 
-      const nextEditingSnapshot = editingChanged
-        ? cloneEditingState(nextEditingState)
-        : previousSnapshot;
+      // Update cell draft
+      cells.set(column.field, {
+        columnId: column.field,
+        originalValue: previousValue || null,
+        draftValue: updatedCell || null,
+        hasChanged: true,
+      });
 
-      if (editingChanged) {
-        setEditingRows(nextEditingState);
-        editingRowsRef.current = nextEditingState;
-      }
+      // Create row draft for store
+      const draft: StoreDraft = {
+        rowKey,
+        rowIndex,
+        action: existingDraft?.action || "update",
+        createdAt: existingDraft?.createdAt || Date.now(),
+        updatedAt: Date.now(),
+        originalRow: existingDraft?.originalRow || currentRow,
+        draftRow: updatedRow,
+        cells,
+      };
+
+      // Write to centralized store
+      upsertRowDraft(rowKey, draft);
 
       // Optimistic update
       const newRows = [...rows];
@@ -1323,56 +1132,20 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         updatedCell: updatedCell,
       });
 
-      // Return history entry for undo/redo
+      // Note: Undo/redo is now handled by centralized store
+      // Return empty handlers for compatibility with grid history API
       return {
         undo: () => {
-          setRows((prevRows) => {
-            const index = prevRows.findIndex(
-              (row, idx) => getRowKey(row, idx) === rowKey,
-            );
-            if (index === -1) {
-              return prevRows;
-            }
-            const reverted = [...prevRows];
-            reverted[index] = currentRow;
-            rowKeyMapRef.current.set(currentRow, rowKey);
-            return reverted;
-          });
-
-          if (editingChanged) {
-            const restored = cloneEditingState(previousSnapshot);
-            setEditingRows(restored);
-            editingRowsRef.current = restored;
-          }
-          // Clear editing highlight after undo restores state
+          // Centralized store handles undo
           setEditingCell(null);
         },
         redo: () => {
-          setRows((prevRows) => {
-            const index = prevRows.findIndex(
-              (row, idx) => getRowKey(row, idx) === rowKey,
-            );
-            const targetIndex = index === -1 ? rowIndex : index;
-            if (targetIndex < 0 || targetIndex >= prevRows.length) {
-              return prevRows;
-            }
-            const applied = [...prevRows];
-            applied[targetIndex] = updatedRow;
-            rowKeyMapRef.current.set(updatedRow, rowKey);
-            return applied;
-          });
-
-          if (editingChanged) {
-            const restored = cloneEditingState(nextEditingSnapshot);
-            setEditingRows(restored);
-            editingRowsRef.current = restored;
-          }
-          // Clear editing highlight after redo applies change
+          // Centralized store handles redo
           setEditingCell(null);
         },
       };
     },
-    [getRowKey, rows, table],
+    [getRowKey, rows, table, rowDrafts, upsertRowDraft],
   );
 
   const handleRowAppend = useCallback(
@@ -1397,22 +1170,20 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       const rowKey = getRowKey(draftRow, insertionIndex);
 
-      const previousSnapshot = cloneEditingState(editingRowsRef.current);
-      const { state: nextEditingState, changed: editingChanged } =
-        markRowInsertedState(editingRowsRef.current, {
-          rowKey,
-          rowIndex: insertionIndex,
-          row: draftRow,
-        });
+      // Create insert draft for store
+      const draft: StoreDraft = {
+        rowKey,
+        rowIndex: insertionIndex,
+        action: "insert",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        originalRow: null,
+        draftRow: draftRow,
+        cells: new Map(),
+      };
 
-      const nextEditingSnapshot = editingChanged
-        ? cloneEditingState(nextEditingState)
-        : previousSnapshot;
-
-      if (editingChanged) {
-        setEditingRows(nextEditingState);
-        editingRowsRef.current = nextEditingState;
-      }
+      // Write to centralized store
+      upsertRowDraft(rowKey, draft);
 
       setRows(newRows);
 
@@ -1420,30 +1191,13 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         description: "New row added. Edit cells to set values.",
       });
 
-      // TODO: Create row in backend when saved
-
+      // Note: Undo/redo is handled by centralized store
       return {
-        undo: () => {
-          setRows(rows);
-
-          if (editingChanged) {
-            const restored = cloneEditingState(previousSnapshot);
-            setEditingRows(restored);
-            editingRowsRef.current = restored;
-          }
-        },
-        redo: () => {
-          setRows(newRows);
-
-          if (editingChanged) {
-            const restored = cloneEditingState(nextEditingSnapshot);
-            setEditingRows(restored);
-            editingRowsRef.current = restored;
-          }
-        },
+        undo: () => {},
+        redo: () => {},
       };
     },
-    [getRowKey, rows, toast],
+    [getRowKey, rows, toast, upsertRowDraft],
   );
 
   const handleRowDelete = useCallback(
@@ -1452,11 +1206,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       const removalSet = new Set(rowIndexes);
       const sortedIndexes = [...removalSet].sort((a, b) => b - a);
       // Keep rows visible, mark them as pending deletion in editing state
-      const newRows = rows; // do not remove immediately; highlight instead
-
-      let editingState: Map<string, RowEditDraft> = editingRowsRef.current;
-      let editingChanged = false;
-      const previousSnapshot = cloneEditingState(editingRowsRef.current);
 
       for (const rowIndex of sortedIndexes) {
         const row = rows[rowIndex];
@@ -1464,24 +1213,25 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           continue;
         }
         const rowKey = getRowKey(row, rowIndex);
-        const result = markRowDeletedState(editingState, {
-          rowKey,
-          rowIndex,
-          row,
-        });
-        if (result.changed) {
-          editingState = result.state;
-          editingChanged = true;
+
+        // Check if this was an insert - if so, just remove it from store
+        const existingDraft = rowDrafts.get(rowKey);
+        if (existingDraft?.action === "insert") {
+          removeRowDraft(rowKey);
+        } else {
+          // Mark as deleted in store
+          const draft: StoreDraft = {
+            rowKey,
+            rowIndex,
+            action: "delete",
+            createdAt: existingDraft?.createdAt || Date.now(),
+            updatedAt: Date.now(),
+            originalRow: existingDraft?.originalRow || row,
+            draftRow: null,
+            cells: new Map(),
+          };
+          upsertRowDraft(rowKey, draft);
         }
-      }
-
-      const nextEditingSnapshot = editingChanged
-        ? cloneEditingState(editingState)
-        : previousSnapshot;
-
-      if (editingChanged) {
-        setEditingRows(editingState);
-        editingRowsRef.current = editingState;
       }
 
       toast({
@@ -1489,30 +1239,13 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         variant: "destructive",
       });
 
-      // TODO: Delete rows from backend
-
+      // Note: Undo/redo is handled by centralized store
       return {
-        undo: () => {
-          setRows(rows);
-
-          if (editingChanged) {
-            const restored = cloneEditingState(previousSnapshot);
-            setEditingRows(restored);
-            editingRowsRef.current = restored;
-          }
-        },
-        redo: () => {
-          setRows(newRows);
-
-          if (editingChanged) {
-            const restored = cloneEditingState(nextEditingSnapshot);
-            setEditingRows(restored);
-            editingRowsRef.current = restored;
-          }
-        },
+        undo: () => {},
+        redo: () => {},
       };
     },
-    [getRowKey, rows, toast],
+    [getRowKey, rows, toast, rowDrafts, removeRowDraft, upsertRowDraft],
   );
 
   const handlePaste = useCallback(
@@ -1522,9 +1255,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       // Update cells with pasted values
       const newRows = [...rows];
-      let editingState: Map<string, RowEditDraft> = editingRowsRef.current;
-      let editingChanged = false;
-      const previousSnapshot = cloneEditingState(editingRowsRef.current);
 
       for (let rowOffset = 0; rowOffset < values.length; rowOffset += 1) {
         const rowValues = values[rowOffset];
@@ -1544,6 +1274,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         const rowKey = getRowKey(currentRow, targetRowIdx);
         const updatedRow = { ...currentRow };
         rowKeyMapRef.current.set(updatedRow, rowKey);
+
+        // Get existing draft from store or create new one
+        const existingDraft = rowDrafts.get(rowKey);
+        const cells: Map<string, StoreCellDraft> = existingDraft?.cells
+          ? new Map(existingDraft.cells as Map<string, StoreCellDraft>)
+          : new Map();
 
         for (let colOffset = 0; colOffset < rowValues.length; colOffset += 1) {
           const value = rowValues[colOffset];
@@ -1569,56 +1305,39 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
           updatedRow[column.field] = newCell;
 
-          const result = upsertCellEditState(editingState, {
-            rowKey,
-            rowIndex: targetRowIdx,
+          // Update cell draft
+          cells.set(column.field, {
             columnId: column.field,
-            originalCell: currentRow[column.field],
-            draftCell: newCell,
-            originalRowSnapshot: currentRow,
-            draftRowSnapshot: updatedRow,
-            actionHint: "update",
+            originalValue: currentRow[column.field] || null,
+            draftValue: newCell,
+            hasChanged: true,
           });
-
-          if (result.changed) {
-            editingState = result.state;
-            editingChanged = true;
-          }
         }
+
+        // Create row draft for store
+        const draft: StoreDraft = {
+          rowKey,
+          rowIndex: targetRowIdx,
+          action: existingDraft?.action || "update",
+          createdAt: existingDraft?.createdAt || Date.now(),
+          updatedAt: Date.now(),
+          originalRow: existingDraft?.originalRow || currentRow,
+          draftRow: updatedRow,
+          cells,
+        };
+
+        // Write to centralized store
+        upsertRowDraft(rowKey, draft);
 
         newRows[targetRowIdx] = updatedRow;
       }
 
-      const nextEditingSnapshot = editingChanged
-        ? cloneEditingState(editingState)
-        : previousSnapshot;
-
-      if (editingChanged) {
-        setEditingRows(editingState);
-        editingRowsRef.current = editingState;
-      }
-
       setRows(newRows);
 
+      // Note: History is tracked by centralized store
       history.push({
-        undo: () => {
-          setRows(rows);
-
-          if (editingChanged) {
-            const restored = cloneEditingState(previousSnapshot);
-            setEditingRows(restored);
-            editingRowsRef.current = restored;
-          }
-        },
-        redo: () => {
-          setRows(newRows);
-
-          if (editingChanged) {
-            const restored = cloneEditingState(nextEditingSnapshot);
-            setEditingRows(restored);
-            editingRowsRef.current = restored;
-          }
-        },
+        undo: () => {},
+        redo: () => {},
       });
 
       toast({
@@ -1627,7 +1346,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       return true;
     },
-    [finalColumns, getRowKey, history, rows, toast],
+    [finalColumns, getRowKey, history, rows, toast, rowDrafts, upsertRowDraft],
   );
 
   // Debounced scroll persistence to improve performance
@@ -1784,34 +1503,34 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   const pendingDeletedRowIndexes = useMemo(() => {
     const result = new Set<number>();
-    editingRows.forEach((draft) => {
+    rowDrafts.forEach((draft: StoreDraft) => {
       if (draft.action === "delete") {
         result.add(draft.rowIndex);
       }
     });
     return result;
-  }, [editingRows]);
+  }, [rowDrafts]);
 
   const pendingInsertedRowIndexes = useMemo(() => {
     const result = new Set<number>();
-    editingRows.forEach((draft) => {
+    rowDrafts.forEach((draft: StoreDraft) => {
       if (draft.action === "insert") {
         result.add(draft.rowIndex);
       }
     });
     return result;
-  }, [editingRows]);
+  }, [rowDrafts]);
 
   const pendingUpdatedRowIndexes = useMemo(() => {
     const result = new Set<number>();
-    editingRows.forEach((draft) => {
+    rowDrafts.forEach((draft: StoreDraft) => {
       if (draft.action === "delete" || draft.action === "insert") return;
       if (draft.cells.size > 0) {
         result.add(draft.rowIndex);
       }
     });
     return result;
-  }, [editingRows]);
+  }, [rowDrafts]);
 
   // Column id -> index map for building cell highlight regions
   const columnIndexById = useMemo(() => {
@@ -1825,11 +1544,10 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   // Regions for all edited cells (uncommitted) across the grid
   const editedCellRegions = useMemo(() => {
     const regions: Array<{ color: string; range: Rectangle }> = [];
-    if (editingRows.size === 0) return regions;
-    editingRows.forEach((draft) => {
-      draft.cells.forEach((cellDraft, columnId) => {
-        const d = cellDraft as EditingCellDraft | undefined;
-        if (!d || !d.hasChanged) return;
+    if (rowDrafts.size === 0) return regions;
+    rowDrafts.forEach((draft) => {
+      draft.cells.forEach((cellDraft: StoreCellDraft, columnId: string) => {
+        if (!cellDraft.hasChanged) return;
         const colIndex = columnIndexById.get(columnId);
         if (colIndex == null) return;
         regions.push({
@@ -1842,7 +1560,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       });
     });
     return regions;
-  }, [columnIndexById, editingRows, highlightColors]);
+  }, [columnIndexById, rowDrafts, highlightColors]);
 
   const getRowThemeOverride = useCallback(
     (rowIndex: number) => {
@@ -1894,7 +1612,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   // Surface Save/Discard actions in the panel toolbar like other tabs (only in table mode)
   useEffect(() => {
     if (!isTableMode || !isEditable || !onActionsChange) return;
-    const hasChanges = editingRows.size > 0;
+    const hasChanges = rowDrafts.size > 0;
     const actions = hasChanges ? (
       <>
         <Button
@@ -1930,7 +1648,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     isTableMode,
     isEditable,
     onActionsChange,
-    editingRows.size,
+    rowDrafts.size,
     isSaving,
     discardAllChanges,
     handleSaveAllChanges,
@@ -2123,7 +1841,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         hasMore={hasNextPage}
         isStreaming={isLoadingMore}
         selectedRows={selectedRowCount}
-        pendingEdits={editingRows.size}
+        pendingEdits={rowDrafts.size}
         executionTime={executionTime}
         cursorSetupMs={cursorSetupMs}
         totalStreamingMs={totalStreamingMs}

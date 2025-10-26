@@ -9,6 +9,11 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useSchemaData } from "@/hooks/useSchemaData";
 import { useTableColumns } from "@/hooks/useTableFullStructure";
+import type { EditingScopeKey } from "@/stores/tableEditStore.types";
+import {
+  useTableEditTriggers,
+  useEnsureScope,
+} from "@/stores/tableEditStore.selectors";
 
 interface TableTriggersProps {
   connectionId: string;
@@ -48,18 +53,49 @@ export const TableTriggers = memo(function TableTriggers({
   const [triggersData, setTriggersData] = useState<TriggerMeta[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Editing states
-  const [editingTriggers, setEditingTriggers] = useState<
-    Map<string, TriggerRowData>
-  >(new Map());
-  const [deletedTriggers, setDeletedTriggers] = useState<Set<string>>(
-    new Set(),
-  );
-  const [newTriggers, setNewTriggers] = useState<TriggerRowData[]>([]);
-  const [nextTriggerNumber, setNextTriggerNumber] = useState(1);
-  const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Define editing scope for centralized store
+  const scope: EditingScopeKey = useMemo(
+    () => ({
+      connectionId,
+      database,
+      schema: schema || "public",
+      table,
+    }),
+    [connectionId, database, schema, table],
+  );
+
+  // Ensure scope exists in store
+  useEnsureScope(scope);
+
+  // Use centralized store for editing state
+  const {
+    editedTriggers,
+    newTriggers: newTriggersMap,
+    deletedTriggers,
+    addDraft,
+    updateDraft,
+    deleteDraft,
+    removeDraft,
+    discardAll: discardAllStore,
+  } = useTableEditTriggers(scope);
+
+  // Convert Maps to arrays for compatibility
+  const editingTriggers = useMemo(() => editedTriggers, [editedTriggers]);
+  const newTriggers = useMemo(
+    () => Array.from(newTriggersMap.values()),
+    [newTriggersMap],
+  );
+
+  // Track next trigger number locally
+  const [nextTriggerNumber, setNextTriggerNumber] = useState(1);
+
+  const hasChanges =
+    editedTriggers.size > 0 ||
+    deletedTriggers.size > 0 ||
+    newTriggersMap.size > 0;
+  const isEditing = hasChanges;
 
   const handleAddTrigger = useCallback(() => {
     const newTrigger: TriggerRowData = {
@@ -71,10 +107,12 @@ export const TableTriggers = memo(function TableTriggers({
       function: "",
       condition: undefined,
     };
-    setNewTriggers([...newTriggers, newTrigger]);
+
+    // Generate unique ID for new trigger
+    const newId = `new_trigger_${Date.now()}`;
+    addDraft(newId, newTrigger);
     setNextTriggerNumber(nextTriggerNumber + 1);
-    setIsEditing(true);
-  }, [table, nextTriggerNumber, newTriggers]);
+  }, [table, nextTriggerNumber, addDraft]);
 
   const handleSaveChanges = useCallback(async () => {
     setIsSaving(true);
@@ -173,11 +211,8 @@ export const TableTriggers = memo(function TableTriggers({
         });
       }
 
-      // Clear editing state
-      setEditingTriggers(new Map());
-      setDeletedTriggers(new Set());
-      setNewTriggers([]);
-      setIsEditing(false);
+      // Clear editing state from store
+      discardAllStore();
 
       // Refresh triggers
       const result = await databaseService.listTriggers(
@@ -268,12 +303,7 @@ export const TableTriggers = memo(function TableTriggers({
   // Update actions when editing state changes
   useEffect(() => {
     if (onActionsChange) {
-      const hasChanges =
-        editingTriggers.size > 0 ||
-        deletedTriggers.size > 0 ||
-        newTriggers.length > 0;
-
-      if (!isEditing && !hasChanges) {
+      if (!hasChanges) {
         onActionsChange(
           <Button
             size="sm"
@@ -320,14 +350,13 @@ export const TableTriggers = memo(function TableTriggers({
       }
     }
   }, [
-    editingTriggers,
-    deletedTriggers,
-    newTriggers,
-    isEditing,
+    hasChanges,
     isSaving,
     onActionsChange,
     handleAddTrigger,
     handleSaveChanges,
+    discardAllStore,
+    toast,
   ]);
 
   const handleUpdateTrigger = (
@@ -336,25 +365,26 @@ export const TableTriggers = memo(function TableTriggers({
     isNew: boolean,
   ) => {
     if (isNew) {
-      const index = newTriggers.findIndex((t) => t.name === triggerName);
-      if (index !== -1) {
-        const updated = [...newTriggers];
-        const updatedTrigger = { ...updated[index], ...updates };
+      // Find the trigger in the new triggers map
+      const newTriggerArray = Array.from(newTriggersMap.entries());
+      const found = newTriggerArray.find(([_, t]) => t.name === triggerName);
+
+      if (found) {
+        const [triggerId, currentTrigger] = found;
+        const updatedTrigger = { ...currentTrigger, ...updates };
 
         // Auto-generate trigger name based on function if user hasn't manually edited it
         if (
           updates.function &&
-          updated[index]?.name.startsWith(`trg_${table}_`)
+          currentTrigger.name.startsWith(`trg_${table}_`)
         ) {
-          // Extract function base name (without arguments)
           const funcBaseName = updates.function.split("(")[0];
           if (funcBaseName) {
             updatedTrigger.name = `trg_${funcBaseName}`;
           }
         }
 
-        updated[index] = updatedTrigger as TriggerRowData;
-        setNewTriggers(updated);
+        updateDraft(triggerId, updatedTrigger as TriggerRowData);
       }
     } else {
       const originalTrigger = triggersData.find((t) => t.name === triggerName);
@@ -370,25 +400,32 @@ export const TableTriggers = memo(function TableTriggers({
           originalName: originalTrigger.name,
         };
 
-        const updated = new Map(editingTriggers);
-        updated.set(triggerName, { ...currentEdit, ...updates });
-        setEditingTriggers(updated);
+        const updatedData = { ...currentEdit, ...updates };
+        updateDraft(triggerName, updatedData, {
+          name: originalTrigger.name,
+          event: originalTrigger.event,
+          timing: originalTrigger.timing,
+          level: originalTrigger.level,
+          enabled: originalTrigger.enabled,
+          function: originalTrigger.function,
+          condition: originalTrigger.condition,
+          originalName: originalTrigger.name,
+        });
       }
     }
   };
 
   const handleToggleEnabled = (triggerName: string, isNew: boolean) => {
     if (isNew) {
-      const index = newTriggers.findIndex((t) => t.name === triggerName);
-      if (index !== -1) {
-        const updated = [...newTriggers];
-        const current = updated[index];
-        if (!current) return;
-        updated[index] = {
-          ...current,
-          enabled: !current.enabled,
-        };
-        setNewTriggers(updated);
+      const newTriggerArray = Array.from(newTriggersMap.entries());
+      const found = newTriggerArray.find(([_, t]) => t.name === triggerName);
+
+      if (found) {
+        const [triggerId, currentTrigger] = found;
+        updateDraft(triggerId, {
+          ...currentTrigger,
+          enabled: !currentTrigger.enabled,
+        });
       }
     } else {
       const originalTrigger = triggersData.find((t) => t.name === triggerName);
@@ -404,50 +441,57 @@ export const TableTriggers = memo(function TableTriggers({
           originalName: originalTrigger.name,
         };
 
-        const updated = new Map(editingTriggers);
-        updated.set(triggerName, {
-          ...currentEdit,
-          enabled: !currentEdit.enabled,
-        });
-        setEditingTriggers(updated);
+        updateDraft(
+          triggerName,
+          {
+            ...currentEdit,
+            enabled: !currentEdit.enabled,
+          },
+          {
+            name: originalTrigger.name,
+            event: originalTrigger.event,
+            timing: originalTrigger.timing,
+            level: originalTrigger.level,
+            enabled: originalTrigger.enabled,
+            function: originalTrigger.function,
+            condition: originalTrigger.condition,
+            originalName: originalTrigger.name,
+          },
+        );
       }
     }
   };
 
   const handleDeleteTrigger = (triggerName: string, isNew: boolean) => {
     if (isNew) {
-      setNewTriggers(newTriggers.filter((t) => t.name !== triggerName));
+      const newTriggerArray = Array.from(newTriggersMap.entries());
+      const found = newTriggerArray.find(([_, t]) => t.name === triggerName);
+      if (found) {
+        removeDraft(found[0]);
+      }
     } else {
-      setDeletedTriggers(new Set([...deletedTriggers, triggerName]));
-      // Remove from editing if it was being edited
-      const updated = new Map(editingTriggers);
-      updated.delete(triggerName);
-      setEditingTriggers(updated);
+      deleteDraft(triggerName);
     }
   };
 
   const handleResetTrigger = (triggerName: string, isNew: boolean) => {
     if (isNew) {
-      // Can't reset new triggers, only delete
-      setNewTriggers(newTriggers.filter((t) => t.name !== triggerName));
+      const newTriggerArray = Array.from(newTriggersMap.entries());
+      const found = newTriggerArray.find(([_, t]) => t.name === triggerName);
+      if (found) {
+        removeDraft(found[0]);
+      }
     } else {
-      // Remove from deleted set
-      const updatedDeleted = new Set(deletedTriggers);
-      updatedDeleted.delete(triggerName);
-      setDeletedTriggers(updatedDeleted);
-
-      // Remove from editing
-      const updated = new Map(editingTriggers);
-      updated.delete(triggerName);
-      setEditingTriggers(updated);
+      // Remove from store (undoes deletion or edits)
+      removeDraft(triggerName);
     }
   };
 
   const handleCancelChanges = () => {
-    setEditingTriggers(new Map());
-    setDeletedTriggers(new Set());
-    setNewTriggers([]);
-    setIsEditing(false);
+    discardAllStore();
+    toast({
+      description: "Discarded all changes",
+    });
   };
 
   // Combine all triggers for display
@@ -514,7 +558,7 @@ export const TableTriggers = memo(function TableTriggers({
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center h-full p-8">
+      <div className="flex flex-col items-center justify-center h-full p-8 select-text">
         <AlertCircle className="h-12 w-12 text-destructive mb-4" />
         <h3 className="text-lg font-semibold mb-2">Failed to load triggers</h3>
         <p className="text-sm text-muted-foreground max-w-md text-center select-text">

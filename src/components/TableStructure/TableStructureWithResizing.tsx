@@ -528,7 +528,7 @@ export const TableStructureWithResizing = memo(
 
     if (error) {
       return (
-        <div className="flex flex-col items-center justify-center h-full p-8">
+        <div className="flex flex-col items-center justify-center h-full p-8 select-text">
           <AlertCircle className="h-12 w-12 text-destructive mb-4" />
           <h3 className="text-lg font-semibold mb-2">
             Failed to load structure
