@@ -294,6 +294,8 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                   database={metadata.database || ""}
                   schema={metadata.schema}
                   table={metadata.table || ""}
+                  isView={isView}
+                  kind={metadata.kind}
                   className="h-full"
                   onActionsChange={
                     activeView === "data" ? handleViewActionsChange : undefined
@@ -313,6 +315,8 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                   database={metadata.database || ""}
                   schema={metadata.schema}
                   table={metadata.table || ""}
+                  isView={isView}
+                  kind={metadata.kind}
                   onActionsChange={
                     activeView === "structure"
                       ? handleViewActionsChange

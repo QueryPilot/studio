@@ -4,7 +4,7 @@
  * Fine-grained subscriptions and convenience hooks for React components.
  */
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useEffect } from "react";
 import { useTableEditStore, createScopeKey } from "./tableEditStore";
 import type {
   EditingScopeKey,
@@ -533,7 +533,7 @@ export function useTableEditValidation(scope: EditingScopeKey) {
 export function useEnsureScope(scope: EditingScopeKey) {
   const ensureScope = useTableEditStore((state) => state.ensureScope);
 
-  useMemo(() => {
+  useEffect(() => {
     ensureScope(scope);
   }, [scope, ensureScope]);
 }
