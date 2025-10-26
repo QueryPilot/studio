@@ -39,6 +39,7 @@ import type { NodePosition, ViewportState } from "@/stores/erdStore";
 const elk = new ELK();
 
 const NODE_WIDTH = 280;
+const FIT_VIEW_PADDING = 0.08;
 const PREVIEW_COLUMN_LIMIT = 10;
 
 interface ERDVisualizerProps {
@@ -855,10 +856,11 @@ export const ERDVisualizer = React.forwardRef<
         layoutOptions: {
           "elk.algorithm": "layered",
           "elk.direction": "RIGHT",
-          "elk.layered.spacing.nodeNodeBetweenLayers": "150",
-          "elk.layered.spacing.edgeNodeBetweenLayers": "80",
-          "elk.layered.spacing.edgeEdgeBetweenLayers": "20",
-          "elk.spacing.nodeNode": "100",
+          "elk.layered.spacing.nodeNodeBetweenLayers": "110",
+          "elk.layered.spacing.edgeNodeBetweenLayers": "55",
+          "elk.layered.spacing.edgeEdgeBetweenLayers": "18",
+          "elk.spacing.nodeNode": "75",
+          "elk.spacing.componentComponent": "90",
           "elk.edgeRouting": "ORTHOGONAL",
           "elk.layered.unnecessaryBendpoints": "true",
           "elk.layered.considerModelOrder": "NODES_AND_EDGES",
@@ -956,7 +958,7 @@ export const ERDVisualizer = React.forwardRef<
       setTimeout(() => {
         const instance = flowInstanceRef.current;
         if (instance) {
-          instance.fitView({ padding: 0.2, duration: 400 });
+          instance.fitView({ padding: FIT_VIEW_PADDING, duration: 400 });
           // Update viewport state after fitting
           setTimeout(() => {
             const newViewport = instance.getViewport();
@@ -998,7 +1000,7 @@ export const ERDVisualizer = React.forwardRef<
         fitView: () => {
           const instance = flowInstanceRef.current;
           if (instance) {
-            instance.fitView({ padding: 0.2, duration: 400 });
+            instance.fitView({ padding: FIT_VIEW_PADDING, duration: 400 });
           }
         },
       }),
@@ -1125,7 +1127,7 @@ export const ERDVisualizer = React.forwardRef<
       }
 
       if (!fitAppliedRef.current && nodes.length > 0) {
-        instance.fitView({ padding: 0.2, duration: 200 });
+        instance.fitView({ padding: FIT_VIEW_PADDING, duration: 200 });
         fitAppliedRef.current = true;
       }
 
@@ -1255,7 +1257,7 @@ export const ERDVisualizer = React.forwardRef<
           edgeTypes={edgeTypes}
           fitView
           minZoom={0.1}
-          maxZoom={1.2}
+          maxZoom={2.5}
           nodesDraggable
           nodesConnectable={false}
           elementsSelectable={false}

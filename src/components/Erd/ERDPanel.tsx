@@ -62,8 +62,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   database,
   schema,
 }) => {
-  const [mode, setMode] = useState<"visual" | "split">("visual");
-  const [editorCollapsed, setEditorCollapsed] = useState(false);
+  const [isCodeVisible, setIsCodeVisible] = useState(false);
   const [dbmlDocument, setDbmlDocument] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -701,13 +700,12 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
 
   const handleColumnDoubleClick = useCallback(
     (tableName: string, columnName: string) => {
-      // Switch to code mode if not already in code or split mode
-      if (mode === "visual") {
-        setMode("split");
-        setEditorCollapsed(false);
+      // Ensure the code editor is visible before searching
+      if (!isCodeVisible) {
+        setIsCodeVisible(true);
       }
 
-      // Wait for mode switch to complete, then search for the column
+      // Wait for the editor to render, then search for the column
       setTimeout(() => {
         // Find the column definition in the DBML document
         // Pattern: "Table tableName" followed by column definition
@@ -752,7 +750,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
         }
       }, 100);
     },
-    [mode, dbmlDocument],
+    [isCodeVisible, dbmlDocument],
   );
 
   return (
@@ -768,23 +766,18 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
       ) : null}
 
       <ResizablePanelGroup direction="horizontal" className="flex-1">
-        {/* Code Editor Panel - LEFT side in split mode */}
-        {mode === "split" && (
+        {/* Code Editor Panel - LEFT side */}
+        {isCodeVisible && (
           <ResizablePanel
             defaultSize={40}
             minSize={20}
             maxSize={70}
+            order={1}
             collapsible={true}
             onCollapse={() => {
-              setEditorCollapsed(true);
-            }}
-            onExpand={() => {
-              setEditorCollapsed(false);
+              setIsCodeVisible(false);
             }}
             className="border-r bg-background"
-            style={{
-              display: editorCollapsed ? "none" : "block",
-            }}
           >
             <CodeEditor
               ref={editorRef}
@@ -801,24 +794,22 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
             />
           </ResizablePanel>
         )}
-        {mode === "split" && !editorCollapsed && <ResizableHandle />}
+        {isCodeVisible && <ResizableHandle />}
 
         {/* Visual Diagram Panel - RIGHT side or full width */}
         <ResizablePanel
-          defaultSize={mode === "split" ? 60 : 100}
+          defaultSize={isCodeVisible ? 60 : 100}
           minSize={30}
+          order={2}
           className="relative"
         >
           {tables.length > 0 && !loading && !error ? (
             <>
               <div className="absolute top-0 left-0 right-0 bg-transparent z-10">
                 <ERDToolbar
-                  mode={mode}
-                  onModeChange={(next) => {
-                    setMode(next);
-                    if (next !== "split") {
-                      setEditorCollapsed(false);
-                    }
+                  isCodeVisible={isCodeVisible}
+                  onToggleCodePanel={() => {
+                    setIsCodeVisible((prev) => !prev);
                   }}
                   onCreateView={() => {
                     // TODO: hook into ERD view creation when multi-view support is added

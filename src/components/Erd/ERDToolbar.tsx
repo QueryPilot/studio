@@ -1,14 +1,12 @@
 import React from "react";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Button } from "@/components/ui/button";
 import {
-  LayoutPanelTop,
-  SplitSquareVertical,
+  PanelLeft,
   Plus,
   RefreshCw,
   Shuffle,
@@ -17,11 +15,9 @@ import {
   Maximize2,
 } from "lucide-react";
 
-type ErdMode = "visual" | "split";
-
 interface ERDToolbarProps {
-  mode: ErdMode;
-  onModeChange: (mode: ErdMode) => void;
+  isCodeVisible: boolean;
+  onToggleCodePanel: () => void;
   onCreateView?: () => void;
   onRefresh?: () => void;
   onAutoArrange?: () => void;
@@ -31,8 +27,8 @@ interface ERDToolbarProps {
 }
 
 export const ERDToolbar: React.FC<ERDToolbarProps> = ({
-  mode,
-  onModeChange,
+  isCodeVisible,
+  onToggleCodePanel,
   onCreateView,
   onRefresh,
   onAutoArrange,
@@ -42,30 +38,25 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
 }) => {
   return (
     <div className="flex items-center justify-between p-1.5">
-      <Tabs
-        value={mode}
-        onValueChange={(value) => {
-          onModeChange(value as ErdMode);
-        }}
-      >
-        <TabsList className="grid grid-cols-2 h-8 ">
-          <TabsTrigger
-            value="visual"
-            className="flex items-center gap-1 text-xs"
-          >
-            <LayoutPanelTop className="h-3 w-3" />
-            Visual
-          </TabsTrigger>
-
-          <TabsTrigger
-            value="split"
-            className="flex items-center gap-1 text-xs"
-          >
-            <SplitSquareVertical className="h-3 w-3" />
-            Split
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
+      <div className="flex items-center gap-1.5">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant={isCodeVisible ? "secondary" : "ghost"}
+              size="icon"
+              className="h-7 w-7"
+              aria-pressed={isCodeVisible}
+              onClick={onToggleCodePanel}
+            >
+              <PanelLeft className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {isCodeVisible ? "Hide Code Editor" : "Show Code Editor"}
+          </TooltipContent>
+        </Tooltip>
+      </div>
       <div className="flex items-center gap-1">
         {/* Zoom Controls */}
         <Tooltip>
