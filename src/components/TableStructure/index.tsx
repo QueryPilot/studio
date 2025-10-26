@@ -22,6 +22,8 @@ interface TableStructureProps {
   database: string;
   table: string;
   schema?: string;
+  isView?: boolean;
+  kind?: "Table" | "View" | "MaterializedView";
   onActionsChange?: (actions: React.ReactNode) => void;
 }
 
@@ -30,6 +32,8 @@ export const TableStructure = memo(function TableStructure({
   database,
   table,
   schema,
+  isView = false,
+  kind,
   onActionsChange,
 }: TableStructureProps) {
   const { columnWidths, resizingColumn, handleMouseDown } = useColumnResizing({
@@ -477,9 +481,18 @@ export const TableStructure = memo(function TableStructure({
     refresh,
   ]);
 
+  // Determine if editing should be allowed
+  const isReadOnly = isView || kind === "View" || kind === "MaterializedView";
+
   // Update toolbar actions
   useEffect(() => {
     if (!onActionsChange) return;
+
+    // Views and materialized views are read-only - no editing actions
+    if (isReadOnly) {
+      onActionsChange(null);
+      return;
+    }
 
     const actions = (
       <>
@@ -534,6 +547,7 @@ export const TableStructure = memo(function TableStructure({
     discardAllChanges,
     handleSaveAllChanges,
     addNewColumn,
+    isReadOnly,
   ]);
 
   if (isLoading) {
@@ -712,50 +726,59 @@ export const TableStructure = memo(function TableStructure({
                 schema={schema}
                 originalColumn={column}
                 availableColumns={availableColumns}
-                onUpdate={(updates) => {
-                  // Clear deletion if user starts editing
-                  if (isDeleted) {
-                    removeDraft(column.name);
-                  }
-                  updateEditingData(column.name, updates);
-                }}
+                onUpdate={
+                  !isReadOnly
+                    ? (updates) => {
+                        // Clear deletion if user starts editing
+                        if (isDeleted) {
+                          removeDraft(column.name);
+                        }
+                        updateEditingData(column.name, updates);
+                      }
+                    : undefined
+                }
                 onDelete={
-                  !column.is_pk && !column.is_fk
+                  !isReadOnly && !column.is_pk && !column.is_fk
                     ? () => {
                         handleDeleteColumn(column.name);
                       }
                     : undefined
                 }
-                onReset={() => {
-                  if (isDeleted || hasRowChanges) {
-                    // Remove from store (undoes both deletion and edits)
-                    removeDraft(column.name);
-                  }
-                }}
+                onReset={
+                  !isReadOnly
+                    ? () => {
+                        if (isDeleted || hasRowChanges) {
+                          // Remove from store (undoes both deletion and edits)
+                          removeDraft(column.name);
+                        }
+                      }
+                    : undefined
+                }
               />
             );
           })}
 
-          {/* New columns */}
-          {newColumns.map((newColumn, i) => (
-            <ColumnRow
-              key={`new-${i}`}
-              column={newColumn}
-              rowNumber={0}
-              hasChanges={true}
-              isNew={true}
-              connectionId={connectionId}
-              database={database}
-              schema={schema}
-              availableColumns={availableColumns}
-              onUpdate={(updates) => {
-                updateNewColumn(i, updates);
-              }}
-              onDelete={() => {
-                removeNewColumn(i);
-              }}
-            />
-          ))}
+          {/* New columns - only show for editable tables */}
+          {!isReadOnly &&
+            newColumns.map((newColumn, i) => (
+              <ColumnRow
+                key={`new-${i}`}
+                column={newColumn}
+                rowNumber={0}
+                hasChanges={true}
+                isNew={true}
+                connectionId={connectionId}
+                database={database}
+                schema={schema}
+                availableColumns={availableColumns}
+                onUpdate={(updates) => {
+                  updateNewColumn(i, updates);
+                }}
+                onDelete={() => {
+                  removeNewColumn(i);
+                }}
+              />
+            ))}
         </tbody>
       </table>
     </div>

@@ -158,6 +158,8 @@ interface TableModeProps extends BaseTableDataGridV2Props {
   database: string;
   table: string;
   schema?: string;
+  isView?: boolean;
+  kind?: "Table" | "View" | "MaterializedView";
   onActionsChange?: (actions: React.ReactNode) => void;
 }
 
@@ -238,6 +240,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const table = isTableMode ? props.table : "";
   const schema = isTableMode ? props.schema : undefined;
   const onActionsChange = isTableMode ? props.onActionsChange : undefined;
+  const isView = isTableMode ? props.isView || false : false;
+  const kind = isTableMode ? props.kind : undefined;
 
   // Table mode: use infinite table data hook
   const tableDataQuery = useTableDataQuery({
@@ -346,8 +350,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         hasNextPage: false,
       };
 
-  // Editing is only enabled in table mode
-  const isEditable = isTableMode;
+  // Editing is only enabled in table mode AND not for views/materialized views
+  const isEditable =
+    isTableMode && !isView && kind !== "View" && kind !== "MaterializedView";
 
   // Load full structure (columns only) for table mode to enrich metadata such as enum values
   const { structure: tableStructure } = useTableFullStructure({
