@@ -278,8 +278,15 @@ export const cellValueToGridCell = (
       let numericValue = 0;
       if (typeof value === "number") {
         numericValue = value;
+      } else if (typeof value === "bigint") {
+        numericValue = Number(value);
+        displayText = value.toString();
       } else if (typeof value === "object" && "value" in value) {
         numericValue = Number(value.value);
+        if (typeof value.value === "bigint") {
+          displayText = value.value.toString();
+          numericValue = Number(value.value);
+        }
       } else if (displayText) {
         const parsed = parseFloat(displayText);
         numericValue = isNaN(parsed) ? 0 : parsed;

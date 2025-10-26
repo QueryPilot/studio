@@ -39,21 +39,30 @@ function deriveValueType(
     return "Boolean";
   }
 
-  if (typeof rawValue === "number") {
+  if (typeof rawValue === "number" || typeof rawValue === "bigint") {
     const normalizedType = dbType.toLowerCase();
-    if (normalizedType.includes("int") || normalizedType.includes("serial")) {
+    if (
+      normalizedType.includes("int") ||
+      normalizedType.includes("serial") ||
+      typeof rawValue === "bigint"
+    ) {
       return "Integer";
     }
-    if (
-      normalizedType.includes("timestamp") ||
-      normalizedType.includes("time")
-    ) {
-      return "DateTime";
+
+    if (typeof rawValue === "number") {
+      if (
+        normalizedType.includes("timestamp") ||
+        normalizedType.includes("time")
+      ) {
+        return "DateTime";
+      }
+      if (normalizedType.includes("date")) {
+        return "Date";
+      }
+      return "Decimal";
     }
-    if (normalizedType.includes("date")) {
-      return "Date";
-    }
-    return "Decimal";
+
+    return "Integer";
   }
 
   if (Array.isArray(rawValue)) {
@@ -75,6 +84,30 @@ function deriveValueType(
   return "Text";
 }
 
+function normalizeBackendValue(value: BackendCellValue): unknown {
+  if (value === null || value === undefined) {
+    return value ?? null;
+  }
+
+  if (typeof value === "bigint") {
+    return value.toString();
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeBackendValue(item));
+  }
+
+  if (typeof value === "object") {
+    const normalizedEntries = Object.entries(value).map(([key, inner]) => [
+      key,
+      normalizeBackendValue(inner as BackendCellValue),
+    ]);
+    return Object.fromEntries(normalizedEntries);
+  }
+
+  return value;
+}
+
 export function mapRowsToTableData(
   columns: ColumnMeta[],
   rawRows: BackendCellValue[][],
@@ -83,11 +116,21 @@ export function mapRowsToTableData(
     const tableRow: TableDataRow = {};
     columns.forEach((column, index) => {
       const rawValue = row[index];
+      const metadata =
+        typeof rawValue === "bigint"
+          ? {
+              attributes: {
+                originalBigInt: rawValue.toString(),
+              },
+            }
+          : undefined;
+      const normalizedValue = normalizeBackendValue(rawValue);
       const cellValue: FrontCellValue = {
-        value: rawValue ?? null,
+        value: normalizedValue ?? null,
         db_type: column.db_type,
         value_type: deriveValueType(rawValue, column.db_type),
         is_truncated: false,
+        metadata,
       };
       tableRow[column.name] = cellValue;
     });

@@ -129,8 +129,9 @@ export class CellEditService {
       if (column.is_pk) {
         const value = row[column.name];
         // Handle both direct values and CellValue objects
+        const raw = value?.value !== undefined ? value.value : value;
         primaryKeys[column.name] =
-          value?.value !== undefined ? value.value : value;
+          typeof raw === "bigint" ? raw.toString() : raw;
       }
     });
 

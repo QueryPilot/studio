@@ -87,10 +87,11 @@ export interface PageTiming {
 export type CellValue =
   | null // Null
   | boolean // Bool
-  | number // I16, I32, I64, F32, F64, Timestamp (micros), Date (days)
+  | number // I16, I32, F32, F64, Timestamp (micros), Date (days)
+  | bigint // I64/Uint64 values preserved with full precision
   | string // Text
-  | number[] // Bytes (JSON array of u8)
-  | { [key: string]: unknown }; // Json
+  | CellValue[] // Arrays (including nested)
+  | { [key: string]: CellValue }; // Json and composite structures
 
 // DEPRECATED: Old CellValue interface (kept for backward compatibility during migration)
 /** @deprecated Use new CellValue type instead - display_value no longer exists */
