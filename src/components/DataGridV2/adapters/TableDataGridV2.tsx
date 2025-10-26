@@ -48,7 +48,8 @@ import {
   reorderColumns,
 } from "./columnUtils";
 import { useToast } from "@/hooks/use-toast";
-import type { CellValue } from "@/types/cellValue";
+import type { CellValue as FrontCellValue } from "@/types/cellValue";
+import type { CellValue as BackendCellValue } from "@/services/backend";
 import type { ColumnMeta } from "@/types/database";
 import type { Theme } from "@glideapps/glide-data-grid";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
@@ -69,6 +70,10 @@ import type {
   CellDraft as StoreCellDraft,
 } from "@/stores/tableEditStore.types";
 import { applyChangesService } from "@/services/applyChangesService";
+import {
+  deriveValueType,
+  normalizeBackendValue,
+} from "@/services/tableDataTransform";
 
 interface BooleanCellPayload {
   kind: "boolean-cell";
@@ -106,8 +111,8 @@ const isEnumCellPayload = (value: unknown): value is EnumCellPayload => {
 // Note: Old helper functions removed - editing state is now handled by centralized store
 
 const areCellValuesEqual = (
-  left: CellValue | null | undefined,
-  right: CellValue | null | undefined,
+  left: FrontCellValue | null | undefined,
+  right: FrontCellValue | null | undefined,
 ) => {
   const leftValue = left?.value ?? null;
   const rightValue = right?.value ?? null;
@@ -325,15 +330,37 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         columns: queryData?.columnMeta ?? [],
         rows: (queryData?.rows ?? []).map((row) => {
           const rowObj: GridRowModel = {};
+          const backendRow = row as BackendCellValue[];
           (queryData?.columns ?? []).forEach((colName, colIndex) => {
-            const rawValue = row[colIndex];
+            const rawValue = backendRow[colIndex] as
+              | BackendCellValue
+              | undefined;
             const colMeta = queryData?.columnMeta?.[colIndex];
+            const dbType = colMeta?.db_type ?? "text";
+            const normalizedValue =
+              rawValue === undefined
+                ? null
+                : normalizeBackendValue(rawValue) ?? null;
+            const valueType =
+              rawValue === null || rawValue === undefined
+                ? "Null"
+                : deriveValueType(rawValue, dbType);
+            const metadata =
+              typeof rawValue === "bigint"
+                ? {
+                    attributes: {
+                      originalBigInt: rawValue.toString(),
+                    },
+                  }
+                : undefined;
+
             rowObj[colName] = {
-              value: rawValue,
-              db_type: colMeta?.db_type ?? "text",
-              value_type: "Text",
+              value: normalizedValue,
+              db_type: dbType,
+              value_type: valueType,
               is_truncated: false,
-            } as CellValue;
+              metadata,
+            } as FrontCellValue;
           });
           return rowObj;
         }),
@@ -868,7 +895,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       }
 
       // Check for pending edits and merge with original row data
-      let cellValue = row[column.field] as CellValue | null | undefined;
+      let cellValue = row[column.field] as FrontCellValue | null | undefined;
 
       // Get row key to check for pending edits
       const rowKey = getRowKey(row, rowIndex);
@@ -1072,11 +1099,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
               ? "Boolean"
               : "Null",
           is_truncated: false,
-        } as CellValue;
+        } as FrontCellValue;
       }
 
       const updatedCell = updatedRow[column.field] as
-        | CellValue
+        | FrontCellValue
         | null
         | undefined;
 
@@ -1310,7 +1337,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
                 ? "Boolean"
                 : "Null",
             is_truncated: false,
-          } as CellValue;
+          } as FrontCellValue;
 
           updatedRow[column.field] = newCell;
 
