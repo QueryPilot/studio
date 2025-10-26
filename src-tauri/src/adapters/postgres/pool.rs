@@ -1,6 +1,8 @@
-use deadpool_postgres::{Config as PoolConfig, ManagerConfig, Pool, RecyclingMethod, Runtime};
+use deadpool_postgres::{ManagerConfig, Pool, RecyclingMethod, Runtime};
 use std::time::Duration;
+use tokio_postgres::tls::{MakeTlsConnect, TlsConnect};
 use tokio_postgres::Config;
+use tokio_postgres::Socket;
 
 pub struct PostgresPoolBuilder {
     pool_size: usize,
@@ -24,12 +26,17 @@ impl PostgresPoolBuilder {
         self
     }
 
-    pub fn build(self, pg_config: Config) -> Result<Pool, String> {
+    pub fn build<T>(self, pg_config: Config, tls: T) -> Result<Pool, String>
+    where
+        T: MakeTlsConnect<Socket> + Clone + Send + Sync + 'static,
+        T::Stream: Send + Sync,
+        T::TlsConnect: Send + Sync,
+        <T::TlsConnect as TlsConnect<Socket>>::Future: Send,
+    {
         let mgr_config = ManagerConfig {
             recycling_method: RecyclingMethod::Fast, // Quickly recycle connections
         };
-        let mgr =
-            deadpool_postgres::Manager::from_config(pg_config, tokio_postgres::NoTls, mgr_config);
+        let mgr = deadpool_postgres::Manager::from_config(pg_config, tls, mgr_config);
 
         // Build pool with proper timeouts to prevent crashes and memory leaks
         let pool = Pool::builder(mgr)

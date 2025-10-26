@@ -1,7 +1,11 @@
 use async_trait::async_trait;
 use deadpool_postgres::Pool;
+use native_tls::{Certificate, TlsConnector};
+use postgres_native_tls::MakeTlsConnector;
+use std::fs;
 use std::sync::Arc;
-use tokio_postgres::Config;
+use tokio_postgres::config::{ChannelBinding as PgChannelBinding, SslMode as PgSslMode};
+use tokio_postgres::{Config, NoTls};
 
 use super::introspection::PostgresIntrospector;
 use super::parser::quote_identifier;
@@ -33,7 +37,7 @@ impl PostgresAdapter {
         self.query_executor.clone()
     }
 
-    fn build_config(profile: &ConnectionProfile) -> Result<Config> {
+    fn build_config(profile: &ConnectionProfile) -> Result<(Config, PgSslMode)> {
         let mut config = Config::new();
         config.host(&profile.host);
         config.port(profile.port);
@@ -44,6 +48,37 @@ impl PostgresAdapter {
             config.password(password);
         }
 
+        // Determine SSL mode from profile or connection options
+        let mut ssl_mode = profile
+            .ssl_mode
+            .and_then(Self::map_profile_ssl_mode)
+            .unwrap_or(PgSslMode::Disable);
+        let mut channel_binding: Option<PgChannelBinding> = None;
+        let mut runtime_options: Vec<String> = Vec::new();
+
+        for (key, value) in &profile.options {
+            let key_lower = key.to_ascii_lowercase();
+            match key_lower.as_str() {
+                "sslmode" => {
+                    if let Some(parsed) = Self::parse_ssl_mode(value) {
+                        ssl_mode = parsed;
+                    }
+                }
+                "channel_binding" => {
+                    if let Some(parsed) = Self::parse_channel_binding(value) {
+                        channel_binding = Some(parsed);
+                    }
+                }
+                _ => runtime_options.push(format!("-c {}={}", key, value)),
+            }
+        }
+
+        config.ssl_mode(ssl_mode);
+
+        if let Some(binding) = channel_binding {
+            config.channel_binding(binding);
+        }
+
         // TCP optimizations: Reduce network latency and improve responsiveness
         use std::time::Duration;
         config.tcp_user_timeout(Duration::from_secs(60));
@@ -51,12 +86,78 @@ impl PostgresAdapter {
         config.keepalives(true);
         config.keepalives_idle(Duration::from_secs(30));
 
-        // Add additional options
-        for (key, value) in &profile.options {
-            config.options(&format!("{}={}", key, value));
+        // Add additional runtime options (converted to -c style parameters)
+        if !runtime_options.is_empty() {
+            config.options(&runtime_options.join(" "));
         }
 
-        Ok(config)
+        Ok((config, ssl_mode))
+    }
+
+    fn map_profile_ssl_mode(mode: SslMode) -> Option<PgSslMode> {
+        match mode {
+            SslMode::Disable => Some(PgSslMode::Disable),
+            SslMode::Require | SslMode::VerifyCa | SslMode::VerifyFull => Some(PgSslMode::Require),
+        }
+    }
+
+    fn parse_ssl_mode(value: &str) -> Option<PgSslMode> {
+        match value.to_ascii_lowercase().as_str() {
+            "disable" => Some(PgSslMode::Disable),
+            "prefer" => Some(PgSslMode::Prefer),
+            "require" | "verify-ca" | "verify_full" | "verify-full" => Some(PgSslMode::Require),
+            _ => None,
+        }
+    }
+
+    fn parse_channel_binding(value: &str) -> Option<PgChannelBinding> {
+        match value.to_ascii_lowercase().as_str() {
+            "disable" => Some(PgChannelBinding::Disable),
+            "prefer" => Some(PgChannelBinding::Prefer),
+            "require" => Some(PgChannelBinding::Require),
+            _ => None,
+        }
+    }
+
+    fn build_tls_connector(
+        profile: &ConnectionProfile,
+        ssl_mode: PgSslMode,
+    ) -> Result<Option<MakeTlsConnector>> {
+        if matches!(ssl_mode, PgSslMode::Disable) {
+            return Ok(None);
+        }
+
+        let mut builder = TlsConnector::builder();
+
+        if let Some(ssl_config) = &profile.ssl_config {
+            if let Some(ca_file) = &ssl_config.ca_file {
+                let pem = fs::read(ca_file).map_err(|err| {
+                    AppError::Internal(format!(
+                        "Failed to read CA certificate file {}: {}",
+                        ca_file, err
+                    ))
+                })?;
+                let cert = Certificate::from_pem(&pem).map_err(|err| {
+                    AppError::Internal(format!(
+                        "Failed to parse CA certificate from {}: {}",
+                        ca_file, err
+                    ))
+                })?;
+                builder.add_root_certificate(cert);
+            }
+
+            if ssl_config.key_file.is_some() || ssl_config.cert_file.is_some() {
+                tracing::warn!(
+                    "Client TLS key/certificate files are not yet supported for PostgreSQL adapter"
+                );
+            }
+        }
+
+        let connector = builder
+            .build()
+            .map_err(|err| AppError::Internal(format!("Failed to build TLS connector: {}", err)))?;
+
+        Ok(Some(MakeTlsConnector::new(connector)))
     }
 
     /// Pre-warm connection in background (Phase 1: basic queries)
@@ -211,12 +312,20 @@ impl DbAdapter for PostgresAdapter {
             self.disconnect().await?;
         }
 
-        let config = Self::build_config(profile)?;
+        let (config, ssl_mode) = Self::build_config(profile)?;
+        let tls = Self::build_tls_connector(profile, ssl_mode)?;
 
         // Create connection pool (2-3 connections per window)
-        let pool = PostgresPoolBuilder::default()
-            .with_idle_timeout(std::time::Duration::from_secs(15 * 60))
-            .build(config)
+        let pool_result = match tls {
+            Some(tls_connector) => PostgresPoolBuilder::default()
+                .with_idle_timeout(std::time::Duration::from_secs(15 * 60))
+                .build(config, tls_connector),
+            None => PostgresPoolBuilder::default()
+                .with_idle_timeout(std::time::Duration::from_secs(15 * 60))
+                .build(config, NoTls),
+        };
+
+        let pool = pool_result
             .map_err(|e| AppError::Internal(format!("Failed to create connection pool: {}", e)))?;
 
         // Get a connection to verify pool is working
