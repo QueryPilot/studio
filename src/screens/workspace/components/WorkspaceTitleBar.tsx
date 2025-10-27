@@ -6,7 +6,6 @@ import {
   SwatchBook,
   Settings,
   PanelLeft,
-  PanelRight,
   Check,
   Database,
   Circle,
@@ -17,6 +16,7 @@ import {
   AlertCircle,
   Loader2,
   RotateCcw,
+  Bot,
 } from "lucide-react";
 import {
   Popover,
@@ -56,6 +56,7 @@ import { toast } from "@/hooks/use-toast";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { PreferencesDialog } from "@/components/Preferences/PreferencesDialog";
 import { PendingEditsIndicator } from "@/components/PendingEditsIndicator";
+import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 
 interface WorkspaceTitleBarProps {
   connectionId: string;
@@ -65,10 +66,10 @@ interface WorkspaceTitleBarProps {
 
 export function WorkspaceTitleBar({
   connectionId,
-  onToggleSidebar,
   isConnecting: isInitiallyConnecting = false,
 }: WorkspaceTitleBarProps) {
   const { connections, loadConnections } = useConnectionStore();
+  const { toggleSidebar, getSidebars } = useWorkspaceScreenStore();
   const connection = connections.find((c) => c.id === connectionId);
   const navigate = useNavigate();
   const [openWindows, setOpenWindows] = useState<string[]>([]);
@@ -174,7 +175,17 @@ export function WorkspaceTitleBar({
         if (databaseService.isConnectionActive(connectionId)) {
           await databaseService.disconnect(connectionId);
         }
-      } catch {}
+      } catch (error) {
+        console.error("Failed to disconnect:", error);
+        toast({
+          title: "Failed to disconnect",
+          description:
+            error instanceof Error
+              ? error.message
+              : "Failed to disconnect from the database.",
+          variant: "destructive",
+        });
+      }
       await databaseService.connectById(connectionId);
       // Emit event to refresh sidebar data
       await safeEmit("database-reconnected", { connectionId });
@@ -583,7 +594,7 @@ export function WorkspaceTitleBar({
           }}
           title="Toggle left sidebar"
         >
-          <PanelLeft className="h-3.5 w-3.5" />
+          <PanelLeft className={cn("h-3.5 w-3.5")} />
         </Button>
 
         <Button
@@ -595,7 +606,7 @@ export function WorkspaceTitleBar({
           }}
           title="Toggle right sidebar"
         >
-          <PanelRight className="h-3.5 w-3.5" />
+          <Bot className="h-3.5 w-3.5" />
         </Button>
 
         {/* Settings Dropdown - Now at the far right */}
@@ -647,7 +658,11 @@ export function WorkspaceTitleBar({
               </DropdownMenuSubContent>
             </DropdownMenuSub>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => setPreferencesOpen(true)}>
+            <DropdownMenuItem
+              onClick={() => {
+                setPreferencesOpen(true);
+              }}
+            >
               <Settings className="mr-2 h-4 w-4" />
               <span>Preferences</span>
             </DropdownMenuItem>

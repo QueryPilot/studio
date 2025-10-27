@@ -14,7 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { usePanelStore } from "@/stores/panelStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { type TableMeta, type FunctionMeta } from "@/services/databaseService";
-import { Backend } from "@/services/backend";
+
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { safeListen } from "@/utils/tauri";
