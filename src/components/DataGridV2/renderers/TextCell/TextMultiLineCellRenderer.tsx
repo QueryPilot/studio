@@ -81,7 +81,10 @@ const TextMultiLineCellRenderer: CustomCellRenderer<TextMultiLineCustomCell> = {
     return true;
   },
 
-  provideEditor: () => {
+  provideEditor: (cell) => {
+    if (cell.readonly) {
+      return undefined;
+    }
     return {
       editor: TextMultiLineCellEditorWithProps,
       disablePadding: true,

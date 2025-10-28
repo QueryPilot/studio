@@ -41,7 +41,10 @@ const DateTimeRangeCellRenderer: CustomCellRenderer<TstzRangeCustomCell> = {
     return true;
   },
 
-  provideEditor: () => {
+  provideEditor: (cell) => {
+    if (cell.readonly) {
+      return undefined;
+    }
     return {
       editor: DateTimeRangeCellEditorWithProps,
       disablePadding: true,

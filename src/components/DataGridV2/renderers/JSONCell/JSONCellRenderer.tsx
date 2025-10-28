@@ -66,7 +66,10 @@ const JSONCellRenderer: CustomCellRenderer<JsonCustomCell> = {
     return true;
   },
 
-  provideEditor: () => {
+  provideEditor: (cell) => {
+    if (cell.readonly) {
+      return undefined;
+    }
     return {
       editor: JsonCellEditorWithProps,
       disablePadding: true,

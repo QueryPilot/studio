@@ -53,7 +53,10 @@ const TextSingleLineCellRenderer: CustomCellRenderer<TextSingleLineCustomCell> =
       return true;
     },
 
-    provideEditor: () => {
+    provideEditor: (cell) => {
+      if (cell.readonly) {
+        return undefined;
+      }
       return {
         editor: TextSingleLineCellEditorWithProps,
         disablePadding: true,

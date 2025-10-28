@@ -44,11 +44,16 @@ const HStoreCellRenderer: CustomCellRenderer<HStoreCustomCell> = {
     return true;
   },
 
-  provideEditor: () => ({
-    editor: HStoreCellEditorWithProps,
-    disablePadding: true,
-    disableStyling: false,
-  }),
+  provideEditor: (cell) => {
+    if (cell.readonly) {
+      return undefined;
+    }
+    return {
+      editor: HStoreCellEditorWithProps,
+      disablePadding: true,
+      disableStyling: false,
+    };
+  },
 };
 
 export default HStoreCellRenderer;

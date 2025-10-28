@@ -47,7 +47,10 @@ const EnumCellRenderer: CustomCellRenderer<EnumCustomCell> = {
     return true;
   },
 
-  provideEditor: () => {
+  provideEditor: (cell) => {
+    if (cell.readonly) {
+      return undefined;
+    }
     return {
       editor: EnumCellEditorWithProps,
       disablePadding: true,
