@@ -4,7 +4,7 @@
  */
 
 import { StateField, StateEffect } from "@codemirror/state";
-import { EditorView, Decoration, DecorationSet } from "@codemirror/view";
+import { EditorView, Decoration, type DecorationSet } from "@codemirror/view";
 import { SQL_FUNCTIONS } from "@/data/sqlFunctions";
 import type { SqlFunction, FunctionParameter } from "@/types/sqlFunctions";
 

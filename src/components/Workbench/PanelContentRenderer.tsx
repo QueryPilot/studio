@@ -92,6 +92,11 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [metadata?.viewType]);
 
+    // Clear viewActions when switching tabs to prevent wrong buttons showing
+    useEffect(() => {
+      setViewActions(null);
+    }, [activeView]);
+
     // Persist activeView changes back to metadata so other components can react
     const updateTabMetadata = useWorkbenchStore((s) => s.updateTabMetadata);
     useEffect(() => {

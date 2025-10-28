@@ -16,7 +16,6 @@ interface DataGridStatusBarProps {
   hasMore?: boolean;
   selectedRows?: number;
   className?: string;
-  pendingEdits?: number;
   executionTime?: number;
   cursorSetupMs?: number;
   totalStreamingMs?: number;
@@ -26,6 +25,7 @@ interface DataGridStatusBarProps {
   ipcSendMs?: number;
   isStreaming?: boolean;
   onViewDetails?: () => void;
+  readOnlyReason?: string;
 }
 
 export const DataGridStatusBar = memo(function DataGridStatusBar({
@@ -33,7 +33,6 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   estimatedTotal,
   hasMore,
   selectedRows = 0,
-  pendingEdits = 0,
   executionTime,
   fetchCount,
   networkMs,
@@ -41,6 +40,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   ipcSendMs,
   isStreaming = false,
   onViewDetails,
+  readOnlyReason,
   className,
 }: DataGridStatusBarProps) {
   const getRowCountDisplay = () => {
@@ -75,11 +75,13 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
       )}
     >
       <div className="flex items-center gap-3">
-        {pendingEdits > 0 && (
-          <span className="text-amber-600 font-medium">
-            {pendingEdits} pending {pendingEdits === 1 ? "change" : "changes"}
-          </span>
+        {readOnlyReason && (
+          <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-500/10 text-amber-700 dark:text-amber-400 rounded border border-amber-500/20">
+            <Eye className="h-3 w-3" />
+            <span className="font-medium">{readOnlyReason}</span>
+          </div>
         )}
+
         {selectedRows > 0 && (
           <div className="flex items-center gap-1.5">
             <span className="text-primary font-medium">

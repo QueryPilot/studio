@@ -243,7 +243,7 @@ export function AIAssistantSidebar() {
                       <CommandItem
                         key={session.id}
                         value={session.id}
-                        onSelect={() => handleSessionChange(session.id)}
+                        onSelect={() => { handleSessionChange(session.id); }}
                       >
                         <span className="truncate">{session.title}</span>
                         {session.messageCount > 0 && (

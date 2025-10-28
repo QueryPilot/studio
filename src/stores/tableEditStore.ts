@@ -369,6 +369,11 @@ export const useTableEditStore = create<TableEditStoreState>()(
 
           // Update summary
           updateScopeSummary(scope);
+
+          // Clean up empty scope
+          if (scope.summary.totalChanges === 0) {
+            state.scopes.delete(scopeKey);
+          }
         });
       },
 
@@ -415,6 +420,11 @@ export const useTableEditStore = create<TableEditStoreState>()(
 
           // Update summary
           updateScopeSummary(scope);
+
+          // Clean up empty scope
+          if (scope.summary.totalChanges === 0) {
+            state.scopes.delete(scopeKey);
+          }
         });
       },
 

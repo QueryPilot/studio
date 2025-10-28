@@ -134,7 +134,7 @@ export const QueryPanel = memo(function QueryPanel({
   );
 
   const smartQueryLimit = usePreferencesStore(
-    (state) => state.smartQueryLimit as number | null,
+    (state) => state.smartQueryLimit,
   );
   const updateTabMetadata = useWorkbenchStore(
     (state) => state.updateTabMetadata,

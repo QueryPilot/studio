@@ -16,6 +16,8 @@ import {
   Trash2,
   ClipboardPaste,
   Database,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import type { GridColumnV2, GridRowModel } from "../types";
 import type { DatabaseType } from "@/types/database";
@@ -49,6 +51,8 @@ export interface GridContextMenuItemsProps {
   onPinRows?: (rowKeys: string[]) => void;
   onUnpinRows?: (rowKeys: string[]) => void;
   onAddRow?: () => void;
+  onInsertRowAbove?: () => void;
+  onInsertRowBelow?: () => void;
   onDeleteRows?: () => void;
   onPaste?: () => void;
 }
@@ -68,6 +72,8 @@ export function GridContextMenuItems({
   onPinRows,
   onUnpinRows,
   onAddRow,
+  onInsertRowAbove,
+  onInsertRowBelow,
   onDeleteRows,
   onPaste,
 }: GridContextMenuItemsProps) {
@@ -337,14 +343,37 @@ export function GridContextMenuItems({
         <span className="flex-1">Paste</span>
       </ContextMenuItem>
 
-      {/* Add Row */}
-      <ContextMenuItem
-        onClick={onAddRow}
-        className="text-xs py-1 px-2 outline-none"
-      >
-        <Plus className="mr-1.5 h-3 w-3 text-foreground" />
-        <span className="flex-1">Add Row</span>
-      </ContextMenuItem>
+      {/* Add Row submenu */}
+      <ContextMenuSub>
+        <ContextMenuSubTrigger className="text-xs py-1 px-2 outline-none">
+          <Plus className="mr-3.5 h-3 w-3 text-foreground" />
+          <span className="flex-1">Add Row</span>
+        </ContextMenuSubTrigger>
+        <ContextMenuSubContent className="text-xs p-1">
+          <ContextMenuItem
+            onClick={onInsertRowAbove}
+            className="text-xs py-1 px-2 outline-none"
+          >
+            <ArrowUp className="mr-1.5 h-3 w-3 text-foreground" />
+            <span className="flex-1">Insert Row Above</span>
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={onInsertRowBelow}
+            className="text-xs py-1 px-2 outline-none"
+          >
+            <ArrowDown className="mr-1.5 h-3 w-3 text-foreground" />
+            <span className="flex-1">Insert Row Below</span>
+          </ContextMenuItem>
+          <ContextMenuSeparator className="my-1" />
+          <ContextMenuItem
+            onClick={onAddRow}
+            className="text-xs py-1 px-2 outline-none"
+          >
+            <Plus className="mr-1.5 h-3 w-3 text-foreground" />
+            <span className="flex-1">Add Row at Top</span>
+          </ContextMenuItem>
+        </ContextMenuSubContent>
+      </ContextMenuSub>
 
       {/* Export submenu */}
       <ContextMenuSub>
