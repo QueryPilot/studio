@@ -88,13 +88,13 @@ const TAG_COLORS = [
 
 // Get group tags from localStorage
 const getGroupTags = (): GroupTag[] => {
-  const stored = localStorage.getItem("devdb_group_tags");
+  const stored = localStorage.getItem("query_pilot_group_tags");
   return stored ? (JSON.parse(stored) as GroupTag[]) : [];
 };
 
 // Save group tags to localStorage
 const saveGroupTags = (tags: GroupTag[]) => {
-  localStorage.setItem("devdb_group_tags", JSON.stringify(tags));
+  localStorage.setItem("query_pilot_group_tags", JSON.stringify(tags));
 };
 
 export function ConnectionDialog({

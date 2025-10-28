@@ -13,7 +13,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       setSmartQueryLimit: (limit) => { set({ smartQueryLimit: limit }); },
     }),
     {
-      name: "devdb-preferences",
+      name: "query-pilot-preferences",
     },
   ),
 );

@@ -3,7 +3,7 @@ version: '3.8'
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: devdb-postgres
+    container_name: query-pilot-postgres
     ports:
       - "15432:5432"
     environment:
@@ -14,7 +14,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./seeds/postgres:/docker-entrypoint-initdb.d
     networks:
-      - devdb-network
+      - query-pilot-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U devuser -d todoapp"]
       interval: 10s
@@ -23,7 +23,7 @@ services:
 
   mysql:
     image: mysql:8.3
-    container_name: devdb-mysql
+    container_name: query-pilot-mysql
     ports:
       - "13306:3306"
     environment:
@@ -35,7 +35,7 @@ services:
       - mysql_data:/var/lib/mysql
       - ./seeds/mysql:/docker-entrypoint-initdb.d
     networks:
-      - devdb-network
+      - query-pilot-network
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
@@ -44,7 +44,7 @@ services:
   
   mariadb:
     image: mariadb:11
-    container_name: devdb-mariadb
+    container_name: query-pilot-mariadb
     ports:
       - "13307:3306"
     environment:
@@ -56,7 +56,7 @@ services:
       - mariadb_data:/var/lib/mysql
       - ./seeds/mysql:/docker-entrypoint-initdb.d
     networks:
-      - devdb-network
+      - query-pilot-network
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect"]
       interval: 10s
@@ -66,7 +66,7 @@ services:
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2019-latest
     platform: linux/amd64
-    container_name: devdb-sqlserver
+    container_name: query-pilot-sqlserver
     ports:
       - "11434:1433"
     environment:
@@ -78,7 +78,7 @@ services:
       - sqlserver_data:/var/opt/mssql
       - ./seeds/sqlserver:/seeds
     networks:
-      - devdb-network
+      - query-pilot-network
     healthcheck:
       test: ["CMD", "/opt/mssql-tools18/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", "DevPass123", "-Q", "SELECT 1", "-C"]
       interval: 30s
@@ -88,7 +88,7 @@ services:
 
   mongodb:
     image: mongo:7.0
-    container_name: devdb-mongodb
+    container_name: query-pilot-mongodb
     ports:
       - "17017:27017"
     environment:
@@ -99,7 +99,7 @@ services:
       - mongodb_data:/data/db
       - ./seeds/mongodb:/docker-entrypoint-initdb.d
     networks:
-      - devdb-network
+      - query-pilot-network
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
@@ -109,7 +109,7 @@ services:
 
   oracle:
     image: container-registry.oracle.com/database/express:21.3.0-xe
-    container_name: devdb-oracle
+    container_name: query-pilot-oracle
     ports:
       - "11521:1521"
       - "15500:5500"
@@ -120,7 +120,7 @@ services:
       - oracle_data:/opt/oracle/oradata
       - ./seeds/oracle:/seeds
     networks:
-      - devdb-network
+      - query-pilot-network
     healthcheck:
       test: ["CMD", "sh", "-c", "echo 'SELECT 1 FROM DUAL;' | sqlplus -s system/DevPass123@localhost:1521/XE"]
       interval: 30s
@@ -128,7 +128,7 @@ services:
       retries: 10
 
 networks:
-  devdb-network:
+  query-pilot-network:
     driver: bridge
 
 volumes:

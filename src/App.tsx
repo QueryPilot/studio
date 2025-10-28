@@ -167,7 +167,7 @@ function App() {
 
         toast(`Update ${update.version} available`, {
           description:
-            update.body ?? "A new version of DevDB Studio is ready to install.",
+            update.body ?? "A new version of Query Pilot is ready to install.",
           action: {
             label: "Install",
             onClick: () => handleInstall(),

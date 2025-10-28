@@ -275,7 +275,7 @@ class DBMLService {
       : "postgresql";
 
     dbmlParts.push(
-      `Project devdb {`,
+      `Project query_pilot {`,
       `  database_type: "${databaseType}"`,
       `}`,
     );

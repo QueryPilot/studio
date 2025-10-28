@@ -1,6 +1,6 @@
-# DevDB Studio Backend API Specification
+# Query Pilot Backend API Specification
 
-This document provides comprehensive API documentation for all Tauri commands exposed by the DevDB Studio Rust backend.
+This document provides comprehensive API documentation for all Tauri commands exposed by the Query Pilot Rust backend.
 
 ## Overview
 

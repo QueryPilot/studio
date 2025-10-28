@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-Implementation of an Entity-Relationship Diagram (ERD) panel for DevDB Studio that converts database schema to DBML format and provides interactive visualization with dual-mode editing (visual + code).
+Implementation of an Entity-Relationship Diagram (ERD) panel for Query Pilot that converts database schema to DBML format and provides interactive visualization with dual-mode editing (visual + code).
 
 ## Alignment With Current Codebase
 

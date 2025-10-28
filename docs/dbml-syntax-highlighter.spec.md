@@ -1,7 +1,7 @@
 # DBML Syntax Highlighter Specification
 
 ## Overview
-This document specifies the implementation of DBML (Database Markup Language) syntax highlighting for the CodeEditor component in DevDB Studio. The implementation will be based on the official DBML specification from dbdiagram.io.
+This document specifies the implementation of DBML (Database Markup Language) syntax highlighting for the CodeEditor component in Query Pilot. The implementation will be based on the official DBML specification from dbdiagram.io.
 
 ## Current State Analysis
 

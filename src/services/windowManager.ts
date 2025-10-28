@@ -62,7 +62,7 @@ class WindowManager {
     // TypeScript types for trafficLightPosition might not be updated yet
     const windowOptions: Record<string, unknown> = {
       url: `/workspace/${connectionId}`,
-      title: `${connectionName} - DevDB Studio`,
+      title: `${connectionName} - Query Pilot`,
       width: 1400,
       height: 900,
       minWidth: 1000,
@@ -230,7 +230,7 @@ class WindowManager {
     // Create new main window with same style as original
     const windowOptions: Record<string, unknown> = {
       url: "/",
-      title: "DevDB Studio",
+      title: "Query Pilot",
       width: 900,
       height: 650,
       minWidth: 900,

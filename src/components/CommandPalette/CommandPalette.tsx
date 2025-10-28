@@ -101,7 +101,7 @@ export function CommandPalette({
         keywords: ["ai", "assistant", "chat"],
         action: () => {
           ensureAssistantVisible();
-          window.dispatchEvent(new CustomEvent("devdb-ai-focus"));
+          window.dispatchEvent(new CustomEvent("query-pilot-ai-focus"));
         },
       },
       {
@@ -112,7 +112,7 @@ export function CommandPalette({
         keywords: ["command", "tool"],
         action: () => {
           ensureAssistantVisible();
-          window.dispatchEvent(new CustomEvent("devdb-ai-open-commands"));
+          window.dispatchEvent(new CustomEvent("query-pilot-ai-open-commands"));
         },
       },
     ],

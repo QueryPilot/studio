@@ -22,7 +22,7 @@ let db: GridPreferencesDatabase | null = null;
 const getDatabase = (): GridPreferencesDatabase | null => {
   if (!isClient) return null;
   if (!db) {
-    db = new GridPreferencesDatabase("devdb-grid-preferences");
+    db = new GridPreferencesDatabase("query-pilot-grid-preferences");
   }
   return db;
 };

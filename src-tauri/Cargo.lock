@@ -1015,58 +1015,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "devdb-studio"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "argon2",
- "async-trait",
- "base64 0.21.7",
- "bigdecimal",
- "bit-vec",
- "bytes",
- "chacha20poly1305",
- "chrono",
- "dashmap",
- "deadpool-postgres",
- "dirs 5.0.1",
- "fallible-iterator",
- "futures",
- "keyring",
- "moka",
- "native-tls",
- "postgres-native-tls",
- "postgres-protocol",
- "postgres-types",
- "pretty_assertions",
- "rand 0.8.5",
- "rand_core 0.6.4",
- "rayon",
- "regex",
- "reqwest 0.11.27",
- "rmp-serde",
- "rust_decimal",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-opener",
- "tauri-plugin-os",
- "tauri-plugin-updater",
- "tauri-plugin-window-state",
- "thiserror 1.0.69",
- "time",
- "tokio",
- "tokio-postgres",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "zeroize",
-]
-
-[[package]]
 name = "diff"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3896,6 +3844,58 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e790881194f6f6e86945f0a42a6981977323669aeb6c40e9c7ec253133b96f8"
 dependencies = [
  "num-traits",
+]
+
+[[package]]
+name = "query-pilot"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "argon2",
+ "async-trait",
+ "base64 0.21.7",
+ "bigdecimal",
+ "bit-vec",
+ "bytes",
+ "chacha20poly1305",
+ "chrono",
+ "dashmap",
+ "deadpool-postgres",
+ "dirs 5.0.1",
+ "fallible-iterator",
+ "futures",
+ "keyring",
+ "moka",
+ "native-tls",
+ "postgres-native-tls",
+ "postgres-protocol",
+ "postgres-types",
+ "pretty_assertions",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
+ "rayon",
+ "regex",
+ "reqwest 0.11.27",
+ "rmp-serde",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-opener",
+ "tauri-plugin-os",
+ "tauri-plugin-updater",
+ "tauri-plugin-window-state",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
+ "tokio-postgres",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "zeroize",
 ]
 
 [[package]]

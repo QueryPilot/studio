@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document outlines the complete implementation plan for the workspace screen and window manager for DevDB Studio. The workspace screen is the main interface where users interact with database connections, browse schemas, execute queries, and manage data.
+This document outlines the complete implementation plan for the workspace screen and window manager for Query Pilot. The workspace screen is the main interface where users interact with database connections, browse schemas, execute queries, and manage data.
 
 ## Architecture Overview
 
