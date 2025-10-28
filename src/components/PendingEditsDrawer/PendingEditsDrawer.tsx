@@ -12,6 +12,16 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -63,6 +73,7 @@ export const PendingEditsDrawer = memo(function PendingEditsDrawer({
   const [isApplying, setIsApplying] = useState(false);
   const [drawerWidth, setDrawerWidth] = useState(() => window.innerWidth * 0.4);
   const [isResizing, setIsResizing] = useState(false);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const resizeStartX = useRef(0);
   const resizeStartWidth = useRef(0);
 
@@ -304,32 +315,41 @@ export const PendingEditsDrawer = memo(function PendingEditsDrawer({
   }, [toast]);
 
   const handleDiscardAll = useCallback(() => {
-    console.log("🗑️ Discard All button clicked", {
+    if (summary.totalChanges === 0) return;
+    setShowDiscardConfirm(true);
+  }, [summary.totalChanges]);
+
+  const confirmDiscardAll = useCallback(() => {
+    console.log("✅ Discarding all changes", {
       totalChanges: summary.totalChanges,
       scopeCount: summary.scopeCount,
     });
 
-    if (summary.totalChanges === 0) return;
+    // Discard all scopes for this connection
+    const allScopes = Array.from(store.scopes.entries());
+    const scopesToDiscard = allScopes
+      .filter(([, scopeState]) => scopeState.meta.connectionId === connectionId)
+      .map(([scopeKey]) => parseScopeKey(scopeKey))
+      .filter(
+        (parsed): parsed is NonNullable<typeof parsed> => parsed !== null,
+      );
 
-    // Show confirmation
-    if (
-      confirm(
-        `Are you sure you want to discard all ${summary.totalChanges} pending change(s) across ${summary.scopeCount} table(s)? This action cannot be undone.`,
-      )
-    ) {
-      console.log("✅ User confirmed discard");
+    console.log("🗑️ Discarding scopes:", scopesToDiscard);
 
-      // Use the built-in discardAll method which handles everything correctly
-      store.discardAll(connectionId);
+    scopesToDiscard.forEach((scope) => {
+      // Discard all domains for this scope
+      store.discardDomain(scope, "data");
+      store.discardDomain(scope, "structure");
+      store.discardDomain(scope, "indexes");
+      store.discardDomain(scope, "triggers");
+    });
 
-      toast({
-        description: `Discarded all changes for ${summary.scopeCount} table(s)`,
-      });
+    toast({
+      description: `Discarded all changes for ${summary.scopeCount} table(s)`,
+    });
 
-      onOpenChange(false);
-    } else {
-      console.log("❌ User cancelled discard");
-    }
+    setShowDiscardConfirm(false);
+    onOpenChange(false);
   }, [summary, connectionId, toast, onOpenChange, store]);
 
   const handleResizeStart = useCallback(
@@ -377,195 +397,220 @@ export const PendingEditsDrawer = memo(function PendingEditsDrawer({
   }, [isResizing, handleResizeMove, handleResizeEnd]);
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        className="p-0 flex flex-col gap-0 group"
-        style={{ width: drawerWidth, maxWidth: "90vw" }}
-      >
-        {/* Resize Handle */}
-        <div
-          className={cn(
-            "absolute left-0 top-0 bottom-0 w-0.5 cursor-col-resize hover:bg-primary/40 transition-colors z-50",
-            isResizing && "bg-primary/40",
-          )}
-          onMouseDown={handleResizeStart}
-          style={{ userSelect: "none" }}
+    <>
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent
+          side="right"
+          className="p-0 flex flex-col gap-0 group"
+          style={{ width: drawerWidth, maxWidth: "90vw" }}
         >
-          <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 group-hover:bg-primary/40 h-16 bg-border rounded-r" />
-        </div>
-
-        {/* Header */}
-        <SheetHeader className="px-4 py-2">
-          <div className="flex items-center justify-between">
-            <div>
-              <SheetTitle>Pending Changes</SheetTitle>
-              <SheetDescription>
-                {summary.totalChanges} change
-                {summary.totalChanges !== 1 ? "s" : ""} across{" "}
-                {summary.scopeCount} table{summary.scopeCount !== 1 ? "s" : ""}
-              </SheetDescription>
-            </div>
-          </div>
-        </SheetHeader>
-
-        {/* Content */}
-        <div className="flex-1 overflow-hidden px-4 py-1">
-          <Tabs
-            value={activeTab}
-            onValueChange={(v) => {
-              setActiveTab(v as DomainKind);
-            }}
-            className="h-full flex flex-col"
+          {/* Resize Handle */}
+          <div
+            className={cn(
+              "absolute left-0 top-0 bottom-0 w-0.5 cursor-col-resize hover:bg-primary/40 transition-colors z-50",
+              isResizing && "bg-primary/40",
+            )}
+            onMouseDown={handleResizeStart}
+            style={{ userSelect: "none" }}
           >
-            {/* Tab List */}
-            <TabsList className="grid w-full grid-cols-4 p-1">
-              <TabsTrigger
-                className="h-6 text-xs !outline-none !ring-0"
-                value="data"
-                disabled={domainCounts.data === 0}
-              >
-                <Database className="h-4 w-4 mr-1" />
-                Data
-                {domainCounts.data > 0 && (
-                  <Badge
-                    variant="secondary"
-                    className="ml-2 !text-xs !rounded-full"
-                  >
-                    {domainCounts.data}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger
-                className="h-6 text-xs !outline-none !ring-0"
-                value="structure"
-                disabled={domainCounts.structure === 0}
-              >
-                <Table2 className="h-4 w-4 mr-1" />
-                Structure
-                {domainCounts.structure > 0 && (
-                  <Badge
-                    variant="secondary"
-                    className="ml-2 !text-xs !rounded-full"
-                  >
-                    {domainCounts.structure}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger
-                className="h-6 text-xs !outline-none !ring-0"
-                value="indexes"
-                disabled={domainCounts.indexes === 0}
-              >
-                <Grid3x3 className="h-4 w-4 mr-1" />
-                Indexes
-                {domainCounts.indexes > 0 && (
-                  <Badge
-                    variant="secondary"
-                    className="ml-2 !text-xs !rounded-full"
-                  >
-                    {domainCounts.indexes}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger
-                className="h-6 text-xs !outline-none !ring-0"
-                value="triggers"
-                disabled={domainCounts.triggers === 0}
-              >
-                <Zap className="h-4 w-4 mr-1" />
-                Triggers
-                {domainCounts.triggers > 0 && (
-                  <Badge
-                    variant="secondary"
-                    className="ml-2 !text-xs !rounded-full"
-                  >
-                    {domainCounts.triggers}
-                  </Badge>
-                )}
-              </TabsTrigger>
-            </TabsList>
+            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 group-hover:bg-primary/40 h-16 bg-border rounded-r" />
+          </div>
 
-            {/* Tab Content */}
-            <div className="flex-1 overflow-auto py-2">
-              <TabsContent value="data" className="mt-0 h-full">
-                <DataChangesTab connectionId={connectionId} />
-              </TabsContent>
-              <TabsContent value="structure" className="mt-0 h-full">
-                <StructureChangesTab connectionId={connectionId} />
-              </TabsContent>
-              <TabsContent value="indexes" className="mt-0 h-full">
-                <IndexesChangesTab connectionId={connectionId} />
-              </TabsContent>
-              <TabsContent value="triggers" className="mt-0 h-full">
-                <TriggersChangesTab connectionId={connectionId} />
-              </TabsContent>
+          {/* Header */}
+          <SheetHeader className="px-4 py-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <SheetTitle>Pending Changes</SheetTitle>
+                <SheetDescription>
+                  {summary.totalChanges} change
+                  {summary.totalChanges !== 1 ? "s" : ""} across{" "}
+                  {summary.scopeCount} table
+                  {summary.scopeCount !== 1 ? "s" : ""}
+                </SheetDescription>
+              </div>
             </div>
-          </Tabs>
-        </div>
+          </SheetHeader>
 
-        {/* Footer Actions */}
-        <div className="border-t p-2 flex items-center justify-between gap-2 bg-muted/30">
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="xs"
-              onClick={handleCopySQL}
-              disabled={summary.totalChanges === 0}
+          {/* Content */}
+          <div className="flex-1 overflow-hidden px-4 py-1">
+            <Tabs
+              value={activeTab}
+              onValueChange={(v) => {
+                setActiveTab(v as DomainKind);
+              }}
+              className="h-full flex flex-col"
             >
-              <Copy className="h-3 w-3 mr-1" />
-              Copy SQL
-            </Button>
-            <Button
-              variant="outline"
-              size="xs"
-              onClick={handleExport}
-              disabled={summary.totalChanges === 0}
-            >
-              <Download className="h-3 w-3 mr-1" />
-              Export
-            </Button>
+              {/* Tab List */}
+              <TabsList className="grid w-full grid-cols-4 p-1">
+                <TabsTrigger
+                  className="h-6 text-xs !outline-none !ring-0"
+                  value="data"
+                  disabled={domainCounts.data === 0}
+                >
+                  <Database className="h-4 w-4 mr-1" />
+                  Data
+                  {domainCounts.data > 0 && (
+                    <Badge
+                      variant="secondary"
+                      className="ml-2 !text-xs !rounded-full"
+                    >
+                      {domainCounts.data}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger
+                  className="h-6 text-xs !outline-none !ring-0"
+                  value="structure"
+                  disabled={domainCounts.structure === 0}
+                >
+                  <Table2 className="h-4 w-4 mr-1" />
+                  Structure
+                  {domainCounts.structure > 0 && (
+                    <Badge
+                      variant="secondary"
+                      className="ml-2 !text-xs !rounded-full"
+                    >
+                      {domainCounts.structure}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger
+                  className="h-6 text-xs !outline-none !ring-0"
+                  value="indexes"
+                  disabled={domainCounts.indexes === 0}
+                >
+                  <Grid3x3 className="h-4 w-4 mr-1" />
+                  Indexes
+                  {domainCounts.indexes > 0 && (
+                    <Badge
+                      variant="secondary"
+                      className="ml-2 !text-xs !rounded-full"
+                    >
+                      {domainCounts.indexes}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger
+                  className="h-6 text-xs !outline-none !ring-0"
+                  value="triggers"
+                  disabled={domainCounts.triggers === 0}
+                >
+                  <Zap className="h-4 w-4 mr-1" />
+                  Triggers
+                  {domainCounts.triggers > 0 && (
+                    <Badge
+                      variant="secondary"
+                      className="ml-2 !text-xs !rounded-full"
+                    >
+                      {domainCounts.triggers}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+              </TabsList>
+
+              {/* Tab Content */}
+              <div className="flex-1 overflow-auto py-2">
+                <TabsContent value="data" className="mt-0 h-full">
+                  <DataChangesTab connectionId={connectionId} />
+                </TabsContent>
+                <TabsContent value="structure" className="mt-0 h-full">
+                  <StructureChangesTab connectionId={connectionId} />
+                </TabsContent>
+                <TabsContent value="indexes" className="mt-0 h-full">
+                  <IndexesChangesTab connectionId={connectionId} />
+                </TabsContent>
+                <TabsContent value="triggers" className="mt-0 h-full">
+                  <TriggersChangesTab connectionId={connectionId} />
+                </TabsContent>
+              </div>
+            </Tabs>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="xs"
-              onClick={handleDiscardAll}
-              disabled={summary.totalChanges === 0}
-            >
-              <X className="h-3 w-3 mr-1" />
+          {/* Footer Actions */}
+          <div className="border-t p-2 flex items-center justify-between gap-2 bg-muted/30">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="xs"
+                onClick={handleCopySQL}
+                disabled={summary.totalChanges === 0}
+              >
+                <Copy className="h-3 w-3 mr-1" />
+                Copy SQL
+              </Button>
+              <Button
+                variant="outline"
+                size="xs"
+                onClick={handleExport}
+                disabled={summary.totalChanges === 0}
+              >
+                <Download className="h-3 w-3 mr-1" />
+                Export
+              </Button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="xs"
+                onClick={handleDiscardAll}
+                disabled={summary.totalChanges === 0}
+              >
+                <X className="h-3 w-3 mr-1" />
+                Discard All
+              </Button>
+              <Button
+                variant="outline"
+                size="xs"
+                onClick={handleValidate}
+                disabled={summary.totalChanges === 0 || isValidating}
+              >
+                {isValidating ? (
+                  <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                ) : (
+                  <CheckCircle className="h-3 w-3 mr-1" />
+                )}
+                Validate
+              </Button>
+              <Button
+                size="xs"
+                onClick={handleApplyAll}
+                disabled={summary.totalChanges === 0 || isApplying}
+              >
+                {isApplying ? (
+                  <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                ) : (
+                  <CheckCircle className="h-3 w-3 mr-1" />
+                )}
+                Apply All
+              </Button>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <AlertDialog
+        open={showDiscardConfirm}
+        onOpenChange={setShowDiscardConfirm}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard All Changes?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to discard all {summary.totalChanges}{" "}
+              pending change(s) across {summary.scopeCount} table(s)? This
+              action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDiscardAll}>
               Discard All
-            </Button>
-            <Button
-              variant="outline"
-              size="xs"
-              onClick={handleValidate}
-              disabled={summary.totalChanges === 0 || isValidating}
-            >
-              {isValidating ? (
-                <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-              ) : (
-                <CheckCircle className="h-3 w-3 mr-1" />
-              )}
-              Validate
-            </Button>
-            <Button
-              size="xs"
-              onClick={handleApplyAll}
-              disabled={summary.totalChanges === 0 || isApplying}
-            >
-              {isApplying ? (
-                <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-              ) : (
-                <CheckCircle className="h-3 w-3 mr-1" />
-              )}
-              Apply All
-            </Button>
-          </div>
-        </div>
-      </SheetContent>
-    </Sheet>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 });
 
@@ -1443,35 +1488,22 @@ function RowChangeCard({ rowKey, draft, scopeKey }: RowChangeCardProps) {
 
   // Display row identifier
   const displayRowId = useMemo(() => {
-    console.log("🔍 Parsing rowKey for display:", {
-      rowKey,
-      action: draft.action,
-    });
-
     if (draft.action === "insert") {
       // For new rows, show draft-X
-      const result = rowKey.split(":").pop() || rowKey;
-      console.log("  → INSERT, showing:", result);
-      return result;
+      return rowKey.split(":").pop() || rowKey;
     } else {
       // For existing rows (update/delete), show the actual row ID
       // Row key format: "schema.table:pk:primaryKeyValue" or "schema.table:draft-X"
       const parts = rowKey.split(":");
-      console.log("  → Parts:", parts);
 
       if (parts.length >= 3 && parts[1] === "pk") {
         // Has "pk" prefix, show the primary key value(s)
-        const result = parts.slice(2).join(":");
-        console.log("  → Has pk prefix, showing:", result);
-        return result;
+        return parts.slice(2).join(":");
       } else if (parts.length > 1) {
         // Fallback: show everything after first colon
-        const result = parts.slice(1).join(":");
-        console.log("  → Fallback, showing:", result);
-        return result;
+        return parts.slice(1).join(":");
       }
       // No prefix, show as is
-      console.log("  → No prefix, showing as-is:", rowKey);
       return rowKey;
     }
   }, [rowKey, draft.action]);
