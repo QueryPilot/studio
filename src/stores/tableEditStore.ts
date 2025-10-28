@@ -540,7 +540,10 @@ export const useTableEditStore = create<TableEditStoreState>()(
         let lastTouchedAt = 0;
 
         for (const [scopeKey, scope] of scopes) {
-          if (scope.meta.connectionId === connectionId) {
+          if (
+            scope.meta.connectionId === connectionId &&
+            scope.summary.totalChanges > 0
+          ) {
             byScope.set(scopeKey, scope.summary);
             totalChanges += scope.summary.totalChanges;
             lastTouchedAt = Math.max(lastTouchedAt, scope.lastTouchedAt);
