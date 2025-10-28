@@ -51,8 +51,9 @@ pub async fn test_connection(
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<ConnectionTestResult, String> {
     let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
+        .get_connection_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
 
     conn.adapter
         .test_connection()
@@ -66,8 +67,9 @@ pub async fn get_databases(
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<Vec<Database>, String> {
     let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
+        .get_connection_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
 
     conn.adapter
         .get_databases()
@@ -82,8 +84,9 @@ pub async fn get_schemas(
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<Vec<Schema>, String> {
     let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
+        .get_connection_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
 
     conn.adapter
         .get_schemas(&database)
@@ -98,8 +101,9 @@ pub async fn get_tables(
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<Vec<Table>, String> {
     let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
+        .get_connection_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
 
     conn.adapter
         .get_tables(&schema)
@@ -114,8 +118,9 @@ pub async fn get_views(
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<Vec<View>, String> {
     let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
+        .get_connection_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
 
     conn.adapter
         .get_views(&schema)
@@ -130,8 +135,9 @@ pub async fn get_functions(
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<Vec<Function>, String> {
     let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
+        .get_connection_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
 
     conn.adapter
         .get_functions(&schema)
@@ -146,8 +152,9 @@ pub async fn get_indexes(
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<Vec<Index>, String> {
     let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
+        .get_connection_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
 
     conn.adapter
         .get_indexes(&table)
@@ -162,8 +169,9 @@ pub async fn get_index_usage_stats(
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<Vec<IndexUsageStats>, String> {
     let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
+        .get_connection_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
 
     conn.adapter
         .get_index_usage_stats(&table)
@@ -177,8 +185,9 @@ pub async fn get_supported_index_types(
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<Vec<String>, String> {
     let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
+        .get_connection_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
 
     conn.adapter
         .get_supported_index_types()
@@ -192,8 +201,9 @@ pub async fn get_supported_column_types(
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<Vec<String>, String> {
     let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
+        .get_connection_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
 
     conn.adapter
         .get_supported_column_types()
@@ -217,8 +227,9 @@ pub async fn get_type_info(
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<TypeInfo, String> {
     let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
+        .get_connection_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
 
     // For PostgreSQL, query type information
     if matches!(conn.profile.db_type, DbType::PostgreSQL) {
@@ -306,8 +317,9 @@ pub async fn get_constraints(
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<Vec<Constraint>, String> {
     let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
+        .get_connection_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
 
     conn.adapter
         .get_constraints(&table)
@@ -323,8 +335,9 @@ pub async fn get_columns(
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<Vec<ColumnMeta>, String> {
     let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
+        .get_connection_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
 
     conn.adapter
         .get_table_columns(&schema, &table)
@@ -340,8 +353,9 @@ pub async fn get_triggers(
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<Vec<Trigger>, String> {
     let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
+        .get_connection_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
 
     conn.adapter
         .get_triggers(&schema, &table)
@@ -359,8 +373,9 @@ pub async fn get_object_definition(
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<String, String> {
     let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
+        .get_connection_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
 
     conn.adapter
         .get_object_definition(&database, &schema, &object_name, &object_type)
@@ -376,8 +391,9 @@ pub async fn get_table_count(
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<i64, String> {
     let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
+        .get_connection_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
 
     conn.adapter
         .get_table_count(&schema, &table)
@@ -391,8 +407,9 @@ pub async fn get_connection_health(
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<ConnectionHealth, String> {
     let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
+        .get_connection_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
 
     // Test the connection
     let test_result = conn
@@ -426,8 +443,9 @@ pub async fn ping(
     use std::time::Instant;
 
     let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
+        .get_connection_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
 
     let start = Instant::now();
     let is_connected = conn.adapter.is_connected().await;
@@ -825,8 +843,9 @@ pub async fn stream_query(
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<(), String> {
     let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
+        .get_connection_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
 
     // Check if query has LIMIT clause
     let has_limit = extract_limit_from_sql(&sql).is_some();
