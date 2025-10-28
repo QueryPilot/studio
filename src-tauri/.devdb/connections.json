@@ -1,0 +1,25 @@
+{
+  "95b67834-6c94-420d-bda0-4bcd36641add": {
+    "profile": {
+      "id": "95b67834-6c94-420d-bda0-4bcd36641add",
+      "name": "PostgreSQL Dev",
+      "db_type": "PostgreSQL",
+      "host": "localhost",
+      "port": 15432,
+      "database": "todoapp",
+      "username": "devuser",
+      "password": "devpass123",
+      "ssl_mode": "Disable",
+      "ssl_config": null,
+      "ssh_tunnel": null,
+      "options": {}
+    },
+    "metadata": {
+      "created_at": "2025-10-05T08:13:10.401384Z",
+      "last_used": "2025-10-05T10:49:08.492892Z",
+      "use_count": 357,
+      "tags": [],
+      "is_favorite": false
+    }
+  }
+}

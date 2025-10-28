@@ -2,7 +2,7 @@
 
 # Default target - show help
 help:
-	@echo "DevDB Studio - Available Commands:"
+	@echo "Query Pilot - Available Commands:"
 	@echo ""
 	@echo "Development:"
 	@echo "  make dev, make d    - Run in development mode"
@@ -111,14 +111,14 @@ docker-reset:
 # Seeding commands
 seed-postgres:
 	@echo "Seeding PostgreSQL..."
-	@docker exec -i devdb-postgres psql -U devuser -d todoapp < seeds/postgres/01_schema.sql
-	@docker exec -i devdb-postgres psql -U devuser -d todoapp < seeds/postgres/02_seed_data.sql
+	@docker exec -i query-pilot-postgres psql -U devuser -d todoapp < seeds/postgres/01_schema.sql
+	@docker exec -i query-pilot-postgres psql -U devuser -d todoapp < seeds/postgres/02_seed_data.sql
 	@echo "PostgreSQL seeded successfully!"
 
 seed-mysql:
 	@echo "Seeding MySQL..."
-	@docker exec -i devdb-mysql mysql -uroot -prootpass123 < seeds/mysql/01_schema.sql
-	@docker exec -i devdb-mysql mysql -uroot -prootpass123 < seeds/mysql/02_seed_data.sql
+	@docker exec -i query-pilot-mysql mysql -uroot -prootpass123 < seeds/mysql/01_schema.sql
+	@docker exec -i query-pilot-mysql mysql -uroot -prootpass123 < seeds/mysql/02_seed_data.sql
 	@echo "MySQL seeded successfully!"
 
 seed-sqlite:
@@ -130,22 +130,22 @@ seed-sqlserver:
 	@echo "Waiting for SQL Server to be ready..."
 	@sleep 20
 	@echo "Testing SQL Server connection..."
-	@until docker exec devdb-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P DevPass123 -Q "SELECT 1" -C -No > /dev/null 2>&1; do \
+	@until docker exec query-pilot-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P DevPass123 -Q "SELECT 1" -C -No > /dev/null 2>&1; do \
 		echo "Waiting for SQL Server to accept connections..."; \
 		sleep 5; \
 	done
 	@echo "Seeding SQL Server..."
-	@docker exec -i devdb-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P DevPass123 -i /seeds/01_schema.sql -C
-	@docker exec -i devdb-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P DevPass123 -i /seeds/02_seed_data.sql -C
+	@docker exec -i query-pilot-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P DevPass123 -i /seeds/01_schema.sql -C
+	@docker exec -i query-pilot-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P DevPass123 -i /seeds/02_seed_data.sql -C
 	@echo "SQL Server seeded successfully!"
 
 seed-oracle:
 	@echo "Setting up Oracle user..."
-	@docker exec -i devdb-oracle sqlplus -s system/DevPass123@localhost:1521/XE < seeds/oracle/setup.sql || true
+	@docker exec -i query-pilot-oracle sqlplus -s system/DevPass123@localhost:1521/XE < seeds/oracle/setup.sql || true
 	@echo "Creating Oracle schema..."
-	@docker exec -i devdb-oracle sqlplus -s todoapp/DevPass123@localhost:1521/XE < seeds/oracle/01_schema.sql || true
+	@docker exec -i query-pilot-oracle sqlplus -s todoapp/DevPass123@localhost:1521/XE < seeds/oracle/01_schema.sql || true
 	@echo "Seeding Oracle data..."
-	@docker exec -i devdb-oracle sqlplus -s todoapp/DevPass123@localhost:1521/XE < seeds/oracle/02_seed_data.sql || true
+	@docker exec -i query-pilot-oracle sqlplus -s todoapp/DevPass123@localhost:1521/XE < seeds/oracle/02_seed_data.sql || true
 	@echo "Oracle seeding attempted (may require manual setup for complex schemas)"
 
 seed-all: seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle

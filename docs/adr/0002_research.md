@@ -3,7 +3,7 @@
 ## 1) Executive Summary
 
 ### Current State Analysis
-The DevDB Studio codebase has a solid foundation with:
+The Query Pilot codebase has a solid foundation with:
 - **Backend**: Tauri v2 with SQLx integration supporting PostgreSQL, MySQL, and SQLite
 - **Frontend**: React 19 with TanStack suite, Monaco Editor, and shadcn/ui components
 - **Security**: Encrypted credential storage using AES-GCM with PBKDF2 key derivation
@@ -1064,7 +1064,7 @@ class WorkspaceDB extends Dexie {
   favorites!: Table<{id: string; name: string; sql: string; connectionId: string}>;
   
   constructor() {
-    super('DevDBStudio');
+    super('QueryPilot');
     this.version(1).stores({
       workspaces: 'id, updatedAt',
       history: '++id, connectionId, timestamp',
@@ -1991,7 +1991,7 @@ class CacheDB extends Dexie {
   cache!: Table<CacheEntry<any>>;
   
   constructor() {
-    super('DevDBCache');
+    super('QueryPilotCache');
     this.version(1).stores({
       cache: 'key, timestamp',
     });
@@ -2070,7 +2070,7 @@ impl SecureVault {
         let encrypted = encrypt_value(password, key)?;
         
         // Store in OS keychain as backup
-        if let Ok(entry) = Entry::new("DevDBStudio", connection_id) {
+        if let Ok(entry) = Entry::new("QueryPilot", connection_id) {
             entry.set_password(&base64::encode(&encrypted))?;
         }
         
@@ -2085,7 +2085,7 @@ impl SecureVault {
             .ok_or(AppError::locked("Vault is locked"))?;
         
         // Try OS keychain first
-        if let Ok(entry) = Entry::new("DevDBStudio", connection_id) {
+        if let Ok(entry) = Entry::new("QueryPilot", connection_id) {
             if let Ok(encrypted_b64) = entry.get_password() {
                 let encrypted = base64::decode(&encrypted_b64)?;
                 return decrypt_value(&encrypted, key);

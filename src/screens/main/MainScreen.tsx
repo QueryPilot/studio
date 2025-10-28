@@ -134,14 +134,14 @@ export function MainScreen() {
             <div className="mb-4">
               <img
                 src={logo}
-                alt="DevDB Studio"
+                alt="Query Pilot"
                 className="h-20 w-20 rounded-2xl"
               />
             </div>
 
             {/* Welcome Message */}
             <h1 className="text-2xl font-bold mb-3 text-center">
-              DevDB Studio
+              Query Pilot
             </h1>
 
             {/* Version Badge */}

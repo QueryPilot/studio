@@ -58,7 +58,7 @@ export function GlobalShortcutsPanel() {
       // Register new shortcut
       const success = await manager.register({
         shortcut: customShortcut,
-        description: 'Show/activate DevDB Studio',
+        description: 'Show/activate Query Pilot',
         handler: async () => {
           // The handler is in Rust, this is just for tracking
           console.log('Global shortcut triggered:', customShortcut);
@@ -157,7 +157,7 @@ export function GlobalShortcutsPanel() {
         <Info className="h-4 w-4" />
         <AlertTitle>How it works</AlertTitle>
         <AlertDescription>
-          Global shortcuts allow you to activate DevDB Studio from any application.
+          Global shortcuts allow you to activate Query Pilot from any application.
           Press the shortcut to show and focus the window, even when minimized.
         </AlertDescription>
       </Alert>
@@ -169,7 +169,7 @@ export function GlobalShortcutsPanel() {
             Show/Activate Window
           </CardTitle>
           <CardDescription>
-            Press this shortcut from any application to show DevDB Studio
+            Press this shortcut from any application to show Query Pilot
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

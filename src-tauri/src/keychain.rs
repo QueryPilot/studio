@@ -2,7 +2,7 @@ use base64::Engine as _;
 use keyring::Entry;
 use rand::RngCore;
 
-const KEYCHAIN_SERVICE: &str = "com.hieuvd.devdb-studio.vault";
+const KEYCHAIN_SERVICE: &str = "app.querypilot.desktop.vault";
 const KEYCHAIN_ACCOUNT: &str = "master_password";
 
 /// Get or generate vault master password from OS keychain (cross-platform via keyring)

@@ -1,6 +1,6 @@
-# DevDB Studio
+# Query Pilot
 
-A modern, lightweight database IDE built with Tauri and React. DevDB Studio provides a beautiful interface for managing your databases with native desktop performance.
+A modern, lightweight database IDE built with Tauri and React. Query Pilot provides a beautiful interface for managing your databases with native desktop performance.
 
 ![Version](https://img.shields.io/badge/version-0.1.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -33,8 +33,8 @@ A modern, lightweight database IDE built with Tauri and React. DevDB Studio prov
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/devdb-studio.git
-cd devdb-studio
+git clone https://github.com/yourusername/query-pilot.git
+cd query-pilot
 ```
 
 2. Install dependencies:
@@ -85,7 +85,7 @@ This will create platform-specific installers in `src-tauri/target/release/bundl
 ## Project Structure
 
 ```
-devdb-studio/
+query-pilot/
 ├── src/                    # React frontend
 │   ├── components/         # React components
 │   │   ├── ui/            # shadcn/ui components

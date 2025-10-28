@@ -31,7 +31,7 @@ export const DataGridEmptyState = memo(function DataGridEmptyState({
     <div className="flex flex-col items-center justify-center h-full p-8">
       <img
         src={logo}
-        alt="DevDB Studio"
+        alt="Query Pilot"
         className="w-20 h-20 mb-4 opacity-40 dark:opacity-30"
       />
       <h3 className="text-lg font-semibold mb-2">{title}</h3>

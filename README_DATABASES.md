@@ -1,6 +1,6 @@
 # Database Test Environment Setup
 
-This guide explains how to set up and use the comprehensive database test environment for DevDB Studio.
+This guide explains how to set up and use the comprehensive database test environment for Query Pilot.
 
 ## Overview
 
@@ -87,13 +87,13 @@ mysql:host=localhost;port=13306;dbname=todoapp;charset=utf8mb4
 
 ```
 # File path (absolute)
-/path/to/devdb-studio/seeds/sqlite/todoapp.db
+/path/to/query-pilot/seeds/sqlite/todoapp.db
 
 # Connection string format
-sqlite:///path/to/devdb-studio/seeds/sqlite/todoapp.db
+sqlite:///path/to/query-pilot/seeds/sqlite/todoapp.db
 
 # JDBC format
-jdbc:sqlite:/path/to/devdb-studio/seeds/sqlite/todoapp.db
+jdbc:sqlite:/path/to/query-pilot/seeds/sqlite/todoapp.db
 
 # In-memory database (for testing)
 sqlite::memory:
@@ -151,9 +151,9 @@ sqlplus todoapp/DevPass123@localhost:11521/XE
 XE_LOCAL = (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=localhost)(PORT=11521))(CONNECT_DATA=(SERVICE_NAME=XE)))
 ```
 
-## DevDB Studio Connection Examples
+## Query Pilot Connection Examples
 
-When connecting from DevDB Studio, use these settings:
+When connecting from Query Pilot, use these settings:
 
 ### PostgreSQL Connection
 
@@ -175,7 +175,7 @@ When connecting from DevDB Studio, use these settings:
 ### SQLite Connection
 
 - Database Path: `./seeds/sqlite/todoapp.db` (relative to project root)
-- Or full path: `/path/to/devdb-studio/seeds/sqlite/todoapp.db`
+- Or full path: `/path/to/query-pilot/seeds/sqlite/todoapp.db`
 
 ### SQL Server Connection
 
@@ -282,7 +282,7 @@ The test data represents a comprehensive todo application with:
 
 ## Testing Different Data Types
 
-When testing DevDB Studio, pay attention to how different data types are:
+When testing Query Pilot, pay attention to how different data types are:
 
 - Displayed in the data viewer
 - Edited in the editor
@@ -320,7 +320,7 @@ If SQL Server seeding fails with connection errors:
 
 ```bash
 # Check if SQL Server is ready
-docker exec devdb-sqlserver /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "DevPass123" -Q "SELECT 1"
+docker exec query-pilot-sqlserver /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "DevPass123" -Q "SELECT 1"
 ```
 
 ## Development Tips

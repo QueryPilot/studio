@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "DevDB Studio",
+  "productName": "Query Pilot",
   "version": "0.1.0",
-  "identifier": "com.hieuvd.devdb-studio",
+  "identifier": "app.querypilot.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -26,7 +26,7 @@
       },
       {
         "label": "main",
-        "title": "DevDB Studio",
+        "title": "Query Pilot",
         "resizable": true,
         "fullscreen": false,
         "center": true,
@@ -64,7 +64,23 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "minimumSystemVersion": "10.15"
+      "minimumSystemVersion": "10.15",
+      "dmg": {
+        "appPosition": {
+          "x": 180,
+          "y": 170
+        },
+        "applicationFolderPosition": {
+          "x": 480,
+          "y": 170
+        },
+        "windowSize": {
+          "height": 400,
+          "width": 660
+        }
+      },
+      "files": {},
+      "hardenedRuntime": true
     },
     "resources": ["sidecars/manifest.json"]
   }

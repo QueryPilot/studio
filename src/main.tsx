@@ -41,7 +41,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
         attribute="class"
         defaultTheme="system"
         enableSystem
-        storageKey="devdb-theme"
+        storageKey="query-pilot-theme"
       >
         <App />
         <Toaster richColors closeButton />
