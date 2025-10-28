@@ -183,7 +183,7 @@ class ValidationService {
 
     // Execute with timeout
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error("Validation timeout")), timeoutMs);
+      setTimeout(() => { reject(new Error("Validation timeout")); }, timeoutMs);
     });
 
     const abortPromise = new Promise<never>((_, reject) => {

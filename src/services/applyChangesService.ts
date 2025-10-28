@@ -485,13 +485,28 @@ class ApplyChangesService {
       skipped: 0,
     };
 
+    console.log("🔧 applyData called:", {
+      scopeTable: `${scope.schema}.${scope.table}`,
+      rowDraftsSize: domain.rowDrafts.size,
+      primaryKey: scopeState.meta.primaryKey,
+      dryRun: options.dryRun,
+    });
+
     if (options.dryRun) {
       result.applied = domain.rowDrafts.size;
       return result;
     }
 
+    if (scopeState.meta.primaryKey.length === 0) {
+      console.error("❌ No primary key in scope metadata");
+      result.errors.push("No primary key defined for table");
+      result.success = false;
+      return result;
+    }
+
     // Apply changes per row
-    for (const [, draft] of domain.rowDrafts) {
+    for (const [rowKey, draft] of domain.rowDrafts) {
+      console.log("🔨 Processing row:", { rowKey, action: draft.action });
       try {
         if (draft.action === "delete") {
           // Build DELETE query
@@ -500,6 +515,8 @@ class ApplyChangesService {
             const cell = draft.originalRow?.[pkCol];
             where[pkCol] = cell?.value ?? null;
           }
+
+          console.log("🗑️ DELETE operation:", { where });
 
           // Execute via SQL generator
           const op: DataOperation = {
@@ -510,7 +527,13 @@ class ApplyChangesService {
           };
 
           const sql = generateDelete(op, dbType);
-          await databaseService.executeQuery(scope.connectionId, sql);
+          console.log("🔤 Generated SQL:", sql);
+
+          const queryResult = await databaseService.executeQuery(
+            scope.connectionId,
+            sql,
+          );
+          console.log("✅ Query executed:", queryResult);
           result.applied++;
         } else if (draft.action === "insert") {
           // Build INSERT query
@@ -522,6 +545,8 @@ class ApplyChangesService {
             values.push(cell?.value ?? null);
           }
 
+          console.log("➕ INSERT operation:", { columns, values });
+
           const op: DataOperation = {
             type: "insert",
             schema: scope.schema,
@@ -530,7 +555,13 @@ class ApplyChangesService {
           };
 
           const sql = generateInsert(op, dbType);
-          await databaseService.executeQuery(scope.connectionId, sql);
+          console.log("🔤 Generated SQL:", sql);
+
+          const queryResult = await databaseService.executeQuery(
+            scope.connectionId,
+            sql,
+          );
+          console.log("✅ Query executed:", queryResult);
           result.applied++;
         } else if (draft.action === "update") {
           // Build UPDATE query
@@ -547,6 +578,8 @@ class ApplyChangesService {
             }
           }
 
+          console.log("🔄 UPDATE operation:", { where, set });
+
           const op: DataOperation = {
             type: "update",
             schema: scope.schema,
@@ -555,13 +588,20 @@ class ApplyChangesService {
           };
 
           const sql = generateUpdate(op, dbType);
-          await databaseService.executeQuery(scope.connectionId, sql);
+          console.log("🔤 Generated SQL:", sql);
+
+          const queryResult = await databaseService.executeQuery(
+            scope.connectionId,
+            sql,
+          );
+          console.log("✅ Query executed:", queryResult);
           result.applied++;
         }
       } catch (error) {
         const errorMsg = `Failed to apply row change: ${
           error instanceof Error ? error.message : String(error)
         }`;
+        console.error("❌ Row change error:", error);
         result.errors.push(errorMsg);
         if (!options.continueOnError) {
           result.success = false;
@@ -570,6 +610,13 @@ class ApplyChangesService {
         result.skipped++;
       }
     }
+
+    console.log("🎉 applyData result:", {
+      applied: result.applied,
+      errors: result.errors,
+      skipped: result.skipped,
+      success: result.success,
+    });
 
     return result;
   }

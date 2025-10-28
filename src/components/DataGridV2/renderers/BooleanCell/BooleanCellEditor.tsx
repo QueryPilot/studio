@@ -118,19 +118,22 @@ export const BooleanCellEditor: React.FC<BooleanCellEditorProps> = ({
         open={open}
         onOpenChange={handleOpenChange}
       >
-        <SelectTrigger className="h-full text-xs border-0 focus:ring-0 focus:ring-offset-0 bg-transparent w-full shadow-none">
+        <SelectTrigger
+          size="sm"
+          className="!text-xs border-0 focus:ring-0 focus:ring-offset-0 bg-transparent w-full shadow-none"
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent className="min-w-[100px] click-outside-ignore z-50">
-          <SelectItem value="null" className="text-xs">
+          <SelectItem value="null" className="text-xs ring-0 outline-none">
             <span className="text-muted-foreground">NULL</span>
           </SelectItem>
-          <SelectItem value="true" className="text-xs">
+          <SelectItem value="true" className="text-xs ring-0 outline-none">
             <span className="text-green-600 dark:text-green-400 font-medium">
               TRUE
             </span>
           </SelectItem>
-          <SelectItem value="false" className="text-xs">
+          <SelectItem value="false" className="text-xs ring-0 outline-none">
             <span className="text-red-600 dark:text-red-400 font-medium">
               FALSE
             </span>

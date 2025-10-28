@@ -236,11 +236,17 @@ export function RowDetailsSheet({
                 }}
                 className="w-full"
               >
-                <TabsList className="!h-7 p-0.5 !w-auto">
-                  <TabsTrigger value="summary" className="!text-xs h-6 px-2">
+                <TabsList className="p-0.5 !w-auto">
+                  <TabsTrigger
+                    value="summary"
+                    className="!text-xs !h-6 px-2 !ring-0 outline-none"
+                  >
                     Summary
                   </TabsTrigger>
-                  <TabsTrigger value="json" className="!text-xs h-6 px-2">
+                  <TabsTrigger
+                    value="json"
+                    className="!text-xs !h-6 px-2 !ring-0 outline-none"
+                  >
                     JSON
                   </TabsTrigger>
                 </TabsList>

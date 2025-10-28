@@ -115,7 +115,10 @@ export const EnumCellEditor: React.FC<EnumCellEditorProps> = ({
         open={open}
         onOpenChange={handleOpenChange}
       >
-        <SelectTrigger className="h-full text-xs border-0 focus:ring-0 focus:ring-offset-0 bg-transparent w-full shadow-none">
+        <SelectTrigger
+          size="sm"
+          className="!text-xs border-0 focus:ring-0 focus:ring-offset-0 bg-transparent w-full shadow-none"
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent className="max-h-[300px] click-outside-ignore z-50">
@@ -125,7 +128,7 @@ export const EnumCellEditor: React.FC<EnumCellEditorProps> = ({
               value={option}
               className={cn(
                 option === "NULL" ? "text-muted-foreground" : "",
-                "text-xs outline-none",
+                "text-xs outline-none ring-0",
               )}
             >
               {option === "NULL" ? (

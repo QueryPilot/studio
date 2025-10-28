@@ -10,7 +10,7 @@ export const usePreferencesStore = create<PreferencesState>()(
   persist(
     (set) => ({
       smartQueryLimit: 10000, // Default: 10000 rows
-      setSmartQueryLimit: (limit) => set({ smartQueryLimit: limit }),
+      setSmartQueryLimit: (limit) => { set({ smartQueryLimit: limit }); },
     }),
     {
       name: "devdb-preferences",

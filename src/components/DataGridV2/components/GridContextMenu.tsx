@@ -23,6 +23,8 @@ export interface GridContextMenuProps {
   onPinRows?: (rowKeys: string[]) => void;
   onUnpinRows?: (rowKeys: string[]) => void;
   onAddRow?: () => void;
+  onInsertRowAbove?: () => void;
+  onInsertRowBelow?: () => void;
   onDeleteRows?: () => void;
   onPaste?: () => void;
   showDetailsSheet?: boolean;
@@ -43,6 +45,8 @@ export function GridContextMenu({
   onPinRows,
   onUnpinRows,
   onAddRow,
+  onInsertRowAbove,
+  onInsertRowBelow,
   onDeleteRows,
   onPaste,
   showDetailsSheet: controlledShowDetailsSheet,
@@ -95,6 +99,8 @@ export function GridContextMenu({
             onPinRows={onPinRows}
             onUnpinRows={onUnpinRows}
             onAddRow={onAddRow}
+            onInsertRowAbove={onInsertRowAbove}
+            onInsertRowBelow={onInsertRowBelow}
             onDeleteRows={onDeleteRows}
             onPaste={onPaste}
           />

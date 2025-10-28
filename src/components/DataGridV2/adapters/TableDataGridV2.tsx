@@ -411,15 +411,16 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   }, [tableStructure?.columns]);
 
   // Define editing scope for centralized store
-  const scope: EditingScopeKey = useMemo(
-    () => ({
+  const scope: EditingScopeKey = useMemo(() => {
+    const result = {
       connectionId: isTableMode ? connectionId : "",
       database: isTableMode ? database : "",
       schema: isTableMode ? schema || "public" : "",
       table: isTableMode ? table : "",
-    }),
-    [isTableMode, connectionId, database, schema, table],
-  );
+    };
+    console.log("🎯 TableDataGridV2 scope created:", result);
+    return result;
+  }, [isTableMode, connectionId, database, schema, table]);
 
   // Ensure scope exists in store
   useEnsureScope(scope);
@@ -431,6 +432,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     removeRowDraft,
     discardAll: discardAllStore,
   } = useTableEditData(scope);
+  const setScopeMeta = useTableEditStore((state) => state.setScopeMeta);
 
   const rowKeyMapRef = useRef(new WeakMap<GridRowModel, string>());
   const draftRowCounterRef = useRef(0);
@@ -562,10 +564,30 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     [columnMeta, structureMetaByName],
   );
 
-  const primaryKeyColumns = useMemo(
-    () => columnMeta.filter((meta) => meta.is_pk).map((meta) => meta.name),
-    [columnMeta],
-  );
+  const primaryKeyColumns = useMemo(() => {
+    const pkCols = columnMeta
+      .filter((meta) => meta.is_pk)
+      .map((meta) => meta.name);
+    console.log("🔑 primaryKeyColumns computed:", {
+      table: `${schema}.${table}`,
+      columnMetaLength: columnMeta.length,
+      primaryKeyColumns: pkCols,
+      allColumns: columnMeta.map((c) => ({ name: c.name, is_pk: c.is_pk })),
+    });
+    return pkCols;
+  }, [columnMeta, schema, table]);
+
+  // Update scope metadata with primary key information
+  useEffect(() => {
+    if (isTableMode) {
+      setScopeMeta(scope, { primaryKey: primaryKeyColumns });
+      console.log("🔑 Updated scope primary key:", {
+        table: `${scope.schema}.${scope.table}`,
+        primaryKey: primaryKeyColumns,
+        columnMetaCount: columnMeta.length,
+      });
+    }
+  }, [isTableMode, primaryKeyColumns, scope, setScopeMeta, columnMeta]);
 
   const getRowKey = useCallback(
     (row: GridRowModel | undefined, index: number): string => {
@@ -580,10 +602,22 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       let computedKey: string | null = null;
 
+      console.log("🔑 getRowKey called:", {
+        table: `${schema}.${table}`,
+        primaryKeyColumns,
+        rowKeys: Object.keys(row),
+        pkColumnsLength: primaryKeyColumns.length,
+      });
+
       if (primaryKeyColumns.length > 0) {
         const parts = primaryKeyColumns.map((columnName) => {
           const cell = row[columnName];
           const value = cell?.value;
+          console.log(`  → PK column "${columnName}":`, {
+            cell,
+            value,
+            hasCell: !!cell,
+          });
           if (value === null || value === undefined) {
             return "__null__";
           }
@@ -598,17 +632,21 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         });
 
         const hasNonNull = parts.some((part) => part !== "__null__");
+        console.log("  → PK parts:", { parts, hasNonNull });
+
         if (hasNonNull) {
           computedKey = `${schema ?? "public"}.${table}:pk:${parts.join("|")}`;
         }
       }
 
       if (!computedKey) {
+        console.log("  ⚠️ No PK found, using draft key");
         computedKey = `${
           schema ?? "public"
         }.${table}:draft-${draftRowCounterRef.current++}`;
       }
 
+      console.log("  ✅ Final rowKey:", computedKey);
       rowKeyMapRef.current.set(row, computedKey);
       return computedKey;
     },
@@ -650,30 +688,56 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   // Save pending edits using centralized apply service
   const handleSaveAllChanges = useCallback(async () => {
-    if (rowDrafts.size === 0) return;
-    if (!isTableMode) return;
+    console.log("💾 Save button clicked", {
+      rowDraftsSize: rowDrafts.size,
+      isTableMode,
+      scope,
+    });
+
+    if (rowDrafts.size === 0) {
+      console.warn("⚠️ No changes to save (rowDrafts.size === 0)");
+      return;
+    }
+    if (!isTableMode) {
+      console.warn("⚠️ Not in table mode");
+      return;
+    }
 
     setIsSaving(true);
     try {
       const pkColumns = primaryKeyColumns;
+      console.log("🔑 Primary key columns:", pkColumns);
+      console.log(
+        "🔍 Column meta:",
+        columnMeta.map((c) => ({ name: c.name, is_pk: c.is_pk })),
+      );
+
       if (pkColumns.length === 0) {
+        console.error("❌ No primary key columns found in table structure");
         toast({
-          description: "Cannot save edits — table has no primary key",
+          description:
+            "Cannot save edits — table has no primary key defined. Please add a primary key to this table.",
           variant: "destructive",
         });
+        setIsSaving(false);
         return;
       }
 
       // Get scope state from store
       const scopeState = useTableEditStore.getState().getScopeState(scope);
+      console.log("📦 Scope state:", scopeState?.summary);
+
       if (!scopeState) {
+        console.error("❌ Invalid scope state");
         toast({
           description: "Invalid scope state",
           variant: "destructive",
         });
+        setIsSaving(false);
         return;
       }
 
+      console.log("🚀 Applying changes...");
       // Apply changes using the centralized service
       const result = await applyChangesService.applyScope(
         scope,
@@ -684,6 +748,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           continueOnError: false,
         },
       );
+
+      console.log("✅ Apply result:", result);
 
       if (result.success) {
         const applied = result.applied?.data
@@ -701,11 +767,13 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         const dataErrors = appliedData ? appliedData.errors : undefined;
         const errorMsg =
           (dataErrors && dataErrors[0]) || "Failed to save changes";
+        console.error("❌ Save failed:", errorMsg);
         toast({ description: errorMsg, variant: "destructive" });
       }
     } catch (error) {
       const errorMsg =
         error instanceof Error ? error.message : "Failed to save changes";
+      console.error("❌ Save error:", error);
       toast({ description: errorMsg, variant: "destructive" });
     } finally {
       setIsSaving(false);
@@ -718,6 +786,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     connection,
     toast,
     discardAllStore,
+    columnMeta,
   ]);
 
   const columnState = preferences?.columns ?? DEFAULT_COLUMN_STATE;
@@ -995,7 +1064,15 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         };
       }
 
+      console.log("📝 handleEditCommit called:", {
+        rowIndex,
+        columnField: column.field,
+        currentRowKeys: Object.keys(currentRow),
+        primaryKeyColumns,
+      });
+
       const rowKey = getRowKey(currentRow, rowIndex);
+      console.log("📝 Got rowKey from getRowKey:", rowKey);
 
       // Create updated row with new value
       const updatedRow = { ...currentRow };
@@ -1147,6 +1224,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       };
 
       // Write to centralized store
+      console.log("💾 upsertRowDraft (handleEditCommit):", {
+        rowKey,
+        action: draft.action,
+        scope,
+      });
       upsertRowDraft(rowKey, draft);
 
       // Optimistic update
@@ -1181,7 +1263,15 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         },
       };
     },
-    [getRowKey, rows, table, rowDrafts, upsertRowDraft],
+    [
+      getRowKey,
+      rows,
+      table,
+      rowDrafts,
+      upsertRowDraft,
+      scope,
+      primaryKeyColumns,
+    ],
   );
 
   const handleRowAppend = useCallback(
@@ -1790,6 +1880,87 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     history.push(result);
   }, [isEditable, handleRowAppend, finalColumns, history]);
 
+  // Insert row above selected row
+  const handleInsertRowAbove = useCallback(() => {
+    if (!isEditable) return;
+
+    // Get the first selected row index (default to 0 if no selection)
+    const firstSelectedIdx = selectedRows.length > 0 ? selectedRows[0] : 0;
+
+    const baseRow: GridRowModel = {};
+    finalColumns.forEach((col) => {
+      baseRow[col.field] = {
+        value: null,
+        db_type: col.meta?.db_type ?? "text",
+        value_type: "Null",
+        is_truncated: false,
+      };
+    });
+
+    // Use numeric position to insert at specific index
+    const result = handleRowAppend({
+      position: firstSelectedIdx,
+      draftRow: baseRow,
+    });
+    history.push(result);
+  }, [isEditable, handleRowAppend, finalColumns, history, selectedRows]);
+
+  // Insert row below selected row
+  const handleInsertRowBelow = useCallback(() => {
+    if (!isEditable) return;
+
+    // Get the first selected row index (default to 0 if no selection)
+    const firstSelectedIdx = selectedRows.length > 0 ? selectedRows[0] : 0;
+
+    const baseRow: GridRowModel = {};
+    finalColumns.forEach((col) => {
+      baseRow[col.field] = {
+        value: null,
+        db_type: col.meta?.db_type ?? "text",
+        value_type: "Null",
+        is_truncated: false,
+      };
+    });
+
+    // Use numeric position to insert at specific index
+    const result = handleRowAppend({
+      position: firstSelectedIdx + 1,
+      draftRow: baseRow,
+    });
+    history.push(result);
+  }, [isEditable, handleRowAppend, finalColumns, history, selectedRows]);
+
+  // Keyboard shortcut: Ctrl+Enter / Cmd+Enter to insert row after current
+  // Only works when NOT editing a cell
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Check if we're in edit mode - gridSelection.current indicates active editor
+      const isEditingCell = gridSelection?.current !== undefined;
+
+      // Check if target is an input/textarea (editing in a cell editor)
+      const isInEditor =
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target as HTMLElement)?.contentEditable === "true";
+
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        e.key === "Enter" &&
+        isEditable &&
+        !isEditingCell &&
+        !isInEditor
+      ) {
+        e.preventDefault();
+        handleInsertRowBelow();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isEditable, handleInsertRowBelow, gridSelection]);
+
   // Early returns for loading/error states
   if (!hydrated) {
     return null;
@@ -1823,6 +1994,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           onPinRows={isEditable ? handlePinRowsFromMenu : undefined}
           onUnpinRows={isEditable ? handleUnpinRowsFromMenu : undefined}
           onAddRow={isEditable ? handleAddRowFromMenu : undefined}
+          onInsertRowAbove={isEditable ? handleInsertRowAbove : undefined}
+          onInsertRowBelow={isEditable ? handleInsertRowBelow : undefined}
           onDeleteRows={isEditable ? handleDeleteFromMenu : undefined}
           onPaste={isEditable ? handlePasteFromMenu : undefined}
           showDetailsSheet={showDetailsSheet}
@@ -1877,10 +2050,16 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         hasMore={hasNextPage}
         isStreaming={isLoadingMore}
         selectedRows={selectedRowCount}
-        pendingEdits={rowDrafts.size}
         executionTime={executionTime}
         cursorSetupMs={cursorSetupMs}
         totalStreamingMs={totalStreamingMs}
+        readOnlyReason={
+          kind === "MaterializedView"
+            ? "Read-only: Materialized View"
+            : kind === "View"
+            ? "Read-only: View"
+            : undefined
+        }
         fetchCount={fetchCount}
         networkMs={networkMs}
         conversionMs={conversionMs}
