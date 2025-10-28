@@ -11,6 +11,9 @@ use crate::types::*;
 
 pub struct ConnectionManager {
     connections: Arc<DashMap<String, LiveConnection>>,
+    // Store profiles separately so we can reconnect after reaper removes connection
+    profiles: Arc<DashMap<String, ConnectionProfile>>,
+    #[allow(dead_code)]
     queries: Arc<DashMap<String, QueryHandle>>,
     idle_timeout: Duration,
     reaper_handle: Arc<tokio::sync::Mutex<Option<JoinHandle<()>>>>,
@@ -18,11 +21,14 @@ pub struct ConnectionManager {
 }
 
 pub struct LiveConnection {
+    #[allow(dead_code)]
     pub id: String,
     pub adapter: Box<dyn crate::core::adapter::DbAdapter>,
     pub profile: ConnectionProfile,
+    #[allow(dead_code)]
     pub created_at: Instant,
     pub last_used: Arc<RwLock<Instant>>,
+    #[allow(dead_code)]
     pub query_count: Arc<AtomicUsize>,
     pub active_queries: Arc<AtomicUsize>,
 }
@@ -31,8 +37,9 @@ impl ConnectionManager {
     pub fn new() -> Self {
         Self {
             connections: Arc::new(DashMap::new()),
+            profiles: Arc::new(DashMap::new()),
             queries: Arc::new(DashMap::new()),
-            idle_timeout: Duration::from_secs(600), // 10 minutes
+            idle_timeout: Duration::from_secs(1800), // 30 minutes
             reaper_handle: Arc::new(tokio::sync::Mutex::new(None)),
             total_connections: Arc::new(AtomicUsize::new(0)),
         }
@@ -120,6 +127,8 @@ impl ConnectionManager {
         };
 
         self.connections.insert(conn_id.clone(), live_conn);
+        // Store profile separately for reconnection after reaper
+        self.profiles.insert(conn_id.clone(), profile.clone());
         self.total_connections.fetch_add(1, Ordering::SeqCst);
         Ok(conn_id)
     }
@@ -131,11 +140,89 @@ impl ConnectionManager {
         self.connections.get(conn_id)
     }
 
+    /// Touch connection to update last_used timestamp (prevents idle timeout)
+    pub async fn touch_connection(&self, conn_id: &str) -> Result<()> {
+        if let Some(entry) = self.connections.get(conn_id) {
+            *entry.last_used.write().await = Instant::now();
+            Ok(())
+        } else {
+            Err(AppError::internal(format!(
+                "Connection {} not found",
+                conn_id
+            )))
+        }
+    }
+
+    /// Get connection with automatic retry and reconnect
+    /// If connection is not found, attempts to reconnect using stored profile
+    pub async fn get_connection_with_retry(
+        &self,
+        conn_id: &str,
+        max_retries: usize,
+    ) -> Result<impl std::ops::Deref<Target = LiveConnection> + '_> {
+        for attempt in 0..max_retries {
+            // Try to get existing connection
+            if let Some(conn) = self.connections.get(conn_id) {
+                // Update timestamp to prevent idle timeout
+                *conn.last_used.write().await = Instant::now();
+                return Ok(conn);
+            }
+
+            // Connection not found, try to reconnect
+            if attempt < max_retries - 1 {
+                tracing::info!(
+                    "Connection {} not found, attempting reconnect (attempt {}/{})",
+                    conn_id,
+                    attempt + 1,
+                    max_retries
+                );
+
+                // Get stored profile (stored separately from connection for reconnection)
+                let profile = self
+                    .profiles
+                    .get(conn_id)
+                    .map(|p| p.clone())
+                    .ok_or_else(|| {
+                        AppError::internal(format!(
+                            "Cannot reconnect: profile for connection {} not found",
+                            conn_id
+                        ))
+                    })?;
+
+                // Try to reconnect
+                match self.get_or_create_connection(&profile).await {
+                    Ok(_) => {
+                        // Exponential backoff: 100ms, 500ms, 1000ms
+                        let delay_ms = match attempt {
+                            0 => 100,
+                            1 => 500,
+                            _ => 1000,
+                        };
+                        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                        continue;
+                    }
+                    Err(e) => {
+                        tracing::warn!("Reconnect attempt {} failed: {}", attempt + 1, e);
+                        // Continue to next retry
+                    }
+                }
+            }
+        }
+
+        // All retries exhausted
+        Err(AppError::internal(format!(
+            "Connection {} not found after {} retries",
+            conn_id, max_retries
+        )))
+    }
+
     pub async fn disconnect(&self, conn_id: &str) -> Result<()> {
         if let Some((_, mut conn)) = self.connections.remove(conn_id) {
             conn.adapter.disconnect().await?;
             self.total_connections.fetch_sub(1, Ordering::SeqCst);
         }
+        // Also remove stored profile
+        self.profiles.remove(conn_id);
         Ok(())
     }
 
@@ -163,33 +250,7 @@ impl ConnectionManager {
         }
     }
 
-    pub async fn register_query(&self, conn_id: &str, query_handle: QueryHandle) -> Result<String> {
-        let query_id = query_handle.id.clone();
-
-        if let Some(conn) = self.connections.get(conn_id) {
-            conn.query_count.fetch_add(1, Ordering::SeqCst);
-            conn.active_queries.fetch_add(1, Ordering::SeqCst);
-            *conn.last_used.write().await = Instant::now();
-        }
-
-        self.queries.insert(query_id.clone(), query_handle);
-        Ok(query_id)
-    }
-
-    pub fn complete_query(&self, conn_id: &str, query_id: &str) {
-        if let Some(conn) = self.connections.get(conn_id) {
-            conn.active_queries.fetch_sub(1, Ordering::SeqCst);
-        }
-        self.queries.remove(query_id);
-    }
-
-    pub fn get_query(
-        &self,
-        query_id: &str,
-    ) -> Option<impl std::ops::Deref<Target = QueryHandle> + '_> {
-        self.queries.get(query_id)
-    }
-
+    #[allow(dead_code)]
     pub fn get_connection_stats(&self, conn_id: &str) -> Option<ConnectionStats> {
         self.connections.get(conn_id).map(|conn| ConnectionStats {
             query_count: conn.query_count.load(Ordering::SeqCst),
@@ -203,6 +264,7 @@ impl ConnectionManager {
         })
     }
 
+    #[allow(dead_code)]
     pub fn get_all_stats(&self) -> ManagerStats {
         let total_connections = self.total_connections.load(Ordering::SeqCst);
         let active_connections = self.connections.len();
