@@ -44,11 +44,16 @@ const NumberCellRenderer: CustomCellRenderer<NumberCustomCell> = {
     return true;
   },
 
-  provideEditor: () => ({
-    editor: NumberCellEditorWithProps,
-    disablePadding: true,
-    disableStyling: false,
-  }),
+  provideEditor: (cell) => {
+    if (cell.readonly) {
+      return undefined;
+    }
+    return {
+      editor: NumberCellEditorWithProps,
+      disablePadding: true,
+      disableStyling: false,
+    };
+  },
 };
 
 export default NumberCellRenderer;

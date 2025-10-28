@@ -71,7 +71,10 @@ const DateTimeCellRenderer: CustomCellRenderer<DateTimeCustomCell> = {
     return true;
   },
 
-  provideEditor: () => {
+  provideEditor: (cell) => {
+    if (cell.readonly) {
+      return undefined;
+    }
     return {
       editor: DateTimeCellEditorWithProps,
       disablePadding: true,

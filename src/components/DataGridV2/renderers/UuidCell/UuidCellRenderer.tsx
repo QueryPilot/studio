@@ -61,7 +61,10 @@ const UuidCellRenderer: CustomCellRenderer<UuidCustomCell> = {
     return true;
   },
 
-  provideEditor: () => {
+  provideEditor: (cell) => {
+    if (cell.readonly) {
+      return undefined;
+    }
     return {
       editor: UuidCellEditorWithProps,
       disablePadding: true,

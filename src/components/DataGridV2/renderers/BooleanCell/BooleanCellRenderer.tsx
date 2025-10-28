@@ -65,7 +65,10 @@ const BooleanCellRenderer: CustomCellRenderer<BooleanCustomCell> = {
     return true;
   },
 
-  provideEditor: () => {
+  provideEditor: (cell) => {
+    if (cell.readonly) {
+      return undefined;
+    }
     return {
       editor: BooleanCellEditorWithProps,
       disablePadding: true,

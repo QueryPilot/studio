@@ -36,19 +36,25 @@ const NUMERIC_TYPE_TOKENS = new Set([
  */
 const cacheAndReturn = (
   value: CellValue | null | undefined,
-  column: GridColumnV2,
+  columnId: string,
+  readOnly: boolean,
   result: GridCell,
 ): GridCell => {
+  const finalized =
+    readOnly && (result.allowOverlay !== false || result.readonly !== true)
+      ? { ...result, allowOverlay: false, readonly: true }
+      : result;
+
   if (value && typeof value === "object") {
-    if (!cellCache.has(value)) {
-      cellCache.set(value, new Map());
+    const cacheKey = readOnly ? `${columnId}:ro` : `${columnId}:rw`;
+    let cache = cellCache.get(value);
+    if (!cache) {
+      cache = new Map<string, GridCell>();
+      cellCache.set(value, cache);
     }
-    const cache = cellCache.get(value);
-    if (cache) {
-      cache.set(column.id, result);
-    }
+    cache.set(cacheKey, finalized);
   }
-  return result;
+  return finalized;
 };
 
 /**
@@ -57,16 +63,16 @@ const cacheAndReturn = (
 export function buildGridCellV2(opts: {
   value: CellValue | null | undefined;
   column: GridColumnV2;
+  readOnly?: boolean;
 }): GridCell {
-  const { value, column } = opts;
+  const { value, column, readOnly = false } = opts;
+  const cacheKey = readOnly ? `${column.id}:ro` : `${column.id}:rw`;
 
   // Try to get from cache first
   if (value && typeof value === "object") {
     const columnCache = cellCache.get(value);
-    if (columnCache?.has(column.id)) {
-      const cached = columnCache.get(column.id);
-      if (cached) return cached;
-    }
+    const cached = columnCache?.get(cacheKey);
+    if (cached) return cached;
   }
 
   const rawValue = value?.value;
@@ -87,7 +93,7 @@ export function buildGridCellV2(opts: {
     const enumValue =
       rawValue === null || rawValue === undefined ? null : String(rawValue);
 
-    return cacheAndReturn(value, column, {
+    return cacheAndReturn(value, column.id, readOnly, {
       kind: GridCellKind.Custom,
       data: {
         kind: "enum-cell",
@@ -130,7 +136,7 @@ export function buildGridCellV2(opts: {
       boolValue = rawValue !== 0;
     }
 
-    return cacheAndReturn(value, column, {
+    return cacheAndReturn(value, column.id, readOnly, {
       kind: GridCellKind.Custom,
       data: {
         kind: "boolean-cell",
@@ -146,7 +152,7 @@ export function buildGridCellV2(opts: {
   // Money cells - format with currency symbol
   if (dbType.includes("money")) {
     if (rawValue == null) {
-      return cacheAndReturn(value, column, {
+      return cacheAndReturn(value, column.id, readOnly, {
         kind: GridCellKind.Text,
         data: "NULL",
         displayData: "NULL",
@@ -160,7 +166,7 @@ export function buildGridCellV2(opts: {
       });
     }
     const num = typeof rawValue === "number" ? rawValue : Number(rawValue);
-    return cacheAndReturn(value, column, {
+    return cacheAndReturn(value, column.id, readOnly, {
       kind: GridCellKind.Text,
       data: String(rawValue),
       displayData: isNaN(num) ? String(rawValue) : num.toFixed(2),
@@ -187,7 +193,7 @@ export function buildGridCellV2(opts: {
           : String(rawValue)
         : String(rawValue);
 
-    return cacheAndReturn(value, column, {
+    return cacheAndReturn(value, column.id, readOnly, {
       kind: GridCellKind.Custom,
       data: {
         kind: "number-cell",
@@ -231,7 +237,7 @@ export function buildGridCellV2(opts: {
       }
     }
 
-    return cacheAndReturn(value, column, {
+    return cacheAndReturn(value, column.id, readOnly, {
       kind: GridCellKind.Custom,
       data: {
         kind: "json-cell",
@@ -248,7 +254,7 @@ export function buildGridCellV2(opts: {
   if (dbType.includes("hstore")) {
     const hstoreString = coerceToHstoreString(rawValue);
 
-    return cacheAndReturn(value, column, {
+    return cacheAndReturn(value, column.id, readOnly, {
       kind: GridCellKind.Custom,
       data: {
         kind: "hstore-cell",
@@ -269,7 +275,7 @@ export function buildGridCellV2(opts: {
   if (isArrayDbType || Array.isArray(rawValue)) {
     const { pretty, inline } = computeArrayStringsFromRaw(rawValue);
 
-    return cacheAndReturn(value, column, {
+    return cacheAndReturn(value, column.id, readOnly, {
       kind: GridCellKind.Custom,
       data: {
         kind: "text-multi-cell",
@@ -292,7 +298,7 @@ export function buildGridCellV2(opts: {
   // Date/Time cells - provide custom editor with calendar popover
   if (dbType.includes("timestamptz") || dbType.includes("timestamp")) {
     const v = rawValue == null ? null : String(rawValue);
-    return cacheAndReturn(value, column, {
+    return cacheAndReturn(value, column.id, readOnly, {
       kind: GridCellKind.Custom,
       data: {
         kind: "datetime-cell",
@@ -308,7 +314,7 @@ export function buildGridCellV2(opts: {
   // PostgreSQL tstzrange -> custom range editor
   if (dbType.includes("tstzrange")) {
     const v = rawValue == null ? null : String(rawValue);
-    return cacheAndReturn(value, column, {
+    return cacheAndReturn(value, column.id, readOnly, {
       kind: GridCellKind.Custom,
       data: {
         kind: "tstzrange-cell",
@@ -322,7 +328,7 @@ export function buildGridCellV2(opts: {
 
   if (dbType.includes("date")) {
     const v = rawValue == null ? null : String(rawValue);
-    return cacheAndReturn(value, column, {
+    return cacheAndReturn(value, column.id, readOnly, {
       kind: GridCellKind.Custom,
       data: {
         kind: "date-cell",
@@ -337,7 +343,7 @@ export function buildGridCellV2(opts: {
 
   if (dbType.includes("time")) {
     const v = rawValue == null ? null : String(rawValue);
-    return cacheAndReturn(value, column, {
+    return cacheAndReturn(value, column.id, readOnly, {
       kind: GridCellKind.Custom,
       data: {
         kind: "time-cell",
@@ -359,7 +365,7 @@ export function buildGridCellV2(opts: {
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     const isValid = uuidString ? UUID_REGEX.test(uuidString) : true;
 
-    return cacheAndReturn(value, column, {
+    return cacheAndReturn(value, column.id, readOnly, {
       kind: GridCellKind.Custom,
       data: {
         kind: "uuid-cell",
@@ -389,7 +395,7 @@ export function buildGridCellV2(opts: {
   if (column.meta?.is_fk && fkRef) {
     const refValue = rawValue == null ? null : rawValue;
 
-    return cacheAndReturn(value, column, {
+    return cacheAndReturn(value, column.id, readOnly, {
       kind: GridCellKind.Custom,
       data: {
         kind: "reference-cell",
@@ -422,7 +428,7 @@ export function buildGridCellV2(opts: {
       | undefined;
     const maxLength = metaWithMaxLen?.character_maximum_length;
 
-    return cacheAndReturn(value, column, {
+    return cacheAndReturn(value, column.id, readOnly, {
       kind: GridCellKind.Custom,
       data: {
         kind: "text-single-cell",
@@ -438,7 +444,7 @@ export function buildGridCellV2(opts: {
 
   // Multi-line text cells (text, longtext, mediumtext, ntext, clob, or long content)
   if (dbType.includes("text") || dbType.includes("clob") || textLength >= 200) {
-    return cacheAndReturn(value, column, {
+    return cacheAndReturn(value, column.id, readOnly, {
       kind: GridCellKind.Custom,
       data: {
         kind: "text-multi-cell",
@@ -462,7 +468,7 @@ export function buildGridCellV2(opts: {
       dbType.includes("real") ||
       dbType.includes("money");
 
-    return cacheAndReturn(value, column, {
+    return cacheAndReturn(value, column.id, readOnly, {
       kind: GridCellKind.Text,
       data: "NULL",
       displayData: "NULL",
@@ -478,7 +484,7 @@ export function buildGridCellV2(opts: {
 
   // Default: Text cell
   const text = String(rawValue);
-  return cacheAndReturn(value, column, {
+  return cacheAndReturn(value, column.id, readOnly, {
     kind: GridCellKind.Text,
     data: text,
     displayData: text, // Will be truncated by the adapter

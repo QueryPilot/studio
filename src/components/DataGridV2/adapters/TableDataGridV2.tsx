@@ -247,6 +247,13 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const onActionsChange = isTableMode ? props.onActionsChange : undefined;
   const isView = isTableMode ? props.isView || false : false;
   const kind = isTableMode ? props.kind : undefined;
+  const entityType: "table" | "view" | "materialized_view" = isTableMode
+    ? kind === "MaterializedView"
+      ? "materialized_view"
+      : kind === "View" || isView
+      ? "view"
+      : "table"
+    : "table";
 
   // Table mode: use infinite table data hook
   const tableDataQuery = useTableDataQuery({
@@ -254,7 +261,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     database,
     schema,
     entityName: table,
-    entityType: "table",
+    entityType,
     enabled: isTableMode,
     pageSize: 300, // Load 300 rows per page for better initial performance
   });
@@ -378,8 +385,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       };
 
   // Editing is only enabled in table mode AND not for views/materialized views
-  const isEditable =
-    isTableMode && !isView && kind !== "View" && kind !== "MaterializedView";
+  const isEditable = isTableMode && entityType === "table" && !isView;
 
   // Load full structure (columns only) for table mode to enrich metadata such as enum values
   const { structure: tableStructure } = useTableFullStructure({
@@ -564,30 +570,79 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     [columnMeta, structureMetaByName],
   );
 
+  // Get primary key columns from table structure (NOT from query columnMeta)
   const primaryKeyColumns = useMemo(() => {
-    const pkCols = columnMeta
-      .filter((meta) => meta.is_pk)
-      .map((meta) => meta.name);
-    console.log("🔑 primaryKeyColumns computed:", {
-      table: `${schema}.${table}`,
-      columnMetaLength: columnMeta.length,
-      primaryKeyColumns: pkCols,
-      allColumns: columnMeta.map((c) => ({ name: c.name, is_pk: c.is_pk })),
-    });
+    if (!tableStructure?.columns) {
+      return [];
+    }
+    const pkCols = tableStructure.columns
+      .filter((col) => col.is_pk)
+      .map((col) => col.name);
+
+    if (pkCols.length > 0) {
+      console.log("🔑 Primary key columns from structure:", {
+        table: `${schema}.${table}`,
+        primaryKey: pkCols,
+      });
+    }
     return pkCols;
-  }, [columnMeta, schema, table]);
+  }, [tableStructure?.columns, schema, table]);
 
   // Update scope metadata with primary key information
   useEffect(() => {
-    if (isTableMode) {
+    if (isTableMode && primaryKeyColumns.length > 0) {
       setScopeMeta(scope, { primaryKey: primaryKeyColumns });
-      console.log("🔑 Updated scope primary key:", {
-        table: `${scope.schema}.${scope.table}`,
-        primaryKey: primaryKeyColumns,
-        columnMetaCount: columnMeta.length,
-      });
     }
-  }, [isTableMode, primaryKeyColumns, scope, setScopeMeta, columnMeta]);
+  }, [isTableMode, primaryKeyColumns, scope, setScopeMeta]);
+
+  // Pre-compute row keys map to avoid calling getRowKey in getCellContent
+  const rowKeysMap = useMemo(() => {
+    const map = new Map<number, string>();
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row) continue;
+
+      // Check cache first
+      const cached = rowKeyMapRef.current.get(row);
+      if (cached) {
+        map.set(i, cached);
+        continue;
+      }
+
+      // Compute key
+      let computedKey: string | null = null;
+      if (primaryKeyColumns.length > 0) {
+        const parts = primaryKeyColumns.map((columnName) => {
+          const cell = row[columnName];
+          const value = cell?.value;
+          if (value === null || value === undefined) return "__null__";
+          if (typeof value === "object") {
+            try {
+              return JSON.stringify(value);
+            } catch {
+              return String(value);
+            }
+          }
+          return String(value);
+        });
+
+        const hasNonNull = parts.some((part) => part !== "__null__");
+        if (hasNonNull) {
+          computedKey = `${schema ?? "public"}.${table}:pk:${parts.join("|")}`;
+        }
+      }
+
+      if (!computedKey) {
+        computedKey = `${
+          schema ?? "public"
+        }.${table}:draft-${draftRowCounterRef.current++}`;
+      }
+
+      rowKeyMapRef.current.set(row, computedKey);
+      map.set(i, computedKey);
+    }
+    return map;
+  }, [rows, primaryKeyColumns, schema, table]);
 
   const getRowKey = useCallback(
     (row: GridRowModel | undefined, index: number): string => {
@@ -602,22 +657,10 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       let computedKey: string | null = null;
 
-      console.log("🔑 getRowKey called:", {
-        table: `${schema}.${table}`,
-        primaryKeyColumns,
-        rowKeys: Object.keys(row),
-        pkColumnsLength: primaryKeyColumns.length,
-      });
-
       if (primaryKeyColumns.length > 0) {
         const parts = primaryKeyColumns.map((columnName) => {
           const cell = row[columnName];
           const value = cell?.value;
-          console.log(`  → PK column "${columnName}":`, {
-            cell,
-            value,
-            hasCell: !!cell,
-          });
           if (value === null || value === undefined) {
             return "__null__";
           }
@@ -632,7 +675,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         });
 
         const hasNonNull = parts.some((part) => part !== "__null__");
-        console.log("  → PK parts:", { parts, hasNonNull });
 
         if (hasNonNull) {
           computedKey = `${schema ?? "public"}.${table}:pk:${parts.join("|")}`;
@@ -640,13 +682,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       }
 
       if (!computedKey) {
-        console.log("  ⚠️ No PK found, using draft key");
         computedKey = `${
           schema ?? "public"
         }.${table}:draft-${draftRowCounterRef.current++}`;
       }
 
-      console.log("  ✅ Final rowKey:", computedKey);
       rowKeyMapRef.current.set(row, computedKey);
       return computedKey;
     },
@@ -958,16 +998,18 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           kind: GridCellKind.Text,
           data: "",
           displayData: "",
-          allowOverlay: true,
-          readonly: false,
+          allowOverlay: isEditable,
+          readonly: !isEditable,
         } as const;
       }
 
       // Check for pending edits and merge with original row data
       let cellValue = row[column.field] as FrontCellValue | null | undefined;
 
-      // Get row key to check for pending edits
-      const rowKey = getRowKey(row, rowIndex);
+      // Get row key to check for pending edits (use pre-computed map)
+      const rowKey =
+        rowKeysMap.get(rowIndex) ??
+        `${schema ?? "public"}.${table}:row-${rowIndex}`;
       const editingRowDraft = rowDrafts.get(rowKey);
 
       const editedCellDraft =
@@ -977,7 +1019,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         cellValue = editedCellDraft.draftValue;
       }
 
-      const gridCell = buildGridCellV2({ value: cellValue, column });
+      const gridCellBase = buildGridCellV2({
+        value: cellValue,
+        column,
+        readOnly: !isEditable,
+      });
+      const gridCell = gridCellBase;
 
       let cellThemeOverride: Partial<Theme> | undefined;
       if (editingRowDraft) {
@@ -1033,7 +1080,15 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       return gridCell;
     },
-    [finalColumns, getRowKey, highlightColors, rowDrafts],
+    [
+      finalColumns,
+      rowKeysMap,
+      highlightColors,
+      rowDrafts,
+      schema,
+      table,
+      isEditable,
+    ],
   );
 
   const handleSelectionChange = useCallback(
@@ -1044,11 +1099,19 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     [persistSelection],
   );
 
+  const disableCellEditing = useCallback(() => false, []);
+
   // Track currently editing cell (for bright cell highlight)
   const [editingCell, setEditingCell] = useState<{
     rowIndex: number;
     columnIndex: number;
   } | null>(null);
+
+  useEffect(() => {
+    if (!isEditable) {
+      setEditingCell(null);
+    }
+  }, [isEditable]);
 
   // Track row details sheet visibility
   const [showDetailsSheet, setShowDetailsSheet] = useState(false);
@@ -1064,15 +1127,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         };
       }
 
-      console.log("📝 handleEditCommit called:", {
-        rowIndex,
-        columnField: column.field,
-        currentRowKeys: Object.keys(currentRow),
-        primaryKeyColumns,
-      });
-
       const rowKey = getRowKey(currentRow, rowIndex);
-      console.log("📝 Got rowKey from getRowKey:", rowKey);
+      console.log("📝 Cell edited:", {
+        rowKey,
+        column: column.field,
+        hasPK: primaryKeyColumns.length > 0,
+      });
 
       // Create updated row with new value
       const updatedRow = { ...currentRow };
@@ -1620,12 +1680,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   const selectedRowKeys = useMemo(() => {
     return Array.from(selectedRowsSet)
-      .map((idx) => {
-        const row = displayRows[idx];
-        return row ? getRowKey(row, idx) : null;
-      })
-      .filter((key): key is string => key !== null);
-  }, [selectedRowsSet, displayRows, getRowKey]);
+      .map((idx) => rowKeysMap.get(idx))
+      .filter((key): key is string => key !== undefined);
+  }, [selectedRowsSet, rowKeysMap]);
 
   const pendingDeletedRowIndexes = useMemo(() => {
     const result = new Set<number>();
@@ -2007,12 +2064,16 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             columns={finalColumns}
             getCellContent={handleGetCellContent}
             history={history}
-            onCellEditStart={(coords) => {
-              setEditingCell({
-                rowIndex: coords.rowIndex,
-                columnIndex: coords.columnIndex,
-              });
-            }}
+            onCellEditStart={
+              isEditable
+                ? (coords) => {
+                    setEditingCell({
+                      rowIndex: coords.rowIndex,
+                      columnIndex: coords.columnIndex,
+                    });
+                  }
+                : undefined
+            }
             onCellEditCommit={isEditable ? handleEditCommit : undefined}
             onCellEditCancel={
               isEditable
@@ -2040,6 +2101,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             freezeColumns={freezeColumns}
             getRowThemeOverride={getRowThemeOverride}
             highlightRegions={cellHighlightRegions}
+            isCellEditable={isEditable ? undefined : disableCellEditing}
           />
         </GridContextMenu>
       </div>
@@ -2054,9 +2116,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         cursorSetupMs={cursorSetupMs}
         totalStreamingMs={totalStreamingMs}
         readOnlyReason={
-          kind === "MaterializedView"
+          entityType === "materialized_view"
             ? "Read-only: Materialized View"
-            : kind === "View"
+            : entityType === "view"
             ? "Read-only: View"
             : undefined
         }

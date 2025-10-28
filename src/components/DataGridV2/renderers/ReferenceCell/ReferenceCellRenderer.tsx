@@ -64,7 +64,10 @@ const ReferenceCellRenderer: CustomCellRenderer<ReferenceCustomCell> = {
     return true;
   },
 
-  provideEditor: () => {
+  provideEditor: (cell) => {
+    if (cell.readonly) {
+      return undefined;
+    }
     return {
       editor: ReferenceCellEditorWithProps,
       disablePadding: true,
