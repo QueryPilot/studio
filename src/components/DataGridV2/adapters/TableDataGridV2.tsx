@@ -63,7 +63,7 @@ import {
   useTableEditData,
   useEnsureScope,
 } from "@/stores/tableEditStore.selectors";
-import { useTableEditStore } from "@/stores/tableEditStore";
+import { useTableEditStore, createScopeKey } from "@/stores/tableEditStore";
 import type {
   EditingScopeKey,
   RowDraft as StoreDraft,
@@ -439,6 +439,13 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     discardAll: discardAllStore,
   } = useTableEditData(scope);
   const setScopeMeta = useTableEditStore((state) => state.setScopeMeta);
+
+  // Track rowDrafts size to force grid re-render when changes are discarded
+  const scopeKey = useMemo(() => createScopeKey(scope), [scope]);
+  const rowDraftsVersion = useTableEditStore((state) => {
+    const scopeState = state.scopes.get(scopeKey);
+    return scopeState?.domains.data.rowDrafts.size ?? 0;
+  });
 
   const rowKeyMapRef = useRef(new WeakMap<GridRowModel, string>());
   const draftRowCounterRef = useRef(0);
@@ -1080,6 +1087,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       return gridCell;
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       finalColumns,
       rowKeysMap,
@@ -1088,6 +1096,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       schema,
       table,
       isEditable,
+      rowDraftsVersion, // Force re-render when drafts are discarded
     ],
   );
 
