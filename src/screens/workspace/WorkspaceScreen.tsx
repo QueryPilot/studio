@@ -14,7 +14,7 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from "@/components/ui/resizable";
-import { CommandPalette, useCommandPalette } from "@/components/CommandPalette";
+
 import { useConnectionAutoReconnect } from "@/hooks/useConnectionAutoReconnect";
 import { AIAssistantSidebar } from "@/components/AIAssistant/AIAssistantSidebar";
 
@@ -25,7 +25,7 @@ export function WorkspaceScreen() {
   const sidebars = getSidebars();
   const { loadSchemas } = useSchemaStore();
   const { initialize: initializePanels } = usePanelStore();
-  const commandPalette = useCommandPalette();
+
   const [isLoading, setIsLoading] = useState(true);
   const [selectedDatabase, setSelectedDatabase] = useState("");
   const [selectedSchema, setSelectedSchema] = useState("");
@@ -164,13 +164,6 @@ export function WorkspaceScreen() {
           </>
         )}
       </ResizablePanelGroup>
-
-      {/* Command Palette */}
-      <CommandPalette
-        open={commandPalette.isOpen}
-        onOpenChange={commandPalette.setOpen}
-        initialMode={commandPalette.mode}
-      />
     </div>
   );
 }
