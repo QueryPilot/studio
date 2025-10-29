@@ -182,6 +182,10 @@ const useWorkbenchStore = create<WorkbenchStore>()(
     },
 
     closePanelAction: (panelId, preventAutoInit = false) => {
+      const tabStateStore = useTabStateStore.getState();
+      const panel = get().panelContents.get(panelId);
+      const tabsToClear = panel ? [...panel.tabIds] : [];
+
       console.log("🗑️ [STORE DEBUG] closePanelAction called:", {
         panelId,
         preventAutoInit,
@@ -258,6 +262,10 @@ const useWorkbenchStore = create<WorkbenchStore>()(
         focusedPanelId: finalState.focusedPanelId,
         preventAutoInit: finalState.preventAutoInit,
       });
+
+      if (tabsToClear.length > 0) {
+        tabsToClear.forEach((tabId) => tabStateStore.clearQueryState(tabId));
+      }
     },
 
     resizePanelAction: (path, ratio) => {
@@ -488,6 +496,7 @@ const useWorkbenchStore = create<WorkbenchStore>()(
       const panel = panelContents.get(panelId);
       if (!panel) return;
 
+      const totalPanels = panelContents.size;
       const newTabIds = panel.tabIds.filter((id) => id !== tabId);
       const newActiveTab =
         panel.activeTabId === tabId ? newTabIds[0] || "" : panel.activeTabId;
@@ -509,7 +518,7 @@ const useWorkbenchStore = create<WorkbenchStore>()(
       // Clear global tab state when tab is actually removed
       useTabStateStore.getState().clearQueryState(tabId);
 
-      if (newTabIds.length === 0) {
+      if (newTabIds.length === 0 && totalPanels > 1) {
         get().closePanelAction(panelId);
       }
     },

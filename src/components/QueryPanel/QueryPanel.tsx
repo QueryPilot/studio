@@ -22,6 +22,7 @@ import { useTabStateStore, type QueryResult } from "@/stores/tabStateStore";
 import type { ColumnMeta } from "@/types/database";
 import { formatSql } from "@/utils/codeFormatter";
 import type { SqlDialect } from "@/components/CodeEditor/types";
+import { useConnectionStore } from "@/stores/connectionStore";
 
 interface QueryPanelProps {
   panelId: string;
@@ -48,7 +49,9 @@ export const QueryPanel = memo(function QueryPanel({
   const { getQueryState, setQueryState } = useTabStateStore();
   const globalState = getQueryState(tabId);
 
-  const [query, setQueryInternal] = useState(globalState?.query || initialSql);
+  const [query, setQueryInternal] = useState<string>(
+    globalState?.query ?? initialSql ?? "",
+  );
   const [result, setResultInternal] = useState<QueryResult | null>(
     globalState?.result || null,
   );
@@ -133,20 +136,35 @@ export const QueryPanel = memo(function QueryPanel({
     [tabId, setQueryState],
   );
 
-  const smartQueryLimit = usePreferencesStore(
-    (state) => state.smartQueryLimit,
-  );
+  const smartQueryLimit = usePreferencesStore((state) => state.smartQueryLimit);
   const updateTabMetadata = useWorkbenchStore(
     (state) => state.updateTabMetadata,
   );
 
-  const queryGridId = useMemo(
-    () => `query:${connectionId}:${database}:${schema}:${tabId}`,
-    [connectionId, database, schema, tabId],
+  const activeConnectionId = useConnectionStore(
+    (state) => state.activeConnectionId,
+  );
+
+  const effectiveConnectionId = useMemo(
+    () => connectionId || activeConnectionId || "",
+    [connectionId, activeConnectionId],
   );
 
   useEffect(() => {
-    setQuery(initialSql);
+    if (!connectionId && activeConnectionId && panelId && tabId) {
+      updateTabMetadata(panelId, tabId, {
+        connectionId: activeConnectionId,
+      });
+    }
+  }, [connectionId, activeConnectionId, panelId, tabId, updateTabMetadata]);
+
+  const queryGridId = useMemo(
+    () => `query:${effectiveConnectionId}:${database}:${schema}:${tabId}`,
+    [effectiveConnectionId, database, schema, tabId],
+  );
+
+  useEffect(() => {
+    setQuery(initialSql ?? "");
   }, [initialSql, setQuery]);
 
   // Cleanup global state when component fully unmounts (tab closed, not just moved)
@@ -163,7 +181,7 @@ export const QueryPanel = memo(function QueryPanel({
 
   const handleExecute = useCallback(
     async (queryToExecute?: string) => {
-      let sql = queryToExecute || query;
+      let sql = queryToExecute ?? query ?? "";
 
       // Clean up the SQL - remove trailing semicolons as they cause issues
       sql = sql.trim().replace(/;\s*$/, "");
@@ -227,8 +245,12 @@ export const QueryPanel = memo(function QueryPanel({
           });
         };
 
+        if (!effectiveConnectionId) {
+          throw new Error("No active connection selected");
+        }
+
         const streamPromise = streamingTableService.streamQuery(
-          connectionId,
+          effectiveConnectionId,
           sql,
           pageSize,
           (progress) => {
@@ -347,7 +369,7 @@ export const QueryPanel = memo(function QueryPanel({
         const wasCancelled = controller.signal.aborted;
         if (sql.trim() && !wasCancelled) {
           await queryHistoryService.addEntry({
-            connectionId,
+            connectionId: effectiveConnectionId,
             database,
             query: sql,
             executedAt: new Date(),
@@ -360,7 +382,7 @@ export const QueryPanel = memo(function QueryPanel({
     },
     [
       query,
-      connectionId,
+      effectiveConnectionId,
       database,
       smartQueryLimit,
       setIsExecuting,
@@ -451,7 +473,7 @@ export const QueryPanel = memo(function QueryPanel({
               >
                 <div className="flex flex-col h-full">
                   <QueryEditor
-                    connectionId={connectionId}
+                    connectionId={effectiveConnectionId}
                     database={database}
                     schema={schema}
                     dbType={dbType}
@@ -496,7 +518,7 @@ export const QueryPanel = memo(function QueryPanel({
                       result={result}
                       isLoading={isExecuting}
                       isStreaming={isStreaming}
-                      connectionId={connectionId}
+                      connectionId={effectiveConnectionId}
                       database={database}
                       height="100%"
                       gridId={queryGridId}
@@ -536,14 +558,14 @@ export const QueryPanel = memo(function QueryPanel({
                   </TabsList>
                   <TabsContent value="history" className="flex-1 mt-0">
                     <QueryHistory
-                      connectionId={connectionId}
+                      connectionId={effectiveConnectionId}
                       database={database}
                       onSelectQuery={handleSelectQuery}
                     />
                   </TabsContent>
                   <TabsContent value="saved" className="flex-1 mt-0">
                     <SavedQueries
-                      connectionId={connectionId}
+                      connectionId={effectiveConnectionId}
                       database={database}
                       currentQuery={query}
                       onSelectQuery={handleSelectQuery}

@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { FocusEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import type {
   GridSelection,
   Item,
@@ -59,6 +60,8 @@ import { cn } from "@/lib/utils";
 import { GridContextMenu } from "../components/GridContextMenu";
 import { useConnectionStore } from "@/stores";
 import { useTheme } from "next-themes";
+import { useCommand } from "@/hooks/useCommand";
+import { useContextKey, useScopedKeybindings } from "@/hooks/useContextKey";
 import {
   useTableEditData,
   useEnsureScope,
@@ -206,6 +209,14 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const { toast } = useToast();
   const { resolvedTheme } = useTheme();
   const isDarkTheme = resolvedTheme === "dark";
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [isGridFocused, setIsGridFocused] = useState(false);
+  const scopeId = useScopedKeybindings(gridId);
+
+  useContextKey("dataGridFocus", isGridFocused, {
+    scopeId,
+    resetOnUnmount: true,
+  });
 
   const highlightColors = useMemo(
     () =>
@@ -234,6 +245,21 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           },
     [isDarkTheme],
   );
+
+  const handleFocusCapture = useCallback(() => {
+    setIsGridFocused(true);
+  }, []);
+
+  const handleBlurCapture = useCallback((event: FocusEvent<HTMLDivElement>) => {
+    const nextTarget = event.relatedTarget as Node | null;
+    if (!containerRef.current) {
+      setIsGridFocused(false);
+      return;
+    }
+    if (!nextTarget || !containerRef.current.contains(nextTarget)) {
+      setIsGridFocused(false);
+    }
+  }, []);
 
   // Determine mode and extract mode-specific props
   const isTableMode = props.mode === "table";
@@ -387,6 +413,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   // Editing is only enabled in table mode AND not for views/materialized views
   const isEditable = isTableMode && entityType === "table" && !isView;
 
+  useContextKey("dataGridEditable", isEditable, {
+    scopeId,
+    resetOnUnmount: true,
+  });
+
   // Load full structure (columns only) for table mode to enrich metadata such as enum values
   const { structure: tableStructure } = useTableFullStructure({
     connectionId: isTableMode ? props.connectionId : "",
@@ -464,6 +495,14 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const preferences = useGridPreferences(gridId);
   const hydrated = useGridPreferencesHydrated();
   const history = useGridHistory();
+  useContextKey("dataGridCanUndo", isEditable && history.canUndo, {
+    scopeId,
+    resetOnUnmount: true,
+  });
+  useContextKey("dataGridCanRedo", isEditable && history.canRedo, {
+    scopeId,
+    resetOnUnmount: true,
+  });
   const { persistSelection, persistScrollOffset, persistActiveCell } =
     usePersistentViewState(gridId);
 
@@ -539,6 +578,86 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       });
     },
   });
+
+  const handleKeyDownCapture = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (!gridSelection) {
+        return;
+      }
+
+      const key = event.key?.toLowerCase();
+      if (!(event.metaKey || event.ctrlKey) || key !== "c") {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      void copySelection(gridSelection, event.shiftKey ? "json" : "text");
+    },
+    [copySelection, gridSelection],
+  );
+
+  useCommand(
+    "dataGrid.action.copy",
+    async () => {
+      if (!gridSelection) {
+        return;
+      }
+      await copySelection(gridSelection, "text");
+    },
+    {
+      label: "Copy Selection",
+      category: "Data Grid",
+      when: "dataGridFocus && !selectionEmpty && !editingCell",
+    },
+  );
+
+  useCommand(
+    "dataGrid.action.copyAsJson",
+    async () => {
+      if (!gridSelection) {
+        return;
+      }
+      await copySelection(gridSelection, "json");
+    },
+    {
+      label: "Copy Selection as JSON",
+      category: "Data Grid",
+      when: "dataGridFocus && !selectionEmpty && !editingCell",
+    },
+  );
+
+  useCommand(
+    "dataGrid.action.undo",
+    () => {
+      if (!isEditable || !history.canUndo) {
+        return;
+      }
+      history.undo();
+    },
+    {
+      label: "Undo Last Edit",
+      category: "Data Grid",
+      when: "dataGridFocus && dataGridEditable && !editingCell",
+      enabledWhen: "dataGridCanUndo",
+    },
+  );
+
+  useCommand(
+    "dataGrid.action.redo",
+    () => {
+      if (!isEditable || !history.canRedo) {
+        return;
+      }
+      history.redo();
+    },
+    {
+      label: "Redo Last Edit",
+      category: "Data Grid",
+      when: "dataGridFocus && dataGridEditable && !editingCell",
+      enabledWhen: "dataGridCanRedo",
+    },
+  );
 
   // REMOVED: Automatic state restoration disabled for tab isolation
   // With the new gridId scheme (including panelId and tabId), each tab maintains
@@ -1108,8 +1227,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     [persistSelection],
   );
 
-  const disableCellEditing = useCallback(() => false, []);
-
   // Track currently editing cell (for bright cell highlight)
   const [editingCell, setEditingCell] = useState<{
     rowIndex: number;
@@ -1121,6 +1238,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       setEditingCell(null);
     }
   }, [isEditable]);
+
+  useContextKey("editingCell", editingCell != null, {
+    scopeId,
+    resetOnUnmount: true,
+  });
 
   // Track row details sheet visibility
   const [showDetailsSheet, setShowDetailsSheet] = useState(false);
@@ -1594,68 +1716,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     [finalColumns, gridId],
   );
 
-  // Keyboard event handler for clipboard operations
-  useEffect(() => {
-    const handleKeyDown = async (e: KeyboardEvent) => {
-      // Don't intercept keyboard events if user is in an input/textarea/editor
-      const target = e.target as HTMLElement;
-      const isInEditor =
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable ||
-        target.closest(".cm-content") || // CodeMirror editor
-        target.closest(".click-outside-ignore"); // Cell editors
-
-      // Cmd/Ctrl + Shift + C for JSON copy
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "c") {
-        if (!isInEditor) {
-          e.preventDefault();
-          if (gridSelection) {
-            await copySelection(gridSelection, "json");
-          }
-        }
-      }
-      // Standard Cmd/Ctrl + C for regular copy
-      else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === "c") {
-        if (!isInEditor) {
-          e.preventDefault();
-          if (gridSelection) {
-            await copySelection(gridSelection, "text");
-          }
-        }
-      }
-      // Cmd/Ctrl + Z for undo (table mode only)
-      else if (
-        isEditable &&
-        (e.metaKey || e.ctrlKey) &&
-        !e.shiftKey &&
-        e.key === "z"
-      ) {
-        if (!isInEditor) {
-          e.preventDefault();
-          history.undo();
-        }
-      }
-      // Cmd/Ctrl + Shift + Z for redo (table mode only)
-      else if (
-        isEditable &&
-        (e.metaKey || e.ctrlKey) &&
-        e.shiftKey &&
-        e.key === "z"
-      ) {
-        if (!isInEditor) {
-          e.preventDefault();
-          history.redo();
-        }
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [copySelection, gridSelection, history, isEditable]);
-
   const errorMessage = typeof error === "string" ? error : null;
 
   // Build row highlight sets (place hooks before any early returns)
@@ -1848,6 +1908,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   // Calculate selected row count from the set
   const selectedRowCount = selectedRowsSet.size;
+  const hasSelection = selectedRowCount > 0;
+
+  useContextKey("selectionEmpty", !hasSelection, {
+    scopeId,
+    resetOnUnmount: true,
+  });
 
   // (rectangular rows merged into selectedRowsSet above)
 
@@ -1908,6 +1974,21 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     history,
   ]);
 
+  useCommand(
+    "dataGrid.action.deleteRows",
+    () => {
+      if (!isEditable) {
+        return;
+      }
+      handleDeleteFromMenu();
+    },
+    {
+      label: "Delete Selected Rows",
+      category: "Data Grid",
+      when: "dataGridFocus && dataGridEditable && !editingCell && !selectionEmpty",
+    },
+  );
+
   const handlePasteFromMenu = useCallback(() => {
     if (!isEditable) return;
     void navigator.clipboard
@@ -1965,7 +2046,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
     // Use numeric position to insert at specific index
     const result = handleRowAppend({
-      position: firstSelectedIdx,
+      position: firstSelectedIdx || ("top" as any),
       draftRow: baseRow,
     });
     history.push(result);
@@ -1990,42 +2071,41 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
     // Use numeric position to insert at specific index
     const result = handleRowAppend({
-      position: firstSelectedIdx + 1,
+      position: ((firstSelectedIdx || 0) as number) + 1,
       draftRow: baseRow,
     });
     history.push(result);
   }, [isEditable, handleRowAppend, finalColumns, history, selectedRows]);
 
-  // Keyboard shortcut: Ctrl+Enter / Cmd+Enter to insert row after current
-  // Only works when NOT editing a cell
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Check if we're in edit mode - gridSelection.current indicates active editor
-      const isEditingCell = gridSelection?.current !== undefined;
-
-      // Check if target is an input/textarea (editing in a cell editor)
-      const isInEditor =
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement ||
-        (e.target as HTMLElement)?.contentEditable === "true";
-
-      if (
-        (e.ctrlKey || e.metaKey) &&
-        e.key === "Enter" &&
-        isEditable &&
-        !isEditingCell &&
-        !isInEditor
-      ) {
-        e.preventDefault();
-        handleInsertRowBelow();
+  useCommand(
+    "dataGrid.action.insertRowAbove",
+    () => {
+      if (!isEditable) {
+        return;
       }
-    };
+      handleInsertRowAbove();
+    },
+    {
+      label: "Insert Row Above Selection",
+      category: "Data Grid",
+      when: "dataGridFocus && dataGridEditable && !editingCell && !selectionEmpty",
+    },
+  );
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isEditable, handleInsertRowBelow, gridSelection]);
+  useCommand(
+    "dataGrid.action.insertRowBelow",
+    () => {
+      if (!isEditable) {
+        return;
+      }
+      handleInsertRowBelow();
+    },
+    {
+      label: "Insert Row Below Selection",
+      category: "Data Grid",
+      when: "dataGridFocus && dataGridEditable && !editingCell && !selectionEmpty",
+    },
+  );
 
   // Early returns for loading/error states
   if (!hydrated) {
@@ -2046,7 +2126,14 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   return (
     <div className="flex h-full flex-col">
-      <div className="relative flex-1">
+      <div
+        ref={containerRef}
+        className="relative flex-1"
+        onFocusCapture={handleFocusCapture}
+        onBlurCapture={handleBlurCapture}
+        onPointerDown={handleFocusCapture}
+        onKeyDownCapture={handleKeyDownCapture}
+      >
         <GridContextMenu
           selectedRows={selectedRows}
           selectedRowKeys={selectedRowKeys}
@@ -2110,7 +2197,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             freezeColumns={freezeColumns}
             getRowThemeOverride={getRowThemeOverride}
             highlightRegions={cellHighlightRegions}
-            isCellEditable={isEditable ? undefined : disableCellEditing}
           />
         </GridContextMenu>
       </div>
@@ -2136,7 +2222,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         conversionMs={conversionMs}
         ipcSendMs={ipcSendMs}
         onViewDetails={
-          selectedRowCount > 0
+          hasSelection
             ? () => {
                 setShowDetailsSheet(true);
               }

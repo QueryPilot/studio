@@ -21,7 +21,7 @@ export interface UseClipboardBridgeResult {
   lastCopyMode: CopyMode | null;
 }
 
-const hasNavigatorClipboard =
+export const hasNavigatorClipboard =
   typeof navigator !== "undefined" &&
   typeof navigator.clipboard?.writeText === "function";
 
@@ -43,10 +43,16 @@ const fallbackCopy = (text: string) => {
   }
 };
 
-const writeToClipboard = async (text: string) => {
+export const writeTextToClipboard = async (text: string) => {
   if (hasNavigatorClipboard) {
-    await navigator.clipboard.writeText(text);
-    return;
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch (error) {
+      // Fallback if the browser rejects clipboard access (e.g., missing permission)
+      fallbackCopy(text);
+      return;
+    }
   }
   fallbackCopy(text);
 };
@@ -69,7 +75,7 @@ export function useClipboardBridge(
           throw new Error("Clipboard payload is empty");
         }
 
-        await writeToClipboard(String(payload));
+        await writeTextToClipboard(String(payload));
         setLastCopyMode(mode);
         onCopySuccess?.(mode);
       } catch (error) {

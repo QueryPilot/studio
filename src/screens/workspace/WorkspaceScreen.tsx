@@ -1,5 +1,5 @@
 import { useParams } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { WorkspaceTitleBar } from "./components/WorkspaceTitleBar";
 import { DatabaseSidebar } from "./components/DatabaseSidebar";
 import { DatabaseSchemaSelector } from "./components/DatabaseSchemaSelector";
@@ -7,6 +7,8 @@ import { WorkbenchLayout } from "@/components/Workbench";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import { useSchemaStore } from "@/stores/schemaStore";
 import { usePanelStore } from "@/stores/panelStore";
+import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
+import { useConnectionStore } from "@/stores/connectionStore";
 import { databaseService } from "@/services/databaseService";
 import { Backend } from "@/services/backend";
 import {
@@ -20,17 +22,47 @@ import { AIAssistantSidebar } from "@/components/AIAssistant/AIAssistantSidebar"
 
 export function WorkspaceScreen() {
   const { connectionId } = useParams<{ connectionId: string }>();
-  const { toggleSidebar, initWorkspace, getSidebars } =
-    useWorkspaceScreenStore();
+  const { initWorkspace, getSidebars } = useWorkspaceScreenStore();
   const sidebars = getSidebars();
   const { loadSchemas } = useSchemaStore();
   const { initialize: initializePanels } = usePanelStore();
 
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedDatabase, setSelectedDatabase] = useState("");
   const [selectedSchema, setSelectedSchema] = useState("");
+  const selectedDatabase = useWorkspaceSelectionStore(
+    (state) =>
+      (connectionId ? state.selectedDatabases[connectionId] : undefined) ?? "",
+  );
+  const setActiveWorkspaceConnection = useWorkspaceSelectionStore(
+    (state) => state.setActiveConnection,
+  );
+  const setWorkspaceDatabase = useWorkspaceSelectionStore(
+    (state) => state.setSelectedDatabase,
+  );
 
   useConnectionAutoReconnect(connectionId);
+
+  useEffect(() => {
+    setActiveWorkspaceConnection(connectionId ?? null);
+    if (connectionId) {
+      // Sync activeConnectionId to connection store (direct state update, no side effects)
+      const connectionStore = useConnectionStore.getState();
+      if (connectionStore.activeConnectionId !== connectionId) {
+        useConnectionStore.setState({ activeConnectionId: connectionId });
+      }
+
+      const currentDatabase =
+        useWorkspaceSelectionStore.getState().selectedDatabases[connectionId];
+      if (!currentDatabase) {
+        const connection = useConnectionStore
+          .getState()
+          .getConnection(connectionId);
+        if (connection?.database) {
+          setWorkspaceDatabase(connectionId, connection.database);
+        }
+      }
+    }
+  }, [connectionId, setActiveWorkspaceConnection, setWorkspaceDatabase]);
 
   useEffect(() => {
     if (connectionId) {
@@ -69,6 +101,16 @@ export function WorkspaceScreen() {
     };
   }, [connectionId, loadSchemas, initWorkspace, initializePanels]);
 
+  const handleDatabaseChange = useCallback(
+    (database: string) => {
+      if (!connectionId) {
+        return;
+      }
+      setWorkspaceDatabase(connectionId, database);
+    },
+    [connectionId, setWorkspaceDatabase],
+  );
+
   if (!connectionId) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -80,11 +122,7 @@ export function WorkspaceScreen() {
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-background">
       {/* Title Bar */}
-      <WorkspaceTitleBar
-        connectionId={connectionId}
-        onToggleSidebar={toggleSidebar}
-        isConnecting={isLoading}
-      />
+      <WorkspaceTitleBar connectionId={connectionId} isConnecting={isLoading} />
 
       {/* Main Content Area */}
       <ResizablePanelGroup
@@ -108,7 +146,7 @@ export function WorkspaceScreen() {
                   connectionId={connectionId}
                   selectedDatabase={selectedDatabase}
                   selectedSchema={selectedSchema}
-                  onDatabaseChange={setSelectedDatabase}
+                  onDatabaseChange={handleDatabaseChange}
                   onSchemaChange={setSelectedSchema}
                 />
               </div>

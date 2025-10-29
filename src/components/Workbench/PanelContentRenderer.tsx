@@ -127,7 +127,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
           panelId={panelId}
           tabId={tabId}
           initialSql={metadata?.sql}
-          connectionId={metadata?.connectionId || ""}
+          connectionId={metadata?.connectionId || activeConnectionId || ""}
           database={metadata?.database || ""}
           schema={metadata?.schema}
           dbType={(() => {

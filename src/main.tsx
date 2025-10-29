@@ -11,6 +11,8 @@ import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
 import customParseFormat from "dayjs/plugin/customParseFormat";
+import { KeyboardProvider } from "./components/KeyboardProvider";
+import { CommandPalette } from "./components/CommandPalette/CommandPalette";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -36,16 +38,19 @@ if (process.env.NODE_ENV === "development") {
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="system"
-        enableSystem
-        storageKey="query-pilot-theme"
-      >
-        <App />
-        <Toaster richColors closeButton />
-      </ThemeProvider>
-    </QueryClientProvider>
+    <KeyboardProvider>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          storageKey="query-pilot-theme"
+        >
+          <App />
+          <Toaster richColors closeButton />
+          <CommandPalette />
+        </ThemeProvider>
+      </QueryClientProvider>
+    </KeyboardProvider>
   </StrictMode>,
 );

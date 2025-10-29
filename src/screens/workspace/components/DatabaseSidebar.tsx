@@ -24,6 +24,7 @@ import {
   ActionButton,
 } from "./DatabaseSidebarItem";
 import { useSchemaData } from "@/hooks/useSchemaData";
+import { openFunctionObject, openTableObject } from "@/utils/workbench/openers";
 
 interface DatabaseSidebarProps {
   connectionId: string;
@@ -51,14 +52,7 @@ export function DatabaseSidebar({
     refresh: refreshSchemaData,
   } = useSchemaData(connectionId, selectedDatabase, selectedSchema);
 
-  const {
-    getPrimaryPanel,
-    addTabToPanel,
-    setActiveTabInPanel,
-    updateTabInPanel,
-    panels,
-    activePanelId,
-  } = usePanelStore();
+  const { panels, activePanelId } = usePanelStore();
 
   const { focusedPanelId, panelContents } = useWorkbenchStore();
 
@@ -111,164 +105,20 @@ export function DatabaseSidebar({
     table: TableMeta,
     viewType: "data" | "structure" | "indexes" = "data",
   ) => {
-    // Use workbench panel system
-    const {
-      focusedPanelId,
-      addTab,
-      panelContents,
-      focusPanel,
-      setActiveTab,
-      updateTabMetadata,
-    } = useWorkbenchStore.getState();
-
-    const tabId = `table-${table.schema}-${table.name}`;
-
-    // If this table tab already exists in ANY panel, focus that panel/tab and update view
-    for (const [panelId, content] of panelContents.entries()) {
-      if (content.tabIds.includes(tabId)) {
-        setActiveTab(panelId, tabId);
-        updateTabMetadata(panelId, tabId, {
-          type: "table",
-          title: table.name,
-          connectionId,
-          database: selectedDatabase,
-          schema: table.schema,
-          table: table.name,
-          isView: table.kind !== "Table",
-          kind: table.kind,
-          viewType,
-        });
-        focusPanel(panelId);
-        return;
-      }
-    }
-
-    // Determine which panel to use if none already has the tab
-    let targetPanelId = focusedPanelId;
-
-    if (!targetPanelId && panelContents.size > 0) {
-      // No focused panel, pick the first available panel
-      const firstPanelId = Array.from(panelContents.keys())[0];
-      if (firstPanelId) {
-        targetPanelId = firstPanelId;
-        // Focus the panel we're going to use
-        focusPanel(targetPanelId);
-      }
-    }
-
-    if (targetPanelId) {
-      addTab(targetPanelId, tabId, {
-        type: "table",
-        title: table.name,
-        connectionId,
-        database: selectedDatabase,
-        schema: table.schema,
-        table: table.name,
-        isView: table.kind !== "Table",
-        kind: table.kind,
-        viewType,
-      });
-      return;
-    }
-
-    // Fallback to old panel system
-    const primaryPanel = getPrimaryPanel();
-    if (!primaryPanel) return;
-
-    // Check if table tab already exists
-    const existingTab = Array.from(primaryPanel.tabs.values()).find(
-      (tab) =>
-        tab.type === "table" &&
-        tab.payload.tableName === table.name &&
-        tab.payload.schema === table.schema,
-    );
-
-    if (existingTab) {
-      // If tab exists, just activate it and set the view type
-      setActiveTabInPanel(primaryPanel.id, existingTab.id);
-      // Update the tab's active view and kind
-      updateTabInPanel(primaryPanel.id, existingTab.id, {
-        payload: {
-          ...existingTab.payload,
-          activeView: viewType,
-          kind: table.kind,
-        },
-      });
-    } else {
-      // Create new table tab with specified view
-      addTabToPanel(primaryPanel.id, {
-        type: "table",
-        connectionId,
-        title: table.name,
-        payload: {
-          database: selectedDatabase,
-          schema: table.schema,
-          tableName: table.name,
-          isView: table.kind !== "Table",
-          kind: table.kind,
-          activeView: viewType,
-        },
-      });
-    }
+    openTableObject({
+      table,
+      connectionId,
+      database: selectedDatabase,
+      viewType,
+    });
   };
 
   const handleFunctionClick = (func: FunctionMeta) => {
-    // Try new workbench system first
-    const { focusedPanelId, addTab, panelContents, focusPanel } =
-      useWorkbenchStore.getState();
-
-    // Determine target panel
-    let targetPanelId = focusedPanelId;
-    if (!targetPanelId) {
-      // If no focused panel, find the first panel
-      const firstPanel = Array.from(panelContents.entries())[0];
-      if (firstPanel) {
-        targetPanelId = firstPanel[0];
-        // Focus the panel we're going to use
-        focusPanel(targetPanelId);
-      }
-    }
-
-    if (targetPanelId) {
-      const tabId = `function-${func.schema}-${func.name}`;
-      addTab(targetPanelId, tabId, {
-        type: "function",
-        title: func.name,
-        connectionId,
-        database: selectedDatabase,
-        schema: func.schema,
-        functionName: func.name,
-      });
-      return;
-    }
-
-    // Fallback to old panel system
-    const primaryPanel = getPrimaryPanel();
-    if (!primaryPanel) return;
-
-    // Check if function tab already exists
-    const existingTab = Array.from(primaryPanel.tabs.values()).find(
-      (tab) =>
-        tab.type === "function" &&
-        tab.payload.functionName === func.name &&
-        tab.payload.schema === func.schema,
-    );
-
-    if (existingTab) {
-      setActiveTabInPanel(primaryPanel.id, existingTab.id);
-    } else {
-      // Create new function tab
-      addTabToPanel(primaryPanel.id, {
-        type: "function",
-        connectionId,
-        title: func.name,
-        payload: {
-          database: selectedDatabase,
-          schema: func.schema,
-          functionName: func.name,
-        },
-      });
-    }
+    openFunctionObject({
+      func,
+      connectionId,
+      database: selectedDatabase,
+    });
   };
 
   const handleRefresh = async () => {

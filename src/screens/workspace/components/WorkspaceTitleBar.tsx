@@ -60,7 +60,6 @@ import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 
 interface WorkspaceTitleBarProps {
   connectionId: string;
-  onToggleSidebar: (side: "left" | "right") => void;
   isConnecting?: boolean;
 }
 
@@ -69,7 +68,6 @@ export function WorkspaceTitleBar({
   isConnecting: isInitiallyConnecting = false,
 }: WorkspaceTitleBarProps) {
   const { connections, loadConnections } = useConnectionStore();
-  const { toggleSidebar, getSidebars } = useWorkspaceScreenStore();
   const connection = connections.find((c) => c.id === connectionId);
   const navigate = useNavigate();
   const [openWindows, setOpenWindows] = useState<string[]>([]);
@@ -80,6 +78,7 @@ export function WorkspaceTitleBar({
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
   const { theme, setTheme } = useTheme();
+  const { toggleSidebar: onToggleSidebar } = useWorkspaceScreenStore();
 
   // Combined connecting state (initial + reconnecting)
   const isConnecting = isInitiallyConnecting || isReconnecting;

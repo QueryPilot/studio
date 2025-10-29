@@ -5,7 +5,6 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use postgres_protocol::types as proto;
 use postgres_types::{FromSql, Kind, Type};
 use rayon::prelude::*;
-use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use serde_json::{json, Map, Value as JsonValue};
 use tokio_postgres::Row;
@@ -169,11 +168,8 @@ impl FastPostgresConverter {
 
     fn convert_numeric(pg_type: &Type, raw: &[u8]) -> Result<JsonValue> {
         let decimal = Decimal::from_sql(pg_type, raw).map_err(Self::map_decode_err)?;
-        if let Some(float) = decimal.to_f64() {
-            Ok(JsonValue::from(float))
-        } else {
-            Ok(JsonValue::String(decimal.to_string()))
-        }
+        // Always use string to preserve exact precision - f64 loses precision beyond ~15 digits
+        Ok(JsonValue::String(decimal.to_string()))
     }
 
     fn convert_money(raw: &[u8]) -> JsonValue {
