@@ -13,6 +13,8 @@ import {
 } from "@/stores/tableEditStore.selectors";
 import { PendingEditsDrawer } from "../PendingEditsDrawer/PendingEditsDrawer";
 import { cn } from "@/lib/utils";
+import { useCommand } from "@/hooks/useCommand";
+import { useContextKey } from "@/hooks/useContextKey";
 
 // ============================================================================
 // Types
@@ -34,6 +36,20 @@ export const PendingEditsIndicator = memo(function PendingEditsIndicator({
   const count = usePendingChangesCount(connectionId);
   const summary = useConnectionEditSummary(connectionId);
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  useContextKey("pendingEditsAvailable", count > 0, { resetOnUnmount: true });
+
+  useCommand(
+    "pendingEdits.open",
+    () => {
+      setDrawerOpen(true);
+    },
+    {
+      label: "Show Pending Edits",
+      category: "Pending Edits",
+      when: "pendingEditsAvailable",
+    },
+  );
 
   const handleClick = useCallback(() => {
     setDrawerOpen(true);
@@ -115,30 +131,4 @@ export function usePendingEditsDrawer() {
     close,
     toggle,
   };
-}
-
-// ============================================================================
-// Keyboard shortcut hook
-// ============================================================================
-
-import { useEffect } from "react";
-
-/**
- * Hook to bind keyboard shortcut for opening the drawer
- */
-export function usePendingEditsShortcut(callback: () => void) {
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl+Shift+P or Cmd+Shift+P
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "p") {
-        e.preventDefault();
-        callback();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [callback]);
 }

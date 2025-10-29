@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useCallback } from "react";
 import { CodeEditor } from "@/components/CodeEditor";
 import type { SqlDialect } from "@/components/CodeEditor";
 
@@ -35,18 +35,19 @@ export const QueryEditor = memo(function QueryEditor({
       ? "sqlite"
       : "postgresql";
 
-  const handleExecute = (query?: string) => {
-    // Prevent execution if already executing
-    if (isExecuting) {
-      return;
-    }
+  const handleExecute = useCallback(
+    (query?: string) => {
+      // Prevent execution if already executing
+      if (isExecuting) {
+        return;
+      }
 
-    if (onExecute) {
-      // Use the query passed from CodeMirror (selected text or query at cursor)
-      // If no query is passed, use the entire editor value
-      onExecute(query || value);
-    }
-  };
+      if (onExecute) {
+        onExecute(query || value);
+      }
+    },
+    [isExecuting, onExecute, value],
+  );
 
   return (
     <div className="h-full overflow-hidden">

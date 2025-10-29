@@ -421,7 +421,9 @@ export const getEditorExtensions = (
   connectionId?: string,
   database?: string,
   schema?: string,
+  options?: { disableExecuteKeymap?: boolean },
 ): Extension[] => {
+  const disableExecuteKeymap = options?.disableExecuteKeymap ?? false;
   const extensions: Extension[] = [
     // Basic setup
     bracketMatching(),
@@ -546,7 +548,7 @@ export const getEditorExtensions = (
   }
 
   // Add execute keymap FIRST if handler provided to override default behavior
-  if (onExecute) {
+  if (onExecute && !disableExecuteKeymap) {
     extensions.unshift(createExecuteKeymap(onExecute));
   }
 

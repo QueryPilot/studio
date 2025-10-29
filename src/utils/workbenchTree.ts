@@ -8,7 +8,7 @@ import type {
 
 export const CONSTRAINTS: WorkbenchConstraints = {
   MAX_COLUMNS: 5, // Maximum 5 columns
-  MAX_ROWS: 3,    // Maximum 3 rows
+  MAX_ROWS: 2,    // Maximum 2 rows
   MIN_PANEL_WIDTH: 200,
   MIN_PANEL_HEIGHT: 150,
   MIN_SPLIT_RATIO: 0.1,

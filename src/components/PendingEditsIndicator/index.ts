@@ -1,5 +1,1 @@
-export {
-  PendingEditsIndicator,
-  usePendingEditsDrawer,
-  usePendingEditsShortcut,
-} from "./PendingEditsIndicator";
+export * from "./PendingEditsIndicator";

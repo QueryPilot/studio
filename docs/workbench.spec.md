@@ -399,62 +399,85 @@ const Panel: React.FC<{
 
 ### 6.1 Implementation
 
-```typescript
-const SHORTCUTS = {
-  'cmd+\\': 'split-right',
-  'cmd+shift+\\': 'split-down',
-  'cmd+w': 'close-panel',
-  'cmd+k cmd+left': 'focus-left',
-  'cmd+k cmd+right': 'focus-right',
-  'cmd+k cmd+up': 'focus-up',
-  'cmd+k cmd+down': 'focus-down',
-  'cmd+1-9': 'focus-panel-by-index',
-  'cmd+shift+[': 'previous-tab',
-  'cmd+shift+]': 'next-tab',
-  'cmd+alt+left': 'move-panel-left',
-  'cmd+alt+right': 'move-panel-right'
-};
+Keyboard handling is now centralised through the `KeyboardProvider`. Panels register the commands they care about and provide context keys that enable/disable bindings. This removes ad‑hoc window listeners and gives us VS Code–style scope evaluation.
 
-const useKeyboardShortcuts = () => {
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const shortcut = getShortcutFromEvent(e);
-      const action = SHORTCUTS[shortcut];
-      
-      if (action) {
-        e.preventDefault();
-        executeAction(action);
-      }
-    };
-    
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-};
+```typescript
+// src/components/Workbench/PanelDnd.tsx
+const focusPanel = useWorkbenchStore((s) => s.focusPanel);
+const focusNextPanel = useCallback(() => {
+  const ids = Array.from(useWorkbenchStore.getState().panelContents.keys());
+  if (ids.length <= 1) return;
+  const current = useWorkbenchStore.getState().focusedPanelId ?? ids[0];
+  const next = ids[(ids.indexOf(current) + 1) % ids.length];
+  focusPanel(next);
+}, [focusPanel]);
+
+useCommand(
+  "workbench.action.focusNextPanel",
+  focusNextPanel,
+  {
+    label: "Focus Next Panel",
+    category: "Workbench",
+    when: "hasMultipleEditors",
+  },
+);
 ```
+
+Context keys drive when a binding is active:
+
+```typescript
+const scopeId = useScopedKeybindings(panelId);
+useContextKey("activeEditor", Boolean(focusedPanelId === content.id), {
+  scopeId,
+  resetOnUnmount: true,
+});
+```
+
+### 6.2 Default Shortcut Map
+
+The command registry seeds the following workbench commands and keybindings:
+
+| Command | macOS / Windows binding | Notes |
+| --- | --- | --- |
+| `workbench.action.splitPanelRight` | `⌘\` / `Ctrl+\` | Split the active panel to the right |
+| `workbench.action.splitPanelDown` | `⌘⇧\` / `Ctrl+Shift+\` | Split the active panel below |
+| `workbench.action.splitPanelLeft` | `⌘⌥←` / `Ctrl+Alt+Left` | Split to the left (no new tab) |
+| `workbench.action.splitPanelUp` | `⌘⌥↑` / `Ctrl+Alt+Up` | Split above |
+| `workbench.action.focusNextPanel` | `⌘]` / `Ctrl+]` | Cycle panel focus forward |
+| `workbench.action.focusPreviousPanel` | `⌘[` / `Ctrl+[` | Cycle panel focus backward |
+| `workbench.action.newQueryTab` | `⌘T` / `Ctrl+T` | Create a query tab in the focused panel |
+| `workbench.action.closeActiveTab` | `⌘W` / `Ctrl+W` | Closes the panel when >1 panels exist, otherwise closes the tab |
+
+Additional data‑grid commands (`Cmd+C`, `Cmd+Shift+C`, `Cmd+V`, `Cmd+Enter`, etc.) are registered through the same provider so grid menus display accurate shortcuts.
 
 ## 7. Constraints and Limits
 
 ### 7.1 Panel Limits
 
 ```typescript
-const CONSTRAINTS = {
-  MAX_HORIZONTAL_PANELS: 4,
-  MAX_VERTICAL_PANELS: 2,
+export const CONSTRAINTS: WorkbenchConstraints = {
+  MAX_COLUMNS: 5,
+  MAX_ROWS: 2,
   MIN_PANEL_WIDTH: 200,
   MIN_PANEL_HEIGHT: 150,
   MIN_SPLIT_RATIO: 0.1,
   MAX_SPLIT_RATIO: 0.9,
-  MAX_TREE_DEPTH: 5
 };
 
-function canSplit(tree: GridNode, direction: 'horizontal' | 'vertical'): boolean {
-  const count = countPanelsInDirection(tree, direction);
-  const maxCount = direction === 'horizontal' 
-    ? CONSTRAINTS.MAX_HORIZONTAL_PANELS 
-    : CONSTRAINTS.MAX_VERTICAL_PANELS;
-  
-  return count < maxCount && getTreeDepth(tree) < CONSTRAINTS.MAX_TREE_DEPTH;
+export function canSplitPanel(
+  tree: GridNode,
+  targetPanelId: string,
+  direction: Direction,
+): boolean {
+  const orientation = ["left", "right"].includes(direction)
+    ? "horizontal"
+    : "vertical";
+
+  if (orientation === "horizontal") {
+    return countHorizontalPanelsInRow(tree, targetPanelId) < CONSTRAINTS.MAX_COLUMNS;
+  }
+
+  return countVerticalPanelsInColumn(tree, targetPanelId) < CONSTRAINTS.MAX_ROWS;
 }
 ```
 

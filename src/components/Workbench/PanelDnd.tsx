@@ -31,6 +31,96 @@ import { useConnectionStore } from "@/stores/connectionStore";
 import { useSchemaStore } from "@/stores/schemaStore";
 import { useTableEditStore, createScopeKey } from "@/stores/tableEditStore";
 import { TabCloseConfirmDialog } from "./TabCloseConfirmDialog";
+import { normalizeKeybindingLabel } from "@/lib/keyboardDispatch";
+
+const EMPTY_PANEL_SHORTCUTS: Array<{ label: string; binding: string }> = [
+  { label: "New query tab", binding: "cmd+t" },
+  { label: "Quick open", binding: "cmd+p" },
+  { label: "Command palette", binding: "cmd+shift+p" },
+  { label: "Split panel", binding: "cmd+\\" },
+];
+
+function ShortcutKeys({
+  binding,
+  className,
+}: {
+  binding: string;
+  className?: string;
+}) {
+  const chords = normalizeKeybindingLabel(binding);
+
+  return (
+    <div className={cn("flex items-center gap-1", className)}>
+      {chords.map((chord, chordIndex) => {
+        const parts = chord.split("+");
+        return (
+          <div
+            key={`${binding}-${chordIndex}`}
+            className="flex items-center gap-1"
+          >
+            {parts.map((part, partIndex) => (
+              <React.Fragment
+                key={`${binding}-${chordIndex}-${part}-${partIndex}`}
+              >
+                <kbd
+                  className={cn(
+                    "rounded-md border bg-muted p-0.5 h-7 w-7 flex items-center justify-center",
+                    "text-foreground text-center",
+                    [
+                      "Enter",
+                      "Escape",
+                      "Space",
+                      "Tab",
+                      "Backspace",
+                      "Delete",
+                      "Del",
+                      "Home",
+                      "End",
+                      "PageUp",
+                      "PageDown",
+                      "ArrowUp",
+                      "ArrowDown",
+                      "ArrowLeft",
+                      "ArrowRight",
+                      "Up",
+                      "Down",
+                      "Left",
+                      "Right",
+                      "Minus",
+                      "Plus",
+                      "=",
+                      "-",
+                      "`",
+                      "~",
+                      ";",
+                      "'",
+                      ",",
+                      ".",
+                      "/",
+                      "⌘",
+                      "⌥",
+                      "⌃",
+                      "⇧",
+                    ].includes(part)
+                      ? "text-xl"
+                      : "text-sm",
+                  )}
+                >
+                  {part}
+                </kbd>
+              </React.Fragment>
+            ))}
+            {chordIndex < chords.length - 1 ? (
+              <span className="text-muted-foreground text-sm font-medium">
+                then
+              </span>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 interface DroppableZoneProps {
   panelId: string;
@@ -391,10 +481,23 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
         })}
 
         {content.tabIds.length === 0 && (
-          <div className="h-full flex items-center justify-center text-muted-foreground p-4">
-            <div className="text-center">
-              <p className="text-sm">Empty Panel</p>
-              <p className="text-xs mt-2">Split or drag a tab here</p>
+          <div className="flex h-full items-center justify-center p-6">
+            <div className="text-center space-y-3">
+              <div className="mt-3 grid grid-cols-1 gap-3">
+                {EMPTY_PANEL_SHORTCUTS.map(({ label, binding }) => (
+                  <div
+                    key={binding}
+                    className="flex items-center justify-between gap-3"
+                  >
+                    <div className="w-1/2 text-sm font-medium text-foreground text-right">
+                      {label}
+                    </div>
+                    <div className="w-1/2">
+                      <ShortcutKeys binding={binding} />
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -437,10 +540,8 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
             }
           }}
           onConfirm={() => {
-            if (confirmCloseTab) {
-              removeTab(content.id, confirmCloseTab.tabId);
-              setConfirmCloseTab(null);
-            }
+            removeTab(content.id, confirmCloseTab.tabId);
+            setConfirmCloseTab(null);
           }}
           metadata={confirmCloseTab.metadata}
           connectionId={activeConnectionId}

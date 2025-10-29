@@ -1477,7 +1477,7 @@ function RowChangeCard({ rowKey, draft, scopeKey }: RowChangeCardProps) {
   }, [draft.action]);
 
   const changedCellsCount = useMemo(() => {
-    return draft.cells?.size || 0;
+    return (draft.cells?.size || 0) as number;
   }, [draft.cells]);
 
   const handleDiscard = useCallback(() => {
@@ -1588,9 +1588,6 @@ function RowChangeCard({ rowKey, draft, scopeKey }: RowChangeCardProps) {
 
           {draft.action === "update" && draft.cells && draft.cells.size > 0 && (
             <div className="space-y-0.5">
-              <div className="text-[10px] font-medium text-muted-foreground mb-0.5">
-                Changed Fields:
-              </div>
               {Array.from(draft.cells.entries()).map(
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 ([colName, cellDraft]: [string, any]) => {

@@ -4,6 +4,8 @@ import {
   useMemo,
   forwardRef,
   useImperativeHandle,
+  useState,
+  useCallback,
 } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { EditorView } from "@codemirror/view";
@@ -12,6 +14,8 @@ import { getThemeExtensions } from "./themes";
 import { getEditorExtensions } from "./extensions";
 import type { CodeEditorProps } from "./types";
 import "./autocomplete.css";
+import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
+import { useScopedKeybindings, useContextKey } from "@/hooks/useContextKey";
 
 export interface CodeEditorRef {
   focus: () => void;
@@ -43,7 +47,31 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
     ref,
   ) => {
     const editorRef = useRef<EditorView | null>(null);
+    const focusCleanupRef = useRef<(() => void) | null>(null);
     const { resolvedTheme } = useTheme();
+    const keyboardServices = useKeyboardServicesOptional();
+    const disableExecuteKeymap = Boolean(keyboardServices);
+    const scopeId = useScopedKeybindings();
+    const [isFocused, setIsFocused] = useState(false);
+    const isQueryEditor = Boolean(onExecute);
+
+    useContextKey("editorTextFocus", isFocused, {
+      scopeId,
+      resetOnUnmount: true,
+    });
+
+    useContextKey("queryEditor", isQueryEditor, {
+      scopeId,
+      resetOnUnmount: true,
+    });
+
+    useEffect(() => {
+      return () => {
+        focusCleanupRef.current?.();
+        focusCleanupRef.current = null;
+        setIsFocused(false);
+      };
+    }, []);
 
     useImperativeHandle(
       ref,
@@ -89,10 +117,57 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
       return theme;
     }, [theme, resolvedTheme]);
 
+    const commandRegisteredRef = useRef(false);
+
+    const handleExecute = useCallback(
+      (query?: string) => {
+        if (onExecute) {
+          onExecute(query);
+        }
+      },
+      [onExecute],
+    );
+
+    const registerExecuteCommand = useCallback(() => {
+      if (!keyboardServices || !onExecute) {
+        return;
+      }
+      keyboardServices.commandService.register(
+        {
+          id: "editor.action.executeQuery",
+          label: "Run Query",
+          category: "Editor",
+          when: "editorTextFocus && queryEditor",
+          handler: (args) => {
+            const queryArg =
+              typeof args === "string"
+                ? args
+                : Array.isArray(args) && typeof args[0] === "string"
+                ? args[0]
+                : undefined;
+            handleExecute(queryArg);
+          },
+        },
+        "default",
+      );
+      commandRegisteredRef.current = true;
+    }, [handleExecute, keyboardServices, onExecute]);
+
     // Memoize the theme extensions
     const themeExtensions = useMemo(() => {
       return getThemeExtensions(actualTheme);
     }, [actualTheme]);
+
+    useEffect(() => {
+      return () => {
+        if (keyboardServices && commandRegisteredRef.current) {
+          keyboardServices.commandService.unregister(
+            "editor.action.executeQuery",
+          );
+          commandRegisteredRef.current = false;
+        }
+      };
+    }, [keyboardServices]);
 
     // Create extensions
     const extensions = useMemo(() => {
@@ -107,6 +182,7 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
           connectionId,
           database,
           schema,
+          { disableExecuteKeymap },
         ),
         ...themeExtensions,
         EditorView.theme({
@@ -143,6 +219,7 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
       database,
       schema,
       themeExtensions,
+      disableExecuteKeymap,
     ]);
 
     // Handle auto-focus - focus on mount and when autoFocus changes
@@ -182,7 +259,31 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
           theme="none"
           style={{ height: "100%", display: "flex", flexDirection: "column" }}
           onCreateEditor={(view) => {
+            focusCleanupRef.current?.();
             editorRef.current = view;
+            const handleFocus = () => {
+              setIsFocused(true);
+              registerExecuteCommand();
+            };
+            const handleBlur = () => {
+              setIsFocused(false);
+              if (keyboardServices && commandRegisteredRef.current) {
+                keyboardServices.commandService.unregister(
+                  "editor.action.executeQuery",
+                );
+                commandRegisteredRef.current = false;
+              }
+            };
+            view.dom.addEventListener("focus", handleFocus, true);
+            view.dom.addEventListener("blur", handleBlur, true);
+            focusCleanupRef.current = () => {
+              view.dom.removeEventListener("focus", handleFocus, true);
+              view.dom.removeEventListener("blur", handleBlur, true);
+            };
+            setIsFocused(view.hasFocus);
+            if (view.hasFocus) {
+              registerExecuteCommand();
+            }
             // Auto-focus when editor is created if autoFocus is true
             if (autoFocus) {
               setTimeout(() => {
@@ -195,6 +296,19 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
             foldGutter: false,
             autocompletion: false, // Managed by extensions
             defaultKeymap: false, // We add this manually in extensions
+          }}
+          onFocus={() => {
+            setIsFocused(true);
+            registerExecuteCommand();
+          }}
+          onBlur={() => {
+            setIsFocused(false);
+            if (keyboardServices && commandRegisteredRef.current) {
+              keyboardServices.commandService.unregister(
+                "editor.action.executeQuery",
+              );
+              commandRegisteredRef.current = false;
+            }
           }}
         />
       </div>

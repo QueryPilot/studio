@@ -1,10 +1,11 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
+  ContextMenuShortcut,
 } from "@/components/ui/context-menu";
 import {
   Copy,
@@ -35,6 +36,8 @@ import {
   getSuggestedFilename,
 } from "../utils/exportUtils";
 import { useToast } from "@/hooks/use-toast";
+import { writeTextToClipboard } from "../hooks/useClipboardBridge";
+import { normalizeKeybindingLabel } from "@/lib/keyboardDispatch";
 
 export interface GridContextMenuItemsProps {
   selectedRows: GridRowModel[];
@@ -80,11 +83,31 @@ export function GridContextMenuItems({
   const { toast } = useToast();
   const hasSelection = selectedRows.length > 0;
 
+  const formatShortcut = useCallback((binding: string): string => {
+    const chords = normalizeKeybindingLabel(binding);
+    if (chords.length === 0) {
+      return "";
+    }
+    return chords.join(" ");
+  }, []);
+
+  const shortcuts = useMemo(
+    () => ({
+      copy: formatShortcut("cmd+c"),
+      copyJson: formatShortcut("cmd+shift+c"),
+      paste: formatShortcut("cmd+v"),
+      insertAbove: formatShortcut("cmd+shift+enter"),
+      insertBelow: formatShortcut("cmd+enter"),
+      deleteRows: formatShortcut("cmd+backspace"),
+    }),
+    [formatShortcut],
+  );
+
   // Copy handlers
   const handleCopyJSON = useCallback(async () => {
     try {
       const content = copyAsJSON(selectedRows, columns);
-      await navigator.clipboard.writeText(content);
+      await writeTextToClipboard(content);
       toast({ description: "Copied as JSON" });
     } catch (error) {
       toast({
@@ -99,7 +122,7 @@ export function GridContextMenuItems({
   const handleCopyCSV = useCallback(async () => {
     try {
       const content = copyAsCSV(selectedRows, columns);
-      await navigator.clipboard.writeText(content);
+      await writeTextToClipboard(content);
       toast({ description: "Copied as CSV" });
     } catch (error) {
       toast({
@@ -114,7 +137,7 @@ export function GridContextMenuItems({
   const handleCopyTSV = useCallback(async () => {
     try {
       const content = copyAsTSV(selectedRows, columns);
-      await navigator.clipboard.writeText(content);
+      await writeTextToClipboard(content);
       toast({ description: "Copied as TSV" });
     } catch (error) {
       toast({
@@ -135,7 +158,7 @@ export function GridContextMenuItems({
         databaseType,
         schema,
       );
-      await navigator.clipboard.writeText(content);
+      await writeTextToClipboard(content);
       toast({ description: "Copied as INSERT statement" });
     } catch (error) {
       toast({
@@ -274,6 +297,9 @@ export function GridContextMenuItems({
         <ContextMenuSubTrigger className="text-xs py-1 px-2 outline-none">
           <Copy className="mr-3.5 h-3 w-3 text-foreground" />
           <span className="flex-1">Copy</span>
+          {shortcuts.copy ? (
+            <ContextMenuShortcut>{shortcuts.copy}</ContextMenuShortcut>
+          ) : null}
         </ContextMenuSubTrigger>
         <ContextMenuSubContent className="text-xs p-1">
           <ContextMenuItem
@@ -282,6 +308,9 @@ export function GridContextMenuItems({
           >
             <Copy className="mr-1.5 h-3 w-3 text-foreground" />
             <span className="flex-1">Copy as JSON</span>
+            {shortcuts.copyJson ? (
+              <ContextMenuShortcut>{shortcuts.copyJson}</ContextMenuShortcut>
+            ) : null}
           </ContextMenuItem>
           <ContextMenuItem
             onClick={handleCopyCSV}
@@ -341,6 +370,9 @@ export function GridContextMenuItems({
       >
         <ClipboardPaste className="mr-1.5 h-3 w-3 text-foreground" />
         <span className="flex-1">Paste</span>
+        {shortcuts.paste ? (
+          <ContextMenuShortcut>{shortcuts.paste}</ContextMenuShortcut>
+        ) : null}
       </ContextMenuItem>
 
       {/* Add Row submenu */}
@@ -356,6 +388,9 @@ export function GridContextMenuItems({
           >
             <ArrowUp className="mr-1.5 h-3 w-3 text-foreground" />
             <span className="flex-1">Insert Row Above</span>
+            {shortcuts.insertAbove ? (
+              <ContextMenuShortcut>{shortcuts.insertAbove}</ContextMenuShortcut>
+            ) : null}
           </ContextMenuItem>
           <ContextMenuItem
             onClick={onInsertRowBelow}
@@ -363,6 +398,9 @@ export function GridContextMenuItems({
           >
             <ArrowDown className="mr-1.5 h-3 w-3 text-foreground" />
             <span className="flex-1">Insert Row Below</span>
+            {shortcuts.insertBelow ? (
+              <ContextMenuShortcut>{shortcuts.insertBelow}</ContextMenuShortcut>
+            ) : null}
           </ContextMenuItem>
           <ContextMenuSeparator className="my-1" />
           <ContextMenuItem
@@ -421,8 +459,11 @@ export function GridContextMenuItems({
         onClick={onDeleteRows}
         className="text-xs py-1 px-2 outline-none"
       >
-        <Trash2 className="mr-1.5 h-3 w-3 text-foreground" />
+        <Trash2 className="mr-1.5 h-3 w-3 text-destructive" />
         <span className="flex-1">Delete</span>
+        {shortcuts.deleteRows ? (
+          <ContextMenuShortcut>{shortcuts.deleteRows}</ContextMenuShortcut>
+        ) : null}
       </ContextMenuItem>
     </>
   );
