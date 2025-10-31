@@ -1,14 +1,17 @@
-.PHONY: help d dev build clean install test t test-all test-quick test-adapters test-postgres test-mysql test-mssql test-sqlite test-adapters-quiet test-adapters-verbose test-adapter docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup
+.PHONY: help d dev build build-ai-sidecar build-ai-sidecar-all dev-sidecar ds clean install test t test-all test-quick test-adapters test-postgres test-mysql test-mssql test-sqlite test-adapters-quiet test-adapters-verbose test-adapter docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup
 
 # Default target - show help
 help:
 	@echo "Query Pilot - Available Commands:"
 	@echo ""
 	@echo "Development:"
-	@echo "  make dev, make d    - Run in development mode"
-	@echo "  make build          - Build for production"
-	@echo "  make install        - Install dependencies"
-	@echo "  make clean          - Clean build artifacts"
+	@echo "  make dev, make d       - Run in development mode"
+	@echo "  make dev-sidecar, ds   - Run AI sidecar in dev mode (Bun)"
+	@echo "  make build             - Build for production (includes AI sidecar)"
+	@echo "  make build-ai-sidecar  - Build AI sidecar for current platform"
+	@echo "  make build-ai-all      - Build AI sidecar for all platforms"
+	@echo "  make install           - Install dependencies"
+	@echo "  make clean             - Clean build artifacts"
 	@echo ""
 	@echo "Testing:"
 	@echo "  make test, make t   - Run all unit tests"
@@ -35,25 +38,44 @@ help:
 	@echo "  make setup          - Start containers and seed all databases"
 
 # Development
-d:
+dev d:
 	pnpm tauri:dev
 
-dev:
-	pnpm tauri:dev
+dev-sidecar ds:
+	@echo "Starting AI sidecar in dev mode..."
+	@cd src-tauri/sidecar-ai && bun install && PORT=3001 bun run index.ts
+
+# AI Sidecar build
+build-ai:
+	@echo "Building AI sidecar for current platform..."
+	@bash scripts/build-ai-sidecar.sh
+
+build-ai-all:
+	@echo "Building AI sidecar for all platforms..."
+	@BUILD_ALL=true bash scripts/build-ai-sidecar.sh
 
 # Build for production
 build:
-	pnpm tauri:build
+	@echo "Building AI sidecar..."
+	@$(MAKE) build-ai-sidecar
+	@echo "Building Tauri app..."
+	@pnpm tauri:build
 
 # Install dependencies
-install:
+install i:
 	pnpm install
+	@echo "Installing AI sidecar dependencies..."
+	@cd src-tauri/sidecar-ai && bun install
 
 # Clean build artifacts
 clean:
-	rm -rf dist
-	rm -rf src-tauri/target
-	rm -rf node_modules
+	@echo "Cleaning build artifacts..."
+	@rm -rf dist
+	@rm -rf src-tauri/target
+	@rm -rf node_modules
+	@rm -rf src-tauri/sidecar-ai/node_modules
+	@rm -f src-tauri/sidecars/ai-server-*
+	@echo "Clean complete!"
 
 # Run tests
 test:

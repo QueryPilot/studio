@@ -722,7 +722,7 @@ async fn execute_single_fetch_stream(
     // Send any remaining JSON rows
     if !json_buffer.is_empty() {
         let batch_size = json_buffer.len();
-        let offset = total_rows - batch_size;
+        let _offset = total_rows - batch_size;
 
         // Serialize to MessagePack RAW bytes
         let serialize_start = std::time::Instant::now();

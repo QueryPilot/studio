@@ -232,6 +232,9 @@ export const TextMultiLineCellEditor: React.FC<
         <textarea
           ref={textareaRef}
           value={text}
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           className={cn(

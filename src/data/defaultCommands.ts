@@ -8,6 +8,9 @@ import useWorkbenchStore from '@/stores/workbenchStore';
 import { useConnectionStore } from '@/stores/connectionStore';
 import { useSchemaStore } from '@/stores/schemaStore';
 import { useTabStateStore } from '@/stores/tabStateStore';
+import { useTableEditStore } from '@/stores/tableEditStore';
+import { queryClient } from '@/lib/react-query-client';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 
 const commandPaletteStore = useCommandPaletteStore.getState();
 const dialogStore = useDialogStore.getState();
@@ -350,6 +353,36 @@ export const defaultCommands: Command[] = [
       });
       workbench.setActiveTab(focusedPanelId, tabId);
       workbench.focusPanel(focusedPanelId);
+    },
+  },
+  {
+    id: 'workbench.action.discardAllChanges',
+    label: 'Discard All Changes and Reload',
+    category: 'Workbench',
+    handler: async () => {
+      const connectionStore = useConnectionStore.getState();
+      const activeConnectionId = connectionStore.activeConnectionId;
+
+      if (activeConnectionId) {
+        // Discard all changes in the table edit store for this connection
+        const tableEditStore = useTableEditStore.getState();
+        tableEditStore.discardAll(activeConnectionId);
+      }
+
+      // Clear all React Query cache
+      queryClient.clear();
+
+      // Invalidate and refetch all queries to reload schemas, tables, etc.
+      await queryClient.invalidateQueries();
+    },
+  },
+  {
+    id: 'workbench.action.reloadWindow',
+    label: 'Reload Window',
+    category: 'Workbench',
+    handler: async () => {
+      const appWindow = getCurrentWebviewWindow();
+      await appWindow.reload();
     },
   },
 ];

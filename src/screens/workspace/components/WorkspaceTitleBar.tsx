@@ -54,9 +54,9 @@ import {
 import { useTheme } from "@/components/theme-provider";
 import { toast } from "@/hooks/use-toast";
 import useWorkbenchStore from "@/stores/workbenchStore";
-import { PreferencesDialog } from "@/components/Preferences/PreferencesDialog";
 import { PendingEditsIndicator } from "@/components/PendingEditsIndicator";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
+import { usePreferencesStore } from "@/stores/preferencesStore";
 
 interface WorkspaceTitleBarProps {
   connectionId: string;
@@ -76,9 +76,9 @@ export function WorkspaceTitleBar({
   const [connectionHealth, setConnectionHealth] =
     useState<ConnectionHealth | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
-  const [preferencesOpen, setPreferencesOpen] = useState(false);
   const { theme, setTheme } = useTheme();
   const { toggleSidebar: onToggleSidebar } = useWorkspaceScreenStore();
+  const { openPreferences } = usePreferencesStore();
 
   // Combined connecting state (initial + reconnecting)
   const isConnecting = isInitiallyConnecting || isReconnecting;
@@ -659,7 +659,7 @@ export function WorkspaceTitleBar({
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => {
-                setPreferencesOpen(true);
+                openPreferences("general");
               }}
             >
               <Settings className="mr-2 h-4 w-4" />
@@ -668,12 +668,6 @@ export function WorkspaceTitleBar({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-
-      {/* Preferences Dialog */}
-      <PreferencesDialog
-        open={preferencesOpen}
-        onOpenChange={setPreferencesOpen}
-      />
     </div>
   );
 }

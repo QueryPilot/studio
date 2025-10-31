@@ -178,7 +178,7 @@ impl PostgresAdapter {
 
     /// Pre-warm tables after schema is loaded (Phase 2: smart table pre-warming)
     pub async fn prewarm_tables(&self, schema: &str, tables: Vec<String>) -> Result<()> {
-        let executor = self
+        let _executor = self
             .query_executor
             .as_ref()
             .ok_or_else(|| AppError::Internal("Query executor not initialized".to_string()))?;
@@ -329,7 +329,7 @@ impl DbAdapter for PostgresAdapter {
             .map_err(|e| AppError::Internal(format!("Failed to create connection pool: {}", e)))?;
 
         // Get a connection to verify pool is working
-        let conn = pool.get().await.map_err(|e| {
+        let _conn = pool.get().await.map_err(|e| {
             AppError::Internal(format!("Failed to get connection from pool: {}", e))
         })?;
 

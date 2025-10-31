@@ -2,7 +2,7 @@ use base64::Engine as _;
 use keyring::Entry;
 use rand::RngCore;
 
-const KEYCHAIN_SERVICE: &str = "dev.querypilot.app.vault";
+const KEYCHAIN_SERVICE: &str = "dev.querypilot.studio.vault";
 const KEYCHAIN_ACCOUNT: &str = "master_password";
 
 /// Get or generate vault master password from OS keychain (cross-platform via keyring)

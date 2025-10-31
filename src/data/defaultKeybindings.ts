@@ -43,6 +43,10 @@ export const defaultKeybindings: Keybinding[] = [
     key: 'cmd+alt+b',
   },
   {
+    command: 'workbench.action.toggleRightSidebar',
+    key: 'cmd+l',
+  },
+  {
     command: 'workbench.action.splitPanelRight',
     key: 'cmd+\\',
     when: 'activeEditor',
@@ -141,5 +145,13 @@ export const defaultKeybindings: Keybinding[] = [
     command: 'dataGrid.action.deleteRows',
     key: 'cmd+backspace',
     when: 'dataGridFocus && dataGridEditable && !editingCell && !selectionEmpty',
+  },
+  {
+    command: 'workbench.action.discardAllChanges',
+    key: 'cmd+r',
+  },
+  {
+    command: 'workbench.action.reloadWindow',
+    key: 'cmd+shift+r',
   },
 ];

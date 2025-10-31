@@ -1,12 +1,28 @@
 use std::sync::Arc;
 
 use tauri::{async_runtime, Emitter, State, Window};
+use serde::{Deserialize, Serialize};
 
 use crate::ai::manager::AIManager;
 use crate::ai::provider::ProviderEvent;
 use crate::ai::types::{
     AIMessage, ChatRequest, ChunkEvent, CompleteEvent, ErrorEvent, MessageRole, SessionSummary,
 };
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AIConfig {
+    pub provider: String,
+    pub model: String,
+    pub api_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AIProviderConfig {
+    pub name: String,
+    pub models: Vec<String>,
+    pub requires_api_key: bool,
+}
 
 #[tauri::command]
 pub async fn create_ai_session(
@@ -134,4 +150,203 @@ pub async fn send_ai_message_streaming(
     });
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_ai_sidecar_url(
+    manager: State<'_, Arc<AIManager>>,
+) -> Result<Option<String>, String> {
+    let url = manager.sidecar_manager().get_url().await;
+    Ok(url)
+}
+
+/// Reload API keys and send to sidecar (called after user updates keys in settings)
+#[tauri::command]
+pub async fn reload_ai_api_keys(
+    manager: State<'_, Arc<AIManager>>,
+) -> Result<(), String> {
+    use keyring::Entry;
+    use std::collections::HashMap;
+
+    // IMPORTANT: Must match the service name in secure_storage.rs
+    const KEYCHAIN_SERVICE: &str = "dev.querypilot.studio.ai";
+    let providers = ["openai", "anthropic", "google"];
+
+    let mut keys = HashMap::new();
+
+    for provider in providers {
+        // Use same format as secure_storage.rs: "dev.querypilot.studio.ai.{provider}"
+        let service_name = format!("{}.{}", KEYCHAIN_SERVICE, provider);
+        if let Ok(entry) = Entry::new(&service_name, "api_key") {
+            if let Ok(key) = entry.get_password() {
+                keys.insert(provider.to_string(), key);
+                tracing::info!("✅ Reloaded API key for provider: {}", provider);
+            }
+        }
+    }
+
+    if keys.is_empty() {
+        tracing::warn!("⚠️ No API keys found during reload");
+    }
+
+    manager.sidecar_manager()
+        .configure_api_keys(keys)
+        .await
+        .map_err(|e| {
+            tracing::error!("❌ Failed to configure API keys: {}", e);
+            e.to_string()
+        })?;
+
+    Ok(())
+}
+
+/// Get list of configured providers (those with API keys)
+#[tauri::command]
+pub async fn get_configured_providers() -> Result<Vec<String>, String> {
+    use keyring::Entry;
+
+    // IMPORTANT: Must match the service name in secure_storage.rs
+    const KEYCHAIN_SERVICE: &str = "dev.querypilot.studio.ai";
+    let providers = ["openai", "anthropic", "google"];
+
+    let mut configured = Vec::new();
+
+    for provider in providers {
+        // Use same format as secure_storage.rs: "dev.querypilot.studio.ai.{provider}"
+        let service_name = format!("{}.{}", KEYCHAIN_SERVICE, provider);
+        if let Ok(entry) = Entry::new(&service_name, "api_key") {
+            if entry.get_password().is_ok() {
+                configured.push(provider.to_string());
+                tracing::info!("✅ Found configured provider in keychain: {}", provider);
+            }
+        }
+    }
+
+    // Ollama doesn't need API key
+    configured.push("ollama".to_string());
+
+    tracing::info!("📋 Configured providers: {:?}", configured);
+    Ok(configured)
+}
+
+/// Check sidecar configuration status
+#[tauri::command]
+pub async fn get_sidecar_status(
+    manager: State<'_, Arc<AIManager>>,
+) -> Result<serde_json::Value, String> {
+    if let Some(url) = manager.sidecar_manager().get_url().await {
+        let client = reqwest::Client::new();
+
+        // Try to get status from /status endpoint
+        match client.get(format!("{}/status", url))
+            .timeout(std::time::Duration::from_secs(2))
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().is_success() => {
+                match resp.json::<serde_json::Value>().await {
+                    Ok(status) => Ok(status),
+                    Err(e) => Err(format!("Failed to parse sidecar status: {}", e)),
+                }
+            }
+            Ok(resp) => Err(format!("Sidecar returned error: {}", resp.status())),
+            Err(e) => Err(format!("Failed to connect to sidecar: {}", e)),
+        }
+    } else {
+        Err("Sidecar not initialized".to_string())
+    }
+}
+
+/// Diagnostic command: Check sidecar's in-memory API keys (DANGEROUS - shows sensitive data!)
+#[tauri::command]
+pub async fn debug_sidecar_status(
+    manager: State<'_, Arc<AIManager>>,
+) -> Result<serde_json::Value, String> {
+    if let Some(url) = manager.sidecar_manager().get_url().await {
+        // Check if sidecar is running
+        let client = reqwest::Client::new();
+        match client.get(format!("{}/health", url)).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                Ok(serde_json::json!({
+                    "sidecar_running": true,
+                    "sidecar_url": url,
+                    "note": "Sidecar is running. Check browser console and sidecar logs for /config POST."
+                }))
+            }
+            _ => Ok(serde_json::json!({
+                "sidecar_running": false,
+                "sidecar_url": url,
+                "note": "Sidecar health check failed"
+            })),
+        }
+    } else {
+        Ok(serde_json::json!({
+            "sidecar_running": false,
+            "note": "Sidecar port not initialized"
+        }))
+    }
+}
+
+#[tauri::command]
+pub async fn get_ai_providers(
+    manager: State<'_, Arc<AIManager>>,
+) -> Result<Vec<AIProviderConfig>, String> {
+    // Try to fetch from sidecar
+    match manager.sidecar_manager().get_providers().await {
+        Ok(providers_json) => {
+            // Parse JSON response
+            serde_json::from_value(providers_json)
+                .map_err(|e| format!("Failed to parse providers: {}", e))
+        }
+        Err(e) => {
+            tracing::warn!("Failed to fetch providers from sidecar, using fallback: {}", e);
+
+            // Fallback to hardcoded list if sidecar is not available
+            Ok(vec![
+                AIProviderConfig {
+                    name: "openai".to_string(),
+                    models: vec![
+                        "gpt-5-2025-08-07".to_string(),
+                        "gpt-5-pro-2025-10-06".to_string(),
+                        "gpt-5-mini-2025-08-07".to_string(),
+                        "gpt-5-nano-2025-08-07".to_string(),
+                        "gpt-4.1-2025-04-14".to_string(),
+                    ],
+                    requires_api_key: true,
+                },
+                AIProviderConfig {
+                    name: "anthropic".to_string(),
+                    models: vec![
+                        "claude-sonnet-4-5".to_string(),
+                        "claude-haiku-4-5".to_string(),
+                        "claude-opus-4-1".to_string(),
+                    ],
+                    requires_api_key: true,
+                },
+                AIProviderConfig {
+                    name: "google".to_string(),
+                    models: vec![
+                        "gemini-2.5-pro".to_string(),
+                        "gemini-2.5-flash".to_string(),
+                        "gemini-2.5-flash-lite".to_string(),
+                        "gemini-2.0-flash".to_string(),
+                        "gemini-2.0-flash-lite".to_string(),
+                    ],
+                    requires_api_key: true,
+                },
+                AIProviderConfig {
+                    name: "ollama".to_string(),
+                    models: vec![
+                        "llama3.1".to_string(),
+                        "llama3".to_string(),
+                        "codellama".to_string(),
+                        "mistral".to_string(),
+                        "qwen2.5".to_string(),
+                        "deepseek-coder".to_string(),
+                    ],
+                    requires_api_key: false,
+                },
+            ])
+        }
+    }
 }

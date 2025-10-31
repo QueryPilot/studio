@@ -8,6 +8,8 @@ import { vaultStorage } from "./services/vaultStorage";
 import { toast } from "sonner";
 import { databaseService } from "./services/databaseService";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
+import { useAIStore } from "./stores/aiStore";
 
 function AppContent() {
   return (
@@ -21,6 +23,27 @@ function AppContent() {
 }
 
 function App() {
+  const { setConfiguredProviders, setInitialized } = useAIStore();
+
+  // Load configured AI providers on startup
+  useEffect(() => {
+    const loadConfiguredProviders = async () => {
+      if (!isTauri()) return;
+
+      try {
+        const providers: string[] = await invoke("get_configured_providers");
+        setConfiguredProviders(providers);
+        setInitialized(true);
+        console.log("✅ Loaded configured providers on startup:", providers);
+      } catch (error) {
+        console.error("Failed to load configured providers:", error);
+        setInitialized(true); // Mark as initialized even on error
+      }
+    };
+
+    void loadConfiguredProviders();
+  }, [setConfiguredProviders, setInitialized]);
+
   // Ensure connections are closed on hard reloads as well
   useEffect(() => {
     const handleBeforeUnload = () => {
