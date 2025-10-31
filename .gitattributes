@@ -1,0 +1,3 @@
+# Preserve executable permissions for sidecar binaries
+src-tauri/sidecars/ai-server-* binary
+

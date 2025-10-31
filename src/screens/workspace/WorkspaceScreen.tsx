@@ -19,19 +19,28 @@ import {
 
 import { useConnectionAutoReconnect } from "@/hooks/useConnectionAutoReconnect";
 import { AIAssistantSidebar } from "@/components/AIAssistant/AIAssistantSidebar";
+import { PreferencesDialog } from "@/components/Preferences/PreferencesDialog";
 
 export function WorkspaceScreen() {
   const { connectionId } = useParams<{ connectionId: string }>();
-  const { initWorkspace, getSidebars } = useWorkspaceScreenStore();
-  const sidebars = getSidebars();
+  const { initWorkspace, setActiveConnection: setActiveWorkspace } =
+    useWorkspaceScreenStore();
+  // Subscribe to sidebar state reactively
+  const sidebars = useWorkspaceScreenStore((state) => {
+    const workspace = state.workspaces.get(state.activeConnectionId || "");
+    return workspace?.sidebars || { left: true, right: false };
+  });
   const { loadSchemas } = useSchemaStore();
   const { initialize: initializePanels } = usePanelStore();
 
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedSchema, setSelectedSchema] = useState("");
   const selectedDatabase = useWorkspaceSelectionStore(
-    (state) =>
-      (connectionId ? state.selectedDatabases[connectionId] : undefined) ?? "",
+    (state) => state.database,
+  );
+
+  const selectedSchema = useWorkspaceSelectionStore((state) => state.schema);
+  const setSelectedSchema = useWorkspaceSelectionStore(
+    (state) => state.setSchema,
   );
   const setActiveWorkspaceConnection = useWorkspaceSelectionStore(
     (state) => state.setActiveConnection,
@@ -44,6 +53,8 @@ export function WorkspaceScreen() {
 
   useEffect(() => {
     setActiveWorkspaceConnection(connectionId ?? null);
+    // Set active connection in workspace screen store for sidebar state
+    setActiveWorkspace(connectionId ?? null);
     if (connectionId) {
       // Sync activeConnectionId to connection store (direct state update, no side effects)
       const connectionStore = useConnectionStore.getState();
@@ -51,18 +62,24 @@ export function WorkspaceScreen() {
         useConnectionStore.setState({ activeConnectionId: connectionId });
       }
 
-      const currentDatabase =
-        useWorkspaceSelectionStore.getState().selectedDatabases[connectionId];
+      const currentDatabase = useWorkspaceSelectionStore.getState().database;
       if (!currentDatabase) {
         const connection = useConnectionStore
           .getState()
           .getConnection(connectionId);
         if (connection?.database) {
-          setWorkspaceDatabase(connectionId, connection.database);
+          useWorkspaceSelectionStore.setState({
+            database: connection.database,
+          });
         }
       }
     }
-  }, [connectionId, setActiveWorkspaceConnection, setWorkspaceDatabase]);
+  }, [
+    connectionId,
+    setActiveWorkspaceConnection,
+    setWorkspaceDatabase,
+    setActiveWorkspace,
+  ]);
 
   useEffect(() => {
     if (connectionId) {
@@ -106,9 +123,9 @@ export function WorkspaceScreen() {
       if (!connectionId) {
         return;
       }
-      setWorkspaceDatabase(connectionId, database);
+      useWorkspaceSelectionStore.setState({ database });
     },
-    [connectionId, setWorkspaceDatabase],
+    [connectionId],
   );
 
   if (!connectionId) {
@@ -144,8 +161,8 @@ export function WorkspaceScreen() {
               <div className="flex items-center overflow-hidden">
                 <DatabaseSchemaSelector
                   connectionId={connectionId}
-                  selectedDatabase={selectedDatabase}
-                  selectedSchema={selectedSchema}
+                  selectedDatabase={selectedDatabase ?? ""}
+                  selectedSchema={selectedSchema ?? ""}
                   onDatabaseChange={handleDatabaseChange}
                   onSchemaChange={setSelectedSchema}
                 />
@@ -155,8 +172,8 @@ export function WorkspaceScreen() {
                 <DatabaseSidebar
                   connectionId={connectionId}
                   isLoading={isLoading}
-                  selectedDatabase={selectedDatabase}
-                  selectedSchema={selectedSchema}
+                  selectedDatabase={selectedDatabase ?? ""}
+                  selectedSchema={selectedSchema ?? ""}
                 />
               </div>
             </ResizablePanel>
@@ -202,6 +219,9 @@ export function WorkspaceScreen() {
           </>
         )}
       </ResizablePanelGroup>
+
+      {/* Global Preferences Dialog */}
+      <PreferencesDialog />
     </div>
   );
 }

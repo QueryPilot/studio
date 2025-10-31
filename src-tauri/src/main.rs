@@ -8,6 +8,7 @@ mod ai;
 mod commands;
 mod core;
 mod error;
+mod http_server;
 mod keychain;
 mod state;
 mod storage;
@@ -122,6 +123,15 @@ fn main() {
             ai::commands::list_ai_sessions,
             ai::commands::get_ai_session_history,
             ai::commands::send_ai_message_streaming,
+            ai::commands::get_ai_sidecar_url,
+            ai::commands::get_ai_providers,
+            ai::commands::reload_ai_api_keys,
+            ai::commands::get_configured_providers,
+            ai::commands::get_sidecar_status,
+            ai::commands::debug_sidecar_status,
+            ai::secure_storage::get_ai_api_key,
+            ai::secure_storage::set_ai_api_key,
+            ai::secure_storage::delete_ai_api_key,
             // Keychain commands (used by TypeScript)
             keychain::get_vault_password,
             keychain::delete_vault_password,
@@ -144,6 +154,23 @@ fn main() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
+
+    // Initialize AI sidecar
+    let ai_manager = app.state::<Arc<ai::manager::AIManager>>();
+    let ai_manager_clone = ai_manager.inner().clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = ai_manager_clone.initialize_sidecar().await {
+            tracing::error!("Failed to initialize AI sidecar: {}", e);
+        }
+    });
+
+    // Start HTTP API server for AI tools
+    let app_handle_clone = app.handle().clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = http_server::start_http_server(app_handle_clone).await {
+            tracing::error!("Failed to start HTTP API server: {}", e);
+        }
+    });
 
     // Run the app
     app.run(|_app_handle, _event| {});

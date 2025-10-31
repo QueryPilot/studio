@@ -127,11 +127,13 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
       <textarea
         ref={textareaRef}
         value={text}
+        autoComplete="off"
+        autoCorrect="off"
+        spellCheck={false}
         onChange={(e) => {
           setText(e.target.value);
         }}
         onKeyDown={handleKeyDown}
-        spellCheck={false}
         className={cn(
           "flex-1 min-h-[120px] w-full resize-none bg-transparent text-xs font-mono leading-5 outline-none",
           text.trim().length === 0 ? "italic text-muted-foreground" : "",

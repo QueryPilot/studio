@@ -35,7 +35,8 @@ import { normalizeKeybindingLabel } from "@/lib/keyboardDispatch";
 
 const EMPTY_PANEL_SHORTCUTS: Array<{ label: string; binding: string }> = [
   { label: "New query tab", binding: "cmd+t" },
-  { label: "Quick open", binding: "cmd+p" },
+  { label: "AI assistant", binding: "cmd+l" },
+  { label: "Quick panel", binding: "cmd+p" },
   { label: "Command palette", binding: "cmd+shift+p" },
   { label: "Split panel", binding: "cmd+\\" },
 ];
@@ -481,7 +482,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
         })}
 
         {content.tabIds.length === 0 && (
-          <div className="flex h-full items-center justify-center p-6">
+          <div className="flex h-full w-full items-center justify-center p-6">
             <div className="text-center space-y-3">
               <div className="mt-3 grid grid-cols-1 gap-3">
                 {EMPTY_PANEL_SHORTCUTS.map(({ label, binding }) => (
@@ -489,7 +490,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                     key={binding}
                     className="flex items-center justify-between gap-3"
                   >
-                    <div className="w-1/2 text-sm font-medium text-foreground text-right">
+                    <div className="w-1/2 !text-xs text-foreground text-right">
                       {label}
                     </div>
                     <div className="w-1/2">

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-return */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Eye, FunctionSquare, Loader2, Table } from "lucide-react";
 import Fuse, { type IFuseOptions } from "fuse.js";
@@ -112,10 +111,10 @@ export function CommandPalette(): React.ReactElement {
   );
 
   const activeConnectionId = useWorkspaceSelectionStore(
-    (state) => state.activeConnectionId,
+    (state) => state.connectionId,
   );
-  const selectedDatabase = useWorkspaceSelectionStore((state) =>
-    state.getSelectedDatabase(state.activeConnectionId),
+  const selectedDatabase = useWorkspaceSelectionStore(
+    (state) => state.database,
   );
   const selectedSchema = useSchemaStore((state) => state.selectedSchema);
 
