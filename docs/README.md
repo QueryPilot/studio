@@ -27,17 +27,9 @@ This directory contains technical documentation for the DevDB Studio project.
 
 #### Data Grid
 
-- **`data-grid-v2.spec.md`** 🔄 - DataGridV2 implementation details
-  - ✅ Implemented: Full editing, clipboard, paste, persistence
-  - Component architecture and hooks
-  - Integration with table and query views
-
-#### Table Editing
-
-- **`central-table-editing-store.spec.md`** ✅ - Central table editing store architecture
-  - Multi-domain editing (structure, data, indexes, triggers)
-  - Change tracking and diff computation
-  - Pending edits drawer integration
+- **`data-grid-v2.spec.md`** ✅ - DataGridV2 architecture and read-only usage
+  - Focus on virtualization, column personalization, clipboard exports
+  - Read-only adapters for table/query views after CUD removal (Oct 2025)
 
 #### Query & Performance
 
@@ -120,6 +112,7 @@ The following outdated planning documents were removed:
 - ❌ `editor-intellisense.spec.md` - Unimplemented SQL autocomplete plan
 - ❌ `dbml-syntax-highlighter.spec.md` - Consolidated into `dbml-syntax-support.md`
 - ❌ `dbml-linter-intellisense.spec.md` - Future work, removed to focus on current state
+- ❌ `central-table-editing-store.spec.md` - Removed after deprecating table editing CUD flows (Oct 2025)
 
 ## Contributing to Documentation
 
@@ -158,7 +151,7 @@ When adding new documentation:
 | Data grid usage        | `data-grid-v2.spec.md`                                 |
 | ERD visualization      | `erd-panel.spec.md`                                    |
 | DBML editor features   | `dbml-syntax-support.md`, `dbml-enhanced-features.md`  |
-| Table editing          | `central-table-editing-store.spec.md`                  |
+| Data grid architecture | `data-grid-v2.spec.md`                                 |
 | Index statistics       | `index_usage.spec.md`                                  |
 | AI assistant           | `ai-assistant.spec.md`                                 |
 | Workbench layout       | `workbench.spec.md`                                    |
@@ -174,4 +167,4 @@ This README should be updated when:
 - Major architectural changes occur
 - Documentation is reorganized
 
-**Last Updated**: 2025-10-30
+**Last Updated**: 2025-11-01

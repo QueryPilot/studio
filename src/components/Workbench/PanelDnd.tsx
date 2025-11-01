@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import {
   type PanelContent,
@@ -29,8 +29,6 @@ import { useDroppable } from "@dnd-kit/core";
 import { DraggableTab } from "./DraggableTab";
 import { useConnectionStore } from "@/stores/connectionStore";
 import { useSchemaStore } from "@/stores/schemaStore";
-import { useTableEditStore, createScopeKey } from "@/stores/tableEditStore";
-import { TabCloseConfirmDialog } from "./TabCloseConfirmDialog";
 import { normalizeKeybindingLabel } from "@/lib/keyboardDispatch";
 
 const EMPTY_PANEL_SHORTCUTS: Array<{ label: string; binding: string }> = [
@@ -200,12 +198,6 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
 
   const tabsContainerRef = useRef<HTMLDivElement>(null);
 
-  // State for close confirmation dialog
-  const [confirmCloseTab, setConfirmCloseTab] = useState<{
-    tabId: string;
-    metadata: TabMetadata | undefined;
-  } | null>(null);
-
   // Subscribe to drag state
   const draggedTab = useWorkbenchStore(
     (state) => state.dragDropContext.draggedTab,
@@ -344,34 +336,6 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                     focusPanel(content.id);
                   }}
                   onClose={() => {
-                    // Check if tab has pending edits
-                    if (
-                      metadata &&
-                      metadata.type !== "query" &&
-                      metadata.table &&
-                      activeConnectionId
-                    ) {
-                      const scopeKey = createScopeKey({
-                        connectionId: activeConnectionId,
-                        database: metadata.database || "",
-                        schema: metadata.schema || "public",
-                        table: metadata.table,
-                      });
-
-                      const scopeState = useTableEditStore
-                        .getState()
-                        .scopes.get(scopeKey);
-                      const hasPendingChanges =
-                        scopeState && scopeState.summary.totalChanges > 0;
-
-                      if (hasPendingChanges) {
-                        // Show confirmation dialog
-                        setConfirmCloseTab({ tabId, metadata });
-                        return;
-                      }
-                    }
-
-                    // No pending changes, close directly
                     removeTab(content.id, tabId);
                   }}
                 />
@@ -530,24 +494,6 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
           isVisible={showDropZones}
         />
       </div>
-
-      {/* Close Confirmation Dialog */}
-      {confirmCloseTab && activeConnectionId && (
-        <TabCloseConfirmDialog
-          open={!!confirmCloseTab}
-          onOpenChange={(open) => {
-            if (!open) {
-              setConfirmCloseTab(null);
-            }
-          }}
-          onConfirm={() => {
-            removeTab(content.id, confirmCloseTab.tabId);
-            setConfirmCloseTab(null);
-          }}
-          metadata={confirmCloseTab.metadata}
-          connectionId={activeConnectionId}
-        />
-      )}
     </div>
   );
 };
