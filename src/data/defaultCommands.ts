@@ -1,73 +1,74 @@
-import { contextService } from '@/services/contextService';
-import { Command } from '@/types/command';
+import { contextService } from "@/services/contextService";
+import { type Command } from "@/types/command";
 
-import { useCommandPaletteStore } from '@/stores/ui/commandPaletteStore';
-import { useDialogStore } from '@/stores/ui/dialogStore';
-import { useWorkspaceScreenStore } from '@/stores/workspaceScreenStore';
-import useWorkbenchStore from '@/stores/workbenchStore';
-import { useConnectionStore } from '@/stores/connectionStore';
-import { useSchemaStore } from '@/stores/schemaStore';
-import { useTabStateStore } from '@/stores/tabStateStore';
-import { useTableEditStore } from '@/stores/tableEditStore';
-import { queryClient } from '@/lib/react-query-client';
-import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
+import { useDialogStore } from "@/stores/ui/dialogStore";
+import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
+import useWorkbenchStore from "@/stores/workbenchStore";
+import { useConnectionStore } from "@/stores/connectionStore";
+import { useSchemaStore } from "@/stores/schemaStore";
+import { useTabStateStore } from "@/stores/tabStateStore";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 const commandPaletteStore = useCommandPaletteStore.getState();
 const dialogStore = useDialogStore.getState();
 
 export const defaultCommands: Command[] = [
   {
-    id: 'quickOpen.show',
-    label: 'Quick Open…',
-    category: 'Navigation',
+    id: "quickOpen.show",
+    label: "Quick Open…",
+    category: "Navigation",
     handler: () => {
       const state = useCommandPaletteStore.getState();
-      const isQuickOpenActive = state.isOpen && state.mode === 'quickOpen';
+      const isQuickOpenActive = state.isOpen && state.mode === "quickOpen";
 
       if (isQuickOpenActive) {
         commandPaletteStore.closePalette();
-        contextService.setValue('inQuickOpen', false);
-        contextService.setValue('inCommandPalette', false);
+        contextService.setValue("inQuickOpen", false);
+        contextService.setValue("inCommandPalette", false);
         return;
       }
 
       commandPaletteStore.openQuickOpen();
-      contextService.setValue('inQuickOpen', true);
-      contextService.setValue('inCommandPalette', false);
+      contextService.setValue("inQuickOpen", true);
+      contextService.setValue("inCommandPalette", false);
     },
   },
   {
-    id: 'commandPalette.open',
-    label: 'Show Command Palette',
-    category: 'Command Palette',
+    id: "commandPalette.open",
+    label: "Show Command Palette",
+    category: "Command Palette",
     handler: () => {
-      contextService.setValue('inQuickOpen', true);
-      contextService.setValue('inCommandPalette', true);
+      contextService.setValue("inQuickOpen", true);
+      contextService.setValue("inCommandPalette", true);
       commandPaletteStore.openCommandPalette();
     },
-    when: '!inQuickOpen || !inCommandPalette',
+    when: "!inQuickOpen || !inCommandPalette",
   },
   {
-    id: 'commandPalette.close',
-    label: 'Close Command Palette',
-    category: 'Command Palette',
+    id: "commandPalette.close",
+    label: "Close Command Palette",
+    category: "Command Palette",
     handler: () => {
-      contextService.setValue('inQuickOpen', false);
-      contextService.setValue('inCommandPalette', false);
+      contextService.setValue("inQuickOpen", false);
+      contextService.setValue("inCommandPalette", false);
       commandPaletteStore.closePalette();
     },
-    when: 'inQuickOpen',
+    when: "inQuickOpen",
   },
   {
-    id: 'commandPalette.toggle',
-    label: 'Toggle Command Palette',
-    category: 'Command Palette',
+    id: "commandPalette.toggle",
+    label: "Toggle Command Palette",
+    category: "Command Palette",
     handler: () => {
       const state = useCommandPaletteStore.getState();
-      const nextOpen =
-        !(state.isOpen && state.mode === 'command' && state.origin === 'command');
-      contextService.setValue('inQuickOpen', nextOpen);
-      contextService.setValue('inCommandPalette', nextOpen);
+      const nextOpen = !(
+        state.isOpen &&
+        state.mode === "command" &&
+        state.origin === "command"
+      );
+      contextService.setValue("inQuickOpen", nextOpen);
+      contextService.setValue("inCommandPalette", nextOpen);
       if (nextOpen) {
         commandPaletteStore.openCommandPalette();
       } else {
@@ -76,58 +77,58 @@ export const defaultCommands: Command[] = [
     },
   },
   {
-    id: 'preferences.open',
-    label: 'Open Preferences',
-    category: 'Preferences',
+    id: "preferences.open",
+    label: "Open Preferences",
+    category: "Preferences",
     handler: () => {
       dialogStore.openPreferences();
     },
   },
   {
-    id: 'preferences.close',
-    label: 'Close Preferences',
-    category: 'Preferences',
+    id: "preferences.close",
+    label: "Close Preferences",
+    category: "Preferences",
     handler: () => {
       dialogStore.closePreferences();
     },
   },
   {
-    id: 'preferences.openKeyboardShortcuts',
-    label: 'Open Keyboard Shortcuts',
-    category: 'Preferences',
+    id: "preferences.openKeyboardShortcuts",
+    label: "Open Keyboard Shortcuts",
+    category: "Preferences",
     handler: () => {
       dialogStore.openKeyboardShortcuts();
     },
   },
   {
-    id: 'help.keyboardShortcuts',
-    label: 'Show Keyboard Shortcuts',
-    category: 'Help',
+    id: "help.keyboardShortcuts",
+    label: "Show Keyboard Shortcuts",
+    category: "Help",
     handler: () => {
       dialogStore.openKeyboardShortcuts();
     },
   },
   {
-    id: 'workbench.action.toggleLeftSidebar',
-    label: 'Toggle Left Sidebar',
-    category: 'Workbench',
+    id: "workbench.action.toggleLeftSidebar",
+    label: "Toggle Left Sidebar",
+    category: "Workbench",
     handler: () => {
-      useWorkspaceScreenStore.getState().toggleSidebar('left');
+      useWorkspaceScreenStore.getState().toggleSidebar("left");
     },
   },
   {
-    id: 'workbench.action.toggleRightSidebar',
-    label: 'Toggle Right Sidebar',
-    category: 'Workbench',
+    id: "workbench.action.toggleRightSidebar",
+    label: "Toggle Right Sidebar",
+    category: "Workbench",
     handler: () => {
-      useWorkspaceScreenStore.getState().toggleSidebar('right');
+      useWorkspaceScreenStore.getState().toggleSidebar("right");
     },
   },
   {
-    id: 'workbench.action.focusNextPanel',
-    label: 'Focus Next Panel',
-    category: 'Workbench',
-    when: 'hasMultipleEditors',
+    id: "workbench.action.focusNextPanel",
+    label: "Focus Next Panel",
+    category: "Workbench",
+    when: "hasMultipleEditors",
     handler: () => {
       const store = useWorkbenchStore.getState();
       const panelIds = Array.from(store.panelContents.keys());
@@ -136,7 +137,8 @@ export const defaultCommands: Command[] = [
       }
       const currentId = store.focusedPanelId ?? panelIds[0];
       const currentIndex = panelIds.indexOf(currentId);
-      const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % panelIds.length : 0;
+      const nextIndex =
+        currentIndex >= 0 ? (currentIndex + 1) % panelIds.length : 0;
       const nextPanelId = panelIds[nextIndex];
       if (nextPanelId) {
         store.focusPanel(nextPanelId);
@@ -144,10 +146,10 @@ export const defaultCommands: Command[] = [
     },
   },
   {
-    id: 'workbench.action.focusPreviousPanel',
-    label: 'Focus Previous Panel',
-    category: 'Workbench',
-    when: 'hasMultipleEditors',
+    id: "workbench.action.focusPreviousPanel",
+    label: "Focus Previous Panel",
+    category: "Workbench",
+    when: "hasMultipleEditors",
     handler: () => {
       const store = useWorkbenchStore.getState();
       const panelIds = Array.from(store.panelContents.keys());
@@ -167,10 +169,10 @@ export const defaultCommands: Command[] = [
     },
   },
   {
-    id: 'workbench.action.closeActiveTab',
-    label: 'Close Active Tab',
-    category: 'Workbench',
-    when: 'activeEditor',
+    id: "workbench.action.closeActiveTab",
+    label: "Close Active Tab",
+    category: "Workbench",
+    when: "activeEditor",
     handler: () => {
       const store = useWorkbenchStore.getState();
       const panelId = store.focusedPanelId;
@@ -195,10 +197,10 @@ export const defaultCommands: Command[] = [
     },
   },
   {
-    id: 'workbench.action.closeAllTabs',
-    label: 'Close All Tabs',
-    category: 'Workbench',
-    when: 'activeEditor',
+    id: "workbench.action.closeAllTabs",
+    label: "Close All Tabs",
+    category: "Workbench",
+    when: "activeEditor",
     handler: () => {
       const store = useWorkbenchStore.getState();
       for (const [panelId, panel] of store.panelContents.entries()) {
@@ -209,10 +211,10 @@ export const defaultCommands: Command[] = [
     },
   },
   {
-    id: 'workbench.action.nextTab',
-    label: 'Next Tab',
-    category: 'Workbench',
-    when: 'activeEditor',
+    id: "workbench.action.nextTab",
+    label: "Next Tab",
+    category: "Workbench",
+    when: "activeEditor",
     handler: () => {
       const store = useWorkbenchStore.getState();
       const panelId = store.focusedPanelId;
@@ -220,7 +222,7 @@ export const defaultCommands: Command[] = [
       const panel = store.panelContents.get(panelId);
       if (!panel || panel.tabIds.length <= 1) return;
       const currentId = panel.activeTabId;
-      const index = panel.tabIds.indexOf(currentId || '');
+      const index = panel.tabIds.indexOf(currentId || "");
       const nextIndex = index >= 0 ? (index + 1) % panel.tabIds.length : 0;
       const nextTabId = panel.tabIds[nextIndex];
       if (!nextTabId) return;
@@ -229,10 +231,10 @@ export const defaultCommands: Command[] = [
     },
   },
   {
-    id: 'workbench.action.previousTab',
-    label: 'Previous Tab',
-    category: 'Workbench',
-    when: 'activeEditor',
+    id: "workbench.action.previousTab",
+    label: "Previous Tab",
+    category: "Workbench",
+    when: "activeEditor",
     handler: () => {
       const store = useWorkbenchStore.getState();
       const panelId = store.focusedPanelId;
@@ -240,7 +242,7 @@ export const defaultCommands: Command[] = [
       const panel = store.panelContents.get(panelId);
       if (!panel || panel.tabIds.length <= 1) return;
       const currentId = panel.activeTabId;
-      const index = panel.tabIds.indexOf(currentId || '');
+      const index = panel.tabIds.indexOf(currentId || "");
       const prevIndex =
         index >= 0
           ? (index - 1 + panel.tabIds.length) % panel.tabIds.length
@@ -252,62 +254,63 @@ export const defaultCommands: Command[] = [
     },
   },
   {
-    id: 'workbench.action.splitPanelRight',
-    label: 'Split Panel Right',
-    category: 'Workbench',
-    when: 'activeEditor',
+    id: "workbench.action.splitPanelRight",
+    label: "Split Panel Right",
+    category: "Workbench",
+    when: "activeEditor",
     handler: () => {
       const store = useWorkbenchStore.getState();
       const panelId = store.focusedPanelId;
       if (!panelId) return;
-      store.splitPanelAction({ targetPanelId: panelId, direction: 'right' });
+      store.splitPanelAction({ targetPanelId: panelId, direction: "right" });
     },
   },
   {
-    id: 'workbench.action.splitPanelDown',
-    label: 'Split Panel Down',
-    category: 'Workbench',
-    when: 'activeEditor',
+    id: "workbench.action.splitPanelDown",
+    label: "Split Panel Down",
+    category: "Workbench",
+    when: "activeEditor",
     handler: () => {
       const store = useWorkbenchStore.getState();
       const panelId = store.focusedPanelId;
       if (!panelId) return;
-      store.splitPanelAction({ targetPanelId: panelId, direction: 'down' });
+      store.splitPanelAction({ targetPanelId: panelId, direction: "down" });
     },
   },
   {
-    id: 'workbench.action.splitPanelLeft',
-    label: 'Split Panel Left',
-    category: 'Workbench',
-    when: 'activeEditor',
+    id: "workbench.action.splitPanelLeft",
+    label: "Split Panel Left",
+    category: "Workbench",
+    when: "activeEditor",
     handler: () => {
       const store = useWorkbenchStore.getState();
       const panelId = store.focusedPanelId;
       if (!panelId) return;
-      store.splitPanelAction({ targetPanelId: panelId, direction: 'left' });
+      store.splitPanelAction({ targetPanelId: panelId, direction: "left" });
     },
   },
   {
-    id: 'workbench.action.splitPanelUp',
-    label: 'Split Panel Up',
-    category: 'Workbench',
-    when: 'activeEditor',
+    id: "workbench.action.splitPanelUp",
+    label: "Split Panel Up",
+    category: "Workbench",
+    when: "activeEditor",
     handler: () => {
       const store = useWorkbenchStore.getState();
       const panelId = store.focusedPanelId;
       if (!panelId) return;
-      store.splitPanelAction({ targetPanelId: panelId, direction: 'up' });
+      store.splitPanelAction({ targetPanelId: panelId, direction: "up" });
     },
   },
   {
-    id: 'workbench.action.newQueryTab',
-    label: 'New Query Tab',
-    category: 'Workbench',
-    when: 'activeEditor',
+    id: "workbench.action.newQueryTab",
+    label: "New Query Tab",
+    category: "Workbench",
+    when: "activeEditor",
     handler: () => {
       const workbench = useWorkbenchStore.getState();
       const panels = workbench.panelContents;
-      const focusedPanelId = workbench.focusedPanelId ?? panels.keys().next().value;
+      const focusedPanelId =
+        workbench.focusedPanelId ?? panels.keys().next().value;
       if (!focusedPanelId) {
         return;
       }
@@ -318,68 +321,55 @@ export const defaultCommands: Command[] = [
       }
 
       const uuid =
-        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
           ? crypto.randomUUID()
-          : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+          : `${Date.now().toString(36)}-${Math.random()
+              .toString(36)
+              .slice(2, 8)}`;
       const tabId = `query-${uuid}`;
 
       const connectionStore = useConnectionStore.getState();
       const schemaStore = useSchemaStore.getState();
       const activeConnectionId =
-        connectionStore.activeConnectionId ?? connectionStore.getActiveConnection()?.id ?? '';
+        connectionStore.activeConnectionId ??
+        connectionStore.getActiveConnection()?.id ??
+        "";
       const connection = activeConnectionId
         ? connectionStore.getConnection(activeConnectionId)
         : null;
 
-      const totalQueryCount = Array.from(panels.values()).reduce((count, panelContent) => {
-        return (
-          count +
-          panelContent.tabIds.filter((id) => {
-            const metadata = panelContent.metadata?.[id];
-            return metadata?.type === 'query' || id.startsWith('query-');
-          }).length
-        );
-      }, 0);
+      const totalQueryCount = Array.from(panels.values()).reduce(
+        (count, panelContent) => {
+          return (
+            count +
+            panelContent.tabIds.filter((id) => {
+              const metadata = panelContent.metadata?.[id];
+              return metadata?.type === "query" || id.startsWith("query-");
+            }).length
+          );
+        },
+        0,
+      );
 
-      const title = totalQueryCount > 0 ? `Query ${totalQueryCount + 1}` : 'New Query';
+      const title =
+        totalQueryCount > 0 ? `Query ${totalQueryCount + 1}` : "New Query";
 
       workbench.addTab(focusedPanelId, tabId, {
-        type: 'query',
+        type: "query",
         title,
         connectionId: activeConnectionId,
-        database: connection?.database || '',
-        schema: schemaStore.selectedSchema || '',
-        sql: '',
+        database: connection?.database || "",
+        schema: schemaStore.selectedSchema || "",
+        sql: "",
       });
       workbench.setActiveTab(focusedPanelId, tabId);
       workbench.focusPanel(focusedPanelId);
     },
   },
   {
-    id: 'workbench.action.discardAllChanges',
-    label: 'Discard All Changes and Reload',
-    category: 'Workbench',
-    handler: async () => {
-      const connectionStore = useConnectionStore.getState();
-      const activeConnectionId = connectionStore.activeConnectionId;
-
-      if (activeConnectionId) {
-        // Discard all changes in the table edit store for this connection
-        const tableEditStore = useTableEditStore.getState();
-        tableEditStore.discardAll(activeConnectionId);
-      }
-
-      // Clear all React Query cache
-      queryClient.clear();
-
-      // Invalidate and refetch all queries to reload schemas, tables, etc.
-      await queryClient.invalidateQueries();
-    },
-  },
-  {
-    id: 'workbench.action.reloadWindow',
-    label: 'Reload Window',
-    category: 'Workbench',
+    id: "workbench.action.reloadWindow",
+    label: "Reload Window",
+    category: "Workbench",
     handler: async () => {
       const appWindow = getCurrentWebviewWindow();
       await appWindow.reload();

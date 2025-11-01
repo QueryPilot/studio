@@ -13,7 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Build Tool**: Vite
 - **UI Components**: shadcn/ui (Radix UI primitives) + Tailwind CSS
 - **State Management**: Zustand for global state
-- **Data Grid**: Glide Data Grid for high-performance table editing
+- **Data Grid**: Glide Data Grid for high-performance read-only views (editing disabled pending redesign)
 - **Code Editor**: CodeMirror 6 for SQL and DBML editing
 - **Visualization**: ReactFlow + ELK.js for ERD diagrams
 - **AI SDK**: Vercel AI SDK (@ai-sdk/react) for multi-provider LLM integration
@@ -168,16 +168,16 @@ make clean
 
 **Directory Structure:**
 - `components/` - React components organized by feature
-  - `DataGridV2/` - High-performance editable data grid with custom cell renderers
+  - `DataGridV2/` - High-performance read-only data grid (CUD removed Oct 2025)
   - `Workbench/` - VS Code-style panel layout system
   - `AIAssistant/` - Chat interface with streaming responses
-  - `TableStructure/`, `TableIndexes/`, `TableTriggers/` - Table editing components
+  - `TableStructure/`, `TableIndexes/`, `TableTriggers/` - Schema/index/trigger panels (currently read-only)
   - `Erd/` - ERD visualization with DBML support
   - `QueryPanel/` - SQL query editor and results
   - `ui/` - shadcn/ui base components
 - `stores/` - Zustand state management
   - `connectionStore.ts` - Connection profiles and active connections
-  - `tableEditStore.ts` - Central editing store for structure/data/indexes/triggers
+  - `tableEditStore.ts` - (removed Oct 2025; pending redesign of table editing)
   - `workbenchStore.ts` - Panel layout persistence
   - `aiStore.ts` - AI provider configuration and chat state
   - `preferencesStore.ts` - User preferences
@@ -194,7 +194,7 @@ make clean
 **Key Frontend Patterns:**
 - **Zustand Stores**: All global state uses Zustand with immer for immutability
 - **MessagePack Decoding**: All database results are MessagePack-encoded; decode using `@msgpack/msgpack`
-- **Optimistic Updates**: Table edits are tracked locally and diffed before backend submission
+- **Read-Only Grid**: Table editing flows are disabled pending redesign; grid now emits display-only events
 - **Streaming Queries**: Large query results stream via Tauri events
 - **Vault Storage**: Sensitive data (connections, queries) stored encrypted in IndexedDB via Dexie
 
@@ -231,14 +231,8 @@ Tauri automatically bundles the correct platform executable.
 5. MessagePack-encoded batches emitted via Tauri events
 6. Frontend decodes MessagePack and updates UI
 
-### Table Editing Flow
-1. User edits table structure/data/indexes/triggers
-2. Changes tracked in `tableEditStore` (Zustand)
-3. Diffs computed comparing current state vs. original
-4. User reviews changes in PendingEditsDrawer
-5. On commit: Rust commands execute ALTER/INSERT/UPDATE/DELETE
-6. Backend sends success/error response
-7. Store cleared on success; errors shown in UI
+### Table Editing Flow (Deprecated Oct 2025)
+Table editing is temporarily disabled. The previous `tableEditStore`-driven workflow, pending edits drawer, and apply/preview services were removed and will be replaced by a future redesign.
 
 ### AI Assistant Flow
 1. User enters message in AIAssistantSidebar
