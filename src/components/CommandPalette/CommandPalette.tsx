@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { Eye, FunctionSquare, Loader2, Table } from "lucide-react";
 import Fuse, { type IFuseOptions } from "fuse.js";
+import { useQueryClient } from "@tanstack/react-query";
 
 import {
   CommandDialog,
@@ -14,45 +15,18 @@ import {
 import { useKeyboardServices } from "@/components/KeyboardProvider";
 import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
 import { contextService } from "@/services/contextService";
-import type { ResolvedKeybinding } from "@/types/keybinding";
-import type { CommandDescriptor } from "@/types/command";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useSchemaStore } from "@/stores/schemaStore";
-import { useSchemaData } from "@/hooks/useSchemaData";
 import { openFunctionObject, openTableObject } from "@/utils/workbench/openers";
-import type { FunctionMeta, TableMeta } from "@/services/databaseService";
 import { cn } from "@/lib/utils";
-import { formatNumber } from "@/utils/formatters";
-
-interface CategorizedCommand extends CommandDescriptor {
-  keybinding?: ResolvedKeybinding;
-}
+import {
+  useCommands,
+  useQuickOpenItems,
+  type CategorizedCommand,
+  type QuickOpenItem,
+} from "./useCommandPaletteQueries";
 
 type QuickOpenGroup = "Tables" | "Views" | "Functions";
-type TableEntityType = "table" | "view" | "materializedView";
-type QuickEntityType = TableEntityType | "function";
-
-interface BaseQuickOpenItem {
-  id: string;
-  group: QuickOpenGroup;
-  entityType: QuickEntityType;
-  name: string;
-  schema: string;
-  searchKey: string;
-  subtitle: string;
-}
-
-interface TableQuickOpenItem extends BaseQuickOpenItem {
-  entityType: TableEntityType;
-  table: TableMeta;
-}
-
-interface FunctionQuickOpenItem extends BaseQuickOpenItem {
-  entityType: "function";
-  func: FunctionMeta;
-}
-
-type QuickOpenItem = TableQuickOpenItem | FunctionQuickOpenItem;
 
 const QUICK_OPEN_GROUP_ORDER: QuickOpenGroup[] = [
   "Tables",
@@ -86,16 +60,8 @@ const QUICK_OPEN_FUSE_OPTIONS: IFuseOptions<QuickOpenItem> = {
   minMatchCharLength: 1,
 };
 
-const LOADING_STATE: CategorizedCommand[] = [
-  {
-    id: "__loading__",
-    label: "Loading commands…",
-    category: "System",
-    source: "default",
-  },
-];
-
 export function CommandPalette(): React.ReactElement {
+  const queryClient = useQueryClient();
   const { commandService, keybindingService } = useKeyboardServices();
 
   const isOpen = useCommandPaletteStore((state) => state.isOpen);
@@ -118,39 +84,35 @@ export function CommandPalette(): React.ReactElement {
   );
   const selectedSchema = useSchemaStore((state) => state.selectedSchema);
 
-  const [commands, setCommands] = useState<CategorizedCommand[]>(LOADING_STATE);
-  const [keybindingVersion, setKeybindingVersion] = useState(0);
+  // Use React Query to fetch and cache commands
+  const { data: commands = [], isLoading: isLoadingCommands } = useCommands();
 
+  // Invalidate cache when commands or keybindings change
   useEffect(() => {
-    const updateCommands = () => {
-      const descriptors = commandService.list();
-      const keybindings = keybindingService.list();
-
-      const enriched: CategorizedCommand[] = descriptors.map((descriptor) => ({
-        ...descriptor,
-        keybinding: resolveKeybindingForCommand(descriptor.id, keybindings),
-      }));
-
-      setCommands(enriched);
-    };
-
-    updateCommands();
-
     const disposers = [
       commandService.onDidRegister(() => {
-        updateCommands();
+        void queryClient.invalidateQueries({ queryKey: ["commands", "list"] });
       }),
       commandService.onDidUnregister(() => {
-        updateCommands();
+        void queryClient.invalidateQueries({ queryKey: ["commands", "list"] });
       }),
       keybindingService.onDidRegister(() => {
-        setKeybindingVersion((version) => version + 1);
+        void queryClient.invalidateQueries({ queryKey: ["commands", "list"] });
+        void queryClient.invalidateQueries({
+          queryKey: ["keybindings", "list"],
+        });
       }),
       keybindingService.onDidUnregister(() => {
-        setKeybindingVersion((version) => version + 1);
+        void queryClient.invalidateQueries({ queryKey: ["commands", "list"] });
+        void queryClient.invalidateQueries({
+          queryKey: ["keybindings", "list"],
+        });
       }),
       keybindingService.onDidChange(() => {
-        setKeybindingVersion((version) => version + 1);
+        void queryClient.invalidateQueries({ queryKey: ["commands", "list"] });
+        void queryClient.invalidateQueries({
+          queryKey: ["keybindings", "list"],
+        });
       }),
     ];
 
@@ -159,21 +121,7 @@ export function CommandPalette(): React.ReactElement {
         dispose();
       });
     };
-  }, [commandService, keybindingService]);
-
-  useEffect(() => {
-    if (keybindingVersion === 0) {
-      return;
-    }
-
-    const keybindings = keybindingService.list();
-    setCommands((current) =>
-      current.map((command) => ({
-        ...command,
-        keybinding: resolveKeybindingForCommand(command.id, keybindings),
-      })),
-    );
-  }, [keybindingVersion, keybindingService]);
+  }, [commandService, keybindingService, queryClient]);
 
   useEffect(() => {
     contextService.setValue("inQuickOpen", isOpen);
@@ -206,68 +154,16 @@ export function CommandPalette(): React.ReactElement {
     availabilityMessage === null &&
     Boolean(activeConnectionId);
 
+  // Use React Query to fetch and cache quick open items
   const {
-    tables,
-    views,
-    functions,
+    quickItems,
     isLoading: isQuickOpenLoading,
-  } = useSchemaData(
-    shouldLoadQuickOpen && activeConnectionId ? activeConnectionId : "",
-    shouldLoadQuickOpen ? selectedDatabase : "",
-    shouldLoadQuickOpen ? selectedSchema : "",
+  } = useQuickOpenItems(
+    activeConnectionId || "",
+    selectedDatabase || "",
+    selectedSchema || "",
+    shouldLoadQuickOpen,
   );
-
-  const quickItems = useMemo<QuickOpenItem[]>(() => {
-    if (!shouldLoadQuickOpen) {
-      return [];
-    }
-
-    const items: QuickOpenItem[] = [];
-
-    const pushTable = (
-      table: TableMeta,
-      entityType: TableEntityType,
-      group: QuickOpenGroup,
-    ) => {
-      items.push({
-        id: `${entityType}:${table.schema}.${table.name}`,
-        group,
-        entityType,
-        name: table.name,
-        schema: table.schema,
-        searchKey: `${table.schema}.${table.name}`.toLowerCase(),
-        subtitle: table.row_estimate
-          ? `~${formatNumber(table.row_estimate)} rows`
-          : "",
-        table,
-      });
-    };
-
-    tables.forEach((table) => {
-      pushTable(table, "table", "Tables");
-    });
-    views.forEach((view) => {
-      const entityType: TableEntityType =
-        view.kind === "MaterializedView" ? "materializedView" : "view";
-      const group: QuickOpenGroup = "Views";
-      pushTable(view, entityType, group);
-    });
-
-    functions.forEach((func) => {
-      items.push({
-        id: `function:${func.schema}.${func.name}`,
-        group: "Functions",
-        entityType: "function",
-        name: func.name,
-        schema: func.schema,
-        searchKey: `${func.schema}.${func.name}`.toLowerCase(),
-        subtitle: "",
-        func,
-      });
-    });
-
-    return items.sort((left, right) => left.name.localeCompare(right.name));
-  }, [functions, shouldLoadQuickOpen, tables, views]);
 
   const quickItemsById = useMemo(() => {
     const map = new Map<string, QuickOpenItem>();
@@ -317,11 +213,10 @@ export function CommandPalette(): React.ReactElement {
   }, [filteredQuickItems]);
 
   const commandQuery = mode === "command" ? query.replace(/^>/, "").trim() : "";
-  const isLoadingCommands = commands === LOADING_STATE;
 
   const filteredCommands = useMemo(() => {
     if (isLoadingCommands) {
-      return LOADING_STATE;
+      return [];
     }
 
     if (!commandQuery) {
@@ -335,11 +230,11 @@ export function CommandPalette(): React.ReactElement {
   }, [commands, commandQuery, isLoadingCommands]);
 
   const commandGroups = useMemo(() => {
-    if (filteredCommands === LOADING_STATE) {
+    if (isLoadingCommands || filteredCommands.length === 0) {
       return [];
     }
     return groupCommands(filteredCommands);
-  }, [filteredCommands]);
+  }, [filteredCommands, isLoadingCommands]);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -436,11 +331,11 @@ export function CommandPalette(): React.ReactElement {
 
   const commandEmptyMessage =
     mode === "command" && !isLoadingCommands
-      ? filteredCommands === LOADING_STATE || filteredCommands.length > 0
+      ? filteredCommands.length > 0
         ? ""
         : commandQuery
-        ? "No commands found for this search."
-        : "No commands registered."
+          ? "No commands found for this search."
+          : "No commands registered."
       : "";
 
   const quickEmptyMessage =
@@ -542,20 +437,6 @@ export function CommandPalette(): React.ReactElement {
       </CommandList>
     </CommandDialog>
   );
-}
-
-function resolveKeybindingForCommand(
-  commandId: string,
-  bindings: ResolvedKeybinding[],
-): ResolvedKeybinding | undefined {
-  const candidates = bindings.filter(
-    (binding) => binding.command === commandId,
-  );
-  if (candidates.length === 0) {
-    return undefined;
-  }
-
-  return candidates.sort((left, right) => right.weight - left.weight)[0];
 }
 
 function groupCommands(
