@@ -23,14 +23,6 @@ export const TableTriggers = memo(function TableTriggers({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!onActionsChange) return;
-    onActionsChange(null);
-    return () => {
-      onActionsChange(null);
-    };
-  }, [onActionsChange]);
-
   const loadTriggers = useCallback(async () => {
     setIsLoading(true);
     setError(null);
