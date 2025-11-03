@@ -9,12 +9,30 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { formatExecutionTime } from "@/utils/formatTime";
+import { SelectionSummary } from "./SelectionSummary";
+import type { GridRowModel, GridColumnV2 } from "../types";
 
 interface DataGridStatusBarProps {
   loadedRows: number;
   estimatedTotal?: number;
   hasMore?: boolean;
   selectedRows?: number;
+  selectedRowsData?: GridRowModel[];
+  selectedRowIndices?: Set<number>;
+  allRows?: GridRowModel[];
+  columns?: GridColumnV2[];
+  gridSelection?: {
+    rows: Set<number>;
+    columns?: Set<number>;
+    current?: {
+      range?: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      };
+    };
+  };
   className?: string;
   executionTime?: number;
   cursorSetupMs?: number;
@@ -33,6 +51,11 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   estimatedTotal,
   hasMore,
   selectedRows = 0,
+  selectedRowsData = [],
+  selectedRowIndices,
+  allRows = [],
+  columns = [],
+  gridSelection,
   executionTime,
   fetchCount,
   networkMs,
@@ -70,7 +93,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   return (
     <div
       className={cn(
-        "flex items-center justify-between px-3 py-1.5 border-t bg-background text-xs text-muted-foreground",
+        "flex items-center justify-between h-8 px-3 py-1.5 border-t bg-background text-xs text-muted-foreground",
         className,
       )}
     >
@@ -83,30 +106,43 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
         )}
 
         {selectedRows > 0 && (
-          <div className="flex items-center gap-1.5">
-            <span className="text-primary font-medium">
-              {selectedRows.toLocaleString()}{" "}
-              {selectedRows !== 1 ? "rows" : "row"} selected
-            </span>
-            {onViewDetails && (
-              <TooltipProvider delayDuration={200}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-5 w-5"
-                      onClick={onViewDetails}
-                    >
-                      <Eye className="h-3 w-3" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="text-xs">
-                    View Details
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <span className="text-primary font-medium">
+                {selectedRows.toLocaleString()}{" "}
+                {selectedRows !== 1 ? "rows" : "row"} selected
+              </span>
+              {onViewDetails && (
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5"
+                        onClick={onViewDetails}
+                      >
+                        <Eye className="h-3 w-3" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">
+                      View Details
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+            </div>
+            {selectedRowsData.length > 0 &&
+              columns.length > 0 &&
+              selectedRowIndices && (
+                <SelectionSummary
+                  selectedRows={selectedRowsData}
+                  selectedRowIndices={selectedRowIndices}
+                  allRows={allRows}
+                  columns={columns}
+                  gridSelection={gridSelection}
+                />
+              )}
           </div>
         )}
       </div>

@@ -354,6 +354,14 @@ export const EditableDataGrid = forwardRef<
     [appendRow],
   );
 
+  const handleSelectionChange = useCallback(
+    (selection: GridSelection) => {
+      onSelectionChange?.(selection);
+      onGridSelectionChange?.(selection);
+    },
+    [onSelectionChange, onGridSelectionChange],
+  );
+
   return (
     <DataGridBase
       {...rest}
@@ -371,12 +379,9 @@ export const EditableDataGrid = forwardRef<
       onDelete={handleDelete}
       onPaste={handleDataEditorPaste}
       gridSelection={gridSelection}
-      onGridSelectionChange={(selection) => {
-        onSelectionChange?.(selection);
-        onGridSelectionChange?.(selection);
-      }}
+      onGridSelectionChange={handleSelectionChange}
       getRowThemeOverride={getRowThemeOverride}
-      drawFocusRing={true}
+      drawFocusRing
       rangeSelect="rect"
       columnSelect="single"
       rowSelect="multi"
