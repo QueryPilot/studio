@@ -52,6 +52,11 @@ export const ResultViewer = memo(function ResultViewer({
   ipcSendMs,
 }: ResultViewerProps) {
   const jsonContent = useMemo(() => {
+    // Skip expensive JSON computation when in table mode
+    if (viewMode !== "json") {
+      return "[]";
+    }
+
     if (!result || result.error) {
       return "[]";
     }
@@ -71,7 +76,7 @@ export const ResultViewer = memo(function ResultViewer({
       console.warn("[ResultViewer] Failed to stringify query results", err);
       return "[]";
     }
-  }, [result]);
+  }, [result, viewMode]);
 
   // Show skeleton when loading and no result yet
   if (isLoading && !result) {

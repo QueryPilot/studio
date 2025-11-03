@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
 import type { FocusEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import type {
   GridSelection,
@@ -187,6 +187,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const queryData = isQueryMode ? props.data : null;
 
   // Memoize query data transformation to prevent infinite render loop
+  // Use stable primitive dependencies instead of queryData object reference
   const transformedQueryRows = useMemo(() => {
     if (!queryData) return [];
 
@@ -224,7 +225,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       });
       return rowObj;
     });
-  }, [queryData]);
+  }, [queryData?.rows, queryData?.columns, queryData?.columnMeta]);
 
   const {
     isLoading,
@@ -400,8 +401,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     [pinnedRows, unpinnedRows],
   );
 
-  const rowsRef = useRef(displayRows);
-  rowsRef.current = displayRows;
+  // Defer grid rendering for large datasets to keep UI responsive
+  // Grid updates in background without blocking interactions
+  const deferredDisplayRows = useDeferredValue(displayRows);
+
+  const rowsRef = useRef(deferredDisplayRows);
+  rowsRef.current = deferredDisplayRows;
 
   const handlePinRowsFromMenu = useCallback(
     (rowKeys: string[]) => {
@@ -923,6 +928,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         hasMore={hasNextPage}
         isStreaming={isLoadingMore}
         selectedRows={selectedRowCount}
+        selectedRowsData={selectedRows}
+        selectedRowIndices={selectedRowsSet}
+        allRows={rowsRef.current}
+        columns={finalColumns}
+        gridSelection={gridSelection}
         executionTime={executionTime}
         cursorSetupMs={cursorSetupMs}
         totalStreamingMs={totalStreamingMs}

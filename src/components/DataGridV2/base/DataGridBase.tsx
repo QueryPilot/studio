@@ -63,7 +63,8 @@ export const DataGridBase = forwardRef(function DataGridBase(
         headerHeight={28}
         getRowThemeOverride={rest.getRowThemeOverride}
         highlightRegions={rest.highlightRegions}
-        rightClickSelect={true}
+        columnSelect="multi"
+        rowSelect="multi"
         {...editorProps}
       />
     </div>

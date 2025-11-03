@@ -1,4 +1,4 @@
-import { memo, useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { memo, useState, useCallback, useEffect, useMemo, useRef, startTransition } from "react";
 import { QueryEditor } from "./QueryEditor";
 import { ResultViewer } from "./ResultViewer";
 import { QueryHistory } from "./QueryHistory";
@@ -147,43 +147,35 @@ export const QueryPanel = memo(function QueryPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialSql]);
 
-  // Async sync: Update Zustand store when local state changes (after initial mount)
+  // Async sync: Batch update Zustand store when local state changes (after initial mount)
+  // Single effect reduces re-renders from 6 to 1
   const isInitialMount = useRef(true);
 
   useEffect(() => {
-    if (isInitialMount.current) return;
-    setQueryState(tabId, { query });
-  }, [query, tabId, setQueryState]);
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
 
-  useEffect(() => {
-    if (isInitialMount.current) return;
-    setQueryState(tabId, { result });
-  }, [result, tabId, setQueryState]);
-
-  useEffect(() => {
-    if (isInitialMount.current) return;
-    setQueryState(tabId, { isExecuting });
-  }, [isExecuting, tabId, setQueryState]);
-
-  useEffect(() => {
-    if (isInitialMount.current) return;
-    setQueryState(tabId, { isStreaming });
-  }, [isStreaming, tabId, setQueryState]);
-
-  useEffect(() => {
-    if (isInitialMount.current) return;
-    setQueryState(tabId, { appliedLimit });
-  }, [appliedLimit, tabId, setQueryState]);
-
-  useEffect(() => {
-    if (isInitialMount.current) return;
-    setQueryState(tabId, { viewMode });
-  }, [viewMode, tabId, setQueryState]);
-
-  // Mark initial mount complete after first render
-  useEffect(() => {
-    isInitialMount.current = false;
-  }, []);
+    // Batch all state updates into single Zustand update
+    setQueryState(tabId, {
+      query,
+      result,
+      isExecuting,
+      isStreaming,
+      appliedLimit,
+      viewMode,
+    });
+  }, [
+    query,
+    result,
+    isExecuting,
+    isStreaming,
+    appliedLimit,
+    viewMode,
+    tabId,
+    setQueryState,
+  ]);
 
   // Cleanup global state when component fully unmounts (tab closed, not just moved)
   // We don't clear on unmount because tab might just be moving between panels
@@ -261,29 +253,33 @@ export const QueryPanel = memo(function QueryPanel({
 
           rafId = requestAnimationFrame(() => {
             rafId = undefined;
-            setResult((prev) => {
-              if (!prev) {
-                renderedCountRef.current = accumulatedRows.length;
+            // Use startTransition for streaming updates to keep UI responsive
+            // Users can still type SQL, click buttons while results stream in
+            startTransition(() => {
+              setResult((prev) => {
+                if (!prev) {
+                  renderedCountRef.current = accumulatedRows.length;
+                  return {
+                    columns: currentColumns,
+                    columnMeta: currentColumnMeta,
+                    rows: accumulatedRows.slice(0),
+                    rowCount: accumulatedRows.length,
+                    executionTime: 0,
+                  };
+                }
+                const already = renderedCountRef.current;
+                const total = accumulatedRows.length;
+                if (total <= already) {
+                  return prev;
+                }
+                const newRows = accumulatedRows.slice(already);
+                renderedCountRef.current = total;
                 return {
-                  columns: currentColumns,
-                  columnMeta: currentColumnMeta,
-                  rows: accumulatedRows.slice(0),
-                  rowCount: accumulatedRows.length,
-                  executionTime: 0,
+                  ...prev,
+                  rows: [...prev.rows, ...newRows],
+                  rowCount: total,
                 };
-              }
-              const already = renderedCountRef.current;
-              const total = accumulatedRows.length;
-              if (total <= already) {
-                return prev;
-              }
-              const newRows = accumulatedRows.slice(already);
-              renderedCountRef.current = total;
-              return {
-                ...prev,
-                rows: [...prev.rows, ...newRows],
-                rowCount: total,
-              };
+              });
             });
           });
         };
