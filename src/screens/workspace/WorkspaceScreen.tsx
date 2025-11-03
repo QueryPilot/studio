@@ -8,7 +8,7 @@ import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import { useSchemaStore } from "@/stores/schemaStore";
 import { usePanelStore } from "@/stores/panelStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
-import { useConnectionStore } from "@/stores/connectionStore";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { databaseService } from "@/services/databaseService";
 import { Backend } from "@/services/backend";
 import {
@@ -64,12 +64,11 @@ export function WorkspaceScreen() {
 
       const currentDatabase = useWorkspaceSelectionStore.getState().database;
       if (!currentDatabase) {
-        const connection = useConnectionStore
-          .getState()
-          .getConnection(connectionId);
-        if (connection?.database) {
+        const stored = useConnectionStore.getState().getConnection(connectionId);
+        const profile = stored?.profile;
+        if (profile?.database) {
           useWorkspaceSelectionStore.setState({
-            database: connection.database,
+            database: profile.database,
           });
         }
       }

@@ -1,10 +1,6 @@
 import React, { useCallback, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
-import {
-  type PanelContent,
-  type DropPosition,
-  type TabMetadata,
-} from "@/types/workbench";
+import { type PanelContent, type DropPosition } from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import {
   X,
@@ -27,7 +23,7 @@ import {
 import { PanelContentRenderer } from "./PanelContentRenderer";
 import { useDroppable } from "@dnd-kit/core";
 import { DraggableTab } from "./DraggableTab";
-import { useConnectionStore } from "@/stores/connectionStore";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useSchemaStore } from "@/stores/schemaStore";
 import { normalizeKeybindingLabel } from "@/lib/keyboardDispatch";
 
@@ -192,9 +188,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
     addTab,
   } = useWorkbenchStore();
 
-  const activeConnectionId = useConnectionStore(
-    (state) => state.activeConnectionId,
-  );
+  // activeConnectionId not needed in this component
 
   const tabsContainerRef = useRef<HTMLDivElement>(null);
 
@@ -283,7 +277,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
       type: "query",
       title,
       connectionId,
-      database: connection?.database || "",
+      database: connection?.profile.database || "",
       schema: selectedSchema || "",
       sql: "",
     });

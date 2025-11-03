@@ -1,20 +1,18 @@
 import { isTauri, safeInvoke, safeEmit } from "@/utils/tauri";
 import { vaultStorage } from "@/services/vaultStorage";
-import {
-  BackendAPI,
-  ConstraintType,
-  type ConnectionProfile,
-  type DbType,
-} from "./backend";
-import { streamingTableService } from "./streamingTableService";
+import { BackendAPI, type DbType } from "./backend";
+import type { IndexUsageStats } from "./backend";
+import type { ConnectionProfile } from "@/types/connection";
+import { tableStreamingService } from "./tableStreamingService";
 import { QueryStreamClient } from "./queryStreamClient";
-import type { QueryResult } from "@/types/database";
+import type { QueryResult, ColumnMeta } from "@/types/database";
 import type {
   TableStructure,
   TableStructureOptions,
   ForeignKeyInfo,
   TableStatistics,
 } from "@/types/tableStructure";
+import { ConstraintType } from "@/types/tableStructure";
 
 // Types from API spec
 export interface ConnectionConfig {
@@ -71,17 +69,7 @@ export interface TableIndex {
   foreign_key?: boolean;
 }
 
-export interface ColumnMeta {
-  name: string;
-  db_type: string;
-  nullable: boolean;
-  default?: string;
-  is_pk: boolean;
-  is_fk: boolean;
-  ordinal: number;
-  precision?: number;
-  scale?: number;
-}
+// ColumnMeta type is defined in src/types/database
 
 export interface ConnectionHealth {
   connectionId: string;
@@ -92,7 +80,7 @@ export interface ConnectionHealth {
 }
 
 class DatabaseService {
-  private static instance: DatabaseService;
+  private static instance: DatabaseService | null = null;
   private activeConnections: Map<string, ConnectResponse> = new Map();
   private healthMonitors: Map<string, NodeJS.Timeout> = new Map();
   private healthListeners: Map<string, ((health: ConnectionHealth) => void)[]> =
@@ -103,7 +91,7 @@ class DatabaseService {
   private constructor() {}
 
   static getInstance(): DatabaseService {
-    if (!DatabaseService.instance) {
+    if (DatabaseService.instance === null) {
       DatabaseService.instance = new DatabaseService();
     }
     return DatabaseService.instance;
@@ -114,7 +102,7 @@ class DatabaseService {
    */
   async connectById(
     connectionId: string,
-    workspaceId?: string,
+    _workspaceId?: string,
   ): Promise<ConnectResponse> {
     // If a connect for this id is already running, return the same promise
     const inflight = this.inflightConnects.get(connectionId);
@@ -122,7 +110,7 @@ class DatabaseService {
 
     // If we already consider it active, just ensure monitoring and return
     const existing = this.activeConnections.get(connectionId);
-    if (existing && isTauri()) {
+    if (existing) {
       this.startHealthMonitoring(connectionId);
       return existing;
     }
@@ -157,8 +145,8 @@ class DatabaseService {
           database: stored.profile.database,
           username: stored.profile.username,
           password: stored.profile.password,
-          ssl_mode: stored.profile.ssl_mode as any,
-          options: stored.profile.options || {},
+          ssl_mode: stored.profile.ssl_mode,
+          options: stored.profile.options,
         };
 
         // Ensure any stale backend connection with same id is cleanly closed before reconnect
@@ -395,12 +383,13 @@ class DatabaseService {
     connectionId: string,
     database: string,
     schema: string,
-  ): Promise<any[]> {
+  ): Promise<Array<{ table: string; column: string; type: string }>> {
     try {
       // Get all tables in the current schema
       const tables = await this.listTables(connectionId, database, schema);
 
-      const targets: any[] = [];
+      const targets: Array<{ table: string; column: string; type: string }> =
+        [];
       const addedTargets = new Set<string>(); // Track added column combinations
 
       // For each table, get its structure to find referenceable columns
@@ -418,7 +407,7 @@ class DatabaseService {
           );
 
           // Add primary key columns
-          if (structure.primaryKeys && structure.primaryKeys.length > 0) {
+          if (structure.primaryKeys.length > 0) {
             for (const pkColumn of structure.primaryKeys) {
               const column = structure.columns.find((c) => c.name === pkColumn);
               if (column) {
@@ -436,44 +425,19 @@ class DatabaseService {
           }
 
           // Add columns with unique constraints
-          if (structure.constraints) {
-            for (const constraint of structure.constraints) {
-              if (
-                constraint.constraint_type === "UNIQUE" ||
-                constraint.constraint_type === "u"
-              ) {
-                // Parse the constraint definition to extract column names
-                const match = constraint.definition.match(/\((.*?)\)/);
-                if (match) {
-                  const columns = match[1]
-                    .split(",")
-                    .map((col) => col.trim().replace(/"/g, ""));
-                  for (const colName of columns) {
-                    const column = structure.columns.find(
-                      (c) => c.name === colName,
-                    );
-                    if (column) {
-                      const key = `${table.name}.${column.name}`;
-                      if (!addedTargets.has(key)) {
-                        targets.push({
-                          table: table.name,
-                          column: column.name,
-                          type: column.db_type,
-                        });
-                        addedTargets.add(key);
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-
-          // Add columns with unique indexes
-          if (structure.indexes) {
-            for (const index of structure.indexes) {
-              if (index.is_unique) {
-                for (const colName of index.columns) {
+          for (const constraint of structure.constraints) {
+            const typeUpper = (
+              constraint.constraint_type as unknown as string
+            ).toUpperCase();
+            if (typeUpper === "UNIQUE" || typeUpper === "U") {
+              // Parse the constraint definition to extract column names
+              const match = constraint.definition.match(/\((.*?)\)/);
+              if (match && match[1]) {
+                const list = match[1];
+                const columnNames = list
+                  .split(",")
+                  .map((col) => col.trim().replace(/"/g, ""));
+                for (const colName of columnNames) {
                   const column = structure.columns.find(
                     (c) => c.name === colName,
                   );
@@ -487,6 +451,28 @@ class DatabaseService {
                       });
                       addedTargets.add(key);
                     }
+                  }
+                }
+              }
+            }
+          }
+
+          // Add columns with unique indexes
+          for (const index of structure.indexes) {
+            if (index.is_unique) {
+              for (const colName of index.columns) {
+                const column = structure.columns.find(
+                  (c) => c.name === colName,
+                );
+                if (column) {
+                  const key = `${table.name}.${column.name}`;
+                  if (!addedTargets.has(key)) {
+                    targets.push({
+                      table: table.name,
+                      column: column.name,
+                      type: column.db_type,
+                    });
+                    addedTargets.add(key);
                   }
                 }
               }
@@ -656,21 +642,24 @@ class DatabaseService {
     try {
       const columns = await BackendAPI.getColumns(connectionId, schema, table);
       return columns.map(
-        (c, index) =>
-          ({
-            name: c.name,
-            db_type: c.db_type,
-            nullable: c.nullable,
-            default: c.default_value || null,
-            is_pk: c.primary_key,
-            is_fk: false,
-            ordinal: index,
-            precision: undefined,
-            scale: undefined,
-            comment: c.comment || null,
-            enum_values: c.enum_values,
-            type_category: c.type_category,
-          } as ColumnMeta & { comment?: string | null }),
+        (c, index): ColumnMeta => ({
+          name: c.name,
+          db_type: c.db_type,
+          nullable: c.nullable,
+          default:
+            (c as unknown as { default_value?: string | null }).default_value ??
+            null,
+          is_pk: c.primary_key,
+          is_fk: false,
+          ordinal: index,
+          precision: null,
+          scale: null,
+          comment:
+            (c as unknown as { comment?: string | null }).comment ?? null,
+          enum_values: (c as unknown as { enum_values?: string[] }).enum_values,
+          type_category: (c as unknown as { type_category?: string })
+            .type_category,
+        }),
       );
     } catch (error) {
       console.error("Failed to get table columns:", error);
@@ -695,7 +684,10 @@ class DatabaseService {
       ): { method: string; where?: string } => {
         const usingMatch = def.match(/\bUSING\s+([a-zA-Z0-9_]+)/i);
         const whereMatch = def.match(/\bWHERE\s+([\s\S]+)$/i);
-        let where = whereMatch ? whereMatch[1].trim() : undefined;
+        let where: string | undefined;
+        if (whereMatch && typeof whereMatch[1] === "string") {
+          where = whereMatch[1].trim();
+        }
         if (where && where.endsWith(";")) where = where.slice(0, -1).trim();
         // Strip redundant outer parentheses like ((expr))
         const stripParens = (s: string): string => {
@@ -753,7 +745,7 @@ class DatabaseService {
   async getIndexUsageStats(
     connectionId: string,
     table: string,
-  ): Promise<import("./backend").IndexUsageStats[]> {
+  ): Promise<IndexUsageStats[]> {
     try {
       return await BackendAPI.getIndexUsageStats(connectionId, table);
     } catch (error) {
@@ -777,9 +769,10 @@ class DatabaseService {
       }
 
       // Fetch from backend - database is source of truth
-      const types = await safeInvoke<string[]>("get_supported_index_types", {
-        connId: connectionId,
-      });
+      const types =
+        (await safeInvoke<string[] | null>("get_supported_index_types", {
+          connId: connectionId,
+        })) ?? [];
 
       // Cache the result
       this.indexTypeCache.set(connectionId, {
@@ -821,9 +814,10 @@ class DatabaseService {
       }
 
       // Fetch from backend - database is source of truth
-      const types = await safeInvoke<string[]>("get_supported_column_types", {
-        connId: connectionId,
-      });
+      const types =
+        (await safeInvoke<string[] | null>("get_supported_column_types", {
+          connId: connectionId,
+        })) ?? [];
 
       // Cache the result
       this.columnTypeCache.set(connectionId, {
@@ -866,11 +860,15 @@ class DatabaseService {
         type_category: string;
         enum_values?: string[];
         base_type?: string;
-      }>("get_type_info", {
+      } | null>("get_type_info", {
         connId: connectionId,
         typeName,
         schema: schema || "public",
       });
+
+      if (!typeInfo) {
+        throw new Error("Type info not found");
+      }
 
       return typeInfo;
     } catch (error) {
@@ -903,7 +901,7 @@ class DatabaseService {
       const [columns, constraints, indexes, triggers, tables] =
         await Promise.all([
           // Always fetch columns
-          BackendAPI.getColumns(connectionId, schema, table),
+          this.getTableColumns(connectionId, database, schema, table),
 
           // Conditionally fetch other metadata
           includeConstraints
@@ -929,12 +927,14 @@ class DatabaseService {
         .flatMap((c) => {
           // Parse constraint definition to extract column names
           const match = c.definition.match(/\((.*?)\)/);
-          return match ? match[1].split(",").map((col) => col.trim()) : [];
+          if (!match || !match[1]) return [] as string[];
+          const list = match[1];
+          return list.split(",").map((col) => col.trim());
         });
 
       // Extract foreign keys with full information
       const foreignKeys: ForeignKeyInfo[] = includeForeignKeys
-        ? constraints
+        ? (constraints
             .filter((c) => c.constraint_type === ConstraintType.ForeignKey)
             .map((c) => {
               // Parse foreign key constraint definition
@@ -949,16 +949,20 @@ class DatabaseService {
                 /ON UPDATE\s+(NO ACTION|CASCADE|SET NULL|SET DEFAULT|RESTRICT)/i,
               );
 
-              if (!fkMatch) {
+              if (!fkMatch || !fkMatch[1] || !fkMatch[2] || !fkMatch[3]) {
                 return null;
               }
 
-              const [, localCols, foreignTable, foreignCols] = fkMatch;
-              const [foreignSchema, foreignTableName] = foreignTable.includes(
-                ".",
-              )
-                ? foreignTable.split(".")
-                : [schema, foreignTable];
+              const [, localCols, foreignTableRaw, foreignCols] = fkMatch as [
+                string,
+                string,
+                string,
+                string,
+              ];
+              const [foreignSchema, foreignTableName] =
+                foreignTableRaw.includes(".")
+                  ? foreignTableRaw.split(".")
+                  : [schema, foreignTableRaw];
 
               return {
                 name: c.name,
@@ -970,7 +974,9 @@ class DatabaseService {
                 onUpdate: onUpdateMatch?.[1]?.trim(),
               };
             })
-            .filter((fk): fk is ForeignKeyInfo => fk !== null)
+            .filter(
+              (fk): fk is NonNullable<typeof fk> => fk !== null,
+            ) as unknown as ForeignKeyInfo[])
         : [];
 
       // Build table statistics if available
@@ -1165,12 +1171,16 @@ class DatabaseService {
       pageSize?: number;
       maxRows?: number;
       timeoutMs?: number;
-      onProgress?: (event: any) => void;
-      onError?: (error: any) => void;
+      onProgress?: (event: {
+        type: "progress";
+        rows_fetched: number;
+        percentage?: number;
+      }) => void;
+      onError?: (error: Error | string) => void;
     },
   ): Promise<QueryResult> {
     // Use streaming service for query execution
-    const result = await streamingTableService.streamQuery(
+    const result = await tableStreamingService.streamQuery(
       connectionId,
       sql,
       options?.pageSize,
@@ -1185,7 +1195,13 @@ class DatabaseService {
       },
       (error) => {
         if (options?.onError) {
-          options.onError(error);
+          const errMsg =
+            error instanceof Error
+              ? error
+              : typeof error === "string"
+              ? error
+              : (error as { message: string }).message;
+          options.onError(errMsg);
         }
       },
     );
@@ -1194,9 +1210,9 @@ class DatabaseService {
     return {
       columns: result.columns.map((c) => c.name),
       columnMeta: result.columns,
-      rows: result.rows as any,
-      rowCount: result.totalRows || result.rows.length,
-      executionTime: result.executionTimeMs || 0,
+      rows: result.rows,
+      rowCount: result.totalRows ?? result.rows.length,
+      executionTime: result.executionTimeMs ?? 0,
     };
   }
 
@@ -1220,29 +1236,33 @@ class DatabaseService {
       const indexType = index.indexType;
       // Auto-attach trigram opclass for common GIN-on-text case when user hasn't specified one
       let columnsToSend = [...index.columns];
-      if (
-        indexType.toLowerCase() === "gin" &&
-        columnsToSend.length === 1 &&
-        !/\s+\w+_ops\b/i.test(columnsToSend[0]) &&
-        !/[()]/.test(columnsToSend[0])
-      ) {
-        try {
-          const cols = await this.getTableColumns(
-            connectionId,
-            "",
-            schema,
-            table,
-          );
-          const name = columnsToSend[0].replace(/^["']|["']$/g, "");
-          const meta = cols.find((c) => c.name === name);
-          const dt = meta?.db_type ? meta.db_type.toLowerCase() : "";
-          const isTextLike =
-            dt.includes("char") || dt.includes("text") || dt.includes("citext");
-          if (isTextLike) {
-            columnsToSend = [`${name} gin_trgm_ops`];
+      if (indexType.toLowerCase() === "gin" && columnsToSend.length === 1) {
+        const [firstCol] = columnsToSend;
+        if (
+          firstCol &&
+          !/\s+\w+_ops\b/i.test(firstCol) &&
+          !/[()]/.test(firstCol)
+        ) {
+          try {
+            const cols = await this.getTableColumns(
+              connectionId,
+              "",
+              schema,
+              table,
+            );
+            const name = firstCol.replace(/^["']|["']$/g, "");
+            const meta = cols.find((c) => c.name === name);
+            const dt = meta?.db_type ? meta.db_type.toLowerCase() : "";
+            const isTextLike =
+              dt.includes("char") ||
+              dt.includes("text") ||
+              dt.includes("citext");
+            if (isTextLike) {
+              columnsToSend = [`${name} gin_trgm_ops`];
+            }
+          } catch {
+            // Best-effort only; silently continue
           }
-        } catch {
-          // Best-effort only; silently continue
         }
       }
       await safeInvoke("create_index", {

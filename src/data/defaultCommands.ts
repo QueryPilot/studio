@@ -5,10 +5,10 @@ import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
 import { useDialogStore } from "@/stores/ui/dialogStore";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
-import { useConnectionStore } from "@/stores/connectionStore";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useSchemaStore } from "@/stores/schemaStore";
 import { useTabStateStore } from "@/stores/tabStateStore";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+//
 
 const commandPaletteStore = useCommandPaletteStore.getState();
 const dialogStore = useDialogStore.getState();
@@ -135,7 +135,8 @@ export const defaultCommands: Command[] = [
       if (panelIds.length <= 1) {
         return;
       }
-      const currentId = store.focusedPanelId ?? panelIds[0];
+      const firstId = panelIds[0] ?? "";
+      const currentId = store.focusedPanelId ?? firstId;
       const currentIndex = panelIds.indexOf(currentId);
       const nextIndex =
         currentIndex >= 0 ? (currentIndex + 1) % panelIds.length : 0;
@@ -156,7 +157,8 @@ export const defaultCommands: Command[] = [
       if (panelIds.length <= 1) {
         return;
       }
-      const currentId = store.focusedPanelId ?? panelIds[0];
+      const firstId = panelIds[0] ?? "";
+      const currentId = store.focusedPanelId ?? firstId;
       const currentIndex = panelIds.indexOf(currentId);
       const prevIndex =
         currentIndex >= 0
@@ -330,7 +332,7 @@ export const defaultCommands: Command[] = [
 
       const connectionStore = useConnectionStore.getState();
       const schemaStore = useSchemaStore.getState();
-      const activeConnectionId =
+      const activeConnectionId: string =
         connectionStore.activeConnectionId ??
         connectionStore.getActiveConnection()?.id ??
         "";
@@ -342,7 +344,7 @@ export const defaultCommands: Command[] = [
         (count, panelContent) => {
           return (
             count +
-            panelContent.tabIds.filter((id) => {
+            panelContent.tabIds.filter((id: string) => {
               const metadata = panelContent.metadata?.[id];
               return metadata?.type === "query" || id.startsWith("query-");
             }).length
@@ -358,7 +360,7 @@ export const defaultCommands: Command[] = [
         type: "query",
         title,
         connectionId: activeConnectionId,
-        database: connection?.database || "",
+        database: connection?.profile.database || "",
         schema: schemaStore.selectedSchema || "",
         sql: "",
       });
@@ -370,9 +372,8 @@ export const defaultCommands: Command[] = [
     id: "workbench.action.reloadWindow",
     label: "Reload Window",
     category: "Workbench",
-    handler: async () => {
-      const appWindow = getCurrentWebviewWindow();
-      await appWindow.reload();
+    handler: () => {
+      window.location.reload();
     },
   },
 ];

@@ -3,7 +3,7 @@ import { databaseService } from "@/services/databaseService";
 import { cn } from "@/lib/utils";
 import { CodeEditor } from "@/components/CodeEditor";
 import type { SqlDialect } from "@/components/CodeEditor";
-import { useConnectionStore } from "@/stores/connectionStore";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
 
 interface ObjectDefinitionProps {
   connectionId: string;
@@ -32,26 +32,25 @@ export const ObjectDefinition: React.FC<ObjectDefinitionProps> = React.memo(
 
     // Determine database dialect from connection
     const dialect = useMemo<SqlDialect>(() => {
-      const connection = connections.find((c) => c.id === connectionId);
-      if (!connection) return "plsql";
+      const profile = connections.find((c) => c.profile.id === connectionId)?.profile;
+      if (!profile) return "plsql";
 
-      switch (connection.type) {
-        case "postgresql":
+      switch (profile.db_type) {
+        case "PostgreSQL":
           if (objectType === "function" || objectType === "procedure") {
             return "plsql";
           }
           return "postgresql";
-        case "mysql":
+        case "MySQL":
           return "mysql";
-        case "sqlite":
+        case "SQLite":
           return "sqlite";
-        case "mssql":
-          // CodeEditor doesn't support mssql yet, default to postgresql
+        case "SQLServer":
           return "mssql";
         default:
           return "postgresql";
       }
-    }, [connectionId, connections]);
+    }, [connectionId, connections, objectType]);
 
     useEffect(() => {
       const fetchDefinition = async () => {

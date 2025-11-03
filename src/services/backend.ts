@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import type { ConnectionProfile } from "@/types/connection";
 
 // Database Types
 export enum DbType {
@@ -16,18 +17,7 @@ export enum SslMode {
   VerifyFull = "VerifyFull",
 }
 
-export interface ConnectionProfile {
-  id: string;
-  name: string;
-  db_type: DbType;
-  host: string;
-  port: number;
-  database: string;
-  username: string;
-  password?: string;
-  ssl_mode?: SslMode;
-  options: Record<string, string>;
-}
+// ConnectionProfile type unified in src/types/connection
 
 export interface ConnectionInfo {
   id: string;
@@ -93,14 +83,7 @@ export type CellValue =
   | CellValue[] // Arrays (including nested)
   | { [key: string]: CellValue }; // Json and composite structures
 
-// DEPRECATED: Old CellValue interface (kept for backward compatibility during migration)
-/** @deprecated Use new CellValue type instead - display_value no longer exists */
-export interface LegacyCellValue {
-  value_type: CellValueType;
-  raw_value?: Uint8Array;
-  display_value: string;
-  db_specific?: DbSpecificValue;
-}
+// Deprecated LegacyCellValue removed; use CellValue union type above
 
 export type CellValueType =
   | "Null"

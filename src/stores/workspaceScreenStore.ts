@@ -24,7 +24,7 @@ interface WorkspaceScreenStore {
   activeConnectionId: string | null;
 
   // Legacy for backward compatibility
-  activeWorkspaceId: string;
+  activeWorkspaceId: string | null;
   windows: Map<string, string>;
 
   // Connection management
@@ -122,7 +122,7 @@ export const useWorkspaceScreenStore = create<WorkspaceScreenStore>(
     // Initial state
     workspaces: new Map(),
     activeConnectionId: null,
-    activeWorkspaceId: "",
+    activeWorkspaceId: null,
     windows: new Map(),
 
     // Connection management

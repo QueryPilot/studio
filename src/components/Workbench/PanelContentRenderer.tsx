@@ -24,7 +24,7 @@ import { TableIndexes } from "@/components/TableIndexes";
 import { TableTriggers } from "@/components/TableTriggers";
 import { ObjectDefinition } from "@/components/ObjectDefinition";
 import { QueryPanel } from "@/components/QueryPanel";
-import { useConnectionStore } from "@/stores/connectionStore";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { Skeleton } from "../ui/skeleton";
 import { type TabMetadata } from "@/types/workbench";
 import { ERDPanel } from "@/components/Erd";
