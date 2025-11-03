@@ -4,7 +4,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle, Plus, Save, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { ConstraintType } from "@/services/backend";
+import { ConstraintType } from "@/types/tableStructure";
 import { ColumnRow, type ColumnRowData } from "./ColumnRow";
 import { toast } from "sonner";
 import {

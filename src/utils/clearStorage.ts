@@ -5,25 +5,6 @@
 
 import { safeInvoke } from '@/utils/tauri';
 
-// Legacy function for backward compatibility
-export function clearCorruptedConnections() {
-  try {
-    const stored = localStorage.getItem('connection-storage');
-    if (!stored) return;
-    
-    const data = JSON.parse(stored);
-    if (data.state && data.state.connections) {
-      // Clear all connections to force re-entry with proper encryption
-      data.state.connections = [];
-      data.state.activeConnectionId = null;
-      localStorage.setItem('connection-storage', JSON.stringify(data));
-      console.log('[Storage] Cleared corrupted connections');
-    }
-  } catch (error) {
-    console.error('[Storage] Error clearing connections:', error);
-  }
-}
-
 export interface ClearStorageOptions {
   clearConnections?: boolean;
   clearWorkspaces?: boolean;

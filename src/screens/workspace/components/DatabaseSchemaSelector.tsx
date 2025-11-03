@@ -8,7 +8,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { databaseService } from "@/services/databaseService";
-import { useConnectionStore } from "@/stores/connectionStore";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { cn } from "@/lib/utils";
 import { safeListen } from "@/utils/tauri";
 import { toast } from "sonner";
@@ -32,7 +32,7 @@ export function DatabaseSchemaSelector({
   const [schemas, setSchemas] = useState<string[]>([]);
   const [isSwitchingSchema, setIsSwitchingSchema] = useState(false);
   const { connections } = useConnectionStore();
-  const connection = connections.find((c) => c.id === connectionId);
+  const connection = connections.find((c) => c.profile.id === connectionId)?.profile;
 
   const handleDatabaseSelect = useCallback(
     (database: string) => {

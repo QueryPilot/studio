@@ -1,4 +1,4 @@
-import { memo, useState, useCallback, useEffect, useMemo } from "react";
+import { memo, useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { QueryEditor } from "./QueryEditor";
 import { ResultViewer } from "./ResultViewer";
 import { QueryHistory } from "./QueryHistory";
@@ -13,7 +13,7 @@ import {
 import { History, Star } from "lucide-react";
 import { toast } from "sonner";
 
-import { streamingTableService } from "@/services/streamingTableService";
+import { tableStreamingService } from "@/services/tableStreamingService";
 import { queryHistoryService } from "@/services/queryHistoryService";
 import { cn } from "@/lib/utils";
 import useWorkbenchStore from "@/stores/workbenchStore";
@@ -22,7 +22,7 @@ import { useTabStateStore, type QueryResult } from "@/stores/tabStateStore";
 import type { ColumnMeta } from "@/types/database";
 import { formatSql } from "@/utils/codeFormatter";
 import type { SqlDialect } from "@/components/CodeEditor/types";
-import { useConnectionStore } from "@/stores/connectionStore";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
 
 interface QueryPanelProps {
   panelId: string;
@@ -50,7 +50,7 @@ export const QueryPanel = memo(function QueryPanel({
   const globalState = getQueryState(tabId);
 
   const [query, setQueryInternal] = useState<string>(
-    globalState?.query ?? initialSql ?? "",
+    globalState?.query ?? initialSql,
   );
   const [result, setResultInternal] = useState<QueryResult | null>(
     globalState?.result || null,
@@ -72,14 +72,10 @@ export const QueryPanel = memo(function QueryPanel({
     globalState?.viewMode || "table",
   );
 
-  // Wrapper setters that update both local and global state
-  const setQuery = useCallback(
-    (value: string) => {
-      setQueryInternal(value);
-      setQueryState(tabId, { query: value });
-    },
-    [tabId, setQueryState],
-  );
+  // Wrapper setters that update ONLY local state (Zustand sync happens in useEffect)
+  const setQuery = useCallback((value: string) => {
+    setQueryInternal(value);
+  }, []);
 
   const setResult = useCallback(
     (
@@ -88,53 +84,33 @@ export const QueryPanel = memo(function QueryPanel({
         | null
         | ((prev: QueryResult | null) => QueryResult | null),
     ) => {
-      setResultInternal(value);
-      // If it's a function updater, we need to get the current value first
       if (typeof value === "function") {
-        setResultInternal((prev) => {
-          const newValue = value(prev);
-          setQueryState(tabId, { result: newValue });
-          return newValue;
-        });
+        setResultInternal(value);
       } else {
         setResultInternal(value);
-        setQueryState(tabId, { result: value });
       }
     },
-    [tabId, setQueryState],
+    [],
   );
 
-  const setIsExecuting = useCallback(
-    (value: boolean) => {
-      setIsExecutingInternal(value);
-      setQueryState(tabId, { isExecuting: value });
-    },
-    [tabId, setQueryState],
-  );
+  const setIsExecuting = useCallback((value: boolean) => {
+    setIsExecutingInternal(value);
+  }, []);
 
-  const setIsStreaming = useCallback(
-    (value: boolean) => {
-      setIsStreamingInternal(value);
-      setQueryState(tabId, { isStreaming: value });
-    },
-    [tabId, setQueryState],
-  );
+  const setIsStreaming = useCallback((value: boolean) => {
+    setIsStreamingInternal(value);
+  }, []);
 
   const setAppliedLimit = useCallback(
     (value: { originalSql: string; limit: number } | null) => {
       setAppliedLimitInternal(value);
-      setQueryState(tabId, { appliedLimit: value });
     },
-    [tabId, setQueryState],
+    [],
   );
 
-  const setViewMode = useCallback(
-    (value: "table" | "json") => {
-      setViewModeInternal(value);
-      setQueryState(tabId, { viewMode: value });
-    },
-    [tabId, setQueryState],
-  );
+  const setViewMode = useCallback((value: "table" | "json") => {
+    setViewModeInternal(value);
+  }, []);
 
   const smartQueryLimit = usePreferencesStore((state) => state.smartQueryLimit);
   const updateTabMetadata = useWorkbenchStore(
@@ -164,24 +140,84 @@ export const QueryPanel = memo(function QueryPanel({
   );
 
   useEffect(() => {
-    setQuery(initialSql ?? "");
-  }, [initialSql, setQuery]);
+    const next = initialSql;
+    if (next !== query) {
+      setQuery(next);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSql]);
+
+  // Async sync: Update Zustand store when local state changes (after initial mount)
+  const isInitialMount = useRef(true);
+
+  useEffect(() => {
+    if (isInitialMount.current) return;
+    setQueryState(tabId, { query });
+  }, [query, tabId, setQueryState]);
+
+  useEffect(() => {
+    if (isInitialMount.current) return;
+    setQueryState(tabId, { result });
+  }, [result, tabId, setQueryState]);
+
+  useEffect(() => {
+    if (isInitialMount.current) return;
+    setQueryState(tabId, { isExecuting });
+  }, [isExecuting, tabId, setQueryState]);
+
+  useEffect(() => {
+    if (isInitialMount.current) return;
+    setQueryState(tabId, { isStreaming });
+  }, [isStreaming, tabId, setQueryState]);
+
+  useEffect(() => {
+    if (isInitialMount.current) return;
+    setQueryState(tabId, { appliedLimit });
+  }, [appliedLimit, tabId, setQueryState]);
+
+  useEffect(() => {
+    if (isInitialMount.current) return;
+    setQueryState(tabId, { viewMode });
+  }, [viewMode, tabId, setQueryState]);
+
+  // Mark initial mount complete after first render
+  useEffect(() => {
+    isInitialMount.current = false;
+  }, []);
 
   // Cleanup global state when component fully unmounts (tab closed, not just moved)
   // We don't clear on unmount because tab might just be moving between panels
   // Instead, workbenchStore should call clearQueryState when tab is actually removed
 
+  const lastPersistedRef = useRef<string>(globalState?.query ?? initialSql);
+  const persistTimerRef = useRef<number | null>(null);
   const persistSql = useCallback(
     (value: string) => {
       if (!panelId || !tabId) return;
-      updateTabMetadata(panelId, tabId, { sql: value });
+      if (value === lastPersistedRef.current) return;
+      if (persistTimerRef.current) {
+        clearTimeout(persistTimerRef.current);
+        persistTimerRef.current = null;
+      }
+      persistTimerRef.current = window.setTimeout(() => {
+        lastPersistedRef.current = value;
+        updateTabMetadata(panelId, tabId, { sql: value });
+      }, 250);
     },
     [panelId, tabId, updateTabMetadata],
   );
+  useEffect(() => {
+    return () => {
+      if (persistTimerRef.current) {
+        clearTimeout(persistTimerRef.current);
+        persistTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const handleExecute = useCallback(
     async (queryToExecute?: string) => {
-      let sql = queryToExecute ?? query ?? "";
+      let sql = queryToExecute ?? query;
 
       // Clean up the SQL - remove trailing semicolons as they cause issues
       sql = sql.trim().replace(/;\s*$/, "");
@@ -214,6 +250,7 @@ export const QueryPanel = memo(function QueryPanel({
         let rafId: number | undefined;
 
         // Throttle updates using requestAnimationFrame
+        const renderedCountRef = { current: 0 };
         const scheduleUpdate = (force = false) => {
           if (!force && rafId !== undefined) return; // Already scheduled
 
@@ -226,20 +263,26 @@ export const QueryPanel = memo(function QueryPanel({
             rafId = undefined;
             setResult((prev) => {
               if (!prev) {
-                // First update
+                renderedCountRef.current = accumulatedRows.length;
                 return {
                   columns: currentColumns,
                   columnMeta: currentColumnMeta,
-                  rows: [...accumulatedRows],
+                  rows: accumulatedRows.slice(0),
                   rowCount: accumulatedRows.length,
                   executionTime: 0,
                 };
               }
-              // Update with accumulated rows
+              const already = renderedCountRef.current;
+              const total = accumulatedRows.length;
+              if (total <= already) {
+                return prev;
+              }
+              const newRows = accumulatedRows.slice(already);
+              renderedCountRef.current = total;
               return {
                 ...prev,
-                rows: [...accumulatedRows],
-                rowCount: accumulatedRows.length,
+                rows: [...prev.rows, ...newRows],
+                rowCount: total,
               };
             });
           });
@@ -249,7 +292,7 @@ export const QueryPanel = memo(function QueryPanel({
           throw new Error("No active connection selected");
         }
 
-        const streamPromise = streamingTableService.streamQuery(
+        const streamPromise = tableStreamingService.streamQuery(
           effectiveConnectionId,
           sql,
           pageSize,
@@ -269,8 +312,13 @@ export const QueryPanel = memo(function QueryPanel({
               scheduleUpdate();
             }
           },
-          (err) => {
-            toast.error(err.message || "Stream error");
+          (err: unknown) => {
+            let msg: string;
+            if (err instanceof Error) msg = err.message;
+            else if (typeof err === "string") msg = err;
+            else if (err && typeof err === "object") msg = JSON.stringify(err);
+            else msg = "Stream error";
+            toast.error(msg);
           },
           smartQueryLimit ?? undefined, // Convert null to undefined for backend
           (originalSql, appliedLimit) => {
@@ -400,7 +448,7 @@ export const QueryPanel = memo(function QueryPanel({
       setAbortController(null);
 
       // Cancel backend streaming
-      streamingTableService.cancel();
+      tableStreamingService.cancel();
 
       toast.info("Query cancelled");
     }

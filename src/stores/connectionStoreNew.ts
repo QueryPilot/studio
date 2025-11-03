@@ -10,9 +10,11 @@ interface ConnectionStore {
   connections: StoredConnection[];
   loading: boolean;
   error: string | null;
+  activeConnectionId: string | null;
 
   // Actions
   fetchConnections: () => Promise<void>;
+  setActiveConnection: (id: string | null) => void;
   saveConnection: (
     profile: ConnectionProfile,
     tags?: string[],
@@ -35,6 +37,7 @@ interface ConnectionStore {
 
   // Getters
   getConnection: (id: string) => StoredConnection | undefined;
+  getActiveConnection: () => { id: string } | null;
   getFavoriteConnections: () => StoredConnection[];
   getRecentConnections: (limit?: number) => StoredConnection[];
 }
@@ -44,6 +47,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
   connections: [],
   loading: false,
   error: null,
+  activeConnectionId: null,
 
   // Fetch all connections from backend
   fetchConnections: async () => {
@@ -57,6 +61,11 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
       set({ error, loading: false });
       throw new Error(error);
     }
+  },
+
+  // Set active connection (compatibility shim)
+  setActiveConnection: (id: string | null) => {
+    set({ activeConnectionId: id });
   },
 
   // Save new connection
@@ -209,6 +218,12 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
   // Get single connection
   getConnection: (id: string) => {
     return get().connections.find((conn) => conn.profile.id === id);
+  },
+
+  // Get active connection info (compatibility shim returning only id)
+  getActiveConnection: () => {
+    const id = get().activeConnectionId;
+    return id ? { id } : null;
   },
 
   // Get favorite connections

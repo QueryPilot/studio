@@ -53,13 +53,7 @@ export interface ConnectionStatus {
   latency?: number;
 }
 
-// Legacy ConnectionProfile interface - deprecated in favor of workspace string in DatabaseConnection
-export interface ConnectionProfile {
-  id: string;
-  name: string;
-  color?: string;
-  connections: DatabaseConnection[];
-}
+// Legacy ConnectionProfile removed; use types in src/types/connection instead
 
 export interface ColumnMeta {
   name: string;

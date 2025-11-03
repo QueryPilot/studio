@@ -31,7 +31,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { useConnectionStore } from "@/stores/connectionStore";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -66,8 +66,9 @@ export function WorkspaceTitleBar({
   connectionId,
   isConnecting: isInitiallyConnecting = false,
 }: WorkspaceTitleBarProps) {
-  const { connections, loadConnections } = useConnectionStore();
-  const connection = connections.find((c) => c.id === connectionId);
+  const { connections, fetchConnections } = useConnectionStore();
+  const storedConnection = connections.find((c) => c.profile.id === connectionId);
+  const connection = storedConnection?.profile;
   const navigate = useNavigate();
   const [openWindows, setOpenWindows] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
@@ -85,9 +86,9 @@ export function WorkspaceTitleBar({
   // Load connections if not already loaded
   useEffect(() => {
     if (connections.length === 0) {
-      void loadConnections();
+      void fetchConnections();
     }
-  }, [connections.length, loadConnections]);
+  }, [connections.length, fetchConnections]);
 
   // Get server version from active connection
   useEffect(() => {
@@ -443,40 +444,29 @@ export function WorkspaceTitleBar({
                 <CommandGroup>
                   {connections.map((conn) => (
                     <CommandItem
-                      key={conn.id}
-                      value={`${conn.name} ${conn.type} ${
-                        conn.host || conn.filepath || ""
+                      key={conn.profile.id}
+                      value={`${conn.profile.name} ${conn.profile.db_type} ${
+                        conn.profile.host || ""
                       }`}
-                      onSelect={() => handleSwitchConnection(conn.id)}
+                      onSelect={() => handleSwitchConnection(conn.profile.id)}
                       className="cursor-pointer"
                     >
                       <div className="flex items-center justify-between w-full">
                         <div className="flex items-center gap-2">
-                          <Database
-                            className={cn(
-                              "h-4 w-4",
-                              conn.type === "postgresql" && "text-blue-500",
-                              conn.type === "mysql" && "text-orange-500",
-                              conn.type === "sqlite" && "text-green-500",
-                              conn.type === "mssql" && "text-red-500",
-                              conn.type === "mariadb" && "text-purple-500",
-                            )}
-                          />
+                          <Database className={cn("h-4 w-4")} />
                           <div className="flex flex-col">
-                            <span className="font-medium">{conn.name}</span>
+                            <span className="font-medium">{conn.profile.name}</span>
                             <span className="text-xs text-muted-foreground">
-                              {conn.type.replace("sql", "SQL")} •{" "}
-                              {conn.host || conn.filepath || "localhost"}:
-                              {conn.port || ""}
+                              {conn.profile.db_type} • {conn.profile.host || "localhost"}:{conn.profile.port || ""}
                             </span>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 ml-auto">
-                          {conn.id === connectionId && (
+                          {conn.profile.id === connectionId && (
                             <Check className="h-4 w-4 text-green-500" />
                           )}
-                          {openWindows.includes(conn.id) &&
-                            conn.id !== connectionId && (
+                          {openWindows.includes(conn.profile.id) &&
+                            conn.profile.id !== connectionId && (
                               <Circle className="h-2 w-2 fill-blue-500 text-blue-500" />
                             )}
                         </div>
@@ -501,15 +491,7 @@ export function WorkspaceTitleBar({
             className="text-muted-foreground whitespace-nowrap"
             data-tauri-drag-region
           >
-            {connection
-              ? connection.type
-                  .toUpperCase()
-                  .replace("POSTGRESQL", "PostgreSQL")
-                  .replace("MYSQL", "MySQL")
-                  .replace("SQLITE", "SQLite")
-                  .replace("MSSQL", "SQL Server")
-                  .replace("MARIADB", "MariaDB")
-              : ""}
+            {connection ? connection.db_type : ""}
             {serverVersion && ` ${serverVersion}`}
           </span>
         </div>

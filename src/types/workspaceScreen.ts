@@ -78,7 +78,7 @@ export interface PanelState {
 }
 
 export interface WorkspaceScreenState {
-  activeWorkspaceId: string;
+  activeWorkspaceId: string | null;
   windows: Map<string, string>; // connectionId -> windowLabel
   
   // Panel management

@@ -7,7 +7,7 @@ import {
   mapBackendColumnsToColumnMeta,
   mapRowsToTableData,
 } from "./tableDataTransform";
-import { BackendAPI } from "./backend";
+import { BackendAPI, type CellValue } from "./backend";
 
 export interface StreamProgress {
   rowsFetched: number;
@@ -332,3 +332,167 @@ export async function streamEntityPage(
     );
   });
 }
+
+// Query streaming (unified API for QueryPanel)
+
+export interface StreamingProgress {
+  rowsFetched: number;
+  totalRows?: number;
+  percentage?: number;
+  executionTimeMs?: number;
+  // New incremental streaming details
+  newRows?: CellValue[][];
+  rowOffset?: number;
+  columns?: ColumnMeta[];
+  started?: boolean;
+  completed?: boolean;
+}
+
+export interface StreamingError {
+  message: string;
+  code?: string;
+}
+
+export interface StreamingTableResult {
+  columns: ColumnMeta[];
+  rows: CellValue[][];
+  isComplete: boolean;
+  totalRows?: number;
+  executionTimeMs?: number;
+  cursorSetupMs?: number;
+  totalStreamingMs?: number;
+  fetchCount?: number;
+  networkMs?: number;
+  conversionMs?: number;
+  ipcSendMs?: number;
+}
+
+class TableStreamingService {
+  private unlistener?: () => void;
+  private accumulatedRows: CellValue[][] = [];
+  private columns?: ColumnMeta[];
+  private isStreaming = false;
+
+  isStreamingActive(): boolean {
+    return this.isStreaming;
+  }
+
+  async streamQuery(
+    connectionId: string,
+    sql: string,
+    pageSize?: number,
+    onProgress?: (progress: StreamingProgress) => void,
+    onError?: (error: StreamingError) => void,
+    userLimitPreference?: number,
+    onLimitApplied?: (originalSql: string, appliedLimit: number) => void,
+  ): Promise<StreamingTableResult> {
+    this.cancel();
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        this.isStreaming = false;
+        const error: StreamingError = {
+          message: `Stream timeout: No response from backend after 30 seconds`,
+          code: "STREAM_TIMEOUT",
+        };
+        if (onError) {
+          onError(error);
+        }
+        reject(new Error(error.message));
+      }, 30000);
+
+      try {
+        this.isStreaming = true;
+        this.accumulatedRows = [];
+        this.columns = undefined;
+
+        void queryStreamClient.streamWithCallbacks(
+          {
+            connId: connectionId,
+            sql,
+            batchSize: pageSize,
+            userLimitPreference,
+          },
+          {
+            onLimitApplied: (originalSql, appliedLimit) => {
+              clearTimeout(timeoutId);
+              if (onLimitApplied) {
+                onLimitApplied(originalSql, appliedLimit);
+              }
+            },
+            onStarted: (columns, estimatedRows) => {
+              clearTimeout(timeoutId);
+              this.columns = mapBackendColumnsToColumnMeta(columns);
+              if (onProgress) {
+                onProgress({
+                  rowsFetched: 0,
+                  totalRows: estimatedRows,
+                  percentage: 0,
+                  columns: this.columns,
+                  started: true,
+                });
+              }
+            },
+            onBatch: (batch, totalSoFar) => {
+              clearTimeout(timeoutId);
+              this.accumulatedRows.push(...batch.rows);
+              if (onProgress) {
+                onProgress({
+                  rowsFetched: totalSoFar,
+                  newRows: batch.rows,
+                  rowOffset: batch.rowOffset,
+                });
+              }
+            },
+            onSuccess: (streamResult) => {
+              clearTimeout(timeoutId);
+              this.isStreaming = false;
+              const finalResult: StreamingTableResult = {
+                columns: mapBackendColumnsToColumnMeta(streamResult.columns),
+                rows: this.accumulatedRows,
+                isComplete: true,
+                totalRows: streamResult.totalRows,
+                executionTimeMs: streamResult.executionTimeMs,
+                cursorSetupMs: streamResult.cursorSetupMs,
+                totalStreamingMs: streamResult.totalStreamingMs,
+                fetchCount: streamResult.fetchCount,
+                networkMs: streamResult.networkMs,
+                conversionMs: streamResult.conversionMs,
+                ipcSendMs: streamResult.ipcSendMs,
+              };
+              if (onProgress) {
+                onProgress({
+                  rowsFetched: streamResult.totalRows,
+                  totalRows: streamResult.totalRows,
+                  executionTimeMs: streamResult.executionTimeMs,
+                  completed: true,
+                });
+              }
+              resolve(finalResult);
+            },
+            onError: (err) => {
+              clearTimeout(timeoutId);
+              this.isStreaming = false;
+              reject(err);
+            },
+          },
+        );
+      } catch (error) {
+        clearTimeout(timeoutId);
+        this.isStreaming = false;
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
+  cancel(): void {
+    if (this.unlistener) {
+      this.unlistener();
+      this.unlistener = undefined;
+    }
+    this.isStreaming = false;
+    this.accumulatedRows = [];
+    this.columns = undefined;
+  }
+}
+
+export const tableStreamingService = new TableStreamingService();

@@ -186,6 +186,46 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   const queryData = isQueryMode ? props.data : null;
 
+  // Memoize query data transformation to prevent infinite render loop
+  const transformedQueryRows = useMemo(() => {
+    if (!queryData) return [];
+
+    return (queryData.rows ?? []).map((row) => {
+      const rowObj: GridRowModel = {};
+      const backendRow = row as BackendCellValue[];
+      (queryData.columns ?? []).forEach((colName, colIndex) => {
+        const rawValue = backendRow[colIndex] as BackendCellValue | undefined;
+        const colMeta = queryData.columnMeta?.[colIndex];
+        const dbType = colMeta?.db_type ?? "text";
+        const normalizedValue =
+          rawValue === undefined
+            ? null
+            : normalizeBackendValue(rawValue) ?? null;
+        const valueType =
+          rawValue === null || rawValue === undefined
+            ? "Null"
+            : deriveValueType(rawValue, dbType);
+        const metadata =
+          typeof rawValue === "bigint"
+            ? {
+                attributes: {
+                  originalBigInt: rawValue.toString(),
+                },
+              }
+            : undefined;
+
+        rowObj[colName] = {
+          value: normalizedValue,
+          db_type: dbType,
+          value_type: valueType,
+          is_truncated: false,
+          metadata,
+        } as FrontCellValue;
+      });
+      return rowObj;
+    });
+  }, [queryData]);
+
   const {
     isLoading,
     isLoadingMore,
@@ -237,42 +277,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         isLoadingMore: props.isStreaming ?? false,
         error: props.error ?? null,
         columns: queryData?.columnMeta ?? [],
-        rows: (queryData?.rows ?? []).map((row) => {
-          const rowObj: GridRowModel = {};
-          const backendRow = row as BackendCellValue[];
-          (queryData?.columns ?? []).forEach((colName, colIndex) => {
-            const rawValue = backendRow[colIndex] as
-              | BackendCellValue
-              | undefined;
-            const colMeta = queryData?.columnMeta?.[colIndex];
-            const dbType = colMeta?.db_type ?? "text";
-            const normalizedValue =
-              rawValue === undefined
-                ? null
-                : normalizeBackendValue(rawValue) ?? null;
-            const valueType =
-              rawValue === null || rawValue === undefined
-                ? "Null"
-                : deriveValueType(rawValue, dbType);
-            const metadata =
-              typeof rawValue === "bigint"
-                ? {
-                    attributes: {
-                      originalBigInt: rawValue.toString(),
-                    },
-                  }
-                : undefined;
-
-            rowObj[colName] = {
-              value: normalizedValue,
-              db_type: dbType,
-              value_type: valueType,
-              is_truncated: false,
-              metadata,
-            } as FrontCellValue;
-          });
-          return rowObj;
-        }),
+        rows: transformedQueryRows,
         estimatedTotal: undefined,
         executionTime: props.executionTime,
         cursorSetupMs: props.cursorSetupMs,

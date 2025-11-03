@@ -17,7 +17,7 @@ import {
   type DBMLRelationship,
 } from "@/services/dbmlService";
 import { databaseService } from "@/services/databaseService";
-import { useConnectionStore } from "@/stores/connectionStore";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
 import type { TableStructure, ForeignKeyInfo } from "@/types/tableStructure";
 import type { ColumnMeta } from "@/types/database";
 import { erdCache } from "@/services/erdCache";
@@ -31,7 +31,7 @@ import {
   type Constraint,
   type Index,
   type Trigger,
-} from "@/services/backend";
+} from "@/types/tableStructure";
 
 const DEFAULT_SCHEMA = "public";
 const PARSE_DEBOUNCE_MS = 500;
@@ -91,10 +91,11 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   const saveNodePosition = useErdStore((state) => state.saveNodePosition);
   const saveViewport = useErdStore((state) => state.saveViewport);
 
-  const connection = useConnectionStore(
+  const storedConnection = useConnectionStore(
     (state) =>
-      state.connections.find((item) => item.id === connectionId) || null,
+      state.connections.find((item) => item.profile.id === connectionId) || null,
   );
+  const connection = storedConnection?.profile || null;
 
   const targetDatabase = database ?? connection?.database ?? "";
 
@@ -244,7 +245,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
         );
 
         const result = await dbmlService.schemaToDBML(structures, {
-          databaseType: connection?.type,
+          databaseType: connection?.db_type,
         });
 
         skipParseNextRef.current = true;

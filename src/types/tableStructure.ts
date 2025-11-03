@@ -2,7 +2,45 @@
  * Comprehensive table structure types
  */
 import type { ColumnMeta } from '@/types/database';
-import type { Index, Constraint, Trigger } from '@/services/backend';
+
+export interface Index {
+  name: string;
+  table_name: string;
+  columns: string[];
+  is_unique: boolean;
+  is_primary: boolean;
+  is_partial: boolean;
+  definition: string;
+  is_foreign_key: boolean;
+}
+
+export enum ConstraintType {
+  PrimaryKey = "PrimaryKey",
+  ForeignKey = "ForeignKey",
+  Unique = "Unique",
+  Check = "Check",
+  Exclusion = "Exclusion",
+}
+
+export interface Constraint {
+  name: string;
+  table_name: string;
+  constraint_type: ConstraintType;
+  definition: string;
+  foreign_table?: string;
+}
+
+export interface Trigger {
+  name: string;
+  schema: string;
+  table_name: string;
+  event: string;
+  timing: string;
+  level: string;
+  enabled: boolean;
+  function: string;
+  condition?: string;
+}
 
 /**
  * Complete table structure information including all metadata
