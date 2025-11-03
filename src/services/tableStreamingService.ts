@@ -446,28 +446,61 @@ class TableStreamingService {
             onSuccess: (streamResult) => {
               clearTimeout(timeoutId);
               this.isStreaming = false;
-              const finalResult: StreamingTableResult = {
-                columns: mapBackendColumnsToColumnMeta(streamResult.columns),
-                rows: this.accumulatedRows,
-                isComplete: true,
-                totalRows: streamResult.totalRows,
-                executionTimeMs: streamResult.executionTimeMs,
-                cursorSetupMs: streamResult.cursorSetupMs,
-                totalStreamingMs: streamResult.totalStreamingMs,
-                fetchCount: streamResult.fetchCount,
-                networkMs: streamResult.networkMs,
-                conversionMs: streamResult.conversionMs,
-                ipcSendMs: streamResult.ipcSendMs,
-              };
-              if (onProgress) {
-                onProgress({
-                  rowsFetched: streamResult.totalRows,
+
+              // CRITICAL FIX: Poll until all batches are accumulated
+              // The backend sends success before all batch messages are processed
+              // This is the same proven pattern used in streamEntityPage
+              const expectedRows = streamResult.totalRows;
+              const pollInterval = setInterval(() => {
+                if (this.accumulatedRows.length >= expectedRows) {
+                  clearInterval(pollInterval);
+
+                  const finalResult: StreamingTableResult = {
+                    columns: mapBackendColumnsToColumnMeta(streamResult.columns),
+                    rows: this.accumulatedRows,
+                    isComplete: true,
+                    totalRows: streamResult.totalRows,
+                    executionTimeMs: streamResult.executionTimeMs,
+                    cursorSetupMs: streamResult.cursorSetupMs,
+                    totalStreamingMs: streamResult.totalStreamingMs,
+                    fetchCount: streamResult.fetchCount,
+                    networkMs: streamResult.networkMs,
+                    conversionMs: streamResult.conversionMs,
+                    ipcSendMs: streamResult.ipcSendMs,
+                  };
+                  if (onProgress) {
+                    onProgress({
+                      rowsFetched: streamResult.totalRows,
+                      totalRows: streamResult.totalRows,
+                      executionTimeMs: streamResult.executionTimeMs,
+                      completed: true,
+                    });
+                  }
+                  resolve(finalResult);
+                }
+              }, 10);
+
+              // Safety timeout: resolve after 5 seconds even if count doesn't match
+              setTimeout(() => {
+                clearInterval(pollInterval);
+                console.warn(
+                  `⚠️ streamQuery timeout waiting for batches: expected ${expectedRows}, got ${this.accumulatedRows.length}`,
+                );
+                const finalResult: StreamingTableResult = {
+                  columns: mapBackendColumnsToColumnMeta(streamResult.columns),
+                  rows: this.accumulatedRows,
+                  isComplete: true,
                   totalRows: streamResult.totalRows,
                   executionTimeMs: streamResult.executionTimeMs,
-                  completed: true,
-                });
-              }
-              resolve(finalResult);
+                  cursorSetupMs: streamResult.cursorSetupMs,
+                  totalStreamingMs: streamResult.totalStreamingMs,
+                  fetchCount: streamResult.fetchCount,
+                  networkMs: streamResult.networkMs,
+                  conversionMs: streamResult.conversionMs,
+                  ipcSendMs: streamResult.ipcSendMs,
+                };
+                resolve(finalResult);
+              }, 5000);
             },
             onError: (err) => {
               clearTimeout(timeoutId);

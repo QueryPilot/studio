@@ -11,6 +11,7 @@ import {
 import { formatExecutionTime } from "@/utils/formatTime";
 import { SelectionSummary } from "./SelectionSummary";
 import type { GridRowModel, GridColumnV2 } from "../types";
+import { type GridSelection } from "@glideapps/glide-data-grid";
 
 interface DataGridStatusBarProps {
   loadedRows: number;
@@ -40,7 +41,6 @@ interface DataGridStatusBarProps {
   fetchCount?: number;
   networkMs?: number;
   conversionMs?: number;
-  ipcSendMs?: number;
   isStreaming?: boolean;
   onViewDetails?: () => void;
   readOnlyReason?: string;
@@ -60,7 +60,6 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   fetchCount,
   networkMs,
   conversionMs,
-  ipcSendMs,
   isStreaming = false,
   onViewDetails,
   readOnlyReason,
@@ -140,7 +139,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
                   selectedRowIndices={selectedRowIndices}
                   allRows={allRows}
                   columns={columns}
-                  gridSelection={gridSelection}
+                  gridSelection={gridSelection as unknown as GridSelection}
                 />
               )}
           </div>
@@ -206,15 +205,6 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
                         <span className="font-mono">
                           {conversionMs}ms (
                           {((conversionMs / executionTime) * 100).toFixed(1)}%)
-                        </span>
-                      </div>
-                    )}
-                    {ipcSendMs !== undefined && (
-                      <div className="flex justify-between gap-4">
-                        <span>IPC Send:</span>
-                        <span className="font-mono">
-                          {ipcSendMs}ms (
-                          {((ipcSendMs / executionTime) * 100).toFixed(1)}%)
                         </span>
                       </div>
                     )}
