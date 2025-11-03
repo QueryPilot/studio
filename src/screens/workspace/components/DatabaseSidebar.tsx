@@ -25,6 +25,10 @@ import {
 } from "./DatabaseSidebarItem";
 import { useSchemaData } from "@/hooks/useSchemaData";
 import { openFunctionObject, openTableObject } from "@/utils/workbench/openers";
+import {
+  useStarredItemsStore,
+  type StarredItemType,
+} from "@/stores/starredItemsStore";
 
 interface DatabaseSidebarProps {
   connectionId: string;
@@ -56,11 +60,13 @@ export function DatabaseSidebar({
 
   const { focusedPanelId, panelContents } = useWorkbenchStore();
 
+  const { toggleStarred, isStarred, getStarredItems } = useStarredItemsStore();
+
   // Auto-expand sections when data is loaded
   useEffect(() => {
     if (tables.length > 0) {
       setExpandedNodes(
-        (prev) => new Set([...prev, "tables", "views", "functions"]),
+        (prev) => new Set([...prev, "tables", "views", "functions", "starred"]),
       );
     }
   }, [tables]);
@@ -127,6 +133,31 @@ export function DatabaseSidebar({
       await refreshSchemaData();
     }
   };
+
+  // Handle star toggle
+  const handleToggleStar = (
+    type: StarredItemType,
+    name: string,
+    schema: string,
+  ) => {
+    return (e: React.MouseEvent) => {
+      e.stopPropagation();
+      toggleStarred({
+        connectionId,
+        database: selectedDatabase,
+        schema,
+        type,
+        name,
+      });
+    };
+  };
+
+  // Get starred items for current context
+  const starredItems = getStarredItems(
+    connectionId,
+    selectedDatabase,
+    selectedSchema,
+  );
 
   // Filter items based on search
   const filterItems = <T extends { name: string }>(items: T[]): T[] => {
@@ -280,6 +311,113 @@ export function DatabaseSidebar({
       {/* Object Tree */}
       <div className="flex-1 relative min-h-0 overflow-auto">
         <div className="pb-2 min-w-0">
+          {/* Starred Section */}
+          {starredItems.length > 0 && (
+            <SidebarSection
+              title="Starred"
+              count={starredItems.length}
+              isExpanded={expandedNodes.has("starred")}
+              onToggle={() => {
+                toggleNode("starred");
+              }}
+              stickyClass="sticky top-0 bg-background z-40"
+            >
+              {starredItems.map((item) => {
+                const itemData =
+                  item.type === "function"
+                    ? functions.find((f) => f.name === item.name)
+                    : item.type === "view"
+                    ? views.find((v) => v.name === item.name)
+                    : tables.find((t) => t.name === item.name);
+
+                if (!itemData) return null;
+
+                const icon =
+                  item.type === "function" ? (
+                    <FunctionSquare className="h-3.5 w-4 min-w-4 text-purple-500 flex-shrink-0" />
+                  ) : item.type === "view" ? (
+                    <Eye
+                      className={cn(
+                        "h-4 min-h-4 w-4 min-w-4 flex-shrink-0",
+                        (itemData as TableMeta).kind === "MaterializedView"
+                          ? "text-blue-500"
+                          : "text-green-500",
+                      )}
+                    />
+                  ) : (
+                    <Table className="h-3.5 w-4 min-w-4 text-primary flex-shrink-0" />
+                  );
+
+                const isActive =
+                  item.type === "function"
+                    ? isFunctionActive(item.name, item.schema)
+                    : isTableActive(item.name, item.schema);
+
+                const onClick =
+                  item.type === "function"
+                    ? () => {
+                        handleFunctionClick(itemData as FunctionMeta);
+                      }
+                    : () => {
+                        handleTableClick(itemData as TableMeta, "data");
+                      };
+
+                return (
+                  <SidebarItem
+                    key={item.id}
+                    icon={icon}
+                    name={item.name}
+                    isActive={isActive}
+                    onClick={onClick}
+                    rowCount={
+                      "row_estimate" in itemData
+                        ? itemData.row_estimate
+                        : undefined
+                    }
+                    isStarred={true}
+                    onToggleStar={handleToggleStar(
+                      item.type,
+                      item.name,
+                      item.schema,
+                    )}
+                    actions={
+                      item.type !== "function" ? (
+                        <>
+                          <ActionButton
+                            icon={
+                              <Bolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleTableClick(
+                                itemData as TableMeta,
+                                "structure",
+                              );
+                            }}
+                            title="View Structure"
+                          />
+                          <ActionButton
+                            icon={
+                              <BookMarked className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleTableClick(
+                                itemData as TableMeta,
+                                "indexes",
+                              );
+                            }}
+                            title="View Indexes"
+                          />
+                        </>
+                      ) : undefined
+                    }
+                  />
+                );
+              })}
+            </SidebarSection>
+          )}
+
           {/* Tables Section */}
           {(tables.length > 0 || isLoadingData) && (
             <SidebarSection
@@ -303,6 +441,18 @@ export function DatabaseSidebar({
                     handleTableClick(table, "data");
                   }}
                   rowCount={table.row_estimate}
+                  isStarred={isStarred(
+                    connectionId,
+                    selectedDatabase,
+                    table.schema,
+                    "table",
+                    table.name,
+                  )}
+                  onToggleStar={handleToggleStar(
+                    "table",
+                    table.name,
+                    table.schema,
+                  )}
                   actions={
                     <>
                       <ActionButton
@@ -361,6 +511,18 @@ export function DatabaseSidebar({
                     handleTableClick(view, "data");
                   }}
                   className="border-l-2 border-l-transparent"
+                  isStarred={isStarred(
+                    connectionId,
+                    selectedDatabase,
+                    view.schema,
+                    "view",
+                    view.name,
+                  )}
+                  onToggleStar={handleToggleStar(
+                    "view",
+                    view.name,
+                    view.schema,
+                  )}
                   actions={
                     <>
                       <ActionButton
@@ -412,6 +574,18 @@ export function DatabaseSidebar({
                   onClick={() => {
                     handleFunctionClick(func);
                   }}
+                  isStarred={isStarred(
+                    connectionId,
+                    selectedDatabase,
+                    func.schema,
+                    "function",
+                    func.name,
+                  )}
+                  onToggleStar={handleToggleStar(
+                    "function",
+                    func.name,
+                    func.schema,
+                  )}
                 />
               ))}
             </SidebarSection>

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Star } from "lucide-react";
 
 interface SidebarSectionProps {
   title: string;
@@ -32,7 +32,9 @@ export function SidebarSection({
             <ChevronRight className="h-4 w-4" />
           )}
           <span className="font-medium text-xs">{title}</span>
-          <span className="text-xs text-muted-foreground ml-auto">{count}</span>
+          <span className="text-xs text-muted-foreground ml-auto mr-2">
+            {count}
+          </span>
         </button>
       </div>
       {isExpanded && (
@@ -52,6 +54,8 @@ interface SidebarItemProps {
   rowCount?: number | null;
   actions?: ReactNode;
   className?: string;
+  isStarred?: boolean;
+  onToggleStar?: (e: React.MouseEvent) => void;
 }
 
 export function SidebarItem({
@@ -62,6 +66,8 @@ export function SidebarItem({
   rowCount,
   actions,
   className,
+  isStarred = false,
+  onToggleStar,
 }: SidebarItemProps) {
   return (
     <div
@@ -83,11 +89,25 @@ export function SidebarItem({
           ~{rowCount.toLocaleString()}
         </span>
       )}
-      {actions && (
-        <div className="flex items-center gap-0.5 flex-shrink-0 transition-all delay-150 duration-200 ease-out -mr-10 opacity-0 group-hover:opacity-100 group-hover:mr-1">
-          {actions}
-        </div>
-      )}
+      <div className="flex items-center gap-0.5 flex-shrink-0 transition-all delay-150 duration-200 ease-out -mr-14 opacity-0 group-hover:opacity-100 group-hover:mr-1">
+        {onToggleStar && (
+          <button
+            className="p-0.5 hover:bg-muted rounded"
+            onClick={onToggleStar}
+            title={isStarred ? "Unstar" : "Star"}
+          >
+            <Star
+              className={cn(
+                "h-3 w-3",
+                isStarred
+                  ? "fill-yellow-500 text-yellow-500"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            />
+          </button>
+        )}
+        {actions}
+      </div>
     </div>
   );
 }
