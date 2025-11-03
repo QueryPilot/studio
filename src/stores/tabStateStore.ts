@@ -44,7 +44,10 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
   queryStates: new Map(),
 
   getQueryState: (tabId: string) => {
-    return get().queryStates.get(tabId);
+    // Cache the result to avoid infinite loop warning from useSyncExternalStore
+    // Map.get() returns the same object reference, so this is safe
+    const state = get();
+    return state.queryStates.get(tabId);
   },
 
   setQueryState: (tabId: string, state: Partial<QueryState>) => {

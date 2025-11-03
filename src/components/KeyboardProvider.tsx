@@ -49,15 +49,13 @@ function initializeServices(): void {
 
 export function KeyboardProvider({ children }: KeyboardProviderProps): JSX.Element {
   useEffect(() => {
+    // Initialize services (commands and keybindings)
     initializeServices();
-    keyboardHandler.initialize();
 
-    return () => {
-      keyboardHandler.dispose();
-    };
-  }, []);
+    // CRITICAL FIX: Set up context values BEFORE attaching keyboard listener
+    // This prevents race condition where shortcuts with 'when' clauses fail
+    // because context isn't ready yet when user presses a key
 
-  useEffect(() => {
     const setSidebarContext = (sidebars: { left: boolean; right: boolean }) => {
       contextService.setValue('sideBarVisible', sidebars.left || sidebars.right);
       contextService.setValue('assistantVisible', sidebars.right);
@@ -96,7 +94,11 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): JSX.Eleme
       }
     );
 
+    // NOW attach keyboard listener - context is ready!
+    keyboardHandler.initialize();
+
     return () => {
+      keyboardHandler.dispose();
       unsubscribeSidebars();
       unsubscribeWorkbench();
     };

@@ -1,4 +1,12 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useDeferredValue,
+} from "react";
 import type { FocusEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import type {
   GridSelection,
@@ -191,10 +199,10 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const transformedQueryRows = useMemo(() => {
     if (!queryData) return [];
 
-    return (queryData.rows ?? []).map((row) => {
+    return queryData.rows.map((row) => {
       const rowObj: GridRowModel = {};
       const backendRow = row as BackendCellValue[];
-      (queryData.columns ?? []).forEach((colName, colIndex) => {
+      queryData.columns.forEach((colName, colIndex) => {
         const rawValue = backendRow[colIndex] as BackendCellValue | undefined;
         const colMeta = queryData.columnMeta?.[colIndex];
         const dbType = colMeta?.db_type ?? "text";
@@ -240,7 +248,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     fetchCount,
     networkMs,
     conversionMs,
-    ipcSendMs,
     loadMore,
     hasNextPage,
   } = isTableMode
@@ -267,7 +274,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         fetchCount: undefined,
         networkMs: undefined,
         conversionMs: undefined,
-        ipcSendMs: undefined,
         loadMore: tableDataQuery.hasNextPage
           ? () => tableDataQuery.fetchNextPage()
           : undefined,
@@ -286,7 +292,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         fetchCount: props.fetchCount,
         networkMs: props.networkMs,
         conversionMs: props.conversionMs,
-        ipcSendMs: props.ipcSendMs,
         loadMore: undefined,
         hasNextPage: false,
       };
@@ -932,7 +937,20 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         selectedRowIndices={selectedRowsSet}
         allRows={rowsRef.current}
         columns={finalColumns}
-        gridSelection={gridSelection}
+        gridSelection={
+          gridSelection as unknown as GridSelection & {
+            rows: Set<number>;
+            columns?: Set<number>;
+            current?: {
+              range?: {
+                x: number;
+                y: number;
+                width: number;
+                height: number;
+              };
+            };
+          }
+        }
         executionTime={executionTime}
         cursorSetupMs={cursorSetupMs}
         totalStreamingMs={totalStreamingMs}
@@ -946,7 +964,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         fetchCount={fetchCount}
         networkMs={networkMs}
         conversionMs={conversionMs}
-        ipcSendMs={ipcSendMs}
         onViewDetails={
           hasSelection
             ? () => {

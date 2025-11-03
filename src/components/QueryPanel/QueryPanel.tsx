@@ -1,4 +1,12 @@
-import { memo, useState, useCallback, useEffect, useMemo, useRef, startTransition } from "react";
+import {
+  memo,
+  useState,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  startTransition,
+} from "react";
 import { QueryEditor } from "./QueryEditor";
 import { ResultViewer } from "./ResultViewer";
 import { QueryHistory } from "./QueryHistory";
@@ -46,8 +54,8 @@ export const QueryPanel = memo(function QueryPanel({
   initialSql = "",
 }: QueryPanelProps) {
   // Use global tab state store to persist across panel moves
-  const { getQueryState, setQueryState } = useTabStateStore();
-  const globalState = getQueryState(tabId);
+  const setQueryState = useTabStateStore((state) => state.setQueryState);
+  const globalState = useTabStateStore((state) => state.queryStates.get(tabId));
 
   const [query, setQueryInternal] = useState<string>(
     globalState?.query ?? initialSql,
@@ -360,11 +368,6 @@ export const QueryPanel = memo(function QueryPanel({
           rowCount: final.totalRows ?? rowCount,
           executionTime,
         };
-        toast.success(
-          `Query executed successfully (${
-            final.totalRows ?? final.rows.length
-          } rows)`,
-        );
       } catch (error) {
         // Check if this is a user cancellation
         const isCancellation =
