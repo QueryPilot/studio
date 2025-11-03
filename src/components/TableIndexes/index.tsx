@@ -1,4 +1,11 @@
-import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle } from "lucide-react";
 import { databaseService, type TableIndex } from "@/services/databaseService";
@@ -22,14 +29,6 @@ export const TableIndexes = memo(function TableIndexes({
   const [indexes, setIndexes] = useState<TableIndex[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!onActionsChange) return;
-    onActionsChange(null);
-    return () => {
-      onActionsChange(null);
-    };
-  }, [onActionsChange]);
 
   const loadIndexes = useCallback(async () => {
     setIsLoading(true);
@@ -143,7 +142,13 @@ export const TableIndexes = memo(function TableIndexes({
   );
 });
 
-const HeaderCell = ({ children, className }: { children: ReactNode; className?: string }) => (
+const HeaderCell = ({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) => (
   <th
     className={cn(
       "text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80",
@@ -154,8 +159,16 @@ const HeaderCell = ({ children, className }: { children: ReactNode; className?: 
   </th>
 );
 
-const Cell = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <td className={cn("px-2 py-1 border-b border-r border-border", className)}>{children}</td>
+const Cell = ({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) => (
+  <td className={cn("px-2 py-1 border-b border-r border-border", className)}>
+    {children}
+  </td>
 );
 
 const TableIndexesSkeleton = memo(function TableIndexesSkeleton() {
@@ -182,4 +195,3 @@ const TableIndexesSkeleton = memo(function TableIndexesSkeleton() {
 });
 
 export default TableIndexes;
-

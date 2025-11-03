@@ -720,14 +720,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     };
   }, []);
 
-  useEffect(() => {
-    if (!onActionsChange) return;
-    onActionsChange(null);
-    return () => {
-      onActionsChange(null);
-    };
-  }, [onActionsChange]);
-
   const errorMessage = typeof error === "string" ? error : null;
 
   const selectedRowsSet = useMemo(() => {

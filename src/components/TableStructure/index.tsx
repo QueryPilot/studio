@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, type ReactNode } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle } from "lucide-react";
@@ -33,14 +33,6 @@ export const TableStructure = memo(function TableStructure({
       includeForeignKeys: true,
     },
   });
-
-  useEffect(() => {
-    if (!onActionsChange) return;
-    onActionsChange(null);
-    return () => {
-      onActionsChange(null);
-    };
-  }, [onActionsChange]);
 
   const columns = useMemo(() => structure?.columns ?? [], [structure?.columns]);
   const foreignKeys = useMemo(
