@@ -244,32 +244,47 @@ export class QueryStreamClient {
       });
 
       // Metadata channel: receives JSON StreamMessages
-      const metadataChannel = createIpcChannel<StreamMessage>((message) => {
-        switch (message.type) {
+      const metadataChannel = createIpcChannel<StreamMessage | undefined>((message) => {
+        if (!message || typeof message !== "object") {
+          console.warn("[QueryStreamClient] Skipping malformed metadata message", message);
+          return;
+        }
+
+        const typedMessage = message as StreamMessage;
+
+        if (typeof (typedMessage as { type?: unknown }).type !== "string") {
+          console.warn("[QueryStreamClient] Metadata message missing type", typedMessage);
+          return;
+        }
+
+        switch (typedMessage.type) {
           case "limitApplied":
             callbacks.onLimitApplied?.(
-              message.original_sql,
-              message.applied_limit,
+              typedMessage.original_sql,
+              typedMessage.applied_limit,
             );
             break;
 
           case "started":
-            this.columns = message.columns;
-            this.estimatedRows = message.estimated_rows;
-            callbacks.onStarted?.(message.columns, message.estimated_rows);
+            this.columns = typedMessage.columns;
+            this.estimatedRows = typedMessage.estimated_rows;
+            callbacks.onStarted?.(
+              typedMessage.columns,
+              typedMessage.estimated_rows,
+            );
             break;
 
           case "success": {
             const result: StreamResult = {
               columns: this.columns || [],
-              totalRows: message.total_rows,
-              executionTimeMs: message.execution_time_ms,
-              cursorSetupMs: message.cursor_setup_ms,
-              totalStreamingMs: message.total_streaming_ms,
-              fetchCount: message.fetch_count,
-              networkMs: message.network_ms,
-              conversionMs: message.conversion_ms,
-              ipcSendMs: message.ipc_send_ms,
+              totalRows: typedMessage.total_rows,
+              executionTimeMs: typedMessage.execution_time_ms,
+              cursorSetupMs: typedMessage.cursor_setup_ms,
+              totalStreamingMs: typedMessage.total_streaming_ms,
+              fetchCount: typedMessage.fetch_count,
+              networkMs: typedMessage.network_ms,
+              conversionMs: typedMessage.conversion_ms,
+              ipcSendMs: typedMessage.ipc_send_ms,
             };
             callbacks.onSuccess?.(result);
             settleResolve(result);
@@ -277,7 +292,9 @@ export class QueryStreamClient {
           }
 
           case "error": {
-            const error = new Error(`[${message.code}] ${message.message}`);
+            const error = new Error(
+              `[${typedMessage.code}] ${typedMessage.message}`,
+            );
             callbacks.onError?.(error);
             settleReject(error);
             break;
@@ -286,11 +303,18 @@ export class QueryStreamClient {
           case "interrupted":
             {
               const interruptError = new Error(
-                `Stream interrupted (resumable: ${message.resumable}): ${message.message}`,
+                `Stream interrupted (resumable: ${typedMessage.resumable}): ${typedMessage.message}`,
               );
               callbacks.onError?.(interruptError);
               settleReject(interruptError);
             }
+            break;
+
+          default:
+            console.warn(
+              `[QueryStreamClient] Received unknown metadata message type: ${typedMessage.type}`,
+              typedMessage,
+            );
             break;
         }
       });

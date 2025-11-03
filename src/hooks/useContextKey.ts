@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { v4 as uuid } from 'uuid';
 
 import { useKeyboardServicesOptional } from '@/components/KeyboardProvider';
@@ -47,62 +47,6 @@ export function useContextKey(
       }
     };
   }, [contextService, key, options?.scopeId, options?.resetOnUnmount, scopeChain, value]);
-}
-
-export function useSetContext(): (key: string, value: ContextValue, scopeId?: string) => void {
-  const services = useKeyboardServicesOptional();
-  const contextService = services?.contextService;
-  return useCallback(
-    (key: string, value: ContextValue, scopeId?: string) => {
-      if (!contextService) {
-        return;
-      }
-      contextService.setValue(key, value, scopeId);
-    },
-    [contextService]
-  );
-}
-
-export function useContextValue<T = ContextValue>(key: string, defaultValue?: T): T {
-  const services = useKeyboardServicesOptional();
-  const contextService = services?.contextService;
-
-  if (!contextService) {
-    return (defaultValue as T | undefined) ?? (undefined as T);
-  }
-
-  return useSyncExternalStore(
-    (listener) =>
-      contextService.onDidChange((event) => {
-        if (event.key === key) {
-          listener();
-        }
-      }),
-    () => {
-      const value = contextService.getValue<T>(key);
-      return (value ?? defaultValue) as T;
-    },
-    () => (defaultValue as T | undefined) ?? (undefined as T)
-  );
-}
-
-export function useWhen(expression: string | undefined, scopes?: string[]): boolean {
-  const services = useKeyboardServicesOptional();
-  const contextService = services?.contextService;
-  if (!contextService) {
-    return false;
-  }
-  const expressionRef = useRef(expression);
-  const scopesRef = useRef(scopes);
-
-  expressionRef.current = expression;
-  scopesRef.current = scopes;
-
-  return useSyncExternalStore(
-    (listener) => contextService.onDidChange(() => listener()),
-    () => contextService.evaluate(expressionRef.current, { scopes: scopesRef.current }),
-    () => contextService.evaluate(expressionRef.current, { scopes: scopesRef.current })
-  );
 }
 
 export function useScopedKeybindings(explicitScopeId?: string): string {
