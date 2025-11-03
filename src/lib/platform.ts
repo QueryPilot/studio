@@ -45,10 +45,3 @@ export function detectPlatform(): RuntimePlatform {
   return cachedPlatform;
 }
 
-export function setRuntimePlatform(platform: RuntimePlatform): void {
-  cachedPlatform = platform;
-}
-
-export const isMac = (): boolean => detectPlatform() === 'mac';
-export const isWindows = (): boolean => detectPlatform() === 'windows';
-export const isLinux = (): boolean => detectPlatform() === 'linux';

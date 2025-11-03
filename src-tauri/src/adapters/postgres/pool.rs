@@ -6,26 +6,17 @@ use tokio_postgres::Socket;
 
 pub struct PostgresPoolBuilder {
     pool_size: usize,
-    idle_timeout: Duration,
-    max_lifetime: Duration,
 }
 
 impl Default for PostgresPoolBuilder {
     fn default() -> Self {
         Self {
             pool_size: 10, // Max 10 connections per window (increased for concurrent queries)
-            idle_timeout: Duration::from_secs(15 * 60), // 15 minutes (configurable)
-            max_lifetime: Duration::from_secs(60 * 60), // 1 hour max lifetime
         }
     }
 }
 
 impl PostgresPoolBuilder {
-    pub fn with_idle_timeout(mut self, timeout: Duration) -> Self {
-        self.idle_timeout = timeout;
-        self
-    }
-
     pub fn build<T>(self, pg_config: Config, tls: T) -> Result<Pool, String>
     where
         T: MakeTlsConnect<Socket> + Clone + Send + Sync + 'static,

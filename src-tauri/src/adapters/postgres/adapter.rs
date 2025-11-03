@@ -317,12 +317,8 @@ impl DbAdapter for PostgresAdapter {
 
         // Create connection pool (2-3 connections per window)
         let pool_result = match tls {
-            Some(tls_connector) => PostgresPoolBuilder::default()
-                .with_idle_timeout(std::time::Duration::from_secs(15 * 60))
-                .build(config, tls_connector),
-            None => PostgresPoolBuilder::default()
-                .with_idle_timeout(std::time::Duration::from_secs(15 * 60))
-                .build(config, NoTls),
+            Some(tls_connector) => PostgresPoolBuilder::default().build(config, tls_connector),
+            None => PostgresPoolBuilder::default().build(config, NoTls),
         };
 
         let pool = pool_result
