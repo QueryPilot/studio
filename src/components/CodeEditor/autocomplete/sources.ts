@@ -8,7 +8,7 @@ import { schemaCache } from "@/services/schemaCache";
 import type { QueryContext } from "./parser";
 import { fuzzyMatch } from "@/utils/fuzzyMatch";
 import { relationshipService } from "@/services/relationshipService";
-import { SQL_FUNCTIONS, getFunctionsForDialect } from "@/data/sqlFunctions";
+import { getFunctionsForDialect } from "@/data/sqlFunctions";
 import { getValueSuggestionsForColumn } from "./valueSuggestions";
 import { SQL_SNIPPETS } from "@/data/sqlSnippets";
 import { createSnippetCompletion } from "./snippetHandler";
@@ -1012,9 +1012,9 @@ export function createContextualCompletionSource(params: {
         let tableFilter: string | null = null;
 
         // Check if it's a qualified reference (table.column)
-        if (columnRef.includes(".")) {
+        if (columnRef?.includes(".")) {
           const parts = columnRef.split(".");
-          tableFilter = parts[0];
+          tableFilter = parts[0] ?? null;
           columnName = parts[1];
         }
 
@@ -1057,7 +1057,7 @@ export function createContextualCompletionSource(params: {
           );
 
           // Adjust scores based on operator
-          const scoreAdjustment = operator.toLowerCase().includes("is")
+          const scoreAdjustment = operator?.toLowerCase().includes("is")
             ? 10
             : 0;
 
@@ -1065,7 +1065,7 @@ export function createContextualCompletionSource(params: {
             // Filter NULL suggestions for operators that don't support NULL
             if (
               suggestion.label === "NULL" &&
-              !operator.toLowerCase().includes("is")
+              !operator?.toLowerCase().includes("is")
             ) {
               continue;
             }
@@ -1123,7 +1123,7 @@ export function createContextualCompletionSource(params: {
             const onCondition = relationshipService.getJoinCondition(
               relationshipGraph,
               tableInScope,
-              joinedTable,
+              joinedTable ?? "",
             );
 
             if (onCondition) {
@@ -1146,7 +1146,7 @@ export function createContextualCompletionSource(params: {
           const columns = await schemaCache.getTableColumns(
             connectionId,
             effectiveSchema,
-            joinedTable,
+            joinedTable ?? "",
           );
 
           for (const col of columns) {
@@ -1156,7 +1156,7 @@ export function createContextualCompletionSource(params: {
               completions.push({
                 label: colName,
                 apply: `${quoteIdentifier(
-                  joinedTable,
+                  joinedTable ?? "",
                   dbType,
                 )}.${quoteIdentifier(col.name, dbType)}`,
                 type: "property",

@@ -10,7 +10,7 @@ import type { TableMeta } from "./databaseService";
  * Service to manage foreign key relationships and provide smart JOIN suggestions
  */
 class RelationshipService {
-  private static instance: RelationshipService;
+  private static instance?: RelationshipService;
 
   private constructor() {}
 
@@ -43,8 +43,8 @@ class RelationshipService {
     }
 
     // Extract and clean column names (remove quotes and backticks)
-    const sourceColumn = match[1].replace(/["`]/g, "").trim();
-    const targetColumn = match[3].replace(/["`]/g, "").trim();
+    const sourceColumn = match[1]?.replace(/["`]/g, "").trim();
+    const targetColumn = match[3]?.replace(/["`]/g, "").trim();
 
     return { sourceColumn, targetColumn };
   }

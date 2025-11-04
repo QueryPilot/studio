@@ -96,29 +96,10 @@ export function useKeybindings() {
 /**
  * Hook to fetch and cache quick open items (tables, views, functions)
  */
-export function useQuickOpenItems(
-  connectionId: string,
-  database: string,
-  schema: string,
-  enabled: boolean,
-) {
-  const {
-    tables,
-    views,
-    functions,
-    isLoading,
-    error,
-  } = useSchemaData(
-    enabled ? connectionId : "",
-    enabled ? database : "",
-    enabled ? schema : "",
-  );
+export function useQuickOpenItems() {
+  const { tables, views, functions, isLoading, error } = useSchemaData();
 
   const quickItems = useMemo<QuickOpenItem[]>(() => {
-    if (!enabled || isLoading) {
-      return [];
-    }
-
     const items: QuickOpenItem[] = [];
 
     const pushTable = (
@@ -165,7 +146,7 @@ export function useQuickOpenItems(
     });
 
     return items.sort((left, right) => left.name.localeCompare(right.name));
-  }, [enabled, functions, isLoading, tables, views]);
+  }, [functions, tables, views]);
 
   return {
     quickItems,

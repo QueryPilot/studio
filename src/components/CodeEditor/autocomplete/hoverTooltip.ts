@@ -47,7 +47,7 @@ export function createSqlHoverTooltip(config: HoverConfig) {
 
           const columnInfo = await getColumnHoverInfo(
             config,
-            tableName,
+            tableName ?? "",
             columnName,
           );
 
@@ -118,7 +118,11 @@ export function createSqlHoverTooltip(config: HoverConfig) {
           .match(/\bfrom\s+([a-zA-Z_]\w+)/i);
         if (fromMatch) {
           const tableName = fromMatch[1];
-          const columnInfo = await getColumnHoverInfo(config, tableName, text);
+          const columnInfo = await getColumnHoverInfo(
+            config,
+            tableName ?? "",
+            text,
+          );
 
           if (columnInfo) {
             return {
@@ -197,7 +201,7 @@ async function getTableHoverInfo(
       tableName,
     );
 
-    return formatTableInfo(table, columns.length);
+    return formatTableInfo(table as unknown as TableInfo, columns.length);
   } catch (error) {
     console.debug("Failed to get table info:", error);
     return null;
@@ -238,22 +242,25 @@ function formatColumnInfo(column: ColumnMeta, tableName: string): string {
     parts.push(`<div class="cm-hover-badges">${badges.join(" ")}</div>`);
   }
 
-  if (column.default !== null && column.default !== undefined) {
+  if (column.default) {
     parts.push(
       `<div class="cm-hover-detail">`,
       `<span class="cm-detail-label">Default:</span> `,
-      `<code>${escapeHtml(String(column.default))}</code>`,
+      `<code>${escapeHtml(column.default)}</code>`,
       `</div>`,
     );
   }
 
   if (column.enum_values && column.enum_values.length > 0) {
     const values = column.enum_values.slice(0, 5);
-    const more = column.enum_values.length > 5 ? ` (+${column.enum_values.length - 5} more)` : "";
+    const more =
+      column.enum_values.length > 5
+        ? ` (+${column.enum_values.length - 5} more)`
+        : "";
     parts.push(
       `<div class="cm-hover-detail">`,
       `<span class="cm-detail-label">Enum values:</span> `,
-      `<code>${values.map(v => escapeHtml(v)).join(", ")}${more}</code>`,
+      `<code>${values.map((v) => escapeHtml(v)).join(", ")}${more}</code>`,
       `</div>`,
     );
   }
@@ -281,12 +288,19 @@ function formatTableInfo(table: TableInfo, columnCount: number): string {
       ? '<span class="cm-info-badge cm-badge-mv">MATERIALIZED VIEW</span>'
       : '<span class="cm-info-badge cm-badge-table">TABLE</span>';
 
-  const typeLabel = table.type === "view" ? "View" : table.type === "materialized_view" ? "Materialized View" : "Table";
+  const typeLabel =
+    table.type === "view"
+      ? "View"
+      : table.type === "materialized_view"
+      ? "Materialized View"
+      : "Table";
 
   const parts: string[] = [
     `<div class="cm-hover-title">${typeLabel} Information</div>`,
     `<div class="cm-hover-header">`,
-    `<code class="cm-hover-identifier">${table.schema ? `${table.schema}.` : ""}${table.name}</code>`,
+    `<code class="cm-hover-identifier">${
+      table.schema ? `${table.schema}.` : ""
+    }${table.name}</code>`,
     `</div>`,
     `<div class="cm-hover-badges">${typeBadge}</div>`,
     `<div class="cm-hover-detail">`,
@@ -295,7 +309,7 @@ function formatTableInfo(table: TableInfo, columnCount: number): string {
     `</div>`,
   ];
 
-  if (table.rowCount !== undefined && table.rowCount !== null) {
+  if (table.rowCount) {
     parts.push(
       `<div class="cm-hover-detail">`,
       `<span class="cm-detail-label">Rows:</span> `,

@@ -203,20 +203,20 @@ export interface IndexUsageStats {
   efficiency_score?: number; // 0-100
 }
 
-export interface Constraint {
-  name: string;
-  table_name: string;
-  constraint_type: ConstraintType;
-  definition: string;
-  foreign_table?: string;
-}
-
 export enum ConstraintType {
   PrimaryKey = "PrimaryKey",
   ForeignKey = "ForeignKey",
   Unique = "Unique",
   Check = "Check",
   Exclusion = "Exclusion",
+}
+
+export interface Constraint {
+  name: string;
+  table_name: string;
+  constraint_type: ConstraintType;
+  definition: string;
+  foreign_table?: string;
 }
 
 export interface Trigger {
@@ -267,6 +267,7 @@ export type StreamMessage =
   | { type: "interrupted"; resumable: boolean; message: string };
 
 // Backend API
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class BackendAPI {
   // Connection management
   static async connect(profile: ConnectionProfile): Promise<ConnectionInfo> {

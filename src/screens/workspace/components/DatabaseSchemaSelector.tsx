@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useEffect, useCallback } from "react";
 import { Database } from "lucide-react";
 import {
   Select,
@@ -12,6 +12,8 @@ import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { cn } from "@/lib/utils";
 import { safeListen } from "@/utils/tauri";
 import { toast } from "sonner";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 
 interface DatabaseSchemaSelectorProps {
   connectionId: string;
@@ -28,19 +30,95 @@ export function DatabaseSchemaSelector({
   onDatabaseChange,
   onSchemaChange,
 }: DatabaseSchemaSelectorProps) {
-  const [databases, setDatabases] = useState<string[]>([]);
-  const [schemas, setSchemas] = useState<string[]>([]);
   const [isSwitchingSchema, setIsSwitchingSchema] = useState(false);
+  const queryClient = useQueryClient();
   const { connections } = useConnectionStore();
-  const connection = connections.find((c) => c.profile.id === connectionId)?.profile;
+  const connection = connections.find(
+    (c) => c.profile.id === connectionId,
+  )?.profile;
 
-  const handleDatabaseSelect = useCallback(
-    (database: string) => {
-      onDatabaseChange(database);
-      onSchemaChange("");
+  // Check if connection is active
+  const isConnectionActive = databaseService.isConnectionActive(connectionId);
+
+  // Query for databases list
+  const {
+    data: databases = [],
+    isLoading: isLoadingDatabases,
+    error: databasesError,
+  } = useQuery({
+    queryKey: ["databases", connectionId],
+    queryFn: async () => {
+      if (!databaseService.isConnectionActive(connectionId)) {
+        throw new Error("Connection is not active");
+      }
+      return await databaseService.listDatabases(connectionId);
     },
-    [onDatabaseChange, onSchemaChange],
-  );
+    enabled: !!connectionId && isConnectionActive,
+    staleTime: 60_000, // 1 minute
+    retry: 2,
+  });
+
+  // Query for schemas list
+  const {
+    data: schemas = [],
+    isLoading: isLoadingSchemas,
+    error: schemasError,
+  } = useQuery({
+    queryKey: ["schemas", connectionId, selectedDatabase],
+    queryFn: async () => {
+      if (!selectedDatabase) {
+        return [];
+      }
+      if (!databaseService.isConnectionActive(connectionId)) {
+        throw new Error("Connection is not active");
+      }
+      return await databaseService.listSchemas(connectionId, selectedDatabase);
+    },
+    enabled: !!connectionId && !!selectedDatabase && isConnectionActive,
+    staleTime: 60_000, // 1 minute
+    retry: 2,
+  });
+
+  // Handle database errors
+  useEffect(() => {
+    if (databasesError) {
+      console.error("Failed to load databases:", databasesError);
+      toast.error("Failed to load databases");
+    }
+  }, [databasesError]);
+
+  // Handle schema errors
+  useEffect(() => {
+    if (schemasError) {
+      console.error("Failed to load schemas:", schemasError);
+      toast.error("Failed to load schemas");
+    }
+  }, [schemasError]);
+
+  // Auto-select database when databases are loaded
+  useEffect(() => {
+    if (!databases.length || selectedDatabase || isLoadingDatabases) {
+      return;
+    }
+
+    // Select default database
+    const defaultDb =
+      connection?.database && databases.includes(connection.database)
+        ? connection.database
+        : databases[0];
+
+    if (defaultDb) {
+      onDatabaseChange(defaultDb);
+      onSchemaChange("");
+    }
+  }, [
+    databases,
+    selectedDatabase,
+    connection,
+    onDatabaseChange,
+    onSchemaChange,
+    isLoadingDatabases,
+  ]);
 
   const selectSchema = useCallback(
     async (schema: string, options: { force?: boolean } = {}) => {
@@ -74,6 +152,35 @@ export function DatabaseSchemaSelector({
     [connectionId, onSchemaChange, selectedDatabase, selectedSchema],
   );
 
+  // Auto-select schema when schemas are loaded
+  useEffect(() => {
+    if (!schemas.length || isLoadingSchemas) {
+      return;
+    }
+
+    // If current schema is valid, keep it
+    if (selectedSchema && schemas.includes(selectedSchema)) {
+      return;
+    }
+
+    // Select default schema (public, dbo, or first available)
+    const publicSchema = schemas.find((s) => s.toLowerCase() === "public");
+    const defaultSchema = schemas.find((s) => s.toLowerCase() === "dbo");
+    const fallback = publicSchema || defaultSchema || schemas[0];
+
+    if (fallback && fallback !== selectedSchema) {
+      void selectSchema(fallback);
+    }
+  }, [schemas, selectedSchema, isLoadingSchemas, selectSchema]);
+
+  const handleDatabaseSelect = useCallback(
+    (database: string) => {
+      onDatabaseChange(database);
+      onSchemaChange("");
+    },
+    [onDatabaseChange, onSchemaChange],
+  );
+
   const handleSchemaSelect = useCallback(
     (schema: string) => {
       void selectSchema(schema);
@@ -81,128 +188,7 @@ export function DatabaseSchemaSelector({
     [selectSchema],
   );
 
-  const loadDatabases = useCallback(async () => {
-    try {
-      const dbs = await databaseService.listDatabases(connectionId);
-      setDatabases(dbs);
-
-      if (dbs.length === 0) {
-        return;
-      }
-
-      if (!selectedDatabase) {
-        if (connection?.database && dbs.includes(connection.database)) {
-          onDatabaseChange(connection.database);
-          onSchemaChange("");
-        } else if (dbs[0]) {
-          onDatabaseChange(dbs[0]);
-          onSchemaChange("");
-        }
-        return;
-      }
-
-      if (!dbs.includes(selectedDatabase)) {
-        const fallback =
-          (connection?.database && dbs.includes(connection.database)
-            ? connection.database
-            : dbs[0]) || "";
-        if (fallback) {
-          onDatabaseChange(fallback);
-          onSchemaChange("");
-        }
-      }
-    } catch (err) {
-      console.error("Failed to load databases:", err);
-      toast.error("Failed to load databases");
-      if (connection) {
-        const dbName = connection.database || "default";
-        setDatabases([dbName]);
-        if (!selectedDatabase) {
-          onDatabaseChange(dbName);
-          onSchemaChange("");
-        }
-      }
-    }
-  }, [
-    connection,
-    connectionId,
-    onDatabaseChange,
-    onSchemaChange,
-    selectedDatabase,
-  ]);
-
-  useEffect(() => {
-    if (connectionId) {
-      const checkAndLoad = async () => {
-        let retries = 0;
-        const maxRetries = 10;
-
-        while (retries < maxRetries) {
-          if (databaseService.isConnectionActive(connectionId)) {
-            void loadDatabases();
-            break;
-          }
-          await new Promise((resolve) => setTimeout(resolve, 500));
-          retries++;
-        }
-      };
-
-      void checkAndLoad();
-    }
-  }, [connectionId, loadDatabases]);
-
-  const loadSchemas = useCallback(async () => {
-    if (!selectedDatabase) {
-      setSchemas([]);
-      onSchemaChange("");
-      return;
-    }
-
-    try {
-      const schemaList = await databaseService.listSchemas(
-        connectionId,
-        selectedDatabase,
-      );
-      setSchemas(schemaList);
-
-      if (schemaList.length === 0) {
-        onSchemaChange("");
-        return;
-      }
-
-      if (selectedSchema && schemaList.includes(selectedSchema)) {
-        await selectSchema(selectedSchema, { force: true });
-        return;
-      }
-
-      const publicSchema = schemaList.find(
-        (s) => s.toLowerCase() === "public",
-      );
-      const defaultSchema = schemaList.find((s) => s.toLowerCase() === "dbo");
-      const fallback = publicSchema || defaultSchema || schemaList[0];
-      if (fallback) {
-        await selectSchema(fallback);
-      }
-    } catch (err) {
-      console.error("Failed to load schemas:", err);
-      toast.error("Failed to load schemas");
-      setSchemas(["default"]);
-      onSchemaChange("default");
-    }
-  }, [
-    connectionId,
-    onSchemaChange,
-    selectSchema,
-    selectedDatabase,
-    selectedSchema,
-  ]);
-
-  useEffect(() => {
-    if (selectedDatabase) {
-      void loadSchemas();
-    }
-  }, [selectedDatabase, loadSchemas]);
-
+  // Listen for database reconnection events and invalidate queries
   useEffect(() => {
     let cleanup: (() => void) | null = null;
 
@@ -211,10 +197,12 @@ export function DatabaseSchemaSelector({
         "database-reconnected",
         (event) => {
           if (event.payload.connectionId === connectionId) {
-            void loadDatabases().then(() => {
-              if (selectedDatabase) {
-                void loadSchemas();
-              }
+            // Invalidate and refetch both databases and schemas
+            void queryClient.invalidateQueries({
+              queryKey: ["databases", connectionId],
+            });
+            void queryClient.invalidateQueries({
+              queryKey: ["schemas", connectionId],
             });
           }
         },
@@ -226,7 +214,7 @@ export function DatabaseSchemaSelector({
     return () => {
       if (cleanup) cleanup();
     };
-  }, [connectionId, selectedDatabase, loadDatabases, loadSchemas]);
+  }, [connectionId, queryClient]);
 
   return (
     <div className="flex items-center gap-1">

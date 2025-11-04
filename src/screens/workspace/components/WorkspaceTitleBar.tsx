@@ -67,7 +67,10 @@ export function WorkspaceTitleBar({
   isConnecting: isInitiallyConnecting = false,
 }: WorkspaceTitleBarProps) {
   const { connections, fetchConnections } = useConnectionStore();
-  const storedConnection = connections.find((c) => c.profile.id === connectionId);
+  const storedConnection = connections.find(
+    (c) => c.profile.id === connectionId,
+  );
+
   const connection = storedConnection?.profile;
   const navigate = useNavigate();
   const [openWindows, setOpenWindows] = useState<string[]>([]);
@@ -332,8 +335,9 @@ export function WorkspaceTitleBar({
     try {
       // Get the target connection details
       const targetConnection = connections.find(
-        (c) => c.id === targetConnectionId,
+        (c) => c.profile.id === targetConnectionId,
       );
+
       if (!targetConnection) {
         console.error("Target connection not found");
         return;
@@ -347,7 +351,7 @@ export function WorkspaceTitleBar({
         // Create new window for this connection
         await windowManager.openWorkspace(
           targetConnectionId,
-          targetConnection.name,
+          targetConnection.profile.name,
         );
       }
     } catch (error) {
@@ -455,9 +459,13 @@ export function WorkspaceTitleBar({
                         <div className="flex items-center gap-2">
                           <Database className={cn("h-4 w-4")} />
                           <div className="flex flex-col">
-                            <span className="font-medium">{conn.profile.name}</span>
+                            <span className="font-medium">
+                              {conn.profile.name}
+                            </span>
                             <span className="text-xs text-muted-foreground">
-                              {conn.profile.db_type} • {conn.profile.host || "localhost"}:{conn.profile.port || ""}
+                              {conn.profile.db_type} •{" "}
+                              {conn.profile.host || "localhost"}:
+                              {conn.profile.port || ""}
                             </span>
                           </div>
                         </div>

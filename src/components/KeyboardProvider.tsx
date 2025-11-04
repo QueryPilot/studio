@@ -74,7 +74,9 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): JSX.Eleme
     const setWorkbenchContext = (payload: { panelCount: number; focusedPanelId: string | null }) => {
       contextService.setValue('editorCount', payload.panelCount);
       contextService.setValue('hasMultipleEditors', payload.panelCount > 1);
-      contextService.setValue('activeEditor', Boolean(payload.focusedPanelId));
+      // activeEditor should be true if there's at least one panel, even if focusedPanelId is null
+      const hasActiveEditor = payload.panelCount > 0 || Boolean(payload.focusedPanelId);
+      contextService.setValue('activeEditor', hasActiveEditor);
     };
 
     const initialWorkbenchState = useWorkbenchStore.getState();

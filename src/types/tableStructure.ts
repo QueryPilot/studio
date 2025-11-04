@@ -1,7 +1,11 @@
 /**
  * Comprehensive table structure types
  */
-import type { ColumnMeta } from '@/types/database';
+import { ConstraintType } from "@/services/backend";
+import type { ColumnMeta } from "@/types/database";
+
+// Re-export ConstraintType for convenience
+export { ConstraintType };
 
 export interface Index {
   name: string;
@@ -12,14 +16,6 @@ export interface Index {
   is_partial: boolean;
   definition: string;
   is_foreign_key: boolean;
-}
-
-export enum ConstraintType {
-  PrimaryKey = "PrimaryKey",
-  ForeignKey = "ForeignKey",
-  Unique = "Unique",
-  Check = "Check",
-  Exclusion = "Exclusion",
 }
 
 export interface Constraint {
@@ -50,13 +46,13 @@ export interface TableStructure {
   name: string;
   schema: string;
   database: string;
-  
+
   // Table metadata
   owner?: string;
   comment?: string;
   rowCount?: number;
   size?: string;
-  
+
   // Structure details
   columns: ColumnMeta[];
   primaryKeys: string[];
@@ -64,7 +60,7 @@ export interface TableStructure {
   indexes: Index[];
   constraints: Constraint[];
   triggers: Trigger[];
-  
+
   // Statistics
   stats?: TableStatistics;
 }

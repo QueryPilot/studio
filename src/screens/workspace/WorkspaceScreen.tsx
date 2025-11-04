@@ -21,15 +21,23 @@ import { useConnectionAutoReconnect } from "@/hooks/useConnectionAutoReconnect";
 import { AIAssistantSidebar } from "@/components/AIAssistant/AIAssistantSidebar";
 import { PreferencesDialog } from "@/components/Preferences/PreferencesDialog";
 
+// Default sidebars state - using a constant to avoid creating new objects
+const DEFAULT_SIDEBARS = { left: true, right: false };
+
 export function WorkspaceScreen() {
   const { connectionId } = useParams<{ connectionId: string }>();
   const { initWorkspace, setActiveConnection: setActiveWorkspace } =
     useWorkspaceScreenStore();
-  // Subscribe to sidebar state reactively
-  const sidebars = useWorkspaceScreenStore((state) => {
-    const workspace = state.workspaces.get(state.activeConnectionId || "");
-    return workspace?.sidebars || { left: true, right: false };
-  });
+  // Subscribe to sidebar state reactively - use memoized selector
+  const sidebars = useWorkspaceScreenStore(
+    useCallback(
+      (state) => {
+        const workspace = state.workspaces.get(state.activeConnectionId || "");
+        return workspace?.sidebars ?? DEFAULT_SIDEBARS;
+      },
+      [],
+    ),
+  );
   const { loadSchemas } = useSchemaStore();
   const { initialize: initializePanels } = usePanelStore();
 

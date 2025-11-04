@@ -12,7 +12,8 @@ import type {
   ForeignKeyInfo,
   TableStatistics,
 } from "@/types/tableStructure";
-import { ConstraintType } from "@/types/tableStructure";
+//
+import { ConstraintType } from "@/services/backend";
 
 // Types from API spec
 export interface ConnectionConfig {
