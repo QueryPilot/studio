@@ -42,9 +42,9 @@
   font-weight: 500;
 }
 
-/* Hover effect - more visible */
+/* Hover effect - more visible with better contrast */
 .cm-autocomplete > ul > li:hover {
-  background: #e5e7eb; /* Gray-200 - better visibility than f3f4f6 */
+  background: #d1d5db; /* Gray-300 - better contrast than gray-200 */
 }
 
 .cm-autocomplete > ul > li[aria-selected]:hover {
@@ -86,13 +86,13 @@
   text-align: left;
 }
 
-/* Selected state for detail - subtle gray */
+/* Selected state for detail - MORE subtle, not brighter */
 .cm-autocomplete > ul > li[aria-selected] .cm-completionDetail {
-  color: #6b7280; /* Gray for data type - not too distracting */
+  color: #9ca3af; /* Gray-400 - dimmer than unselected (#4b5563 = gray-600) */
 }
 
 .dark .cm-autocomplete > ul > li[aria-selected] .cm-completionDetail {
-  color: #9ca3af; /* Lighter gray in dark mode */
+  color: #6b7280; /* Gray-500 - dimmer than unselected (#9ca3af = gray-400) */
 }
 
 /* Match highlighting - using brand color */
@@ -131,7 +131,7 @@
 
 .dark .cm-autocomplete > ul > li[aria-selected] {
   background: rgba(252, 163, 17, 0.2); /* 20% opacity amber in dark mode */
-  color: #fca311; /* Amber text in dark mode for visibility */
+  color: #e5e5e5; /* Light gray text for better contrast on amber background */
   font-weight: 500;
 }
 
@@ -141,7 +141,7 @@
 
 .dark .cm-autocomplete > ul > li[aria-selected]:hover {
   background: rgba(252, 163, 17, 0.3); /* 30% opacity on hover */
-  color: #fca311;
+  color: #e5e5e5; /* Keep light gray text on hover too */
 }
 
 .dark .cm-completionDetail {
@@ -163,20 +163,20 @@
 }
 
 .cm-autocomplete > ul::-webkit-scrollbar-thumb {
-  background: rgba(156, 163, 175, 0.4);
+  background: rgba(156, 163, 175, 0.5); /* Increased from 0.4 to 0.5 for better visibility */
   border-radius: 3px;
 }
 
 .cm-autocomplete > ul::-webkit-scrollbar-thumb:hover {
-  background: rgba(156, 163, 175, 0.6);
+  background: rgba(156, 163, 175, 0.7); /* Increased from 0.6 to 0.7 for clearer hover state */
 }
 
 .dark .cm-autocomplete > ul::-webkit-scrollbar-thumb {
-  background: rgba(107, 114, 128, 0.4);
+  background: rgba(107, 114, 128, 0.5); /* Increased from 0.4 to 0.5 for better visibility */
 }
 
 .dark .cm-autocomplete > ul::-webkit-scrollbar-thumb:hover {
-  background: rgba(107, 114, 128, 0.6);
+  background: rgba(107, 114, 128, 0.7); /* Increased from 0.6 to 0.7 for clearer hover state */
 }
 
 /* Function signature tooltip */
