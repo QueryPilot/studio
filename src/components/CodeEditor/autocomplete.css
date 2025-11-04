@@ -30,19 +30,31 @@
   transition: all 0.15s ease;
 }
 
-/* Selected item */
+/* Selected item - light amber background with dark text */
 .cm-autocomplete > ul > li[aria-selected] {
-  background: var(--primary);
-  color: #ffffff;
+  background: rgba(
+    252,
+    163,
+    17,
+    0.15
+  ); /* 15% opacity amber - light and subtle */
+  color: #14213d; /* Dark navy text for readability */
+  font-weight: 500;
 }
 
-/* Hover effect */
+/* Hover effect - more visible */
 .cm-autocomplete > ul > li:hover {
-  background: #f3f4f6;
+  background: #e5e7eb; /* Gray-200 - better visibility than f3f4f6 */
 }
 
 .cm-autocomplete > ul > li[aria-selected]:hover {
-  background: var(--primary);
+  background: rgba(
+    252,
+    163,
+    17,
+    0.25
+  ); /* 25% opacity on hover - slightly more visible */
+  color: #14213d;
 }
 
 /* Completion icons - hide them */
@@ -63,7 +75,7 @@
 }
 
 .cm-completionDetail {
-  color: #6b7280;
+  color: #4b5563; /* Gray-600 - better contrast, WCAG AA compliant */
   font-size: 11px;
   font-weight: 500;
   text-transform: lowercase;
@@ -74,38 +86,35 @@
   text-align: left;
 }
 
-/* Selected state for detail */
+/* Selected state for detail - subtle gray */
 .cm-autocomplete > ul > li[aria-selected] .cm-completionDetail {
-  color: rgba(255, 255, 255, 0.7);
+  color: #6b7280; /* Gray for data type - not too distracting */
 }
 
 .dark .cm-autocomplete > ul > li[aria-selected] .cm-completionDetail {
-  color: rgba(255, 255, 255, 0.7);
+  color: #9ca3af; /* Lighter gray in dark mode */
 }
 
-/* Match highlighting */
+/* Match highlighting - using brand color */
 .cm-completionMatchedText {
-  font-weight: 600;
-  color: var(--primary);
+  font-weight: 700;
+  color: #fca311; /* Primary brand */
 }
 
 .cm-autocomplete > ul > li[aria-selected] .cm-completionMatchedText {
-  color: #ffffff;
-  text-decoration: underline;
-  text-decoration-color: rgba(255, 255, 255, 0.6);
-  text-underline-offset: 2px;
+  color: #fca311; /* Keep amber for matched text */
+  font-weight: 700;
 }
 
-/* Info panel */
+/* Info panel - brand colors */
 .cm-completionInfo {
-  background: #f9fafb;
-  border-left: 3px solid var(--primary);
+  background: #f3f4f6; /* Gray-100 - more distinct from white */
   padding: 12px 14px;
   font-size: 12px;
   max-width: 450px;
   font-family: system-ui, -apple-system, sans-serif;
   line-height: 1.6;
-  color: #374151;
+  color: #1f2937; /* Gray-800 - higher contrast */
 }
 
 /* Dark mode adjustments */
@@ -121,16 +130,18 @@
 }
 
 .dark .cm-autocomplete > ul > li[aria-selected] {
-  background: var(--primary);
-  color: #ffffff;
+  background: rgba(252, 163, 17, 0.2); /* 20% opacity amber in dark mode */
+  color: #fca311; /* Amber text in dark mode for visibility */
+  font-weight: 500;
 }
 
 .dark .cm-autocomplete > ul > li:hover {
-  background: #374151;
+  background: #4b5563; /* Gray-600 - more visible than 374151 */
 }
 
 .dark .cm-autocomplete > ul > li[aria-selected]:hover {
-  background: var(--primary);
+  background: rgba(252, 163, 17, 0.3); /* 30% opacity on hover */
+  color: #fca311;
 }
 
 .dark .cm-completionDetail {
@@ -138,9 +149,8 @@
 }
 
 .dark .cm-completionInfo {
-  background: #374151;
-  border-left-color: var(--primary);
-  color: #e5e7eb;
+  background: #374151; /* Gray-700 */
+  color: #f3f4f6; /* Gray-100 - better contrast */
 }
 
 /* Scrollbar styling */

@@ -217,12 +217,31 @@ export const QueryPanel = memo(function QueryPanel({
 
   const handleExecute = useCallback(
     async (queryToExecute?: string) => {
+      console.log('[handleExecute] Called with:', {
+        queryToExecute,
+        queryToExecuteLength: queryToExecute?.length || 0,
+        fallbackQuery: query,
+        fallbackQueryLength: query?.length || 0,
+      });
+
       let sql = queryToExecute ?? query;
+
+      console.log('[handleExecute] Before trim:', {
+        sql,
+        sqlLength: sql?.length || 0,
+      });
 
       // Clean up the SQL - remove trailing semicolons as they cause issues
       sql = sql.trim().replace(/;\s*$/, "");
 
+      console.log('[handleExecute] After trim and semicolon removal:', {
+        sql,
+        sqlLength: sql?.length || 0,
+        isEmpty: !sql,
+      });
+
       if (!sql) {
+        console.log('[handleExecute] EMPTY QUERY - Showing error toast');
         toast.error("Please enter a query to execute");
         return;
       }

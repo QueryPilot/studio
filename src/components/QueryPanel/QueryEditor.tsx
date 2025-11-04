@@ -37,13 +37,27 @@ export const QueryEditor = memo(function QueryEditor({
 
   const handleExecute = useCallback(
     (query?: string) => {
+      console.log('[QueryEditor.handleExecute] Called with:', {
+        query,
+        queryLength: query?.length || 0,
+        value,
+        valueLength: value?.length || 0,
+        willUse: query || value,
+      });
+
       // Prevent execution if already executing
       if (isExecuting) {
+        console.log('[QueryEditor.handleExecute] Already executing, ignoring');
         return;
       }
 
       if (onExecute) {
-        onExecute(query || value);
+        const finalQuery = query || value;
+        console.log('[QueryEditor.handleExecute] Calling onExecute with:', {
+          finalQuery,
+          finalQueryLength: finalQuery?.length || 0,
+        });
+        onExecute(finalQuery);
       }
     },
     [isExecuting, onExecute, value],

@@ -258,6 +258,102 @@ export const getLanguageExtension = (
   }
 };
 
+// Helper to find semicolons that are not inside strings, comments, or dollar quotes
+const findSemicolonsNotInStrings = (text: string): number[] => {
+  const positions: number[] = [];
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inBacktick = false;
+  let inDollarQuote = false;
+  let dollarQuoteTag = "";
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const nextChar = i < text.length - 1 ? text[i + 1] : "";
+    const prevChar = i > 0 ? text[i - 1] : "";
+
+    // Handle line comments (--)
+    if (!inBlockComment && !inSingleQuote && !inDoubleQuote && !inBacktick && !inDollarQuote) {
+      if (char === "-" && nextChar === "-") {
+        inLineComment = true;
+        i++; // skip the second dash
+        continue;
+      }
+    }
+
+    if (inLineComment) {
+      if (char === "\n") inLineComment = false;
+      continue;
+    }
+
+    // Handle block comments (/* */)
+    if (!inLineComment && !inSingleQuote && !inDoubleQuote && !inBacktick && !inDollarQuote) {
+      if (char === "/" && nextChar === "*") {
+        inBlockComment = true;
+        i++; // skip the *
+        continue;
+      }
+    }
+
+    if (inBlockComment) {
+      if (char === "*" && nextChar === "/") {
+        inBlockComment = false;
+        i++; // skip the /
+      }
+      continue;
+    }
+
+    // Handle dollar quotes (PostgreSQL: $$ or $tag$)
+    if (char === "$" && !inSingleQuote && !inDoubleQuote && !inBacktick && !inLineComment && !inBlockComment) {
+      const dollarMatch = text.slice(i).match(/^(\$\w*\$)/);
+      if (dollarMatch && dollarMatch[1]) {
+        const tag = dollarMatch[1];
+        if (inDollarQuote && tag === dollarQuoteTag) {
+          // Closing dollar quote
+          inDollarQuote = false;
+          dollarQuoteTag = "";
+          i += tag.length - 1;
+          continue;
+        } else if (!inDollarQuote) {
+          // Opening dollar quote
+          inDollarQuote = true;
+          dollarQuoteTag = tag;
+          i += tag.length - 1;
+          continue;
+        }
+      }
+    }
+
+    // Handle regular quotes
+    if (!inDollarQuote && !inLineComment && !inBlockComment) {
+      if (char === "'" && prevChar !== "\\") {
+        inSingleQuote = !inSingleQuote;
+      } else if (char === '"' && prevChar !== "\\") {
+        inDoubleQuote = !inDoubleQuote;
+      } else if (char === "`" && prevChar !== "\\") {
+        inBacktick = !inBacktick;
+      }
+    }
+
+    // Find semicolons outside of all string/comment contexts
+    if (
+      char === ";" &&
+      !inSingleQuote &&
+      !inDoubleQuote &&
+      !inBacktick &&
+      !inDollarQuote &&
+      !inLineComment &&
+      !inBlockComment
+    ) {
+      positions.push(i);
+    }
+  }
+
+  return positions;
+};
+
 // Helper to get query at cursor position
 const getQueryAtCursor = (view: EditorView): string => {
   const state = view.state;
@@ -275,29 +371,41 @@ const getQueryAtCursor = (view: EditorView): string => {
   // Otherwise, find the query at cursor position
   const cursorPos = selection.from;
 
-  // Split by semicolons to find individual queries
-  const queries = doc.split(/;(?=(?:[^']*'[^']*')*[^']*$)/);
-  let currentPos = 0;
+  // Find all semicolons that are not inside strings or comments
+  const semicolons = findSemicolonsNotInStrings(doc);
 
-  for (let i = 0; i < queries.length; i++) {
-    const query = queries[i];
-    if (!query) continue;
+  // Find query boundaries based on semicolons
+  let queryStart = 0;
+  let queryEnd = doc.length;
 
-    const queryLength = query.length;
-    const nextPos = currentPos + queryLength + (i < queries.length - 1 ? 1 : 0);
-
-    if (cursorPos >= currentPos && cursorPos <= nextPos) {
-      // Found the query containing the cursor
-      const trimmedQuery = query.trim();
-      // Remove trailing semicolon if present
-      return trimmedQuery.replace(/;\s*$/, "");
+  for (const pos of semicolons) {
+    if (pos < cursorPos) {
+      // This semicolon is before the cursor, so query starts after it
+      queryStart = pos + 1;
+    } else {
+      // This semicolon is at or after the cursor, so query ends before it
+      queryEnd = pos;
+      break;
     }
-
-    currentPos = nextPos;
   }
 
-  // Fallback to entire document
-  return doc.trim().replace(/;\s*$/, "");
+  // Extract and clean the query
+  const query = doc.slice(queryStart, queryEnd).trim();
+
+  // Remove trailing semicolon if present (shouldn't happen, but just in case)
+  const cleanedQuery = query.replace(/;\s*$/, "");
+
+  // Debug logging
+  console.log('[getQueryAtCursor] Extracted query:', {
+    queryStart,
+    queryEnd,
+    docLength: doc.length,
+    cursorPos,
+    semicolonCount: semicolons.length,
+    query: cleanedQuery,
+  });
+
+  return cleanedQuery;
 };
 
 // Create execute command keymap with highest precedence
@@ -336,10 +444,18 @@ export const createExecuteKeymap = (
       {
         key: "Mod-Enter",
         run: (view) => {
+          console.log('[Mod-Enter] KEY PRESSED - Starting query extraction');
           const query = getQueryAtCursor(view);
+          console.log('[Mod-Enter] Calling onExecute with query:', {
+            query,
+            queryLength: query?.length || 0,
+            isEmpty: !query,
+          });
           if (query) {
+            console.log('[Mod-Enter] Calling onExecute WITH extracted query');
             onExecute(query);
           } else {
+            console.log('[Mod-Enter] Calling onExecute WITHOUT query (will use editor state)');
             onExecute();
           }
           return true;
@@ -542,10 +658,7 @@ export const getEditorExtensions = (
     );
   }
 
-  // Add tab indentation if not read-only
-  if (!readOnly) {
-    extensions.push(keymap.of([indentWithTab]));
-  }
+  // Tab indentation will be added later with proper precedence handling for autocomplete
 
   // Add execute keymap FIRST if handler provided to override default behavior
   if (onExecute && !disableExecuteKeymap) {
@@ -631,8 +744,6 @@ export const getEditorExtensions = (
           database,
           schema,
         }),
-        // Add Tab key support for accepting autocomplete
-        keymap.of([{ key: "Tab", run: acceptCompletion }]),
         // Add function parameter hints
         parameterHints(),
         // Add hover documentation
@@ -643,6 +754,27 @@ export const getEditorExtensions = (
         }),
       );
     }
+  }
+
+  // Add tab handling: prioritize autocomplete acceptance over indentation
+  if (!readOnly) {
+    extensions.push(
+      Prec.high(
+        keymap.of([
+          {
+            key: "Tab",
+            run: (view) => {
+              // Try to accept completion first
+              if (acceptCompletion(view)) {
+                return true;
+              }
+              // If no completion, use default indentation
+              return indentWithTab.run ? indentWithTab.run(view) : false;
+            },
+          },
+        ]),
+      ),
+    );
   }
 
   return extensions;

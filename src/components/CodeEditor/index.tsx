@@ -139,12 +139,160 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
           category: "Editor",
           when: "editorTextFocus && queryEditor",
           handler: (args) => {
+            console.log('[executeQuery command] Handler called with args:', args);
+
+            // If args provided, use them
             const queryArg =
               typeof args === "string"
                 ? args
                 : Array.isArray(args) && typeof args[0] === "string"
                 ? args[0]
                 : undefined;
+
+            // If we have an editor view, extract query at cursor
+            if (!queryArg && editorRef.current) {
+              console.log('[executeQuery command] No args, extracting query at cursor from EditorView');
+              const view = editorRef.current;
+              const state = view.state;
+              const doc = state.doc.toString();
+              const selection = state.selection.main;
+
+              console.log('[executeQuery command] Editor state:', {
+                docLength: doc.length,
+                cursorPos: selection.from,
+                hasSelection: selection.from !== selection.to,
+              });
+
+              // If there's a selection, use it
+              if (selection.from !== selection.to) {
+                const selectedQuery = state
+                  .sliceDoc(selection.from, selection.to)
+                  .trim()
+                  .replace(/;\s*$/, "");
+                console.log('[executeQuery command] Using selected text:', selectedQuery);
+                handleExecute(selectedQuery);
+                return;
+              }
+
+              // Otherwise extract query at cursor (same logic as getQueryAtCursor)
+              const findSemicolonsNotInStrings = (text: string): number[] => {
+                const positions: number[] = [];
+                let inSingleQuote = false;
+                let inDoubleQuote = false;
+                let inBacktick = false;
+                let inDollarQuote = false;
+                let dollarQuoteTag = "";
+                let inLineComment = false;
+                let inBlockComment = false;
+
+                for (let i = 0; i < text.length; i++) {
+                  const char = text[i];
+                  const nextChar = i < text.length - 1 ? text[i + 1] : "";
+                  const prevChar = i > 0 ? text[i - 1] : "";
+
+                  if (!inBlockComment && !inSingleQuote && !inDoubleQuote && !inBacktick && !inDollarQuote) {
+                    if (char === "-" && nextChar === "-") {
+                      inLineComment = true;
+                      i++;
+                      continue;
+                    }
+                  }
+
+                  if (inLineComment) {
+                    if (char === "\n") inLineComment = false;
+                    continue;
+                  }
+
+                  if (!inLineComment && !inSingleQuote && !inDoubleQuote && !inBacktick && !inDollarQuote) {
+                    if (char === "/" && nextChar === "*") {
+                      inBlockComment = true;
+                      i++;
+                      continue;
+                    }
+                  }
+
+                  if (inBlockComment) {
+                    if (char === "*" && nextChar === "/") {
+                      inBlockComment = false;
+                      i++;
+                    }
+                    continue;
+                  }
+
+                  if (char === "$" && !inSingleQuote && !inDoubleQuote && !inBacktick && !inLineComment && !inBlockComment) {
+                    const dollarMatch = text.slice(i).match(/^(\$\w*\$)/);
+                    if (dollarMatch && dollarMatch[1]) {
+                      const tag = dollarMatch[1];
+                      if (inDollarQuote && tag === dollarQuoteTag) {
+                        inDollarQuote = false;
+                        dollarQuoteTag = "";
+                        i += tag.length - 1;
+                        continue;
+                      } else if (!inDollarQuote) {
+                        inDollarQuote = true;
+                        dollarQuoteTag = tag;
+                        i += tag.length - 1;
+                        continue;
+                      }
+                    }
+                  }
+
+                  if (!inDollarQuote && !inLineComment && !inBlockComment) {
+                    if (char === "'" && prevChar !== "\\") {
+                      inSingleQuote = !inSingleQuote;
+                    } else if (char === '"' && prevChar !== "\\") {
+                      inDoubleQuote = !inDoubleQuote;
+                    } else if (char === "`" && prevChar !== "\\") {
+                      inBacktick = !inBacktick;
+                    }
+                  }
+
+                  if (
+                    char === ";" &&
+                    !inSingleQuote &&
+                    !inDoubleQuote &&
+                    !inBacktick &&
+                    !inDollarQuote &&
+                    !inLineComment &&
+                    !inBlockComment
+                  ) {
+                    positions.push(i);
+                  }
+                }
+
+                return positions;
+              };
+
+              const cursorPos = selection.from;
+              const semicolons = findSemicolonsNotInStrings(doc);
+
+              let queryStart = 0;
+              let queryEnd = doc.length;
+
+              for (const pos of semicolons) {
+                if (pos < cursorPos) {
+                  queryStart = pos + 1;
+                } else {
+                  queryEnd = pos;
+                  break;
+                }
+              }
+
+              const query = doc.slice(queryStart, queryEnd).trim();
+              const cleanedQuery = query.replace(/;\s*$/, "");
+
+              console.log('[executeQuery command] Extracted query at cursor:', {
+                queryStart,
+                queryEnd,
+                semicolonCount: semicolons.length,
+                query: cleanedQuery,
+              });
+
+              handleExecute(cleanedQuery);
+              return;
+            }
+
+            console.log('[executeQuery command] Using queryArg:', queryArg);
             handleExecute(queryArg);
           },
         },
