@@ -54,7 +54,7 @@ export function DatabaseSidebar({
     isLoading: isLoadingData,
     error,
     refresh: refreshSchemaData,
-  } = useSchemaData(connectionId, selectedDatabase, selectedSchema);
+  } = useSchemaData();
 
   const { panels, activePanelId } = usePanelStore();
 

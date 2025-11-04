@@ -1,9 +1,6 @@
-import {
-  databaseService,
-  type TableMeta,
-  type ColumnMeta,
-} from "@/services/databaseService";
+import { databaseService, type TableMeta } from "@/services/databaseService";
 import { relationshipService } from "@/services/relationshipService";
+import { type ColumnMeta } from "@/types/database";
 import type { TableRelationshipGraph } from "@/types/relationships";
 
 interface CacheEntry<T> {
@@ -81,7 +78,7 @@ class SchemaCache {
 
     if (cached) {
       this.recordAccess(key);
-      return cached;
+      return cached.data;
     }
 
     this.metrics.misses++;
@@ -108,7 +105,7 @@ class SchemaCache {
     if (cached) {
       this.recordAccess(key);
       this.prefetchRelatedTables(connectionId, s);
-      return cached;
+      return cached.data;
     }
 
     // Coalesce concurrent fetches
@@ -151,7 +148,7 @@ class SchemaCache {
     if (cached) {
       this.recordAccess(key);
       this.prefetchRelatedColumns(connectionId, schema, table);
-      return cached;
+      return cached.data;
     }
 
     // Coalesce concurrent fetches
@@ -199,7 +196,7 @@ class SchemaCache {
     schema: string,
   ): Promise<TableRelationshipGraph> {
     const key = `relationships:${connectionId}:${schema}`;
-    const cached = this.get<TableRelationshipGraph>(key);
+    const cached = this.get<TableRelationshipGraph>(key)?.data;
 
     if (cached) {
       this.recordAccess(key);
@@ -249,7 +246,7 @@ class SchemaCache {
   ): Promise<string[]> {
     const key = `enumvals:${connectionId}:${schema}.${table}.${column}`;
     const cached = this.get<string[]>(key);
-    if (cached) return cached;
+    if (cached) return cached.data;
 
     const existing = this.inFlight.get(key) as Promise<string[]> | undefined;
     if (existing) return existing;
@@ -304,9 +301,9 @@ class SchemaCache {
         let values: string[] = meta?.enum_values || meta?.set_values || [];
         console.debug(`[SchemaCache] Structure-based enum`, {
           hasMeta: !!meta,
-          fromMetaCount: values?.length || 0,
+          fromMetaCount: Array.isArray(values) ? values.length : 0,
         });
-        if (!values || values.length === 0) {
+        if (!Array.isArray(values) || values.length === 0) {
           // Try parse CHECK constraints like: CHECK (priority IN ('low','high'))
           for (const cons of structure.constraints) {
             const def = (cons as any)?.definition as string | undefined;
@@ -317,7 +314,7 @@ class SchemaCache {
             if (m && m[1]) {
               const parts = m[1]
                 .split(",")
-                .map((s) => s.trim().replace(/^['\"]|['\"]$/g, ""))
+                .map((s) => s.trim().replace(/^['"]|['"]$/g, ""))
                 .filter(Boolean);
               if (parts.length > 0) {
                 values = parts;
@@ -359,7 +356,7 @@ class SchemaCache {
   }
 
   // Improved prefetching strategies
-  private async prefetchCommonData(connectionId: string) {
+  private prefetchCommonData(connectionId: string) {
     this.metrics.prefetches++;
 
     // Common schemas to prefetch
@@ -373,7 +370,7 @@ class SchemaCache {
       );
     }
 
-    this.processPrefetchQueue();
+    void this.processPrefetchQueue();
   }
 
   private prefetchTablesForSchemas(
@@ -387,7 +384,7 @@ class SchemaCache {
         5,
       );
     }
-    this.processPrefetchQueue();
+    void this.processPrefetchQueue();
   }
 
   private prefetchColumnsForTables(
@@ -408,7 +405,7 @@ class SchemaCache {
         3,
       );
     }
-    this.processPrefetchQueue();
+    void this.processPrefetchQueue();
   }
 
   private prefetchRelatedTables(connectionId: string, schema: string) {
@@ -422,11 +419,13 @@ class SchemaCache {
       .slice(0, 2);
 
     for (const relatedSchema of relatedSchemas) {
-      this.enqueuePrefetch(
-        `tables:${connectionId}:${relatedSchema}`,
-        () => databaseService.listTables(connectionId, "", relatedSchema),
-        2,
-      );
+      if (relatedSchema) {
+        this.enqueuePrefetch(
+          `tables:${connectionId}:${relatedSchema}`,
+          () => databaseService.listTables(connectionId, "", relatedSchema),
+          2,
+        );
+      }
     }
   }
 
@@ -454,7 +453,7 @@ class SchemaCache {
             connectionId,
             "",
             schema,
-            relatedTable,
+            relatedTable ?? "",
           ),
         1,
       );
@@ -492,21 +491,22 @@ class SchemaCache {
     this.prefetchQueue.processing = true;
 
     while (this.prefetchQueue.items.length > 0) {
-      const item = this.prefetchQueue.items.shift()!;
+      const item = this.prefetchQueue.items.shift();
+      if (!item) continue;
 
       // Skip if already cached
       if (this.cache.has(item.key)) continue;
 
       try {
         const data = await item.fetcher();
-        const [type, connId, ...rest] = item.key.split(":");
+        const [type, connId] = item.key.split(":");
 
         this.set(item.key, data, {
           ttl:
             this.ttlConfig[type as keyof typeof this.ttlConfig] ||
             this.ttlConfig.tables,
           priority: "low",
-          connectionId: connId,
+          connectionId: connId ?? "",
         });
       } catch (error) {
         // Silent fail for prefetch
@@ -537,8 +537,8 @@ class SchemaCache {
   }
 
   // Cache management
-  private get<T>(key: string): T | undefined {
-    const entry = this.cache.get(key);
+  private get<T>(key: string): CacheEntry<T> | undefined {
+    const entry = this.cache.get(key) as CacheEntry<T> | undefined;
     if (!entry) return undefined;
 
     const now = Date.now();
@@ -563,12 +563,12 @@ class SchemaCache {
     }
 
     this.metrics.hits++;
-    return entry.data as T;
+    return entry;
   }
 
-  private set<T>(
+  private set(
     key: string,
-    data: T,
+    data: unknown,
     options: {
       ttl: number;
       priority: "low" | "medium" | "high";
@@ -664,7 +664,7 @@ class SchemaCache {
   }
 
   // Refresh stale data in background
-  async refreshStale() {
+  refreshStale() {
     const now = Date.now();
     const staleThreshold = 0.8; // Refresh when 80% of TTL expired
 
@@ -677,12 +677,18 @@ class SchemaCache {
         const [type, connectionId, ...rest] = key.split(":");
 
         if (type === "schemas") {
-          this.getSchemas(connectionId).catch(() => {});
+          void this.getSchemas(connectionId ?? "").catch(() => {});
         } else if (type === "tables") {
-          this.getTables(connectionId, rest[0]).catch(() => {});
+          void this.getTables(connectionId ?? "", rest[0] ?? "").catch(
+            () => {},
+          );
         } else if (type === "columns") {
-          const [schema, table] = rest[0].split(".");
-          this.getTableColumns(connectionId, schema, table).catch(() => {});
+          const [schema, table] = rest[0]?.split(".") ?? [];
+          void this.getTableColumns(
+            connectionId ?? "",
+            schema ?? "",
+            table ?? "",
+          ).catch(() => {});
         }
       }
     }
@@ -731,7 +737,7 @@ export const schemaCache = new SchemaCache();
 
 // Auto-refresh stale data every 5 minutes
 setInterval(() => {
-  schemaCache.refreshStale().catch(console.error);
+  schemaCache.refreshStale();
 }, 5 * 60 * 1000);
 
-export type { TableMeta, ColumnMeta };
+export type { TableMeta };

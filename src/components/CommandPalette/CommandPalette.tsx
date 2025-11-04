@@ -155,15 +155,7 @@ export function CommandPalette(): React.ReactElement {
     Boolean(activeConnectionId);
 
   // Use React Query to fetch and cache quick open items
-  const {
-    quickItems,
-    isLoading: isQuickOpenLoading,
-  } = useQuickOpenItems(
-    activeConnectionId || "",
-    selectedDatabase || "",
-    selectedSchema || "",
-    shouldLoadQuickOpen,
-  );
+  const { quickItems, isLoading: isQuickOpenLoading } = useQuickOpenItems();
 
   const quickItemsById = useMemo(() => {
     const map = new Map<string, QuickOpenItem>();
@@ -301,13 +293,13 @@ export function CommandPalette(): React.ReactElement {
         openFunctionObject({
           func: item.func,
           connectionId: activeConnectionId,
-          database: selectedDatabase,
+          database: selectedDatabase || "#invalid_database",
         });
       } else {
         openTableObject({
           table: item.table,
           connectionId: activeConnectionId,
-          database: selectedDatabase,
+          database: selectedDatabase || "#invalid_database",
           viewType: "data",
         });
       }
@@ -334,8 +326,8 @@ export function CommandPalette(): React.ReactElement {
       ? filteredCommands.length > 0
         ? ""
         : commandQuery
-          ? "No commands found for this search."
-          : "No commands registered."
+        ? "No commands found for this search."
+        : "No commands registered."
       : "";
 
   const quickEmptyMessage =
