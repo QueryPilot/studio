@@ -12,7 +12,7 @@ export const createFoldGutterTheme = (isDark: boolean) =>
     ".cm-foldGutter .cm-gutterElement": {
       padding: "0",
       cursor: "pointer",
-      color: isDark ? "#6B7280" : "#9CA3AF",
+      color: isDark ? "#9CA3AF" : "#6B7280", // Dark mode: lighter, Light mode: darker
       transition: "color 0.2s",
       display: "flex",
       alignItems: "center",
@@ -37,12 +37,12 @@ export const createDarkTheme = (): Extension => {
       backgroundImage: "",
       foreground: "#E5E5E5",
       caret: "#FCA311",
-      selection: "#FCA31140",
+      selection: "#FCA31133", // 20% opacity (0x33 = 51/255 ≈ 20%)
       selectionMatch: "#FCA31128",
-      lineHighlight: "#FFFFFF08",
+      lineHighlight: "#FFFFFF14", // Increased from 08 (8%) to 14 (~12%) for better visibility
       gutterBackground: "#09090B",
       gutterForeground: "#6B7280",
-      gutterBorder: "transparent",
+      gutterBorder: "#FFFFFF1A", // Subtle border (10% white) for visual separation
     },
     styles: [
       // Keywords - brand amber
@@ -97,12 +97,12 @@ export const createLightTheme = (): Extension => {
       backgroundImage: "",
       foreground: "#0A0A0B",
       caret: "#FCA311",
-      selection: "#FCA31135",
+      selection: "#FCA31133", // 20% opacity (0x33 = 51/255 ≈ 20%) - standardized with dark mode
       selectionMatch: "#FCA31120",
-      lineHighlight: "#00000008",
+      lineHighlight: "#00000014", // Increased from 08 (8%) to 14 (~12%) for better visibility
       gutterBackground: "#FFFFFF",
       gutterForeground: "#6B7280",
-      gutterBorder: "transparent",
+      gutterBorder: "#0000001A", // Subtle border (10% black) for visual separation
     },
     styles: [
       // Keywords - brand amber (slightly darker for contrast)
