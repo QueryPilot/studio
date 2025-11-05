@@ -1248,3 +1248,34 @@ pub async fn prewarm_query(
         }
     }
 }
+
+// ============================================================================
+// CRUD TRANSACTION COMMAND
+// ============================================================================
+
+/// Execute a batch of CRUD commands in a single transaction
+///
+/// All commands are executed sequentially within a BEGIN...COMMIT transaction.
+/// On error, the entire transaction is rolled back.
+///
+/// Security: Uses parameterized queries to prevent SQL injection
+/// Performance: Executes all commands in a single database transaction
+#[tauri::command]
+pub async fn execute_crud_transaction(
+    conn_id: String,
+    transaction: CrudTransaction,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<TransactionResult, String> {
+    // Get connection and adapter
+    let conn = manager
+        .get_connection(&conn_id)
+        .ok_or_else(|| format!("Connection {} not found", conn_id))?;
+
+    // Execute transaction via CRUD executor
+    crate::crud::executor::execute_crud_transaction(&*conn.adapter, transaction)
+        .await
+        .map_err(|e| {
+            tracing::error!("CRUD transaction failed: {}", e);
+            e.to_string()
+        })
+}
