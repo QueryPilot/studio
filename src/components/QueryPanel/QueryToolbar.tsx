@@ -1,8 +1,9 @@
 import { memo } from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Play, StopCircle, History, Wand2 } from "lucide-react";
+import { StopCircle } from "lucide-react";
 import { QueryLimitControl } from "./QueryLimitControl";
+import { KeyboardShortcut } from "@/components/ui/keyboard-shortcut";
 
 interface QueryToolbarProps {
   isExecuting: boolean;
@@ -60,22 +61,25 @@ export const QueryToolbar = memo(function QueryToolbar({
           size="sm"
           variant={showHistory ? "secondary" : "ghost"}
           onClick={onToggleHistory}
-          className="!h-7 text-xs"
-          title="Toggle history panel (⌥+H)"
+          className="!h-7 text-xs gap-1"
+          title="Toggle history panel"
         >
-          <History className="h-3.5 w-3.5 sm:mr-1" />
-          <span className="hidden sm:inline">History</span>
+          <KeyboardShortcut
+            keys={["⌥", "H"]}
+            variant={showHistory ? "secondary" : "ghost"}
+          />
+          <span className="ml-1">History</span>
         </Button>
         <Button
           size="sm"
           variant="ghost"
           onClick={onBeautify}
           disabled={isExecuting || !query.trim()}
-          className="!h-7 text-xs"
-          title={beautifyHint ? `Format SQL (${beautifyHint})` : "Format SQL"}
+          className="!h-7 text-xs gap-1"
+          title="Format SQL"
         >
-          <Wand2 className="h-3.5 w-3.5 sm:mr-1" />
-          <span className="hidden sm:inline">Beautify</span>
+          <KeyboardShortcut keys={["⌥", "F"]} variant="ghost" />
+          <span className="ml-1">Format</span>
         </Button>
 
         <div className="w-px h-4 bg-border mx-1" />
@@ -85,7 +89,7 @@ export const QueryToolbar = memo(function QueryToolbar({
           variant={isExecuting ? "destructive" : "default"}
           onClick={isExecuting ? onCancel : onExecute}
           disabled={!query.trim() && !isExecuting}
-          className="!h-7 text-xs"
+          className="!h-7 text-xs gap-1"
           title={
             isExecuting
               ? "Cancel execution"
@@ -96,13 +100,13 @@ export const QueryToolbar = memo(function QueryToolbar({
         >
           {isExecuting ? (
             <>
-              <StopCircle className="h-3.5 w-3.5 sm:mr-1" />
-              <span className="hidden sm:inline">Cancel</span>
+              <StopCircle className="h-3.5 w-3.5" />
+              <span className="ml-1">Cancel</span>
             </>
           ) : (
             <>
-              <Play className="h-3.5 w-3.5 sm:mr-1" />
-              <span className="hidden sm:inline">Run</span>
+              <KeyboardShortcut keys={["⌘", "↵"]} variant="default" />
+              <span className="ml-1">Run</span>
             </>
           )}
         </Button>

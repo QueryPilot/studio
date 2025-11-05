@@ -87,6 +87,15 @@ export const defaultKeybindings: Keybinding[] = [
     when: 'editorTextFocus && queryEditor',
   },
   {
+    command: 'editor.action.formatQuery',
+    key: 'alt+f',
+    when: 'editorTextFocus && queryEditor',
+  },
+  {
+    command: 'query.action.toggleHistory',
+    key: 'alt+h',
+  },
+  {
     command: 'workbench.action.closeActiveTab',
     key: 'cmd+w',
     when: 'activeEditor',

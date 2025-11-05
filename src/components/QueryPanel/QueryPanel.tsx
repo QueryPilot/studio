@@ -31,6 +31,7 @@ import type { ColumnMeta } from "@/types/database";
 import { formatSql } from "@/utils/codeFormatter";
 import type { SqlDialect } from "@/components/CodeEditor/types";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 
 interface QueryPanelProps {
   panelId: string;
@@ -146,6 +147,18 @@ export const QueryPanel = memo(function QueryPanel({
     () => `query:${effectiveConnectionId}:${database}:${schema}:${tabId}`,
     [effectiveConnectionId, database, schema, tabId],
   );
+
+  // Keyboard services for command registration
+  const keyboardServices = useKeyboardServicesOptional();
+
+  // Debug: Check if keyboardServices is available
+  useEffect(() => {
+    console.log('[QueryPanel] keyboardServices:', {
+      available: !!keyboardServices,
+      commandService: !!keyboardServices?.commandService,
+      tabId,
+    });
+  }, [keyboardServices, tabId]);
 
   useEffect(() => {
     const next = initialSql;
@@ -504,6 +517,54 @@ export const QueryPanel = memo(function QueryPanel({
     }
   }, [query, dbType, persistSql, setQuery]);
 
+  const toggleHistory = useCallback(() => {
+    setShowHistory((prev) => !prev);
+  }, []);
+
+  // Register keyboard commands
+  useEffect(() => {
+    if (!keyboardServices) {
+      console.log('[QueryPanel] No keyboardServices available');
+      return;
+    }
+
+    console.log('[QueryPanel] Registering keyboard commands');
+
+    // Register format query command (Alt+F)
+    keyboardServices.commandService.register(
+      {
+        id: "editor.action.formatQuery",
+        label: "Format Query",
+        category: "Editor",
+        when: "editorTextFocus && queryEditor",
+        handler: () => {
+          console.log('[editor.action.formatQuery] Command triggered');
+          handleBeautify();
+        },
+      },
+      "default",
+    );
+
+    // Register toggle history command (Alt+H)
+    keyboardServices.commandService.register(
+      {
+        id: "query.action.toggleHistory",
+        label: "Toggle History",
+        category: "Query",
+        handler: () => {
+          console.log('[query.action.toggleHistory] Command triggered');
+          toggleHistory();
+        },
+      },
+      "default",
+    );
+
+    return () => {
+      keyboardServices.commandService.unregister("editor.action.formatQuery");
+      keyboardServices.commandService.unregister("query.action.toggleHistory");
+    };
+  }, [keyboardServices, handleBeautify, toggleHistory]);
+
   // Focus panel when QueryPanel is clicked or focused
   const handleFocusPanel = useCallback(() => {
     if (panelId) {
@@ -563,9 +624,7 @@ export const QueryPanel = memo(function QueryPanel({
                     onExecute={() => handleExecute()}
                     onCancel={handleCancel}
                     onBeautify={handleBeautify}
-                    onToggleHistory={() => {
-                      setShowHistory(!showHistory);
-                    }}
+                    onToggleHistory={toggleHistory}
                     onViewModeChange={setViewMode}
                   />
                 </div>
