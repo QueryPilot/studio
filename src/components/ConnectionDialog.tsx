@@ -30,6 +30,12 @@ import {
 import { cn } from "@/lib/utils";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { toast } from "sonner";
+import {
+  detectConnectionFormat,
+  parseConnectionEnv,
+  parseConnectionUri,
+  type DatabaseType,
+} from "@/utils/connectionParser";
 
 import { type ConnectionProfile, DbType, SslMode } from "@/types/connection";
 import {
@@ -52,8 +58,6 @@ interface ConnectionDialogProps {
   connection?: ConnectionProfile;
   onConnect?: (connectionId: string) => void;
 }
-
-type DatabaseType = "postgresql" | "mysql" | "sqlite" | "mssql";
 
 interface EnvironmentTag {
   name: string;
@@ -218,76 +222,67 @@ export function ConnectionDialog({
     }
   }
 
-  const parseConnectionUri = (uri: string) => {
+  const handleParseEnv = (text: string) => {
     try {
-      // Common patterns:
-      // postgresql://user:pass@host:port/database
-      // mysql://user:pass@host:port/database
-      // postgres://user:pass@host:port/database?sslmode=require
-      // mssql://user:pass@host:port/database
-      // sqlite:///path/to/database.db or sqlite://path/to/database.db
+      const config = parseConnectionEnv(text);
 
-      // Handle SQLite special case
-      if (uri.startsWith("sqlite://")) {
-        const path = uri.replace(/^sqlite:\/\/\/?/, "");
-        setDbType("sqlite");
-        setDatabase(path);
-        setUriParsed(true);
-        // Reset the parsed state after 3 seconds
-        setTimeout(() => {
-          setUriParsed(false);
-        }, 3000);
-        return;
-      }
+      // Apply parsed configuration to state
+      if (config.dbType) setDbType(config.dbType);
+      if (config.host) setHost(config.host);
+      if (config.port) setPort(config.port);
+      if (config.username) setUsername(config.username);
+      if (config.password) setPassword(config.password);
+      if (config.database) setDatabase(config.database);
+      if (config.sslMode !== undefined) setSslMode(config.sslMode);
+      if (config.sslKeyFile) setSslKeyFile(config.sslKeyFile);
+      if (config.sslCertFile) setSslCertFile(config.sslCertFile);
+      if (config.sslCAFile) setSslCAFile(config.sslCAFile);
 
-      // Parse standard URI format
-      const url = new URL(uri);
-      const protocol = url.protocol.replace(":", "");
-
-      // Determine database type from protocol
-      if (protocol === "postgres" || protocol === "postgresql") {
-        setDbType("postgresql");
-      } else if (protocol === "mysql" || protocol === "mariadb") {
-        setDbType("mysql");
-      } else if (protocol === "mssql" || protocol === "sqlserver") {
-        setDbType("mssql");
-      } else {
-        throw new Error(`Unsupported protocol: ${protocol}`);
-      }
-
-      // Extract connection details
-      if (url.hostname) setHost(url.hostname);
-      if (url.port) setPort(url.port);
-      if (url.username) setUsername(decodeURIComponent(url.username));
-      if (url.password) setPassword(decodeURIComponent(url.password));
-      if (url.pathname && url.pathname !== "/") {
-        setDatabase(url.pathname.substring(1));
-      }
-
-      // Parse query parameters for SSL mode
-      const params = url.searchParams;
-      const sslModeParam = params.get("sslmode") || params.get("ssl");
-      if (sslModeParam) {
-        switch (sslModeParam.toLowerCase()) {
-          case "disable":
-          case "false":
-            setSslMode(SslMode.Disable);
-            break;
-          case "require":
-          case "true":
-            setSslMode(SslMode.Require);
-            break;
-          case "verify-ca":
-            setSslMode(SslMode.VerifyCa);
-            break;
-          case "verify-full":
-            setSslMode(SslMode.VerifyFull);
-            break;
+      // SSH configuration
+      if (config.useSSH) {
+        setUseSSH(true);
+        if (config.sshHost) setSshHost(config.sshHost);
+        if (config.sshPort) setSshPort(config.sshPort);
+        if (config.sshUser) setSshUser(config.sshUser);
+        if (config.sshPassword) setSshPassword(config.sshPassword);
+        if (config.useSSHKey && config.sshKeyPath) {
+          setUseSSHKey(true);
+          setSshKeyPath(config.sshKeyPath);
         }
       }
 
       setUriParsed(true);
-      // Reset the parsed state after 3 seconds
+      setTimeout(() => {
+        setUriParsed(false);
+      }, 3000);
+
+      toast.success("Environment Config Parsed", {
+        description: "Successfully parsed environment variables",
+      });
+    } catch (error) {
+      toast.error("Invalid Environment Format", {
+        description:
+          error instanceof Error
+            ? error.message
+            : "Failed to parse environment variables. Please check the format.",
+      });
+    }
+  };
+
+  const handleParseUri = (uri: string) => {
+    try {
+      const config = parseConnectionUri(uri);
+
+      // Apply parsed configuration to state
+      setDbType(config.dbType);
+      if (config.host) setHost(config.host);
+      if (config.port) setPort(config.port);
+      if (config.username) setUsername(config.username);
+      if (config.password) setPassword(config.password);
+      if (config.database) setDatabase(config.database);
+      if (config.sslMode !== undefined) setSslMode(config.sslMode);
+
+      setUriParsed(true);
       setTimeout(() => {
         setUriParsed(false);
       }, 3000);
@@ -308,10 +303,22 @@ export function ConnectionDialog({
       const text = await readText();
 
       if (text && text.trim()) {
-        parseConnectionUri(text.trim());
+        const trimmed = text.trim();
+        const format = detectConnectionFormat(trimmed);
+
+        if (format === "uri") {
+          handleParseUri(trimmed);
+        } else if (format === "env") {
+          handleParseEnv(trimmed);
+        } else {
+          toast.error("Unknown Format", {
+            description:
+              "Unable to detect format. Please paste a connection URI or environment variables.",
+          });
+        }
       } else {
         toast.error("Clipboard Empty", {
-          description: "No text found in clipboard. Copy a database URI first.",
+          description: "No text found in clipboard. Copy connection details first.",
         });
       }
     } catch (error) {
@@ -325,7 +332,7 @@ export function ConnectionDialog({
         errorMessage.includes("clipboard is empty")
       ) {
         toast.error("Clipboard Empty", {
-          description: "No text found in clipboard. Copy a database URI first.",
+          description: "No text found in clipboard. Copy connection details first.",
         });
         return;
       }
@@ -335,18 +342,30 @@ export function ConnectionDialog({
         // This might work if called from a user gesture
         const text = await navigator.clipboard.readText();
         if (text && text.trim()) {
-          parseConnectionUri(text.trim());
+          const trimmed = text.trim();
+          const format = detectConnectionFormat(trimmed);
+
+          if (format === "uri") {
+            handleParseUri(trimmed);
+          } else if (format === "env") {
+            handleParseEnv(trimmed);
+          } else {
+            toast.error("Unknown Format", {
+              description:
+                "Unable to detect format. Please paste a connection URI or environment variables.",
+            });
+          }
         } else {
           toast.error("Clipboard Empty", {
             description:
-              "No text found in clipboard. Copy a database URI first.",
+              "No text found in clipboard. Copy connection details first.",
           });
         }
       } catch (browserError) {
         console.error("[ConnectionDialog.handlePasteUri]", browserError);
         toast.error("Clipboard Access Failed", {
           description:
-            "Unable to read clipboard. Please copy a database URI and try again.",
+            "Unable to read clipboard. Please copy connection details and try again.",
         });
       }
     }
@@ -1480,7 +1499,7 @@ export function ConnectionDialog({
               {!uriParsed && (
                 <>
                   <ClipboardPaste className="h-3.5 w-3.5" />
-                  Paste URI
+                  Paste Config
                 </>
               )}
             </div>
