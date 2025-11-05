@@ -5,8 +5,10 @@ import React, {
   useRef,
   useState,
 } from "react";
-import ReactFlow, {
+import {
+  ReactFlow,
   Background,
+  MiniMap,
   Handle,
   MarkerType,
   Position,
@@ -21,9 +23,9 @@ import ReactFlow, {
   type NodeProps,
   type ReactFlowInstance,
   type Viewport,
-} from "reactflow";
-import "reactflow/dist/style.css";
-import ELK from "elkjs/lib/elk.bundled.js";
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+import Dagre from "@dagrejs/dagre";
 import { Key, Link2, ChevronDown, ChevronUp } from "lucide-react";
 import {
   Tooltip,
@@ -36,36 +38,7 @@ import type { ColumnMeta } from "@/types/database";
 import type { DBMLRelationship } from "@/services/dbmlService";
 import type { NodePosition, ViewportState } from "@/stores/erdStore";
 
-const elk = new ELK();
-
-// Simple throttle utility for performance optimization
-function throttle<T extends (...args: any[]) => void>(
-  func: T,
-  wait: number,
-): (...args: Parameters<T>) => void {
-  let timeout: ReturnType<typeof setTimeout> | null = null;
-  let previous = 0;
-
-  return function (this: any, ...args: Parameters<T>) {
-    const now = Date.now();
-    const remaining = wait - (now - previous);
-
-    if (remaining <= 0 || remaining > wait) {
-      if (timeout) {
-        clearTimeout(timeout);
-        timeout = null;
-      }
-      previous = now;
-      func.apply(this, args);
-    } else if (!timeout) {
-      timeout = setTimeout(() => {
-        previous = Date.now();
-        timeout = null;
-        func.apply(this, args);
-      }, remaining);
-    }
-  };
-}
+export type LayoutDirection = "LR" | "TB";
 
 const NODE_WIDTH = 260;
 const FIT_VIEW_PADDING = 0.08;
@@ -76,6 +49,7 @@ interface ERDVisualizerProps {
   relationships: DBMLRelationship[];
   nodePositions: Record<string, NodePosition>;
   initialViewport?: ViewportState;
+  layoutDirection?: LayoutDirection;
   onNodePositionsChange?: (positions: Record<string, NodePosition>) => void;
   onNodePositionChange?: (nodeId: string, position: NodePosition) => void;
   onViewportChange?: (viewport: ViewportState) => void;
@@ -116,30 +90,16 @@ const edgeStylesInjected = (() => {
     const style = document.createElement("style");
     style.innerHTML = `
       @keyframes erd-line-flow {
-        from { stroke-dashoffset: 24; }
-        to { stroke-dashoffset: 0; }
-      }
-      @keyframes erd-dots-flow {
         from { stroke-dashoffset: 0; }
-        to { stroke-dashoffset: -24; }
+        to { stroke-dashoffset: 24; }
       }
       .erd-edge-animated {
-        stroke-dasharray: 8 4;
-        animation: erd-line-flow 2s linear infinite;
-      }
-      .erd-edge-dots {
-        stroke-dasharray: 8 16;
-        stroke-linecap: round;
-        animation: erd-dots-flow 1.5s linear infinite;
-        will-change: stroke-dashoffset;
-      }
-      .erd-edge-flow-pulse {
-        stroke-dasharray: 10 15;
-        animation: erd-line-flow 2s ease-in-out infinite;
+        stroke-dasharray: 5 5;
+        animation: erd-line-flow 1s linear infinite;
       }
       .erd-table-card {
-        transition: box-shadow 0.2s ease, border-color 0.2s ease;
         transform: translateZ(0);
+        will-change: transform;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
         text-rendering: optimizeLegibility;
@@ -147,7 +107,7 @@ const edgeStylesInjected = (() => {
         image-rendering: crisp-edges;
       }
       .erd-table-card-selected {
-        box-shadow: 0 0 0 2px hsl(var(--primary)), 0 10px 30px rgba(0,0,0,0.12);
+        box-shadow: 0 0 0 2px hsl(var(--primary));
         border-color: hsl(var(--primary));
       }
       .${FLOW_CLASS} {
@@ -160,10 +120,19 @@ const edgeStylesInjected = (() => {
         transform: translateZ(0);
         transform-origin: center center;
         image-rendering: crisp-edges;
+        will-change: transform;
       }
       .${FLOW_CLASS} .react-flow__node {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         transform-origin: center center;
+        will-change: transform;
+        pointer-events: auto;
+      }
+      .${FLOW_CLASS} .react-flow__node.dragging {
+        cursor: grabbing;
+      }
+      .${FLOW_CLASS} .react-flow__edge {
+        will-change: d;
       }
       .erd-cardinality-badge {
         font-weight: 600;
@@ -191,11 +160,10 @@ const makeHandleId = (
 const TABLE_NODE_TYPE = "table-node";
 const EDGE_TYPE = "foreign";
 
-const TableNode: React.FC<NodeProps<TableNodeData>> = ({
+const TableNodeComponent: React.FC<NodeProps<TableNodeData>> = ({
   id,
   data,
   selected,
-  dragging,
 }) => {
   const {
     table,
@@ -210,35 +178,39 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
     onColumnDoubleClick,
   } = data;
 
-  // Sort columns: PK first, then FK, then others
-  const sortedColumns = [...table.columns].sort((a, b) => {
-    // Primary keys always come first
-    if (a.is_pk && !b.is_pk) return -1;
-    if (!a.is_pk && b.is_pk) return 1;
+  // Memoize expensive column sorting - CRITICAL for performance
+  const sortedColumns = useMemo(() => {
+    return [...table.columns].sort((a, b) => {
+      // Primary keys always come first
+      if (a.is_pk && !b.is_pk) return -1;
+      if (!a.is_pk && b.is_pk) return 1;
 
-    // Among primary keys, 'id' comes first
-    if (a.is_pk && b.is_pk) {
-      if (a.name.toLowerCase() === "id") return -1;
-      if (b.name.toLowerCase() === "id") return 1;
+      // Among primary keys, 'id' comes first
+      if (a.is_pk && b.is_pk) {
+        if (a.name.toLowerCase() === "id") return -1;
+        if (b.name.toLowerCase() === "id") return 1;
+        return 0;
+      }
+
+      // Then FKs (including _id columns that aren't PKs)
+      const aIsFk =
+        a.is_fk || (!a.is_pk && a.name.toLowerCase().includes("_id"));
+      const bIsFk =
+        b.is_fk || (!b.is_pk && b.name.toLowerCase().includes("_id"));
+      if (aIsFk && !bIsFk) return -1;
+      if (!aIsFk && bIsFk) return 1;
+
+      // Keep original order for remaining columns
       return 0;
-    }
-
-    // Then FKs (including _id columns that aren't PKs)
-    const aIsFk = a.is_fk || (!a.is_pk && a.name.toLowerCase().includes("_id"));
-    const bIsFk = b.is_fk || (!b.is_pk && b.name.toLowerCase().includes("_id"));
-    if (aIsFk && !bIsFk) return -1;
-    if (!aIsFk && bIsFk) return 1;
-
-    // Keep original order for remaining columns
-    return 0;
-  });
+    });
+  }, [table.columns]);
 
   const columns = expanded
     ? sortedColumns
     : sortedColumns.slice(0, PREVIEW_COLUMN_LIMIT);
   const hasMore = sortedColumns.length > PREVIEW_COLUMN_LIMIT;
 
-  const renderColumnIcons = (column: ColumnMeta) => {
+  const renderColumnIcons = useCallback((column: ColumnMeta) => {
     const icons = [];
     if (column.is_pk) {
       icons.push(<Key key="pk" className="h-3 w-3 text-amber-500" />);
@@ -252,14 +224,14 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
     return icons.length > 0 ? (
       <div className="flex gap-0.5">{icons}</div>
     ) : null;
-  };
+  }, []);
 
-  const formatColumnType = (column: ColumnMeta) => {
+  const formatColumnType = useCallback((column: ColumnMeta) => {
     const type = column.db_type;
     const constraints = [];
     if (!column.nullable) constraints.push("NN");
     return { type, constraints };
-  };
+  }, []);
 
   return (
     <div
@@ -277,7 +249,7 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
         onClick(id);
       }}
     >
-      <div className="flex items-center justify-between border-b px-2 py-1 text-sm font-semibold">
+      <div className="flex items-center justify-between border-b px-2 py-1 text-xs font-semibold">
         <span className="truncate">
           {table.schema}.{table.name}
         </span>
@@ -307,7 +279,7 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
               <Tooltip key={column.name} delayDuration={200}>
                 <TooltipTrigger asChild>
                   <li
-                    className="relative flex items-center gap-2 rounded px-1.5 py-0.5 transition hover:bg-muted cursor-pointer"
+                    className="group relative flex items-center gap-2 rounded px-1.5 py-0.5 transition hover:bg-muted cursor-pointer"
                     onMouseEnter={() => {
                       onColumnHover?.(column.name);
                     }}
@@ -319,18 +291,18 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
                       onColumnDoubleClick?.(table.name, column.name);
                     }}
                   >
-                    {/* Left side handles */}
+                    {/* Left side handles - hidden by default, shown on row hover */}
                     <Handle
                       type="target"
                       position={Position.Left}
                       id={makeHandleId(column.name, "target", "left")}
-                      className="absolute left-0 top-1/2"
+                      className="absolute left-0 top-1/2 opacity-0 group-hover:opacity-100"
                       style={{
-                        width: 0,
-                        height: 0,
+                        width: 8,
+                        height: 8,
                         border: "none",
                         background: "transparent",
-                        pointerEvents: "none",
+                        pointerEvents: "all",
                         transform: "translate(-8px, -50%)",
                       }}
                     />
@@ -338,17 +310,17 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
                       type="source"
                       position={Position.Left}
                       id={makeHandleId(column.name, "source", "left")}
-                      className="absolute left-0 top-1/2"
+                      className="absolute left-0 top-1/2 opacity-0 group-hover:opacity-100"
                       style={{
-                        width: 0,
-                        height: 0,
+                        width: 8,
+                        height: 8,
                         border: "none",
                         background: "transparent",
-                        pointerEvents: "none",
+                        pointerEvents: "all",
                         transform: "translate(-8px, -50%)",
                       }}
                     />
-                    <div className="flex flex-1 items-center gap-2 min-w-0">
+                    <div className="flex flex-1 items-center gap-2 min-w-0 text-xs">
                       <div className="flex-1 inline-flex items-center gap-2">
                         <span className="font-medium text-foreground truncate max-w-[120px]">
                           {column.name}
@@ -366,18 +338,18 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
                         </span>
                       </div>
                     </div>
-                    {/* Right side handles */}
+                    {/* Right side handles - hidden by default, shown on row hover */}
                     <Handle
                       type="target"
                       position={Position.Right}
                       id={makeHandleId(column.name, "target", "right")}
-                      className="absolute right-0 top-1/2"
+                      className="absolute right-0 top-1/2 opacity-0 group-hover:opacity-100"
                       style={{
-                        width: 0,
-                        height: 0,
+                        width: 8,
+                        height: 8,
                         border: "none",
                         background: "transparent",
-                        pointerEvents: "none",
+                        pointerEvents: "all",
                         transform: "translate(8px, -50%)",
                       }}
                     />
@@ -385,13 +357,13 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
                       type="source"
                       position={Position.Right}
                       id={makeHandleId(column.name, "source", "right")}
-                      className="absolute right-0 top-1/2"
+                      className="absolute right-0 top-1/2 opacity-0 group-hover:opacity-100"
                       style={{
-                        width: 0,
-                        height: 0,
+                        width: 8,
+                        height: 8,
                         border: "none",
                         background: "transparent",
-                        pointerEvents: "none",
+                        pointerEvents: "all",
                         transform: "translate(8px, -50%)",
                       }}
                     />
@@ -419,7 +391,9 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
   );
 };
 
-const ForeignKeyEdge: React.FC<EdgeProps<ForeignEdgeData>> = ({
+const TableNode = React.memo(TableNodeComponent);
+
+const ForeignKeyEdgeComponent: React.FC<EdgeProps<ForeignEdgeData>> = ({
   id,
   sourceX,
   sourceY,
@@ -608,40 +582,38 @@ const ForeignKeyEdge: React.FC<EdgeProps<ForeignEdgeData>> = ({
         pointerEvents="stroke"
         style={{ cursor: "pointer" }}
       />
+
+      {/* Background stroke for line crossing bridge effect - only for non-highlighted edges */}
+      {!highlighted && (
+        <path
+          d={edgePath}
+          stroke="hsl(var(--background))"
+          strokeWidth={4}
+          fill="none"
+          pointerEvents="none"
+          style={{
+            ...lineStyle,
+          }}
+        />
+      )}
+
       <path
         id={id}
         d={edgePath}
         stroke={
           highlighted ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))"
         }
-        strokeWidth={0.5}
+        strokeWidth={highlighted ? 1.5 : 0.5}
         fill="none"
         markerStart={sourceMarkerStyle ? `url(#${sourceMarkerId})` : undefined}
         markerEnd={targetMarkerStyle ? `url(#${targetMarkerId})` : markerEnd}
         pointerEvents="none"
+        className={highlighted ? "erd-edge-animated" : ""}
         style={{
           ...style,
           ...lineStyle,
         }}
       />
-
-      {/* Animated flowing dots overlay when highlighted - disabled during drag for performance */}
-      {highlighted && !data?.isDragging && (
-        <g>
-          <path
-            d={edgePath}
-            stroke="hsl(var(--primary))"
-            strokeWidth="2"
-            fill="none"
-            className="erd-edge-dots"
-            pointerEvents="none"
-            style={{
-              opacity: 0.8,
-              filter: "drop-shadow(0 0 5px hsl(var(--primary)))",
-            }}
-          />
-        </g>
-      )}
 
       {/* Cardinality indicators only show when line is hovered or highlighted */}
       {data?.sourceCardinality && (data.isHovered || data.highlighted) && (
@@ -699,6 +671,8 @@ const ForeignKeyEdge: React.FC<EdgeProps<ForeignEdgeData>> = ({
   );
 };
 
+const ForeignKeyEdge = React.memo(ForeignKeyEdgeComponent);
+
 const nodeTypes = {
   [TABLE_NODE_TYPE]: TableNode,
 };
@@ -724,6 +698,7 @@ export const ERDVisualizer = React.forwardRef<
       relationships,
       nodePositions,
       initialViewport,
+      layoutDirection = "LR",
       onNodePositionsChange,
       onNodePositionChange,
       onViewportChange,
@@ -733,8 +708,10 @@ export const ERDVisualizer = React.forwardRef<
   ) => {
     edgeStylesInjected();
 
-    const [nodes, setNodes, onNodesChangeInternal] = useNodesState([]);
-    const [edges, setEdges] = useEdgesState([]);
+    const [nodes, setNodes, onNodesChangeInternal] = useNodesState<
+      Node<TableNodeData>
+    >([]);
+    const [edges, setEdges] = useEdgesState<Edge<ForeignEdgeData>>([]);
     const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
     const [hoveredRelationshipId, setHoveredRelationshipId] = useState<
       string | null
@@ -747,19 +724,9 @@ export const ERDVisualizer = React.forwardRef<
     const fitAppliedRef = useRef(false);
     const autoArrangeTriggeredRef = useRef(false);
 
-    // Throttled position update for better drag performance (60fps = 16ms)
-    const throttledPositionUpdate = useMemo(
-      () =>
-        onNodePositionChange
-          ? throttle(
-              (nodeId: string, position: NodePosition) => {
-                onNodePositionChange(nodeId, position);
-              },
-              16,
-            )
-          : undefined,
-      [onNodePositionChange],
-    );
+    // Use a ref to track current nodes to avoid dependency cycles
+    const nodesRef = useRef(nodes);
+    nodesRef.current = nodes;
 
     const toggleExpanded = useCallback((nodeId: string) => {
       setExpandedNodes((prev) => {
@@ -798,7 +765,35 @@ export const ERDVisualizer = React.forwardRef<
       setSelectedTableId(null);
     }, []);
 
-    const createEdges = useCallback((): Edge<ForeignEdgeData>[] => {
+    // Memoize node data factory for performance - CRITICAL optimization
+    const createNodeData = useCallback(
+      (table: TableStructure, nodeId: string): TableNodeData => ({
+        table,
+        expanded: expandedNodes.has(nodeId),
+        isSelected: selectedTableId === nodeId,
+        onToggleExpand: toggleExpanded,
+        onHover: setHoveredNodeId,
+        onLeave: () => {
+          setHoveredNodeId((prev) => (prev === nodeId ? null : prev));
+        },
+        onClick: handleTableClick,
+        onColumnHover: setHoveredColumn,
+        onColumnLeave: () => {
+          setHoveredColumn(null);
+        },
+        onColumnDoubleClick,
+      }),
+      [
+        expandedNodes,
+        selectedTableId,
+        toggleExpanded,
+        handleTableClick,
+        onColumnDoubleClick,
+      ],
+    );
+
+    // Memoize edge creation for performance - CRITICAL optimization
+    const createEdges = useMemo((): Edge<ForeignEdgeData>[] => {
       return relationships.flatMap((relationship) => {
         const sourceId = `${relationship.fromSchema ?? "public"}.${
           relationship.fromTable
@@ -889,7 +884,7 @@ export const ERDVisualizer = React.forwardRef<
       });
     }, [relationships, handleEdgeHover, handleEdgeLeave]);
 
-    const layoutWithElk = useCallback(async () => {
+    const layoutWithDagre = useCallback(() => {
       // Calculate dynamic heights based on expanded state
       const getNodeHeight = (table: TableStructure) => {
         const id = buildNodeId(table);
@@ -902,95 +897,59 @@ export const ERDVisualizer = React.forwardRef<
         return baseHeight + visibleColumns * columnHeight + 20;
       };
 
-      const graph = {
-        id: "root",
-        layoutOptions: {
-          "elk.algorithm": "layered",
-          "elk.direction": "RIGHT",
-          "elk.layered.spacing.nodeNodeBetweenLayers": "110",
-          "elk.layered.spacing.edgeNodeBetweenLayers": "55",
-          "elk.layered.spacing.edgeEdgeBetweenLayers": "18",
-          "elk.spacing.nodeNode": "75",
-          "elk.spacing.componentComponent": "90",
-          "elk.edgeRouting": "ORTHOGONAL",
-          "elk.layered.unnecessaryBendpoints": "true",
-          "elk.layered.considerModelOrder": "NODES_AND_EDGES",
-          "elk.layered.mergeEdges": "false",
-          "elk.layered.mergeHierarchyCrossingEdges": "false",
-          "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
-          "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
-          "elk.layered.nodePlacement.favorStraightEdges": "true",
-          "elk.portConstraints": "FIXED_SIDE",
-        },
-        children: tables.map((table) => {
-          const id = buildNodeId(table);
-          return {
-            id,
-            width: NODE_WIDTH,
-            height: getNodeHeight(table),
-            properties: {
-              "elk.portConstraints": "FIXED_SIDE",
-            },
-            ports: [
-              {
-                id: `${id}-west`,
-                properties: {
-                  "elk.port.side": "WEST",
-                  "elk.port.index": "0",
-                },
-              },
-              {
-                id: `${id}-east`,
-                properties: {
-                  "elk.port.side": "EAST",
-                  "elk.port.index": "1",
-                },
-              },
-            ],
-          };
-        }),
-        edges: relationships.map((relationship) => ({
-          id: relationship.id,
-          sources: [
-            `${relationship.fromSchema ?? "public"}.${relationship.fromTable}`,
-          ],
-          targets: [
-            `${relationship.toSchema ?? "public"}.${relationship.toTable}`,
-          ],
-        })),
-      } as const;
+      // Create new graph for this layout (Dagre is mutable)
+      const g = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
 
-      const layout = await elk.layout(graph);
+      // Configure graph - Outerbase-style settings with dynamic layout direction
+      g.setGraph({
+        rankdir: layoutDirection, // LR = Left-to-right, TB = Top-to-bottom
+        marginx: 50, // Horizontal margin
+        marginy: 50, // Vertical margin
+        nodesep: 75, // Space between nodes on same rank
+        ranksep: 110, // Space between ranks
+        edgesep: 55, // Space for edges
+      });
+
+      // Add nodes with measured dimensions
+      tables.forEach((table) => {
+        const id = buildNodeId(table);
+        g.setNode(id, {
+          width: NODE_WIDTH,
+          height: getNodeHeight(table),
+        });
+      });
+
+      // Add edges for layout calculation
+      relationships.forEach((relationship) => {
+        const sourceId = `${relationship.fromSchema ?? "public"}.${
+          relationship.fromTable
+        }`;
+        const targetId = `${relationship.toSchema ?? "public"}.${
+          relationship.toTable
+        }`;
+        g.setEdge(sourceId, targetId);
+      });
+
+      // Run layout algorithm (synchronous - much faster than ELK!)
+      Dagre.layout(g);
 
       const positions: Record<string, NodePosition> = {};
       const layoutNodes: Node<TableNodeData>[] = tables.map((table) => {
         const id = buildNodeId(table);
-        const elkNode = layout.children?.find((child) => child.id === id);
+        const dagreNode = g.node(id);
+
+        // Dagre uses center-center anchor, ReactFlow uses top-left
+        // So we need to adjust the position
         const position = {
-          x: elkNode?.x ?? 0,
-          y: elkNode?.y ?? 0,
+          x: dagreNode.x - NODE_WIDTH / 2,
+          y: dagreNode.y - getNodeHeight(table) / 2,
         };
         positions[id] = position;
 
         return {
           id,
           position,
-          data: {
-            table,
-            expanded: expandedNodes.has(id),
-            isSelected: selectedTableId === id,
-            onToggleExpand: toggleExpanded,
-            onHover: setHoveredNodeId,
-            onLeave: () => {
-              setHoveredNodeId((prev) => (prev === id ? null : prev));
-            },
-            onClick: handleTableClick,
-            onColumnHover: setHoveredColumn,
-            onColumnLeave: () => {
-              setHoveredColumn(null);
-            },
-            onColumnDoubleClick,
-          },
+          data: createNodeData(table, id),
           type: TABLE_NODE_TYPE,
           // Force React to re-render when expansion changes
           style: {
@@ -1000,7 +959,7 @@ export const ERDVisualizer = React.forwardRef<
       });
 
       setNodes(layoutNodes);
-      setEdges(createEdges());
+      setEdges(createEdges);
       onNodePositionsChange?.(positions);
       fitAppliedRef.current = false;
       autoArrangeTriggeredRef.current = true;
@@ -1019,23 +978,20 @@ export const ERDVisualizer = React.forwardRef<
       }, 50);
     }, [
       tables,
-      expandedNodes,
       relationships,
-      selectedTableId,
-      handleTableClick,
+      layoutDirection,
+      createNodeData,
       setNodes,
       setEdges,
       createEdges,
       onNodePositionsChange,
-      toggleExpanded,
       onViewportChange,
-      onColumnDoubleClick,
     ]);
 
     React.useImperativeHandle(
       ref,
       () => ({
-        triggerAutoArrange: layoutWithElk,
+        triggerAutoArrange: layoutWithDagre,
         zoomIn: () => {
           const instance = flowInstanceRef.current;
           if (instance) {
@@ -1055,7 +1011,7 @@ export const ERDVisualizer = React.forwardRef<
           }
         },
       }),
-      [layoutWithElk],
+      [layoutWithDagre],
     );
 
     useEffect(() => {
@@ -1066,22 +1022,7 @@ export const ERDVisualizer = React.forwardRef<
           return {
             id,
             position,
-            data: {
-              table,
-              expanded: expandedNodes.has(id),
-              isSelected: selectedTableId === id,
-              onToggleExpand: toggleExpanded,
-              onHover: setHoveredNodeId,
-              onLeave: () => {
-                setHoveredNodeId((prev) => (prev === id ? null : prev));
-              },
-              onClick: handleTableClick,
-              onColumnHover: setHoveredColumn,
-              onColumnLeave: () => {
-                setHoveredColumn(null);
-              },
-              onColumnDoubleClick,
-            },
+            data: createNodeData(table, id),
             type: TABLE_NODE_TYPE,
             // Force React to re-render when expansion changes
             style: {
@@ -1090,7 +1031,7 @@ export const ERDVisualizer = React.forwardRef<
           } satisfies Node<TableNodeData>;
         });
         setNodes(positionedNodes);
-        setEdges(createEdges());
+        setEdges(createEdges);
       };
 
       if (!tables.length) {
@@ -1102,28 +1043,18 @@ export const ERDVisualizer = React.forwardRef<
       if (hasStoredPositions) {
         applyStoredPositions();
       } else {
-        void layoutWithElk();
+        layoutWithDagre();
       }
     }, [
       tables,
-      relationships,
       nodePositions,
-      expandedNodes,
       hasStoredPositions,
+      createNodeData,
       setNodes,
       setEdges,
-      onNodePositionsChange,
       createEdges,
-      toggleExpanded,
-      selectedTableId,
-      handleTableClick,
-      layoutWithElk,
-      onColumnDoubleClick,
+      layoutWithDagre,
     ]);
-
-    // Use a ref to track current nodes to avoid dependency cycles
-    const nodesRef = useRef(nodes);
-    nodesRef.current = nodes;
 
     useEffect(() => {
       setNodes((nds) =>
@@ -1132,34 +1063,19 @@ export const ERDVisualizer = React.forwardRef<
           if (!table) return node;
           return {
             ...node,
-            data: {
-              table,
-              expanded: expandedNodes.has(node.id),
-              isSelected: selectedTableId === node.id,
-              onToggleExpand: toggleExpanded,
-              onHover: setHoveredNodeId,
-              onLeave: () => {
-                setHoveredNodeId((prev) => (prev === node.id ? null : prev));
-              },
-              onClick: handleTableClick,
-              onColumnHover: setHoveredColumn,
-              onColumnLeave: () => {
-                setHoveredColumn(null);
-              },
-              onColumnDoubleClick,
-            },
+            data: createNodeData(table, node.id),
           };
         }),
       );
-    }, [
-      tables,
-      expandedNodes,
-      toggleExpanded,
-      setNodes,
-      selectedTableId,
-      handleTableClick,
-      onColumnDoubleClick,
-    ]);
+    }, [tables, createNodeData, setNodes]);
+
+    // Trigger re-layout when layout direction changes
+    useEffect(() => {
+      // Only re-layout if we have tables to layout
+      if (tables.length > 0) {
+        layoutWithDagre();
+      }
+    }, [layoutDirection, layoutWithDagre, tables.length]);
 
     useEffect(() => {
       const instance = flowInstanceRef.current;
@@ -1190,13 +1106,10 @@ export const ERDVisualizer = React.forwardRef<
     const handleNodesChange = useCallback(
       (changes: NodeChange[]) => {
         onNodesChangeInternal(changes);
-        changes.forEach((change) => {
-          if (change.type === "position" && change.position) {
-            throttledPositionUpdate?.(change.id, change.position);
-          }
-        });
+        // Don't update positions during drag - only on drag end
+        // This prevents throttling issues that cause nodes to disappear
       },
-      [onNodesChangeInternal, throttledPositionUpdate],
+      [onNodesChangeInternal],
     );
 
     const handleNodeDragStop = useCallback(
@@ -1217,7 +1130,7 @@ export const ERDVisualizer = React.forwardRef<
 
     const handleMoveEnd = useCallback(
       (
-        _event: MouseEvent | React.MouseEvent | TouchEvent | undefined,
+        _event: MouseEvent | React.MouseEvent | TouchEvent | null | undefined,
         viewport: Viewport,
       ) => {
         onViewportChange?.({
@@ -1229,8 +1142,8 @@ export const ERDVisualizer = React.forwardRef<
       [onViewportChange],
     );
 
-    // Memoize the highlighted edge state calculation
-    const edgeHighlightMap = useMemo(() => {
+    // Simplified edge highlighting - updates on hover/selection
+    useEffect(() => {
       const selectedIds = new Set(
         nodes.filter((node) => node.selected).map((node) => node.id),
       );
@@ -1238,76 +1151,58 @@ export const ERDVisualizer = React.forwardRef<
         selectedIds.add(selectedTableId);
       }
 
-      const map = new Map<
-        string,
-        { highlighted: boolean; isHovered: boolean; isDragging: boolean }
-      >();
-
-      edges.forEach((edge) => {
-        const isRelatedToSelected =
-          selectedIds.has(edge.source) || selectedIds.has(edge.target);
-
-        const isTemporarilyHighlighted =
-          hoveredNodeId === edge.source ||
-          hoveredNodeId === edge.target ||
-          draggingNodeId === edge.source ||
-          draggingNodeId === edge.target ||
-          (hoveredRelationshipId !== null &&
-            (edge.data as ForeignEdgeData).relationshipId ===
-              hoveredRelationshipId);
-
-        const isEdgeHovered =
-          hoveredRelationshipId !== null &&
-          (edge.data as ForeignEdgeData).relationshipId ===
-            hoveredRelationshipId;
-
-        map.set(edge.id, {
-          highlighted: isRelatedToSelected || isTemporarilyHighlighted,
-          isHovered: isEdgeHovered,
-          isDragging: draggingNodeId !== null,
-        });
-      });
-
-      return map;
-    }, [
-      nodes,
-      hoveredNodeId,
-      draggingNodeId,
-      hoveredRelationshipId,
-      selectedTableId,
-      edges,
-    ]);
-
-    useEffect(() => {
       setEdges((eds) => {
         const updatedEdges = eds.map((edge) => {
-          const highlightState = edgeHighlightMap.get(edge.id);
-          if (!highlightState) return edge;
+          const isRelatedToSelected =
+            selectedIds.has(edge.source) || selectedIds.has(edge.target);
+
+          const isTemporarilyHighlighted =
+            hoveredNodeId === edge.source ||
+            hoveredNodeId === edge.target ||
+            (hoveredRelationshipId !== null &&
+              (edge.data as ForeignEdgeData).relationshipId ===
+                hoveredRelationshipId);
+
+          const isEdgeHovered =
+            hoveredRelationshipId !== null &&
+            (edge.data as ForeignEdgeData).relationshipId ===
+              hoveredRelationshipId;
+
+          const highlighted = isRelatedToSelected || isTemporarilyHighlighted;
+          const isHovered = isEdgeHovered;
+          const isDragging = draggingNodeId !== null;
+
+          // Only update if values changed
+          const currentData = edge.data as ForeignEdgeData;
+          if (
+            currentData.highlighted === highlighted &&
+            currentData.isHovered === isHovered &&
+            currentData.isDragging === isDragging
+          ) {
+            return edge;
+          }
 
           return {
             ...edge,
             data: {
-              ...(edge.data as ForeignEdgeData),
-              highlighted: highlightState.highlighted,
-              isHovered: highlightState.isHovered,
-              isDragging: highlightState.isDragging,
+              ...currentData,
+              highlighted,
+              isHovered,
+              isDragging,
             },
           };
         });
 
-        // Sort edges so highlighted ones are rendered last (on top)
-        updatedEdges.sort((a, b) => {
-          const aHighlighted = (a.data as ForeignEdgeData).highlighted || false;
-          const bHighlighted = (b.data as ForeignEdgeData).highlighted || false;
-
-          if (aHighlighted && !bHighlighted) return 1;
-          if (!aHighlighted && bHighlighted) return -1;
-          return 0;
-        });
-
         return updatedEdges;
       });
-    }, [edgeHighlightMap, setEdges]);
+    }, [
+      nodes,
+      hoveredNodeId,
+      hoveredRelationshipId,
+      setEdges,
+      selectedTableId,
+      draggingNodeId,
+    ]);
 
     return (
       <div
@@ -1327,12 +1222,18 @@ export const ERDVisualizer = React.forwardRef<
           edgeTypes={edgeTypes}
           fitView
           minZoom={0.1}
-          maxZoom={1.5}
-          nodesDraggable
+          maxZoom={2}
+          nodesDraggable={true}
           nodesConnectable={false}
-          elementsSelectable={false}
-          panOnScroll
+          elementsSelectable={true}
+          panOnDrag={true}
+          panOnScroll={false}
+          zoomOnScroll={true}
+          zoomOnPinch={true}
+          zoomOnDoubleClick={false}
           selectionOnDrag={false}
+          selectNodesOnDrag={false}
+          panActivationKeyCode="Space"
           proOptions={{ hideAttribution: true }}
           onInit={(instance) => {
             flowInstanceRef.current = instance;
@@ -1350,6 +1251,23 @@ export const ERDVisualizer = React.forwardRef<
           onPaneClick={handlePaneClick}
         >
           <Background className="opacity-60" gap={24} size={1} />
+          <MiniMap
+            nodeStrokeWidth={3}
+            nodeColor={(node) => {
+              if (node.selected) return "hsl(var(--primary))";
+              return "hsl(var(--muted))";
+            }}
+            nodeBorderRadius={4}
+            maskColor="hsl(var(--background) / 0.8)"
+            className="!bg-secondary !border !border-border rounded-md shadow-none"
+            position="bottom-right"
+            pannable={true}
+            zoomable={true}
+            style={{
+              width: 180,
+              height: 120,
+            }}
+          />
         </ReactFlow>
       </div>
     );

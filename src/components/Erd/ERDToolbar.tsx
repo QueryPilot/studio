@@ -13,7 +13,11 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
+  ArrowRightLeft,
+  ArrowUpDown,
 } from "lucide-react";
+
+export type LayoutDirection = "LR" | "TB";
 
 interface ERDToolbarProps {
   isCodeVisible: boolean;
@@ -24,6 +28,8 @@ interface ERDToolbarProps {
   onZoomIn?: () => void;
   onZoomOut?: () => void;
   onFitView?: () => void;
+  layoutDirection?: LayoutDirection;
+  onLayoutDirectionChange?: (direction: LayoutDirection) => void;
 }
 
 export const ERDToolbar: React.FC<ERDToolbarProps> = ({
@@ -35,6 +41,8 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
   onZoomIn,
   onZoomOut,
   onFitView,
+  layoutDirection = "LR",
+  onLayoutDirectionChange,
 }) => {
   return (
     <div className="flex items-center justify-between p-1.5">
@@ -138,6 +146,42 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
             </Button>
           </TooltipTrigger>
           <TooltipContent>Refresh</TooltipContent>
+        </Tooltip>
+        {/* Divider */}
+        <div className="h-5 w-px bg-border mx-0.5" />
+
+        {/* Layout Direction Controls */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant={layoutDirection === "LR" ? "secondary" : "ghost"}
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => {
+                onLayoutDirectionChange?.("LR");
+              }}
+            >
+              <ArrowRightLeft className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Horizontal Layout</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant={layoutDirection === "TB" ? "secondary" : "ghost"}
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => {
+                onLayoutDirectionChange?.("TB");
+              }}
+            >
+              <ArrowUpDown className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Vertical Layout</TooltipContent>
         </Tooltip>
         {/* Divider */}
         <div className="h-5 w-px bg-border mx-0.5" />

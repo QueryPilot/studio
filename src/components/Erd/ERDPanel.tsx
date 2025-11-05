@@ -5,10 +5,10 @@ import {
   ResizableHandle,
 } from "@/components/ui/resizable";
 import { CodeEditor, type CodeEditorRef } from "@/components/CodeEditor";
-import { ERDToolbar } from "./ERDToolbar";
+import { ERDToolbar, type LayoutDirection } from "./ERDToolbar";
 import { ERDVisualizerPlaceholder } from "./ERDVisualizerPlaceholder";
 import { ERDVisualizer, type ERDVisualizerRef } from "./ERDVisualizer";
-import { ReactFlowProvider } from "reactflow";
+import { ReactFlowProvider } from "@xyflow/react";
 import { Parser } from "@dbml/core";
 
 import {
@@ -69,6 +69,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   const [parseError, setParseError] = useState<string | null>(null);
   const [relationships, setRelationships] = useState<DBMLRelationship[]>([]);
   const [tables, setTables] = useState<TableStructure[]>([]);
+  const [layoutDirection, setLayoutDirection] = useState<LayoutDirection>("LR");
   const [_schemas, setSchemas] = useState<string[]>(() =>
     schema ? [schema] : [DEFAULT_SCHEMA],
   );
@@ -828,6 +829,8 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
                   onFitView={() => {
                     erdVisualizerRef.current?.fitView();
                   }}
+                  layoutDirection={layoutDirection}
+                  onLayoutDirectionChange={setLayoutDirection}
                 />
               </div>
 
@@ -838,6 +841,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
                   relationships={relationships}
                   nodePositions={activeView?.nodePositions ?? {}}
                   initialViewport={activeView?.viewport}
+                  layoutDirection={layoutDirection}
                   onNodePositionsChange={handleNodePositionsChange}
                   onNodePositionChange={handleNodePositionChange}
                   onViewportChange={handleViewportChange}
