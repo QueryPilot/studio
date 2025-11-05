@@ -58,3 +58,6 @@ DataViewer/
 .env
 sidecars/
 target/
+dist-release
+.DS_Store
+*.zip

@@ -1,4 +1,4 @@
-.PHONY: help d dev build build-ai-sidecar build-ai-sidecar-all dev-sidecar ds clean install test t test-all test-quick test-adapters test-postgres test-mysql test-mssql test-sqlite test-adapters-quiet test-adapters-verbose test-adapter docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup
+.PHONY: help d dev build build-ai-sidecar build-ai-sidecar-all dev-sidecar ds package-dist clean install test t test-all test-quick test-adapters test-postgres test-mysql test-mssql test-sqlite test-adapters-quiet test-adapters-verbose test-adapter docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup
 
 # Default target - show help
 help:
@@ -10,6 +10,7 @@ help:
 	@echo "  make build             - Build for production (includes AI sidecar)"
 	@echo "  make build-ai-sidecar  - Build AI sidecar for current platform"
 	@echo "  make build-ai-all      - Build AI sidecar for all platforms"
+	@echo "  make package-dist      - Package build with installation instructions"
 	@echo "  make install           - Install dependencies"
 	@echo "  make clean             - Clean build artifacts"
 	@echo ""
@@ -60,6 +61,10 @@ build:
 	@$(MAKE) build-ai-sidecar
 	@echo "Building Tauri app..."
 	@pnpm tauri:build
+
+# Package for distribution (includes installation instructions)
+package-dist:
+	@bash scripts/package-for-distribution.sh
 
 # Install dependencies
 install i:
