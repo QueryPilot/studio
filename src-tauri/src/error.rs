@@ -41,6 +41,9 @@ pub enum AppError {
 
     #[error("Parse error: {0}")]
     ParseError(String),
+
+    #[error("Database error: {0}")]
+    DatabaseError(String),
 }
 
 impl AppError {
@@ -59,6 +62,7 @@ impl AppError {
             AppError::Unsupported(_) => "E_UNSUPPORTED",
             AppError::InvalidInput(_) => "E_INVALID_INPUT",
             AppError::ParseError(_) => "E_PARSE_ERROR",
+            AppError::DatabaseError(_) => "E_DATABASE",
         }
     }
 

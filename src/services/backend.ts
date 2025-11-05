@@ -1,6 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ConnectionProfile } from "@/types/connection";
+import type {
+  CrudCommand,
+  CrudOperationType,
+  CommitResult,
+} from "@/types/crud";
+import { nanoid } from "nanoid";
 
 // Database Types
 export enum DbType {
@@ -428,6 +434,124 @@ export class BackendAPI {
     tables: string[],
   ): Promise<void> {
     return invoke("prewarm_schema_tables", { connectionId, schema, tables });
+  }
+
+  // ============================================================================
+  // CRUD TRANSACTION API
+  // ============================================================================
+
+  /**
+   * Execute a batch of CRUD commands in a single atomic transaction
+   *
+   * All commands are executed sequentially within a BEGIN...COMMIT transaction.
+   * On error, the entire transaction is rolled back.
+   *
+   * @param connectionId - Database connection ID
+   * @param commands - Array of CRUD commands to execute
+   * @returns Transaction result with committed commands, failures, and ID mappings
+   *
+   * @throws Error if transaction fails or connection not found
+   *
+   * @example
+   * ```ts
+   * const result = await BackendAPI.executeCrudTransaction(connId, [
+   *   {
+   *     id: '1',
+   *     type: 'data.update',
+   *     target: { connectionId: connId, schema: 'public', table: 'users' },
+   *     payload: { column: 'email', primaryKeys: { id: 42 }, newValue: 'new@example.com' },
+   *     metadata: { timestamp: new Date().toISOString() },
+   *     state: 'staged',
+   *   }
+   * ]);
+   *
+   * if (result.success) {
+   *   console.log('Committed:', result.committed.length);
+   *   console.log('ID mappings:', result.idMappings);
+   * }
+   * ```
+   */
+  static async executeCrudTransaction(
+    connectionId: string,
+    commands: CrudCommand[],
+  ): Promise<CommitResult> {
+    if (commands.length === 0) {
+      return {
+        transactionId: nanoid(),
+        success: true,
+        durationMs: 0,
+        committed: [],
+        failures: [],
+      };
+    }
+
+    // Build transaction payload
+    const transaction = {
+      id: nanoid(),
+      commands,
+      rollback_on_error: true,
+    };
+
+    // Invoke Rust backend
+    const result = await invoke<{
+      transaction_id: string;
+      success: boolean;
+      duration_ms: number;
+      committed: Array<{
+        id: string;
+        operation_type: string;
+        description?: string;
+        affected_rows?: number;
+      }>;
+      failures: Array<{
+        id: string;
+        operation_type: string;
+        error: {
+          code: string;
+          message: string;
+          severity: string;
+          recoverable: boolean;
+        };
+        rolled_back: boolean;
+      }>;
+      warnings?: Array<{
+        code: string;
+        message: string;
+        severity: string;
+        recoverable: boolean;
+      }>;
+      id_mappings?: Record<string, string>;
+    }>("execute_crud_transaction", {
+      connId: connectionId,
+      transaction,
+    });
+
+    // Map Rust response to frontend CommitResult type
+    return {
+      transactionId: result.transaction_id,
+      success: result.success,
+      durationMs: result.duration_ms,
+      committed: result.committed.map((c) => ({
+        id: c.id,
+        type: c.operation_type as CrudOperationType,
+        target: commands.find((cmd) => cmd.id === c.id)?.target ?? {
+          connectionId,
+        },
+        description: c.description,
+        affectedRows: c.affected_rows,
+      })),
+      failures: result.failures.map((f) => ({
+        id: f.id,
+        type: f.operation_type as CrudOperationType,
+        target: commands.find((cmd) => cmd.id === f.id)?.target ?? {
+          connectionId,
+        },
+        error: f.error,
+        rolledBack: f.rolled_back,
+      })),
+      warnings: result.warnings,
+      idMappings: result.id_mappings,
+    };
   }
 }
 

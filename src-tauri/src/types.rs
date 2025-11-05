@@ -634,6 +634,7 @@ pub struct CrudCommand {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CrudCommandTarget {
+    pub connection_id: String, // REQUIRED - identifies which connection to use
     #[serde(skip_serializing_if = "Option::is_none")]
     pub database: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -652,25 +653,55 @@ pub struct CrudCommandMetadata {
     pub timestamp: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub affected_rows: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temp_id: Option<String>, // Client-side temp ID for new rows
 }
 
+// Lightweight summary for committed commands
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CrudCommandResult {
-    pub command_id: String,
-    pub success: bool,
+pub struct CommandSummary {
+    pub id: String,
+    pub operation_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
+    pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub rows_affected: Option<u64>,
+    pub affected_rows: Option<u64>,
 }
 
+// Detailed error information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommandError {
+    pub code: String,
+    pub message: String,
+    pub severity: String, // "info", "warning", "error"
+    pub recoverable: bool,
+}
+
+// Failure record for failed commands
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommandFailure {
+    pub id: String,
+    pub operation_type: String,
+    pub error: CommandError,
+    pub rolled_back: bool,
+}
+
+// Complete transaction result with ID mappings
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionResult {
     pub transaction_id: String,
     pub success: bool,
-    pub command_results: Vec<CrudCommandResult>,
+    pub duration_ms: u64,
+    pub committed: Vec<CommandSummary>,
+    pub failures: Vec<CommandFailure>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
+    pub warnings: Option<Vec<CommandError>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id_mappings: Option<HashMap<String, String>>, // temp ID → permanent ID
 }
 
 // ============================================================================

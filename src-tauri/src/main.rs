@@ -7,6 +7,7 @@ mod adapters;
 mod ai;
 mod commands;
 mod core;
+mod crud;
 mod error;
 mod http_server;
 mod keychain;
@@ -119,6 +120,7 @@ fn main() {
             commands::prewarm_schema_tables,
             commands::get_connection_health,
             commands::ping,
+            commands::execute_crud_transaction,
             ai::commands::create_ai_session,
             ai::commands::list_ai_sessions,
             ai::commands::get_ai_session_history,
