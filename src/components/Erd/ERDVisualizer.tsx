@@ -38,7 +38,36 @@ import type { NodePosition, ViewportState } from "@/stores/erdStore";
 
 const elk = new ELK();
 
-const NODE_WIDTH = 280;
+// Simple throttle utility for performance optimization
+function throttle<T extends (...args: any[]) => void>(
+  func: T,
+  wait: number,
+): (...args: Parameters<T>) => void {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  let previous = 0;
+
+  return function (this: any, ...args: Parameters<T>) {
+    const now = Date.now();
+    const remaining = wait - (now - previous);
+
+    if (remaining <= 0 || remaining > wait) {
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+      previous = now;
+      func.apply(this, args);
+    } else if (!timeout) {
+      timeout = setTimeout(() => {
+        previous = Date.now();
+        timeout = null;
+        func.apply(this, args);
+      }, remaining);
+    }
+  };
+}
+
+const NODE_WIDTH = 260;
 const FIT_VIEW_PADDING = 0.08;
 const PREVIEW_COLUMN_LIMIT = 10;
 
@@ -73,6 +102,7 @@ interface ForeignEdgeData {
   targetCardinality?: "1" | "n";
   highlighted?: boolean;
   isHovered?: boolean;
+  isDragging?: boolean;
   onHover?: (relationshipId: string) => void;
   onLeave?: () => void;
 }
@@ -111,8 +141,10 @@ const edgeStylesInjected = (() => {
         transition: box-shadow 0.2s ease, border-color 0.2s ease;
         transform: translateZ(0);
         -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
         text-rendering: optimizeLegibility;
         image-rendering: -webkit-optimize-contrast;
+        image-rendering: crisp-edges;
       }
       .erd-table-card-selected {
         box-shadow: 0 0 0 2px hsl(var(--primary)), 0 10px 30px rgba(0,0,0,0.12);
@@ -120,15 +152,18 @@ const edgeStylesInjected = (() => {
       }
       .${FLOW_CLASS} {
         -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
         text-rendering: optimizeLegibility;
-        will-change: transform;
+        image-rendering: crisp-edges;
       }
       .${FLOW_CLASS} .react-flow__renderer {
         transform: translateZ(0);
-        image-rendering: -webkit-optimize-contrast;
+        transform-origin: center center;
+        image-rendering: crisp-edges;
       }
       .${FLOW_CLASS} .react-flow__node {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        transform-origin: center center;
       }
       .erd-cardinality-badge {
         font-weight: 600;
@@ -160,6 +195,7 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
   id,
   data,
   selected,
+  dragging,
 }) => {
   const {
     table,
@@ -173,6 +209,7 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
     onColumnLeave,
     onColumnDoubleClick,
   } = data;
+
   // Sort columns: PK first, then FK, then others
   const sortedColumns = [...table.columns].sort((a, b) => {
     // Primary keys always come first
@@ -227,7 +264,7 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
   return (
     <div
       className={[
-        "erd-table-card w-[280px] rounded-md border bg-card text-xs shadow-sm",
+        "erd-table-card w-[260px] rounded-md border bg-card text-xs shadow-sm",
         selected || isSelected ? "erd-table-card-selected" : "border-border",
       ].join(" ")}
       onMouseEnter={() => {
@@ -240,7 +277,7 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
         onClick(id);
       }}
     >
-      <div className="flex items-center justify-between border-b px-3 py-2 text-sm font-semibold">
+      <div className="flex items-center justify-between border-b px-2 py-1 text-sm font-semibold">
         <span className="truncate">
           {table.schema}.{table.name}
         </span>
@@ -262,15 +299,15 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
           </button>
         ) : null}
       </div>
-      <div className="overflow-auto px-2 py-2">
-        <ul className="space-y-0.5">
+      <div className="overflow-auto px-1.5 py-1">
+        <ul className="space-y-0">
           {columns.map((column) => {
             const { type, constraints } = formatColumnType(column);
             return (
               <Tooltip key={column.name} delayDuration={200}>
                 <TooltipTrigger asChild>
                   <li
-                    className="relative flex items-center gap-2 rounded px-2 py-1 transition hover:bg-muted cursor-pointer"
+                    className="relative flex items-center gap-2 rounded px-1.5 py-0.5 transition hover:bg-muted cursor-pointer"
                     onMouseEnter={() => {
                       onColumnHover?.(column.name);
                     }}
@@ -320,11 +357,11 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
                       </div>
                       <div className="flex items-center gap-2 min-w-0">
                         {constraints.length > 0 && (
-                          <span className="text-[9px] text-orange-500 font-semibold flex-shrink-0">
+                          <span className="text-xs text-orange-500 font-semibold flex-shrink-0">
                             {constraints.join(",")}
                           </span>
                         )}
-                        <span className="text-[10px] text-muted-foreground truncate">
+                        <span className="text-xs text-muted-foreground truncate">
                           {type}
                         </span>
                       </div>
@@ -372,7 +409,7 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({
             );
           })}
           {hasMore && !expanded ? (
-            <li className="pt-1 pl-2 text-[10px] text-muted-foreground">
+            <li className="pt-1 pl-2 text-xs text-muted-foreground">
               +{sortedColumns.length - PREVIEW_COLUMN_LIMIT} more columns
             </li>
           ) : null}
@@ -588,8 +625,8 @@ const ForeignKeyEdge: React.FC<EdgeProps<ForeignEdgeData>> = ({
         }}
       />
 
-      {/* Animated flowing dots overlay when highlighted */}
-      {highlighted && (
+      {/* Animated flowing dots overlay when highlighted - disabled during drag for performance */}
+      {highlighted && !data?.isDragging && (
         <g>
           <path
             d={edgePath}
@@ -617,7 +654,7 @@ const ForeignKeyEdge: React.FC<EdgeProps<ForeignEdgeData>> = ({
               opacity: data.isHovered || data.highlighted ? 1 : 0,
               transition: "opacity 150ms ease-in-out",
             }}
-            className="text-[11px] font-bold text-primary bg-background rounded-full w-6 h-6 flex items-center justify-center shadow-sm border border-primary/40"
+            className="text-xs font-bold text-primary bg-background rounded-full w-6 h-6 flex items-center justify-center shadow-sm border border-primary/40"
           >
             {data.sourceCardinality === "n" ? "N" : data.sourceCardinality}
           </div>
@@ -633,7 +670,7 @@ const ForeignKeyEdge: React.FC<EdgeProps<ForeignEdgeData>> = ({
               opacity: data.isHovered || data.highlighted ? 1 : 0,
               transition: "opacity 150ms ease-in-out",
             }}
-            className="text-[11px] font-bold text-primary bg-background rounded-full w-6 h-6 flex items-center justify-center shadow-sm border border-primary/40"
+            className="text-xs font-bold text-primary bg-background rounded-full w-6 h-6 flex items-center justify-center shadow-sm border border-primary/40"
           >
             {data.targetCardinality === "n" ? "N" : data.targetCardinality}
           </div>
@@ -648,11 +685,11 @@ const ForeignKeyEdge: React.FC<EdgeProps<ForeignEdgeData>> = ({
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
               pointerEvents: "none",
             }}
-            className="rounded bg-background px-2 py-0.5 text-[10px] font-medium text-foreground shadow-md border border-primary/50"
+            className="rounded bg-background px-2 py-0.5 text-xs font-medium text-foreground shadow-md border border-primary/50"
           >
             {data.label}
             {/* Show relationship type in label when highlighted */}
-            <span className="ml-1 text-[9px] text-muted-foreground">
+            <span className="ml-1 text-xs text-muted-foreground">
               ({data.sourceCardinality || "1"}:{data.targetCardinality || "1"})
             </span>
           </div>
@@ -709,6 +746,20 @@ export const ERDVisualizer = React.forwardRef<
     const flowInstanceRef = useRef<ReactFlowInstance | null>(null);
     const fitAppliedRef = useRef(false);
     const autoArrangeTriggeredRef = useRef(false);
+
+    // Throttled position update for better drag performance (60fps = 16ms)
+    const throttledPositionUpdate = useMemo(
+      () =>
+        onNodePositionChange
+          ? throttle(
+              (nodeId: string, position: NodePosition) => {
+                onNodePositionChange(nodeId, position);
+              },
+              16,
+            )
+          : undefined,
+      [onNodePositionChange],
+    );
 
     const toggleExpanded = useCallback((nodeId: string) => {
       setExpandedNodes((prev) => {
@@ -1141,11 +1192,11 @@ export const ERDVisualizer = React.forwardRef<
         onNodesChangeInternal(changes);
         changes.forEach((change) => {
           if (change.type === "position" && change.position) {
-            onNodePositionChange?.(change.id, change.position);
+            throttledPositionUpdate?.(change.id, change.position);
           }
         });
       },
-      [onNodesChangeInternal, onNodePositionChange],
+      [onNodesChangeInternal, throttledPositionUpdate],
     );
 
     const handleNodeDragStop = useCallback(
@@ -1178,42 +1229,68 @@ export const ERDVisualizer = React.forwardRef<
       [onViewportChange],
     );
 
-    useEffect(() => {
+    // Memoize the highlighted edge state calculation
+    const edgeHighlightMap = useMemo(() => {
       const selectedIds = new Set(
         nodes.filter((node) => node.selected).map((node) => node.id),
       );
-      // Add the custom selected table to the set
       if (selectedTableId) {
         selectedIds.add(selectedTableId);
       }
+
+      const map = new Map<
+        string,
+        { highlighted: boolean; isHovered: boolean; isDragging: boolean }
+      >();
+
+      edges.forEach((edge) => {
+        const isRelatedToSelected =
+          selectedIds.has(edge.source) || selectedIds.has(edge.target);
+
+        const isTemporarilyHighlighted =
+          hoveredNodeId === edge.source ||
+          hoveredNodeId === edge.target ||
+          draggingNodeId === edge.source ||
+          draggingNodeId === edge.target ||
+          (hoveredRelationshipId !== null &&
+            (edge.data as ForeignEdgeData).relationshipId ===
+              hoveredRelationshipId);
+
+        const isEdgeHovered =
+          hoveredRelationshipId !== null &&
+          (edge.data as ForeignEdgeData).relationshipId ===
+            hoveredRelationshipId;
+
+        map.set(edge.id, {
+          highlighted: isRelatedToSelected || isTemporarilyHighlighted,
+          isHovered: isEdgeHovered,
+          isDragging: draggingNodeId !== null,
+        });
+      });
+
+      return map;
+    }, [
+      nodes,
+      hoveredNodeId,
+      draggingNodeId,
+      hoveredRelationshipId,
+      selectedTableId,
+      edges,
+    ]);
+
+    useEffect(() => {
       setEdges((eds) => {
         const updatedEdges = eds.map((edge) => {
-          // Check if edge is related to selected nodes (persistent highlight)
-          const isRelatedToSelected =
-            selectedIds.has(edge.source) || selectedIds.has(edge.target);
-
-          // Check if edge is related to hovered/dragged nodes (temporary highlight)
-          const isTemporarilyHighlighted =
-            hoveredNodeId === edge.source ||
-            hoveredNodeId === edge.target ||
-            draggingNodeId === edge.source ||
-            draggingNodeId === edge.target ||
-            (hoveredRelationshipId !== null &&
-              (edge.data as ForeignEdgeData).relationshipId ===
-                hoveredRelationshipId);
-
-          // Check if this specific edge is hovered (not just connected to hovered node)
-          const isEdgeHovered =
-            hoveredRelationshipId !== null &&
-            (edge.data as ForeignEdgeData).relationshipId ===
-              hoveredRelationshipId;
+          const highlightState = edgeHighlightMap.get(edge.id);
+          if (!highlightState) return edge;
 
           return {
             ...edge,
             data: {
               ...(edge.data as ForeignEdgeData),
-              highlighted: isRelatedToSelected || isTemporarilyHighlighted,
-              isHovered: isEdgeHovered,
+              highlighted: highlightState.highlighted,
+              isHovered: highlightState.isHovered,
+              isDragging: highlightState.isDragging,
             },
           };
         });
@@ -1230,14 +1307,7 @@ export const ERDVisualizer = React.forwardRef<
 
         return updatedEdges;
       });
-    }, [
-      nodes,
-      hoveredNodeId,
-      draggingNodeId,
-      hoveredRelationshipId,
-      setEdges,
-      selectedTableId,
-    ]);
+    }, [edgeHighlightMap, setEdges]);
 
     return (
       <div
@@ -1257,7 +1327,7 @@ export const ERDVisualizer = React.forwardRef<
           edgeTypes={edgeTypes}
           fitView
           minZoom={0.1}
-          maxZoom={2.5}
+          maxZoom={1.5}
           nodesDraggable
           nodesConnectable={false}
           elementsSelectable={false}
