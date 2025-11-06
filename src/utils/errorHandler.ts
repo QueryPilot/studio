@@ -1,4 +1,4 @@
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 
 // Error codes from the Rust backend
 export enum ErrorCode {
@@ -209,19 +209,15 @@ export function handleBackendError(error: BackendError | Error | unknown): void 
   }
 
   // Show toast notification
-  const toastOptions: any = {
-    title: errorDisplay.title,
-    description: errorDisplay.description,
-    variant: errorDisplay.variant,
-  };
-  
-  if (errorDisplay.action) {
-    // Note: The toast component might expect different props
-    // This is a temporary fix - adjust based on your toast component's API
-    toastOptions.action = errorDisplay.action;
+  if (errorDisplay.variant === "destructive") {
+    toast.error(errorDisplay.title, {
+      description: errorDisplay.description,
+    });
+  } else {
+    toast(errorDisplay.title, {
+      description: errorDisplay.description,
+    });
   }
-  
-  toast(toastOptions);
 
   // Log error for debugging
   console.error("Backend error:", error);

@@ -12,30 +12,51 @@ pub async fn execute_crud_transaction(
     adapter: &dyn DbAdapter,
     transaction: CrudTransaction,
 ) -> Result<TransactionResult> {
+    tracing::info!("🟢 CRUD executor: Starting transaction {}", transaction.id);
+    tracing::info!("  Commands to execute: {}", transaction.commands.len());
+
     let start_time = Instant::now();
     let transaction_id = transaction.id.clone();
 
     // Validate the transaction
+    tracing::info!("  Validating transaction...");
     crate::crud::validator::validate_transaction(&transaction)?;
+    tracing::info!("  ✅ Validation passed");
 
-    // Begin database transaction
+    // Begin database transaction (rollback any existing transaction first)
+    tracing::info!("  Ensuring clean transaction state...");
+    let _ = adapter.execute("ROLLBACK").await; // Ignore error if no transaction exists
+
+    tracing::info!("  Beginning database transaction...");
     adapter.execute("BEGIN").await.map_err(|e| {
+        tracing::error!("  ❌ Failed to BEGIN transaction: {}", e);
         AppError::DatabaseError(format!("Failed to begin transaction: {}", e))
     })?;
+    tracing::info!("  ✅ Database transaction started");
 
     let mut committed = Vec::new();
     let mut id_mappings = HashMap::new();
     let mut warnings = Vec::new();
 
     // Execute each command sequentially
-    for command in transaction.commands.iter() {
+    for (idx, command) in transaction.commands.iter().enumerate() {
+        tracing::info!("  Executing command {}/{}: {} ({})",
+            idx + 1,
+            transaction.commands.len(),
+            command.operation_type,
+            command.id
+        );
+
         match execute_command(adapter, command, &mut id_mappings).await {
             Ok((summary, command_warnings)) => {
+                tracing::info!("  ✅ Command {} succeeded", command.id);
                 committed.push(summary);
                 warnings.extend(command_warnings);
             }
             Err(e) => {
+                tracing::error!("  ❌ Command {} failed: {}", command.id, e);
                 // Rollback on error
+                tracing::info!("  Rolling back transaction...");
                 let _ = adapter.execute("ROLLBACK").await;
 
                 let error = CommandError {
@@ -66,9 +87,13 @@ pub async fn execute_crud_transaction(
     }
 
     // Commit transaction
+    tracing::info!("  Committing transaction...");
     adapter.execute("COMMIT").await.map_err(|e| {
+        tracing::error!("  ❌ Failed to COMMIT transaction: {}", e);
         AppError::DatabaseError(format!("Failed to commit transaction: {}", e))
     })?;
+    tracing::info!("  ✅ Transaction committed successfully");
+    tracing::info!("  Duration: {}ms", start_time.elapsed().as_millis());
 
     Ok(TransactionResult {
         transaction_id,
@@ -171,6 +196,8 @@ async fn execute_data_update(adapter: &dyn DbAdapter, command: &CrudCommand) -> 
         format_value(new_value),
         where_clause
     );
+
+    tracing::info!("    Generated SQL: {}", sql);
 
     adapter.execute(&sql).await
 }

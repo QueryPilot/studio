@@ -7,7 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Database, Settings, Search, Trash2, Download } from "lucide-react";
@@ -28,7 +28,6 @@ export function MainScreen() {
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
-  const { toast } = useToast();
   const { fetchConnections, saveConnection, deleteConnection, connections } =
     useConnectionStore();
 
@@ -46,13 +45,11 @@ export function MainScreen() {
       await navigate(`/workspace/${connectionId}`);
     } catch (error) {
       console.error("Failed to connect to database:", error);
-      toast({
-        title: "Connection Error",
+      toast.error("Connection Error", {
         description:
           error instanceof Error
             ? error.message
             : "Failed to connect to database",
-        variant: "destructive",
       });
     }
   };
@@ -69,8 +66,7 @@ export function MainScreen() {
       );
 
       if (existingPg) {
-        toast({
-          title: "Connection Already Exists",
+        toast("Connection Already Exists", {
           description:
             "PostgreSQL Dev connection is already in your connection list.",
         });
@@ -95,18 +91,15 @@ export function MainScreen() {
       // Save to backend
       await saveConnection(pgProfile);
 
-      toast({
-        title: "PostgreSQL Dev Added",
+      toast.success("PostgreSQL Dev Added", {
         description:
           "PostgreSQL development database connection has been added successfully.",
       });
     } catch (error) {
       console.error("Failed to load Development Database connection:", error);
-      toast({
-        title: "Error Loading Connection",
+      toast.error("Error Loading Connection", {
         description:
           "Failed to add PostgreSQL Dev connection. Make sure Docker is running: make docker-up",
-        variant: "destructive",
       });
     } finally {
       setIsLoadingDefaults(false);
@@ -205,8 +198,7 @@ export function MainScreen() {
                     console.log("Clear All operation completed successfully");
                     console.log("=====================================");
 
-                    toast({
-                      title: "All Data Cleared",
+                    toast.success("All Data Cleared", {
                       description:
                         "All connections and stored data have been removed.",
                     });
@@ -214,13 +206,11 @@ export function MainScreen() {
                     console.error("=====================================");
                     console.error("ERROR during clear all operation:", error);
                     console.error("=====================================");
-                    toast({
-                      title: "Error Clearing Data",
+                    toast.error("Error Clearing Data", {
                       description:
                         error instanceof Error
                           ? error.message
                           : "Failed to clear all data. Please try again.",
-                      variant: "destructive",
                     });
                   }
                 }}

@@ -544,6 +544,8 @@ async fn execute_single_fetch_stream(
             comment: None,
             enum_values: None,
             type_category: None,
+            precision: None,
+            scale: None,
         })
         .collect::<Vec<_>>();
 
@@ -1266,16 +1268,36 @@ pub async fn execute_crud_transaction(
     transaction: CrudTransaction,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<TransactionResult, String> {
+    tracing::info!("🔵 execute_crud_transaction called");
+    tracing::info!("  conn_id: {}", conn_id);
+    tracing::info!("  transaction.id: {}", transaction.id);
+    tracing::info!("  transaction.commands.len(): {}", transaction.commands.len());
+    tracing::info!("  transaction.rollback_on_error: {}", transaction.rollback_on_error);
+
+    if !transaction.commands.is_empty() {
+        let first_cmd = &transaction.commands[0];
+        tracing::info!("  First command:");
+        tracing::info!("    id: {}", first_cmd.id);
+        tracing::info!("    operation_type: {}", first_cmd.operation_type);
+        tracing::info!("    target: {:?}", first_cmd.target);
+        tracing::info!("    payload: {}", first_cmd.payload);
+    }
+
     // Get connection and adapter
     let conn = manager
         .get_connection(&conn_id)
-        .ok_or_else(|| format!("Connection {} not found", conn_id))?;
+        .ok_or_else(|| {
+            tracing::error!("❌ Connection {} not found", conn_id);
+            format!("Connection {} not found", conn_id)
+        })?;
+
+    tracing::info!("✅ Connection found, executing transaction...");
 
     // Execute transaction via CRUD executor
     crate::crud::executor::execute_crud_transaction(&*conn.adapter, transaction)
         .await
         .map_err(|e| {
-            tracing::error!("CRUD transaction failed: {}", e);
+            tracing::error!("❌ CRUD transaction failed: {}", e);
             e.to_string()
         })
 }

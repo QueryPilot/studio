@@ -35,7 +35,7 @@ import {
   exportToExcel,
   getSuggestedFilename,
 } from "../utils/exportUtils";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { writeTextToClipboard } from "../hooks/useClipboardBridge";
 import { normalizeKeybindingLabel } from "@/lib/keyboardDispatch";
 
@@ -80,7 +80,6 @@ export function GridContextMenuItems({
   onDeleteRows,
   onPaste,
 }: GridContextMenuItemsProps) {
-  const { toast } = useToast();
   const hasSelection = selectedRows.length > 0;
 
   const formatShortcut = useCallback((binding: string): string => {
@@ -108,46 +107,37 @@ export function GridContextMenuItems({
     try {
       const content = copyAsJSON(selectedRows, columns);
       await writeTextToClipboard(content);
-      toast({ description: "Copied as JSON" });
+      toast("Copied as JSON");
     } catch (error) {
-      toast({
-        description: `Failed to copy: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
-        variant: "destructive",
-      });
+      toast.error(`Failed to copy: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`);
     }
-  }, [selectedRows, columns, toast]);
+  }, [selectedRows, columns]);
 
   const handleCopyCSV = useCallback(async () => {
     try {
       const content = copyAsCSV(selectedRows, columns);
       await writeTextToClipboard(content);
-      toast({ description: "Copied as CSV" });
+      toast("Copied as CSV");
     } catch (error) {
-      toast({
-        description: `Failed to copy: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
-        variant: "destructive",
-      });
+      toast.error(`Failed to copy: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`);
     }
-  }, [selectedRows, columns, toast]);
+  }, [selectedRows, columns]);
 
   const handleCopyTSV = useCallback(async () => {
     try {
       const content = copyAsTSV(selectedRows, columns);
       await writeTextToClipboard(content);
-      toast({ description: "Copied as TSV" });
+      toast("Copied as TSV");
     } catch (error) {
-      toast({
-        description: `Failed to copy: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
-        variant: "destructive",
-      });
+      toast.error(`Failed to copy: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`);
     }
-  }, [selectedRows, columns, toast]);
+  }, [selectedRows, columns]);
 
   const handleCopyInsert = useCallback(async () => {
     try {
@@ -159,77 +149,62 @@ export function GridContextMenuItems({
         schema,
       );
       await writeTextToClipboard(content);
-      toast({ description: "Copied as INSERT statement" });
+      toast("Copied as INSERT statement");
     } catch (error) {
-      toast({
-        description: `Failed to copy: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
-        variant: "destructive",
-      });
+      toast.error(`Failed to copy: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`);
     }
-  }, [selectedRows, columns, tableName, databaseType, schema, toast]);
+  }, [selectedRows, columns, tableName, databaseType, schema]);
 
   // Export handlers
   const handleExportCSV = useCallback(() => {
     try {
       const filename = getSuggestedFilename(tableName, "csv");
       exportToCSV(selectedRows, columns, filename);
-      toast({ description: "Exported as CSV" });
+      toast("Exported as CSV");
     } catch (error) {
-      toast({
-        description: `Failed to export: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
-        variant: "destructive",
-      });
+      toast.error(`Failed to export: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`);
     }
-  }, [selectedRows, columns, tableName, toast]);
+  }, [selectedRows, columns, tableName]);
 
   const handleExportJSON = useCallback(() => {
     try {
       const filename = getSuggestedFilename(tableName, "json");
       exportToJSON(selectedRows, columns, filename);
-      toast({ description: "Exported as JSON" });
+      toast("Exported as JSON");
     } catch (error) {
-      toast({
-        description: `Failed to export: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
-        variant: "destructive",
-      });
+      toast.error(`Failed to export: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`);
     }
-  }, [selectedRows, columns, tableName, toast]);
+  }, [selectedRows, columns, tableName]);
 
   const handleExportTSV = useCallback(() => {
     try {
       const filename = getSuggestedFilename(tableName, "tsv");
       exportToTSV(selectedRows, columns, filename);
-      toast({ description: "Exported as TSV" });
+      toast("Exported as TSV");
     } catch (error) {
-      toast({
-        description: `Failed to export: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
-        variant: "destructive",
-      });
+      toast.error(`Failed to export: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`);
     }
-  }, [selectedRows, columns, tableName, toast]);
+  }, [selectedRows, columns, tableName]);
 
   const handleExportExcel = useCallback(() => {
     try {
       const filename = getSuggestedFilename(tableName, "csv");
       exportToExcel(selectedRows, columns, filename);
-      toast({ description: "Exported as Excel-compatible CSV" });
+      toast("Exported as Excel-compatible CSV");
     } catch (error) {
-      toast({
-        description: `Failed to export: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
-        variant: "destructive",
-      });
+      toast.error(`Failed to export: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`);
     }
-  }, [selectedRows, columns, tableName, toast]);
+  }, [selectedRows, columns, tableName]);
 
   // Pin/unpin handlers
   const handlePinRows = useCallback(() => {
@@ -240,22 +215,18 @@ export function GridContextMenuItems({
       maxPinnedRows - pinnedRowKeys.length,
     );
     onPinRows?.(rowsToPin);
-    toast({
-      description: `Pinned ${rowsToPin.length} row${
-        rowsToPin.length === 1 ? "" : "s"
-      }`,
-    });
-  }, [selectedUnpinnedKeys, pinnedRowKeys.length, onPinRows, toast]);
+    toast(`Pinned ${rowsToPin.length} row${
+      rowsToPin.length === 1 ? "" : "s"
+    }`);
+  }, [selectedUnpinnedKeys, pinnedRowKeys.length, onPinRows]);
 
   const handleUnpinRows = useCallback(() => {
     if (selectedPinnedKeys.length === 0) return;
     onUnpinRows?.(selectedPinnedKeys);
-    toast({
-      description: `Unpinned ${selectedPinnedKeys.length} row${
-        selectedPinnedKeys.length === 1 ? "" : "s"
-      }`,
-    });
-  }, [selectedPinnedKeys, onUnpinRows, toast]);
+    toast(`Unpinned ${selectedPinnedKeys.length} row${
+      selectedPinnedKeys.length === 1 ? "" : "s"
+    }`);
+  }, [selectedPinnedKeys, onUnpinRows]);
 
   if (!hasSelection) {
     return (

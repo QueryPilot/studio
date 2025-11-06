@@ -85,6 +85,10 @@ pub struct ColumnMeta {
     pub enum_values: Option<Vec<String>>,
     /// Type category: 'e' for enum, 'd' for domain, 'c' for composite, etc.
     pub type_category: Option<String>,
+    /// Numeric precision (total digits) for numeric/decimal types
+    pub precision: Option<i32>,
+    /// Numeric scale (decimal places) for numeric/decimal types
+    pub scale: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

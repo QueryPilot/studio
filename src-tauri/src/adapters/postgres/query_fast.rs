@@ -60,6 +60,8 @@ impl FastPostgresQueryExecutor {
                 comment: None,
                 enum_values: None,
                 type_category: None,
+                precision: None,
+                scale: None,
             })
             .collect::<Vec<_>>();
 
@@ -127,6 +129,8 @@ impl FastPostgresQueryExecutor {
                     comment: None,
                     enum_values: None,
                     type_category: None,
+                    precision: None,
+                    scale: None,
                 })
                 .collect::<Vec<_>>();
 

@@ -57,3 +57,10 @@ export type {
   UseRowPinningOptions,
   UseRowPinningResult,
 } from "./useRowPinning";
+
+export {
+  useStagedChangesIndicator,
+  hasStagedCellChange,
+  isRowPendingDeletion,
+  isRowPendingInsertion,
+} from "./useStagedChangesIndicator";

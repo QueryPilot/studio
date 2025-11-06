@@ -486,11 +486,38 @@ export class BackendAPI {
     }
 
     // Build transaction payload
+    // Transform commands to snake_case for Rust backend
+    const transformedCommands = commands.map((cmd) => ({
+      id: cmd.id,
+      operation_type: cmd.type,
+      target: {
+        connection_id: cmd.target.connectionId,
+        database: cmd.target.database,
+        schema: cmd.target.schema,
+        table: cmd.target.table,
+        entity_name: cmd.target.entityName,
+      },
+      payload: cmd.payload,
+      metadata: cmd.metadata
+        ? {
+            timestamp: cmd.metadata.timestamp,
+            description: cmd.metadata.description,
+            source: cmd.metadata.source,
+          }
+        : undefined,
+    }));
+
     const transaction = {
       id: nanoid(),
-      commands,
+      commands: transformedCommands,
       rollback_on_error: true,
     };
+
+    // Debug logging
+    console.log("Invoking execute_crud_transaction with:", {
+      connId: connectionId,
+      transaction,
+    });
 
     // Invoke Rust backend
     const result = await invoke<{
@@ -546,11 +573,20 @@ export class BackendAPI {
         target: commands.find((cmd) => cmd.id === f.id)?.target ?? {
           connectionId,
         },
-        error: f.error,
+        error: {
+          code: f.error.code,
+          message: f.error.message,
+          severity: f.error.severity as "info" | "warning" | "error",
+          recoverable: f.error.recoverable,
+        },
         rolledBack: f.rolled_back,
       })),
-      warnings: result.warnings,
-      idMappings: result.id_mappings,
+      warnings: result.warnings?.map((w) => ({
+        code: w.code,
+        message: w.message,
+        severity: w.severity as "info" | "warning" | "error",
+        recoverable: w.recoverable,
+      })),
     };
   }
 }

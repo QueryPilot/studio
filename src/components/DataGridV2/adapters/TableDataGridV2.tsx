@@ -25,10 +25,14 @@ import {
 } from "../components/DataGridStates";
 import { DataGridSkeleton } from "../components/DataGridSkeleton";
 import { DataGridStatusBar } from "../components/DataGridStatusBar";
+import { StagingActionsToolbar } from "../components/StagingActionsToolbar";
 import {
   usePersistentViewState,
   useGridHistory,
   useClipboardBridge,
+  useStagedChangesIndicator,
+  hasStagedCellChange,
+  isRowPendingDeletion,
 } from "../hooks";
 import {
   useGridPreferences,
@@ -48,7 +52,7 @@ import {
   filterVisibleColumns,
   reorderColumns,
 } from "./columnUtils";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import type { CellValue as FrontCellValue } from "@/types/cellValue";
 import type { CellValue as BackendCellValue } from "@/services/backend";
 import type { ColumnMeta } from "@/types/database";
@@ -61,6 +65,14 @@ import {
   deriveValueType,
   normalizeBackendValue,
 } from "@/services/tableDataTransform";
+import { useCrudStore } from "@/stores/crudStore";
+import {
+  createUpdateCommand,
+  createInsertCommand,
+  createDeleteCommand,
+  createCrudTarget,
+} from "../utils/crudHelpers";
+import type { GridEditCommitEvent, GridRowAppendEvent, GridRowDeleteEvent } from "../types";
 
 interface BaseTableDataGridV2Props {
   gridId: string;
@@ -110,7 +122,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   props: TableDataGridV2Props,
 ) {
   const { gridId, className } = props;
-  const { toast } = useToast();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [isGridFocused, setIsGridFocused] = useState(false);
   const scopeId = useScopedKeybindings(gridId);
@@ -155,15 +166,21 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       : "table"
     : "table";
 
-  useContextKey("dataGridEditable", false, {
+  // Get undo/redo state from CRUD store
+  const canUndo = useCrudStore((state) => state.historyIndex > 0);
+  const canRedo = useCrudStore(
+    (state) => state.historyIndex < state.history.length - 1,
+  );
+
+  useContextKey("dataGridEditable", isTableMode, {
     scopeId,
     resetOnUnmount: true,
   });
-  useContextKey("dataGridCanUndo", false, {
+  useContextKey("dataGridCanUndo", canUndo, {
     scopeId,
     resetOnUnmount: true,
   });
-  useContextKey("dataGridCanRedo", false, {
+  useContextKey("dataGridCanRedo", canRedo, {
     scopeId,
     resetOnUnmount: true,
   });
@@ -385,6 +402,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const { persistSelection, persistScrollOffset, persistActiveCell } =
     usePersistentViewState(gridId);
 
+  // CRUD Store integration
+  const { stageCommand, getTableKey, stagedCommands } = useCrudStore();
+
   const [gridSelection, setGridSelection] = useState<GridSelection | undefined>(
     undefined,
   );
@@ -406,12 +426,115 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     [pinnedRows, unpinnedRows],
   );
 
+  // Apply optimistic updates from staged commands to display rows
+  const displayRowsWithOptimisticUpdates = useMemo(() => {
+    if (!isTableMode) {
+      return displayRows;
+    }
+
+    const tableKey = getTableKey({ connectionId, database, schema, table });
+    const commands = stagedCommands.get(tableKey) ?? [];
+
+    if (commands.length === 0) {
+      return displayRows;
+    }
+
+    // Apply UPDATE commands to the display rows
+    return displayRows.map((row) => {
+      // Find all UPDATE commands for this row
+      const updateCommands = commands.filter((cmd) => {
+        if (cmd.type !== "data.update") return false;
+
+        const payload = cmd.payload as {
+          primaryKeys?: Record<string, unknown>;
+        };
+
+        if (!payload.primaryKeys) return false;
+
+        // Check if this command's PK matches this row's PK
+        return Object.entries(payload.primaryKeys).every(([key, value]) => {
+          const cellValue = row[key];
+          if (!cellValue || typeof cellValue !== "object" || !("value" in cellValue)) {
+            return false;
+          }
+          return cellValue.value === value;
+        });
+      });
+
+      if (updateCommands.length === 0) {
+        return row;
+      }
+
+      // Apply all updates to create a new row
+      const updatedRow = { ...row };
+      updateCommands.forEach((cmd) => {
+        const payload = cmd.payload as {
+          column?: string;
+          newValue?: unknown;
+        };
+
+        if (payload.column && payload.column in updatedRow) {
+          const existingCell = updatedRow[payload.column];
+          if (existingCell && typeof existingCell === "object" && "value" in existingCell) {
+            updatedRow[payload.column] = {
+              ...existingCell,
+              value: payload.newValue,
+            };
+          }
+        }
+      });
+
+      return updatedRow;
+    });
+  }, [displayRows, isTableMode, getTableKey, stagedCommands, connectionId, database, schema, table]);
+
   // Defer grid rendering for large datasets to keep UI responsive
   // Grid updates in background without blocking interactions
-  const deferredDisplayRows = useDeferredValue(displayRows);
+  const deferredDisplayRows = useDeferredValue(displayRowsWithOptimisticUpdates);
 
   const rowsRef = useRef(deferredDisplayRows);
   rowsRef.current = deferredDisplayRows;
+
+  // Get table key and pending changes for toolbar
+  const tableKey = isTableMode
+    ? getTableKey({ connectionId, database, schema, table })
+    : "";
+  const pendingChanges = isTableMode
+    ? stagedCommands.get(tableKey) ?? []
+    : [];
+
+  // Update toolbar actions when pending changes change
+  useEffect(() => {
+    if (!isTableMode || !onActionsChange) {
+      return;
+    }
+
+    if (pendingChanges.length > 0) {
+      onActionsChange(
+        <StagingActionsToolbar
+          connectionId={connectionId}
+          database={database}
+          schema={schema}
+          table={table}
+          onCommitSuccess={() => {
+            // Refresh table data from server after successful commit
+            tableDataQuery.refetch();
+          }}
+        />,
+      );
+    } else {
+      onActionsChange(null);
+    }
+  }, [
+    isTableMode,
+    onActionsChange,
+    pendingChanges.length,
+    connectionId,
+    database,
+    schema,
+    table,
+    tableDataQuery,
+  ]);
 
   const handlePinRowsFromMenu = useCallback(
     (rowKeys: string[]) => {
@@ -579,6 +702,16 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     return applyPinnedOrdering(filtered, columnState.pinned);
   }, [columnState.pinned, columnState.visibility, visibleColumns]);
 
+  // Track staged changes for visual indicators (must be after finalColumns)
+  const stagedChanges = useStagedChangesIndicator({
+    connectionId,
+    database,
+    schema: schema ?? "",
+    table,
+    rows: deferredDisplayRows,
+    columns: finalColumns,
+  });
+
   const { copySelection } = useClipboardBridge({
     toText: (selection) => {
       if (selection.rows.length === 0) {
@@ -625,18 +758,101 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         });
     },
     onCopySuccess: (mode) => {
-      toast({
-        description:
-          mode === "json" ? "Copied selection as JSON" : "Copied to clipboard",
-      });
+      toast(mode === "json" ? "Copied selection as JSON" : "Copied to clipboard");
     },
     onCopyError: (_mode, error) => {
-      toast({
-        description: `Failed to copy: ${error}`,
-        variant: "destructive",
-      });
+      toast.error(`Failed to copy: ${error}`);
     },
   });
+
+  // CRUD Handlers - Must be after finalColumns is defined
+  // Handler: Cell edit commit → Stage update command
+  const handleCellEditCommit = useCallback(
+    (event: GridEditCommitEvent) => {
+      // Only handle in table mode
+      if (!isTableMode) {
+        return undefined;
+      }
+
+      try {
+        const target = createCrudTarget(connectionId, database, schema, table);
+        const command = createUpdateCommand(event, target, finalColumns);
+        stageCommand(command);
+
+        toast("Change staged", {
+          description: `Update to ${event.column.field} queued for commit`,
+        });
+
+        return undefined; // Don't add to grid history (CRUD store handles history)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        toast.error("Failed to stage change", {
+          description: message,
+        });
+        return undefined;
+      }
+    },
+    [isTableMode, connectionId, database, schema, table, finalColumns, stageCommand],
+  );
+
+  // Handler: Row append → Stage insert command
+  const handleRowAppend = useCallback(
+    (event: GridRowAppendEvent) => {
+      if (!isTableMode) {
+        return undefined;
+      }
+
+      try {
+        const target = createCrudTarget(connectionId, database, schema, table);
+        const command = createInsertCommand(event.draftRow, target, finalColumns);
+        stageCommand(command);
+
+        toast("Row staged", {
+          description: "New row queued for insert",
+        });
+
+        return undefined;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        toast.error("Failed to stage row", {
+          description: message,
+        });
+        return undefined;
+      }
+    },
+    [isTableMode, connectionId, database, schema, table, finalColumns, stageCommand],
+  );
+
+  // Handler: Row delete → Stage delete command
+  const handleRowDelete = useCallback(
+    (event: GridRowDeleteEvent) => {
+      if (!isTableMode) {
+        return undefined;
+      }
+
+      try {
+        const target = createCrudTarget(connectionId, database, schema, table);
+        const commands = event.rows.map((row) =>
+          createDeleteCommand(row, target, finalColumns),
+        );
+
+        commands.forEach((command) => stageCommand(command));
+
+        toast("Rows staged for deletion", {
+          description: `${commands.length} row(s) queued for delete`,
+        });
+
+        return undefined;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        toast.error("Failed to stage deletion", {
+          description: message,
+        });
+        return undefined;
+      }
+    },
+    [isTableMode, connectionId, database, schema, table, finalColumns, stageCommand],
+  );
 
   const handleKeyDownCapture = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -758,21 +974,45 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   const getRowThemeOverride = useCallback(
     (rowIndex: number) => {
+      // Priority 1: Staged deletions (highest priority - red)
+      if (isRowPendingDeletion(stagedChanges, rowIndex)) {
+        return {
+          bgCell: "rgba(239, 68, 68, 0.06)", // red-500 with low opacity
+          bgCellMedium: "rgba(239, 68, 68, 0.08)",
+          accentColor: "rgba(239, 68, 68, 0.4)",
+          accentLight: "rgba(239, 68, 68, 0.15)",
+        };
+      }
+
+      // Priority 2: Pinned rows (blue)
       if (rowIndex < pinnedRows.length) {
         return {
           bgCell: "rgba(59, 130, 246, 0.08)",
           bgCellMedium: "rgba(59, 130, 246, 0.10)",
         };
       }
+
+      // Priority 3: Staged changes (subtle orange)
+      if (stagedChanges.rowChanges.has(rowIndex)) {
+        return {
+          bgCell: "rgba(252, 163, 17, 0.04)", // Brand orange with very low opacity
+          bgCellMedium: "rgba(252, 163, 17, 0.06)",
+          accentColor: "#FCA311",
+          accentLight: "rgba(252, 163, 17, 0.12)",
+        };
+      }
+
+      // Priority 4: Selected rows (orange)
       if (selectedRowsSet.has(rowIndex)) {
         return {
           bgCell: "rgba(252, 163, 17, 0.10)",
           bgCellMedium: "rgba(252, 163, 17, 0.12)",
         };
       }
+
       return undefined;
     },
-    [pinnedRows.length, selectedRowsSet],
+    [pinnedRows.length, selectedRowsSet, stagedChanges],
   );
 
   const getCellContent = useCallback(
@@ -792,12 +1032,27 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       const cellValue = row[column.field] as FrontCellValue | null | undefined;
 
+      // Enable editing for table mode, keep read-only for query mode
+      // Also make primary keys read-only to prevent accidental modification
+      const isPrimaryKey = column.meta?.is_pk || false;
+      const isReadOnly = isQueryMode || isPrimaryKey;
+
       const gridCell = buildGridCellV2({
         value: cellValue,
         column,
-        readOnly: true,
+        readOnly: isReadOnly,
       });
 
+      // Apply cell-level styling for staged changes
+      const hasPendingChange = hasStagedCellChange(
+        stagedChanges,
+        rowIndex,
+        column.field,
+      );
+
+      let finalCell = gridCell;
+
+      // Apply truncation if needed
       const widthCap =
         typeof (column as { width?: number }).width === "number"
           ? (column as { width?: number }).width
@@ -810,15 +1065,28 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         const text = gridCell.data || "";
         const availableWidth = widthCap - 16;
         const truncated = truncateTextToWidth(text, availableWidth);
-        return {
+        finalCell = {
           ...gridCell,
           displayData: truncated,
         };
       }
 
-      return gridCell;
+      // Apply theme override for staged changes
+      if (hasPendingChange) {
+        return {
+          ...finalCell,
+          themeOverride: {
+            ...finalCell.themeOverride,
+            bgCell: "rgba(251, 146, 60, 0.15)", // Orange highlight
+            accentColor: "#fb923c",
+            accentLight: "rgba(251, 146, 60, 0.2)",
+          },
+        };
+      }
+
+      return finalCell;
     },
-    [finalColumns],
+    [finalColumns, stagedChanges],
   );
 
   const selectedRowCount = selectedRowsSet.size;
@@ -882,10 +1150,10 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             getCellContent={getCellContent}
             history={history}
             onCellEditStart={undefined}
-            onCellEditCommit={undefined}
+            onCellEditCommit={handleCellEditCommit}
             onCellEditCancel={undefined}
-            onRowAppend={undefined}
-            onRowDelete={undefined}
+            onRowAppend={handleRowAppend}
+            onRowDelete={handleRowDelete}
             onPaste={undefined}
             onColumnResize={(col, size) => {
               handleColumnResize(col, size);
