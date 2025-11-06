@@ -80,10 +80,10 @@ export function useStagedChangesIndicator(
         }
 
         case "data.insert": {
-          // Track inserts - we don't have row index yet as they're new
-          // For now, we'll mark them differently in the UI
-          // TODO: Track temp IDs to row indexes
-          break;
+          // INSERT commands appear as the first N rows in the grid
+          // (they're prepended in the optimistic updates)
+          // So we need to mark row indexes 0..insertCount-1 as inserted
+          break; // We'll handle this after counting all INSERT commands
         }
 
         case "data.delete": {
@@ -101,6 +101,13 @@ export function useStagedChangesIndicator(
         }
       }
     });
+
+    // Mark the first N rows as inserted (where N = number of INSERT commands)
+    // INSERT commands are prepended to the display rows in optimistic updates
+    const insertCount = commands.filter((cmd) => cmd.type === "data.insert").length;
+    for (let i = 0; i < insertCount; i++) {
+      result.insertedRows.add(i);
+    }
 
     return result;
   }, [commands, rows, columns]);

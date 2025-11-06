@@ -58,6 +58,16 @@ export function createUpdateCommand(
 
   const primaryKeys = extractPrimaryKeys(event.row, columns);
 
+  // Extract old value from previousValue in the event
+  let oldValue: JsonValue = null;
+  if (event.previousValue) {
+    if (typeof event.previousValue === "object" && "value" in event.previousValue) {
+      oldValue = event.previousValue.value as JsonValue;
+    } else {
+      oldValue = event.previousValue as JsonValue;
+    }
+  }
+
   // Extract new value from the GridCell and ensure it's a JsonValue with correct type
   let newValue: JsonValue = null;
   if ("data" in event.newValue) {
@@ -100,6 +110,7 @@ export function createUpdateCommand(
 
   const payload: DataUpdatePayload = {
     column: event.column.field,
+    oldValue,
     newValue,
     primaryKeys,
   };

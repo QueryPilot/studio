@@ -18,10 +18,8 @@ import {
   Pencil,
   Plus,
   Trash2,
-  AlertCircle,
   CheckCircle2,
 } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
 
 interface CommitPreviewModalProps {
@@ -132,7 +130,7 @@ export function CommitPreviewModal(props: CommitPreviewModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="!max-w-7xl max-h-[85vh] flex flex-col p-4">
+      <DialogContent className="!max-w-[80vw] max-h-[80vh] flex flex-col p-4">
         <DialogHeader>
           <DialogTitle>Commit changes</DialogTitle>
           <DialogDescription>
@@ -184,7 +182,7 @@ export function CommitPreviewModal(props: CommitPreviewModalProps) {
         </div>
 
         {/* Commands List */}
-        <ScrollArea className="flex-1 -mx-4 px-4">
+        <ScrollArea className="flex-1 -mx-4 px-4 max-h-[60vh] overflow-scroll">
           <div className="space-y-2">
             {Object.entries(groupedCommands).map(([type, typeCommands]) => (
               <div key={type} className="space-y-2">
@@ -210,7 +208,7 @@ export function CommitPreviewModal(props: CommitPreviewModalProps) {
                 </button>
 
                 {expandedGroups.has(type) && (
-                  <div className="ml-6 space-y-2">
+                  <div className="space-y-2">
                     {typeCommands.map((cmd) => (
                       <DiffCard key={cmd.id} command={cmd} />
                     ))}
