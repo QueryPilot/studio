@@ -500,7 +500,7 @@ impl PostgresIntrospector {
                 col_description(c.oid, a.attnum) as comment,
                 t.typtype as type_category,
                 -- Get enum values if this is an enum type
-                CASE 
+                CASE
                     WHEN t.typtype = 'e' THEN (
                         SELECT array_agg(e.enumlabel ORDER BY e.enumsortorder)
                         FROM pg_enum e
@@ -509,11 +509,23 @@ impl PostgresIntrospector {
                     ELSE NULL
                 END as enum_values,
                 -- Get base type for domain types
-                CASE 
-                    WHEN t.typtype = 'd' THEN 
+                CASE
+                    WHEN t.typtype = 'd' THEN
                         pg_catalog.format_type(t.typbasetype, t.typtypmod)
                     ELSE NULL
-                END as base_type
+                END as base_type,
+                -- Extract precision for numeric types
+                CASE
+                    WHEN t.typname IN ('numeric', 'decimal') AND a.atttypmod > 0 THEN
+                        ((a.atttypmod - 4) >> 16) & 65535
+                    ELSE NULL
+                END as numeric_precision,
+                -- Extract scale for numeric types
+                CASE
+                    WHEN t.typname IN ('numeric', 'decimal') AND a.atttypmod > 0 THEN
+                        (a.atttypmod - 4) & 65535
+                    ELSE NULL
+                END as numeric_scale
             FROM pg_attribute a
             JOIN pg_class c ON c.oid = a.attrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -535,6 +547,8 @@ impl PostgresIntrospector {
                 let type_oid: u32 = row.get(2);
                 let type_category: Option<i8> = row.get(7);
                 let enum_values_opt: Option<Vec<String>> = row.get(8);
+                let precision: Option<i32> = row.get(10);
+                let scale: Option<i32> = row.get(11);
 
                 // Convert type category i8 to char for display
                 let type_category_str = type_category.map(|tc| {
@@ -562,6 +576,8 @@ impl PostgresIntrospector {
                     comment: row.get(6),
                     enum_values: enum_values_opt,
                     type_category: type_category_str,
+                    precision,
+                    scale,
                 }
             })
             .collect();

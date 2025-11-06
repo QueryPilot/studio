@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Search, Copy, Check } from "lucide-react";
 import type { GridColumnV2, GridRowModel } from "../types";
 import { cn } from "@/lib/utils";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 
 export interface RowDetailsSheetProps {
   open: boolean;
@@ -44,7 +44,6 @@ export function RowDetailsSheet({
   const [copiedColumn, setCopiedColumn] = useState<string | null>(null);
   const resizeStartX = useRef(0);
   const resizeStartWidth = useRef(0);
-  const { toast } = useToast();
 
   // Calculate column summaries
   const columnSummaries = useMemo<ColumnSummary[]>(() => {
@@ -149,21 +148,16 @@ export function RowDetailsSheet({
         .writeText(value)
         .then(() => {
           setCopiedColumn(columnName);
-          toast({
-            description: "Copied to clipboard",
-          });
+          toast("Copied to clipboard");
           setTimeout(() => {
             setCopiedColumn(null);
           }, 2000);
         })
         .catch(() => {
-          toast({
-            description: "Failed to copy",
-            variant: "destructive",
-          });
+          toast.error("Failed to copy");
         });
     },
-    [toast],
+    [],
   );
 
   // Resize handlers

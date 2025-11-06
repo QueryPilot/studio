@@ -52,7 +52,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useTheme } from "@/components/theme-provider";
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
@@ -126,19 +126,16 @@ export function WorkspaceTitleBar({
 
         // Show toast on error status change
         if (health.status === "error" && previousHealth?.status !== "error") {
-          toast({
-            title: "Connection Failed",
+          toast.error("Connection Failed", {
             description:
               health.error ||
               "Unable to connect to the database. Please check your connection settings.",
-            variant: "destructive",
           });
         } else if (
           health.status === "ready" &&
           previousHealth?.status === "error"
         ) {
-          toast({
-            title: "Connection Restored",
+          toast.success("Connection Restored", {
             description: "Successfully reconnected to the database.",
           });
         }
@@ -179,31 +176,26 @@ export function WorkspaceTitleBar({
         }
       } catch (error) {
         console.error("Failed to disconnect:", error);
-        toast({
-          title: "Failed to disconnect",
+        toast.error("Failed to disconnect", {
           description:
             error instanceof Error
               ? error.message
               : "Failed to disconnect from the database.",
-          variant: "destructive",
         });
       }
       await databaseService.connectById(connectionId);
       // Emit event to refresh sidebar data
       await safeEmit("database-reconnected", { connectionId });
-      toast({
-        title: "Reconnection Successful",
+      toast.success("Reconnection Successful", {
         description: "Successfully reconnected to the database.",
       });
     } catch (error) {
       console.error("Failed to reconnect:", error);
-      toast({
-        title: "Reconnection Failed",
+      toast.error("Reconnection Failed", {
         description:
           error instanceof Error
             ? error.message
             : "Failed to reconnect to the database.",
-        variant: "destructive",
       });
     } finally {
       setIsReconnecting(false);

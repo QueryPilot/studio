@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { formatExecutionTime } from "@/utils/formatTime";
@@ -112,23 +111,21 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
                 {selectedRows !== 1 ? "rows" : "row"} selected
               </span>
               {onViewDetails && (
-                <TooltipProvider delayDuration={200}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-5 w-5"
-                        onClick={onViewDetails}
-                      >
-                        <Eye className="h-3 w-3" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="text-xs">
-                      View Details
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5"
+                      onClick={onViewDetails}
+                    >
+                      <Eye className="h-3 w-3" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs">
+                    View Details
+                  </TooltipContent>
+                </Tooltip>
               )}
             </div>
             {selectedRowsData.length > 0 &&
@@ -172,52 +169,50 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
         {executionTime !== undefined && (
           <>
             <span className="text-muted-foreground">•</span>
-            <TooltipProvider delayDuration={200}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="text-muted-foreground cursor-help">
-                    {formatExecutionTime(executionTime)}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">
-                  <div className="space-y-1">
-                    <div className="font-semibold mb-2">
-                      Performance Breakdown
-                    </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="text-muted-foreground cursor-help">
+                  {formatExecutionTime(executionTime)}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-xs">
+                <div className="space-y-1">
+                  <div className="font-semibold mb-2">
+                    Performance Breakdown
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span>Total:</span>
+                    <span className="font-mono">
+                      {formatExecutionTime(executionTime)} ({executionTime}ms)
+                    </span>
+                  </div>
+                  {networkMs !== undefined && (
                     <div className="flex justify-between gap-4">
-                      <span>Total:</span>
+                      <span>Network/DB:</span>
                       <span className="font-mono">
-                        {formatExecutionTime(executionTime)} ({executionTime}ms)
+                        {networkMs}ms (
+                        {((networkMs / executionTime) * 100).toFixed(1)}%)
                       </span>
                     </div>
-                    {networkMs !== undefined && (
-                      <div className="flex justify-between gap-4">
-                        <span>Network/DB:</span>
-                        <span className="font-mono">
-                          {networkMs}ms (
-                          {((networkMs / executionTime) * 100).toFixed(1)}%)
-                        </span>
-                      </div>
-                    )}
-                    {conversionMs !== undefined && (
-                      <div className="flex justify-between gap-4">
-                        <span>Conversion:</span>
-                        <span className="font-mono">
-                          {conversionMs}ms (
-                          {((conversionMs / executionTime) * 100).toFixed(1)}%)
-                        </span>
-                      </div>
-                    )}
-                    {fetchCount !== undefined && (
-                      <div className="flex justify-between gap-4">
-                        <span>Batches:</span>
-                        <span className="font-mono">{fetchCount}</span>
-                      </div>
-                    )}
-                  </div>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+                  )}
+                  {conversionMs !== undefined && (
+                    <div className="flex justify-between gap-4">
+                      <span>Conversion:</span>
+                      <span className="font-mono">
+                        {conversionMs}ms (
+                        {((conversionMs / executionTime) * 100).toFixed(1)}%)
+                      </span>
+                    </div>
+                  )}
+                  {fetchCount !== undefined && (
+                    <div className="flex justify-between gap-4">
+                      <span>Batches:</span>
+                      <span className="font-mono">{fetchCount}</span>
+                    </div>
+                  )}
+                </div>
+              </TooltipContent>
+            </Tooltip>
           </>
         )}
       </div>

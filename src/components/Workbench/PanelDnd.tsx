@@ -178,17 +178,14 @@ interface PanelProps {
 }
 
 export const Panel: React.FC<PanelProps> = ({ content, className }) => {
-  const {
-    focusedPanelId,
-    focusPanel,
-    closePanelAction,
-    splitPanelAction,
-    setActiveTab,
-    removeTab,
-    addTab,
-  } = useWorkbenchStore();
-
-  // activeConnectionId not needed in this component
+  // Use proper selectors to avoid subscribing to entire store
+  const focusedPanelId = useWorkbenchStore((state) => state.focusedPanelId);
+  const focusPanel = useWorkbenchStore((state) => state.focusPanel);
+  const closePanelAction = useWorkbenchStore((state) => state.closePanelAction);
+  const splitPanelAction = useWorkbenchStore((state) => state.splitPanelAction);
+  const setActiveTab = useWorkbenchStore((state) => state.setActiveTab);
+  const removeTab = useWorkbenchStore((state) => state.removeTab);
+  const addTab = useWorkbenchStore((state) => state.addTab);
 
   const tabsContainerRef = useRef<HTMLDivElement>(null);
 

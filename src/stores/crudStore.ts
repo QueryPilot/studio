@@ -236,14 +236,29 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
 
       const { connectionId } = commands[0]?.target ?? {};
       if (!connectionId) {
+        console.error("Commands:", commands);
         throw new Error("CrudStore: Missing connectionId for staged commands");
       }
+
+      console.log("Calling executeCrudTransaction with connectionId:", connectionId);
+      console.log("Commands count:", commands.length);
+      console.log("First command:", commands[0]);
 
       const result = await BackendAPI.executeCrudTransaction(
         connectionId,
         commands,
       );
 
+      // Check if transaction was successful
+      if (!result.success) {
+        // Format error message from failures
+        const errorMessages = result.failures
+          .map((f) => `${f.error.message}`)
+          .join(", ");
+        throw new Error(errorMessages || "Transaction failed");
+      }
+
+      // Only clear staged commands if successful
       set((state) => {
         const stagedCommands = cloneStagedCommands(state.stagedCommands);
         const commandIndex = new Map(state.commandIndex);
@@ -288,7 +303,11 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
         }
 
         const targetIndex = state.historyIndex - 1;
-        const snapshot = cloneStagedCommands(state.history[targetIndex]);
+        const historySnapshot = state.history[targetIndex];
+        if (!historySnapshot) {
+          return state;
+        }
+        const snapshot = cloneStagedCommands(historySnapshot);
         const commandIndex = rebuildCommandIndex(snapshot);
 
         return {
@@ -308,7 +327,11 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
         }
 
         const targetIndex = state.historyIndex + 1;
-        const snapshot = cloneStagedCommands(state.history[targetIndex]);
+        const historySnapshot = state.history[targetIndex];
+        if (!historySnapshot) {
+          return state;
+        }
+        const snapshot = cloneStagedCommands(historySnapshot);
         const commandIndex = rebuildCommandIndex(snapshot);
 
         return {
