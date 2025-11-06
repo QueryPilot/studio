@@ -38,7 +38,7 @@ impl FastPostgresQueryExecutor {
     ) -> Result<(Vec<Vec<serde_json::Value>>, Vec<ColumnMeta>, u64)> {
         let query_start = Instant::now();
 
-        // Get connection from pool
+        // Get connection from pool - MUST reuse same connection for prepare + execute
         let conn = self.get_connection().await?;
 
         // STEP 1: Prepare statement
@@ -66,8 +66,8 @@ impl FastPostgresQueryExecutor {
             .collect::<Vec<_>>();
 
         // STEP 2: Execute query with single fetch (no cursor, no transaction)
+        // IMPORTANT: Reuse the same connection - prepared statements are per-connection!
         let db_start = Instant::now();
-        let conn = self.get_connection().await?;
         let rows = conn.query(stmt.as_ref(), &[]).await?;
         let db_time_ms = db_start.elapsed().as_millis() as u64;
 

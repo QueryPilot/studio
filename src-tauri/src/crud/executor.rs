@@ -23,6 +23,15 @@ pub async fn execute_crud_transaction(
     crate::crud::validator::validate_transaction(&transaction)?;
     tracing::info!("  ✅ Validation passed");
 
+    // Try to use PostgreSQL's proper transaction method if available
+    if let Some(pg_adapter) = adapter.as_any().downcast_ref::<crate::adapters::postgres::adapter::PostgresAdapter>() {
+        tracing::info!("  Using PostgreSQL transaction (single connection)");
+        return execute_postgres_transaction(pg_adapter, transaction, transaction_id, start_time).await;
+    }
+
+    // Fallback to old (broken) method for other databases
+    tracing::warn!("  Using fallback transaction method (NOT properly transactional!)");
+
     // Begin database transaction (rollback any existing transaction first)
     tracing::info!("  Ensuring clean transaction state...");
     let _ = adapter.execute("ROLLBACK").await; // Ignore error if no transaction exists
@@ -108,6 +117,245 @@ pub async fn execute_crud_transaction(
             Some(id_mappings)
         },
     })
+}
+
+/// Execute transaction using PostgreSQL's proper transaction API (single connection)
+async fn execute_postgres_transaction(
+    adapter: &crate::adapters::postgres::adapter::PostgresAdapter,
+    transaction: CrudTransaction,
+    transaction_id: String,
+    start_time: Instant,
+) -> Result<TransactionResult> {
+    use crate::adapters::postgres::adapter::PostgresAdapter;
+
+    let mut committed = Vec::new();
+    let mut id_mappings = HashMap::new();
+    let mut warnings = Vec::new();
+    let mut sql_statements = Vec::new();
+
+    // Build all SQL statements
+    for (idx, command) in transaction.commands.iter().enumerate() {
+        tracing::info!("  Building SQL for command {}/{}: {} ({})",
+            idx + 1,
+            transaction.commands.len(),
+            command.operation_type,
+            command.id
+        );
+
+        match build_command_sql(command) {
+            Ok(sql) => {
+                tracing::info!("    Generated SQL: {}", sql);
+                sql_statements.push(sql);
+
+                let summary = CommandSummary {
+                    id: command.id.clone(),
+                    operation_type: command.operation_type.clone(),
+                    description: command.metadata.as_ref().and_then(|m| m.description.clone()),
+                    affected_rows: Some(1), // Will be updated after execution
+                };
+                committed.push(summary);
+            }
+            Err(e) => {
+                tracing::error!("  ❌ Failed to build SQL for command {}: {}", command.id, e);
+
+                let error = CommandError {
+                    code: "SQL_BUILD_FAILED".to_string(),
+                    message: e.to_string(),
+                    severity: "error".to_string(),
+                    recoverable: false,
+                };
+
+                let failure = CommandFailure {
+                    id: command.id.clone(),
+                    operation_type: command.operation_type.clone(),
+                    error,
+                    rolled_back: false,
+                };
+
+                return Ok(TransactionResult {
+                    transaction_id,
+                    success: false,
+                    duration_ms: start_time.elapsed().as_millis() as u64,
+                    committed: vec![],
+                    failures: vec![failure],
+                    warnings: None,
+                    id_mappings: None,
+                });
+            }
+        }
+    }
+
+    // Execute all statements in a single transaction
+    tracing::info!("  Executing {} statements in transaction...", sql_statements.len());
+    match adapter.execute_in_transaction(sql_statements).await {
+        Ok(results) => {
+            tracing::info!("  ✅ Transaction committed successfully");
+            tracing::info!("  Duration: {}ms", start_time.elapsed().as_millis());
+
+            // Update affected rows in committed summaries
+            for (i, rows) in results.iter().enumerate() {
+                if let Some(summary) = committed.get_mut(i) {
+                    summary.affected_rows = Some(*rows);
+                }
+            }
+
+            Ok(TransactionResult {
+                transaction_id,
+                success: true,
+                duration_ms: start_time.elapsed().as_millis() as u64,
+                committed,
+                failures: vec![],
+                warnings: if warnings.is_empty() { None } else { Some(warnings) },
+                id_mappings: if id_mappings.is_empty() { None } else { Some(id_mappings) },
+            })
+        }
+        Err(e) => {
+            tracing::error!("  ❌ Transaction failed: {}", e);
+
+            let error = CommandError {
+                code: "TRANSACTION_FAILED".to_string(),
+                message: e.to_string(),
+                severity: "error".to_string(),
+                recoverable: false,
+            };
+
+            let failure = CommandFailure {
+                id: "transaction".to_string(),
+                operation_type: "transaction".to_string(),
+                error,
+                rolled_back: true,
+            };
+
+            Ok(TransactionResult {
+                transaction_id,
+                success: false,
+                duration_ms: start_time.elapsed().as_millis() as u64,
+                committed: vec![],
+                failures: vec![failure],
+                warnings: None,
+                id_mappings: None,
+            })
+        }
+    }
+}
+
+/// Build SQL for a single command
+fn build_command_sql(command: &CrudCommand) -> Result<String> {
+    match command.operation_type.as_str() {
+        "data.update" => build_update_sql(command),
+        "data.insert" => build_insert_sql(command),
+        "data.delete" => build_delete_sql(command),
+        _ => Err(AppError::Unsupported(format!("Operation type {} not yet supported in transactions", command.operation_type))),
+    }
+}
+
+/// Build UPDATE SQL
+fn build_update_sql(command: &CrudCommand) -> Result<String> {
+    let payload = command.payload.as_object().ok_or_else(|| {
+        AppError::InvalidInput("data.update payload must be an object".to_string())
+    })?;
+
+    let column = payload
+        .get("column")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::InvalidInput("Missing 'column' in payload".to_string()))?;
+
+    let new_value = payload
+        .get("newValue")
+        .ok_or_else(|| AppError::InvalidInput("Missing 'newValue' in payload".to_string()))?;
+
+    let primary_keys = payload
+        .get("primaryKeys")
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| AppError::InvalidInput("Missing 'primaryKeys' in payload".to_string()))?;
+
+    let schema = command.target.schema.as_deref().unwrap_or("public");
+    let table = command.target.table.as_ref().ok_or_else(|| {
+        AppError::InvalidInput("Missing table in target".to_string())
+    })?;
+
+    let where_clause = primary_keys
+        .iter()
+        .map(|(k, v)| format!("{} = {}", quote_identifier(k), format_value(v)))
+        .collect::<Vec<_>>()
+        .join(" AND ");
+
+    Ok(format!(
+        "UPDATE {}.{} SET {} = {} WHERE {}",
+        quote_identifier(schema),
+        quote_identifier(table),
+        quote_identifier(column),
+        format_value(new_value),
+        where_clause
+    ))
+}
+
+/// Build INSERT SQL
+fn build_insert_sql(command: &CrudCommand) -> Result<String> {
+    let payload = command.payload.as_object().ok_or_else(|| {
+        AppError::InvalidInput("data.insert payload must be an object".to_string())
+    })?;
+
+    let values = payload
+        .get("values")
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| AppError::InvalidInput("Missing 'values' in payload".to_string()))?;
+
+    let schema = command.target.schema.as_deref().unwrap_or("public");
+    let table = command.target.table.as_ref().ok_or_else(|| {
+        AppError::InvalidInput("Missing table in target".to_string())
+    })?;
+
+    let columns: Vec<&str> = values.keys().map(|s| s.as_str()).collect();
+    let column_list = columns
+        .iter()
+        .map(|c| quote_identifier(c))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let value_list = columns
+        .iter()
+        .map(|c| format_value(values.get(*c).unwrap()))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    Ok(format!(
+        "INSERT INTO {}.{} ({}) VALUES ({})",
+        quote_identifier(schema),
+        quote_identifier(table),
+        column_list,
+        value_list
+    ))
+}
+
+/// Build DELETE SQL
+fn build_delete_sql(command: &CrudCommand) -> Result<String> {
+    let payload = command.payload.as_object().ok_or_else(|| {
+        AppError::InvalidInput("data.delete payload must be an object".to_string())
+    })?;
+
+    let primary_keys = payload
+        .get("primaryKeys")
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| AppError::InvalidInput("Missing 'primaryKeys' in payload".to_string()))?;
+
+    let schema = command.target.schema.as_deref().unwrap_or("public");
+    let table = command.target.table.as_ref().ok_or_else(|| {
+        AppError::InvalidInput("Missing table in target".to_string())
+    })?;
+
+    let where_clause = primary_keys
+        .iter()
+        .map(|(k, v)| format!("{} = {}", quote_identifier(k), format_value(v)))
+        .collect::<Vec<_>>()
+        .join(" AND ");
+
+    Ok(format!(
+        "DELETE FROM {}.{} WHERE {}",
+        quote_identifier(schema),
+        quote_identifier(table),
+        where_clause
+    ))
 }
 
 /// Execute a single CRUD command
