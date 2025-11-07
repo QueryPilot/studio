@@ -1,4 +1,9 @@
-import { useCallback, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import {
+  useCallback,
+  useMemo,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import type { GridSelection } from "@glideapps/glide-data-grid";
 
 export type CopyMode = "text" | "json";
@@ -23,7 +28,7 @@ export interface UseClipboardBridgeResult {
 
 export const hasNavigatorClipboard =
   typeof navigator !== "undefined" &&
-  typeof navigator.clipboard?.writeText === "function";
+  typeof navigator.clipboard.writeText === "function";
 
 const fallbackCopy = (text: string) => {
   if (typeof document === "undefined") {
@@ -37,6 +42,7 @@ const fallbackCopy = (text: string) => {
   document.body.appendChild(textarea);
   textarea.select();
   try {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- Fallback for browsers without Clipboard API
     document.execCommand("copy");
   } finally {
     document.body.removeChild(textarea);
@@ -48,7 +54,7 @@ export const writeTextToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
       return;
-    } catch (error) {
+    } catch {
       // Fallback if the browser rejects clipboard access (e.g., missing permission)
       fallbackCopy(text);
       return;
@@ -71,11 +77,9 @@ export function useClipboardBridge(
             ? JSON.stringify(toJson(selection), null, 2)
             : toText(selection);
 
-        if (payload == null) {
-          throw new Error("Clipboard payload is empty");
-        }
+        if (!payload) throw new Error("Clipboard payload is empty");
 
-        await writeTextToClipboard(String(payload));
+        await writeTextToClipboard(payload);
         setLastCopyMode(mode);
         onCopySuccess?.(mode);
       } catch (error) {
@@ -92,7 +96,7 @@ export function useClipboardBridge(
     async (event, selection) => {
       if (!selection) return false;
 
-      const key = event.key?.toLowerCase();
+      const key = event.key.toLowerCase();
       const isMeta = event.metaKey || event.ctrlKey;
 
       if (!isMeta || key !== "c") {

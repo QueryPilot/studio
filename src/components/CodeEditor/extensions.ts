@@ -275,7 +275,13 @@ const findSemicolonsNotInStrings = (text: string): number[] => {
     const prevChar = i > 0 ? text[i - 1] : "";
 
     // Handle line comments (--)
-    if (!inBlockComment && !inSingleQuote && !inDoubleQuote && !inBacktick && !inDollarQuote) {
+    if (
+      !inBlockComment &&
+      !inSingleQuote &&
+      !inDoubleQuote &&
+      !inBacktick &&
+      !inDollarQuote
+    ) {
       if (char === "-" && nextChar === "-") {
         inLineComment = true;
         i++; // skip the second dash
@@ -289,7 +295,7 @@ const findSemicolonsNotInStrings = (text: string): number[] => {
     }
 
     // Handle block comments (/* */)
-    if (!inLineComment && !inSingleQuote && !inDoubleQuote && !inBacktick && !inDollarQuote) {
+    if (!inSingleQuote && !inDoubleQuote && !inBacktick && !inDollarQuote) {
       if (char === "/" && nextChar === "*") {
         inBlockComment = true;
         i++; // skip the *
@@ -306,7 +312,7 @@ const findSemicolonsNotInStrings = (text: string): number[] => {
     }
 
     // Handle dollar quotes (PostgreSQL: $$ or $tag$)
-    if (char === "$" && !inSingleQuote && !inDoubleQuote && !inBacktick && !inLineComment && !inBlockComment) {
+    if (char === "$" && !inSingleQuote && !inDoubleQuote && !inBacktick) {
       const dollarMatch = text.slice(i).match(/^(\$\w*\$)/);
       if (dollarMatch && dollarMatch[1]) {
         const tag = dollarMatch[1];
@@ -327,7 +333,7 @@ const findSemicolonsNotInStrings = (text: string): number[] => {
     }
 
     // Handle regular quotes
-    if (!inDollarQuote && !inLineComment && !inBlockComment) {
+    if (!inDollarQuote) {
       if (char === "'" && prevChar !== "\\") {
         inSingleQuote = !inSingleQuote;
       } else if (char === '"' && prevChar !== "\\") {
@@ -343,9 +349,7 @@ const findSemicolonsNotInStrings = (text: string): number[] => {
       !inSingleQuote &&
       !inDoubleQuote &&
       !inBacktick &&
-      !inDollarQuote &&
-      !inLineComment &&
-      !inBlockComment
+      !inDollarQuote
     ) {
       positions.push(i);
     }
@@ -396,7 +400,7 @@ const getQueryAtCursor = (view: EditorView): string => {
   const cleanedQuery = query.replace(/;\s*$/, "");
 
   // Debug logging
-  console.log('[getQueryAtCursor] Extracted query:', {
+  console.log("[getQueryAtCursor] Extracted query:", {
     queryStart,
     queryEnd,
     docLength: doc.length,
@@ -444,18 +448,20 @@ export const createExecuteKeymap = (
       {
         key: "Mod-Enter",
         run: (view) => {
-          console.log('[Mod-Enter] KEY PRESSED - Starting query extraction');
+          console.log("[Mod-Enter] KEY PRESSED - Starting query extraction");
           const query = getQueryAtCursor(view);
-          console.log('[Mod-Enter] Calling onExecute with query:', {
+          console.log("[Mod-Enter] Calling onExecute with query:", {
             query,
-            queryLength: query?.length || 0,
+            queryLength: query.length || 0,
             isEmpty: !query,
           });
           if (query) {
-            console.log('[Mod-Enter] Calling onExecute WITH extracted query');
+            console.log("[Mod-Enter] Calling onExecute WITH extracted query");
             onExecute(query);
           } else {
-            console.log('[Mod-Enter] Calling onExecute WITHOUT query (will use editor state)');
+            console.log(
+              "[Mod-Enter] Calling onExecute WITHOUT query (will use editor state)",
+            );
             onExecute();
           }
           return true;
@@ -703,15 +709,15 @@ export const getEditorExtensions = (
   // Enable clipboard operations
   extensions.push(
     EditorView.domEventHandlers({
-      copy: (event, view) => {
+      copy: (_event, _view) => {
         // Let the browser handle copy natively
         return false;
       },
-      cut: (event, view) => {
+      cut: (_event, _view) => {
         // Let the browser handle cut natively
         return false;
       },
-      paste: (event, view) => {
+      paste: (_event, _view) => {
         // Let the browser handle paste natively
         return false;
       },

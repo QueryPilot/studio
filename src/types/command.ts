@@ -1,6 +1,6 @@
-import { ReactNode } from 'react';
+import { type ReactNode } from 'react';
 
-import { ContextSnapshot } from './context';
+import { type ContextSnapshot } from './context';
 
 export type CommandHandler<TArgs = unknown> = (
   args: TArgs,

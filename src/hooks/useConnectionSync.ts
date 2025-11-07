@@ -15,7 +15,7 @@ export function useConnectionSync() {
       // Listen for connection list changes
       unlistenConnectionsChanged = await listen('connections_changed', () => {
         // Re-fetch connections from backend
-        fetchConnections();
+        void fetchConnections();
       });
 
       // Listen for connection deletions
@@ -31,11 +31,11 @@ export function useConnectionSync() {
         }
 
         // Re-fetch connections to update the list
-        fetchConnections();
+        void fetchConnections();
       });
     };
 
-    setupListeners();
+    void setupListeners();
 
     return () => {
       if (unlistenConnectionsChanged) {

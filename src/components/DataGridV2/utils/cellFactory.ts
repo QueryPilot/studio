@@ -41,8 +41,8 @@ const cacheAndReturn = (
   result: GridCell,
 ): GridCell => {
   const finalized =
-    readOnly && (result.allowOverlay !== false || result.readonly !== true)
-      ? { ...result, allowOverlay: false, readonly: true }
+    readOnly && (result.allowOverlay || (result as any).readonly !== true)
+      ? { ...result, allowOverlay: false, readonly: true } as GridCell
       : result;
 
   if (value && typeof value === "object") {

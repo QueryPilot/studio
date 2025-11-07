@@ -170,7 +170,10 @@ export function highlightMatches(
       currentSegment = "";
     }
 
-    currentSegment += text[i];
+    const char = text[i];
+    if (char !== undefined) {
+      currentSegment += char;
+    }
     isCurrentMatch = isMatch;
   }
 

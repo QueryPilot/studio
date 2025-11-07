@@ -257,7 +257,17 @@ export const cellValueToGridCell = (
           displayText = "[object]";
         }
       } else {
-        displayText = String(inner);
+        if (typeof inner === "object") {
+          displayText = JSON.stringify(inner);
+        } else if (
+          typeof inner === "string" ||
+          typeof inner === "number" ||
+          typeof inner === "boolean"
+        ) {
+          displayText = String(inner);
+        } else {
+          displayText = "[Unknown]";
+        }
       }
     } else {
       // If it's an object without expected properties, convert to string
@@ -280,7 +290,7 @@ export const cellValueToGridCell = (
         numericValue = value;
       } else if (typeof value === "bigint") {
         numericValue = Number(value);
-        displayText = value.toString();
+        displayText = (value as bigint).toString();
       } else if (typeof value === "object" && "value" in value) {
         numericValue = Number(value.value);
         if (typeof value.value === "bigint") {

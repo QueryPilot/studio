@@ -1,6 +1,7 @@
 import { CrudCommandFactory } from "./crudCommandFactory";
 import { useCrudStore } from "@/stores/crudStore";
 import type {
+  CrudCommand,
   CrudCommandFor,
   CrudCommandTarget,
   IndexDefinitionInput,
@@ -32,20 +33,22 @@ const validateIndexDefinition = (definition: IndexDefinitionInput): void => {
   if (!definition.name || definition.name.trim() === "") {
     throw new Error("IndexOperationsService: definition.name is required");
   }
-  if (!definition.columns || definition.columns.length === 0) {
-    throw new Error("IndexOperationsService: definition.columns must include at least one column");
+  if (definition.columns.length === 0) {
+    throw new Error(
+      "IndexOperationsService: definition.columns must include at least one column",
+    );
   }
 };
 
-const stageCommand = (command: CrudCommandFor<any>, shouldStage = true): void => {
+const stageCommand = (command: CrudCommand, shouldStage = true): void => {
   if (!shouldStage) {
     return;
   }
   useCrudStore.getState().stageCommand(command);
 };
 
-export class IndexOperationsService {
-  static createIndex(params: CreateIndexParams): CrudCommandFor<'index.create'> {
+export const IndexOperationsService = {
+  createIndex(params: CreateIndexParams): CrudCommandFor<"index.create"> {
     validateIndexDefinition(params.definition);
 
     const command = CrudCommandFactory.createIndexCreateCommand({
@@ -54,17 +57,21 @@ export class IndexOperationsService {
       userId: params.userId,
       description:
         params.description ??
-        `Create index ${params.definition.name} on ${params.target.table ?? "table"}`,
+        `Create index ${params.definition.name} on ${
+          params.target.table ?? "table"
+        }`,
       tags: params.tags,
     });
 
     stageCommand(command, params.stage !== false);
     return command;
-  }
+  },
 
-  static dropIndex(params: DropIndexParams): CrudCommandFor<'index.drop'> {
+  dropIndex(params: DropIndexParams): CrudCommandFor<"index.drop"> {
     if (!params.indexName || params.indexName.trim() === "") {
-      throw new Error("IndexOperationsService: indexName is required for dropIndex");
+      throw new Error(
+        "IndexOperationsService: indexName is required for dropIndex",
+      );
     }
 
     const command = CrudCommandFactory.createIndexDropCommand({
@@ -80,14 +87,18 @@ export class IndexOperationsService {
 
     stageCommand(command, params.stage !== false);
     return command;
-  }
+  },
 
-  static renameIndex(params: RenameIndexParams): CrudCommandFor<'index.rename'> {
+  renameIndex(params: RenameIndexParams): CrudCommandFor<"index.rename"> {
     if (!params.indexName || params.indexName.trim() === "") {
-      throw new Error("IndexOperationsService: indexName is required for renameIndex");
+      throw new Error(
+        "IndexOperationsService: indexName is required for renameIndex",
+      );
     }
     if (!params.newName || params.newName.trim() === "") {
-      throw new Error("IndexOperationsService: newName is required for renameIndex");
+      throw new Error(
+        "IndexOperationsService: newName is required for renameIndex",
+      );
     }
 
     const command = CrudCommandFactory.createIndexRenameCommand({
@@ -97,14 +108,15 @@ export class IndexOperationsService {
       userId: params.userId,
       description:
         params.description ??
-        `Rename index ${params.indexName} to ${params.newName} on ${params.target.table ?? "table"}`,
+        `Rename index ${params.indexName} to ${params.newName} on ${
+          params.target.table ?? "table"
+        }`,
       tags: params.tags,
     });
 
     stageCommand(command, params.stage !== false);
     return command;
-  }
-}
+  },
+};
 
 export const indexOperationsService = IndexOperationsService;
-

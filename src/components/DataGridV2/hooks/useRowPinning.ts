@@ -30,7 +30,7 @@ export function useRowPinning(
     rows,
     initialPinned = [],
     maxPinnedRows = DEFAULT_MAX_PINNED,
-    getRowId = (row, index) => `row-${index}`,
+    getRowId = (_row, index) => `row-${index}`,
     onChange,
   } = options;
 

@@ -117,7 +117,7 @@ export function MentionAutocomplete({
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => { window.removeEventListener("keydown", handleKeyDown); };
   }, [items, selectedIndex, onSelect, onClose]);
 
   // Click outside to close
@@ -129,7 +129,7 @@ export function MentionAutocomplete({
     };
 
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    return () => { document.removeEventListener("mousedown", handleClickOutside); };
   }, [onClose]);
 
   if (items.length === 0) {
@@ -151,7 +151,7 @@ export function MentionAutocomplete({
             {items.map((item, index) => (
               <CommandItem
                 key={`${item.type}-${item.label}`}
-                onSelect={() => onSelect(item)}
+                onSelect={() => { onSelect(item); }}
                 className={cn(
                   "flex items-center gap-2 cursor-pointer",
                   index === selectedIndex && "bg-accent",

@@ -293,6 +293,16 @@ function formatData(data: unknown) {
   try {
     return JSON.stringify(data, null, 2);
   } catch {
-    return String(data);
+    if (typeof data === "object") {
+      return "[Complex Object]";
+    }
+    if (
+      typeof data === "string" ||
+      typeof data === "number" ||
+      typeof data === "boolean"
+    ) {
+      return String(data);
+    }
+    return "[Unknown]";
   }
 }

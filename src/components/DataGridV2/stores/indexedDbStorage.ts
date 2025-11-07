@@ -34,12 +34,14 @@ export const createIndexedDbStorage = (storeName?: string): StateStorage => {
 
   if (!database) {
     return {
-      getItem: async (name) => memoryStore.get(name) ?? null,
-      setItem: async (name, value) => {
+      getItem: (name) => Promise.resolve(memoryStore.get(name) ?? null),
+      setItem: (name, value) => {
         memoryStore.set(name, value);
+        return Promise.resolve();
       },
-      removeItem: async (name) => {
+      removeItem: (name) => {
         memoryStore.delete(name);
+        return Promise.resolve();
       },
     } satisfies StateStorage;
   }

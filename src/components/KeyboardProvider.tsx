@@ -1,4 +1,4 @@
-import { ReactNode, createContext, useContext, useEffect, useMemo } from 'react';
+import React, { type ReactNode, createContext, useContext, useEffect, useMemo } from 'react';
 import { shallow } from 'zustand/shallow';
 
 import { contextKeyDefinitions } from '@/data/contextKeys';
@@ -47,7 +47,7 @@ function initializeServices(): void {
   servicesInitialized = true;
 }
 
-export function KeyboardProvider({ children }: KeyboardProviderProps): JSX.Element {
+export function KeyboardProvider({ children }: KeyboardProviderProps): React.JSX.Element {
   useEffect(() => {
     // Initialize services (commands and keybindings)
     initializeServices();
@@ -63,11 +63,11 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): JSX.Eleme
 
     setSidebarContext(useWorkspaceScreenStore.getState().getSidebars());
 
-    const unsubscribeSidebars = useWorkspaceScreenStore.subscribe(
-      (state) => state.getSidebars(),
+    const unsubscribeSidebars = (useWorkspaceScreenStore.subscribe as any)(
+      (state: any) => state.getSidebars(),
       setSidebarContext,
       {
-        equalityFn: (left, right) => left.left === right.left && left.right === right.right,
+        equalityFn: (left: any, right: any) => left.left === right.left && left.right === right.right,
       }
     );
 
@@ -85,8 +85,8 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): JSX.Eleme
       focusedPanelId: initialWorkbenchState.focusedPanelId,
     });
 
-    const unsubscribeWorkbench = useWorkbenchStore.subscribe(
-      (state) => ({
+    const unsubscribeWorkbench = (useWorkbenchStore.subscribe as any)(
+      (state: any) => ({
         panelCount: state.panelContents.size,
         focusedPanelId: state.focusedPanelId,
       }),

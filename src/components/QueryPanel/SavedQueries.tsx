@@ -1,9 +1,17 @@
-import { useEffect, useState } from "react";
-import { queryHistoryService, type QueryHistoryEntry } from "@/services/queryHistoryService";
+import { useCallback, useEffect, useState } from "react";
+import {
+  queryHistoryService,
+  type QueryHistoryEntry,
+} from "@/services/queryHistoryService";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Star, Trash2, Edit, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import dayjs from "dayjs";
@@ -27,66 +35,84 @@ export function SavedQueries({
   const [favorites, setFavorites] = useState<QueryHistoryEntry[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(true);
-  const [editingFavorite, setEditingFavorite] = useState<{ id: number; currentName: string } | null>(null);
+  const [editingFavorite, setEditingFavorite] = useState<{
+    id: number;
+    currentName: string;
+  } | null>(null);
   const [favoriteName, setFavoriteName] = useState("");
 
   useEffect(() => {
-    loadFavorites();
-  }, [connectionId, database]);
+    void loadFavorites();
+  }, []);
 
-  const loadFavorites = async () => {
+  const loadFavorites = useCallback(async () => {
     setIsLoading(true);
     try {
-      const favoritesData = await queryHistoryService.getFavorites(connectionId, database);
+      const favoritesData = await queryHistoryService.getFavorites(
+        connectionId,
+        database,
+      );
       setFavorites(favoritesData);
     } catch (error) {
       console.error("Failed to load favorites:", error);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [connectionId, database]);
 
-  const handleSearch = async () => {
+  const handleSearch = useCallback(async () => {
     if (searchTerm.trim()) {
-      const allFavorites = await queryHistoryService.getFavorites(connectionId, database);
-      const filtered = allFavorites.filter(fav => 
-        fav.query.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        fav.name?.toLowerCase().includes(searchTerm.toLowerCase())
+      const allFavorites = await queryHistoryService.getFavorites(
+        connectionId,
+        database,
+      );
+      const filtered = allFavorites.filter(
+        (fav) =>
+          fav.query.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          fav.name?.toLowerCase().includes(searchTerm.toLowerCase()),
       );
       setFavorites(filtered);
     } else {
-      loadFavorites();
+      void loadFavorites();
     }
-  };
+  }, [connectionId, database, loadFavorites, searchTerm]);
 
-  const handleUpdateName = async () => {
+  const handleUpdateName = useCallback(async () => {
     if (editingFavorite && favoriteName.trim()) {
       try {
-        await queryHistoryService.updateFavoriteName(editingFavorite.id, favoriteName.trim());
+        await queryHistoryService.updateFavoriteName(
+          editingFavorite.id,
+          favoriteName.trim(),
+        );
         toast.success("Favorite name updated");
         setEditingFavorite(null);
         setFavoriteName("");
-        loadFavorites();
-      } catch (error) {
+        void loadFavorites();
+      } catch {
         toast.error("Failed to update favorite name");
       }
     }
-  };
+  }, [editingFavorite, favoriteName, loadFavorites]);
 
-  const handleDelete = async (id: number) => {
-    try {
-      await queryHistoryService.toggleFavorite(id);
-      toast.success("Removed from favorites");
-      loadFavorites();
-    } catch (error) {
-      toast.error("Failed to remove from favorites");
+  const handleDelete = useCallback(
+    async (id: number) => {
+      try {
+        await queryHistoryService.toggleFavorite(id);
+        toast.success("Removed from favorites");
+        void loadFavorites();
+      } catch {
+        toast.error("Failed to remove from favorites");
+      }
+    },
+    [loadFavorites],
+  );
+
+  const handleEdit = useCallback((favorite: QueryHistoryEntry) => {
+    if (favorite.id) {
+      setEditingFavorite({ id: favorite.id, currentName: favorite.name || "" });
+      setFavoriteName(favorite.name || "");
     }
-  };
-
-  const handleEdit = (favorite: QueryHistoryEntry) => {
-    setEditingFavorite({ id: favorite.id!, currentName: favorite.name || '' });
-    setFavoriteName(favorite.name || '');
-  };
+  }, []);
 
   if (isLoading) {
     return (
@@ -105,8 +131,14 @@ export function SavedQueries({
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 value={searchTerm}
-                onChange={(e) => { setSearchTerm(e.target.value); }}
-                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    void handleSearch();
+                  }
+                }}
                 placeholder="Search favorites..."
                 className="pl-8 h-8"
               />
@@ -114,7 +146,7 @@ export function SavedQueries({
                 <Button
                   onClick={() => {
                     setSearchTerm("");
-                    loadFavorites();
+                    void loadFavorites();
                   }}
                   variant="ghost"
                   size="icon"
@@ -142,14 +174,16 @@ export function SavedQueries({
                 <div
                   key={favorite.id}
                   className="group relative p-3 rounded-md border cursor-pointer hover:bg-muted/50 transition-colors"
-                  onClick={() => { onSelectQuery(favorite.query); }}
+                  onClick={() => {
+                    onSelectQuery(favorite.query);
+                  }}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <Star className="h-3 w-3 text-yellow-500 fill-yellow-500 flex-shrink-0" />
                         <h4 className="font-medium text-sm">
-                          {favorite.name || 'Untitled Query'}
+                          {favorite.name || "Untitled Query"}
                         </h4>
                       </div>
                       <pre className="font-mono text-xs whitespace-pre-wrap break-all text-muted-foreground">
@@ -183,7 +217,7 @@ export function SavedQueries({
                       <Button
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDelete(favorite.id!);
+                          if (favorite.id) void handleDelete(favorite.id);
                         }}
                         variant="ghost"
                         size="icon"
@@ -201,12 +235,15 @@ export function SavedQueries({
       </div>
 
       {/* Edit Favorite Name Dialog */}
-      <Dialog open={!!editingFavorite} onOpenChange={(open) => {
-        if (!open) {
-          setEditingFavorite(null);
-          setFavoriteName("");
-        }
-      }}>
+      <Dialog
+        open={!!editingFavorite}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingFavorite(null);
+            setFavoriteName("");
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Edit Favorite Name</DialogTitle>
@@ -216,7 +253,9 @@ export function SavedQueries({
               <label className="text-sm font-medium">Name</label>
               <Input
                 value={favoriteName}
-                onChange={(e) => { setFavoriteName(e.target.value); }}
+                onChange={(e) => {
+                  setFavoriteName(e.target.value);
+                }}
                 placeholder="Enter a name for this query..."
                 className="mt-1"
                 onKeyDown={(e) => e.key === "Enter" && handleUpdateName()}

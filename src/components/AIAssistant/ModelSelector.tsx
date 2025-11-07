@@ -119,7 +119,7 @@ export function ModelSelector({ onModelChange }: ModelSelectorProps) {
               {group.models.map((model) => (
                 <DropdownMenuItem
                   key={model}
-                  onClick={() => handleModelSelect(group.provider, model)}
+                  onClick={() => { handleModelSelect(group.provider, model); }}
                   className="text-xs"
                 >
                   <div className="flex items-center justify-between w-full">

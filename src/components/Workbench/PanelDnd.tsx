@@ -24,8 +24,9 @@ import { PanelContentRenderer } from "./PanelContentRenderer";
 import { useDroppable } from "@dnd-kit/core";
 import { DraggableTab } from "./DraggableTab";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
-import { useSchemaStore } from "@/stores/schemaStore";
+
 import { normalizeKeybindingLabel } from "@/lib/keyboardDispatch";
+import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 
 const EMPTY_PANEL_SHORTCUTS: Array<{ label: string; binding: string }> = [
   { label: "New query tab", binding: "cmd+t" },
@@ -249,7 +250,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
 
     const { activeConnectionId, panelContents } = useWorkbenchStore.getState();
     const { getConnection } = useConnectionStore.getState();
-    const { selectedSchema } = useSchemaStore.getState();
+    const { schema: selectedSchema } = useWorkspaceSelectionStore.getState();
 
     const connectionId = activeConnectionId ?? "";
     const connection = connectionId ? getConnection(connectionId) : null;

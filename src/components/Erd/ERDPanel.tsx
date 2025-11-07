@@ -279,7 +279,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
       targetDatabase,
       ensureView,
       setActiveViewStore,
-      connection?.type,
+      connection?.db_type,
       updateView,
     ],
   );
@@ -298,14 +298,6 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
       setDbmlDocument(activeView.dbml);
     }
   }, [activeView?.dbml, dbmlDocument]);
-
-  const _handleSchemaChange = (next: string) => {
-    setSelectedSchema(next);
-    setTables([]);
-    setRelationships([]);
-    setError(null);
-    setParseError(null);
-  };
 
   const handleRefresh = () => {
     void loadSchemaData(selectedSchema, { force: true });

@@ -8,7 +8,7 @@ import {
   TriangleAlert,
   Wrench,
 } from "lucide-react";
-import type { DynamicToolUIPart, ToolUIPart } from "ai";
+import type { ToolUIPart } from "ai";
 import { cn } from "@/lib/utils";
 
 interface ToolCallDisplayProps {
@@ -47,8 +47,8 @@ export function ToolCallDisplay({
     input !== undefined && !isMeaninglessObject(input)
       ? input
       : rawInput && !isMeaninglessObject(rawInput)
-        ? rawInput
-        : undefined;
+      ? rawInput
+      : undefined;
 
   return (
     <div
@@ -60,7 +60,12 @@ export function ToolCallDisplay({
       <div className="flex flex-col gap-3">
         <header className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-2">
-            <div className={cn("mt-0.5 flex h-6 w-6 items-center justify-center rounded-full", theme.iconBg)}>
+            <div
+              className={cn(
+                "mt-0.5 flex h-6 w-6 items-center justify-center rounded-full",
+                theme.iconBg,
+              )}
+            >
               {theme.icon}
             </div>
             <div className="space-y-1">
@@ -71,7 +76,9 @@ export function ToolCallDisplay({
                 </span>
                 <StatusBadge status={status} />
                 {providerExecuted && <Chip label="Provider execution" />}
-                {preliminary && status === "success" && <Chip label="Preliminary" />}
+                {preliminary && status === "success" && (
+                  <Chip label="Preliminary" />
+                )}
               </div>
               <p className="text-[11px] leading-relaxed text-muted-foreground/90">
                 {statusMessage}
@@ -109,11 +116,7 @@ export function ToolCallDisplay({
   );
 }
 
-function StatusBadge({
-  status,
-}: {
-  status: "pending" | "success" | "error";
-}) {
+function StatusBadge({ status }: { status: "pending" | "success" | "error" }) {
   const { label, badge } = STATUS_THEME[status];
   return (
     <span
@@ -154,7 +157,17 @@ function formatValue(value: unknown) {
   try {
     return JSON.stringify(value, null, 2);
   } catch {
-    return String(value);
+    if (typeof value === "object") {
+      return "[Complex Object]";
+    }
+    if (
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+    ) {
+      return String(value);
+    }
+    return "[Unknown]";
   }
 }
 
@@ -166,14 +179,16 @@ function isMeaninglessObject(value: unknown) {
   return Object.keys(value as Record<string, unknown>).length === 0;
 }
 
-type ToolInvocationState = ToolUIPart["state"] | DynamicToolUIPart["state"];
+type ToolInvocationState = ToolUIPart["state"];
 
 const STATUS_THEME = {
   pending: {
     label: "Pending",
     container: "border-blue-200/40",
     badge: "border-blue-200/70 bg-blue-500/10 text-blue-600",
-    icon: <Loader2 className="h-4 w-4 animate-spin text-blue-500" aria-hidden />,
+    icon: (
+      <Loader2 className="h-4 w-4 animate-spin text-blue-500" aria-hidden />
+    ),
     iconBg: "bg-blue-500/10",
   },
   success: {
@@ -190,13 +205,16 @@ const STATUS_THEME = {
     icon: <TriangleAlert className="h-4 w-4 text-destructive" aria-hidden />,
     iconBg: "bg-destructive/10",
   },
-} satisfies Record<"pending" | "success" | "error", {
-  label: string;
-  container: string;
-  badge: string;
-  icon: ReactNode;
-  iconBg: string;
-}>;
+} satisfies Record<
+  "pending" | "success" | "error",
+  {
+    label: string;
+    container: string;
+    badge: string;
+    icon: ReactNode;
+    iconBg: string;
+  }
+>;
 
 function deriveStatus({
   state,
@@ -264,10 +282,7 @@ function extractFailure(output: unknown): string | undefined {
       return maybeRecord.error;
     }
 
-    if (
-      typeof maybeRecord.success === "boolean" &&
-      maybeRecord.success === false
-    ) {
+    if (typeof maybeRecord.success === "boolean" && !maybeRecord.success) {
       if (typeof maybeRecord.message === "string") {
         return maybeRecord.message;
       }
@@ -306,7 +321,9 @@ function CollapsibleSection({
           <ChevronRight className="h-3.5 w-3.5" aria-hidden />
         )}
       </button>
-      {open && <div className="border-t border-border/60 px-3 py-2">{children}</div>}
+      {open && (
+        <div className="border-t border-border/60 px-3 py-2">{children}</div>
+      )}
     </div>
   );
 }
@@ -328,7 +345,7 @@ function StructuredValue({ value }: { value: unknown }) {
     }
 
     if (value.every(isPlainObject)) {
-      return <TableView rows={value as Array<Record<string, unknown>>} />;
+      return <TableView rows={value} />;
     }
 
     return (
@@ -343,13 +360,15 @@ function StructuredValue({ value }: { value: unknown }) {
   }
 
   if (isPlainObject(value)) {
-    const record = value as Record<string, unknown>;
+    const record = value;
 
     if (isTableCollection(record)) {
       return (
         <div className="space-y-3">
           {record.tables.length === 0 ? (
-            <p className="text-[11px] text-muted-foreground">No tables found.</p>
+            <p className="text-[11px] text-muted-foreground">
+              No tables found.
+            </p>
           ) : (
             <TableView rows={record.tables} />
           )}
@@ -360,7 +379,10 @@ function StructuredValue({ value }: { value: unknown }) {
     return (
       <dl className="grid grid-cols-1 gap-2 text-[11px] text-muted-foreground">
         {Object.entries(record).map(([key, entry]) => (
-          <div key={key} className="rounded border border-border/70 bg-background/80 p-2">
+          <div
+            key={key}
+            className="rounded border border-border/70 bg-background/80 p-2"
+          >
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               {key}
             </div>
@@ -397,7 +419,10 @@ function TableView({ rows }: { rows: Array<Record<string, unknown>> }) {
         <thead className="bg-muted/60 text-muted-foreground">
           <tr>
             {columns.map((column) => (
-              <th key={column} className="border-b border-border/60 px-3 py-2 font-semibold">
+              <th
+                key={column}
+                className="border-b border-border/60 px-3 py-2 font-semibold"
+              >
                 {column}
               </th>
             ))}
@@ -407,7 +432,10 @@ function TableView({ rows }: { rows: Array<Record<string, unknown>> }) {
           {rows.map((row, rowIndex) => (
             <tr key={rowIndex} className="odd:bg-background even:bg-muted/30">
               {columns.map((column) => (
-                <td key={column} className="border-b border-border/30 px-3 py-2 align-top">
+                <td
+                  key={column}
+                  className="border-b border-border/30 px-3 py-2 align-top"
+                >
                   <span className="text-muted-foreground">
                     {formatTableCell(row[column])}
                   </span>
@@ -429,10 +457,17 @@ function formatTableCell(value: unknown): string {
     try {
       return JSON.stringify(value);
     } catch {
-      return String(value);
+      return "[Complex Object]";
     }
   }
-  return String(value);
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return String(value);
+  }
+  return "[Unknown]";
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -446,7 +481,5 @@ function isTableCollection(
   value: Record<string, unknown>,
 ): value is { tables: Array<Record<string, unknown>> } {
   const tables = value.tables;
-  return (
-    Array.isArray(tables) && tables.every((item) => isPlainObject(item))
-  );
+  return Array.isArray(tables) && tables.every((item) => isPlainObject(item));
 }

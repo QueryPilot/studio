@@ -93,7 +93,7 @@ export function useTableFullStructure({
     database,
     schema,
     table,
-    options: normalizedOptions,
+    options: normalizedOptions as any,
   });
 
   const shouldEnable =

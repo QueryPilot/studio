@@ -253,7 +253,7 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
       if (!result.success) {
         // Format error message from failures
         const errorMessages = result.failures
-          .map((f) => `${f.error.message}`)
+          .map((f) => f.error.message)
           .join(", ");
         throw new Error(errorMessages || "Transaction failed");
       }

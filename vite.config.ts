@@ -21,7 +21,7 @@ const antlr4BrowserEntry = (() => {
 })();
 
 // https://vite.dev/config/
-export default defineConfig(async () => ({
+export default defineConfig(() => ({
   plugins: [react()],
 
   resolve: {

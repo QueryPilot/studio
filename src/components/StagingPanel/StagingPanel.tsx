@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useCrudStore } from "@/stores/crudStore";
 import type { CrudCommand } from "@/types/crud";
-import { cn } from "@/lib/utils";
+
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -53,16 +53,17 @@ export function StagingPanel(props: StagingPanelProps) {
   const canRedo = historyIndex < history.length - 1;
 
   // Group commands by operation type
-  const groupedCommands = commands.reduce(
+  const groupedCommands = commands.reduce<Record<string, CrudCommand[]>>(
     (acc, cmd) => {
-      const group = cmd.type.split(".")[0]; // "data", "column", etc.
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const group = cmd.type.split(".")[0]!; // "data", "column", etc.
       if (!acc[group]) {
         acc[group] = [];
       }
       acc[group].push(cmd);
       return acc;
     },
-    {} as Record<string, CrudCommand[]>,
+    {},
   );
 
   const toggleGroup = (group: string) => {
@@ -112,7 +113,9 @@ export function StagingPanel(props: StagingPanelProps) {
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7"
-                onClick={() => undo()}
+                onClick={() => {
+                  undo();
+                }}
                 disabled={!canUndo}
               >
                 <Undo2 className="h-3.5 w-3.5" />
@@ -127,7 +130,9 @@ export function StagingPanel(props: StagingPanelProps) {
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7"
-                onClick={() => redo()}
+                onClick={() => {
+                  redo();
+                }}
                 disabled={!canRedo}
               >
                 <Redo2 className="h-3.5 w-3.5" />
@@ -144,7 +149,9 @@ export function StagingPanel(props: StagingPanelProps) {
           {Object.entries(groupedCommands).map(([group, groupCommands]) => (
             <div key={group} className="mb-2">
               <button
-                onClick={() => toggleGroup(group)}
+                onClick={() => {
+                  toggleGroup(group);
+                }}
                 className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-sm font-medium hover:bg-accent"
               >
                 {expandedGroups.has(group) ? (
@@ -164,7 +171,9 @@ export function StagingPanel(props: StagingPanelProps) {
                     <CommandItem
                       key={cmd.id}
                       command={cmd}
-                      onUnstage={() => unstageCommand(cmd.id)}
+                      onUnstage={() => {
+                        unstageCommand(cmd.id);
+                      }}
                     />
                   ))}
                 </div>
@@ -308,5 +317,7 @@ function formatValue(value: unknown): string {
   if (value === null || value === undefined) return "NULL";
   if (typeof value === "string") return `"${value}"`;
   if (typeof value === "boolean") return value ? "true" : "false";
-  return String(value);
+  if (typeof value === "object") return JSON.stringify(value);
+  if (typeof value === "number") return String(value);
+  return "[Unknown]";
 }

@@ -28,7 +28,7 @@ const db = new QueryHistoryDB();
 
 export const queryHistoryService = {
   async addEntry(entry: Omit<QueryHistoryEntry, "id">): Promise<number> {
-    return await db.queryHistory.add(entry);
+    return (await db.queryHistory.add(entry)) as number;
   },
 
   async getHistory(

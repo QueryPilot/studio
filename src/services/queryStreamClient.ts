@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import {
   invoke,
   SERIALIZE_TO_IPC_FN,
@@ -40,11 +41,11 @@ type ChannelLike = {
   toJSON: () => string;
 };
 
-function createIpcChannel<T>(handler: (message: T) => void): ChannelLike {
+function createIpcChannel(handler: (message: unknown) => void): ChannelLike {
   let nextMessageId = 0;
-  const pending = new Map<number, T>();
+  const pending = new Map<number, unknown>();
   const callbackId = transformCallback(
-    ({ message, id }: { message: T; id?: number }) => {
+    ({ message, id }: { message: unknown; id?: number }) => {
       // Suppress ID warnings - messages are delivered sequentially anyway
       if (typeof id !== "number") {
         handler(message);
@@ -206,9 +207,17 @@ export class QueryStreamClient {
 
       // DUAL CHANNEL: metadata (JSON) + data (raw ArrayBuffer)
       let batchCount = 0;
-
       // Data channel: receives raw MessagePack ArrayBuffers (Response type)
-      const dataChannel = createIpcChannel<ArrayBuffer>((buffer) => {
+      const dataChannel = createIpcChannel((message: unknown) => {
+        // Type guard: ensure message is an ArrayBuffer
+        if (!(message instanceof ArrayBuffer)) {
+          console.warn(
+            "[QueryStreamClient] Expected ArrayBuffer, received:",
+            typeof message,
+          );
+          return;
+        }
+        const buffer = message;
         // Decode MessagePack binary data directly from ArrayBuffer
         let parsedRows: CellValue[][];
         try {
@@ -230,7 +239,7 @@ export class QueryStreamClient {
         }
 
         // Skip if no rows decoded
-        if (!parsedRows || parsedRows.length === 0) {
+        if (parsedRows.length === 0) {
           return;
         }
 
@@ -244,16 +253,22 @@ export class QueryStreamClient {
       });
 
       // Metadata channel: receives JSON StreamMessages
-      const metadataChannel = createIpcChannel<StreamMessage | undefined>((message) => {
+      const metadataChannel = createIpcChannel((message) => {
         if (!message || typeof message !== "object") {
-          console.warn("[QueryStreamClient] Skipping malformed metadata message", message);
+          console.warn(
+            "[QueryStreamClient] Skipping malformed metadata message",
+            message,
+          );
           return;
         }
 
         const typedMessage = message as StreamMessage;
 
         if (typeof (typedMessage as { type?: unknown }).type !== "string") {
-          console.warn("[QueryStreamClient] Metadata message missing type", typedMessage);
+          console.warn(
+            "[QueryStreamClient] Metadata message missing type",
+            typedMessage,
+          );
           return;
         }
 
@@ -312,7 +327,9 @@ export class QueryStreamClient {
 
           default:
             console.warn(
-              `[QueryStreamClient] Received unknown metadata message type: ${typedMessage.type}`,
+              `[QueryStreamClient] Received unknown metadata message type: ${
+                (typedMessage as any).type
+              }`,
               typedMessage,
             );
             break;
@@ -327,7 +344,7 @@ export class QueryStreamClient {
           userLimitPreference,
           metadataChannel,
           dataChannel,
-        }).catch((error) => {
+        }).catch((error: unknown) => {
           const normalized = normalizeError(error);
           callbacks.onError?.(normalized);
           settleReject(normalized);

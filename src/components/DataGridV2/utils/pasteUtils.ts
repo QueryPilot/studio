@@ -93,7 +93,9 @@ export function parseJSON(text: string): ParsedPasteData {
     // Handle single object
     if (!Array.isArray(parsed)) {
       if (typeof parsed === "object" && parsed !== null) {
-        const values = Object.values(parsed).map(coerceValue);
+        const values = Object.values(parsed as Record<string, unknown>).map(
+          coerceValue,
+        );
         return {
           format: "json",
           rows: [values],
@@ -105,7 +107,7 @@ export function parseJSON(text: string): ParsedPasteData {
     // Handle array of objects
     const rows = parsed.map((item) => {
       if (typeof item === "object" && item !== null && !Array.isArray(item)) {
-        return Object.values(item).map(coerceValue);
+        return Object.values(item as Record<string, unknown>).map(coerceValue);
       }
       if (Array.isArray(item)) {
         return item.map(coerceValue);
@@ -164,7 +166,8 @@ function parseCSVLine(line: string): (string | number | boolean | null)[] {
   let inQuotes = false;
 
   for (let i = 0; i < line.length; i++) {
-    const char = line[i];
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const char = line[i]!;
     const nextChar = line[i + 1];
 
     if (char === '"') {
@@ -203,7 +206,14 @@ function coerceValue(value: unknown): string | number | boolean | null {
     if (typeof value === "number" || typeof value === "boolean") {
       return value;
     }
-    return String(value);
+    if (typeof value === "object") return JSON.stringify(value);
+    if (
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+    )
+      return String(value);
+    return "[Unknown]";
   }
 
   const str = value.trim();

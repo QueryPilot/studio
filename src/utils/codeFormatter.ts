@@ -23,7 +23,7 @@ export function formatSql(
     };
 
     const formatted = sqlFormat(code, {
-      language: languageMap[dialect] || "postgresql",
+      language: (languageMap[dialect] || "postgresql") as any,
       tabWidth: 2,
       keywordCase: "upper",
       indentStyle: "standard",

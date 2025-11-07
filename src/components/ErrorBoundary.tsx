@@ -1,5 +1,5 @@
-import React, { Component, type ErrorInfo, type ReactNode } from "react";
-import { AlertCircle, RefreshCw, Home, Copy, Check } from "lucide-react";
+import { Component, type ErrorInfo, type ReactNode } from "react";
+import { AlertCircle, RefreshCw, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
@@ -41,16 +41,6 @@ export class ErrorBoundary extends Component<Props, State> {
     });
   }
 
-  private handleReset = () => {
-    this.setState({
-      hasError: false,
-      error: null,
-      errorInfo: null,
-    });
-
-    this.props.onReset?.();
-  };
-
   private handleReload = () => {
     window.location.reload();
   };
@@ -69,7 +59,7 @@ export class ErrorBoundary extends Component<Props, State> {
       setTimeout(() => {
         this.setState({ copied: false });
       }, 2000);
-    } catch (err) {
+    } catch {
       toast.error("Failed to copy to clipboard");
     }
   };

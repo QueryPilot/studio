@@ -16,7 +16,7 @@ import {
   useEdgesState,
   useNodesState,
   EdgeLabelRenderer,
-  type Edge,
+  
   type EdgeProps,
   type Node,
   type NodeChange,
@@ -160,7 +160,7 @@ const makeHandleId = (
 const TABLE_NODE_TYPE = "table-node";
 const EDGE_TYPE = "foreign";
 
-const TableNodeComponent: React.FC<NodeProps<TableNodeData>> = ({
+const TableNodeComponent: React.FC<NodeProps<any>> = ({
   id,
   data,
   selected,
@@ -274,7 +274,7 @@ const TableNodeComponent: React.FC<NodeProps<TableNodeData>> = ({
       <div className="overflow-auto px-1.5 py-1">
         <ul className="space-y-0">
           {columns.map((column) => {
-            const { type, constraints } = formatColumnType(column);
+            const { type, constraints } = formatColumnType(column as ColumnMeta);
             return (
               <Tooltip key={column.name} delayDuration={200}>
                 <TooltipTrigger asChild>
@@ -295,7 +295,7 @@ const TableNodeComponent: React.FC<NodeProps<TableNodeData>> = ({
                     <Handle
                       type="target"
                       position={Position.Left}
-                      id={makeHandleId(column.name, "target", "left")}
+                      id={makeHandleId(column.name as string, "target", "left")}
                       className="absolute left-0 top-1/2 opacity-0 group-hover:opacity-100"
                       style={{
                         width: 8,
@@ -309,7 +309,7 @@ const TableNodeComponent: React.FC<NodeProps<TableNodeData>> = ({
                     <Handle
                       type="source"
                       position={Position.Left}
-                      id={makeHandleId(column.name, "source", "left")}
+                      id={makeHandleId(column.name as string, "source", "left")}
                       className="absolute left-0 top-1/2 opacity-0 group-hover:opacity-100"
                       style={{
                         width: 8,
@@ -325,7 +325,7 @@ const TableNodeComponent: React.FC<NodeProps<TableNodeData>> = ({
                         <span className="font-medium text-foreground truncate max-w-[120px]">
                           {column.name}
                         </span>
-                        {renderColumnIcons(column)}
+                        {renderColumnIcons(column as ColumnMeta)}
                       </div>
                       <div className="flex items-center gap-2 min-w-0">
                         {constraints.length > 0 && (
@@ -342,7 +342,7 @@ const TableNodeComponent: React.FC<NodeProps<TableNodeData>> = ({
                     <Handle
                       type="target"
                       position={Position.Right}
-                      id={makeHandleId(column.name, "target", "right")}
+                      id={makeHandleId(column.name as string, "target", "right")}
                       className="absolute right-0 top-1/2 opacity-0 group-hover:opacity-100"
                       style={{
                         width: 8,
@@ -356,7 +356,7 @@ const TableNodeComponent: React.FC<NodeProps<TableNodeData>> = ({
                     <Handle
                       type="source"
                       position={Position.Right}
-                      id={makeHandleId(column.name, "source", "right")}
+                      id={makeHandleId(column.name as string, "source", "right")}
                       className="absolute right-0 top-1/2 opacity-0 group-hover:opacity-100"
                       style={{
                         width: 8,
@@ -393,7 +393,7 @@ const TableNodeComponent: React.FC<NodeProps<TableNodeData>> = ({
 
 const TableNode = React.memo(TableNodeComponent);
 
-const ForeignKeyEdgeComponent: React.FC<EdgeProps<ForeignEdgeData>> = ({
+const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
   id,
   sourceX,
   sourceY,
@@ -406,15 +406,17 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<ForeignEdgeData>> = ({
   style = {},
   markerEnd,
 }) => {
+  const edgeData = data as ForeignEdgeData | undefined;
+
   // Determine relationship type based on cardinalities
   const getRelationshipType = () => {
-    const source = data?.sourceCardinality || "1";
-    const target = data?.targetCardinality || "1";
+    const source = edgeData?.sourceCardinality || "1";
+    const target = edgeData?.targetCardinality || "1";
     return `${source}-${target}`;
   };
 
   const relationshipType = getRelationshipType();
-  const highlighted = Boolean(selected || data?.highlighted);
+  const highlighted = Boolean(selected || edgeData?.highlighted);
 
   // Create custom markers for different relationship types
   const getMarkerStyle = (
@@ -530,11 +532,11 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<ForeignEdgeData>> = ({
 
   const sourceMarkerId = `marker-source-${id}`;
   const targetMarkerId = `marker-target-${id}`;
-  const sourceMarkerStyle = data?.sourceCardinality
-    ? getMarkerStyle(data.sourceCardinality, "source")
+  const sourceMarkerStyle = edgeData?.sourceCardinality
+    ? getMarkerStyle(edgeData.sourceCardinality, "source")
     : null;
-  const targetMarkerStyle = data?.targetCardinality
-    ? getMarkerStyle(data.targetCardinality, "target")
+  const targetMarkerStyle = edgeData?.targetCardinality
+    ? getMarkerStyle(edgeData.targetCardinality, "target")
     : null;
 
   return (
@@ -543,7 +545,7 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<ForeignEdgeData>> = ({
       <defs>
         {sourceMarkerStyle && (
           <marker id={sourceMarkerId} {...sourceMarkerStyle}>
-            {data?.sourceCardinality === "1" ? (
+            {edgeData?.sourceCardinality === "1" ? (
               <line x1="0" y1="0.5" x2="0" y2="6.5" />
             ) : (
               // Smaller crow's foot for "many"
@@ -557,7 +559,7 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<ForeignEdgeData>> = ({
         )}
         {targetMarkerStyle && (
           <marker id={targetMarkerId} {...targetMarkerStyle}>
-            {data?.targetCardinality === "1" ? (
+            {edgeData?.targetCardinality === "1" ? (
               <line x1="4" y1="0.5" x2="4" y2="6.5" />
             ) : (
               // Smaller crow's foot for "many"
@@ -577,8 +579,8 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<ForeignEdgeData>> = ({
         stroke="transparent"
         strokeWidth={20}
         fill="none"
-        onMouseEnter={() => data?.onHover?.(data.relationshipId)}
-        onMouseLeave={() => data?.onLeave?.()}
+        onMouseEnter={() => edgeData?.onHover?.(edgeData.relationshipId)}
+        onMouseLeave={() => edgeData?.onLeave?.()}
         pointerEvents="stroke"
         style={{ cursor: "pointer" }}
       />
@@ -616,40 +618,40 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<ForeignEdgeData>> = ({
       />
 
       {/* Cardinality indicators only show when line is hovered or highlighted */}
-      {data?.sourceCardinality && (data.isHovered || data.highlighted) && (
+      {edgeData?.sourceCardinality && (edgeData.isHovered || edgeData.highlighted) && (
         <EdgeLabelRenderer>
           <div
             style={{
               position: "absolute",
               transform: `translate(-50%, -50%) translate(${startLabelX}px, ${startLabelY}px)`,
               pointerEvents: "none",
-              opacity: data.isHovered || data.highlighted ? 1 : 0,
+              opacity: edgeData.isHovered || edgeData.highlighted ? 1 : 0,
               transition: "opacity 150ms ease-in-out",
             }}
             className="text-xs font-bold text-primary bg-background rounded-full w-6 h-6 flex items-center justify-center shadow-sm border border-primary/40"
           >
-            {data.sourceCardinality === "n" ? "N" : data.sourceCardinality}
+            {edgeData.sourceCardinality === "n" ? "N" : edgeData.sourceCardinality}
           </div>
         </EdgeLabelRenderer>
       )}
-      {data?.targetCardinality && (data.isHovered || data.highlighted) && (
+      {edgeData?.targetCardinality && (edgeData.isHovered || edgeData.highlighted) && (
         <EdgeLabelRenderer>
           <div
             style={{
               position: "absolute",
               transform: `translate(-50%, -50%) translate(${endLabelX}px, ${endLabelY}px)`,
               pointerEvents: "none",
-              opacity: data.isHovered || data.highlighted ? 1 : 0,
+              opacity: edgeData.isHovered || edgeData.highlighted ? 1 : 0,
               transition: "opacity 150ms ease-in-out",
             }}
             className="text-xs font-bold text-primary bg-background rounded-full w-6 h-6 flex items-center justify-center shadow-sm border border-primary/40"
           >
-            {data.targetCardinality === "n" ? "N" : data.targetCardinality}
+            {edgeData.targetCardinality === "n" ? "N" : edgeData.targetCardinality}
           </div>
         </EdgeLabelRenderer>
       )}
 
-      {data?.label && data.isHovered && (
+      {edgeData?.label && edgeData.isHovered && (
         <EdgeLabelRenderer>
           <div
             style={{
@@ -659,10 +661,10 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<ForeignEdgeData>> = ({
             }}
             className="rounded bg-background px-2 py-0.5 text-xs font-medium text-foreground shadow-md border border-primary/50"
           >
-            {data.label}
+            {edgeData.label}
             {/* Show relationship type in label when highlighted */}
             <span className="ml-1 text-xs text-muted-foreground">
-              ({data.sourceCardinality || "1"}:{data.targetCardinality || "1"})
+              ({edgeData.sourceCardinality || "1"}:{edgeData.targetCardinality || "1"})
             </span>
           </div>
         </EdgeLabelRenderer>
@@ -708,10 +710,8 @@ export const ERDVisualizer = React.forwardRef<
   ) => {
     edgeStylesInjected();
 
-    const [nodes, setNodes, onNodesChangeInternal] = useNodesState<
-      Node<TableNodeData>
-    >([]);
-    const [edges, setEdges] = useEdgesState<Edge<ForeignEdgeData>>([]);
+    const [nodes, setNodes, onNodesChangeInternal] = useNodesState<any>([]);
+    const [edges, setEdges] = useEdgesState<any>([]);
     const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
     const [hoveredRelationshipId, setHoveredRelationshipId] = useState<
       string | null
@@ -793,7 +793,7 @@ export const ERDVisualizer = React.forwardRef<
     );
 
     // Memoize edge creation for performance - CRITICAL optimization
-    const createEdges = useMemo((): Edge<ForeignEdgeData>[] => {
+    const createEdges = useMemo((): any[] => {
       return relationships.flatMap((relationship) => {
         const sourceId = `${relationship.fromSchema ?? "public"}.${
           relationship.fromTable
@@ -823,9 +823,9 @@ export const ERDVisualizer = React.forwardRef<
           }
 
           const sourceX =
-            sourceNode.position.x + (sourceNode.width || NODE_WIDTH) / 2;
+            ((sourceNode.position.x as number | undefined) ?? 0) + (((sourceNode.width as number | undefined) ?? NODE_WIDTH) / 2);
           const targetX =
-            targetNode.position.x + (targetNode.width || NODE_WIDTH) / 2;
+            ((targetNode.position.x as number | undefined) ?? 0) + (((targetNode.width as number | undefined) ?? NODE_WIDTH) / 2);
 
           // Calculate which sides would give the shortest connection
           const isTargetToTheRight = targetX > sourceX;
@@ -879,7 +879,7 @@ export const ERDVisualizer = React.forwardRef<
               onHover: handleEdgeHover,
               onLeave: handleEdgeLeave,
             },
-          } satisfies Edge<ForeignEdgeData>;
+          } as any;
         });
       });
     }, [relationships, handleEdgeHover, handleEdgeLeave]);
@@ -934,7 +934,7 @@ export const ERDVisualizer = React.forwardRef<
       Dagre.layout(g);
 
       const positions: Record<string, NodePosition> = {};
-      const layoutNodes: Node<TableNodeData>[] = tables.map((table) => {
+      const layoutNodes: any[] = tables.map((table) => {
         const id = buildNodeId(table);
         const dagreNode = g.node(id);
 
@@ -955,7 +955,7 @@ export const ERDVisualizer = React.forwardRef<
           style: {
             width: NODE_WIDTH,
           },
-        } satisfies Node<TableNodeData>;
+        } as any;
       });
 
       setNodes(layoutNodes);
@@ -968,7 +968,7 @@ export const ERDVisualizer = React.forwardRef<
       setTimeout(() => {
         const instance = flowInstanceRef.current;
         if (instance) {
-          instance.fitView({ padding: FIT_VIEW_PADDING, duration: 400 });
+          void instance.fitView({ padding: FIT_VIEW_PADDING, duration: 400 });
           // Update viewport state after fitting
           setTimeout(() => {
             const newViewport = instance.getViewport();
@@ -995,19 +995,19 @@ export const ERDVisualizer = React.forwardRef<
         zoomIn: () => {
           const instance = flowInstanceRef.current;
           if (instance) {
-            instance.zoomIn({ duration: 200 });
+            void instance.zoomIn({ duration: 200 });
           }
         },
         zoomOut: () => {
           const instance = flowInstanceRef.current;
           if (instance) {
-            instance.zoomOut({ duration: 200 });
+            void instance.zoomOut({ duration: 200 });
           }
         },
         fitView: () => {
           const instance = flowInstanceRef.current;
           if (instance) {
-            instance.fitView({ padding: FIT_VIEW_PADDING, duration: 400 });
+            void instance.fitView({ padding: FIT_VIEW_PADDING, duration: 400 });
           }
         },
       }),
@@ -1016,7 +1016,7 @@ export const ERDVisualizer = React.forwardRef<
 
     useEffect(() => {
       const applyStoredPositions = () => {
-        const positionedNodes: Node<TableNodeData>[] = tables.map((table) => {
+        const positionedNodes: any[] = tables.map((table) => {
           const id = buildNodeId(table);
           const position = nodePositions[id] ?? { x: 0, y: 0 };
           return {
@@ -1028,7 +1028,7 @@ export const ERDVisualizer = React.forwardRef<
             style: {
               width: NODE_WIDTH,
             },
-          } satisfies Node<TableNodeData>;
+          } as any;
         });
         setNodes(positionedNodes);
         setEdges(createEdges);
@@ -1063,7 +1063,7 @@ export const ERDVisualizer = React.forwardRef<
           if (!table) return node;
           return {
             ...node,
-            data: createNodeData(table, node.id),
+            data: createNodeData(table, node.id as string),
           };
         }),
       );
@@ -1088,13 +1088,13 @@ export const ERDVisualizer = React.forwardRef<
       }
 
       if (initialViewport) {
-        instance.setViewport(initialViewport as Viewport, { duration: 0 });
+        void instance.setViewport(initialViewport as Viewport, { duration: 0 });
         fitAppliedRef.current = true;
         return;
       }
 
       if (!fitAppliedRef.current && nodes.length > 0) {
-        instance.fitView({ padding: FIT_VIEW_PADDING, duration: 200 });
+        void instance.fitView({ padding: FIT_VIEW_PADDING, duration: 200 });
         fitAppliedRef.current = true;
       }
 
@@ -1105,7 +1105,7 @@ export const ERDVisualizer = React.forwardRef<
 
     const handleNodesChange = useCallback(
       (changes: NodeChange[]) => {
-        onNodesChangeInternal(changes);
+        onNodesChangeInternal(changes as NodeChange<any>[]);
         // Don't update positions during drag - only on drag end
         // This prevents throttling issues that cause nodes to disappear
       },
@@ -1216,10 +1216,10 @@ export const ERDVisualizer = React.forwardRef<
       >
         <ReactFlow
           className={FLOW_CLASS}
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
+          nodes={nodes as any}
+          edges={edges as any}
+          nodeTypes={nodeTypes as any}
+          edgeTypes={edgeTypes as any}
           fitView
           minZoom={0.1}
           maxZoom={2}
@@ -1238,7 +1238,7 @@ export const ERDVisualizer = React.forwardRef<
           onInit={(instance) => {
             flowInstanceRef.current = instance;
             if (initialViewport) {
-              instance.setViewport(initialViewport as Viewport, {
+              void instance.setViewport(initialViewport as Viewport, {
                 duration: 0,
               });
               fitAppliedRef.current = true;

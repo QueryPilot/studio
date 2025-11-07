@@ -4,9 +4,9 @@
  */
 
 import { StateField, StateEffect } from "@codemirror/state";
-import { EditorView, Decoration, type DecorationSet } from "@codemirror/view";
+import { EditorView, Decoration, type DecorationSet, WidgetType } from "@codemirror/view";
 import { SQL_FUNCTIONS } from "@/data/sqlFunctions";
-import type { SqlFunction, FunctionParameter } from "@/types/sqlFunctions";
+import type { SqlFunction } from "@/types/sqlFunctions";
 
 // Effect to update active function signature
 const setSignature = StateEffect.define<{
@@ -59,7 +59,7 @@ const signatureTooltip = StateField.define<DecorationSet>({
 });
 
 // Widget to display signature
-class SignatureWidget extends HTMLElement {
+class SignatureWidget extends WidgetType {
   constructor(private signature: string, private description: string) {
     super();
   }
@@ -81,6 +81,22 @@ class SignatureWidget extends HTMLElement {
 
     return dom;
   }
+
+  eq(other: SignatureWidget) {
+    return other.signature === this.signature && other.description === this.description;
+  }
+
+  updateDOM(_dom: HTMLElement): boolean {
+    return false;
+  }
+
+  get estimatedHeight() {
+    return -1;
+  }
+
+  ignoreEvent() {
+    return true;
+  }
 }
 
 /**
@@ -99,7 +115,7 @@ export function parameterHints() {
       // Find if we're inside a function call
       const functionMatch = textBefore.match(/\b([A-Z_]+)\s*\(\s*([^)]*)?$/i);
 
-      if (functionMatch) {
+      if (functionMatch && functionMatch[1]) {
         const funcName = functionMatch[1].toUpperCase();
         const argsText = functionMatch[2] || "";
 

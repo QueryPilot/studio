@@ -1,8 +1,8 @@
 import { normalizeKeybindingLabel, parseKeybindingInput } from '@/lib/keyboardDispatch';
-import { detectPlatform, RuntimePlatform } from '@/lib/platform';
-import { Keybinding, KeybindingConflict, KeybindingMatch, KeybindingSource, ResolvedKeybinding } from '@/types/keybinding';
+import { detectPlatform, type RuntimePlatform } from '@/lib/platform';
+import { type Keybinding, type KeybindingConflict, type KeybindingMatch, type KeybindingSource, type ResolvedKeybinding } from '@/types/keybinding';
 
-import { ContextService, contextService } from './contextService';
+import { type ContextService, contextService } from './contextService';
 
 const SOURCE_WEIGHT: Record<KeybindingSource, number> = {
   default: 0,
@@ -76,7 +76,7 @@ export class KeybindingService {
     this.bindings = retained;
 
     if (removed.length > 0) {
-      removed.forEach((binding) => this.emitUnregister(binding));
+      removed.forEach((binding) => { this.emitUnregister(binding); });
       this.emitChange();
     }
   }

@@ -175,14 +175,14 @@ export const calculateDecimalStatistics = (
   const sorted = [...values].sort((a, b) => a.comparedTo(b));
   const mid = Math.floor(sorted.length / 2);
   const median =
-    sorted.length % 2 === 0
-      ? sorted[mid - 1].plus(sorted[mid]).dividedBy(2)
-      : sorted[mid];
+    sorted.length % 2 === 0 && sorted[mid - 1] && sorted[mid]
+      ? sorted[mid - 1]?.plus(sorted[mid]).dividedBy(2)
+      : sorted[mid] ?? new Decimal(0);
 
   return {
     sum,
     avg,
-    median,
+    median: median ?? new Decimal(0),
     min,
     max,
     count: values.length,

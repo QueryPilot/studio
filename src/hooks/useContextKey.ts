@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { v4 as uuid } from 'uuid';
 
 import { useKeyboardServicesOptional } from '@/components/KeyboardProvider';
-import { ContextValue } from '@/types/context';
+import { type ContextValue } from '@/types/context';
 
 interface UseContextKeyOptions {
   scopeId?: string;

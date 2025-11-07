@@ -405,7 +405,7 @@ export function useTableDataQuery(
     error: infiniteQuery.error,
     isFetching: infiniteQuery.isFetching,
     isFetchingNextPage: infiniteQuery.isFetchingNextPage,
-    hasNextPage: !!infiniteQuery.hasNextPage && !isStreamingRef.current,
+    hasNextPage: infiniteQuery.hasNextPage && !isStreamingRef.current,
     fetchNextPage: async () => {
       // Prevent overlapping fetches while streaming
       if (isStreamingRef.current) {

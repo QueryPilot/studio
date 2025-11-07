@@ -16,7 +16,7 @@ import { useKeyboardServices } from "@/components/KeyboardProvider";
 import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
 import { contextService } from "@/services/contextService";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
-import { useSchemaStore } from "@/stores/schemaStore";
+
 import { openFunctionObject, openTableObject } from "@/utils/workbench/openers";
 import { cn } from "@/lib/utils";
 import {
@@ -82,7 +82,6 @@ export function CommandPalette(): React.ReactElement {
   const selectedDatabase = useWorkspaceSelectionStore(
     (state) => state.database,
   );
-  const selectedSchema = useSchemaStore((state) => state.selectedSchema);
 
   // Use React Query to fetch and cache commands
   const { data: commands = [], isLoading: isLoadingCommands } = useCommands();
@@ -142,11 +141,9 @@ export function CommandPalette(): React.ReactElement {
     if (!selectedDatabase) {
       return "Select a database to browse objects.";
     }
-    if (!selectedSchema) {
-      return "Select a schema to browse objects.";
-    }
+
     return null;
-  }, [activeConnectionId, selectedDatabase, selectedSchema]);
+  }, [activeConnectionId, selectedDatabase]);
 
   const shouldLoadQuickOpen =
     isOpen &&

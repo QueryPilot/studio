@@ -17,7 +17,7 @@ export const TableTriggers = memo(function TableTriggers({
   database,
   table,
   schema,
-  onActionsChange,
+  onActionsChange: _onActionsChange,
 }: TableTriggersProps) {
   const [triggers, setTriggers] = useState<TriggerMeta[]>([]);
   const [isLoading, setIsLoading] = useState(true);

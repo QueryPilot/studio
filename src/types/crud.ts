@@ -79,7 +79,8 @@ export interface CrudCommandPayload {
   /** Optional identifier for temporary entities (e.g. client-side IDs). */
   readonly tempId?: string;
   /** Allow arbitrary additional fields. */
-  readonly [key: string]: JsonValue | undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly [key: string]: any;
 }
 
 /**

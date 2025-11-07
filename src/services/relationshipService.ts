@@ -43,8 +43,8 @@ class RelationshipService {
     }
 
     // Extract and clean column names (remove quotes and backticks)
-    const sourceColumn = match[1]?.replace(/["`]/g, "").trim();
-    const targetColumn = match[3]?.replace(/["`]/g, "").trim();
+    const sourceColumn = match[1]?.replace(/["`]/g, "").trim() ?? "";
+    const targetColumn = match[3]?.replace(/["`]/g, "").trim() ?? "";
 
     return { sourceColumn, targetColumn };
   }
@@ -60,8 +60,8 @@ class RelationshipService {
     const onUpdateMatch = definition.match(/ON\s+UPDATE\s+([A-Z\s]+)/i);
 
     return {
-      onDelete: onDeleteMatch?.[1].trim(),
-      onUpdate: onUpdateMatch?.[1].trim(),
+      onDelete: onDeleteMatch?.[1]?.trim(),
+      onUpdate: onUpdateMatch?.[1]?.trim(),
     };
   }
 
@@ -119,16 +119,16 @@ class RelationshipService {
 
         // Extract target table name (remove schema prefix if present)
         const targetTable = constraint.foreign_table.includes(".")
-          ? constraint.foreign_table.split(".")[1]
+          ? constraint.foreign_table.split(".")[1] ?? constraint.foreign_table
           : constraint.foreign_table;
 
         const relationship: ForeignKeyRelationship = {
           sourceTable: table,
           sourceSchema: schema,
-          sourceColumn: parsed.sourceColumn,
-          targetTable,
+          sourceColumn: parsed.sourceColumn || "",
+          targetTable: targetTable,
           targetSchema: schema, // Assume same schema for now
-          targetColumn: parsed.targetColumn,
+          targetColumn: parsed.targetColumn || "",
           constraintName: constraint.name,
           onDelete: actions.onDelete,
           onUpdate: actions.onUpdate,
@@ -155,7 +155,7 @@ class RelationshipService {
   getJoinSuggestions(
     relationshipGraph: TableRelationshipGraph,
     tablesInScope: Array<{ table: string; alias?: string }>,
-    currentSchema: string,
+    _currentSchema: string,
   ): JoinSuggestion[] {
     const suggestions: JoinSuggestion[] = [];
     const suggestedTables = new Set<string>();

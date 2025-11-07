@@ -1,7 +1,12 @@
-import { Command, CommandDescriptor, CommandExecutionContext, CommandRegistration } from '@/types/command';
-import { ContextSnapshot } from '@/types/context';
+import {
+  type Command,
+  type CommandDescriptor,
+  type CommandExecutionContext,
+  type CommandRegistration,
+} from "@/types/command";
+import { type ContextSnapshot } from "@/types/context";
 
-import { ContextService, contextService } from './contextService';
+import { type ContextService, contextService } from "./contextService";
 
 type CommandListener = (command: CommandRegistration) => void;
 type CommandExecutionListener = (commandId: string, args: unknown) => void;
@@ -21,7 +26,10 @@ export class CommandService {
     this.contextService = contextService;
   }
 
-  register(command: Command, source: CommandRegistration['source'] = 'default'): void {
+  register(
+    command: Command,
+    source: CommandRegistration["source"] = "default",
+  ): void {
     const registration: CommandRegistration = {
       command,
       source,
@@ -37,7 +45,10 @@ export class CommandService {
     this.emitRegister(registration);
   }
 
-  registerMany(commands: Command[], source: CommandRegistration['source'] = 'default'): void {
+  registerMany(
+    commands: Command[],
+    source: CommandRegistration["source"] = "default",
+  ): void {
     for (const command of commands) {
       this.register(command, source);
     }
@@ -67,10 +78,12 @@ export class CommandService {
   }
 
   list(): CommandDescriptor[] {
-    return Array.from(this.commands.values(), (registration) => this.toDescriptor(registration));
+    return Array.from(this.commands.values(), (registration) =>
+      this.toDescriptor(registration),
+    );
   }
 
-  async execute<TArgs = unknown>(commandId: string, args?: TArgs): Promise<void> {
+  async execute(commandId: string, args?: unknown): Promise<void> {
     const registration = this.commands.get(commandId);
     if (!registration) {
       throw new Error(`Command ${commandId} is not registered`);
@@ -84,14 +97,15 @@ export class CommandService {
       return;
     }
 
-    const snapshot = this.contextService?.snapshot() ?? new Map<string, unknown>();
+    const snapshot =
+      this.contextService?.snapshot() ?? new Map<string, unknown>();
     const executionContext: CommandExecutionContext = {
       id: registration.command.id,
       context: snapshot as ContextSnapshot,
       source: registration.source,
     };
 
-    await registration.command.handler(args as TArgs, executionContext);
+    await registration.command.handler(args, executionContext);
     this.emitExecute(commandId, args);
   }
 
@@ -116,7 +130,9 @@ export class CommandService {
     }
 
     if (!this.contextService) {
-      console.warn(`[commandService] No context service available to evaluate expression "${expression}"`);
+      console.warn(
+        `[commandService] No context service available to evaluate expression "${expression}"`,
+      );
       return false;
     }
 

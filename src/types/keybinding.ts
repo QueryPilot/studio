@@ -1,4 +1,4 @@
-import { ContextKeyExpr } from './context';
+import { type ContextKeyExpr } from './context';
 
 export type KeybindingSource = 'default' | 'user' | 'extension';
 

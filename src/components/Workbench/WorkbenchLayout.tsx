@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { GridRenderer } from "./GridRenderer";
 import { type Direction } from "@/types/workbench";

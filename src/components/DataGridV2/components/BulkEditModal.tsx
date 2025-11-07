@@ -26,7 +26,11 @@ interface BulkEditModalProps {
   onOpenChange: (open: boolean) => void;
   selectedRows: GridRowModel[];
   columns: GridColumnV2[];
-  onBulkEdit: (column: string, newValue: JsonValue, rows: GridRowModel[]) => void;
+  onBulkEdit: (
+    column: string,
+    newValue: JsonValue,
+    rows: GridRowModel[],
+  ) => void;
 }
 
 export function BulkEditModal({
@@ -68,7 +72,7 @@ export function BulkEditModal({
     let typedValue: JsonValue = newValue;
 
     // Type conversion based on column metadata
-    const columnDbType = selectedColumnMeta?.meta?.db_type?.toLowerCase() || "";
+    const columnDbType = selectedColumnMeta?.meta?.db_type.toLowerCase() || "";
 
     if (newValue === "" || newValue === "null") {
       typedValue = null;
@@ -109,7 +113,8 @@ export function BulkEditModal({
         <DialogHeader>
           <DialogTitle>Bulk Edit</DialogTitle>
           <DialogDescription>
-            Update the same column value across {selectedRows.length} selected row
+            Update the same column value across {selectedRows.length} selected
+            row
             {selectedRows.length === 1 ? "" : "s"}
           </DialogDescription>
         </DialogHeader>
@@ -136,7 +141,9 @@ export function BulkEditModal({
             <Input
               id="value"
               value={newValue}
-              onChange={(e) => setNewValue(e.target.value)}
+              onChange={(e) => {
+                setNewValue(e.target.value);
+              }}
               placeholder={
                 selectedColumnMeta?.meta?.nullable
                   ? "Enter value (or 'null' for NULL)"
@@ -160,11 +167,17 @@ export function BulkEditModal({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              onOpenChange(false);
+            }}
+          >
             Cancel
           </Button>
           <Button onClick={handleApply}>
-            Apply to {selectedRows.length} row{selectedRows.length === 1 ? "" : "s"}
+            Apply to {selectedRows.length} row
+            {selectedRows.length === 1 ? "" : "s"}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -60,7 +60,7 @@ const quoteIdentifier = (identifier: string, dbType: SupportedDbType): string =>
 const qualifyName = (
   segments: Array<string | undefined>,
   dbType: SupportedDbType,
-): string => segments.filter(Boolean).map((segment) => quoteIdentifier(segment!, dbType)).join(".");
+): string => segments.filter((segment): segment is string => Boolean(segment)).map((segment) => quoteIdentifier(segment, dbType)).join(".");
 
 const escapeStringLiteral = (value: string): string => value.replace(/'/g, "''");
 
@@ -115,7 +115,7 @@ const buildColumnDefinition = (
     const scalePart = definition.scale !== undefined ? `, ${definition.scale}` : "";
     parts.push(`(${definition.precision}${scalePart})`);
   }
-  if (definition.nullable === false) {
+  if (!definition.nullable) {
     parts.push("NOT NULL");
   }
   if (definition.defaultValue !== undefined) {

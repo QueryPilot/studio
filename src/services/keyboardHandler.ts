@@ -1,9 +1,9 @@
 import { keyboardEventToDispatch } from '@/lib/keyboardDispatch';
-import { detectPlatform, RuntimePlatform } from '@/lib/platform';
+import { detectPlatform, type RuntimePlatform } from '@/lib/platform';
 
-import { CommandService, commandService } from './commandService';
-import { ContextService, contextService } from './contextService';
-import { KeybindingService, keybindingService } from './keybindingService';
+import { type CommandService, commandService } from './commandService';
+import { type ContextService, contextService } from './contextService';
+import { type KeybindingService, keybindingService } from './keybindingService';
 
 const DEFAULT_CHORD_TIMEOUT = 1000;
 
@@ -44,7 +44,7 @@ export class KeyboardHandler {
       return;
     }
 
-    this.windowListener = (event) => this.handleKeydown(event);
+    this.windowListener = (event) => { this.handleKeydown(event); };
     window.addEventListener('keydown', this.windowListener, true);
     this.initialized = true;
   }
@@ -96,7 +96,7 @@ export class KeyboardHandler {
   }
 
   private execute(commandId: string, args: unknown): void {
-    void this.commandService.execute(commandId, args).catch((error) => {
+    void this.commandService.execute(commandId, args).catch((error: unknown) => {
       console.error(`[keyboardHandler] Failed to execute command ${commandId}:`, error);
     });
   }
@@ -107,7 +107,7 @@ export class KeyboardHandler {
     if (this.chordTimer) {
       window.clearTimeout(this.chordTimer);
     }
-    this.chordTimer = window.setTimeout(() => this.resetChord(), this.chordTimeoutMs);
+    this.chordTimer = window.setTimeout(() => { this.resetChord(); }, this.chordTimeoutMs);
   }
 
   private resetChord(): void {

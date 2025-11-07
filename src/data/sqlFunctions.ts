@@ -1,4 +1,4 @@
-import type { SqlFunction } from "@/types/sqlFunctions";
+import type { SqlFunction, SqlDialect } from "@/types/sqlFunctions";
 
 /**
  * Comprehensive SQL Function Catalog
@@ -475,7 +475,7 @@ export const SQL_FUNCTIONS: SqlFunction[] = [
  * Get functions for a specific dialect
  */
 export function getFunctionsForDialect(dialect: string): SqlFunction[] {
-  const dialectKey = dialect as any;
+  const dialectKey = dialect as SqlDialect;
   return SQL_FUNCTIONS.filter((fn) => fn.dialects.includes(dialectKey));
 }
 

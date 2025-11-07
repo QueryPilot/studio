@@ -1,4 +1,4 @@
-import { Keybinding } from '@/types/keybinding';
+import { type Keybinding } from '@/types/keybinding';
 
 export const defaultKeybindings: Keybinding[] = [
   {

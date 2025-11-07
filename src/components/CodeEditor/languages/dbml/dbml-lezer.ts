@@ -3,116 +3,17 @@ import {
   LanguageSupport,
   indentNodeProp,
   foldNodeProp,
-  foldInside,
-  syntaxTree
+  foldInside
 } from "@codemirror/language";
 import { styleTags, tags as t } from "@lezer/highlight";
-import {
-  ExternalTokenizer,
-  ContextTracker,
-  LRParser
-} from "@lezer/lr";
-import { Input, NodeType, Tree } from "@lezer/common";
 
 // Import the existing stream parser as fallback
 import { dbmlLanguage as streamParser } from "./dbml-language";
 
-// Define node types for DBML
-const nodeTypes = {
-  Project: NodeType.define({ id: 1, name: "Project" }),
-  Table: NodeType.define({ id: 2, name: "Table" }),
-  TablePartial: NodeType.define({ id: 3, name: "TablePartial" }),
-  TableGroup: NodeType.define({ id: 4, name: "TableGroup" }),
-  Enum: NodeType.define({ id: 5, name: "Enum" }),
-  Ref: NodeType.define({ id: 6, name: "Ref" }),
-  Note: NodeType.define({ id: 7, name: "Note" }),
-  IndexBlock: NodeType.define({ id: 8, name: "IndexBlock" }),
-  ColumnDef: NodeType.define({ id: 9, name: "ColumnDef" }),
-  Setting: NodeType.define({ id: 10, name: "Setting" }),
-  Block: NodeType.define({ id: 11, name: "Block" }),
-};
-
-// Create a custom parser that recognizes DBML blocks
-class DBMLParser {
-  parse(input: string, pos: number = 0) {
-    const blocks: any[] = [];
-    const lines = input.split('\n');
-    let currentBlock = null;
-    let blockStart = 0;
-    let braceDepth = 0;
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const lineStart = lines.slice(0, i).join('\n').length + (i > 0 ? 1 : 0);
-      const trimmed = line.trim();
-
-      // Skip comments and empty lines
-      if (trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed === '') {
-        continue;
-      }
-
-      // Check for block starts
-      if (!currentBlock) {
-        if (trimmed.match(/^Project\s+\w+\s*\{/)) {
-          currentBlock = { type: 'Project', start: lineStart, end: 0, depth: 0 };
-          blockStart = lineStart;
-          braceDepth = 1;
-        } else if (trimmed.match(/^Table\s+[\w.]+(\s+as\s+\w+)?\s*(\[.*?\])?\s*\{/)) {
-          currentBlock = { type: 'Table', start: lineStart, end: 0, depth: 0 };
-          blockStart = lineStart;
-          braceDepth = 1;
-        } else if (trimmed.match(/^TablePartial\s+\w+\s*(\[.*?\])?\s*\{/)) {
-          currentBlock = { type: 'TablePartial', start: lineStart, end: 0, depth: 0 };
-          blockStart = lineStart;
-          braceDepth = 1;
-        } else if (trimmed.match(/^TableGroup\s+\w+\s*(\[.*?\])?\s*\{/)) {
-          currentBlock = { type: 'TableGroup', start: lineStart, end: 0, depth: 0 };
-          blockStart = lineStart;
-          braceDepth = 1;
-        } else if (trimmed.match(/^Enum\s+[\w.]+\s*\{/)) {
-          currentBlock = { type: 'Enum', start: lineStart, end: 0, depth: 0 };
-          blockStart = lineStart;
-          braceDepth = 1;
-        } else if (trimmed.match(/^Ref\s+(\w+\s*)?\{/)) {
-          currentBlock = { type: 'Ref', start: lineStart, end: 0, depth: 0 };
-          blockStart = lineStart;
-          braceDepth = 1;
-        } else if (trimmed.match(/^Note\s+\w+\s*\{/)) {
-          currentBlock = { type: 'Note', start: lineStart, end: 0, depth: 0 };
-          blockStart = lineStart;
-          braceDepth = 1;
-        } else if (trimmed.match(/^\s*indexes\s*\{/)) {
-          currentBlock = { type: 'IndexBlock', start: lineStart, end: 0, depth: 0 };
-          blockStart = lineStart;
-          braceDepth = 1;
-        }
-      } else {
-        // Track brace depth
-        for (const char of line) {
-          if (char === '{') braceDepth++;
-          if (char === '}') {
-            braceDepth--;
-            if (braceDepth === 0) {
-              currentBlock.end = lineStart + line.indexOf('}') + 1;
-              blocks.push(currentBlock);
-              currentBlock = null;
-              break;
-            }
-          }
-        }
-      }
-    }
-
-    return { blocks, input };
-  }
-}
-
-const dbmlParser = new DBMLParser();
-
 // Create the DBML language with enhanced features
 export const dbmlLezerLanguage = LRLanguage.define({
   name: "dbml",
-  parser: streamParser.parser.configure({
+  parser: (streamParser.parser as any).configure({
     props: [
       styleTags({
         "Project Table TablePartial TableGroup Enum Ref Note indexes": t.keyword,

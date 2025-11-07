@@ -123,12 +123,12 @@ export function ConnectionDialog({
           2: "sqlite", // DbType.SQLite
           3: "mssql", // DbType.SQLServer
         };
-        return dbTypeMap[connection.db_type] || "postgresql";
+        return dbTypeMap[connection.db_type as unknown as number] || "postgresql";
       }
       // Otherwise it's a DatabaseConnection (has type field)
-      const type = connection.type.toLowerCase();
+      const type = (connection as any).type.toLowerCase();
       if (type === "mariadb") return "mysql";
-      if (type && ["postgresql", "mysql", "sqlite", "mssql"].includes(type)) {
+      if (type && ["postgresql", "mysql", "sqlite", "mssql"].includes(type as string)) {
         return type as DatabaseType;
       }
     }

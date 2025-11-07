@@ -11,10 +11,10 @@ const buildRangesFromArray = (values: number[]): SerializedSelectionRange[] => {
   if (values.length === 0) return [];
   const sorted = [...values].sort((a, b) => a - b);
   const ranges: SerializedSelectionRange[] = [];
-  let start = sorted[0];
+  let start = sorted[0] ?? 0;
   let prev = start;
   for (let i = 1; i < sorted.length; i++) {
-    const current = sorted[i];
+    const current = sorted[i] ?? 0;
     if (current === prev + 1) {
       prev = current;
       continue;
@@ -51,12 +51,12 @@ export const serializeGridSelection = (
     current: selection.current
       ? {
           cell: selection.current.cell,
-          range: selection.current.range,
-          rangeStack: selection.current.rangeStack ?? [],
+          range: selection.current.range as any,
+          rangeStack: selection.current.rangeStack as any ?? [],
         }
       : undefined,
-    columnSelect: selection.columnSelect,
-    rowSelect: selection.rowSelect,
+    columnSelect: (selection as any).columnSelect,
+    rowSelect: (selection as any).rowSelect,
   } satisfies SerializedGridSelection;
 };
 
@@ -70,11 +70,11 @@ export const deserializeGridSelection = (
     current: serialized.current
       ? {
           cell: serialized.current.cell,
-          range: serialized.current.range,
-          rangeStack: serialized.current.rangeStack ?? [],
+          range: serialized.current.range as any,
+          rangeStack: serialized.current.rangeStack as any ?? [],
         }
       : undefined,
     columnSelect: serialized.columnSelect,
     rowSelect: serialized.rowSelect,
-  } satisfies GridSelection;
+  } as any as GridSelection;
 };
