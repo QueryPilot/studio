@@ -544,76 +544,270 @@ async fn execute_data_delete(adapter: &dyn DbAdapter, command: &CrudCommand) -> 
 }
 
 // ============================================================================
-// STRUCTURE OPERATIONS - Stubs for now (implement later)
+// STRUCTURE OPERATIONS
 // ============================================================================
 
-async fn execute_column_add(_adapter: &dyn DbAdapter, _command: &CrudCommand) -> Result<u64> {
-    // TODO: Implement via adapter.alter_table_add_column()
-    Err(AppError::Unsupported(
-        "column.add not yet implemented".to_string(),
-    ))
+async fn execute_column_add(adapter: &dyn DbAdapter, command: &CrudCommand) -> Result<u64> {
+    let payload = command.payload.as_object().ok_or_else(|| {
+        AppError::InvalidInput("column.add payload must be an object".to_string())
+    })?;
+
+    let schema = command.target.schema.as_deref().unwrap_or("public");
+    let table = command.target.table.as_ref().ok_or_else(|| {
+        AppError::InvalidInput("Missing table in target".to_string())
+    })?;
+
+    let column_def = crate::types::AddColumnRequest {
+        name: payload.get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| AppError::InvalidInput("Missing column name".to_string()))?
+            .to_string(),
+        data_type: payload.get("dataType")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| AppError::InvalidInput("Missing dataType".to_string()))?
+            .to_string(),
+        nullable: payload.get("nullable")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true),
+        default_value: payload.get("defaultValue")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        check_constraint: payload.get("checkExpression")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        comment: payload.get("comment")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+    };
+
+    adapter.alter_table_add_column(schema, table, &column_def).await?;
+    Ok(1)
 }
 
-async fn execute_column_modify(_adapter: &dyn DbAdapter, _command: &CrudCommand) -> Result<u64> {
-    // TODO: Implement via adapter.alter_table_modify_column()
-    Err(AppError::Unsupported(
-        "column.modify not yet implemented".to_string(),
-    ))
+async fn execute_column_modify(adapter: &dyn DbAdapter, command: &CrudCommand) -> Result<u64> {
+    let payload = command.payload.as_object().ok_or_else(|| {
+        AppError::InvalidInput("column.modify payload must be an object".to_string())
+    })?;
+
+    let schema = command.target.schema.as_deref().unwrap_or("public");
+    let table = command.target.table.as_ref().ok_or_else(|| {
+        AppError::InvalidInput("Missing table in target".to_string())
+    })?;
+
+    let modify_req = crate::types::ModifyColumnRequest {
+        name: payload.get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| AppError::InvalidInput("Missing column name".to_string()))?
+            .to_string(),
+        new_name: payload.get("newName")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        new_type: payload.get("newType")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        nullable: payload.get("nullable")
+            .and_then(|v| v.as_bool()),
+        default_value: payload.get("defaultValue")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        drop_default: payload.get("dropDefault")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        new_check_constraint: payload.get("checkExpression")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        drop_check_constraint: payload.get("dropCheckConstraint")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        comment: payload.get("comment")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+    };
+
+    adapter.alter_table_modify_column(schema, table, &modify_req).await?;
+    Ok(1)
 }
 
-async fn execute_column_drop(_adapter: &dyn DbAdapter, _command: &CrudCommand) -> Result<u64> {
-    // TODO: Implement via adapter.alter_table_drop_column()
-    Err(AppError::Unsupported(
-        "column.drop not yet implemented".to_string(),
-    ))
+async fn execute_column_drop(adapter: &dyn DbAdapter, command: &CrudCommand) -> Result<u64> {
+    let payload = command.payload.as_object().ok_or_else(|| {
+        AppError::InvalidInput("column.drop payload must be an object".to_string())
+    })?;
+
+    let schema = command.target.schema.as_deref().unwrap_or("public");
+    let table = command.target.table.as_ref().ok_or_else(|| {
+        AppError::InvalidInput("Missing table in target".to_string())
+    })?;
+
+    let column_name = payload.get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::InvalidInput("Missing column name".to_string()))?;
+
+    adapter.alter_table_drop_column(schema, table, column_name).await?;
+    Ok(1)
 }
 
-async fn execute_column_rename(_adapter: &dyn DbAdapter, _command: &CrudCommand) -> Result<u64> {
-    // TODO: Implement via adapter.alter_table_rename_column()
-    Err(AppError::Unsupported(
-        "column.rename not yet implemented".to_string(),
-    ))
+async fn execute_column_rename(adapter: &dyn DbAdapter, command: &CrudCommand) -> Result<u64> {
+    let payload = command.payload.as_object().ok_or_else(|| {
+        AppError::InvalidInput("column.rename payload must be an object".to_string())
+    })?;
+
+    let schema = command.target.schema.as_deref().unwrap_or("public");
+    let table = command.target.table.as_ref().ok_or_else(|| {
+        AppError::InvalidInput("Missing table in target".to_string())
+    })?;
+
+    let old_name = payload.get("oldName")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::InvalidInput("Missing oldName".to_string()))?;
+
+    let new_name = payload.get("newName")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::InvalidInput("Missing newName".to_string()))?;
+
+    adapter.alter_table_rename_column(schema, table, old_name, new_name).await?;
+    Ok(1)
 }
 
-async fn execute_index_create(_adapter: &dyn DbAdapter, _command: &CrudCommand) -> Result<u64> {
-    // TODO: Implement via adapter.create_index()
-    Err(AppError::Unsupported(
-        "index.create not yet implemented".to_string(),
-    ))
+async fn execute_index_create(adapter: &dyn DbAdapter, command: &CrudCommand) -> Result<u64> {
+    let payload = command.payload.as_object().ok_or_else(|| {
+        AppError::InvalidInput("index.create payload must be an object".to_string())
+    })?;
+
+    let schema = command.target.schema.as_deref().unwrap_or("public");
+    let table = command.target.table.as_ref().ok_or_else(|| {
+        AppError::InvalidInput("Missing table in target".to_string())
+    })?;
+
+    let columns = payload.get("columns")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| AppError::InvalidInput("Missing or invalid columns array".to_string()))?
+        .iter()
+        .filter_map(|v| v.as_str())
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+
+    if columns.is_empty() {
+        return Err(AppError::InvalidInput("columns array cannot be empty".to_string()));
+    }
+
+    let index_req = crate::types::CreateIndexRequest {
+        name: payload.get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| AppError::InvalidInput("Missing index name".to_string()))?
+            .to_string(),
+        columns,
+        unique: payload.get("unique")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        index_type: payload.get("indexType")
+            .and_then(|v| v.as_str())
+            .unwrap_or("btree")
+            .to_string(),
+        condition: payload.get("condition")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+    };
+
+    adapter.create_index(schema, table, &index_req).await?;
+    Ok(1)
 }
 
-async fn execute_index_drop(_adapter: &dyn DbAdapter, _command: &CrudCommand) -> Result<u64> {
-    // TODO: Implement via adapter.drop_index()
-    Err(AppError::Unsupported(
-        "index.drop not yet implemented".to_string(),
-    ))
+async fn execute_index_drop(adapter: &dyn DbAdapter, command: &CrudCommand) -> Result<u64> {
+    let payload = command.payload.as_object().ok_or_else(|| {
+        AppError::InvalidInput("index.drop payload must be an object".to_string())
+    })?;
+
+    let schema = command.target.schema.as_deref().unwrap_or("public");
+
+    let index_name = payload.get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::InvalidInput("Missing index name".to_string()))?;
+
+    adapter.drop_index(schema, index_name).await?;
+    Ok(1)
 }
 
-async fn execute_index_rename(_adapter: &dyn DbAdapter, _command: &CrudCommand) -> Result<u64> {
-    // TODO: Implement via adapter.rename_index()
-    Err(AppError::Unsupported(
-        "index.rename not yet implemented".to_string(),
-    ))
+async fn execute_index_rename(adapter: &dyn DbAdapter, command: &CrudCommand) -> Result<u64> {
+    let payload = command.payload.as_object().ok_or_else(|| {
+        AppError::InvalidInput("index.rename payload must be an object".to_string())
+    })?;
+
+    let schema = command.target.schema.as_deref().unwrap_or("public");
+
+    let old_name = payload.get("oldName")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::InvalidInput("Missing oldName".to_string()))?;
+
+    let new_name = payload.get("newName")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::InvalidInput("Missing newName".to_string()))?;
+
+    adapter.rename_index(schema, old_name, new_name).await?;
+    Ok(1)
 }
 
 async fn execute_foreign_key_add(
-    _adapter: &dyn DbAdapter,
-    _command: &CrudCommand,
+    adapter: &dyn DbAdapter,
+    command: &CrudCommand,
 ) -> Result<u64> {
-    // TODO: Implement via adapter.alter_table_add_foreign_key()
-    Err(AppError::Unsupported(
-        "fk.add not yet implemented".to_string(),
-    ))
+    let payload = command.payload.as_object().ok_or_else(|| {
+        AppError::InvalidInput("fk.add payload must be an object".to_string())
+    })?;
+
+    let schema = command.target.schema.as_deref().unwrap_or("public");
+    let table = command.target.table.as_ref().ok_or_else(|| {
+        AppError::InvalidInput("Missing table in target".to_string())
+    })?;
+
+    let fk_req = crate::types::AddForeignKeyRequest {
+        constraint_name: payload.get("constraintName")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        column_name: payload.get("columnName")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| AppError::InvalidInput("Missing columnName".to_string()))?
+            .to_string(),
+        referenced_table: payload.get("referencedTable")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| AppError::InvalidInput("Missing referencedTable".to_string()))?
+            .to_string(),
+        referenced_column: payload.get("referencedColumn")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| AppError::InvalidInput("Missing referencedColumn".to_string()))?
+            .to_string(),
+        on_update: payload.get("onUpdate")
+            .and_then(|v| v.as_str())
+            .unwrap_or("NO ACTION")
+            .to_string(),
+        on_delete: payload.get("onDelete")
+            .and_then(|v| v.as_str())
+            .unwrap_or("NO ACTION")
+            .to_string(),
+    };
+
+    adapter.alter_table_add_foreign_key(schema, table, &fk_req).await?;
+    Ok(1)
 }
 
 async fn execute_foreign_key_drop(
-    _adapter: &dyn DbAdapter,
-    _command: &CrudCommand,
+    adapter: &dyn DbAdapter,
+    command: &CrudCommand,
 ) -> Result<u64> {
-    // TODO: Implement via adapter.alter_table_drop_foreign_key()
-    Err(AppError::Unsupported(
-        "fk.drop not yet implemented".to_string(),
-    ))
+    let payload = command.payload.as_object().ok_or_else(|| {
+        AppError::InvalidInput("fk.drop payload must be an object".to_string())
+    })?;
+
+    let schema = command.target.schema.as_deref().unwrap_or("public");
+    let table = command.target.table.as_ref().ok_or_else(|| {
+        AppError::InvalidInput("Missing table in target".to_string())
+    })?;
+
+    let constraint_name = payload.get("constraintName")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::InvalidInput("Missing constraintName".to_string()))?;
+
+    adapter.alter_table_drop_foreign_key(schema, table, constraint_name).await?;
+    Ok(1)
 }
 
 // ============================================================================
