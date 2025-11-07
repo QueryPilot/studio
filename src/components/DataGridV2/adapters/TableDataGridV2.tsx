@@ -496,11 +496,15 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       return updatedRow;
     });
 
-    // Then, append INSERT commands as new rows at the top
+    // Then, insert new rows at their specified positions (or at top if no position specified)
     const insertCommands = commands.filter((cmd) => cmd.type === "data.insert");
-    const newRows = insertCommands.map((cmd) => {
+
+    // Build result array with inserts at correct positions
+    const result = [...updatedRows];
+
+    insertCommands.forEach((cmd) => {
       const payload = cmd.payload as { values?: Record<string, JsonValue> };
-      if (!payload.values) return {};
+      if (!payload.values) return;
 
       // Convert the plain values object to GridRowModel with CellValue structure
       const row: GridRowModel = {};
@@ -523,10 +527,20 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         };
       });
 
-      return row;
+      // Check if this insert has a specific position
+      const insertAfterIndex = cmd.metadata?.insertAfterIndex;
+      if (typeof insertAfterIndex === "number" && insertAfterIndex >= 0) {
+        // Insert after the specified index
+        // Note: insertAfterIndex + 1 because we want to insert AFTER that row
+        const insertPosition = Math.min(insertAfterIndex + 1, result.length);
+        result.splice(insertPosition, 0, row);
+      } else {
+        // No position specified, insert at top (default behavior)
+        result.unshift(row);
+      }
     });
 
-    return [...newRows, ...updatedRows];
+    return result;
   }, [displayRows, isTableMode, getTableKey, stagedCommands, connectionId, database, schema, table]);
 
   // Defer grid rendering for large datasets to keep UI responsive
@@ -1189,6 +1203,52 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       .filter((key): key is string => !key);
   }, [selectedRowsSet, getRowKey]);
 
+  // Handler: Insert row below selected row
+  const handleInsertRowBelow = useCallback(() => {
+    if (!isTableMode || selectedRowsSet.size === 0) {
+      return;
+    }
+
+    try {
+      // Get the last selected row index
+      const selectedIndices = Array.from(selectedRowsSet).sort((a, b) => a - b);
+      const lastSelectedIndex = selectedIndices[selectedIndices.length - 1];
+
+      // Create a draft row with default values
+      const draftRow = finalColumns.reduce<GridRowModel>((acc, column) => {
+        const cell: FrontCellValue = {
+          value: null,
+          db_type: column.meta?.db_type ?? column.type ?? "text",
+          value_type: "Null",
+          is_truncated: false,
+        };
+        acc[column.field] = cell;
+        return acc;
+      }, {});
+
+      // Stage the insert command with position metadata
+      const target = createCrudTarget(connectionId, database, schema, table);
+      const command = createInsertCommand(draftRow, target, finalColumns);
+
+      // Add position metadata so optimistic updates can place it correctly
+      command.metadata = {
+        ...command.metadata,
+        insertAfterIndex: lastSelectedIndex,
+      };
+
+      stageCommand(command);
+
+      toast("Row staged", {
+        description: `New row will be inserted after row ${lastSelectedIndex + 1}`,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error("Failed to stage row", {
+        description: message,
+      });
+    }
+  }, [isTableMode, selectedRowsSet, finalColumns, connectionId, database, schema, table, stageCommand]);
+
   // Update toolbar actions when pending changes or selection changes
   useEffect(() => {
     if (!isTableMode || !onActionsChange) {
@@ -1429,7 +1489,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           onUnpinRows={handleUnpinRowsFromMenu}
           onAddRow={undefined}
           onInsertRowAbove={undefined}
-          onInsertRowBelow={undefined}
+          onInsertRowBelow={isTableMode ? handleInsertRowBelow : undefined}
           onDeleteRows={
             isTableMode
               ? () => {
