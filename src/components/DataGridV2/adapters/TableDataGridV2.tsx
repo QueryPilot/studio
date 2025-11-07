@@ -539,13 +539,18 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         };
       });
 
-      // Check if this insert has a specific position
-      const insertAfterIndex = cmd.metadata.insertAfterIndex;
-      if (typeof insertAfterIndex === "number" && insertAfterIndex >= 0) {
-        // Insert after the specified index
-        // Note: insertAfterIndex + 1 because we want to insert AFTER that row
-        const insertPosition = Math.min(insertAfterIndex + 1, result.length);
-        result.splice(insertPosition, 0, row);
+      // Check if this insert has a specific position (by row key)
+      const insertAfterRowKey = cmd.metadata.insertAfterRowKey;
+      if (insertAfterRowKey) {
+        // Find the target row in the current result array
+        const targetIndex = result.findIndex((r, idx) => getRowKey(r, idx) === insertAfterRowKey);
+        if (targetIndex >= 0) {
+          // Insert after the target row
+          result.splice(targetIndex + 1, 0, row);
+        } else {
+          // Target not found, insert at top (fallback)
+          result.unshift(row);
+        }
       } else {
         // No position specified, insert at top (default behavior)
         result.unshift(row);
@@ -557,6 +562,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     displayRows,
     isTableMode,
     getTableKey,
+    getRowKey,
     stagedCommands,
     connectionId,
     database,
@@ -1312,6 +1318,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       const selectedIndices = Array.from(selectedRowsSet).sort((a, b) => a - b);
       const lastSelectedIndex = selectedIndices[selectedIndices.length - 1];
 
+      // Get the row key for the selected row (stable identifier)
+      const currentDisplayRows = displayRowsWithOptimisticUpdates;
+      const selectedRow = currentDisplayRows[lastSelectedIndex];
+      const selectedRowKey = selectedRow ? getRowKey(selectedRow, lastSelectedIndex) : undefined;
+
       // Create a draft row with default values
       const draftRow = finalColumns.reduce<GridRowModel>((acc, column) => {
         const cell: FrontCellValue = {
@@ -1333,17 +1344,16 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         ...baseCommand,
         metadata: {
           ...baseCommand.metadata,
-          insertAfterIndex: lastSelectedIndex,
+          insertAfterRowKey: selectedRowKey,
         },
       };
 
       stageCommand(command);
 
       toast("Row staged", {
-        description:
-          lastSelectedIndex !== undefined
-            ? `New row will be inserted after row ${lastSelectedIndex + 1}`
-            : "New row staged for insertion",
+        description: selectedRowKey
+          ? `New row will be inserted after selected row`
+          : "New row staged for insertion",
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -1360,6 +1370,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     schema,
     table,
     stageCommand,
+    displayRowsWithOptimisticUpdates,
+    getRowKey,
   ]);
 
   // Update toolbar actions when pending changes or selection changes

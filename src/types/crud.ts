@@ -45,8 +45,8 @@ export interface CrudCommandMetadata {
   readonly source?: string;
   /** Arbitrary metadata extensions. */
   readonly tags?: string[];
-  /** Optional: Index position to insert new rows after (for INSERT commands). */
-  readonly insertAfterIndex?: number;
+  /** Optional: Row key to insert new rows after (for INSERT commands). */
+  readonly insertAfterRowKey?: string;
 }
 
 /**

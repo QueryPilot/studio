@@ -105,11 +105,18 @@ export function useStagedChangesIndicator(
       }
     });
 
-    // Mark the first N rows as inserted (where N = number of INSERT commands)
-    // INSERT commands are prepended to the display rows in optimistic updates
-    const insertCount = commands.filter((cmd) => cmd.type === "data.insert").length;
-    for (let i = 0; i < insertCount; i++) {
-      result.insertedRows.add(i);
+    // Mark inserted rows by checking which rows don't exist in the base data
+    // With position-based insertion (insertAfterRowKey), inserted rows can be at any index
+    // Inserted rows won't have valid primary keys, so they won't be in pkToRowIndex
+    const insertCommandCount = commands.filter((cmd) => cmd.type === "data.insert").length;
+    if (insertCommandCount > 0) {
+      rows.forEach((row, index) => {
+        const pkKey = createPrimaryKeyString(row, columns);
+        // If this row has no valid PK or the PK is all nulls, it's an inserted row
+        if (!pkKey || pkKey === "null" || pkKey.split("|").every(v => v === "null")) {
+          result.insertedRows.add(index);
+        }
+      });
     }
 
     return result;
