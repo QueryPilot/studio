@@ -1,14 +1,14 @@
-import { v4 as uuid } from 'uuid';
+import { v4 as uuid } from "uuid";
 
 import {
-  ContextChangeEvent,
-  ContextChangeListener,
-  ContextExpressionParser,
-  ContextKeyDefinition,
-  ContextKeyExpr,
-  ContextSnapshot,
-  ContextValue,
-} from '@/types/context';
+  type ContextChangeEvent,
+  type ContextChangeListener,
+  type ContextExpressionParser,
+  type ContextKeyDefinition,
+  type ContextKeyExpr,
+  type ContextSnapshot,
+  type ContextValue,
+} from "@/types/context";
 
 type ScopeId = string;
 
@@ -31,16 +31,16 @@ interface OperandEvaluator {
 }
 
 type TokenType =
-  | 'identifier'
-  | 'string'
-  | 'number'
-  | 'boolean'
-  | 'regex'
-  | 'operator'
-  | 'paren'
-  | 'bracket'
-  | 'comma'
-  | 'eof';
+  | "identifier"
+  | "string"
+  | "number"
+  | "boolean"
+  | "regex"
+  | "operator"
+  | "paren"
+  | "bracket"
+  | "comma"
+  | "eof";
 
 interface Token {
   type: TokenType;
@@ -50,7 +50,7 @@ interface Token {
 class CompiledContextExpr implements ContextKeyExpr {
   constructor(
     private readonly expression: string,
-    private readonly evaluator: Evaluator
+    private readonly evaluator: Evaluator,
   ) {}
 
   evaluate(context: ContextSnapshot): boolean {
@@ -74,7 +74,7 @@ class ExpressionParser implements ContextExpressionParser {
     this.tokens = this.tokenize(expression);
     this.position = 0;
     const evaluator = this.parseOr();
-    this.expect('eof');
+    this.expect("eof");
 
     return new CompiledContextExpr(expression, evaluator);
   }
@@ -87,66 +87,71 @@ class ExpressionParser implements ContextExpressionParser {
       const remainder = input.slice(index);
 
       if (/^\s+/.test(remainder)) {
-        const [match] = remainder.match(/^\s+/) ?? [''];
+        const [match] = remainder.match(/^\s+/) ?? [""];
         index += match.length;
         continue;
       }
 
       const next = remainder[0];
 
-      if (next === '(' || next === ')') {
-        tokens.push({ type: 'paren', value: next });
+      if (next === "(" || next === ")") {
+        tokens.push({ type: "paren", value: next });
         index += 1;
         continue;
       }
 
-      if (next === '[' || next === ']') {
-        tokens.push({ type: 'bracket', value: next });
+      if (next === "[" || next === "]") {
+        tokens.push({ type: "bracket", value: next });
         index += 1;
         continue;
       }
 
-      if (next === ',') {
-        tokens.push({ type: 'comma', value: next });
+      if (next === ",") {
+        tokens.push({ type: "comma", value: next });
         index += 1;
         continue;
       }
 
-      if (remainder.startsWith('&&') || remainder.startsWith('||')) {
-        tokens.push({ type: 'operator', value: remainder.slice(0, 2) });
+      if (remainder.startsWith("&&") || remainder.startsWith("||")) {
+        tokens.push({ type: "operator", value: remainder.slice(0, 2) });
         index += 2;
         continue;
       }
 
-      if (remainder.startsWith('==') || remainder.startsWith('!=') || remainder.startsWith('=~')) {
-        tokens.push({ type: 'operator', value: remainder.slice(0, 2) });
+      if (
+        remainder.startsWith("==") ||
+        remainder.startsWith("!=") ||
+        remainder.startsWith("=~")
+      ) {
+        tokens.push({ type: "operator", value: remainder.slice(0, 2) });
         index += 2;
         continue;
       }
 
-      if (remainder.startsWith('!')) {
-        tokens.push({ type: 'operator', value: '!' });
+      if (remainder.startsWith("!")) {
+        tokens.push({ type: "operator", value: "!" });
         index += 1;
         continue;
       }
 
       if (/^in\b/.test(remainder)) {
-        tokens.push({ type: 'operator', value: 'in' });
+        tokens.push({ type: "operator", value: "in" });
         index += 2;
         continue;
       }
 
       if (next === '"' || next === "'") {
-        let value = '';
+        let value = "";
         let consumed = 1;
         let escaped = false;
 
         while (consumed < remainder.length) {
           const char = remainder[consumed];
+          if (!char) break;
           if (escaped) {
             value += char;
             escaped = false;
-          } else if (char === '\\') {
+          } else if (char === "\\") {
             escaped = true;
           } else if (char === next) {
             break;
@@ -156,24 +161,25 @@ class ExpressionParser implements ContextExpressionParser {
           consumed += 1;
         }
 
-        tokens.push({ type: 'string', value });
+        tokens.push({ type: "string", value });
         index += consumed + 1;
         continue;
       }
 
-      if (next === '/') {
-        let pattern = '';
+      if (next === "/") {
+        let pattern = "";
         let consumed = 1;
         let escaped = false;
 
         while (consumed < remainder.length) {
           const char = remainder[consumed];
+          if (!char) break;
           if (escaped) {
             pattern += char;
             escaped = false;
-          } else if (char === '\\') {
+          } else if (char === "\\") {
             escaped = true;
-          } else if (char === '/') {
+          } else if (char === "/") {
             break;
           } else {
             pattern += char;
@@ -181,49 +187,53 @@ class ExpressionParser implements ContextExpressionParser {
           consumed += 1;
         }
 
-        let flags = '';
+        let flags = "";
         consumed += 1;
-        while (consumed < remainder.length && /[gimsuy]/.test(remainder[consumed])) {
-          flags += remainder[consumed];
+        while (consumed < remainder.length) {
+          const char = remainder[consumed];
+          if (!char || !/[gimsuy]/.test(char)) break;
+          flags += char;
           consumed += 1;
         }
 
-        tokens.push({ type: 'regex', value: `/${pattern}/${flags}` });
+        tokens.push({ type: "regex", value: `/${pattern}/${flags}` });
         index += consumed;
         continue;
       }
 
       if (/^[0-9]/.test(remainder)) {
-        const [match] = remainder.match(/^[0-9]+(\.[0-9]+)?/) ?? [''];
-        tokens.push({ type: 'number', value: match });
+        const [match] = remainder.match(/^[0-9]+(\.[0-9]+)?/) ?? [""];
+        tokens.push({ type: "number", value: match });
         index += match.length;
         continue;
       }
 
       if (/^(true|false)\b/.test(remainder)) {
-        const value = remainder.startsWith('true') ? 'true' : 'false';
-        tokens.push({ type: 'boolean', value });
+        const value = remainder.startsWith("true") ? "true" : "false";
+        tokens.push({ type: "boolean", value });
         index += value.length;
         continue;
       }
 
       const identifierMatch = remainder.match(/^[a-zA-Z0-9_.-]+/);
       if (identifierMatch) {
-        tokens.push({ type: 'identifier', value: identifierMatch[0] });
+        tokens.push({ type: "identifier", value: identifierMatch[0] });
         index += identifierMatch[0].length;
         continue;
       }
 
-      throw new Error(`Unexpected token in context expression near "${remainder}"`);
+      throw new Error(
+        `Unexpected token in context expression near "${remainder}"`,
+      );
     }
 
-    tokens.push({ type: 'eof' });
+    tokens.push({ type: "eof" });
     return tokens;
   }
 
   private parseOr(): Evaluator {
     let left = this.parseAnd();
-    while (this.matchOperator('||')) {
+    while (this.matchOperator("||")) {
       const right = this.parseAnd();
       const prevLeft = left;
       left = (context) => prevLeft(context) || right(context);
@@ -234,7 +244,7 @@ class ExpressionParser implements ContextExpressionParser {
 
   private parseAnd(): Evaluator {
     let left = this.parseUnary();
-    while (this.matchOperator('&&')) {
+    while (this.matchOperator("&&")) {
       const right = this.parseUnary();
       const prevLeft = left;
       left = (context) => prevLeft(context) && right(context);
@@ -244,7 +254,7 @@ class ExpressionParser implements ContextExpressionParser {
   }
 
   private parseUnary(): Evaluator {
-    if (this.matchOperator('!')) {
+    if (this.matchOperator("!")) {
       const operand = this.parseUnary();
       return (context) => !operand(context);
     }
@@ -255,17 +265,19 @@ class ExpressionParser implements ContextExpressionParser {
   private parseComparison(): Evaluator {
     const left = this.parseOperand();
 
-    if (this.matchOperator('==')) {
+    if (this.matchOperator("==")) {
       const right = this.parseOperand();
-      return (context) => this.compare(left.evalValue(context), right.evalValue(context)) === 0;
+      return (context) =>
+        this.compare(left.evalValue(context), right.evalValue(context)) === 0;
     }
 
-    if (this.matchOperator('!=')) {
+    if (this.matchOperator("!=")) {
       const right = this.parseOperand();
-      return (context) => this.compare(left.evalValue(context), right.evalValue(context)) !== 0;
+      return (context) =>
+        this.compare(left.evalValue(context), right.evalValue(context)) !== 0;
     }
 
-    if (this.matchOperator('in')) {
+    if (this.matchOperator("in")) {
       const valueProvider = this.parseInValues();
       return (context) => {
         const collection = valueProvider(context);
@@ -273,7 +285,7 @@ class ExpressionParser implements ContextExpressionParser {
       };
     }
 
-    if (this.matchOperator('=~')) {
+    if (this.matchOperator("=~")) {
       const pattern = this.parseRegexOperand();
       return (context) => pattern.test(String(left.evalValue(context)));
     }
@@ -282,69 +294,75 @@ class ExpressionParser implements ContextExpressionParser {
   }
 
   private parseOperand(): OperandEvaluator {
-    if (this.matchParen('(')) {
+    if (this.matchParen("(")) {
       const evaluator = this.parseOr();
-      this.expectParen(')');
+      this.expectParen(")");
       return {
         evalValue: (context) => evaluator(context),
-        evalBool: (context) => !!evaluator(context),
-        describe: () => '(expr)',
+        evalBool: (context) => evaluator(context),
+        describe: () => "(expr)",
       };
     }
 
     const token = this.advance();
     switch (token.type) {
-      case 'identifier':
+      case "identifier":
         return {
-          evalValue: (context) => context.get(token.value ?? '') ?? false,
-          evalBool: (context) => this.isTruthy(context.get(token.value ?? '')),
-          describe: () => token.value ?? '',
+          evalValue: (context) => context.get(token.value ?? "") ?? false,
+          evalBool: (context) => this.isTruthy(context.get(token.value ?? "")),
+          describe: () => token.value ?? "",
         };
-      case 'string':
+      case "string":
         return {
-          evalValue: () => token.value ?? '',
+          evalValue: () => token.value ?? "",
           evalBool: () => this.isTruthy(token.value),
-          describe: () => `"${token.value ?? ''}"`,
+          describe: () => `"${token.value ?? ""}"`,
         };
-      case 'number':
+      case "number":
         return {
           evalValue: () => Number(token.value),
           evalBool: () => !!Number(token.value),
-          describe: () => token.value ?? '0',
+          describe: () => token.value ?? "0",
         };
-      case 'boolean':
+      case "boolean":
         return {
-          evalValue: () => (token.value === 'true'),
-          evalBool: () => token.value === 'true',
-          describe: () => token.value ?? 'false',
+          evalValue: () => token.value === "true",
+          evalBool: () => token.value === "true",
+          describe: () => token.value ?? "false",
         };
       default:
-        throw new Error(`Unexpected token "${token.value ?? token.type}" in expression`);
+        throw new Error(
+          `Unexpected token "${token.value ?? token.type}" in expression`,
+        );
     }
   }
 
   private parseInValues(): (context: ContextSnapshot) => string[] {
-    if (this.matchBracket('[')) {
+    if (this.matchBracket("[")) {
       const values: string[] = [];
-      if (this.checkBracket(']')) {
-        this.expectBracket(']');
+      if (this.checkBracket("]")) {
+        this.expectBracket("]");
         return () => values;
       }
 
       do {
         const token = this.advance();
-        if (token.type === 'string' || token.type === 'identifier') {
+        if (token.type === "string" || token.type === "identifier") {
           values.push(String(token.value));
-        } else if (token.type === 'number') {
+        } else if (token.type === "number") {
           values.push(String(Number(token.value)));
-        } else if (token.type === 'boolean') {
-          values.push(token.value === 'true' ? 'true' : 'false');
+        } else if (token.type === "boolean") {
+          values.push(token.value === "true" ? "true" : "false");
         } else {
-          throw new Error(`Unsupported value in "in" expression: ${token.value ?? token.type}`);
+          throw new Error(
+            `Unsupported value in "in" expression: ${
+              token.value ?? token.type
+            }`,
+          );
         }
       } while (this.matchComma());
 
-      this.expectBracket(']');
+      this.expectBracket("]");
       return () => values;
     }
 
@@ -354,24 +372,37 @@ class ExpressionParser implements ContextExpressionParser {
       if (Array.isArray(value)) {
         return value.map(String);
       }
-      if (typeof value === 'string') {
-        return value.split(',').map((part) => part.trim()).filter(Boolean);
+      if (typeof value === "string") {
+        return value
+          .split(",")
+          .map((part) => part.trim())
+          .filter(Boolean);
       }
       if (value === undefined || value === null) {
         return [];
       }
 
-      return [String(value)];
+      if (typeof value === "object") {
+        return [JSON.stringify(value)];
+      }
+      if (
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean"
+      ) {
+        return [String(value)];
+      }
+      return ["[Unknown]"];
     };
   }
 
   private parseRegexOperand(): RegExp {
     const token = this.advance();
-    if (token.type !== 'regex' || !token.value) {
-      throw new Error('Expected regex literal');
+    if (token.type !== "regex" || !token.value) {
+      throw new Error("Expected regex literal");
     }
 
-    const lastSlash = token.value.lastIndexOf('/');
+    const lastSlash = token.value.lastIndexOf("/");
     const pattern = token.value.slice(1, lastSlash);
     const flags = token.value.slice(lastSlash + 1);
     return new RegExp(pattern, flags);
@@ -382,7 +413,7 @@ class ExpressionParser implements ContextExpressionParser {
       return 0;
     }
 
-    if (typeof left === 'number' && typeof right === 'number') {
+    if (typeof left === "number" && typeof right === "number") {
       return left - right;
     }
 
@@ -397,7 +428,7 @@ class ExpressionParser implements ContextExpressionParser {
   }
 
   private matchOperator(value: string): boolean {
-    if (this.check('operator') && this.peek().value === value) {
+    if (this.check("operator") && this.peek().value === value) {
       this.advance();
       return true;
     }
@@ -405,7 +436,7 @@ class ExpressionParser implements ContextExpressionParser {
   }
 
   private matchParen(value: string): boolean {
-    if (this.check('paren') && this.peek().value === value) {
+    if (this.check("paren") && this.peek().value === value) {
       this.advance();
       return true;
     }
@@ -413,7 +444,7 @@ class ExpressionParser implements ContextExpressionParser {
   }
 
   private matchBracket(value: string): boolean {
-    if (this.check('bracket') && this.peek().value === value) {
+    if (this.check("bracket") && this.peek().value === value) {
       this.advance();
       return true;
     }
@@ -421,7 +452,7 @@ class ExpressionParser implements ContextExpressionParser {
   }
 
   private matchComma(): boolean {
-    if (this.check('comma')) {
+    if (this.check("comma")) {
       this.advance();
       return true;
     }
@@ -437,14 +468,14 @@ class ExpressionParser implements ContextExpressionParser {
 
   private expectParen(value: string): void {
     const token = this.advance();
-    if (token.type !== 'paren' || token.value !== value) {
+    if (token.type !== "paren" || token.value !== value) {
       throw new Error(`Expected "${value}"`);
     }
   }
 
   private expectBracket(value: string): void {
     const token = this.advance();
-    if (token.type !== 'bracket' || token.value !== value) {
+    if (token.type !== "bracket" || token.value !== value) {
       throw new Error(`Expected "${value}"`);
     }
   }
@@ -455,18 +486,18 @@ class ExpressionParser implements ContextExpressionParser {
 
   private checkBracket(value: string): boolean {
     const token = this.peek();
-    return token.type === 'bracket' && token.value === value;
+    return token.type === "bracket" && token.value === value;
   }
 
   private peek(): Token {
-    return this.tokens[this.position] ?? { type: 'eof' };
+    return this.tokens[this.position] ?? { type: "eof" };
   }
 
   private advance(): Token {
     if (this.position < this.tokens.length) {
       this.position += 1;
     }
-    return this.tokens[this.position - 1] ?? { type: 'eof' };
+    return this.tokens[this.position - 1] ?? { type: "eof" };
   }
 }
 
@@ -484,8 +515,11 @@ export class ContextService {
       return;
     }
 
-    this.definitions.set(definition.key, definition);
-    this.globalValues.set(definition.key, definition.defaultValue ?? undefined);
+    this.definitions.set(definition.key, definition as ContextKeyDefinition);
+    this.globalValues.set(
+      definition.key,
+      (definition.defaultValue ?? undefined) as ContextValue,
+    );
   }
 
   defineMany(definitions: ContextKeyDefinition[]): void {
@@ -495,7 +529,9 @@ export class ContextService {
   }
 
   setValue(key: string, value: ContextValue, scopeId?: ScopeId): void {
-    const target = scopeId ? this.ensureScope(scopeId).values : this.globalValues;
+    const target = scopeId
+      ? this.ensureScope(scopeId).values
+      : this.globalValues;
     const previous = target.get(key);
 
     if (previous === value) {
@@ -511,19 +547,21 @@ export class ContextService {
     this.emitChange({ key, oldValue: previous, newValue: value });
   }
 
-  getValue<T = ContextValue>(key: string, scopes?: ScopeId[]): T | undefined {
+  getValue(key: string, scopes?: ScopeId[]): ContextValue | undefined {
     const chain = this.getScopeChain(scopes);
 
     for (let index = chain.length - 1; index >= 0; index -= 1) {
-      const scope = this.scopes.get(chain[index]);
+      const scopeId = chain[index];
+      if (!scopeId) continue;
+      const scope = this.scopes.get(scopeId);
       const value = scope?.values.get(key);
       if (value !== undefined) {
-        return value as T;
+        return value;
       }
     }
 
     if (this.globalValues.has(key)) {
-      return this.globalValues.get(key) as T;
+      return this.globalValues.get(key);
     }
 
     return undefined;

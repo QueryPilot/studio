@@ -33,7 +33,6 @@ class VaultStorageService {
   private dirtyIds: Set<string> = new Set();
   private deletedIds: Set<string> = new Set();
   private indexDirty = false;
-  private preloaded = false;
 
   private scheduleSave(): void {
     if (this.saveScheduled) return;
@@ -146,9 +145,7 @@ class VaultStorageService {
   async getConnection(id: string): Promise<StoredConnection | null> {
     await this.ensureInitialized();
     return withTimeout(
-      (async () => {
-        return this.connectionCache.get(id) ?? null;
-      })(),
+      Promise.resolve(this.connectionCache.get(id) ?? null),
       READ_TIMEOUT,
       `Get connection ${id}`,
     );
@@ -257,7 +254,6 @@ class VaultStorageService {
     this.dirtyIds.clear();
     this.deletedIds.clear();
     this.indexDirty = false;
-    this.preloaded = false;
   }
 
   private async preloadAllInternal(): Promise<void> {
@@ -276,7 +272,6 @@ class VaultStorageService {
         if (!this.indexCache) {
           this.indexCache = arr.map((s) => s.profile.id).filter(Boolean);
         }
-        this.preloaded = true;
         return;
       }
     } catch (err) {
@@ -285,10 +280,11 @@ class VaultStorageService {
 
     this.connectionCache.clear();
     this.indexCache = [];
-    this.preloaded = true;
     try {
       await invoke("vault_write", { plaintextJson: JSON.stringify([]) });
-    } catch {}
+    } catch {
+      // Ignore errors when clearing vault
+    }
   }
 
   async preloadAll(): Promise<void> {

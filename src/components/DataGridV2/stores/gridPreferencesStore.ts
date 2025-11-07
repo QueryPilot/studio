@@ -30,7 +30,7 @@ export interface GridPreferencesState {
   updateView: (gridId: string, updater: (draft: GridViewState) => void) => void;
   updatePinnedRows: (
     gridId: string,
-    updater: (draft: string[]) => string[] | void,
+    updater: (draft: string[]) => string[] | undefined,
   ) => void;
   setHistorySnapshot: (
     gridId: string,
@@ -81,7 +81,7 @@ export const useGridPreferencesStore = create<GridPreferencesState>()(
             const prefs =
               state.preferences[gridId] ?? createDefaultPreferences();
             if (!state.preferences[gridId]) {
-              state.preferences[gridId] = prefs;
+              state.preferences[gridId] = prefs as any;
             }
             updater(prefs);
             prefs.updatedAt = Date.now();
@@ -92,7 +92,7 @@ export const useGridPreferencesStore = create<GridPreferencesState>()(
             const prefs =
               state.preferences[gridId] ?? createDefaultPreferences();
             if (!state.preferences[gridId]) {
-              state.preferences[gridId] = prefs;
+              state.preferences[gridId] = prefs as any;
             }
             updater(prefs.columns);
             prefs.updatedAt = Date.now();
@@ -103,7 +103,7 @@ export const useGridPreferencesStore = create<GridPreferencesState>()(
             const prefs =
               state.preferences[gridId] ?? createDefaultPreferences();
             if (!state.preferences[gridId]) {
-              state.preferences[gridId] = prefs;
+              state.preferences[gridId] = prefs as any;
             }
             updater(prefs.view);
             prefs.updatedAt = Date.now();
@@ -114,7 +114,7 @@ export const useGridPreferencesStore = create<GridPreferencesState>()(
             const prefs =
               state.preferences[gridId] ?? createDefaultPreferences();
             if (!state.preferences[gridId]) {
-              state.preferences[gridId] = prefs;
+              state.preferences[gridId] = prefs as any;
             }
             const workingCopy = [...prefs.pinnedRows];
             const result = updater(workingCopy);
@@ -127,7 +127,7 @@ export const useGridPreferencesStore = create<GridPreferencesState>()(
             const prefs =
               state.preferences[gridId] ?? createDefaultPreferences();
             if (!state.preferences[gridId]) {
-              state.preferences[gridId] = prefs;
+              state.preferences[gridId] = prefs as any;
             }
             prefs.historySnapshot = snapshot
               ? {
@@ -143,7 +143,7 @@ export const useGridPreferencesStore = create<GridPreferencesState>()(
             const prefs =
               state.preferences[gridId] ?? createDefaultPreferences();
             if (!state.preferences[gridId]) {
-              state.preferences[gridId] = prefs;
+              state.preferences[gridId] = prefs as any;
             }
             if (!prefs.draftRows) {
               prefs.draftRows = {};
@@ -151,14 +151,14 @@ export const useGridPreferencesStore = create<GridPreferencesState>()(
             if (row) {
               prefs.draftRows[key] = row;
             } else {
-              delete prefs.draftRows[key];
+              Reflect.deleteProperty(prefs.draftRows, key);
             }
             prefs.updatedAt = Date.now();
           }, false, `gridPreferences/setDraftRow:${gridId}`);
         },
         reset: (gridId) => {
           set((state) => {
-            delete state.preferences[gridId];
+            Reflect.deleteProperty(state.preferences, gridId);
           }, false, `gridPreferences/reset:${gridId}`);
         },
         resetAll: () => {

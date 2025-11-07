@@ -14,7 +14,7 @@ export function createSnippetCompletion(
   template: string,
   detail?: string,
   info?: string,
-  score?: number,
+  _score?: number,
 ): Completion {
   return {
     label,
@@ -22,7 +22,7 @@ export function createSnippetCompletion(
     info,
     apply: (
       view: EditorView,
-      completion: Completion,
+      _completion: Completion,
       from: number,
       to: number,
     ) => {
@@ -33,7 +33,7 @@ export function createSnippetCompletion(
       view.dispatch({
         changes: { from, to, insert: text },
         selection:
-          placeholders.length > 0
+          placeholders.length > 0 && placeholders[0]
             ? { anchor: from + placeholders[0].from }
             : { anchor: from + text.length },
       });
@@ -65,7 +65,7 @@ function parseSnippetTemplate(template: string): {
   // Replace ${n:text} with text and track placeholder positions
   const text = template.replace(
     /\$\{(\d+):([^}]+)\}/g,
-    (match, index, content) => {
+    (_match, index: string, content: string) => {
       const placeholderIndex = parseInt(index, 10);
       const from = offset;
       const to = offset + content.length;
@@ -101,7 +101,7 @@ export function snippetCompletion(
   } = {},
 ): Completion {
   // Extract label from template if not provided
-  const label = options.label || template.split("\n")[0].substring(0, 30);
+  const label = options.label || (template.split("\n")[0] ?? "").substring(0, 30);
 
   return createSnippetCompletion(
     label,

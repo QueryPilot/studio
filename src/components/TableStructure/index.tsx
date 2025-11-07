@@ -19,9 +19,9 @@ export const TableStructure = memo(function TableStructure({
   database,
   table,
   schema,
-  isView = false,
-  kind,
-  onActionsChange,
+  isView: _isView = false,
+  kind: _kind,
+  onActionsChange: _onActionsChange,
 }: TableStructureProps) {
   const { structure, isLoading, error, refresh } = useTableFullStructure({
     connectionId,
@@ -89,8 +89,8 @@ export const TableStructure = memo(function TableStructure({
               fk.columns.includes(column.name),
             );
             const checkConstraint = constraints.find((c) => {
-              if (c.columnName) {
-                return c.columnName === column.name;
+              if ((c as any).columnName) {
+                return (c as any).columnName === column.name;
               }
               if (!c.definition) return false;
               return new RegExp(`"?${column.name}"?`, "i").test(c.definition);
@@ -142,7 +142,7 @@ export const TableStructure = memo(function TableStructure({
         </tbody>
       </table>
       <div className="px-4 py-2 text-xs text-muted-foreground border-t">
-        Last refreshed: {structure?.fetchedAt ? new Date(structure.fetchedAt).toLocaleString() : "n/a"}
+        Last refreshed: {(structure as any)?.fetchedAt ? new Date((structure as any).fetchedAt as string | number | Date).toLocaleString() : "n/a"}
         <button
           type="button"
           onClick={() => refresh().catch(() => undefined)}

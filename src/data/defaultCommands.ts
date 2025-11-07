@@ -6,8 +6,8 @@ import { useDialogStore } from "@/stores/ui/dialogStore";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
-import { useSchemaStore } from "@/stores/schemaStore";
 import { useTabStateStore } from "@/stores/tabStateStore";
+import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 //
 
 const commandPaletteStore = useCommandPaletteStore.getState();
@@ -331,7 +331,8 @@ export const defaultCommands: Command[] = [
       const tabId = `query-${uuid}`;
 
       const connectionStore = useConnectionStore.getState();
-      const schemaStore = useSchemaStore.getState();
+      const selectedSchema = useWorkspaceSelectionStore.getState().schema;
+
       const activeConnectionId: string =
         connectionStore.activeConnectionId ??
         connectionStore.getActiveConnection()?.id ??
@@ -361,7 +362,7 @@ export const defaultCommands: Command[] = [
         title,
         connectionId: activeConnectionId,
         database: connection?.profile.database || "",
-        schema: schemaStore.selectedSchema || "",
+        schema: selectedSchema || "",
         sql: "",
       });
       workbench.setActiveTab(focusedPanelId, tabId);

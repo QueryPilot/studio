@@ -409,5 +409,9 @@ function formatValue(value: unknown): string {
   if (typeof value === "object") {
     return JSON.stringify(value);
   }
-  return String(value);
+  // At this point, value should be string, number, or other primitive
+  if (typeof value === "string" || typeof value === "number") {
+    return String(value);
+  }
+  return "";
 }

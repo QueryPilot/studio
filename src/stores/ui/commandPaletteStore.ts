@@ -22,23 +22,23 @@ export const useCommandPaletteStore = create<CommandPaletteState>((set, get) => 
   mode: 'quickOpen',
   origin: 'quickOpen',
   openQuickOpen: () =>
-    set(() => ({
+    { set(() => ({
       isOpen: true,
       query: '',
       mode: 'quickOpen',
       origin: 'quickOpen',
-    })),
+    })); },
   openCommandPalette: () =>
-    set((state) => ({
+    { set((state) => ({
       isOpen: true,
       mode: 'command',
       origin: 'command',
       query: state.query.startsWith('>') ? state.query : '>',
-    })),
+    })); },
   closePalette: () =>
-    set(() => ({
+    { set(() => ({
       isOpen: false,
-    })),
+    })); },
   toggleCommandPalette: () => {
     const state = get();
     if (state.isOpen && state.mode === 'command' && state.origin === 'command') {
@@ -52,10 +52,10 @@ export const useCommandPaletteStore = create<CommandPaletteState>((set, get) => 
       query: state.query.startsWith('>') ? state.query : '>',
     });
   },
-  setQuery: (value: string) => set({ query: value }),
+  setQuery: (value: string) => { set({ query: value }); },
   setMode: (mode: CommandPaletteMode) =>
-    set((state) => ({
+    { set((state) => ({
       mode,
       origin: mode === 'command' ? state.origin : 'quickOpen',
-    })),
+    })); },
 }));

@@ -132,19 +132,19 @@ export interface GridCallbacks {
   onCellEditStart?: (event: GridEditCoordinates) => void;
   onCellEditCommit?: (
     event: GridEditCommitEvent,
-  ) => GridHistoryEntry | void | Promise<GridHistoryEntry | void>;
+  ) => GridHistoryEntry | undefined | Promise<GridHistoryEntry | undefined>;
   onCellEditCancel?: (event: GridEditCoordinates) => void;
   onRowAppend?: (
     event: GridRowAppendEvent,
-  ) => GridHistoryEntry | void | Promise<GridHistoryEntry | void>;
-  onRowInsert?: (event: GridRowInsertEvent) => GridHistoryEntry | void;
-  onRowDelete?: (event: GridRowDeleteEvent) => GridHistoryEntry | void;
+  ) => GridHistoryEntry | undefined | Promise<GridHistoryEntry | undefined>;
+  onRowInsert?: (event: GridRowInsertEvent) => GridHistoryEntry | undefined;
+  onRowDelete?: (event: GridRowDeleteEvent) => GridHistoryEntry | undefined;
   onPaste?: (event: GridPasteEvent) =>
     | GridRowInsertEvent
     | GridHistoryEntry
     | boolean
-    | void
-    | Promise<GridRowInsertEvent | GridHistoryEntry | boolean | void>;
+    | undefined
+    | Promise<GridRowInsertEvent | GridHistoryEntry | boolean | undefined>;
   onCopy?: (selection: GridSelection, asJson: boolean) => void;
   onRequestMoreData?: (range: Rectangle) => void;
   createDraftRow?: (position: "top" | "bottom" | number) => GridRowModel;

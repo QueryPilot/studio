@@ -1,4 +1,4 @@
-import { detectPlatform, RuntimePlatform } from './platform';
+import { detectPlatform, type RuntimePlatform } from './platform';
 
 const MODIFIER_ORDER: NormalizedModifier[] = ['meta', 'ctrl', 'alt', 'shift'];
 

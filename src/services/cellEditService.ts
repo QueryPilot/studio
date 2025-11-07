@@ -3,7 +3,6 @@ import type { ColumnMeta } from "@/types/database";
 
 export interface CellEditRequest {
   connectionId: string;
-  database: string;
   table: string;
   schema?: string;
   column: string;
@@ -17,13 +16,12 @@ export interface CellEditResponse {
   error?: string;
 }
 
-export class CellEditService {
+export const CellEditService = {
   /**
    * Update a single cell value in the database
    */
-  static async updateCell({
+  async updateCell({
     connectionId,
-    database,
     table,
     schema,
     column,
@@ -114,15 +112,15 @@ export class CellEditService {
         error: error instanceof Error ? error.message : "Failed to update cell",
       };
     }
-  }
+  },
 
   /**
    * Get primary key values from a row
    */
-  static extractPrimaryKeys(
+  extractPrimaryKeys: (
     row: Record<string, any>,
     columns: ColumnMeta[],
-  ): Record<string, any> {
+  ): Record<string, any> => {
     const primaryKeys: Record<string, any> = {};
 
     columns.forEach((column) => {
@@ -136,12 +134,12 @@ export class CellEditService {
     });
 
     return primaryKeys;
-  }
+  },
 
   /**
    * Validate if a value is valid for a column type
    */
-  static validateValue(value: any, column: ColumnMeta): boolean {
+  validateValue(value: any, column: ColumnMeta): boolean {
     // Allow NULL for nullable columns
     if (value === null || value === undefined) {
       return column.nullable;
@@ -181,5 +179,5 @@ export class CellEditService {
 
     // String types accept anything
     return true;
-  }
-}
+  },
+};

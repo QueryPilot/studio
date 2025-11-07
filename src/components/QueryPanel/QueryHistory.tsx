@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   queryHistoryService,
   type QueryHistoryEntry,
@@ -49,11 +49,7 @@ export function QueryHistory({
   } | null>(null);
   const [favoriteName, setFavoriteName] = useState("");
 
-  useEffect(() => {
-    loadHistory();
-  }, [connectionId, database]);
-
-  const loadHistory = async () => {
+  const loadHistory = useCallback(async () => {
     setIsLoading(true);
     try {
       const entries = await queryHistoryService.getHistory(
@@ -66,9 +62,9 @@ export function QueryHistory({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [connectionId, database]);
 
-  const handleSearch = async () => {
+  const handleSearch = useCallback(async () => {
     if (searchTerm.trim()) {
       const results = await queryHistoryService.searchHistory(
         connectionId,
@@ -76,41 +72,47 @@ export function QueryHistory({
       );
       setHistory(results);
     } else {
-      loadHistory();
+      void loadHistory();
     }
-  };
+  }, [connectionId, loadHistory, searchTerm]);
 
-  const handleDelete = async (id: number) => {
-    if (id) {
-      await queryHistoryService.deleteEntry(id);
-      loadHistory();
-    }
-  };
+  const handleDelete = useCallback(
+    async (id: number) => {
+      if (id) {
+        await queryHistoryService.deleteEntry(id);
+        void loadHistory();
+      }
+    },
+    [loadHistory],
+  );
 
-  const handleClearAll = async () => {
+  const handleClearAll = useCallback(async () => {
     await queryHistoryService.clearHistory(connectionId, database);
     setHistory([]);
-  };
+  }, [connectionId, database]);
 
-  const handleToggleFavorite = async (id: number, query: string) => {
-    try {
-      const entry = history.find((h) => h.id === id);
-      if (entry?.isFavorite) {
-        await queryHistoryService.toggleFavorite(id);
-        toast.success("Removed from favorites");
-      } else {
-        const defaultName =
-          query.length > 50 ? `${query.substring(0, 50)}...` : query;
-        setEditingFavorite({ id, currentName: defaultName });
-        setFavoriteName(defaultName);
+  const handleToggleFavorite = useCallback(
+    async (id: number, query: string) => {
+      try {
+        const entry = history.find((h) => h.id === id);
+        if (entry?.isFavorite) {
+          await queryHistoryService.toggleFavorite(id);
+          toast.success("Removed from favorites");
+        } else {
+          const defaultName =
+            query.length > 50 ? `${query.substring(0, 50)}...` : query;
+          setEditingFavorite({ id, currentName: defaultName });
+          setFavoriteName(defaultName);
+        }
+        void loadHistory();
+      } catch {
+        toast.error("Failed to update favorite");
       }
-      loadHistory();
-    } catch (error) {
-      toast.error("Failed to update favorite");
-    }
-  };
+    },
+    [history, loadHistory],
+  );
 
-  const handleSaveFavorite = async () => {
+  const handleSaveFavorite = useCallback(async () => {
     if (editingFavorite && favoriteName.trim()) {
       try {
         await queryHistoryService.toggleFavorite(
@@ -120,12 +122,12 @@ export function QueryHistory({
         toast.success("Added to favorites");
         setEditingFavorite(null);
         setFavoriteName("");
-        loadHistory();
-      } catch (error) {
+        void loadHistory();
+      } catch {
         toast.error("Failed to save favorite");
       }
     }
-  };
+  }, [editingFavorite, favoriteName, loadHistory]);
 
   if (isLoading) {
     return (
@@ -146,7 +148,11 @@ export function QueryHistory({
               onChange={(e) => {
                 setSearchTerm(e.target.value);
               }}
-              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  void handleSearch();
+                }
+              }}
               placeholder="Search query history..."
               className="pl-8 h-8"
             />
@@ -154,7 +160,7 @@ export function QueryHistory({
               <Button
                 onClick={() => {
                   setSearchTerm("");
-                  loadHistory();
+                  void loadHistory();
                 }}
                 variant="ghost"
                 size="icon"
@@ -231,7 +237,8 @@ export function QueryHistory({
                     <Button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleToggleFavorite(entry.id!, entry.query);
+                        if (entry.id)
+                          void handleToggleFavorite(entry.id, entry.query);
                       }}
                       variant="ghost"
                       size="icon"
@@ -250,7 +257,7 @@ export function QueryHistory({
                     <Button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDelete(entry.id!);
+                        if (entry.id) void handleDelete(entry.id);
                       }}
                       variant="ghost"
                       size="icon"

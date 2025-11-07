@@ -40,7 +40,7 @@ export interface CellMetadata {
 
 // Main CellValue structure used throughout the application
 export interface CellValue {
-  value: any | null; // Actual data value or null for SQL NULL
+  value: any; // Actual data value or null for SQL NULL (any includes null)
   db_type: string; // Original database type (e.g., "VARCHAR(255)", "INT", "TIMESTAMP")
   value_type: CellValueType; // Standardized type for frontend rendering
   metadata?: CellMetadata; // Optional formatting and precision metadata

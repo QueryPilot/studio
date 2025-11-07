@@ -133,13 +133,15 @@ const useWorkbenchStore = create<WorkbenchStore>()(
         });
       }
 
-      set({
-        layoutTree: defaultPanel,
-        focusedPanelId: defaultPanel.id,
-        panelContents: new Map([[defaultPanel.id, defaultPanel.content!]]),
-        layoutHistory: [defaultPanel],
-        historyIndex: 0,
-      });
+      if (defaultPanel.content) {
+        set({
+          layoutTree: defaultPanel,
+          focusedPanelId: defaultPanel.id,
+          panelContents: new Map([[defaultPanel.id, defaultPanel.content]]),
+          layoutHistory: [defaultPanel],
+          historyIndex: 0,
+        });
+      }
     },
 
     splitPanelAction: (action) => {
@@ -264,7 +266,7 @@ const useWorkbenchStore = create<WorkbenchStore>()(
       });
 
       if (tabsToClear.length > 0) {
-        tabsToClear.forEach((tabId) => tabStateStore.clearQueryState(tabId));
+        tabsToClear.forEach((tabId) => { tabStateStore.clearQueryState(tabId); });
       }
     },
 
@@ -293,7 +295,7 @@ const useWorkbenchStore = create<WorkbenchStore>()(
 
       // Remove metadata from source panel
       const newSourceMetadata = { ...sourcePanel.metadata };
-      delete newSourceMetadata[tabId];
+      Reflect.deleteProperty(newSourceMetadata, tabId);
 
       // Add metadata to target panel
       const newTargetMetadata = {

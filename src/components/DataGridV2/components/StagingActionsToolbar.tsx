@@ -67,7 +67,7 @@ export function StagingActionsToolbar(props: StagingActionsToolbarProps) {
             variant="ghost"
             size="sm"
             className="h-6 w-6 p-0"
-            onClick={() => undo()}
+            onClick={undo}
             disabled={!canUndo}
           >
             <Undo2 className="h-3 w-3" />
@@ -85,7 +85,7 @@ export function StagingActionsToolbar(props: StagingActionsToolbarProps) {
             variant="ghost"
             size="sm"
             className="h-6 w-6 p-0"
-            onClick={() => redo()}
+            onClick={redo}
             disabled={!canRedo}
           >
             <Redo2 className="h-3 w-3" />

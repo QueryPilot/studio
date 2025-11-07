@@ -59,7 +59,7 @@ export function GlobalShortcutsPanel() {
       const success = await manager.register({
         shortcut: customShortcut,
         description: 'Show/activate Query Pilot',
-        handler: async () => {
+        handler: () => {
           // The handler is in Rust, this is just for tracking
           console.log('Global shortcut triggered:', customShortcut);
         }

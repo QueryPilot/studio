@@ -37,7 +37,7 @@ interface AIStoreState {
 
 export const useAIStore = create<AIStoreState>()(
   persist(
-    (set, get) => ({
+    (set, _get) => ({
       selectedProvider: "openai",
       setSelectedProvider: (provider: string) => {
         set({ selectedProvider: provider });
@@ -92,7 +92,7 @@ export const useAIStore = create<AIStoreState>()(
     {
       name: "ai-store",
       version: 4,
-      migrate: (state, version) => {
+      migrate: (_state, _version) => {
         // Migrate from old structure
         return {
           selectedProvider: "openai",

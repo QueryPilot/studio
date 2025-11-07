@@ -179,7 +179,7 @@ const errorMappings: Partial<Record<ErrorCode, (error: BackendError) => ErrorDis
 /**
  * Handle backend errors and show appropriate user feedback
  */
-export function handleBackendError(error: BackendError | Error | unknown): void {
+export function handleBackendError(error: unknown): void {
   let errorDisplay: ErrorDisplay;
 
   if (isBackendError(error)) {

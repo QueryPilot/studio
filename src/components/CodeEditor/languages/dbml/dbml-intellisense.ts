@@ -17,7 +17,7 @@ export class DBMLIntelliSense {
     this.validator = new DBMLValidator();
   }
 
-  async getCompletions(context: CompletionContext): Promise<CompletionResult | null> {
+  getCompletions(context: CompletionContext): CompletionResult | null {
     const doc = context.state.doc;
     const pos = context.pos;
     const line = doc.lineAt(pos);
@@ -359,7 +359,7 @@ export class DBMLIntelliSense {
     const completions: Completion[] = [];
 
     // Determine position in relationship
-    const parts = textBefore.split(/[><\-]/);
+    const parts = textBefore.split(/[><-]/);
     const isTypingFrom = parts.length === 1;
     const isTypingOperator = textBefore.match(/\.\w+\s*$/);
     const isTypingTo = parts.length === 2;
@@ -389,13 +389,15 @@ export class DBMLIntelliSense {
         // Also suggest table.column combinations
         if (isTypingFrom || isTypingTo) {
           for (const colName of table.columns.keys()) {
-            const col = table.columns.get(colName)!;
-            completions.push({
-              label: `${tableName}.${colName}`,
-              type: "property",
-              detail: col.type,
-              boost: 15
-            });
+            const col = table.columns.get(colName);
+            if (col) {
+              completions.push({
+                label: `${tableName}.${colName}`,
+                type: "property",
+                detail: col.type,
+                boost: 15
+              });
+            }
           }
         }
       }

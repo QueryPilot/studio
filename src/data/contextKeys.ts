@@ -1,5 +1,5 @@
 import { detectPlatform } from '@/lib/platform';
-import { ContextKeyDefinition } from '@/types/context';
+import { type ContextKeyDefinition } from '@/types/context';
 
 const platform = detectPlatform();
 

@@ -22,7 +22,14 @@ const formatArrayElementInline = (value: unknown): string => {
   try {
     return JSON.stringify(value);
   } catch {
-    return String(value);
+    if (typeof value === "object") return "[Object]";
+    if (
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+    )
+      return String(value);
+    return "[Unknown]";
   }
 };
 
@@ -106,7 +113,7 @@ export const computeArrayStringsFromRaw = (
   if (typeof rawValue === "object") {
     try {
       const compact = JSON.stringify(rawValue);
-      const parsed = tryParseJsonArray(compact ?? "");
+      const parsed = tryParseJsonArray(compact);
       if (parsed) {
         return {
           pretty: formatPgArrayPretty(parsed),
@@ -116,15 +123,26 @@ export const computeArrayStringsFromRaw = (
       const pretty = JSON.stringify(rawValue, null, 2);
       return {
         pretty,
-        inline: collapseWhitespace(pretty ?? ""),
+        inline: collapseWhitespace(pretty),
       };
     } catch {
-      const str = String(rawValue);
+      const str = typeof rawValue === "object" ? "[Object]" : String(rawValue);
       return { pretty: str, inline: collapseWhitespace(str) };
     }
   }
 
-  const str = String(rawValue);
+  let str: string;
+  if (typeof rawValue === "object") {
+    str = JSON.stringify(rawValue);
+  } else if (
+    typeof rawValue === "string" ||
+    typeof rawValue === "number" ||
+    typeof rawValue === "boolean"
+  ) {
+    str = String(rawValue);
+  } else {
+    str = "[Unknown]";
+  }
   return { pretty: str, inline: collapseWhitespace(str) };
 };
 

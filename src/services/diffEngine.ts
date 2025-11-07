@@ -8,7 +8,7 @@ import type {
   DataRowDiff,
   StructureDiffEntry,
 } from "@/types/crud";
-import { DbType } from "./backend";
+import { type DbType } from "./backend";
 import { sqlDiffGenerator } from "./sqlDiffGenerator";
 
 const DATA_OPERATION_TYPES = new Set<CrudCommand['type']>([
@@ -76,75 +76,99 @@ const toDataRowDiff = (command: CrudCommandFor<'data.insert' | 'data.update' | '
 
 const toStructureDiffEntry = (command: CrudCommand): StructureDiffEntry | null => {
   switch (command.type) {
-    case 'column.add':
+    case 'column.add': {
+      const cmd = command as CrudCommandFor<'column.add'>;
       return {
-        path: `columns.${command.payload.column.name}`,
+        path: `columns.${cmd.payload.column.name}`,
         changeType: 'added',
-        after: command.payload.column,
+        after: cmd.payload.column as any,
       };
-    case 'column.modify':
+    }
+    case 'column.modify': {
+      const cmd = command as CrudCommandFor<'column.modify'>;
       return {
-        path: `columns.${command.payload.columnName}`,
+        path: `columns.${cmd.payload.columnName}`,
         changeType: 'modified',
-        after: command.payload.newDefinition,
+        after: cmd.payload.newDefinition as any,
       };
-    case 'column.drop':
+    }
+    case 'column.drop': {
+      const cmd = command as CrudCommandFor<'column.drop'>;
       return {
-        path: `columns.${command.payload.columnName}`,
+        path: `columns.${cmd.payload.columnName}`,
         changeType: 'removed',
       };
-    case 'column.rename':
+    }
+    case 'column.rename': {
+      const cmd = command as CrudCommandFor<'column.rename'>;
       return {
-        path: `columns.${command.payload.columnName}`,
+        path: `columns.${cmd.payload.columnName}`,
         changeType: 'modified',
-        after: { name: command.payload.newName },
+        after: { name: cmd.payload.newName },
       };
-    case 'index.create':
+    }
+    case 'index.create': {
+      const cmd = command as CrudCommandFor<'index.create'>;
       return {
-        path: `indexes.${command.payload.definition.name}`,
+        path: `indexes.${cmd.payload.definition.name}`,
         changeType: 'added',
-        after: command.payload.definition,
+        after: cmd.payload.definition as any,
       };
-    case 'index.drop':
+    }
+    case 'index.drop': {
+      const cmd = command as CrudCommandFor<'index.drop'>;
       return {
-        path: `indexes.${command.payload.indexName}`,
+        path: `indexes.${cmd.payload.indexName}`,
         changeType: 'removed',
       };
-    case 'index.rename':
+    }
+    case 'index.rename': {
+      const cmd = command as CrudCommandFor<'index.rename'>;
       return {
-        path: `indexes.${command.payload.indexName}`,
+        path: `indexes.${cmd.payload.indexName}`,
         changeType: 'modified',
-        after: { name: command.payload.newName },
+        after: { name: cmd.payload.newName },
       };
-    case 'trigger.create':
+    }
+    case 'trigger.create': {
+      const cmd = command as CrudCommandFor<'trigger.create'>;
       return {
-        path: `triggers.${command.payload.definition.name}`,
+        path: `triggers.${cmd.payload.definition.name}`,
         changeType: 'added',
-        after: command.payload.definition,
+        after: cmd.payload.definition as any,
       };
-    case 'trigger.drop':
+    }
+    case 'trigger.drop': {
+      const cmd = command as CrudCommandFor<'trigger.drop'>;
       return {
-        path: `triggers.${command.payload.triggerName}`,
+        path: `triggers.${cmd.payload.triggerName}`,
         changeType: 'removed',
       };
+    }
     case 'trigger.enable':
-    case 'trigger.disable':
+    case 'trigger.disable': {
+      const cmd = command as CrudCommandFor<'trigger.enable'>;
       return {
-        path: `triggers.${command.payload.triggerName}`,
+        path: `triggers.${cmd.payload.triggerName}`,
         changeType: 'modified',
-        after: { enabled: command.payload.enable },
+        after: { enabled: cmd.payload.enable },
       };
-    case 'fk.add':
+    }
+    case 'fk.add': {
+      const cmd = command as CrudCommandFor<'fk.add'>;
       return {
-        path: `foreignKeys.${command.payload.definition.name}`,
+        path: `foreignKeys.${cmd.payload.definition.name}`,
         changeType: 'added',
-        after: command.payload.definition,
+        after: cmd.payload.definition as any,
       };
-    case 'fk.drop':
+    }
+    case 'fk.drop': {
+      const cmd = command as CrudCommandFor<'fk.drop'>;
       return {
-        path: `foreignKeys.${command.payload.constraintName}`,
+        path: `foreignKeys.${cmd.payload.constraintName}`,
         changeType: 'removed',
       };
+    }
     default:
       return null;
   }
@@ -157,32 +181,37 @@ const detectConflicts = (commands: CrudCommand[]): CrudDiffConflict[] => {
 
   for (const command of commands) {
     if (command.type === 'column.drop') {
-      droppedColumns.add(command.payload.columnName);
+      const cmd = command as CrudCommandFor<'column.drop'>;
+      droppedColumns.add(cmd.payload.columnName);
     }
     if (command.type === 'column.rename') {
-      renamedColumns.set(command.payload.columnName, command.payload.newName);
+      const cmd = command as CrudCommandFor<'column.rename'>;
+      renamedColumns.set(cmd.payload.columnName, cmd.payload.newName);
     }
   }
 
   for (const command of commands) {
-    if (command.type === 'data.update' && droppedColumns.has(command.payload.column)) {
-      conflicts.push({
-        id: `${command.id}-column-drop-conflict`,
-        severity: 'error',
-        message: `Column ${command.payload.column} is scheduled to be dropped but also updated`,
-        relatedCommandIds: [command.id],
-        resolutionHint: 'Remove the update or cancel the column drop.',
-      });
-    }
+    if (command.type === 'data.update') {
+      const cmd = command as CrudCommandFor<'data.update'>;
+      if (droppedColumns.has(cmd.payload.column)) {
+        conflicts.push({
+          id: `${cmd.id}-column-drop-conflict`,
+          severity: 'error',
+          message: `Column ${cmd.payload.column} is scheduled to be dropped but also updated`,
+          relatedCommandIds: [cmd.id],
+          resolutionHint: 'Remove the update or cancel the column drop.',
+        });
+      }
 
-    if (command.type === 'data.update' && renamedColumns.has(command.payload.column)) {
-      conflicts.push({
-        id: `${command.id}-column-rename-conflict`,
-        severity: 'warning',
-        message: `Column ${command.payload.column} is being renamed to ${renamedColumns.get(command.payload.column)}`,
-        relatedCommandIds: [command.id],
-        resolutionHint: 'Ensure the update uses the new column name.',
-      });
+      if (renamedColumns.has(cmd.payload.column)) {
+        conflicts.push({
+          id: `${cmd.id}-column-rename-conflict`,
+          severity: 'warning',
+          message: `Column ${cmd.payload.column} is being renamed to ${renamedColumns.get(cmd.payload.column)}`,
+          relatedCommandIds: [cmd.id],
+          resolutionHint: 'Ensure the update uses the new column name.',
+        });
+      }
     }
   }
 

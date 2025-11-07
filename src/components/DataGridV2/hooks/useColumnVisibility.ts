@@ -57,7 +57,7 @@ export function useColumnVisibility(
       // Remove stale ids
       Object.keys(next).forEach((key) => {
         if (!validIds.has(key)) {
-          delete next[key];
+          Reflect.deleteProperty(next, key);
         }
       });
       columns.forEach((column) => {

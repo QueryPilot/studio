@@ -42,15 +42,18 @@ const validateColumnDefinition = (definition: ColumnDefinitionInput): void => {
   }
 };
 
-const stageCommand = (command: CrudCommandFor<any>, shouldStage = true): void => {
+const stageCommand = (
+  command: CrudCommandFor<any>,
+  shouldStage = true,
+): void => {
   if (!shouldStage) {
     return;
   }
   useCrudStore.getState().stageCommand(command);
 };
 
-export class StructureOperationsService {
-  static addColumn(params: AddColumnParams): CrudCommandFor<'column.add'> {
+export const StructureOperationsService = {
+  addColumn(params: AddColumnParams): CrudCommandFor<"column.add"> {
     validateColumnDefinition(params.column);
 
     const command = CrudCommandFactory.createColumnAddCommand({
@@ -58,15 +61,18 @@ export class StructureOperationsService {
       column: params.column,
       userId: params.userId,
       description:
-        params.description ?? `Add column ${params.column.name} to ${params.target.table ?? "table"}`,
+        params.description ??
+        `Add column ${params.column.name} to ${params.target.table ?? "table"}`,
       tags: params.tags,
     });
 
     stageCommand(command, params.stage !== false);
     return command;
-  }
+  },
 
-  static modifyColumn(params: ModifyColumnParams): CrudCommandFor<'column.modify'> {
+  modifyColumn: (
+    params: ModifyColumnParams,
+  ): CrudCommandFor<"column.modify"> => {
     validateColumnDefinition(params.newDefinition);
 
     const command = CrudCommandFactory.createColumnModifyCommand({
@@ -76,17 +82,21 @@ export class StructureOperationsService {
       userId: params.userId,
       description:
         params.description ??
-        `Modify column ${params.columnName} on ${params.target.table ?? "table"}`,
+        `Modify column ${params.columnName} on ${
+          params.target.table ?? "table"
+        }`,
       tags: params.tags,
     });
 
     stageCommand(command, params.stage !== false);
     return command;
-  }
+  },
 
-  static dropColumn(params: DropColumnParams): CrudCommandFor<'column.drop'> {
+  dropColumn(params: DropColumnParams): CrudCommandFor<"column.drop"> {
     if (!params.columnName || params.columnName.trim() === "") {
-      throw new Error("StructureOperationsService: columnName is required for dropColumn");
+      throw new Error(
+        "StructureOperationsService: columnName is required for dropColumn",
+      );
     }
 
     const command = CrudCommandFactory.createColumnDropCommand({
@@ -96,20 +106,26 @@ export class StructureOperationsService {
       userId: params.userId,
       description:
         params.description ??
-        `Drop column ${params.columnName} from ${params.target.table ?? "table"}`,
+        `Drop column ${params.columnName} from ${
+          params.target.table ?? "table"
+        }`,
       tags: params.tags,
     });
 
     stageCommand(command, params.stage !== false);
     return command;
-  }
+  },
 
-  static renameColumn(params: RenameColumnParams): CrudCommandFor<'column.rename'> {
+  renameColumn(params: RenameColumnParams): CrudCommandFor<"column.rename"> {
     if (!params.columnName || params.columnName.trim() === "") {
-      throw new Error("StructureOperationsService: columnName is required for renameColumn");
+      throw new Error(
+        "StructureOperationsService: columnName is required for renameColumn",
+      );
     }
     if (!params.newName || params.newName.trim() === "") {
-      throw new Error("StructureOperationsService: newName is required for renameColumn");
+      throw new Error(
+        "StructureOperationsService: newName is required for renameColumn",
+      );
     }
 
     const command = CrudCommandFactory.createColumnRenameCommand({
@@ -119,14 +135,15 @@ export class StructureOperationsService {
       userId: params.userId,
       description:
         params.description ??
-        `Rename column ${params.columnName} to ${params.newName} on ${params.target.table ?? "table"}`,
+        `Rename column ${params.columnName} to ${params.newName} on ${
+          params.target.table ?? "table"
+        }`,
       tags: params.tags,
     });
 
     stageCommand(command, params.stage !== false);
     return command;
-  }
-}
+  },
+};
 
 export const structureOperationsService = StructureOperationsService;
-

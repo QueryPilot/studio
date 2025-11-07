@@ -27,7 +27,7 @@ export const QueryToolbar = memo(function QueryToolbar({
   viewMode,
   appliedLimit,
   executeHint,
-  beautifyHint,
+  beautifyHint: _beautifyHint,
   onExecute,
   onCancel,
   onBeautify,

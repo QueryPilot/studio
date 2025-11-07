@@ -50,10 +50,10 @@ const calculateMedian = (values: Decimal[]): Decimal => {
 
   if (sorted.length % 2 === 0) {
     // Even length: average of two middle values
-    return sorted[mid - 1].plus(sorted[mid]).dividedBy(2);
+    return sorted[mid - 1]!.plus(sorted[mid]!).dividedBy(2);
   } else {
     // Odd length: middle value
-    return sorted[mid];
+    return sorted[mid]!;
   }
 };
 

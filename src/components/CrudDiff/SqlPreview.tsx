@@ -41,7 +41,7 @@ function SqlStatementPanel({ statement }: SqlStatementPanelProps) {
     try {
       await navigator.clipboard.writeText(statement.statement);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setTimeout(() => { setCopied(false); }, 2000);
     } catch (error) {
       console.error("Failed to copy SQL statement", error);
     }

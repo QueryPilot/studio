@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { useKeyboardServicesOptional } from '@/components/KeyboardProvider';
-import { CommandHandler } from '@/types/command';
-import { KeybindingSource } from '@/types/keybinding';
+import { type CommandHandler } from '@/types/command';
+import { type KeybindingSource } from '@/types/keybinding';
 
-interface UseCommandOptions<TArgs = unknown> {
+interface UseCommandOptions {
   label: string;
   description?: string;
   category?: string;
@@ -17,7 +17,7 @@ interface UseCommandOptions<TArgs = unknown> {
 export function useCommand<TArgs = unknown>(
   commandId: string,
   handler: CommandHandler<TArgs>,
-  options: UseCommandOptions<TArgs>
+  options: UseCommandOptions
 ): void {
   const services = useKeyboardServicesOptional();
   const commandService = services?.commandService;
@@ -58,7 +58,7 @@ export function useCommand<TArgs = unknown>(
           ...commandDescriptor,
           handler: (args, context) => handlerRef.current(args as TArgs, context),
         },
-        source === 'system' ? 'default' : source
+        (source === 'system' ? 'default' : source) as 'default' | 'system' | 'user'
       );
     } catch (error) {
       console.error(`[useCommand] Failed to register command ${commandId}`, error);

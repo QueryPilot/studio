@@ -28,27 +28,36 @@ export interface ToggleTriggerParams extends BaseTriggerParams {
   readonly enable: boolean;
 }
 
-const validateTriggerDefinition = (definition: TriggerDefinitionInput): void => {
+const validateTriggerDefinition = (
+  definition: TriggerDefinitionInput,
+): void => {
   if (!definition.name || definition.name.trim() === "") {
     throw new Error("TriggerOperationsService: definition.name is required");
   }
   if (!definition.events || definition.events.length === 0) {
-    throw new Error("TriggerOperationsService: definition.events must include at least one event");
+    throw new Error(
+      "TriggerOperationsService: definition.events must include at least one event",
+    );
   }
   if (!definition.functionName || definition.functionName.trim() === "") {
-    throw new Error("TriggerOperationsService: definition.functionName is required");
+    throw new Error(
+      "TriggerOperationsService: definition.functionName is required",
+    );
   }
 };
 
-const stageCommand = (command: CrudCommandFor<any>, shouldStage = true): void => {
+const stageCommand = (
+  command: CrudCommandFor<any>,
+  shouldStage = true,
+): void => {
   if (!shouldStage) {
     return;
   }
   useCrudStore.getState().stageCommand(command);
 };
 
-export class TriggerOperationsService {
-  static createTrigger(params: CreateTriggerParams): CrudCommandFor<'trigger.create'> {
+export const TriggerOperationsService = {
+  createTrigger(params: CreateTriggerParams): CrudCommandFor<"trigger.create"> {
     validateTriggerDefinition(params.definition);
 
     const command = CrudCommandFactory.createTriggerCreateCommand({
@@ -57,17 +66,21 @@ export class TriggerOperationsService {
       userId: params.userId,
       description:
         params.description ??
-        `Create trigger ${params.definition.name} on ${params.target.table ?? "table"}`,
+        `Create trigger ${params.definition.name} on ${
+          params.target.table ?? "table"
+        }`,
       tags: params.tags,
     });
 
     stageCommand(command, params.stage !== false);
     return command;
-  }
+  },
 
-  static dropTrigger(params: DropTriggerParams): CrudCommandFor<'trigger.drop'> {
+  dropTrigger: (params: DropTriggerParams): CrudCommandFor<"trigger.drop"> => {
     if (!params.triggerName || params.triggerName.trim() === "") {
-      throw new Error("TriggerOperationsService: triggerName is required for dropTrigger");
+      throw new Error(
+        "TriggerOperationsService: triggerName is required for dropTrigger",
+      );
     }
 
     const command = CrudCommandFactory.createTriggerDropCommand({
@@ -77,17 +90,23 @@ export class TriggerOperationsService {
       userId: params.userId,
       description:
         params.description ??
-        `Drop trigger ${params.triggerName} on ${params.target.table ?? "table"}`,
+        `Drop trigger ${params.triggerName} on ${
+          params.target.table ?? "table"
+        }`,
       tags: params.tags,
     });
 
     stageCommand(command, params.stage !== false);
     return command;
-  }
+  },
 
-  static toggleTrigger(params: ToggleTriggerParams): CrudCommandFor<'trigger.enable' | 'trigger.disable'> {
+  toggleTrigger(
+    params: ToggleTriggerParams,
+  ): CrudCommandFor<"trigger.enable" | "trigger.disable"> {
     if (!params.triggerName || params.triggerName.trim() === "") {
-      throw new Error("TriggerOperationsService: triggerName is required for toggleTrigger");
+      throw new Error(
+        "TriggerOperationsService: triggerName is required for toggleTrigger",
+      );
     }
 
     const command = CrudCommandFactory.createTriggerToggleCommand({
@@ -97,16 +116,15 @@ export class TriggerOperationsService {
       userId: params.userId,
       description:
         params.description ??
-        `${params.enable ? "Enable" : "Disable"} trigger ${params.triggerName} on ${
-          params.target.table ?? "table"
-        }`,
+        `${params.enable ? "Enable" : "Disable"} trigger ${
+          params.triggerName
+        } on ${params.target.table ?? "table"}`,
       tags: params.tags,
     });
 
     stageCommand(command, params.stage !== false);
     return command;
-  }
-}
+  },
+};
 
 export const triggerOperationsService = TriggerOperationsService;
-

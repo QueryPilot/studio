@@ -232,9 +232,16 @@ function formatValue(value: unknown): string {
     try {
       return JSON.stringify(value);
     } catch {
-      return String(value);
+      return typeof value === "object" ? "[Object]" : String(value);
     }
   }
 
-  return String(value);
+  if (typeof value === "object") return JSON.stringify(value);
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return "[Unknown]";
 }

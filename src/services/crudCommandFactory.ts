@@ -130,16 +130,18 @@ interface ForeignKeyDropParams extends CommandBuildOptions {
 const generateCommandId = (length = 16): string => {
   const cryptoObj = (globalThis as { crypto?: Crypto }).crypto;
   if (cryptoObj?.randomUUID) {
-    return cryptoObj
-      .randomUUID()
-      .replace(/-/g, "")
-      .slice(0, length);
+    return cryptoObj.randomUUID().replace(/-/g, "").slice(0, length);
   }
 
-  return Math.random().toString(36).slice(2, 2 + length);
+  return Math.random()
+    .toString(36)
+    .slice(2, 2 + length);
 };
 
-const ensureTargetHasTable = (target: CrudCommandTarget, type: OperationType): void => {
+const ensureTargetHasTable = (
+  target: CrudCommandTarget,
+  type: OperationType,
+): void => {
   if (!target.connectionId) {
     throw new Error(`CrudCommandFactory: Missing connectionId for ${type}`);
   }
@@ -178,7 +180,9 @@ const normalizeJsonValue = (value: unknown, path?: string): JsonValue => {
   if (typeof value === "number") {
     if (!Number.isFinite(value)) {
       throw new Error(
-        `CrudCommandFactory: Invalid numeric value${path ? ` at ${path}` : ""} (non-finite)`,
+        `CrudCommandFactory: Invalid numeric value${
+          path ? ` at ${path}` : ""
+        } (non-finite)`,
       );
     }
     return value;
@@ -193,7 +197,9 @@ const normalizeJsonValue = (value: unknown, path?: string): JsonValue => {
   }
 
   if (Array.isArray(value)) {
-    return value.map((item, index) => normalizeJsonValue(item, `${path ?? "value"}[${index}]`));
+    return value.map((item, index) =>
+      normalizeJsonValue(item, `${path ?? "value"}[${index}]`),
+    );
   }
 
   if (typeof value === "object") {
@@ -206,13 +212,20 @@ const normalizeJsonValue = (value: unknown, path?: string): JsonValue => {
   }
 
   throw new Error(
-    `CrudCommandFactory: Unsupported value type${path ? ` at ${path}` : ""}: ${typeof value}`,
+    `CrudCommandFactory: Unsupported value type${
+      path ? ` at ${path}` : ""
+    }: ${typeof value}`,
   );
 };
 
-const normalizeJsonRecord = (record: Record<string, unknown>): Record<string, JsonValue> =>
+const normalizeJsonRecord = (
+  record: Record<string, unknown>,
+): Record<string, JsonValue> =>
   Object.fromEntries(
-    Object.entries(record).map(([key, value]) => [key, normalizeJsonValue(value, key)]),
+    Object.entries(record).map(([key, value]) => [
+      key,
+      normalizeJsonValue(value, key),
+    ]),
   );
 
 const normalizePrimaryKeys = (
@@ -220,6 +233,7 @@ const normalizePrimaryKeys = (
 ): Record<string, CrudPrimitive> =>
   Object.fromEntries(
     Object.entries(primaryKeys).map(([key, value]) => {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       if (value === undefined || value === null) {
         return [key, null];
       }
@@ -235,7 +249,7 @@ const normalizePrimaryKeys = (
         return [key, value];
       }
       if (typeof value === "bigint") {
-        return [key, value.toString()];
+        return [key, (value as any).toString()];
       }
       return [key, String(value)];
     }),
@@ -250,7 +264,10 @@ const buildMetadata = (options: CommandBuildOptions) => ({
   tags: options.tags,
 });
 
-const buildTarget = (target: CrudCommandTarget, entityName?: string): CrudCommandTarget =>
+const buildTarget = (
+  target: CrudCommandTarget,
+  entityName?: string,
+): CrudCommandTarget =>
   entityName ? { ...target, entityName } : { ...target };
 
 const buildCommand = <TType extends OperationType>(
@@ -267,13 +284,18 @@ const buildCommand = <TType extends OperationType>(
   state: options.state ?? "staged",
 });
 
-export class CrudCommandFactory {
-  static createDataUpdateCommand(params: DataUpdateParams): CrudCommandFor<'data.update'> {
-    ensureTargetHasTable(params.target, 'data.update');
-    assertNonEmpty(params.column, 'CrudCommandFactory: column is required for data.update');
+export const CrudCommandFactory = {
+  createDataUpdateCommand(
+    params: DataUpdateParams,
+  ): CrudCommandFor<"data.update"> {
+    ensureTargetHasTable(params.target, "data.update");
+    assertNonEmpty(
+      params.column,
+      "CrudCommandFactory: column is required for data.update",
+    );
     assertNonEmpty(
       params.primaryKeys,
-      'CrudCommandFactory: primary keys are required for data.update',
+      "CrudCommandFactory: primary keys are required for data.update",
     );
 
     const payload: DataUpdatePayload = {
@@ -283,26 +305,29 @@ export class CrudCommandFactory {
         params.oldValue === undefined
           ? undefined
           : normalizeJsonValue(params.oldValue, `${params.column}.oldValue`),
-      newValue: normalizeJsonValue(params.newValue, `${params.column}.newValue`),
+      newValue: normalizeJsonValue(
+        params.newValue,
+        `${params.column}.newValue`,
+      ),
     };
 
     const description =
       params.description ?? `Update ${params.column} on ${params.target.table}`;
 
-    return buildCommand('data.update', params.target, payload, {
+    return buildCommand("data.update", params.target, payload, {
       ...params,
       description,
       affectedRows: params.affectedRows ?? 1,
     });
-  }
+  },
 
-  static createDataInsertCommand(
+  createDataInsertCommand(
     params: DataInsertParams,
-  ): CrudCommandFor<'data.insert'> {
-    ensureTargetHasTable(params.target, 'data.insert');
+  ): CrudCommandFor<"data.insert"> {
+    ensureTargetHasTable(params.target, "data.insert");
     assertNonEmpty(
       params.values,
-      'CrudCommandFactory: values are required for data.insert',
+      "CrudCommandFactory: values are required for data.insert",
     );
 
     const tempId = params.tempId ?? generateCommandId(11);
@@ -315,63 +340,74 @@ export class CrudCommandFactory {
         : undefined,
     };
 
-    const description = params.description ?? `Insert row into ${params.target.table}`;
+    const description =
+      params.description ?? `Insert row into ${params.target.table}`;
 
-    return buildCommand('data.insert', params.target, payload, {
+    return buildCommand("data.insert", params.target, payload, {
       ...params,
       description,
       affectedRows: params.affectedRows ?? 1,
     });
-  }
+  },
 
-  static createDataDeleteCommand(
+  createDataDeleteCommand(
     params: DataDeleteParams,
-  ): CrudCommandFor<'data.delete'> {
-    ensureTargetHasTable(params.target, 'data.delete');
+  ): CrudCommandFor<"data.delete"> {
+    ensureTargetHasTable(params.target, "data.delete");
     assertNonEmpty(
       params.primaryKeys,
-      'CrudCommandFactory: primary keys are required for data.delete',
+      "CrudCommandFactory: primary keys are required for data.delete",
     );
 
     const payload: DataDeletePayload = {
       primaryKeys: normalizePrimaryKeys(params.primaryKeys),
     };
 
-    const description = params.description ?? `Delete row from ${params.target.table}`;
+    const description =
+      params.description ?? `Delete row from ${params.target.table}`;
 
-    return buildCommand('data.delete', params.target, payload, {
+    return buildCommand("data.delete", params.target, payload, {
       ...params,
       description,
       affectedRows: params.affectedRows ?? 1,
     });
-  }
+  },
 
-  static createColumnAddCommand(
+  createColumnAddCommand(
     params: ColumnAddParams,
-  ): CrudCommandFor<'column.add'> {
-    ensureTargetHasTable(params.target, 'column.add');
-    assertNonEmpty(params.column?.name, 'CrudCommandFactory: column name is required');
+  ): CrudCommandFor<"column.add"> {
+    ensureTargetHasTable(params.target, "column.add");
+    assertNonEmpty(
+      params.column.name,
+      "CrudCommandFactory: column name is required",
+    );
 
     const payload: ColumnAddPayload = {
       column: params.column,
     };
 
     const description =
-      params.description ?? `Add column ${params.column.name} to ${params.target.table}`;
+      params.description ??
+      `Add column ${params.column.name} to ${params.target.table}`;
 
-    return buildCommand('column.add', buildTarget(params.target, params.column.name), payload, {
-      ...params,
-      description,
-    });
-  }
+    return buildCommand(
+      "column.add",
+      buildTarget(params.target, params.column.name),
+      payload,
+      {
+        ...params,
+        description,
+      },
+    );
+  },
 
-  static createColumnModifyCommand(
+  createColumnModifyCommand(
     params: ColumnModifyParams,
-  ): CrudCommandFor<'column.modify'> {
-    ensureTargetHasTable(params.target, 'column.modify');
+  ): CrudCommandFor<"column.modify"> {
+    ensureTargetHasTable(params.target, "column.modify");
     assertNonEmpty(
       params.columnName,
-      'CrudCommandFactory: columnName is required for column.modify',
+      "CrudCommandFactory: columnName is required for column.modify",
     );
 
     const payload: ColumnModifyPayload = {
@@ -380,21 +416,27 @@ export class CrudCommandFactory {
     };
 
     const description =
-      params.description ?? `Modify column ${params.columnName} on ${params.target.table}`;
+      params.description ??
+      `Modify column ${params.columnName} on ${params.target.table}`;
 
-    return buildCommand('column.modify', buildTarget(params.target, params.columnName), payload, {
-      ...params,
-      description,
-    });
-  }
+    return buildCommand(
+      "column.modify",
+      buildTarget(params.target, params.columnName),
+      payload,
+      {
+        ...params,
+        description,
+      },
+    );
+  },
 
-  static createColumnDropCommand(
+  createColumnDropCommand(
     params: ColumnDropParams,
-  ): CrudCommandFor<'column.drop'> {
-    ensureTargetHasTable(params.target, 'column.drop');
+  ): CrudCommandFor<"column.drop"> {
+    ensureTargetHasTable(params.target, "column.drop");
     assertNonEmpty(
       params.columnName,
-      'CrudCommandFactory: columnName is required for column.drop',
+      "CrudCommandFactory: columnName is required for column.drop",
     );
 
     const payload: ColumnDropPayload = {
@@ -403,25 +445,31 @@ export class CrudCommandFactory {
     };
 
     const description =
-      params.description ?? `Drop column ${params.columnName} from ${params.target.table}`;
+      params.description ??
+      `Drop column ${params.columnName} from ${params.target.table}`;
 
-    return buildCommand('column.drop', buildTarget(params.target, params.columnName), payload, {
-      ...params,
-      description,
-    });
-  }
+    return buildCommand(
+      "column.drop",
+      buildTarget(params.target, params.columnName),
+      payload,
+      {
+        ...params,
+        description,
+      },
+    );
+  },
 
-  static createColumnRenameCommand(
+  createColumnRenameCommand(
     params: ColumnRenameParams,
-  ): CrudCommandFor<'column.rename'> {
-    ensureTargetHasTable(params.target, 'column.rename');
+  ): CrudCommandFor<"column.rename"> {
+    ensureTargetHasTable(params.target, "column.rename");
     assertNonEmpty(
       params.columnName,
-      'CrudCommandFactory: columnName is required for column.rename',
+      "CrudCommandFactory: columnName is required for column.rename",
     );
     assertNonEmpty(
       params.newName,
-      'CrudCommandFactory: newName is required for column.rename',
+      "CrudCommandFactory: newName is required for column.rename",
     );
 
     const payload: ColumnRenamePayload = {
@@ -433,23 +481,28 @@ export class CrudCommandFactory {
       params.description ??
       `Rename column ${params.columnName} to ${params.newName} on ${params.target.table}`;
 
-    return buildCommand('column.rename', buildTarget(params.target, params.newName), payload, {
-      ...params,
-      description,
-    });
-  }
+    return buildCommand(
+      "column.rename",
+      buildTarget(params.target, params.newName),
+      payload,
+      {
+        ...params,
+        description,
+      },
+    );
+  },
 
-  static createIndexCreateCommand(
+  createIndexCreateCommand(
     params: IndexCreateParams,
-  ): CrudCommandFor<'index.create'> {
-    ensureTargetHasTable(params.target, 'index.create');
+  ): CrudCommandFor<"index.create"> {
+    ensureTargetHasTable(params.target, "index.create");
     assertNonEmpty(
-      params.definition?.name,
-      'CrudCommandFactory: index name is required for index.create',
+      params.definition.name,
+      "CrudCommandFactory: index name is required for index.create",
     );
     assertNonEmpty(
-      params.definition?.columns,
-      'CrudCommandFactory: columns are required for index.create',
+      params.definition.columns,
+      "CrudCommandFactory: columns are required for index.create",
     );
 
     const payload: IndexCreatePayload = {
@@ -457,21 +510,27 @@ export class CrudCommandFactory {
     };
 
     const description =
-      params.description ?? `Create index ${params.definition.name} on ${params.target.table}`;
+      params.description ??
+      `Create index ${params.definition.name} on ${params.target.table}`;
 
-    return buildCommand('index.create', buildTarget(params.target, params.definition.name), payload, {
-      ...params,
-      description,
-    });
-  }
+    return buildCommand(
+      "index.create",
+      buildTarget(params.target, params.definition.name),
+      payload,
+      {
+        ...params,
+        description,
+      },
+    );
+  },
 
-  static createIndexDropCommand(
+  createIndexDropCommand(
     params: IndexDropParams,
-  ): CrudCommandFor<'index.drop'> {
-    ensureTargetHasTable(params.target, 'index.drop');
+  ): CrudCommandFor<"index.drop"> {
+    ensureTargetHasTable(params.target, "index.drop");
     assertNonEmpty(
       params.indexName,
-      'CrudCommandFactory: indexName is required for index.drop',
+      "CrudCommandFactory: indexName is required for index.drop",
     );
 
     const payload: IndexDropPayload = {
@@ -480,25 +539,31 @@ export class CrudCommandFactory {
     };
 
     const description =
-      params.description ?? `Drop index ${params.indexName} on ${params.target.table}`;
+      params.description ??
+      `Drop index ${params.indexName} on ${params.target.table}`;
 
-    return buildCommand('index.drop', buildTarget(params.target, params.indexName), payload, {
-      ...params,
-      description,
-    });
-  }
+    return buildCommand(
+      "index.drop",
+      buildTarget(params.target, params.indexName),
+      payload,
+      {
+        ...params,
+        description,
+      },
+    );
+  },
 
-  static createIndexRenameCommand(
+  createIndexRenameCommand(
     params: IndexRenameParams,
-  ): CrudCommandFor<'index.rename'> {
-    ensureTargetHasTable(params.target, 'index.rename');
+  ): CrudCommandFor<"index.rename"> {
+    ensureTargetHasTable(params.target, "index.rename");
     assertNonEmpty(
       params.indexName,
-      'CrudCommandFactory: indexName is required for index.rename',
+      "CrudCommandFactory: indexName is required for index.rename",
     );
     assertNonEmpty(
       params.newName,
-      'CrudCommandFactory: newName is required for index.rename',
+      "CrudCommandFactory: newName is required for index.rename",
     );
 
     const payload: IndexRenamePayload = {
@@ -510,23 +575,28 @@ export class CrudCommandFactory {
       params.description ??
       `Rename index ${params.indexName} to ${params.newName} on ${params.target.table}`;
 
-    return buildCommand('index.rename', buildTarget(params.target, params.newName), payload, {
-      ...params,
-      description,
-    });
-  }
+    return buildCommand(
+      "index.rename",
+      buildTarget(params.target, params.newName),
+      payload,
+      {
+        ...params,
+        description,
+      },
+    );
+  },
 
-  static createTriggerCreateCommand(
+  createTriggerCreateCommand(
     params: TriggerCreateParams,
-  ): CrudCommandFor<'trigger.create'> {
-    ensureTargetHasTable(params.target, 'trigger.create');
+  ): CrudCommandFor<"trigger.create"> {
+    ensureTargetHasTable(params.target, "trigger.create");
     assertNonEmpty(
-      params.definition?.name,
-      'CrudCommandFactory: trigger name is required for trigger.create',
+      params.definition.name,
+      "CrudCommandFactory: trigger name is required for trigger.create",
     );
     assertNonEmpty(
-      params.definition?.events,
-      'CrudCommandFactory: trigger events are required for trigger.create',
+      params.definition.events,
+      "CrudCommandFactory: trigger events are required for trigger.create",
     );
 
     const payload: TriggerCreatePayload = {
@@ -534,21 +604,27 @@ export class CrudCommandFactory {
     };
 
     const description =
-      params.description ?? `Create trigger ${params.definition.name} on ${params.target.table}`;
+      params.description ??
+      `Create trigger ${params.definition.name} on ${params.target.table}`;
 
-    return buildCommand('trigger.create', buildTarget(params.target, params.definition.name), payload, {
-      ...params,
-      description,
-    });
-  }
+    return buildCommand(
+      "trigger.create",
+      buildTarget(params.target, params.definition.name),
+      payload,
+      {
+        ...params,
+        description,
+      },
+    );
+  },
 
-  static createTriggerDropCommand(
+  createTriggerDropCommand(
     params: TriggerDropParams,
-  ): CrudCommandFor<'trigger.drop'> {
-    ensureTargetHasTable(params.target, 'trigger.drop');
+  ): CrudCommandFor<"trigger.drop"> {
+    ensureTargetHasTable(params.target, "trigger.drop");
     assertNonEmpty(
       params.triggerName,
-      'CrudCommandFactory: triggerName is required for trigger.drop',
+      "CrudCommandFactory: triggerName is required for trigger.drop",
     );
 
     const payload: TriggerDropPayload = {
@@ -557,53 +633,68 @@ export class CrudCommandFactory {
     };
 
     const description =
-      params.description ?? `Drop trigger ${params.triggerName} on ${params.target.table}`;
+      params.description ??
+      `Drop trigger ${params.triggerName} on ${params.target.table}`;
 
-    return buildCommand('trigger.drop', buildTarget(params.target, params.triggerName), payload, {
-      ...params,
-      description,
-    });
-  }
+    return buildCommand(
+      "trigger.drop",
+      buildTarget(params.target, params.triggerName),
+      payload,
+      {
+        ...params,
+        description,
+      },
+    );
+  },
 
-  static createTriggerToggleCommand(
+  createTriggerToggleCommand(
     params: TriggerToggleParams,
-  ): CrudCommandFor<'trigger.enable' | 'trigger.disable'> {
-    ensureTargetHasTable(params.target, params.enable ? 'trigger.enable' : 'trigger.disable');
+  ): CrudCommandFor<"trigger.enable" | "trigger.disable"> {
+    ensureTargetHasTable(
+      params.target,
+      params.enable ? "trigger.enable" : "trigger.disable",
+    );
     assertNonEmpty(
       params.triggerName,
-      'CrudCommandFactory: triggerName is required for trigger toggle',
+      "CrudCommandFactory: triggerName is required for trigger toggle",
     );
 
-    const type = params.enable ? 'trigger.enable' : 'trigger.disable';
+    const type = params.enable ? "trigger.enable" : "trigger.disable";
     const payload: TriggerTogglePayload = {
       triggerName: params.triggerName,
       enable: params.enable,
     };
 
     const description =
-      params.description ?? `${params.enable ? 'Enable' : 'Disable'} trigger ${params.triggerName}`;
+      params.description ??
+      `${params.enable ? "Enable" : "Disable"} trigger ${params.triggerName}`;
 
-    return buildCommand(type, buildTarget(params.target, params.triggerName), payload, {
-      ...params,
-      description,
-    }) as CrudCommandFor<'trigger.enable' | 'trigger.disable'>;
-  }
+    return buildCommand(
+      type,
+      buildTarget(params.target, params.triggerName),
+      payload,
+      {
+        ...params,
+        description,
+      },
+    );
+  },
 
-  static createForeignKeyAddCommand(
+  createForeignKeyAddCommand(
     params: ForeignKeyAddParams,
-  ): CrudCommandFor<'fk.add'> {
-    ensureTargetHasTable(params.target, 'fk.add');
+  ): CrudCommandFor<"fk.add"> {
+    ensureTargetHasTable(params.target, "fk.add");
     assertNonEmpty(
-      params.definition?.name,
-      'CrudCommandFactory: constraint name is required for fk.add',
+      params.definition.name,
+      "CrudCommandFactory: constraint name is required for fk.add",
     );
     assertNonEmpty(
-      params.definition?.columns,
-      'CrudCommandFactory: columns are required for fk.add',
+      params.definition.columns,
+      "CrudCommandFactory: columns are required for fk.add",
     );
     assertNonEmpty(
-      params.definition?.referenceColumns,
-      'CrudCommandFactory: referenceColumns are required for fk.add',
+      params.definition.referenceColumns,
+      "CrudCommandFactory: referenceColumns are required for fk.add",
     );
 
     const payload: ForeignKeyAddPayload = {
@@ -611,21 +702,27 @@ export class CrudCommandFactory {
     };
 
     const description =
-      params.description ?? `Add foreign key ${params.definition.name} on ${params.target.table}`;
+      params.description ??
+      `Add foreign key ${params.definition.name} on ${params.target.table}`;
 
-    return buildCommand('fk.add', buildTarget(params.target, params.definition.name), payload, {
-      ...params,
-      description,
-    });
-  }
+    return buildCommand(
+      "fk.add",
+      buildTarget(params.target, params.definition.name),
+      payload,
+      {
+        ...params,
+        description,
+      },
+    );
+  },
 
-  static createForeignKeyDropCommand(
+  createForeignKeyDropCommand(
     params: ForeignKeyDropParams,
-  ): CrudCommandFor<'fk.drop'> {
-    ensureTargetHasTable(params.target, 'fk.drop');
+  ): CrudCommandFor<"fk.drop"> {
+    ensureTargetHasTable(params.target, "fk.drop");
     assertNonEmpty(
       params.constraintName,
-      'CrudCommandFactory: constraintName is required for fk.drop',
+      "CrudCommandFactory: constraintName is required for fk.drop",
     );
 
     const payload: ForeignKeyDropPayload = {
@@ -634,15 +731,21 @@ export class CrudCommandFactory {
     };
 
     const description =
-      params.description ?? `Drop foreign key ${params.constraintName} on ${params.target.table}`;
+      params.description ??
+      `Drop foreign key ${params.constraintName} on ${params.target.table}`;
 
-    return buildCommand('fk.drop', buildTarget(params.target, params.constraintName), payload, {
-      ...params,
-      description,
-    });
-  }
+    return buildCommand(
+      "fk.drop",
+      buildTarget(params.target, params.constraintName),
+      payload,
+      {
+        ...params,
+        description,
+      },
+    );
+  },
 
-  static cloneWithState<TType extends OperationType>(
+  cloneWithState<TType extends OperationType>(
     command: CrudCommandFor<TType>,
     state: CrudCommandState,
   ): CrudCommandFor<TType> {
@@ -650,9 +753,9 @@ export class CrudCommandFactory {
       ...command,
       state,
     };
-  }
+  },
 
-  static withCommitResult<TType extends OperationType>(
+  withCommitResult<TType extends OperationType>(
     command: CrudCommandFor<TType>,
     result: CommitResult,
   ): CrudCommandFor<TType> {
@@ -661,12 +764,11 @@ export class CrudCommandFactory {
       metadata: {
         ...command.metadata,
         affectedRows:
-          result.committed.find((entry) => entry.id === command.id)?.affectedRows ??
-          command.metadata.affectedRows,
+          result.committed.find((entry) => entry.id === command.id)
+            ?.affectedRows ?? command.metadata.affectedRows,
       },
     };
-  }
-}
+  },
+};
 
 export const crudCommandFactory = CrudCommandFactory;
-

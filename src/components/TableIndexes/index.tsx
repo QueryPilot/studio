@@ -24,7 +24,7 @@ export const TableIndexes = memo(function TableIndexes({
   database,
   table,
   schema,
-  onActionsChange,
+  onActionsChange: _onActionsChange,
 }: TableIndexesProps) {
   const [indexes, setIndexes] = useState<TableIndex[]>([]);
   const [isLoading, setIsLoading] = useState(true);

@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { CodeEditor } from "@/components/CodeEditor";
 import type { SqlDialect } from "@/components/CodeEditor";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { DbType } from "@/types/connection";
 
 interface ObjectDefinitionProps {
   connectionId: string;
@@ -36,16 +37,16 @@ export const ObjectDefinition: React.FC<ObjectDefinitionProps> = React.memo(
       if (!profile) return "plsql";
 
       switch (profile.db_type) {
-        case "PostgreSQL":
+        case DbType.PostgreSQL:
           if (objectType === "function" || objectType === "procedure") {
             return "plsql";
           }
           return "postgresql";
-        case "MySQL":
+        case DbType.MySQL:
           return "mysql";
-        case "SQLite":
+        case DbType.SQLite:
           return "sqlite";
-        case "SQLServer":
+        case DbType.SQLServer:
           return "mssql";
         default:
           return "postgresql";

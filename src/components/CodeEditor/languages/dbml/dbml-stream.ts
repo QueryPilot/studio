@@ -1,5 +1,4 @@
 import { StreamLanguage } from "@codemirror/language";
-import { tags as t } from "@lezer/highlight";
 
 const dbmlStreamLang = StreamLanguage.define({
   name: "dbml",
@@ -146,4 +145,4 @@ const dbmlStreamLang = StreamLanguage.define({
   }
 });
 
-export const dbmlStream = () => StreamLanguage.define(dbmlStreamLang.language);
+export const dbmlStream = () => dbmlStreamLang;

@@ -1,6 +1,7 @@
 import { CrudCommandFactory } from "./crudCommandFactory";
 import { useCrudStore } from "@/stores/crudStore";
 import type {
+  CrudCommand,
   CrudCommandFor,
   CrudCommandTarget,
   CrudPrimitive,
@@ -36,7 +37,7 @@ export interface DeleteRowsParams extends BaseOperationParams {
   readonly affectedRows?: number;
 }
 
-const stageCommand = (command: CrudCommandFor<any>, shouldStage = true): void => {
+const stageCommand = (command: CrudCommand, shouldStage = true): void => {
   if (!shouldStage) {
     return;
   }
@@ -44,10 +45,7 @@ const stageCommand = (command: CrudCommandFor<any>, shouldStage = true): void =>
   useCrudStore.getState().stageCommand(command);
 };
 
-const stageCommands = (
-  commands: CrudCommandFor<any>[],
-  shouldStage = true,
-): void => {
+const stageCommands = (commands: CrudCommand[], shouldStage = true): void => {
   if (!shouldStage) {
     return;
   }
@@ -56,8 +54,8 @@ const stageCommands = (
   stageMany(commands);
 };
 
-export class DataOperationsService {
-  static insertRow(params: InsertRowParams): CrudCommandFor<'data.insert'> {
+export const DataOperationsService = {
+  insertRow(params: InsertRowParams): CrudCommandFor<"data.insert"> {
     const command = CrudCommandFactory.createDataInsertCommand({
       target: params.target,
       values: params.values,
@@ -70,9 +68,9 @@ export class DataOperationsService {
 
     stageCommand(command, params.stage !== false);
     return command;
-  }
+  },
 
-  static updateCell(params: UpdateCellParams): CrudCommandFor<'data.update'> {
+  updateCell(params: UpdateCellParams): CrudCommandFor<"data.update"> {
     const command = CrudCommandFactory.createDataUpdateCommand({
       target: params.target,
       column: params.column,
@@ -87,11 +85,13 @@ export class DataOperationsService {
 
     stageCommand(command, params.stage !== false);
     return command;
-  }
+  },
 
-  static deleteRows(params: DeleteRowsParams): CrudCommandFor<'data.delete'>[] {
+  deleteRows(params: DeleteRowsParams): CrudCommandFor<"data.delete">[] {
     if (params.rows.length === 0) {
-      throw new Error("DataOperationsService.deleteRows requires at least one row");
+      throw new Error(
+        "DataOperationsService.deleteRows requires at least one row",
+      );
     }
 
     const commands = params.rows.map((row, index) =>
@@ -110,8 +110,7 @@ export class DataOperationsService {
 
     stageCommands(commands, params.stage !== false);
     return commands;
-  }
-}
+  },
+};
 
 export const dataOperationsService = DataOperationsService;
-

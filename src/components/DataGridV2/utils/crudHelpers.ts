@@ -61,7 +61,10 @@ export function createUpdateCommand(
   // Extract old value from previousValue in the event
   let oldValue: JsonValue = null;
   if (event.previousValue) {
-    if (typeof event.previousValue === "object" && "value" in event.previousValue) {
+    if (
+      typeof event.previousValue === "object" &&
+      "value" in event.previousValue
+    ) {
       oldValue = event.previousValue.value as JsonValue;
     } else {
       oldValue = event.previousValue as JsonValue;
@@ -78,7 +81,7 @@ export function createUpdateCommand(
       const extractedValue = data.value;
 
       // Convert numeric strings to numbers based on column type
-      const columnDbType = event.column.meta?.db_type?.toLowerCase() || "";
+      const columnDbType = event.column.meta?.db_type.toLowerCase() || "";
       const isNumericColumn =
         columnDbType.includes("int") ||
         columnDbType.includes("numeric") ||
@@ -88,7 +91,11 @@ export function createUpdateCommand(
         columnDbType.includes("real") ||
         columnDbType.includes("money");
 
-      if (isNumericColumn && typeof extractedValue === "string" && extractedValue !== "") {
+      if (
+        isNumericColumn &&
+        typeof extractedValue === "string" &&
+        extractedValue !== ""
+      ) {
         // Convert string to number for numeric columns
         const numValue = Number(extractedValue);
         newValue = isNaN(numValue) ? extractedValue : numValue;
@@ -103,8 +110,10 @@ export function createUpdateCommand(
       data === undefined
     ) {
       newValue = data ?? null;
+    } else if (typeof data === "object") {
+      newValue = JSON.stringify(data);
     } else {
-      newValue = String(data);
+      newValue = "[Unknown]";
     }
   }
 

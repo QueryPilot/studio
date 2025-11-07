@@ -6,7 +6,7 @@ import type { GridPasteEvent } from "../types";
 export type DataEditorPasteHandler = NonNullable<DataGridBaseProps["onPaste"]>;
 
 export interface UsePasteHandlerOptions {
-  onPaste?: (event: GridPasteEvent) => void | boolean;
+  onPaste?: (event: GridPasteEvent) => boolean | undefined;
   coerceValue?: (value: string) => string | number | boolean | null;
   allowGridFallback?: boolean;
   afterPaste?: (event: GridPasteEvent, result: unknown) => void;
@@ -33,7 +33,7 @@ const normalizeMatrix = (
   values: readonly (readonly string[])[],
   coerce: (value: string) => string | number | boolean | null,
 ): (string | number | boolean | null)[][] =>
-  values.map((row) => row.map((value) => coerce(value ?? "")));
+  values.map((row) => row.map((value) => coerce(value)));
 
 export function parseClipboardText(text: string): string[][] {
   if (!text) return [];
@@ -54,8 +54,8 @@ export function usePasteHandler(
     afterPaste,
   } = options;
 
-  const handleDataEditorPaste = useCallback<DataEditorPasteHandler>(
-    (target: Item, values) => {
+  const handleDataEditorPaste = useCallback(
+    (target: Item, values: readonly (readonly string[])[]) => {
       if (!onPaste) {
         return allowGridFallback;
       }

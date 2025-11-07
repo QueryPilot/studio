@@ -27,6 +27,7 @@ if (process.env.NODE_ENV === "development") {
       e.preventDefault();
       return true;
     }
+    return false;
   });
 
   window.addEventListener("unhandledrejection", (e) => {
@@ -34,6 +35,7 @@ if (process.env.NODE_ENV === "development") {
       e.preventDefault();
       return true;
     }
+    return false;
   });
 }
 

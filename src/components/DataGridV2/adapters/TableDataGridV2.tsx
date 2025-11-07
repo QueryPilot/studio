@@ -6,7 +6,6 @@ import {
   useRef,
   useState,
   useDeferredValue,
-  type RefObject,
 } from "react";
 import type { FocusEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import type {
@@ -14,7 +13,7 @@ import type {
   Item,
   Rectangle,
 } from "@glideapps/glide-data-grid";
-import { GridCellKind } from "@glideapps/glide-data-grid";
+import { GridCellKind, CompactSelection } from "@glideapps/glide-data-grid";
 import { EditableDataGrid, type EditableDataGridRef } from "../base";
 import type { GridColumnV2, GridRowModel } from "../types";
 import { useTableDataQuery } from "@/hooks/useTableDataQuery";
@@ -77,7 +76,11 @@ import {
   createDeleteCommand,
   createCrudTarget,
 } from "../utils/crudHelpers";
-import type { GridEditCommitEvent, GridRowAppendEvent, GridRowDeleteEvent } from "../types";
+import type {
+  GridEditCommitEvent,
+  GridRowAppendEvent,
+  GridRowDeleteEvent,
+} from "../types";
 import { nanoid } from "nanoid";
 import type { JsonValue, CrudCommand, DataUpdatePayload } from "@/types/crud";
 
@@ -412,7 +415,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     usePersistentViewState(gridId);
 
   // CRUD Store integration
-  const { stageCommand, getTableKey, stagedCommands, undo, redo } = useCrudStore();
+  const { stageCommand, getTableKey, stagedCommands, undo, redo } =
+    useCrudStore();
 
   const [gridSelection, setGridSelection] = useState<GridSelection | undefined>(
     undefined,
@@ -463,7 +467,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         // Check if this command's PK matches this row's PK
         return Object.entries(payload.primaryKeys).every(([key, value]) => {
           const cellValue = row[key];
-          if (!cellValue || typeof cellValue !== "object" || !("value" in cellValue)) {
+          if (
+            !cellValue ||
+            typeof cellValue !== "object" ||
+            !("value" in cellValue)
+          ) {
             return false;
           }
           return cellValue.value === value;
@@ -484,7 +492,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
         if (payload.column && payload.column in updatedRow) {
           const existingCell = updatedRow[payload.column];
-          if (existingCell && typeof existingCell === "object" && "value" in existingCell) {
+          if (
+            existingCell &&
+            typeof existingCell === "object" &&
+            "value" in existingCell
+          ) {
             updatedRow[payload.column] = {
               ...existingCell,
               value: payload.newValue,
@@ -510,7 +522,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       const row: GridRowModel = {};
       Object.entries(payload.values).forEach(([key, value]) => {
         // Infer the value type
-        let valueType: string = "Text";
+        let valueType: FrontCellValue["value_type"] = "Text";
         if (value === null) {
           valueType = "Null";
         } else if (typeof value === "number") {
@@ -528,7 +540,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       });
 
       // Check if this insert has a specific position
-      const insertAfterIndex = cmd.metadata?.insertAfterIndex;
+      const insertAfterIndex = cmd.metadata.insertAfterIndex;
       if (typeof insertAfterIndex === "number" && insertAfterIndex >= 0) {
         // Insert after the specified index
         // Note: insertAfterIndex + 1 because we want to insert AFTER that row
@@ -541,11 +553,22 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     });
 
     return result;
-  }, [displayRows, isTableMode, getTableKey, stagedCommands, connectionId, database, schema, table]);
+  }, [
+    displayRows,
+    isTableMode,
+    getTableKey,
+    stagedCommands,
+    connectionId,
+    database,
+    schema,
+    table,
+  ]);
 
   // Defer grid rendering for large datasets to keep UI responsive
   // Grid updates in background without blocking interactions
-  const deferredDisplayRows = useDeferredValue(displayRowsWithOptimisticUpdates);
+  const deferredDisplayRows = useDeferredValue(
+    displayRowsWithOptimisticUpdates,
+  );
 
   const rowsRef = useRef(deferredDisplayRows);
   rowsRef.current = deferredDisplayRows;
@@ -554,9 +577,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const tableKey = isTableMode
     ? getTableKey({ connectionId, database, schema, table })
     : "";
-  const pendingChanges = isTableMode
-    ? stagedCommands.get(tableKey) ?? []
-    : [];
+  const pendingChanges = isTableMode ? stagedCommands.get(tableKey) ?? [] : [];
 
   const handlePinRowsFromMenu = useCallback(
     (rowKeys: string[]) => {
@@ -780,7 +801,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         });
     },
     onCopySuccess: (mode) => {
-      toast(mode === "json" ? "Copied selection as JSON" : "Copied to clipboard");
+      toast(
+        mode === "json" ? "Copied selection as JSON" : "Copied to clipboard",
+      );
     },
     onCopyError: (_mode, error) => {
       toast.error(`Failed to copy: ${error}`);
@@ -799,16 +822,36 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       // Set default values based on column metadata
       if (col.meta?.default) {
         // Has a default value, leave empty to use DB default
-        newRow[col.field] = { value: null, value_type: "Null", db_type: col.meta.db_type, is_truncated: false };
+        newRow[col.field] = {
+          value: null,
+          value_type: "Null",
+          db_type: col.meta.db_type,
+          is_truncated: false,
+        };
       } else if (col.meta?.nullable) {
         // Nullable, default to NULL
-        newRow[col.field] = { value: null, value_type: "Null", db_type: col.meta.db_type, is_truncated: false };
+        newRow[col.field] = {
+          value: null,
+          value_type: "Null",
+          db_type: col.meta.db_type,
+          is_truncated: false,
+        };
       } else if (col.meta?.is_pk) {
         // Primary key, will be auto-generated
-        newRow[col.field] = { value: null, value_type: "Null", db_type: col.meta.db_type, is_truncated: false };
+        newRow[col.field] = {
+          value: null,
+          value_type: "Null",
+          db_type: col.meta.db_type,
+          is_truncated: false,
+        };
       } else {
         // Non-nullable, set empty value based on type
-        newRow[col.field] = { value: "", value_type: "Text", db_type: col.meta?.db_type ?? "text", is_truncated: false };
+        newRow[col.field] = {
+          value: "",
+          value_type: "Text",
+          db_type: col.meta?.db_type ?? "text",
+          is_truncated: false,
+        };
       }
     });
 
@@ -827,13 +870,23 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         // Scroll to the first row, first editable column
         gridRef.current.scrollTo(0, 0);
         // Focus on the first cell
-        const firstEditableCol = finalColumns.findIndex((col) => !col.meta?.is_pk);
-        if (firstEditableCol >= 0) {
-          gridRef.current.setFocus([firstEditableCol, 0]);
+        const firstEditableCol = finalColumns.findIndex(
+          (col) => !col.meta?.is_pk,
+        );
+        if (firstEditableCol >= 0 && "setFocus" in gridRef.current) {
+          (gridRef.current as any).setFocus([firstEditableCol, 0]);
         }
       }
     }, 100); // Small delay to allow the grid to update
-  }, [isTableMode, finalColumns, connectionId, database, schema, table, stageCommand]);
+  }, [
+    isTableMode,
+    finalColumns,
+    connectionId,
+    database,
+    schema,
+    table,
+    stageCommand,
+  ]);
 
   // Handler: Bulk edit selected rows
   const handleBulkEdit = useCallback(
@@ -850,10 +903,15 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
         // Extract primary keys from the row
         const pkColumns = finalColumns.filter((c) => c.meta?.is_pk);
-        const primaryKeys: Record<string, string | number | boolean | null> = {};
+        const primaryKeys: Record<string, string | number | boolean | null> =
+          {};
         pkColumns.forEach((pkCol) => {
           const cellValue = row[pkCol.field];
-          if (cellValue && typeof cellValue === "object" && "value" in cellValue) {
+          if (
+            cellValue &&
+            typeof cellValue === "object" &&
+            "value" in cellValue
+          ) {
             const value = cellValue.value;
             // Ensure value is a CrudPrimitive (string, number, boolean, or null)
             if (
@@ -890,7 +948,15 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         stageCommand(command);
       });
     },
-    [isTableMode, connectionId, database, schema, table, finalColumns, stageCommand],
+    [
+      isTableMode,
+      connectionId,
+      database,
+      schema,
+      table,
+      finalColumns,
+      stageCommand,
+    ],
   );
 
   // Handler: Cell edit commit → Stage update command (or modify INSERT command for new rows)
@@ -907,25 +973,34 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         const commands = stagedCommands.get(tableKey) ?? [];
 
         // Check if this row is a pending insertion (first N rows where N = number of INSERT commands)
-        const insertCommands = commands.filter((cmd) => cmd.type === "data.insert");
+        const insertCommands = commands.filter(
+          (cmd) => cmd.type === "data.insert",
+        );
         const isPendingInsert = event.rowIndex < insertCommands.length;
 
         if (isPendingInsert) {
           // Editing a pending insert row - update the INSERT command payload
           const insertCmd = insertCommands[event.rowIndex];
           if (insertCmd) {
-            const payload = insertCmd.payload as { values?: Record<string, JsonValue> };
+            const payload = insertCmd.payload as {
+              values?: Record<string, JsonValue>;
+            };
             const updatedValues = { ...payload.values };
 
             // Extract the new value
             let newValue: JsonValue = null;
             if ("data" in event.newValue) {
               const data = event.newValue.data;
-              if (typeof data === "object" && data !== null && "value" in data) {
+              if (
+                typeof data === "object" &&
+                data !== null &&
+                "value" in data
+              ) {
                 const extractedValue = data.value;
 
                 // Convert numeric strings to numbers based on column type
-                const columnDbType = event.column.meta?.db_type?.toLowerCase() || "";
+                const columnDbType =
+                  event.column.meta?.db_type.toLowerCase() || "";
                 const isNumericColumn =
                   columnDbType.includes("int") ||
                   columnDbType.includes("numeric") ||
@@ -935,7 +1010,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
                   columnDbType.includes("real") ||
                   columnDbType.includes("money");
 
-                if (isNumericColumn && typeof extractedValue === "string" && extractedValue !== "") {
+                if (
+                  isNumericColumn &&
+                  typeof extractedValue === "string" &&
+                  extractedValue !== ""
+                ) {
                   const numValue = Number(extractedValue);
                   newValue = isNaN(numValue) ? extractedValue : numValue;
                 } else {
@@ -979,7 +1058,17 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         return undefined;
       }
     },
-    [isTableMode, connectionId, database, schema, table, finalColumns, stageCommand, stagedCommands, getTableKey],
+    [
+      isTableMode,
+      connectionId,
+      database,
+      schema,
+      table,
+      finalColumns,
+      stageCommand,
+      stagedCommands,
+      getTableKey,
+    ],
   );
 
   // Handler: Row append → Stage insert command
@@ -991,7 +1080,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       try {
         const target = createCrudTarget(connectionId, database, schema, table);
-        const command = createInsertCommand(event.draftRow, target, finalColumns);
+        const command = createInsertCommand(
+          event.draftRow,
+          target,
+          finalColumns,
+        );
         stageCommand(command);
 
         toast("Row staged", {
@@ -1007,7 +1100,15 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         return undefined;
       }
     },
-    [isTableMode, connectionId, database, schema, table, finalColumns, stageCommand],
+    [
+      isTableMode,
+      connectionId,
+      database,
+      schema,
+      table,
+      finalColumns,
+      stageCommand,
+    ],
   );
 
   // Handler: Row delete → Stage delete command
@@ -1038,7 +1139,15 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         return undefined;
       }
     },
-    [isTableMode, connectionId, database, schema, table, finalColumns, stageCommand],
+    [
+      isTableMode,
+      connectionId,
+      database,
+      schema,
+      table,
+      finalColumns,
+      stageCommand,
+    ],
   );
 
   const handleKeyDownCapture = useCallback(
@@ -1093,8 +1202,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     () => {
       if (isTableMode) {
         undo();
-        toast({
-          title: "Undone",
+        toast.success("Undone", {
           description: "Reverted last change",
         });
       }
@@ -1103,10 +1211,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       label: "Undo",
       category: "Data Grid",
       when: "dataGridFocus && dataGridEditable && dataGridCanUndo",
-      keyBinding: {
-        key: "z",
-        meta: true,
-      },
     },
   );
 
@@ -1115,8 +1219,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     () => {
       if (isTableMode) {
         redo();
-        toast({
-          title: "Redone",
+        toast.success("Redone", {
           description: "Reapplied last change",
         });
       }
@@ -1125,11 +1228,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       label: "Redo",
       category: "Data Grid",
       when: "dataGridFocus && dataGridEditable && dataGridCanRedo",
-      keyBinding: {
-        key: "z",
-        meta: true,
-        shift: true,
-      },
     },
   );
 
@@ -1228,18 +1326,24 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       // Stage the insert command with position metadata
       const target = createCrudTarget(connectionId, database, schema, table);
-      const command = createInsertCommand(draftRow, target, finalColumns);
+      const baseCommand = createInsertCommand(draftRow, target, finalColumns);
 
       // Add position metadata so optimistic updates can place it correctly
-      command.metadata = {
-        ...command.metadata,
-        insertAfterIndex: lastSelectedIndex,
+      const command: typeof baseCommand = {
+        ...baseCommand,
+        metadata: {
+          ...baseCommand.metadata,
+          insertAfterIndex: lastSelectedIndex,
+        },
       };
 
       stageCommand(command);
 
       toast("Row staged", {
-        description: `New row will be inserted after row ${lastSelectedIndex + 1}`,
+        description:
+          lastSelectedIndex !== undefined
+            ? `New row will be inserted after row ${lastSelectedIndex + 1}`
+            : "New row staged for insertion",
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -1247,7 +1351,16 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         description: message,
       });
     }
-  }, [isTableMode, selectedRowsSet, finalColumns, connectionId, database, schema, table, stageCommand]);
+  }, [
+    isTableMode,
+    selectedRowsSet,
+    finalColumns,
+    connectionId,
+    database,
+    schema,
+    table,
+    stageCommand,
+  ]);
 
   // Update toolbar actions when pending changes or selection changes
   useEffect(() => {
@@ -1274,7 +1387,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             variant="outline"
             size="sm"
             className="h-6 text-xs px-2"
-            onClick={() => setShowBulkEditModal(true)}
+            onClick={() => {
+              setShowBulkEditModal(true);
+            }}
           >
             <Edit className="h-3 w-3 mr-1" />
             Bulk Edit ({selectedRows.length})
@@ -1292,7 +1407,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
               table={table}
               onCommitSuccess={() => {
                 // Refresh table data from server after successful commit
-                tableDataQuery.refetch();
+                void tableDataQuery.refetch();
               }}
             />
           </>
@@ -1494,7 +1609,16 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             isTableMode
               ? () => {
                   // Delete selected rows via context menu
-                  handleRowDelete({ rows: selectedRows });
+                  handleRowDelete({
+                    selection:
+                      gridSelection ??
+                      ({
+                        columns: CompactSelection.empty(),
+                        rows: CompactSelection.empty(),
+                      } as GridSelection),
+                    rowIndexes: Array.from(selectedRowsSet),
+                    rows: selectedRows,
+                  });
                 }
               : undefined
           }

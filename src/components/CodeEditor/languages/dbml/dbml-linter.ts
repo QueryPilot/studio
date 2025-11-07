@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { type Diagnostic, linter } from "@codemirror/lint";
 import { type EditorView } from "@codemirror/view";
 import { type Text, type Extension } from "@codemirror/state";
@@ -140,7 +141,7 @@ class DBMLLinter {
 
     // Check for circular references
     const cycle = schema.detectCircularReferences();
-    if (cycle) {
+    if (cycle && cycle.cycle[0]) {
       diagnostics.push({
         from: cycle.position.from,
         to: cycle.position.to,
@@ -284,15 +285,17 @@ class DBMLLinter {
 
       for (const colName of table.columns.keys()) {
         if (reserved.includes(colName.toLowerCase())) {
-          const col = table.columns.get(colName)!;
-          diagnostics.push({
-            from: col.position.from,
-            to: col.position.to,
-            severity: "warning",
-            message: `'${colName}' might be a reserved keyword in some databases`,
-            code: ValidationCode.RESERVED_KEYWORD,
-            data: { name: colName, type: "column" },
-          });
+          const col = table.columns.get(colName);
+          if (col) {
+            diagnostics.push({
+              from: col.position.from,
+              to: col.position.to,
+              severity: "warning",
+              message: `'${colName}' might be a reserved keyword in some databases`,
+              code: ValidationCode.RESERVED_KEYWORD,
+              data: { name: colName, type: "column" },
+            });
+          }
         }
       }
     }
@@ -360,9 +363,9 @@ class DBMLLinter {
       if (!matrix[i]) matrix[i] = [];
       for (let j = 1; j <= a.length; j++) {
         if (b.charAt(i - 1) === a.charAt(j - 1)) {
-          matrix[i][j] = matrix[i - 1]?.[j - 1] ?? 0;
+          matrix[i]![j] = matrix[i - 1]?.[j - 1] ?? 0;
         } else {
-          matrix[i][j] = Math.min(
+          matrix[i]![j] = Math.min(
             (matrix[i - 1]?.[j - 1] ?? 0) + 1,
             (matrix[i]?.[j - 1] ?? 0) + 1,
             (matrix[i - 1]?.[j] ?? 0) + 1,

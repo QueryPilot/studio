@@ -5,7 +5,7 @@ import { DatabaseSidebar } from "./components/DatabaseSidebar";
 import { DatabaseSchemaSelector } from "./components/DatabaseSchemaSelector";
 import { WorkbenchLayout } from "@/components/Workbench";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
-import { useSchemaStore } from "@/stores/schemaStore";
+
 import { usePanelStore } from "@/stores/panelStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
@@ -30,15 +30,12 @@ export function WorkspaceScreen() {
     useWorkspaceScreenStore();
   // Subscribe to sidebar state reactively - use memoized selector
   const sidebars = useWorkspaceScreenStore(
-    useCallback(
-      (state) => {
-        const workspace = state.workspaces.get(state.activeConnectionId || "");
-        return workspace?.sidebars ?? DEFAULT_SIDEBARS;
-      },
-      [],
-    ),
+    useCallback((state) => {
+      const workspace = state.workspaces.get(state.activeConnectionId || "");
+      return workspace?.sidebars ?? DEFAULT_SIDEBARS;
+    }, []),
   );
-  const { loadSchemas } = useSchemaStore();
+
   const { initialize: initializePanels } = usePanelStore();
 
   const [isLoading, setIsLoading] = useState(true);
@@ -72,7 +69,9 @@ export function WorkspaceScreen() {
 
       const currentDatabase = useWorkspaceSelectionStore.getState().database;
       if (!currentDatabase) {
-        const stored = useConnectionStore.getState().getConnection(connectionId);
+        const stored = useConnectionStore
+          .getState()
+          .getConnection(connectionId);
         const profile = stored?.profile;
         if (profile?.database) {
           useWorkspaceSelectionStore.setState({
@@ -105,9 +104,6 @@ export function WorkspaceScreen() {
           Backend.prewarmQuery(connectionId, "SELECT current_database()").catch(
             () => {},
           );
-
-          // Load schemas after successful connection
-          return loadSchemas(connectionId);
         })
         .catch((err: unknown) => {
           console.error("Failed to connect to database:", err);
@@ -123,7 +119,7 @@ export function WorkspaceScreen() {
         void databaseService.disconnect(connectionId);
       }
     };
-  }, [connectionId, loadSchemas, initWorkspace, initializePanels]);
+  }, [connectionId, initWorkspace, initializePanels]);
 
   const handleDatabaseChange = useCallback(
     (database: string) => {
@@ -205,7 +201,7 @@ export function WorkspaceScreen() {
           <WorkbenchLayout
             className="h-full"
             connectionId={connectionId}
-            database={selectedDatabase}
+            database={selectedDatabase ?? undefined}
           />
         </ResizablePanel>
 

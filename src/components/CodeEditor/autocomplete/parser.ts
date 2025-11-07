@@ -683,7 +683,7 @@ export class SqlQueryParser {
 
     // Extract identifier including dots (e.g., "table.col" or "schema.table.")
     const match = /([a-zA-Z_][\w.]*)$/.exec(textBefore);
-    return match ? match[1] : "";
+    return match ? match[1] ?? "" : "";
   }
 }
 

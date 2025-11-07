@@ -169,12 +169,12 @@ export function countPanelsInDirection(
 function countVerticalPanelsInTree(node: GridNode): number {
   if (node.type === "leaf") return 1;
   
-  if (node.type === "branch" && node.orientation === "vertical") {
+  if (node.orientation === "vertical") {
     // Vertical split - sum the panels
     const top = node.children?.[0] ? countVerticalPanelsInTree(node.children[0]) : 0;
     const bottom = node.children?.[1] ? countVerticalPanelsInTree(node.children[1]) : 0;
     return top + bottom;
-  } else if (node.type === "branch" && node.orientation === "horizontal") {
+  } else if (node.orientation === "horizontal") {
     // Horizontal split - take the max of both sides
     const left = node.children?.[0] ? countVerticalPanelsInTree(node.children[0]) : 0;
     const right = node.children?.[1] ? countVerticalPanelsInTree(node.children[1]) : 0;
@@ -188,12 +188,12 @@ function countVerticalPanelsInTree(node: GridNode): number {
 function countHorizontalPanelsInTree(node: GridNode): number {
   if (node.type === "leaf") return 1;
   
-  if (node.type === "branch" && node.orientation === "horizontal") {
+  if (node.orientation === "horizontal") {
     // Horizontal split - sum the panels
     const left = node.children?.[0] ? countHorizontalPanelsInTree(node.children[0]) : 0;
     const right = node.children?.[1] ? countHorizontalPanelsInTree(node.children[1]) : 0;
     return left + right;
-  } else if (node.type === "branch" && node.orientation === "vertical") {
+  } else if (node.orientation === "vertical") {
     // Vertical split - take the max of both sides
     const top = node.children?.[0] ? countHorizontalPanelsInTree(node.children[0]) : 0;
     const bottom = node.children?.[1] ? countHorizontalPanelsInTree(node.children[1]) : 0;
@@ -245,14 +245,14 @@ function countVerticalPanelsInColumn(tree: GridNode, targetPanelId: string): num
   function countVerticalPanels(node: GridNode): number {
     if (node.type === "leaf") return 1;
     
-    if (node.type === "branch" && node.orientation === "vertical") {
+    if (node.orientation === "vertical") {
       // Vertical split - sum the panels in both children
       const leftCount = node.children?.[0] ? countVerticalPanels(node.children[0]) : 0;
       const rightCount = node.children?.[1] ? countVerticalPanels(node.children[1]) : 0;
       const total = leftCount + rightCount;
       console.log(`🔢 Vertical branch: left=${leftCount}, right=${rightCount}, total=${total}`);
       return total;
-    } else if (node.type === "branch" && node.orientation === "horizontal") {
+    } else if (node.orientation === "horizontal") {
       // Horizontal split within column - take the max of both sides
       const leftCount = node.children?.[0] ? countVerticalPanels(node.children[0]) : 0;
       const rightCount = node.children?.[1] ? countVerticalPanels(node.children[1]) : 0;
@@ -311,14 +311,14 @@ function countHorizontalPanelsInRow(tree: GridNode, targetPanelId: string): numb
   function countHorizontalPanels(node: GridNode): number {
     if (node.type === "leaf") return 1;
     
-    if (node.type === "branch" && node.orientation === "horizontal") {
+    if (node.orientation === "horizontal") {
       // Horizontal split - sum the panels in both children
       const leftCount = node.children?.[0] ? countHorizontalPanels(node.children[0]) : 0;
       const rightCount = node.children?.[1] ? countHorizontalPanels(node.children[1]) : 0;
       const total = leftCount + rightCount;
       console.log(`🔢 Horizontal branch: left=${leftCount}, right=${rightCount}, total=${total}`);
       return total;
-    } else if (node.type === "branch" && node.orientation === "vertical") {
+    } else if (node.orientation === "vertical") {
       // Vertical split within row - take the max of both sides
       const topCount = node.children?.[0] ? countHorizontalPanels(node.children[0]) : 0;
       const bottomCount = node.children?.[1] ? countHorizontalPanels(node.children[1]) : 0;
@@ -389,26 +389,24 @@ export function canSplitPanel(
 
 function countHorizontalColumns(tree: GridNode): number {
   if (tree.type === "leaf") return 1;
-  
-  if (tree.type === "branch") {
-    if (tree.orientation === "horizontal") {
-      return (tree.children?.[0] ? countHorizontalColumns(tree.children[0]) : 0) +
-             (tree.children?.[1] ? countHorizontalColumns(tree.children[1]) : 0);
-    } else {
-      return Math.max(
-        tree.children?.[0] ? countHorizontalColumns(tree.children[0]) : 0,
-        tree.children?.[1] ? countHorizontalColumns(tree.children[1]) : 0
-      );
-    }
+
+  // Type is narrowed to "branch" after the early return above
+  if (tree.orientation === "horizontal") {
+    return (tree.children?.[0] ? countHorizontalColumns(tree.children[0]) : 0) +
+           (tree.children?.[1] ? countHorizontalColumns(tree.children[1]) : 0);
+  } else {
+    return Math.max(
+      tree.children?.[0] ? countHorizontalColumns(tree.children[0]) : 0,
+      tree.children?.[1] ? countHorizontalColumns(tree.children[1]) : 0
+    );
   }
-  
-  return 1;
 }
 
 function redistributeHorizontalRatios(tree: GridNode): GridNode {
   if (tree.type === "leaf") return tree;
-  
-  if (tree.type === "branch" && tree.children) {
+
+  // Type is narrowed to "branch" after the early return above
+  if (tree.children) {
     if (tree.orientation === "horizontal") {
       // For horizontal branches, we want equal column widths
       const totalColumns = countHorizontalColumns(tree);

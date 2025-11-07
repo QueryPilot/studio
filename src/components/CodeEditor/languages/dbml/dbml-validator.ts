@@ -62,8 +62,8 @@ export class DBMLValidator {
         const colMatch = error.message.match(/[Cc]olumn\s*(\d+)/);
 
         if (lineMatch && colMatch) {
-          const line = parseInt(lineMatch[1], 10);
-          const column = parseInt(colMatch[1], 10);
+          const line = parseInt(lineMatch[1] as string, 10);
+          const column = parseInt(colMatch[1] as string, 10);
           from = this.getOffsetFromLocation(doc, { line, column });
           to = from + 10; // Highlight next 10 characters
         }
@@ -71,9 +71,9 @@ export class DBMLValidator {
 
       // Try to extract location from error object
       if (error.location) {
-        from = this.getOffsetFromLocation(doc, error.location.start || error.location);
+        from = this.getOffsetFromLocation(doc, (error.location.start || error.location) as { line: number; column: number });
         to = error.location.end
-          ? this.getOffsetFromLocation(doc, error.location.end)
+          ? this.getOffsetFromLocation(doc, error.location.end as { line: number; column: number })
           : from + 10;
       } else if (error.line !== undefined && error.column !== undefined) {
         from = this.getOffsetFromLocation(doc, { line: error.line, column: error.column });

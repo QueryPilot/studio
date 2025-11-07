@@ -74,7 +74,10 @@ export function useStagedChangesIndicator(
             if (!result.rowChanges.has(rowIndex)) {
               result.rowChanges.set(rowIndex, new Set());
             }
-            result.rowChanges.get(rowIndex)!.add(payload.column);
+            const rowChangeSet = result.rowChanges.get(rowIndex);
+            if (rowChangeSet) {
+              rowChangeSet.add(payload.column);
+            }
           }
           break;
         }
@@ -162,7 +165,12 @@ function createPrimaryKeyStringFromRecord(
 ): string {
   return Object.entries(primaryKeys)
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([_key, value]) => String(value ?? "null"))
+    .map(([_key, value]) => {
+      if (value === null || value === undefined) return "null";
+      if (typeof value === 'object') return JSON.stringify(value);
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
+      return '[Unknown]';
+    })
     .join("|");
 }
 

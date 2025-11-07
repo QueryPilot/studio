@@ -164,7 +164,7 @@ const loadSchemaData = async (
       tables: tableList,
       views: viewList,
       functions: uniqueFunctions,
-    };
+    } as any;
   } catch (err: unknown) {
     console.error("Failed to load schema data:", err);
     throw new Error("Failed to load schema data");

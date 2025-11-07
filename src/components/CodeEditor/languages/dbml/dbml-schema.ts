@@ -75,10 +75,11 @@ export class DBMLSchema {
     note?: string;
   };
 
-  constructor() {}
-
   // Helper to extract position from AST node
-  private static extractPosition(node: any, doc?: Text): { from: number; to: number } {
+  private static extractPosition(
+    node: any,
+    doc?: Text,
+  ): { from: number; to: number } {
     if (!node) {
       return { from: 0, to: 0 };
     }
@@ -86,33 +87,55 @@ export class DBMLSchema {
     // @dbml/core provides token with start/end offsets
     // The token property is the primary source of position info
     const token = node.token;
-    if (token?.start?.offset !== undefined && token?.end?.offset !== undefined) {
+    if (
+      token?.start?.offset !== undefined &&
+      token?.end?.offset !== undefined
+    ) {
       return {
         from: token.start.offset,
-        to: token.end.offset
+        to: token.end.offset,
       };
     }
 
     // Fallback: convert line/column to offset if doc is provided
     if (token?.start && token?.end && doc) {
-      const from = this.getOffsetFromLineColumn(doc, token.start.line, token.start.column);
-      const to = this.getOffsetFromLineColumn(doc, token.end.line, token.end.column);
+      const from = this.getOffsetFromLineColumn(
+        doc,
+        token.start.line as number | undefined,
+        token.start.column as number | undefined,
+      );
+      const to = this.getOffsetFromLineColumn(
+        doc,
+        token.end.line as number | undefined,
+        token.end.column as number | undefined,
+      );
       return { from, to };
     }
 
     // Last resort: check for other location properties
     const location = node.location || node.loc || node._location;
-    if (location?.start?.offset !== undefined && location?.end?.offset !== undefined) {
+    if (
+      location?.start?.offset !== undefined &&
+      location?.end?.offset !== undefined
+    ) {
       return {
         from: location.start.offset,
-        to: location.end.offset
+        to: location.end.offset,
       };
     }
 
     // If we have line/column but no offset
     if (location?.start && location?.end && doc) {
-      const from = this.getOffsetFromLineColumn(doc, location.start.line, location.start.column);
-      const to = this.getOffsetFromLineColumn(doc, location.end.line, location.end.column);
+      const from = this.getOffsetFromLineColumn(
+        doc,
+        location.start.line as number | undefined,
+        location.start.column as number | undefined,
+      );
+      const to = this.getOffsetFromLineColumn(
+        doc,
+        location.end.line as number | undefined,
+        location.end.column as number | undefined,
+      );
       return { from, to };
     }
 
@@ -120,8 +143,12 @@ export class DBMLSchema {
   }
 
   // Helper to convert line/column to offset
-  private static getOffsetFromLineColumn(doc: Text, line?: number, column?: number): number {
-    if (!doc || line === undefined || column === undefined) return 0;
+  private static getOffsetFromLineColumn(
+    doc: Text,
+    line?: number,
+    column?: number,
+  ): number {
+    if (line === undefined || column === undefined) return 0;
 
     try {
       // DBML parser uses 1-based line numbers and columns
@@ -155,7 +182,7 @@ export class DBMLSchema {
             indexes: [],
             note: table.note,
             headerColor: table.headerColor,
-            position: this.extractPosition(table, doc)
+            position: this.extractPosition(table, doc),
           };
 
           // Process fields/columns
@@ -170,16 +197,18 @@ export class DBMLSchema {
                 increment: field.increment,
                 default: field.dbdefault,
                 note: field.note,
-                position: this.extractPosition(field, doc)
+                position: this.extractPosition(field, doc),
               };
 
               // Handle inline references
               if (field.inline_refs && field.inline_refs.length > 0) {
                 const ref = field.inline_refs[0];
-                columnInfo.ref = `${ref.tableName}.${ref.fieldNames?.[0] || 'id'}`;
+                columnInfo.ref = `${ref.tableName}.${
+                  ref.fieldNames?.[0] || "id"
+                }`;
               }
 
-              tableInfo.columns.set(field.name, columnInfo);
+              tableInfo.columns.set(field.name as string, columnInfo);
             }
           }
 
@@ -192,7 +221,7 @@ export class DBMLSchema {
                 pk: index.pk || false,
                 type: index.type,
                 note: index.note,
-                position: this.extractPosition(index, doc)
+                position: this.extractPosition(index, doc),
               });
             }
           }
@@ -206,12 +235,13 @@ export class DBMLSchema {
         for (const enumObj of schemaObj.enums) {
           const enumInfo: EnumInfo = {
             name: enumObj.name,
-            values: enumObj.values?.map((v: any) => ({
-              name: v.name,
-              note: v.note
-            })) || [],
+            values:
+              enumObj.values?.map((v: any) => ({
+                name: v.name,
+                note: v.note,
+              })) || [],
             note: enumObj.note,
-            position: this.extractPosition(enumObj, doc)
+            position: this.extractPosition(enumObj, doc),
           };
           schema.addEnum(enumInfo);
         }
@@ -233,7 +263,7 @@ export class DBMLSchema {
               type: endpoint0.relation || ">",
               onDelete: ref.onDelete,
               onUpdate: ref.onUpdate,
-              position: this.extractPosition(ref, doc)
+              position: this.extractPosition(ref, doc),
             };
             schema.addRelationship(relInfo);
           }
@@ -246,7 +276,7 @@ export class DBMLSchema {
           schema.addTableGroup({
             name: group.name,
             tables: group.tables || [],
-            position: this.extractPosition(group, doc)
+            position: this.extractPosition(group, doc),
           });
         }
       }
@@ -257,7 +287,7 @@ export class DBMLSchema {
       schema.project = {
         name: ast.project.name,
         databaseType: ast.project.database_type,
-        note: ast.project.note
+        note: ast.project.note,
       };
     }
 
@@ -265,7 +295,9 @@ export class DBMLSchema {
   }
 
   addTable(table: TableInfo) {
-    const fullName = table.schema ? `${table.schema}.${table.name}` : table.name;
+    const fullName = table.schema
+      ? `${table.schema}.${table.name}`
+      : table.name;
     this.tables.set(fullName, table);
     this.tables.set(table.name, table); // Also store without schema
 
@@ -275,7 +307,8 @@ export class DBMLSchema {
   }
 
   addTablePartial(partial: TableInfo) {
-    const existing = this.tablePartials.get(partial.name) || this.tables.get(partial.name);
+    const existing =
+      this.tablePartials.get(partial.name) || this.tables.get(partial.name);
 
     if (existing) {
       // Merge columns from partial into existing
@@ -284,9 +317,7 @@ export class DBMLSchema {
       }
 
       // Merge indexes
-      if (partial.indexes) {
-        existing.indexes.push(...partial.indexes);
-      }
+      existing.indexes.push(...partial.indexes);
     } else {
       this.tablePartials.set(partial.name, partial);
     }
@@ -305,15 +336,19 @@ export class DBMLSchema {
   }
 
   hasTable(name: string): boolean {
-    return this.tables.has(name) ||
-           this.tables.has(`public.${name}`) ||
-           this.tablePartials.has(name);
+    return (
+      this.tables.has(name) ||
+      this.tables.has(`public.${name}`) ||
+      this.tablePartials.has(name)
+    );
   }
 
   getTable(name: string): TableInfo | undefined {
-    return this.tables.get(name) ||
-           this.tables.get(`public.${name}`) ||
-           this.tablePartials.get(name);
+    return (
+      this.tables.get(name) ||
+      this.tables.get(`public.${name}`) ||
+      this.tablePartials.get(name)
+    );
   }
 
   hasColumn(tableName: string, columnName: string): boolean {
@@ -335,8 +370,8 @@ export class DBMLSchema {
   }
 
   findRelationships(tableName: string): RelationshipInfo[] {
-    return this.relationships.filter(rel =>
-      rel.fromTable === tableName || rel.toTable === tableName
+    return this.relationships.filter(
+      (rel) => rel.fromTable === tableName || rel.toTable === tableName,
     );
   }
 
@@ -355,7 +390,10 @@ export class DBMLSchema {
       if (!graph.has(rel.fromTable)) {
         graph.set(rel.fromTable, new Set());
       }
-      graph.get(rel.fromTable)!.add(rel.toTable);
+      const fromTableSet = graph.get(rel.fromTable);
+      if (fromTableSet) {
+        fromTableSet.add(rel.toTable);
+      }
 
       // Store the relationship for position lookup
       const key = `${rel.fromTable}->${rel.toTable}`;
@@ -379,7 +417,7 @@ export class DBMLSchema {
         if (rel) {
           return {
             cycle: cycle.cycle,
-            position: rel.position
+            position: rel.position,
           };
         }
 
@@ -390,7 +428,7 @@ export class DBMLSchema {
           if (rel) {
             return {
               cycle: cycle.cycle,
-              position: rel.position
+              position: rel.position,
             };
           }
         }
@@ -407,7 +445,7 @@ export class DBMLSchema {
     graph: Map<string, Set<string>>,
     visited: Set<string>,
     recursionStack: Set<string>,
-    path: string[]
+    path: string[],
   ): { cycle: string[]; position: any } | null {
     visited.add(node);
     recursionStack.add(node);
@@ -417,13 +455,19 @@ export class DBMLSchema {
     if (neighbors) {
       for (const neighbor of neighbors) {
         if (!visited.has(neighbor)) {
-          const result = this.findCycle(neighbor, graph, visited, recursionStack, [...path]);
+          const result = this.findCycle(
+            neighbor,
+            graph,
+            visited,
+            recursionStack,
+            [...path],
+          );
           if (result) return result;
         } else if (recursionStack.has(neighbor)) {
           const cycleStart = path.indexOf(neighbor);
           return {
             cycle: path.slice(cycleStart),
-            position: { from: 0, to: 0 }
+            position: { from: 0, to: 0 },
           };
         }
       }
@@ -439,13 +483,15 @@ export class DBMLSchema {
 
     for (const [name, table] of this.tables) {
       // Skip schema-prefixed duplicates
-      if (name.includes('.')) continue;
+      if (name.includes(".")) continue;
 
       // Check if any column has pk flag
-      const hasColumnPK = Array.from(table.columns.values()).some(col => col.pk);
+      const hasColumnPK = Array.from(table.columns.values()).some(
+        (col) => col.pk,
+      );
 
       // Check if any index has pk flag (composite primary key)
-      const hasIndexPK = table.indexes.some(idx => idx.pk === true);
+      const hasIndexPK = table.indexes.some((idx) => idx.pk === true);
 
       if (!hasColumnPK && !hasIndexPK) {
         tables.push(name);
@@ -461,7 +507,7 @@ export class DBMLSchema {
 
     for (const [tableName, table] of this.tables) {
       // Skip schema-prefixed duplicates
-      if (tableName.includes('.')) continue;
+      if (tableName.includes(".")) continue;
 
       const columnNames = new Set<string>();
       for (const colName of table.columns.keys()) {
@@ -497,6 +543,6 @@ export class DBMLSchema {
   // Get all enum values
   getEnumValues(enumName: string): string[] {
     const enumInfo = this.getEnum(enumName);
-    return enumInfo ? enumInfo.values.map(v => v.name) : [];
+    return enumInfo ? enumInfo.values.map((v) => v.name) : [];
   }
 }

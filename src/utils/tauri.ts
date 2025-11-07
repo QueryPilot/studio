@@ -2,8 +2,9 @@
  * Check if running in Tauri context
  */
 export function isTauri(): boolean {
-  return typeof window !== 'undefined' && 
-         window.__TAURI_INTERNALS__ !== undefined;
+  return (
+    typeof window !== "undefined" && window.__TAURI_INTERNALS__ !== undefined
+  );
 }
 
 /**
@@ -11,13 +12,13 @@ export function isTauri(): boolean {
  */
 export async function safeInvoke<T>(
   cmd: string,
-  args?: Record<string, unknown>
+  args?: Record<string, unknown>,
 ): Promise<T | null> {
   if (!isTauri()) {
     console.warn(`Cannot invoke "${cmd}" - not running in Tauri context`);
     return null;
   }
-  
+
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<T>(cmd, args);
 }
@@ -27,13 +28,13 @@ export async function safeInvoke<T>(
  */
 export async function safeEmit(
   event: string,
-  payload?: unknown
+  payload?: unknown,
 ): Promise<void> {
   if (!isTauri()) {
     console.warn(`Cannot emit "${event}" - not running in Tauri context`);
     return;
   }
-  
+
   const { emit } = await import("@tauri-apps/api/event");
   await emit(event, payload);
 }
@@ -41,17 +42,17 @@ export async function safeEmit(
 /**
  * Safe listen that only works in Tauri context
  */
-export async function safeListen<T>(
+export async function safeListen(
   event: string,
-  handler: (event: { payload: T }) => void
+  handler: (event: { payload: unknown }) => void,
 ): Promise<(() => void) | null> {
   if (!isTauri()) {
     console.warn(`Cannot listen to "${event}" - not running in Tauri context`);
     return null;
   }
-  
+
   const { listen } = await import("@tauri-apps/api/event");
-  const unlisten = await listen<T>(event, handler);
+  const unlisten = await listen(event, handler);
   return unlisten;
 }
 
