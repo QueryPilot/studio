@@ -543,7 +543,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       const insertAfterRowKey = cmd.metadata.insertAfterRowKey;
       if (insertAfterRowKey) {
         // Find the target row in the current result array
-        const targetIndex = result.findIndex((r, idx) => getRowKey(r, idx) === insertAfterRowKey);
+        const targetIndex = result.findIndex(
+          (r, idx) => getRowKey(r, idx) === insertAfterRowKey,
+        );
         if (targetIndex >= 0) {
           // Insert after the target row
           result.splice(targetIndex + 1, 0, row);
@@ -1040,19 +1042,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             };
 
             stageCommand(updatedCmd);
-
-            toast("Change staged", {
-              description: `Update to ${event.column.field} in new row`,
-            });
           }
         } else {
           // Editing an existing row - create UPDATE command
           const command = createUpdateCommand(event, target, finalColumns);
           stageCommand(command);
-
-          toast("Change staged", {
-            description: `Update to ${event.column.field} queued for commit`,
-          });
         }
 
         return undefined; // Don't add to grid history (CRUD store handles history)
@@ -1093,10 +1087,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         );
         stageCommand(command);
 
-        toast("Row staged", {
-          description: "New row queued for insert",
-        });
-
         return undefined;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -1131,10 +1121,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         );
 
         commands.forEach((command) => stageCommand(command));
-
-        toast("Rows staged for deletion", {
-          description: `${commands.length} row(s) queued for delete`,
-        });
 
         return undefined;
       } catch (err) {
@@ -1316,15 +1302,18 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     try {
       // Get the last selected row index
       const selectedIndices = Array.from(selectedRowsSet).sort((a, b) => a - b);
-      const lastSelectedIndex = selectedIndices[selectedIndices.length - 1];
+      const lastSelectedIndex =
+        selectedIndices[selectedIndices.length - 1] ?? 0;
 
       // Get the current active cell column (preserve column position)
-      const currentColumn = gridSelection?.current?.cell?.[0];
+      const currentColumn = gridSelection?.current?.cell[0] ?? 0;
 
       // Get the row key for the selected row (stable identifier)
       // Use rowsRef.current instead of displayRowsWithOptimisticUpdates for performance
       const selectedRow = rowsRef.current[lastSelectedIndex];
-      const selectedRowKey = selectedRow ? getRowKey(selectedRow, lastSelectedIndex) : undefined;
+      const selectedRowKey = selectedRow
+        ? getRowKey(selectedRow, lastSelectedIndex)
+        : undefined;
 
       // Create a draft row with default values
       const draftRow = finalColumns.reduce<GridRowModel>((acc, column) => {
@@ -1353,29 +1342,21 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       stageCommand(command);
 
-      toast("Row staged", {
-        description: selectedRowKey
-          ? `New row will be inserted after selected row`
-          : "New row staged for insertion",
-      });
-
       // Auto-focus on the newly inserted row at the same column
       // The new row will be at lastSelectedIndex + 1 after optimistic update
       const newRowIndex = lastSelectedIndex + 1;
 
       // Determine which column to focus (preserve current column or use first editable)
-      let targetColumn = currentColumn ?? 0;
+      let targetColumn = currentColumn;
 
       // If current column is a primary key, find first non-PK column
-      if (targetColumn !== undefined) {
-        const currentColumnMeta = finalColumns[targetColumn]?.meta;
-        if (currentColumnMeta?.is_pk) {
-          const firstEditableCol = finalColumns.findIndex(
-            (col) => !col.meta?.is_pk,
-          );
-          if (firstEditableCol >= 0) {
-            targetColumn = firstEditableCol;
-          }
+      const currentColumnMeta = finalColumns[targetColumn]?.meta;
+      if (currentColumnMeta?.is_pk) {
+        const firstEditableCol = finalColumns.findIndex(
+          (col) => !col.meta?.is_pk,
+        );
+        if (firstEditableCol >= 0) {
+          targetColumn = firstEditableCol;
         }
       }
 
@@ -1387,11 +1368,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
           // Trigger edit mode by simulating Enter key press
           setTimeout(() => {
-            const gridElement = containerRef.current?.querySelector('.dvn-scroller');
+            const gridElement =
+              containerRef.current?.querySelector(".dvn-scroller");
             if (gridElement) {
-              const enterEvent = new KeyboardEvent('keydown', {
-                key: 'Enter',
-                code: 'Enter',
+              const enterEvent = new KeyboardEvent("keydown", {
+                key: "Enter",
+                code: "Enter",
                 keyCode: 13,
                 bubbles: true,
                 cancelable: true,

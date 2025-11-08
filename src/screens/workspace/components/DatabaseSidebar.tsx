@@ -29,6 +29,7 @@ import {
   useStarredItemsStore,
   type StarredItemType,
 } from "@/stores/starredItemsStore";
+import { useCrudStore } from "@/stores/crudStore";
 
 interface DatabaseSidebarProps {
   connectionId: string;
@@ -61,6 +62,7 @@ export function DatabaseSidebar({
   const { focusedPanelId, panelContents } = useWorkbenchStore();
 
   const { toggleStarred, isStarred, getStarredItems } = useStarredItemsStore();
+  const { stagedCommands, getTableKey } = useCrudStore();
 
   // Auto-expand sections when data is loaded
   useEffect(() => {
@@ -74,20 +76,17 @@ export function DatabaseSidebar({
   // Listen for database reconnection events
   useEffect(() => {
     let cleanup: (() => void) | null = null;
-
     const setupListener = async () => {
-      cleanup = await safeListen<{ connectionId: string }>(
-        "database-reconnected",
-        (event) => {
-          if (
-            event.payload.connectionId === connectionId &&
-            selectedSchema &&
-            selectedDatabase
-          ) {
-            void refreshSchemaData();
-          }
-        },
-      );
+      cleanup = await safeListen("database-reconnected", (event) => {
+        const payload = event.payload as { connectionId: string };
+        if (
+          payload.connectionId === connectionId &&
+          selectedSchema &&
+          selectedDatabase
+        ) {
+          void refreshSchemaData();
+        }
+      });
     };
 
     void setupListener();
@@ -224,6 +223,21 @@ export function DatabaseSidebar({
       activeTab.payload.functionName === functionName &&
       activeTab.payload.schema === schema
     );
+  };
+
+  // Check if a table has pending changes
+  const hasTablePendingChanges = (
+    tableName: string,
+    schema: string,
+  ): boolean => {
+    const tableKey = getTableKey({
+      connectionId,
+      database: selectedDatabase,
+      schema,
+      table: tableName,
+    });
+    const commands = stagedCommands.get(tableKey);
+    return commands ? commands.length > 0 : false;
   };
 
   // Show loading skeleton during initial connection or when actively loading schema data
@@ -380,6 +394,11 @@ export function DatabaseSidebar({
                       item.name,
                       item.schema,
                     )}
+                    hasPendingChanges={
+                      item.type !== "function"
+                        ? hasTablePendingChanges(item.name, item.schema)
+                        : false
+                    }
                     actions={
                       item.type !== "function" ? (
                         <>
@@ -453,6 +472,10 @@ export function DatabaseSidebar({
                     table.name,
                     table.schema,
                   )}
+                  hasPendingChanges={hasTablePendingChanges(
+                    table.name,
+                    table.schema,
+                  )}
                   actions={
                     <>
                       <ActionButton
@@ -520,6 +543,10 @@ export function DatabaseSidebar({
                   )}
                   onToggleStar={handleToggleStar(
                     "view",
+                    view.name,
+                    view.schema,
+                  )}
+                  hasPendingChanges={hasTablePendingChanges(
                     view.name,
                     view.schema,
                   )}

@@ -156,6 +156,16 @@ export const defaultKeybindings: Keybinding[] = [
     when: 'dataGridFocus && dataGridEditable && !editingCell && !selectionEmpty',
   },
   {
+    command: 'workspace.commitAll',
+    key: 'cmd+s',
+    when: '!editorTextFocus && !editingCell',
+  },
+  {
+    command: 'workspace.discardAll',
+    key: 'cmd+shift+d',
+    when: '!editorTextFocus && !editingCell',
+  },
+  {
     command: 'workbench.action.discardAllChanges',
     key: 'cmd+r',
   },

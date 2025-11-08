@@ -17,6 +17,9 @@ import {
   Loader2,
   RotateCcw,
   Bot,
+  Undo2,
+  Redo2,
+  GitCommit,
 } from "lucide-react";
 import {
   Popover,
@@ -32,9 +35,11 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { useCrudStore } from "@/stores/crudStore";
 import { useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
+import { useCommand } from "@/hooks/useCommand";
 import { windowManager } from "@/services/windowManager";
 import {
   databaseService,
@@ -56,6 +61,12 @@ import { toast } from "sonner";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { GlobalChangesModal } from "@/components/GlobalChangesModal";
 
 interface WorkspaceTitleBarProps {
   connectionId: string;
@@ -82,9 +93,99 @@ export function WorkspaceTitleBar({
   const { theme, setTheme } = useTheme();
   const { toggleSidebar: onToggleSidebar } = useWorkspaceScreenStore();
   const { openPreferences } = usePreferencesStore();
+  const {
+    stagedCommands,
+    commitAll,
+    discardAll,
+    undo,
+    redo,
+    historyIndex,
+    history,
+  } = useCrudStore();
 
   // Combined connecting state (initial + reconnecting)
   const isConnecting = isInitiallyConnecting || isReconnecting;
+
+  // Calculate total pending changes for this connection
+  const totalChanges = useMemo(() => {
+    let count = 0;
+    stagedCommands.forEach((commands, tableKey) => {
+      // tableKey format: "connectionId:database:schema:table"
+      if (tableKey.startsWith(`${connectionId}:`)) {
+        count += commands.length;
+      }
+    });
+    return count;
+  }, [stagedCommands, connectionId]);
+
+  const canUndo = historyIndex > 0;
+  const canRedo = historyIndex < history.length - 1;
+
+  const [showGlobalChanges, setShowGlobalChanges] = useState(false);
+
+  // Keyboard shortcuts
+  useCommand(
+    "workspace.commitAll",
+    async () => {
+      if (totalChanges > 0) {
+        try {
+          const results = await commitAll();
+          const totalCommitted = Object.values(results).reduce(
+            (sum, result) => sum + result.committed.length,
+            0,
+          );
+          toast.success("All changes committed", {
+            description: `Successfully committed ${totalCommitted} change${
+              totalCommitted === 1 ? "" : "s"
+            }`,
+          });
+        } catch (error) {
+          toast.error("Commit failed", {
+            description:
+              error instanceof Error
+                ? error.message
+                : "Failed to commit changes",
+          });
+        }
+      }
+    },
+    {
+      label: "Commit All Changes",
+      category: "Workspace",
+      when: "!editorTextFocus && !editingCell",
+    },
+  );
+
+  useCommand(
+    "workspace.discardAll",
+    () => {
+      if (totalChanges > 0) {
+        discardAll();
+        toast.success("All changes discarded");
+      }
+    },
+    {
+      label: "Discard All Changes",
+      category: "Workspace",
+      when: "!editorTextFocus && !editingCell",
+    },
+  );
+
+  // Warn before reload if there are pending changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (totalChanges > 0) {
+        e.preventDefault();
+        return false;
+      }
+      return true;
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [totalChanges, commitAll, discardAll]);
 
   // Load connections if not already loaded
   useEffect(() => {
@@ -548,6 +649,67 @@ export function WorkspaceTitleBar({
               Reconnect
             </Button>
           )}
+
+        {/* Pending Changes Count */}
+        {totalChanges > 0 && (
+          <>
+            <div
+              className="h-3 w-px bg-border flex-shrink-0"
+              data-tauri-drag-region
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setShowGlobalChanges(true);
+              }}
+              className="h-5 px-2 text-xs gap-1.5 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/20 rounded-full"
+              title="Click to review and commit changes"
+            >
+              <GitCommit className="h-2.5 w-2.5 text-orange-600 dark:text-orange-400" />
+              <span className="font-medium text-orange-600 dark:text-orange-400">
+                {totalChanges} {totalChanges === 1 ? "change" : "changes"}
+              </span>
+            </Button>
+
+            {/* Undo/Redo buttons */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 w-5 p-0"
+                  onClick={undo}
+                  disabled={!canUndo}
+                  title="Undo"
+                >
+                  <Undo2 className="h-3 w-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Undo (Cmd+Z)</p>
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 w-5 p-0"
+                  onClick={redo}
+                  disabled={!canRedo}
+                  title="Redo"
+                >
+                  <Redo2 className="h-3 w-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Redo (Cmd+Shift+Z)</p>
+              </TooltipContent>
+            </Tooltip>
+          </>
+        )}
       </div>
 
       {/* Right Section */}
@@ -646,6 +808,13 @@ export function WorkspaceTitleBar({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      {/* Global Changes Modal */}
+      <GlobalChangesModal
+        connectionId={connectionId}
+        open={showGlobalChanges}
+        onOpenChange={setShowGlobalChanges}
+      />
     </div>
   );
 }
