@@ -1,4 +1,4 @@
-.PHONY: help d dev build build-ai-sidecar build-ai-sidecar-all dev-sidecar ds package-dist clean install test t test-all test-quick test-adapters test-postgres test-mysql test-mssql test-sqlite test-adapters-quiet test-adapters-verbose test-adapter docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup
+.PHONY: help d dev build build-ai-sidecar build-ai-sidecar-all dev-sidecar ds package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup
 
 # Default target - show help
 help:
@@ -15,11 +15,14 @@ help:
 	@echo "  make clean             - Clean build artifacts"
 	@echo ""
 	@echo "Testing:"
-	@echo "  make test, make t   - Run all unit tests"
-	@echo "  make test-release   - Run tests in release mode (faster)"
-	@echo "  make test-all       - Run all tests (unit + integration)"
-	@echo "  make test-quick     - Quick database connection check"
-	@echo "  make test-comprehensive - Run comprehensive integration tests"
+	@echo "  make test, make t      - Run all unit tests (Rust + Frontend)"
+	@echo "  make test-unit         - Run unit tests only"
+	@echo "  make test-backend      - Run Rust tests only"
+	@echo "  make test-frontend     - Run Frontend tests only"
+	@echo "  make test-watch        - Run Frontend tests in watch mode"
+	@echo "  make test-coverage     - Run tests with coverage report"
+	@echo "  make test-all          - Run all tests (unit + integration)"
+	@echo "  make test-quick        - Quick database connection check"
 	@echo ""
 	@echo "Docker Database Management:"
 	@echo "  make docker-up      - Start all database containers"
@@ -82,26 +85,49 @@ clean:
 	@rm -f src-tauri/sidecars/ai-server-*
 	@echo "Clean complete!"
 
-# Run tests
+# Run all unit tests (Rust + Frontend)
 test:
 	@echo "Running all unit tests..."
-	@cd src-tauri && cargo test
-	@echo "Tests completed!"
+	@$(MAKE) test-backend
+	@$(MAKE) test-frontend
+	@echo "All unit tests completed!"
 
 # Shorthand for test
 t:
 	@$(MAKE) test
 
-# Run tests with release build (faster execution)
-test-release:
-	@echo "Running all unit tests (release mode)..."
-	@cd src-tauri && cargo test --release
-	@echo "Tests completed!"
+# Run unit tests only
+test-unit:
+	@$(MAKE) test
 
-# Run all Rust tests (unit + integration)
+# Run Rust backend tests
+test-backend:
+	@echo "Running Rust unit tests..."
+	@cd src-tauri && cargo test --lib --bins
+	@echo "Rust tests completed!"
+
+# Run Frontend tests
+test-frontend:
+	@echo "Running Frontend unit tests..."
+	@pnpm test:unit
+	@echo "Frontend tests completed!"
+
+# Run Frontend tests in watch mode
+test-watch:
+	@echo "Running Frontend tests in watch mode..."
+	@pnpm test:watch
+
+# Run tests with coverage
+test-coverage:
+	@echo "Running tests with coverage..."
+	@pnpm test:coverage
+
+# Run all tests (unit + integration)
 test-all:
 	@echo "Running all Rust unit tests..."
 	@cd src-tauri && cargo test
+	@echo "Running Frontend unit tests..."
+	@pnpm test:unit
 	@echo "Running comprehensive integration tests..."
 	@cd src-tauri && cargo run --example run_tests
 	@echo "All tests completed!"
@@ -111,12 +137,6 @@ test-quick:
 	@echo "Quick database connection test..."
 	@cd src-tauri && cargo run --example test_connection
 	@echo "Connection test passed!"
-
-# Comprehensive integration tests
-test-comprehensive:
-	@echo "Running comprehensive integration tests..."
-	@cd src-tauri && cargo run --example run_tests
-	@echo "Comprehensive tests completed!"
 
 # Docker commands
 docker-up:

@@ -10,3 +10,7 @@ pub mod storage;
 pub mod types;
 pub mod vault;
 pub mod window_state;
+
+// Test modules - separated for better organization
+#[cfg(test)]
+mod tests;

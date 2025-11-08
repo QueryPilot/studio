@@ -1,11 +1,27 @@
 import { defineConfig } from "vitest/config";
 import { fileURLToPath } from "node:url";
+import react from "@vitejs/plugin-react";
 
 export default defineConfig({
+  plugins: [react()],
   test: {
     globals: true,
-    environment: "node",
-    setupFiles: [],
+    environment: "jsdom", // Use jsdom for React component testing
+    setupFiles: ["./src/test-utils/setup.ts"],
+    include: ["src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}"],
+    exclude: ["node_modules", "dist", "src-tauri"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "json", "html"],
+      exclude: [
+        "node_modules/",
+        "src/test-utils/",
+        "**/*.spec.ts",
+        "**/*.test.ts",
+        "**/*.spec.tsx",
+        "**/*.test.tsx",
+      ],
+    },
   },
   resolve: {
     alias: {

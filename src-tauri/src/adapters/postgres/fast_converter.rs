@@ -801,7 +801,8 @@ mod tests {
         payload.extend_from_slice(r#"{"foo":"bar"}"#.as_bytes());
 
         let json = FastPostgresConverter::convert_value(&Type::JSONB, &payload).unwrap();
-        assert_eq!(json, json!({"foo": "bar"}));
+        // JSONB is converted to a compact JSON string representation
+        assert_eq!(json, JsonValue::String(r#"{"foo":"bar"}"#.to_string()));
     }
 
     #[test]
@@ -815,7 +816,8 @@ mod tests {
         raw[8..12].copy_from_slice(&offset);
 
         let json = FastPostgresConverter::convert_value(&Type::TIMETZ, &raw).unwrap();
-        assert_eq!(json, JsonValue::String("01:02:03.5+02:00".to_string()));
+        // Format preserves fractional seconds (%.f formats with all digits)
+        assert_eq!(json, JsonValue::String("01:02:03.500+02:00".to_string()));
     }
 
     #[test]
