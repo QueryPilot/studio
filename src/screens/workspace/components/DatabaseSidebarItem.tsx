@@ -82,19 +82,20 @@ export function SidebarItem({
       )}
       onClick={onClick}
     >
-      {icon}
+      {hasPendingChanges ? (
+        <span className="relative flex h-2 w-2 flex-shrink-0 ml-1">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
+        </span>
+      ) : (
+        icon
+      )}
       <span className="text-xs truncate flex-1 min-w-0 text-foreground/80 dark:text-foreground/70">
         {name}
       </span>
       {rowCount != null && rowCount > 0 && (
         <span className="text-xs text-muted-foreground flex-shrink-0 transition-all duration-200 ease-out">
           ~{rowCount.toLocaleString()}
-        </span>
-      )}
-      {hasPendingChanges && (
-        <span className="relative flex h-2 w-2 flex-shrink-0">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
         </span>
       )}
       <div className="flex items-center gap-0.5 flex-shrink-0 transition-all delay-150 duration-200 ease-out -mr-14 opacity-0 group-hover:opacity-100 group-hover:mr-1">

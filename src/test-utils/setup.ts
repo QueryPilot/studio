@@ -11,9 +11,14 @@ import { randomFillSync } from 'crypto';
 
 // Setup crypto for Tauri IPC (required for mockIPC to work)
 beforeAll(() => {
+  let uuidCounter = 0;
   Object.defineProperty(window, 'crypto', {
     value: {
       getRandomValues: (buffer: any) => randomFillSync(buffer),
+      randomUUID: () => {
+        uuidCounter++;
+        return `test-uuid-${uuidCounter}`;
+      },
     },
   });
 });

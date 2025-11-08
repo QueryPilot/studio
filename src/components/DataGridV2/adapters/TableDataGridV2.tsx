@@ -84,6 +84,45 @@ import type {
 import { nanoid } from "nanoid";
 import type { JsonValue, CrudCommand, DataUpdatePayload } from "@/types/crud";
 
+/**
+ * Compare two values for equality, handling null/undefined and type coercion
+ */
+function areValuesEqual(a: unknown, b: unknown): boolean {
+  // Handle null/undefined
+  if (a === null && b === null) return true;
+  if (a === undefined && b === undefined) return true;
+  if (a === null && b === undefined) return true;
+  if (a === undefined && b === null) return true;
+  if ((a === null || a === undefined) && b !== null && b !== undefined)
+    return false;
+  if ((b === null || b === undefined) && a !== null && a !== undefined)
+    return false;
+
+  // Handle primitive types
+  if (typeof a !== "object" && typeof b !== "object") {
+    // For numbers, use strict equality
+    if (typeof a === "number" && typeof b === "number") {
+      return a === b;
+    }
+    // For strings, handle numeric string comparison
+    if (typeof a === "string" && typeof b === "number") {
+      return Number(a) === b;
+    }
+    if (typeof a === "number" && typeof b === "string") {
+      return a === Number(b);
+    }
+    // Default: strict equality
+    return a === b;
+  }
+
+  // Handle objects (use JSON comparison for simplicity)
+  if (typeof a === "object" && typeof b === "object") {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+
+  return false;
+}
+
 interface BaseTableDataGridV2Props {
   gridId: string;
   className?: string;
@@ -995,6 +1034,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             };
             const updatedValues = { ...payload.values };
 
+            // Get the old value from the current INSERT command
+            const oldValue = payload.values?.[event.column.field];
+
             // Extract the new value
             let newValue: JsonValue = null;
             if ("data" in event.newValue) {
@@ -1033,20 +1075,39 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
               }
             }
 
-            updatedValues[event.column.field] = newValue;
+            // Only update if the value actually changed
+            if (!areValuesEqual(oldValue, newValue)) {
+              updatedValues[event.column.field] = newValue;
 
-            // Update the command (stageCommand will replace in-place if ID matches)
-            const updatedCmd = {
-              ...insertCmd,
-              payload: { ...payload, values: updatedValues },
-            };
+              // Update the command (stageCommand will replace in-place if ID matches)
+              const updatedCmd = {
+                ...insertCmd,
+                payload: { ...payload, values: updatedValues },
+              };
 
-            stageCommand(updatedCmd);
+              stageCommand(updatedCmd);
+            }
           }
         } else {
           // Editing an existing row - create UPDATE command
           const command = createUpdateCommand(event, target, finalColumns);
-          stageCommand(command);
+
+          // Only stage the command if the value actually changed
+          const payload = command.payload as {
+            oldValue: unknown;
+            newValue: unknown;
+          };
+
+          // Compare old and new values (handle null/undefined and type coercion)
+          const oldVal = payload.oldValue;
+          const newVal = payload.newValue;
+
+          // Check if values are actually different
+          const valuesAreDifferent = !areValuesEqual(oldVal, newVal);
+
+          if (valuesAreDifferent) {
+            stageCommand(command);
+          }
         }
 
         return undefined; // Don't add to grid history (CRUD store handles history)
@@ -1587,9 +1648,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       const cellValue = row[column.field] as FrontCellValue | null | undefined;
 
       // Enable editing for table mode, keep read-only for query mode
-      // Also make primary keys read-only to prevent accidental modification
-      const isPrimaryKey = column.meta?.is_pk || false;
-      const isReadOnly = isQueryMode || isPrimaryKey;
+      // Allow editing all columns including PKs (database will validate on commit)
+      const isReadOnly = isQueryMode;
 
       const gridCell = buildGridCellV2({
         value: cellValue,
