@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Check, X, Undo2, Redo2, GitCommit } from "lucide-react";
 import { useCrudStore } from "@/stores/crudStore";
-import { CommitPreviewModal } from "@/components/CommitPreviewModal";
+import { GlobalChangesModal } from "@/components/GlobalChangesModal";
 
 interface StagingActionsToolbarProps {
   connectionId: string;
@@ -135,7 +135,7 @@ export function StagingActionsToolbar(props: StagingActionsToolbarProps) {
       </Tooltip>
 
       {/* Commit Preview Modal */}
-      <CommitPreviewModal
+      <GlobalChangesModal
         connectionId={connectionId}
         database={database}
         schema={schema}
