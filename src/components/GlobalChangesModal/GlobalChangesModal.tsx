@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useCrudStore } from "@/stores/crudStore";
 import type { CrudCommand } from "@/types/crud";
 import {
@@ -23,6 +23,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import ReactDiffViewer from "react-diff-viewer-continued";
 
 interface GlobalChangesModalProps {
   connectionId: string;
@@ -38,10 +39,84 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
   const [isCommitting, setIsCommitting] = useState(false);
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
 
-  // Filter commands for this connection
+  // Filter commands for this connection and group by table and row
   const connectionCommands = Array.from(stagedCommands.entries()).filter(
     ([tableKey]) => tableKey.startsWith(`${connectionId}:`),
   );
+
+  // Group commands by table, then by row
+  const groupedByTableAndRow = useMemo(() => {
+    const result = new Map<
+      string,
+      {
+        displayName: string;
+        rows: Map<
+          string,
+          {
+            rowKey: string;
+            commands: CrudCommand[];
+          }
+        >;
+      }
+    >();
+
+    connectionCommands.forEach(([tableKey, commands]) => {
+      const parts = tableKey.split(":");
+      const tableName = parts[parts.length - 1];
+      const schemaName = parts.length > 3 ? parts[2] : undefined;
+      const displayName = schemaName
+        ? `${schemaName}.${tableName}`
+        : tableName || "";
+
+      if (!result.has(tableKey)) {
+        result.set(tableKey, {
+          displayName,
+          rows: new Map(),
+        });
+      }
+
+      const tableGroup = result.get(tableKey)!;
+
+      // Group commands by row
+      commands.forEach((cmd) => {
+        let rowKey: string;
+
+        if (cmd.type === "data.insert") {
+          // For inserts, use command ID as row key
+          rowKey = `insert-${cmd.id}`;
+        } else if (cmd.type === "data.update") {
+          // For updates, use primary keys
+          const payload = cmd.payload as {
+            primaryKeys?: Record<string, unknown>;
+          };
+          rowKey = payload.primaryKeys
+            ? JSON.stringify(payload.primaryKeys)
+            : `update-${cmd.id}`;
+        } else if (cmd.type === "data.delete") {
+          // For deletes, use primary keys
+          const payload = cmd.payload as {
+            primaryKeys?: Record<string, unknown>;
+          };
+          rowKey = payload.primaryKeys
+            ? JSON.stringify(payload.primaryKeys)
+            : `delete-${cmd.id}`;
+        } else {
+          rowKey = cmd.id;
+        }
+
+        if (!tableGroup.rows.has(rowKey)) {
+          tableGroup.rows.set(rowKey, {
+            rowKey,
+            commands: [],
+          });
+        }
+
+        tableGroup.rows.get(rowKey)!.commands.push(cmd);
+      });
+    });
+
+    return result;
+  }, [connectionCommands]);
 
   // Calculate total summary
   const totalSummary = {
@@ -171,80 +246,54 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
           </div>
         </div>
 
-        {/* Tables List */}
+        {/* Tables List - Grouped by Table and Row */}
         <ScrollArea className="flex-1 -mx-4 px-4 max-h-[60vh] overflow-scroll">
-          <div className="space-y-2">
-            {connectionCommands.map(([tableKey, commands]) => {
-              const parts = tableKey.split(":");
-              const tableName = parts[parts.length - 1];
-              const schemaName = parts.length > 3 ? parts[2] : undefined;
-              const displayName = schemaName
-                ? `${schemaName}.${tableName}`
-                : tableName;
+          <div className="space-y-3">
+            {Array.from(groupedByTableAndRow.entries()).map(
+              ([tableKey, tableGroup]) => {
+                const isExpanded = expandedTables.has(tableKey);
+                const totalChanges = Array.from(tableGroup.rows.values()).reduce(
+                  (sum, row) => sum + row.commands.length,
+                  0,
+                );
 
-              // Group commands by type for this table
-              const groupedCommands = commands.reduce<
-                Record<string, CrudCommand[]>
-              >((acc, cmd) => {
-                if (!acc[cmd.type]) {
-                  acc[cmd.type] = [];
-                }
-                acc[cmd.type]?.push(cmd);
-                return acc;
-              }, {});
+                return (
+                  <div key={tableKey} className="space-y-2">
+                    {/* Table Header */}
+                    <button
+                      onClick={() => {
+                        toggleTable(tableKey);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left font-medium hover:bg-accent border"
+                    >
+                      {isExpanded ? (
+                        <ChevronDown className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4" />
+                      )}
+                      <span className="font-semibold">
+                        {tableGroup.displayName}
+                      </span>
+                      <span className="ml-auto text-sm text-muted-foreground">
+                        {totalChanges}{" "}
+                        {totalChanges === 1 ? "change" : "changes"} •{" "}
+                        {tableGroup.rows.size}{" "}
+                        {tableGroup.rows.size === 1 ? "row" : "rows"}
+                      </span>
+                    </button>
 
-              const isExpanded = expandedTables.has(tableKey);
-
-              return (
-                <div key={tableKey} className="space-y-2">
-                  <button
-                    onClick={() => {
-                      toggleTable(tableKey);
-                    }}
-                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left font-medium hover:bg-accent border"
-                  >
-                    {isExpanded ? (
-                      <ChevronDown className="h-4 w-4" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4" />
+                    {/* Rows */}
+                    {isExpanded && (
+                      <div className="ml-4 space-y-2">
+                        {Array.from(tableGroup.rows.values()).map((row) => (
+                          <RowChangesCard key={row.rowKey} row={row} />
+                        ))}
+                      </div>
                     )}
-                    <span className="font-semibold">{displayName}</span>
-                    <span className="ml-auto text-sm text-muted-foreground">
-                      {commands.length}{" "}
-                      {commands.length === 1 ? "change" : "changes"}
-                    </span>
-                  </button>
-
-                  {isExpanded && (
-                    <div className="ml-6 space-y-2">
-                      {Object.entries(groupedCommands).map(([type, cmds]) => (
-                        <div key={type} className="space-y-1">
-                          <div className="flex items-center gap-2 text-sm">
-                            {getOperationIcon(type)}
-                            <span className="capitalize font-medium">
-                              {type.replace("data.", "")}
-                            </span>
-                            <span className="text-xs text-muted-foreground">
-                              ({cmds.length})
-                            </span>
-                          </div>
-                          <div className="ml-6 space-y-1">
-                            {cmds.slice(0, 3).map((cmd) => (
-                              <DiffCard key={cmd.id} command={cmd} />
-                            ))}
-                            {cmds.length > 3 && (
-                              <div className="text-xs text-muted-foreground p-2">
-                                +{cmds.length - 3} more {type} operations...
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                  </div>
+                );
+              },
+            )}
           </div>
         </ScrollArea>
 
