@@ -75,6 +75,15 @@ This directory contains technical documentation for the DevDB Studio project.
   - Cursor-style chat UI with @mentions
   - Latest October 2025 models
 
+#### Testing & CI/CD
+
+- **`ci.spec.md`** 📋 - Comprehensive testing and CI/CD strategy
+  - Unit, integration, and E2E testing architecture
+  - GitHub Actions workflows for all platforms
+  - Mock strategies for OS-specific features
+  - testcontainers-rs for database integration tests
+  - Phased implementation plan
+
 #### UI Components
 
 - **`workbench.spec.md`** ✅ - VS Code-style workbench layout
@@ -154,6 +163,7 @@ When adding new documentation:
 | Data grid architecture | `data-grid-v2.spec.md`                                 |
 | Index statistics       | `index_usage.spec.md`                                  |
 | AI assistant           | `ai-assistant.spec.md`                                 |
+| Testing & CI/CD        | `ci.spec.md`                                           |
 | Workbench layout       | `workbench.spec.md`                                    |
 | Theme system           | `theme-usage.md`                                       |
 | Architecture decisions | `adr/0001_initial_research.md`, `adr/0002_research.md` |
@@ -167,4 +177,4 @@ This README should be updated when:
 - Major architectural changes occur
 - Documentation is reorganized
 
-**Last Updated**: 2025-11-01
+**Last Updated**: 2025-11-08

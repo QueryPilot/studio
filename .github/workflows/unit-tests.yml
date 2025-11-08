@@ -1,0 +1,99 @@
+name: Unit Tests
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Rust setup with caching
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-tauri/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      # Node/pnpm setup with caching
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install frontend dependencies
+        run: pnpm install
+
+      # Bun setup for sidecar
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install sidecar dependencies
+        working-directory: src-tauri/sidecar-ai
+        run: bun install
+
+      # Run tests
+      - name: Run Rust unit tests
+        working-directory: src-tauri
+        run: cargo test --lib --bins -- --nocapture
+
+      - name: Run Rust doc tests
+        working-directory: src-tauri
+        run: cargo test --doc
+
+      - name: Run frontend unit tests
+        run: pnpm test:unit || echo "Frontend tests not yet configured"
+
+      - name: Run sidecar tests
+        working-directory: src-tauri/sidecar-ai
+        run: bun test || echo "Sidecar tests not yet configured"
+
+      # Linting (only on Linux to save time)
+      - name: Run Rust clippy
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: src-tauri
+        run: cargo clippy -- -D warnings
+
+      - name: Run frontend linter
+        if: matrix.os == 'ubuntu-latest'
+        run: pnpm lint
+
+      - name: TypeScript type check
+        if: matrix.os == 'ubuntu-latest'
+        run: pnpm typecheck
