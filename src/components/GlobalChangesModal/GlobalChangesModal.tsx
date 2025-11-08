@@ -27,21 +27,33 @@ import ReactDiffViewer from "react-diff-viewer-continued";
 
 interface GlobalChangesModalProps {
   connectionId: string;
+  database?: string;
+  schema?: string;
+  table?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCommitSuccess?: () => void;
 }
 
 export function GlobalChangesModal(props: GlobalChangesModalProps) {
-  const { connectionId, open, onOpenChange, onCommitSuccess } = props;
-  const { stagedCommands, commitAll, discardAll } = useCrudStore();
+  const { connectionId, database, schema, table, open, onOpenChange, onCommitSuccess } = props;
+  const { stagedCommands, commitAll, discardAll, getTableKey, commitChanges, discardChanges } = useCrudStore();
 
   const [isCommitting, setIsCommitting] = useState(false);
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
 
-  // Filter commands for this connection and group by table and row
+  // Check if this is table-specific or workspace-wide
+  const isTableSpecific = database !== undefined && table !== undefined;
+
+  // Filter commands based on scope
   const connectionCommands = Array.from(stagedCommands.entries()).filter(
-    ([tableKey]) => tableKey.startsWith(`${connectionId}:`),
+    ([tableKey]) => {
+      if (isTableSpecific) {
+        const specificTableKey = getTableKey({ connectionId, database: database!, schema, table: table! });
+        return tableKey === specificTableKey;
+      }
+      return tableKey.startsWith(`${connectionId}:`);
+    }
   );
 
   // Group commands by table, then by row
@@ -75,7 +87,8 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
         });
       }
 
-      const tableGroup = result.get(tableKey)!;
+      const tableGroup = result.get(tableKey);
+      if (!tableGroup) return;
 
       // Group commands by row
       commands.forEach((cmd) => {
@@ -111,7 +124,10 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
           });
         }
 
-        tableGroup.rows.get(rowKey)!.commands.push(cmd);
+        const row = tableGroup.rows.get(rowKey);
+        if (row) {
+          row.commands.push(cmd);
+        }
       });
     });
 
@@ -154,17 +170,30 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
   const handleCommitAll = async () => {
     setIsCommitting(true);
     try {
-      const results = await commitAll();
-      const totalCommitted = Object.values(results).reduce(
-        (sum, result) => sum + result.committed.length,
-        0,
-      );
+      if (isTableSpecific) {
+        // Table-specific commit
+        const tableKey = getTableKey({ connectionId, database: database!, schema, table: table! });
+        const result = await commitChanges(tableKey);
 
-      toast.success("All changes committed", {
-        description: `Successfully committed ${totalCommitted} change${
-          totalCommitted === 1 ? "" : "s"
-        } across all tables`,
-      });
+        toast.success("Changes committed", {
+          description: `Successfully committed ${result.committed.length} change${
+            result.committed.length === 1 ? "" : "s"
+          } in ${result.durationMs}ms`,
+        });
+      } else {
+        // Workspace-wide commit
+        const results = await commitAll();
+        const totalCommitted = Object.values(results).reduce(
+          (sum, result) => sum + result.committed.length,
+          0,
+        );
+
+        toast.success("All changes committed", {
+          description: `Successfully committed ${totalCommitted} change${
+            totalCommitted === 1 ? "" : "s"
+          } across all tables`,
+        });
+      }
 
       onOpenChange(false);
 
@@ -184,8 +213,14 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
   };
 
   const handleDiscardAll = () => {
-    discardAll();
-    toast.success("All changes discarded");
+    if (isTableSpecific) {
+      const tableKey = getTableKey({ connectionId, database: database!, schema, table: table! });
+      discardChanges(tableKey);
+      toast.success("Changes discarded");
+    } else {
+      discardAll();
+      toast.success("All changes discarded");
+    }
     onOpenChange(false);
   };
 
@@ -197,9 +232,14 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="!max-w-[80vw] max-h-[80vh] flex flex-col p-4">
         <DialogHeader>
-          <DialogTitle>Review All Changes</DialogTitle>
+          <DialogTitle>
+            {isTableSpecific ? "Commit changes" : "Review All Changes"}
+          </DialogTitle>
           <DialogDescription>
-            Review and commit all pending changes across all tables
+            {isTableSpecific
+              ? "Review the changes that will be committed to the database."
+              : "Review and commit all pending changes across all tables"
+            }
           </DialogDescription>
         </DialogHeader>
 
@@ -300,14 +340,24 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
         <Separator />
 
         <DialogFooter className="flex justify-end gap-2">
+          {!isTableSpecific && (
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={isCommitting}
+            >
+              Cancel
+            </Button>
+          )}
           <Button
             size="xs"
-            variant="outline"
+            variant={isTableSpecific ? "destructive" : "outline"}
             onClick={handleDiscardAll}
             disabled={isCommitting}
           >
             <X className="h-3.5 w-3.5 mr-1.5" />
-            Discard All
+            {isTableSpecific ? "Discard" : "Discard All"}
           </Button>
           <Button size="xs" onClick={handleCommitAll} disabled={isCommitting}>
             {isCommitting ? (
@@ -318,7 +368,7 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
             ) : (
               <>
                 <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
-                Commit {totalSummary.total} Changes
+                Commit {totalSummary.total} {totalSummary.total === 1 ? "Change" : "Changes"}
               </>
             )}
           </Button>
@@ -328,63 +378,201 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
   );
 }
 
-interface DiffCardProps {
-  command: CrudCommand;
+interface RowChangesCardProps {
+  row: {
+    rowKey: string;
+    commands: CrudCommand[];
+  };
 }
 
-function DiffCard({ command }: DiffCardProps) {
-  const payload = command.payload as Record<string, unknown>;
+function RowChangesCard({ row }: RowChangesCardProps) {
+  // Determine the operation type (insert, update, delete)
+  const hasInsert = row.commands.some((cmd) => cmd.type === "data.insert");
+  const hasDelete = row.commands.some((cmd) => cmd.type === "data.delete");
+  const hasUpdate = row.commands.some((cmd) => cmd.type === "data.update");
+
+  // Get primary key info
+  let pkInfo = "";
+  if (hasUpdate || hasDelete) {
+    const cmd = row.commands.find(
+      (c) => c.type === "data.update" || c.type === "data.delete",
+    );
+    if (cmd) {
+      const payload = cmd.payload as { primaryKeys?: Record<string, unknown> };
+      if (payload.primaryKeys) {
+        pkInfo = Object.entries(payload.primaryKeys)
+          .map(([key, value]) => `${key}=${formatValue(value)}`)
+          .join(", ");
+      }
+    }
+  }
+
+  // Build old and new row representations for diff
+  const buildRowDiff = () => {
+    if (hasInsert) {
+      const insertCmd = row.commands.find((cmd) => cmd.type === "data.insert");
+      if (!insertCmd) return { old: "", new: "" };
+
+      const payload = insertCmd.payload as {
+        values?: Record<string, unknown>;
+      };
+      const values = payload.values || {};
+
+      const newRow = Object.entries(values)
+        .map(([key, value]) => `${key}: ${formatValue(value)}`)
+        .join("\n");
+
+      return { old: "", new: newRow };
+    }
+
+    if (hasDelete) {
+      const deleteCmd = row.commands.find((cmd) => cmd.type === "data.delete");
+      if (!deleteCmd) return { old: "", new: "" };
+
+      const payload = deleteCmd.payload as {
+        primaryKeys?: Record<string, unknown>;
+      };
+      const pks = payload.primaryKeys || {};
+
+      const oldRow = Object.entries(pks)
+        .map(([key, value]) => `${key}: ${formatValue(value)}`)
+        .join("\n");
+
+      return { old: oldRow, new: "" };
+    }
+
+    if (hasUpdate) {
+      const updateCmds = row.commands.filter(
+        (cmd) => cmd.type === "data.update",
+      );
+
+      // Build a map of column -> [oldValue, newValue]
+      const changes = new Map<string, { old: unknown; new: unknown }>();
+
+      updateCmds.forEach((cmd) => {
+        const payload = cmd.payload as {
+          column?: string;
+          oldValue: unknown;
+          newValue: unknown;
+        };
+        if (payload.column) {
+          changes.set(payload.column, {
+            old: payload.oldValue,
+            new: payload.newValue,
+          });
+        }
+      });
+
+      const oldRow: string[] = [];
+      const newRow: string[] = [];
+
+      changes.forEach((values, column) => {
+        oldRow.push(`${column}: ${formatValue(values.old)}`);
+        newRow.push(`${column}: ${formatValue(values.new)}`);
+      });
+
+      return { old: oldRow.join("\n"), new: newRow.join("\n") };
+    }
+
+    return { old: "", new: "" };
+  };
+
+  const { old, new: newVal } = buildRowDiff();
 
   return (
-    <div className="rounded-lg border bg-card p-2 text-xs">
-      <div className="flex items-center gap-2 text-muted-foreground">
-        {getOperationIcon(command.type)}
-        <span className="font-mono">
-          {command.metadata.description || command.type}
-        </span>
+    <div className="rounded-lg border bg-card overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-3 py-2 bg-muted/50 border-b">
+        {hasInsert && (
+          <>
+            <Plus className="h-3.5 w-3.5 text-green-500" />
+            <span className="text-sm font-medium text-green-600 dark:text-green-400">
+              Insert Row
+            </span>
+          </>
+        )}
+        {hasDelete && (
+          <>
+            <Trash2 className="h-3.5 w-3.5 text-red-500" />
+            <span className="text-sm font-medium text-red-600 dark:text-red-400">
+              Delete Row
+            </span>
+            {pkInfo && (
+              <span className="text-xs text-muted-foreground ml-2">
+                WHERE {pkInfo}
+              </span>
+            )}
+          </>
+        )}
+        {hasUpdate && (
+          <>
+            <Pencil className="h-3.5 w-3.5 text-blue-500" />
+            <span className="text-sm font-medium text-blue-600 dark:text-blue-400">
+              Update Row
+            </span>
+            {pkInfo && (
+              <span className="text-xs text-muted-foreground ml-2">
+                WHERE {pkInfo}
+              </span>
+            )}
+            <span className="text-xs text-muted-foreground ml-auto">
+              {row.commands.length}{" "}
+              {row.commands.length === 1 ? "field" : "fields"}
+            </span>
+          </>
+        )}
       </div>
 
-      {command.type === "data.update" && (
-        <div className="mt-1 ml-5">
-          <span className="font-mono text-[10px]">
-            {payload.column as string}:{" "}
-            <span className="text-red-600">
-              {formatValue(payload.oldValue)}
-            </span>{" "}
-            →{" "}
-            <span className="text-green-600">
-              {formatValue(payload.newValue)}
-            </span>
-          </span>
-        </div>
-      )}
-
-      {command.type === "data.insert" && (
-        <div className="mt-1 ml-5 text-[10px] font-mono text-green-600">
-          New row
-        </div>
-      )}
-
-      {command.type === "data.delete" && (
-        <div className="mt-1 ml-5 text-[10px] font-mono text-red-600">
-          Delete row
-        </div>
-      )}
+      {/* Diff Viewer */}
+      <div className="text-[11px] [&_.diff-viewer]:!text-[11px] [&_.diff-viewer]:!font-mono">
+        <ReactDiffViewer
+          oldValue={old}
+          newValue={newVal}
+          splitView={true}
+          hideLineNumbers={true}
+          showDiffOnly={false}
+          useDarkTheme={
+            document.documentElement.classList.contains("dark") ||
+            window.matchMedia("(prefers-color-scheme: dark)").matches
+          }
+          styles={{
+            variables: {
+              light: {
+                diffViewerBackground: "#fafafa",
+                addedBackground: "#e6ffec",
+                addedColor: "#24292e",
+                removedBackground: "#ffeef0",
+                removedColor: "#24292e",
+                wordAddedBackground: "#acf2bd",
+                wordRemovedBackground: "#fdb8c0",
+                addedGutterBackground: "#cdffd8",
+                removedGutterBackground: "#ffdce0",
+                gutterBackground: "#f5f5f5",
+                gutterBackgroundDark: "#eeeeee",
+                highlightBackground: "#fffbdd",
+                highlightGutterBackground: "#fff5b1",
+              },
+              dark: {
+                diffViewerBackground: "#1e1e1e",
+                addedBackground: "#044B53",
+                addedColor: "#e6ffec",
+                removedBackground: "#5A1E1E",
+                removedColor: "#ffeef0",
+                wordAddedBackground: "#055d67",
+                wordRemovedBackground: "#7d2727",
+                addedGutterBackground: "#033e47",
+                removedGutterBackground: "#4b1818",
+                gutterBackground: "#2d2d2d",
+                gutterBackgroundDark: "#262626",
+                highlightBackground: "#3d3d00",
+                highlightGutterBackground: "#4d4d00",
+              },
+            },
+          }}
+        />
+      </div>
     </div>
   );
-}
-
-function getOperationIcon(operationType: string) {
-  switch (operationType) {
-    case "data.update":
-      return <Pencil className="h-3 w-3 text-blue-500" />;
-    case "data.insert":
-      return <Plus className="h-3 w-3 text-green-500" />;
-    case "data.delete":
-      return <Trash2 className="h-3 w-3 text-red-500" />;
-    default:
-      return null;
-  }
 }
 
 function formatValue(value: unknown): string {
