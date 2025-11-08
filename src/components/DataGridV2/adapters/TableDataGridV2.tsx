@@ -1318,9 +1318,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       const selectedIndices = Array.from(selectedRowsSet).sort((a, b) => a - b);
       const lastSelectedIndex = selectedIndices[selectedIndices.length - 1];
 
+      // Get the current active cell column (preserve column position)
+      const currentColumn = gridSelection?.current?.cell?.[0];
+
       // Get the row key for the selected row (stable identifier)
-      const currentDisplayRows = displayRowsWithOptimisticUpdates;
-      const selectedRow = currentDisplayRows[lastSelectedIndex];
+      // Use rowsRef.current instead of displayRowsWithOptimisticUpdates for performance
+      const selectedRow = rowsRef.current[lastSelectedIndex];
       const selectedRowKey = selectedRow ? getRowKey(selectedRow, lastSelectedIndex) : undefined;
 
       // Create a draft row with default values
@@ -1355,6 +1358,49 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           ? `New row will be inserted after selected row`
           : "New row staged for insertion",
       });
+
+      // Auto-focus on the newly inserted row at the same column
+      // The new row will be at lastSelectedIndex + 1 after optimistic update
+      const newRowIndex = lastSelectedIndex + 1;
+
+      // Determine which column to focus (preserve current column or use first editable)
+      let targetColumn = currentColumn ?? 0;
+
+      // If current column is a primary key, find first non-PK column
+      if (targetColumn !== undefined) {
+        const currentColumnMeta = finalColumns[targetColumn]?.meta;
+        if (currentColumnMeta?.is_pk) {
+          const firstEditableCol = finalColumns.findIndex(
+            (col) => !col.meta?.is_pk,
+          );
+          if (firstEditableCol >= 0) {
+            targetColumn = firstEditableCol;
+          }
+        }
+      }
+
+      // Wait for the grid to update with optimistic changes
+      setTimeout(() => {
+        if (gridRef.current && "setFocus" in gridRef.current) {
+          // Focus on the cell
+          (gridRef.current as any).setFocus([targetColumn, newRowIndex]);
+
+          // Trigger edit mode by simulating Enter key press
+          setTimeout(() => {
+            const gridElement = containerRef.current?.querySelector('.dvn-scroller');
+            if (gridElement) {
+              const enterEvent = new KeyboardEvent('keydown', {
+                key: 'Enter',
+                code: 'Enter',
+                keyCode: 13,
+                bubbles: true,
+                cancelable: true,
+              });
+              gridElement.dispatchEvent(enterEvent);
+            }
+          }, 10);
+        }
+      }, 50); // Small delay to allow optimistic update to complete
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       toast.error("Failed to stage row", {
@@ -1370,9 +1416,47 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     schema,
     table,
     stageCommand,
-    displayRowsWithOptimisticUpdates,
     getRowKey,
+    gridSelection,
   ]);
+
+  // Keyboard shortcuts for insert row below and delete rows
+  useCommand(
+    "dataGrid.action.insertRowBelow",
+    () => {
+      if (isTableMode) {
+        handleInsertRowBelow();
+      }
+    },
+    {
+      label: "Insert Row Below",
+      category: "Data Grid",
+      when: "dataGridFocus && dataGridEditable && !editingCell && !selectionEmpty",
+    },
+  );
+
+  useCommand(
+    "dataGrid.action.deleteRows",
+    () => {
+      if (isTableMode && selectedRowKeys.length > 0) {
+        handleRowDelete({
+          selection:
+            gridSelection ??
+            ({
+              columns: CompactSelection.empty(),
+              rows: CompactSelection.empty(),
+            } as GridSelection),
+          rowIndexes: Array.from(selectedRowsSet),
+          rows: selectedRows,
+        });
+      }
+    },
+    {
+      label: "Delete Rows",
+      category: "Data Grid",
+      when: "dataGridFocus && dataGridEditable && !editingCell && !selectionEmpty",
+    },
+  );
 
   // Update toolbar actions when pending changes or selection changes
   useEffect(() => {
@@ -1387,7 +1471,14 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           variant="outline"
           size="sm"
           className="h-6 text-xs px-2"
-          onClick={handleAddRow}
+          onClick={() => {
+            // If there's a selection, insert below it; otherwise insert at top
+            if (selectedRowsSet.size > 0) {
+              handleInsertRowBelow();
+            } else {
+              handleAddRow();
+            }
+          }}
         >
           <Plus className="h-3 w-3 mr-1" />
           Add Row
@@ -1437,6 +1528,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     table,
     tableDataQuery,
     handleAddRow,
+    handleInsertRowBelow,
+    selectedRowsSet,
   ]);
 
   const cellHighlightRegions: Array<{ color: string; range: Rectangle }> = [];
