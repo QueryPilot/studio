@@ -61,3 +61,4 @@ target/
 dist-release
 .DS_Store
 *.zip
+coverage/
