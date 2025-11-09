@@ -21,6 +21,14 @@ interface TabsProps
    * Use this to sync with panel/sheet/dialog focus state
    */
   focused?: boolean;
+  /**
+   * Enable global keyboard shortcuts (Cmd+1, Cmd+2, etc.) for this tab group
+   * CRITICAL: Only ONE tab group per panel should have this enabled
+   * to avoid race conditions when multiple tab groups exist
+   * Requires enableShortcuts to be true
+   * Default: true (when enableShortcuts is true)
+   */
+  enableGlobalShortcuts?: boolean;
 }
 
 const Tabs = React.forwardRef<
@@ -28,7 +36,7 @@ const Tabs = React.forwardRef<
   TabsProps
 >(
   (
-    { enableShortcuts = false, tabGroupId, focused, children, ...props },
+    { enableShortcuts = false, tabGroupId, focused, enableGlobalShortcuts = true, children, ...props },
     ref,
   ) => {
     if (!enableShortcuts) {
@@ -48,6 +56,7 @@ const Tabs = React.forwardRef<
         value={props.value}
         onValueChange={props.onValueChange}
         focused={focused}
+        enableGlobalShortcuts={enableGlobalShortcuts}
       >
         <TabsPrimitive.Root ref={ref} {...props}>
           {children}

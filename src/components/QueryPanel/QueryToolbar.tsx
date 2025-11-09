@@ -47,6 +47,7 @@ export const QueryToolbar = memo(function QueryToolbar({
           enableShortcuts={true}
           tabGroupId="query-view-mode"
           focused={focused}
+          enableGlobalShortcuts={false}
         >
           <TabsList className="!h-7">
             <TabsTrigger value="table" className="text-xs h-6" tabIndex={0}>

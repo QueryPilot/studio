@@ -40,6 +40,12 @@ interface TabGroupProviderProps {
    * Use this to sync with panel/sheet/dialog focus
    */
   focused?: boolean;
+  /**
+   * Enable global keyboard shortcuts (Cmd+1, Cmd+2, etc.) for this tab group
+   * Only ONE tab group per panel should have this enabled to avoid race conditions
+   * Default: false
+   */
+  enableGlobalShortcuts?: boolean;
 }
 
 export function TabGroupProvider({
@@ -49,6 +55,7 @@ export function TabGroupProvider({
   value,
   onValueChange,
   focused: externalFocused,
+  enableGlobalShortcuts = false,
 }: TabGroupProviderProps): React.JSX.Element {
   const services = useKeyboardServicesOptional();
   const contextService = services?.contextService;
@@ -93,18 +100,20 @@ export function TabGroupProvider({
   }, [tabGroupId, tabValues, onValueChange]);
 
   // Update context service and registry when focus changes
+  // CRITICAL: Only register with global tabGroupRegistry if enableGlobalShortcuts is true
+  // This prevents race conditions when multiple tab groups exist in the same panel
   useEffect(() => {
     if (!contextService) {
       return;
     }
 
-    if (isFocused) {
+    if (isFocused && enableGlobalShortcuts) {
       hasBeenFocusedRef.current = true;
       contextService.setValue('focusedTabGroupId', tabGroupId);
       contextService.setValue('tabGroupFocused', true);
       tabGroupRegistry.setFocusedGroup(tabGroupId);
-    } else if (hasBeenFocusedRef.current) {
-      // Only clear if we were previously focused
+    } else if (hasBeenFocusedRef.current && enableGlobalShortcuts) {
+      // Only clear if we were previously focused AND have global shortcuts enabled
       const currentFocusedId = contextService.getValue('focusedTabGroupId');
       if (currentFocusedId === tabGroupId) {
         contextService.setValue('focusedTabGroupId', null);
@@ -112,7 +121,7 @@ export function TabGroupProvider({
       }
       tabGroupRegistry.clearFocusedGroup(tabGroupId);
     }
-  }, [contextService, tabGroupId, isFocused]);
+  }, [contextService, tabGroupId, isFocused, enableGlobalShortcuts]);
 
   // Cleanup on unmount
   useEffect(() => {

@@ -28,7 +28,6 @@ import { DataGridStatusBar } from "../components/DataGridStatusBar";
 import { StagingActionsToolbar } from "../components/StagingActionsToolbar";
 import {
   usePersistentViewState,
-  useGridHistory,
   useClipboardBridge,
   useStagedChangesIndicator,
   hasStagedCellChange,
@@ -55,8 +54,7 @@ import {
 } from "./columnUtils";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Plus, Edit } from "lucide-react";
-import { BulkEditModal } from "../components/BulkEditModal";
+import { Plus } from "lucide-react";
 import type { CellValue as FrontCellValue } from "@/types/cellValue";
 import type { CellValue as BackendCellValue } from "@/services/backend";
 import type { ColumnMeta } from "@/types/database";
@@ -65,6 +63,7 @@ import { cn } from "@/lib/utils";
 import { GridContextMenu } from "../components/GridContextMenu";
 import { useCommand } from "@/hooks/useCommand";
 import { useContextKey, useScopedKeybindings } from "@/hooks/useContextKey";
+import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import {
   deriveValueType,
   normalizeBackendValue,
@@ -177,7 +176,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const [isEditingCell, setIsEditingCell] = useState(false);
   const scopeId = useScopedKeybindings(gridId);
   const [showDetailsSheet, setShowDetailsSheet] = useState(false);
-  const [showBulkEditModal, setShowBulkEditModal] = useState(false);
+  const keyboardServices = useKeyboardServicesOptional();
 
   useContextKey("dataGridFocus", isGridFocused, {
     scopeId,
@@ -218,21 +217,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       : "table"
     : "table";
 
-  // Get undo/redo state from CRUD store
-  const canUndo = useCrudStore((state) => state.historyIndex > 0);
-  const canRedo = useCrudStore(
-    (state) => state.historyIndex < state.history.length - 1,
-  );
-
   useContextKey("dataGridEditable", isTableMode, {
-    scopeId,
-    resetOnUnmount: true,
-  });
-  useContextKey("dataGridCanUndo", canUndo, {
-    scopeId,
-    resetOnUnmount: true,
-  });
-  useContextKey("dataGridCanRedo", canRedo, {
     scopeId,
     resetOnUnmount: true,
   });
@@ -450,13 +435,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   const preferences = useGridPreferences(gridId);
   const hydrated = useGridPreferencesHydrated();
-  const history = useGridHistory();
   const { persistSelection, persistScrollOffset, persistActiveCell } =
     usePersistentViewState(gridId);
 
   // CRUD Store integration
-  const { stageCommand, getTableKey, stagedCommands, undo, redo } =
-    useCrudStore();
+  const { stageCommand, getTableKey, stagedCommands } = useCrudStore();
 
   const [gridSelection, setGridSelection] = useState<GridSelection | undefined>(
     undefined,
@@ -1029,77 +1012,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     stageCommand,
   ]);
 
-  // Handler: Bulk edit selected rows
-  const handleBulkEdit = useCallback(
-    (column: string, newValue: unknown, rows: GridRowModel[]) => {
-      if (!isTableMode) return;
-
-      const target = createCrudTarget(connectionId, database, schema, table);
-
-      // Create an update command for each selected row
-      rows.forEach((row) => {
-        // Find the column to get metadata
-        const col = finalColumns.find((c) => c.field === column);
-        if (!col) return;
-
-        // Extract primary keys from the row
-        const pkColumns = finalColumns.filter((c) => c.meta?.is_pk);
-        const primaryKeys: Record<string, string | number | boolean | null> =
-          {};
-        pkColumns.forEach((pkCol) => {
-          const cellValue = row[pkCol.field];
-          if (
-            cellValue &&
-            typeof cellValue === "object" &&
-            "value" in cellValue
-          ) {
-            const value = cellValue.value;
-            // Ensure value is a CrudPrimitive (string, number, boolean, or null)
-            if (
-              typeof value === "string" ||
-              typeof value === "number" ||
-              typeof value === "boolean" ||
-              value === null
-            ) {
-              primaryKeys[pkCol.field] = value;
-            } else {
-              // Convert other types to string or null
-              primaryKeys[pkCol.field] = value != null ? String(value) : null;
-            }
-          }
-        });
-
-        // Create the update command manually
-        const command: CrudCommand<DataUpdatePayload> = {
-          id: `cmd-${nanoid()}`,
-          type: "data.update" as const,
-          target,
-          payload: {
-            column,
-            newValue: newValue as JsonValue,
-            primaryKeys,
-          },
-          metadata: {
-            timestamp: new Date().toISOString(),
-            description: `Update ${column} in ${table}`,
-          },
-          state: "staged" as const,
-        };
-
-        stageCommand(command);
-      });
-    },
-    [
-      isTableMode,
-      connectionId,
-      database,
-      schema,
-      table,
-      finalColumns,
-      stageCommand,
-    ],
-  );
-
   // Handler: Cell edit commit → Stage update command (or modify INSERT command for new rows)
   const handleCellEditCommit = useCallback(
     (event: GridEditCommitEvent) => {
@@ -1324,70 +1236,105 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     ],
   );
 
-  useCommand(
-    "dataGrid.action.copy",
-    async () => {
-      if (!gridSelection) {
-        return;
+  const selectedRowsSet = useMemo(() => {
+    const rowsSel = gridSelection ? gridSelection.rows.toArray() : [];
+    const set = new Set<number>(rowsSel);
+    const sel = gridSelection;
+    if (sel) {
+      const addRect = (r: Rectangle | undefined) => {
+        if (!r) return;
+        const start = Math.max(0, r.y);
+        const end = Math.max(start, r.y + r.height);
+        for (let i = start; i < end; i += 1) set.add(i);
+      };
+      if (sel.current) {
+        addRect(sel.current.range);
+        const stack = sel.current.rangeStack as Rectangle[] | undefined;
+        (stack || []).forEach(addRect);
       }
-      await copySelection(gridSelection, "text");
-    },
-    {
-      label: "Copy Selection",
-      category: "Data Grid",
-      when: "dataGridFocus && !selectionEmpty && !editingCell",
-    },
-  );
+    }
+    return set;
+  }, [gridSelection]);
 
-  useCommand(
-    "dataGrid.action.copyAsJson",
-    async () => {
-      if (!gridSelection) {
-        return;
-      }
-      await copySelection(gridSelection, "json");
-    },
-    {
-      label: "Copy Selection as JSON",
-      category: "Data Grid",
-      when: "dataGridFocus && !selectionEmpty && !editingCell",
-    },
-  );
+  const selectedRowCount = selectedRowsSet.size;
+  // Check if there's any selection: full rows, columns, or cell ranges
+  const hasSelection =
+    selectedRowCount > 0 ||
+    (gridSelection?.rows && gridSelection.rows.length > 0) ||
+    (gridSelection?.columns && gridSelection.columns.length > 0) ||
+    gridSelection?.current !== undefined;
 
-  // Undo/Redo commands
-  useCommand(
-    "dataGrid.action.undo",
-    () => {
-      if (isTableMode) {
-        undo();
-        toast.success("Undone", {
-          description: "Reverted last change",
-        });
-      }
-    },
-    {
-      label: "Undo",
-      category: "Data Grid",
-      when: "dataGridFocus && dataGridEditable && dataGridCanUndo",
-    },
-  );
+  // Register copy commands directly (like QueryPanel does)
+  useEffect(() => {
+    if (!keyboardServices) {
+      console.log("[TableDataGridV2] No keyboard services available");
+      return;
+    }
 
-  useCommand(
-    "dataGrid.action.redo",
-    () => {
-      if (isTableMode) {
-        redo();
-        toast.success("Redone", {
-          description: "Reapplied last change",
-        });
-      }
-    },
-    {
-      label: "Redo",
-      category: "Data Grid",
-      when: "dataGridFocus && dataGridEditable && dataGridCanRedo",
-    },
-  );
+    console.log("[TableDataGridV2] Registering copy commands");
+
+    // Register copy command (Cmd+C)
+    keyboardServices.commandService.register(
+      {
+        id: "dataGrid.action.copy",
+        label: "Copy Selection",
+        category: "Data Grid",
+        when: "dataGridFocus && !selectionEmpty && !editingCell",
+        handler: async () => {
+          console.log("🟢 Copy as text command fired", {
+            gridSelection,
+            hasSelection,
+            isGridFocused,
+            isEditingCell,
+          });
+          if (!gridSelection) {
+            console.log("🔴 No grid selection");
+            return;
+          }
+          await copySelection(gridSelection, "text");
+        },
+      },
+      "default",
+    );
+
+    // Register copy as JSON command (Cmd+Shift+C)
+    keyboardServices.commandService.register(
+      {
+        id: "dataGrid.action.copyAsJson",
+        label: "Copy Selection as JSON",
+        category: "Data Grid",
+        when: "dataGridFocus && !selectionEmpty && !editingCell",
+        handler: async () => {
+          console.log("🔵 Copy as JSON command fired", {
+            gridSelection,
+            hasSelection,
+            isGridFocused,
+            isEditingCell,
+          });
+          if (!gridSelection) {
+            console.log("🔴 No grid selection");
+            return;
+          }
+          await copySelection(gridSelection, "json");
+        },
+      },
+      "default",
+    );
+
+    return () => {
+      console.log("[TableDataGridV2] Unregistering copy commands");
+      keyboardServices.commandService.unregister("dataGrid.action.copy");
+      keyboardServices.commandService.unregister("dataGrid.action.copyAsJson");
+    };
+  }, [
+    keyboardServices,
+    gridSelection,
+    hasSelection,
+    isGridFocused,
+    isEditingCell,
+    copySelection,
+  ]);
+
 
   const handleSelectionChange = useCallback(
     (selection: GridSelection) => {
@@ -1426,26 +1373,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   }, []);
 
   const errorMessage = typeof error === "string" ? error : null;
-
-  const selectedRowsSet = useMemo(() => {
-    const rowsSel = gridSelection ? gridSelection.rows.toArray() : [];
-    const set = new Set<number>(rowsSel);
-    const sel = gridSelection;
-    if (sel) {
-      const addRect = (r: Rectangle | undefined) => {
-        if (!r) return;
-        const start = Math.max(0, r.y);
-        const end = Math.max(start, r.y + r.height);
-        for (let i = start; i < end; i += 1) set.add(i);
-      };
-      if (sel.current) {
-        addRect(sel.current.range);
-        const stack = sel.current.rangeStack as Rectangle[] | undefined;
-        (stack || []).forEach(addRect);
-      }
-    }
-    return set;
-  }, [gridSelection]);
 
   const selectedRows = useMemo(() => {
     return Array.from(selectedRowsSet)
@@ -1632,21 +1559,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           Add Row
         </Button>
 
-        {/* Bulk Edit Button - Only when rows are selected */}
-        {selectedRows.length > 0 && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 text-xs px-2"
-            onClick={() => {
-              setShowBulkEditModal(true);
-            }}
-          >
-            <Edit className="h-3 w-3 mr-1" />
-            Bulk Edit ({selectedRows.length})
-          </Button>
-        )}
-
         {/* Staging Actions - Only when there are changes */}
         {pendingChanges.length > 0 && (
           <>
@@ -1808,14 +1720,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     [finalColumns, stagedChanges],
   );
 
-  const selectedRowCount = selectedRowsSet.size;
-  // Check if there's any selection: full rows, columns, or cell ranges
-  const hasSelection =
-    selectedRowCount > 0 ||
-    (gridSelection?.rows && gridSelection.rows.length > 0) ||
-    (gridSelection?.columns && gridSelection.columns.length > 0) ||
-    gridSelection?.current !== undefined;
-
   useContextKey("selectionEmpty", !hasSelection, {
     scopeId,
     resetOnUnmount: true,
@@ -1972,17 +1876,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             : undefined
         }
       />
-
-      {/* Bulk Edit Modal */}
-      {isTableMode && (
-        <BulkEditModal
-          open={showBulkEditModal}
-          onOpenChange={setShowBulkEditModal}
-          selectedRows={selectedRows}
-          columns={finalColumns}
-          onBulkEdit={handleBulkEdit}
-        />
-      )}
     </div>
   );
 });

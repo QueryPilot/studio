@@ -131,16 +131,6 @@ export const defaultKeybindings: Keybinding[] = [
     when: 'dataGridFocus && !editingCell && !selectionEmpty',
   },
   {
-    command: 'dataGrid.action.undo',
-    key: 'cmd+z',
-    when: 'dataGridFocus && dataGridEditable && !editingCell',
-  },
-  {
-    command: 'dataGrid.action.redo',
-    key: 'cmd+shift+z',
-    when: 'dataGridFocus && dataGridEditable && !editingCell',
-  },
-  {
     command: 'dataGrid.action.insertRowBelow',
     key: 'cmd+enter',
     when: 'dataGridFocus && dataGridEditable && !editingCell && !selectionEmpty',
