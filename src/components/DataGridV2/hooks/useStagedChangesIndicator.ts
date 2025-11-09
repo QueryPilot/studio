@@ -105,15 +105,14 @@ export function useStagedChangesIndicator(
       }
     });
 
-    // Mark inserted rows by checking which rows don't exist in the base data
-    // With position-based insertion (insertAfterRowKey), inserted rows can be at any index
-    // Inserted rows won't have valid primary keys, so they won't be in pkToRowIndex
+    // Mark inserted rows by checking for the __insert_temp_id__ metadata field
+    // This field is added to all inserted rows in the optimistic update logic
+    // and remains even after the user edits the row's primary key
     const insertCommandCount = commands.filter((cmd) => cmd.type === "data.insert").length;
     if (insertCommandCount > 0) {
       rows.forEach((row, index) => {
-        const pkKey = createPrimaryKeyString(row, columns);
-        // If this row has no valid PK or the PK is all nulls, it's an inserted row
-        if (!pkKey || pkKey === "null" || pkKey.split("|").every(v => v === "null")) {
+        // Check for the hidden __insert_temp_id__ field that marks inserted rows
+        if (row["__insert_temp_id__"]) {
           result.insertedRows.add(index);
         }
       });

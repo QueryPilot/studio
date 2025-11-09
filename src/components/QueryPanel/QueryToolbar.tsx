@@ -13,6 +13,7 @@ interface QueryToolbarProps {
   appliedLimit?: number;
   executeHint?: string;
   beautifyHint?: string;
+  focused?: boolean;
   onExecute: () => void;
   onCancel: () => void;
   onBeautify: () => void;
@@ -28,6 +29,7 @@ export const QueryToolbar = memo(function QueryToolbar({
   appliedLimit,
   executeHint,
   beautifyHint: _beautifyHint,
+  focused = false,
   onExecute,
   onCancel,
   onBeautify,
@@ -42,12 +44,15 @@ export const QueryToolbar = memo(function QueryToolbar({
           onValueChange={(value) => {
             onViewModeChange(value as "table" | "json");
           }}
+          enableShortcuts={true}
+          tabGroupId="query-view-mode"
+          focused={focused}
         >
           <TabsList className="!h-7">
-            <TabsTrigger value="table" className="text-xs h-6">
+            <TabsTrigger value="table" className="text-xs h-6" tabIndex={0}>
               Table
             </TabsTrigger>
-            <TabsTrigger value="json" className="text-xs h-6">
+            <TabsTrigger value="json" className="text-xs h-6" tabIndex={1}>
               JSON
             </TabsTrigger>
           </TabsList>

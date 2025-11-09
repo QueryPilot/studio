@@ -419,7 +419,11 @@ function RowChangesCard({ row }: RowChangesCardProps) {
       const values = payload.values || {};
 
       const newRow = Object.entries(values)
-        .map(([key, value]) => `${key}: ${formatValue(value)}`)
+        .map(([key, value]) => {
+          const formatted = formatValue(value);
+          // For long INSERT values, truncate in the middle
+          return `${key}: ${formatted.length > 100 ? truncateMiddle(formatted, 100) : formatted}`;
+        })
         .join("\n");
 
       return { old: "", new: newRow };
@@ -435,7 +439,11 @@ function RowChangesCard({ row }: RowChangesCardProps) {
       const pks = payload.primaryKeys || {};
 
       const oldRow = Object.entries(pks)
-        .map(([key, value]) => `${key}: ${formatValue(value)}`)
+        .map(([key, value]) => {
+          const formatted = formatValue(value);
+          // For long DELETE values, truncate in the middle
+          return `${key}: ${formatted.length > 100 ? truncateMiddle(formatted, 100) : formatted}`;
+        })
         .join("\n");
 
       return { old: oldRow, new: "" };
@@ -467,8 +475,14 @@ function RowChangesCard({ row }: RowChangesCardProps) {
       const newRow: string[] = [];
 
       changes.forEach((values, column) => {
-        oldRow.push(`${column}: ${formatValue(values.old)}`);
-        newRow.push(`${column}: ${formatValue(values.new)}`);
+        // Use smart truncation for long values
+        const { old, new: newVal } = formatValueWithSmartTruncation(
+          values.old,
+          values.new,
+          column
+        );
+        oldRow.push(`${column}: ${old}`);
+        newRow.push(`${column}: ${newVal}`);
       });
 
       return { old: oldRow.join("\n"), new: newRow.join("\n") };
@@ -575,21 +589,122 @@ function RowChangesCard({ row }: RowChangesCardProps) {
   );
 }
 
+/**
+ * Format a value for display in the diff viewer.
+ * For short values, show the full value.
+ * For long values, show the full value (truncation happens at the diff level).
+ */
 function formatValue(value: unknown): string {
   if (value === null || value === undefined) {
     return "NULL";
   }
   if (typeof value === "string") {
-    return `"${value.length > 20 ? value.substring(0, 20) + "..." : value}"`;
+    return `"${value}"`;
   }
   if (typeof value === "boolean") {
     return value ? "true" : "false";
   }
   if (typeof value === "object") {
-    return JSON.stringify(value).substring(0, 30) + "...";
+    return JSON.stringify(value, null, 2);
   }
-  if (typeof value === "string" || typeof value === "number") {
+  if (typeof value === "number") {
     return String(value);
   }
   return "";
+}
+
+/**
+ * Smart truncation for long unchanged portions of text.
+ * Shows context around changes like GitHub's diff view.
+ */
+function formatValueWithSmartTruncation(
+  oldValue: unknown,
+  newValue: unknown
+): { old: string; new: string } {
+  const oldStr = formatValue(oldValue);
+  const newStr = formatValue(newValue);
+
+  // For short values, return as-is
+  const MAX_LENGTH = 100;
+  if (oldStr.length <= MAX_LENGTH && newStr.length <= MAX_LENGTH) {
+    return { old: oldStr, new: newStr };
+  }
+
+  // For very different values (insert/delete), show with ellipsis
+  if (oldStr === "NULL" || newStr === "NULL") {
+    return {
+      old: oldStr.length > MAX_LENGTH ? truncateMiddle(oldStr, MAX_LENGTH) : oldStr,
+      new: newStr.length > MAX_LENGTH ? truncateMiddle(newStr, MAX_LENGTH) : newStr,
+    };
+  }
+
+  // Find common prefix and suffix
+  const { prefix, suffix, oldMiddle, newMiddle } = findDiff(oldStr, newStr);
+
+  const CONTEXT_LENGTH = 30;
+  const prefixContext = prefix.length > CONTEXT_LENGTH
+    ? "..." + prefix.slice(-CONTEXT_LENGTH)
+    : prefix;
+  const suffixContext = suffix.length > CONTEXT_LENGTH
+    ? suffix.slice(0, CONTEXT_LENGTH) + "..."
+    : suffix;
+
+  // If the middle parts are still too long, truncate them
+  const oldMiddleTruncated = oldMiddle.length > MAX_LENGTH
+    ? truncateMiddle(oldMiddle, MAX_LENGTH)
+    : oldMiddle;
+  const newMiddleTruncated = newMiddle.length > MAX_LENGTH
+    ? truncateMiddle(newMiddle, MAX_LENGTH)
+    : newMiddle;
+
+  return {
+    old: prefixContext + oldMiddleTruncated + suffixContext,
+    new: prefixContext + newMiddleTruncated + suffixContext,
+  };
+}
+
+/**
+ * Find the common prefix, suffix, and differing middle parts of two strings.
+ */
+function findDiff(str1: string, str2: string): {
+  prefix: string;
+  suffix: string;
+  oldMiddle: string;
+  newMiddle: string;
+} {
+  let prefixEnd = 0;
+  const minLen = Math.min(str1.length, str2.length);
+
+  // Find common prefix
+  while (prefixEnd < minLen && str1[prefixEnd] === str2[prefixEnd]) {
+    prefixEnd++;
+  }
+
+  // Find common suffix
+  let suffixStart1 = str1.length;
+  let suffixStart2 = str2.length;
+  while (
+    suffixStart1 > prefixEnd &&
+    suffixStart2 > prefixEnd &&
+    str1[suffixStart1 - 1] === str2[suffixStart2 - 1]
+  ) {
+    suffixStart1--;
+    suffixStart2--;
+  }
+
+  return {
+    prefix: str1.slice(0, prefixEnd),
+    suffix: str1.slice(suffixStart1),
+    oldMiddle: str1.slice(prefixEnd, suffixStart1),
+    newMiddle: str2.slice(prefixEnd, suffixStart2),
+  };
+}
+
+/**
+ * Truncate a string in the middle, keeping start and end.
+ */
+function truncateMiddle(str: string, maxLength: number): string {
+  if (str.length <= maxLength) return str;
+  const halfLength = Math.floor(maxLength / 2) - 3;
+  return str.slice(0, halfLength) + " ... " + str.slice(-halfLength);
 }

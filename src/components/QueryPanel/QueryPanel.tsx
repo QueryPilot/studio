@@ -57,6 +57,8 @@ export const QueryPanel = memo(function QueryPanel({
   // Use global tab state store to persist across panel moves
   const setQueryState = useTabStateStore((state) => state.setQueryState);
   const globalState = useTabStateStore((state) => state.queryStates.get(tabId));
+  const focusedPanelId = useWorkbenchStore((state) => state.focusedPanelId);
+  const isPanelFocused = focusedPanelId === panelId;
 
   const [query, setQueryInternal] = useState<string>(
     globalState?.query ?? initialSql,
@@ -153,7 +155,7 @@ export const QueryPanel = memo(function QueryPanel({
 
   // Debug: Check if keyboardServices is available
   useEffect(() => {
-    console.log('[QueryPanel] keyboardServices:', {
+    console.log("[QueryPanel] keyboardServices:", {
       available: !!keyboardServices,
       commandService: !!keyboardServices?.commandService,
       tabId,
@@ -230,31 +232,31 @@ export const QueryPanel = memo(function QueryPanel({
 
   const handleExecute = useCallback(
     async (queryToExecute?: string) => {
-      console.log('[handleExecute] Called with:', {
+      console.log("[handleExecute] Called with:", {
         queryToExecute,
         queryToExecuteLength: queryToExecute?.length || 0,
         fallbackQuery: query,
-        fallbackQueryLength: query?.length || 0,
+        fallbackQueryLength: query.length || 0,
       });
 
       let sql = queryToExecute ?? query;
 
-      console.log('[handleExecute] Before trim:', {
+      console.log("[handleExecute] Before trim:", {
         sql,
-        sqlLength: sql?.length || 0,
+        sqlLength: sql.length || 0,
       });
 
       // Clean up the SQL - remove trailing semicolons as they cause issues
       sql = sql.trim().replace(/;\s*$/, "");
 
-      console.log('[handleExecute] After trim and semicolon removal:', {
+      console.log("[handleExecute] After trim and semicolon removal:", {
         sql,
-        sqlLength: sql?.length || 0,
+        sqlLength: sql.length || 0,
         isEmpty: !sql,
       });
 
       if (!sql) {
-        console.log('[handleExecute] EMPTY QUERY - Showing error toast');
+        console.log("[handleExecute] EMPTY QUERY - Showing error toast");
         toast.error("Please enter a query to execute");
         return;
       }
@@ -524,11 +526,11 @@ export const QueryPanel = memo(function QueryPanel({
   // Register keyboard commands
   useEffect(() => {
     if (!keyboardServices) {
-      console.log('[QueryPanel] No keyboardServices available');
+      console.log("[QueryPanel] No keyboardServices available");
       return;
     }
 
-    console.log('[QueryPanel] Registering keyboard commands');
+    console.log("[QueryPanel] Registering keyboard commands");
 
     // Register format query command (Alt+F)
     keyboardServices.commandService.register(
@@ -538,7 +540,7 @@ export const QueryPanel = memo(function QueryPanel({
         category: "Editor",
         when: "editorTextFocus && queryEditor",
         handler: () => {
-          console.log('[editor.action.formatQuery] Command triggered');
+          console.log("[editor.action.formatQuery] Command triggered");
           handleBeautify();
         },
       },
@@ -552,7 +554,7 @@ export const QueryPanel = memo(function QueryPanel({
         label: "Toggle History",
         category: "Query",
         handler: () => {
-          console.log('[query.action.toggleHistory] Command triggered');
+          console.log("[query.action.toggleHistory] Command triggered");
           toggleHistory();
         },
       },
@@ -621,6 +623,7 @@ export const QueryPanel = memo(function QueryPanel({
                     showHistory={showHistory}
                     viewMode={viewMode}
                     appliedLimit={appliedLimit?.limit}
+                    focused={isPanelFocused}
                     onExecute={() => handleExecute()}
                     onCancel={handleCancel}
                     onBeautify={handleBeautify}
@@ -670,13 +673,20 @@ export const QueryPanel = memo(function QueryPanel({
                 <Tabs
                   defaultValue="history"
                   className="h-full flex flex-col px-1 rounded-lg"
+                  enableShortcuts={true}
+                  tabGroupId={`query-history-${tabId}`}
+                  focused={isPanelFocused && showHistory}
                 >
                   <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="history" className="text-xs">
+                    <TabsTrigger
+                      value="history"
+                      className="text-xs"
+                      tabIndex={0}
+                    >
                       <History className="h-3 w-3 mr-1" />
                       History
                     </TabsTrigger>
-                    <TabsTrigger value="saved" className="text-xs">
+                    <TabsTrigger value="saved" className="text-xs" tabIndex={1}>
                       <Star className="h-3 w-3 mr-1" />
                       Saved
                     </TabsTrigger>

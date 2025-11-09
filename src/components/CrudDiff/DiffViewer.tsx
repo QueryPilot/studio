@@ -45,10 +45,15 @@ export function DiffViewer({ snapshot, defaultTab = 'data', className }: DiffVie
         </ul>
       </header>
 
-      <Tabs defaultValue={defaultTab} className="flex-1">
+      <Tabs
+        defaultValue={defaultTab}
+        className="flex-1"
+        enableShortcuts={true}
+        tabGroupId="diff-viewer"
+      >
         <TabsList className="w-full justify-start">
-          {TABS.map((tab) => (
-            <TabsTrigger key={tab} value={tab} className="capitalize">
+          {TABS.map((tab, index) => (
+            <TabsTrigger key={tab} value={tab} className="capitalize" tabIndex={index}>
               {tab}
             </TabsTrigger>
           ))}

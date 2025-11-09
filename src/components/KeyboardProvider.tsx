@@ -10,6 +10,7 @@ import { contextService } from '@/services/contextService';
 import { keybindingService } from '@/services/keybindingService';
 import { useWorkspaceScreenStore } from '@/stores/workspaceScreenStore';
 import useWorkbenchStore from '@/stores/workbenchStore';
+import { useModifierKey } from '@/hooks/useModifierKey';
 
 interface KeyboardProviderProps {
   children: ReactNode;
@@ -48,6 +49,9 @@ function initializeServices(): void {
 }
 
 export function KeyboardProvider({ children }: KeyboardProviderProps): React.JSX.Element {
+  // Initialize modifier key tracking globally (called once for entire app)
+  useModifierKey();
+
   useEffect(() => {
     // Initialize services (commands and keybindings)
     initializeServices();

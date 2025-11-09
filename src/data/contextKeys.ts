@@ -154,4 +154,22 @@ export const contextKeyDefinitions: ContextKeyDefinition[] = [
     description: 'True when there are pending table edits',
     owner: 'pendingEdits',
   },
+  {
+    key: 'modifierKeyHeld',
+    defaultValue: false,
+    description: 'True when Cmd (macOS) or Ctrl (Windows/Linux) modifier key is held down',
+    owner: 'keyboard',
+  },
+  {
+    key: 'focusedTabGroupId',
+    defaultValue: null,
+    description: 'ID of the currently focused tab group',
+    owner: 'tabs',
+  },
+  {
+    key: 'tabGroupFocused',
+    defaultValue: false,
+    description: 'True when any tab group has focus',
+    owner: 'tabs',
+  },
 ];

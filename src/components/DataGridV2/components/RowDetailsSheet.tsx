@@ -219,54 +219,57 @@ export function RowDetailsSheet({
           <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-12 bg-border rounded-r" />
         </div>
 
-        {/* Header */}
-        <SheetHeader className="p-2 border-b space-y-1.5">
-          <div className="flex items-center gap-2 justify-start">
-            <div>
-              <Tabs
-                value={viewMode}
-                onValueChange={(value) => {
-                  setViewMode(value as ViewMode);
-                }}
-                className="w-full"
-              >
+        {/* Header and Content - Single Tabs component */}
+        <Tabs
+          value={viewMode}
+          onValueChange={(value) => {
+            setViewMode(value as ViewMode);
+          }}
+          enableShortcuts={true}
+          tabGroupId="row-details-view"
+          focused={open}
+          className="flex-1 overflow-hidden flex flex-col"
+        >
+          <SheetHeader className="p-2 border-b space-y-1.5">
+            <div className="flex items-center gap-2 justify-start">
+              <div>
                 <TabsList className="p-0.5 !w-auto">
                   <TabsTrigger
                     value="summary"
                     className="!text-xs !h-6 px-2 !ring-0 outline-none"
+                    tabIndex={0}
                   >
                     Summary
                   </TabsTrigger>
                   <TabsTrigger
                     value="json"
                     className="!text-xs !h-6 px-2 !ring-0 outline-none"
+                    tabIndex={1}
                   >
                     JSON
                   </TabsTrigger>
                 </TabsList>
-              </Tabs>
+              </div>
+              <Badge variant="secondary" className="h-5 px-1.5 !text-[11px]">
+                {rows.length} {rows.length === 1 ? "row" : "rows"}
+              </Badge>
             </div>
-            <Badge variant="secondary" className="h-5 px-1.5 !text-[11px]">
-              {rows.length} {rows.length === 1 ? "row" : "rows"}
-            </Badge>
-          </div>
-          {viewMode === "summary" && (
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-              <Input
-                placeholder="Search anything"
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                }}
-                className="h-7 pl-7 !text-xs"
-              />
-            </div>
-          )}
-        </SheetHeader>
+            {viewMode === "summary" && (
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                <Input
+                  placeholder="Search anything"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                  }}
+                  className="h-7 pl-7 !text-xs"
+                />
+              </div>
+            )}
+          </SheetHeader>
 
-        {/* Content */}
-        <Tabs value={viewMode} className="flex-1 overflow-hidden flex flex-col">
+          {/* Content */}
           <TabsContent
             value="summary"
             className="m-0 data-[state=active]:flex-1 data-[state=active]:flex data-[state=active]:flex-col data-[state=active]:overflow-hidden"

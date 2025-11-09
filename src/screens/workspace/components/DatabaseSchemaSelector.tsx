@@ -193,20 +193,18 @@ export function DatabaseSchemaSelector({
     let cleanup: (() => void) | null = null;
 
     const setupListener = async () => {
-      cleanup = await safeListen<{ connectionId: string }>(
-        "database-reconnected",
-        (event) => {
-          if (event.payload.connectionId === connectionId) {
-            // Invalidate and refetch both databases and schemas
-            void queryClient.invalidateQueries({
-              queryKey: ["databases", connectionId],
-            });
-            void queryClient.invalidateQueries({
-              queryKey: ["schemas", connectionId],
-            });
-          }
-        },
-      );
+      cleanup = await safeListen("database-reconnected", (event) => {
+        const payload = event.payload as { connectionId: string };
+        if (payload.connectionId === connectionId) {
+          // Invalidate and refetch both databases and schemas
+          void queryClient.invalidateQueries({
+            queryKey: ["databases", connectionId],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["schemas", connectionId],
+          });
+        }
+      });
     };
 
     void setupListener();

@@ -58,6 +58,10 @@ export function createUpdateCommand(
 
   const primaryKeys = extractPrimaryKeys(event.row, columns);
 
+  // Check if this row is from an INSERT command (by checking for tempId metadata)
+  const tempIdCell = event.row["__insert_temp_id__"] as CellValue | null | undefined;
+  const insertTempId = tempIdCell?.value ? String(tempIdCell.value) : undefined;
+
   // Extract old value from previousValue in the event
   let oldValue: JsonValue = null;
   if (event.previousValue) {
@@ -122,6 +126,7 @@ export function createUpdateCommand(
     oldValue,
     newValue,
     primaryKeys,
+    ...(insertTempId && { tempId: insertTempId }),
   };
 
   return {
