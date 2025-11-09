@@ -65,6 +65,7 @@ export const DataGridBase = forwardRef(function DataGridBase(
         highlightRegions={rest.highlightRegions}
         columnSelect="multi"
         rowSelect="multi"
+        editOnType={false}
         {...editorProps}
       />
     </div>

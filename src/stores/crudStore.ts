@@ -90,6 +90,59 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
         const commandIndex = new Map(state.commandIndex);
 
         const existing = stagedCommands.get(tableKey) ?? [];
+
+        // Special handling for UPDATE commands on inserted rows
+        if (command.type === "data.update") {
+          const updatePayload = command.payload as { tempId?: string; column?: string; newValue?: unknown };
+          if (updatePayload.tempId) {
+            // This is an UPDATE to an inserted row - merge it into the INSERT command
+            const insertCommand = existing.find((cmd) => {
+              if (cmd.type !== "data.insert") return false;
+              const insertPayload = cmd.payload as { tempId?: string };
+              return insertPayload.tempId === updatePayload.tempId;
+            });
+
+            if (insertCommand && updatePayload.column) {
+              // Merge the UPDATE into the INSERT command
+              const insertPayload = insertCommand.payload as { values?: Record<string, unknown>; tempId?: string };
+              const updatedInsertCommand = {
+                ...insertCommand,
+                payload: {
+                  ...insertPayload,
+                  values: {
+                    ...(insertPayload.values ?? {}),
+                    [updatePayload.column]: updatePayload.newValue,
+                  },
+                },
+              };
+
+              // Replace the INSERT command with the updated one
+              const nextCommands = existing.map((item) =>
+                item.id === insertCommand.id ? updatedInsertCommand : item
+              );
+              stagedCommands.set(tableKey, nextCommands);
+
+              const snapshot = cloneStagedCommands(stagedCommands);
+              const { history, historyIndex } = pushHistorySnapshot(
+                state.history,
+                state.historyIndex,
+                snapshot,
+              );
+
+              result = { command: updatedInsertCommand };
+
+              return {
+                stagedCommands,
+                commandIndex,
+                history,
+                historyIndex,
+                isDirty: stagedCommands.size > 0,
+              };
+            }
+          }
+        }
+
+        // Default behavior for all other commands
         const nextCommands = existing.some((item) => item.id === command.id)
           ? existing.map((item) => (item.id === command.id ? command : item))
           : [...existing, command];

@@ -7,7 +7,7 @@ import {
   useState,
   useDeferredValue,
 } from "react";
-import type { FocusEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { FocusEvent } from "react";
 import type {
   GridSelection,
   Item,
@@ -174,6 +174,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const containerRef = useRef<HTMLDivElement | null>(null);
   const gridRef = useRef<EditableDataGridRef>(null);
   const [isGridFocused, setIsGridFocused] = useState(false);
+  const [isEditingCell, setIsEditingCell] = useState(false);
   const scopeId = useScopedKeybindings(gridId);
   const [showDetailsSheet, setShowDetailsSheet] = useState(false);
   const [showBulkEditModal, setShowBulkEditModal] = useState(false);
@@ -235,7 +236,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     scopeId,
     resetOnUnmount: true,
   });
-  useContextKey("editingCell", false, {
+  useContextKey("editingCell", isEditingCell, {
     scopeId,
     resetOnUnmount: true,
   });
@@ -478,148 +479,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     [pinnedRows, unpinnedRows],
   );
 
-  // Apply optimistic updates from staged commands to display rows
-  const displayRowsWithOptimisticUpdates = useMemo(() => {
-    if (!isTableMode) {
-      return displayRows;
-    }
-
-    const tableKey = getTableKey({ connectionId, database, schema, table });
-    const commands = stagedCommands.get(tableKey) ?? [];
-
-    if (commands.length === 0) {
-      return displayRows;
-    }
-
-    // First, apply UPDATE commands to existing rows
-    const updatedRows = displayRows.map((row) => {
-      // Find all UPDATE commands for this row
-      const updateCommands = commands.filter((cmd) => {
-        if (cmd.type !== "data.update") return false;
-
-        const payload = cmd.payload as {
-          primaryKeys?: Record<string, unknown>;
-        };
-
-        if (!payload.primaryKeys) return false;
-
-        // Check if this command's PK matches this row's PK
-        return Object.entries(payload.primaryKeys).every(([key, value]) => {
-          const cellValue = row[key];
-          if (
-            !cellValue ||
-            typeof cellValue !== "object" ||
-            !("value" in cellValue)
-          ) {
-            return false;
-          }
-          return cellValue.value === value;
-        });
-      });
-
-      if (updateCommands.length === 0) {
-        return row;
-      }
-
-      // Apply all updates to create a new row
-      const updatedRow = { ...row };
-      updateCommands.forEach((cmd) => {
-        const payload = cmd.payload as {
-          column?: string;
-          newValue?: unknown;
-        };
-
-        if (payload.column && payload.column in updatedRow) {
-          const existingCell = updatedRow[payload.column];
-          if (
-            existingCell &&
-            typeof existingCell === "object" &&
-            "value" in existingCell
-          ) {
-            updatedRow[payload.column] = {
-              ...existingCell,
-              value: payload.newValue,
-            };
-          }
-        }
-      });
-
-      return updatedRow;
-    });
-
-    // Then, insert new rows at their specified positions (or at top if no position specified)
-    const insertCommands = commands.filter((cmd) => cmd.type === "data.insert");
-
-    // Build result array with inserts at correct positions
-    const result = [...updatedRows];
-
-    insertCommands.forEach((cmd) => {
-      const payload = cmd.payload as { values?: Record<string, JsonValue> };
-      if (!payload.values) return;
-
-      // Convert the plain values object to GridRowModel with CellValue structure
-      const row: GridRowModel = {};
-      Object.entries(payload.values).forEach(([key, value]) => {
-        // Infer the value type
-        let valueType: FrontCellValue["value_type"] = "Text";
-        if (value === null) {
-          valueType = "Null";
-        } else if (typeof value === "number") {
-          valueType = Number.isInteger(value) ? "Integer" : "Decimal";
-        } else if (typeof value === "boolean") {
-          valueType = "Boolean";
-        }
-
-        row[key] = {
-          value,
-          value_type: valueType,
-          db_type: "unknown",
-          is_truncated: false,
-        };
-      });
-
-      // Check if this insert has a specific position (by row key)
-      const insertAfterRowKey = cmd.metadata.insertAfterRowKey;
-      if (insertAfterRowKey) {
-        // Find the target row in the current result array
-        const targetIndex = result.findIndex(
-          (r, idx) => getRowKey(r, idx) === insertAfterRowKey,
-        );
-        if (targetIndex >= 0) {
-          // Insert after the target row
-          result.splice(targetIndex + 1, 0, row);
-        } else {
-          // Target not found, insert at top (fallback)
-          result.unshift(row);
-        }
-      } else {
-        // No position specified, insert at top (default behavior)
-        result.unshift(row);
-      }
-    });
-
-    return result;
-  }, [
-    displayRows,
-    isTableMode,
-    getTableKey,
-    getRowKey,
-    stagedCommands,
-    connectionId,
-    database,
-    schema,
-    table,
-  ]);
-
-  // Defer grid rendering for large datasets to keep UI responsive
-  // Grid updates in background without blocking interactions
-  const deferredDisplayRows = useDeferredValue(
-    displayRowsWithOptimisticUpdates,
-  );
-
-  const rowsRef = useRef(deferredDisplayRows);
-  rowsRef.current = deferredDisplayRows;
-
   // Get table key and pending changes for toolbar
   const tableKey = isTableMode
     ? getTableKey({ connectionId, database, schema, table })
@@ -792,6 +651,183 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     return applyPinnedOrdering(filtered, columnState.pinned);
   }, [columnState.pinned, columnState.visibility, visibleColumns]);
 
+  // Apply optimistic updates from staged commands to display rows
+  const displayRowsWithOptimisticUpdates = useMemo(() => {
+    if (!isTableMode) {
+      return displayRows;
+    }
+
+    const tableKey = getTableKey({ connectionId, database, schema, table });
+    const commands = stagedCommands.get(tableKey) ?? [];
+
+    if (commands.length === 0) {
+      return displayRows;
+    }
+
+    // First, apply UPDATE commands to existing rows
+    const updatedRows = displayRows.map((row) => {
+      // Find all UPDATE commands for this row
+      const updateCommands = commands.filter((cmd) => {
+        if (cmd.type !== "data.update") return false;
+
+        const payload = cmd.payload as {
+          primaryKeys?: Record<string, unknown>;
+        };
+
+        if (!payload.primaryKeys) return false;
+
+        // Check if this command's PK matches this row's PK
+        return Object.entries(payload.primaryKeys).every(([key, value]) => {
+          const cellValue = row[key];
+          if (
+            !cellValue ||
+            typeof cellValue !== "object" ||
+            !("value" in cellValue)
+          ) {
+            return false;
+          }
+          return cellValue.value === value;
+        });
+      });
+
+      if (updateCommands.length === 0) {
+        return row;
+      }
+
+      // Apply all updates to create a new row
+      const updatedRow = { ...row };
+      updateCommands.forEach((cmd) => {
+        const payload = cmd.payload as {
+          column?: string;
+          newValue?: unknown;
+        };
+
+        if (payload.column && payload.column in updatedRow) {
+          const existingCell = updatedRow[payload.column];
+          if (
+            existingCell &&
+            typeof existingCell === "object" &&
+            "value" in existingCell
+          ) {
+            updatedRow[payload.column] = {
+              ...existingCell,
+              value: payload.newValue,
+            };
+          }
+        }
+      });
+
+      return updatedRow;
+    });
+
+    // Then, insert new rows at their specified positions (or at top if no position specified)
+    const insertCommands = commands.filter((cmd) => cmd.type === "data.insert");
+
+    // Build result array with inserts at correct positions
+    const result = [...updatedRows];
+
+    insertCommands.forEach((cmd) => {
+      const payload = cmd.payload as {
+        values?: Record<string, JsonValue>;
+        tempId?: string;
+      };
+
+      // Build a complete row with ALL columns from schema (not just the ones with values)
+      const row: GridRowModel = {};
+
+      // First, populate ALL columns with NULL defaults using proper column metadata
+      finalColumns.forEach((col) => {
+        const dbType = col.meta?.db_type ?? col.type ?? "text";
+        row[col.field] = {
+          value: null,
+          value_type: "Null",
+          db_type: dbType,
+          is_truncated: false,
+        };
+      });
+
+      // Track the INSERT command's tempId for linking UPDATE commands
+      const insertTempId = payload.tempId || cmd.id;
+
+      // Add hidden metadata field to track the INSERT tempId
+      // This will be used when creating UPDATE commands for this row
+      row["__insert_temp_id__"] = {
+        value: insertTempId,
+        value_type: "Text",
+        db_type: "text",
+        is_truncated: false,
+      } as FrontCellValue;
+
+      // Then, overlay the actual values from the INSERT command
+      // Note: INSERT command values now include all edits (UPDATEs are merged into INSERT)
+      if (payload.values) {
+        Object.entries(payload.values).forEach(([key, value]) => {
+          // Find the column to get proper db_type
+          const column = finalColumns.find((c) => c.field === key);
+          const dbType = column?.meta?.db_type ?? column?.type ?? "text";
+
+          // Infer the value type
+          let valueType: FrontCellValue["value_type"] = "Text";
+          if (value === null) {
+            valueType = "Null";
+          } else if (typeof value === "number") {
+            valueType = Number.isInteger(value) ? "Integer" : "Decimal";
+          } else if (typeof value === "boolean") {
+            valueType = "Boolean";
+          }
+
+          row[key] = {
+            value,
+            value_type: valueType,
+            db_type: dbType,
+            is_truncated: false,
+          };
+        });
+      }
+
+      // Check if this insert has a specific position (by row key)
+      const insertAfterRowKey = cmd.metadata.insertAfterRowKey;
+      if (insertAfterRowKey) {
+        // Find the target row in the current result array
+        const targetIndex = result.findIndex(
+          (r, idx) => getRowKey(r, idx) === insertAfterRowKey,
+        );
+        if (targetIndex >= 0) {
+          // Insert after the target row
+          result.splice(targetIndex + 1, 0, row);
+        } else {
+          // Target not found, insert at top (fallback)
+          result.unshift(row);
+        }
+      } else {
+        // No position specified, insert at top (default behavior)
+        result.unshift(row);
+      }
+    });
+
+    return result;
+  }, [
+    displayRows,
+    isTableMode,
+    getTableKey,
+    getRowKey,
+    stagedCommands,
+    connectionId,
+    database,
+    schema,
+    table,
+    finalColumns,
+  ]);
+
+  // Defer grid rendering for large datasets to keep UI responsive
+  // Grid updates in background without blocking interactions
+  const deferredDisplayRows = useDeferredValue(
+    displayRowsWithOptimisticUpdates,
+  );
+
+  const rowsRef = useRef(deferredDisplayRows);
+  rowsRef.current = deferredDisplayRows;
+
   // Track staged changes for visual indicators (must be after finalColumns)
   const stagedChanges = useStagedChangesIndicator({
     connectionId,
@@ -804,38 +840,91 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   const { copySelection } = useClipboardBridge({
     toText: (selection) => {
-      if (selection.rows.length === 0) {
-        return "";
+      // Handle full row selections
+      if (selection.rows.length > 0) {
+        const selected = selection.rows
+          .toArray()
+          .map((idx) => rowsRef.current[idx])
+          .filter(Boolean);
+        if (selected.length === 0) return "";
+        const body = selected.map((row) =>
+          finalColumns
+            .map((col) => {
+              const value = row?.[col.field];
+              if (!value || typeof value !== "object") return "";
+              return String(value.value ?? "");
+            })
+            .join("\t"),
+        );
+        return body.join("\n");
       }
-      const selected = selection.rows
-        .toArray()
-        .map((idx) => rowsRef.current[idx])
-        .filter(Boolean);
-      if (selected.length === 0) return "";
-      const headers = finalColumns.map((col) => col.name).join("\t");
-      const body = selected.map((row) =>
-        finalColumns
-          .map((col) => {
-            const value = row?.[col.field];
-            if (!value || typeof value !== "object") return "";
-            return String(value.value ?? "");
-          })
-          .join("\t"),
-      );
-      return [headers, ...body].join("\n");
+
+      // Handle cell-level selections (rectangular ranges)
+      if (selection.current?.range) {
+        const { range } = selection.current;
+        const { x: startCol, y: startRow, width, height } = range;
+
+        const selectedCols = finalColumns.slice(startCol, startCol + width);
+
+        // Build data rows (no headers)
+        const body: string[] = [];
+        for (let rowIdx = startRow; rowIdx < startRow + height; rowIdx++) {
+          const row = rowsRef.current[rowIdx];
+          if (!row) continue;
+
+          const rowData = selectedCols
+            .map((col) => {
+              const value = row[col.field];
+              if (!value || typeof value !== "object") return "";
+              return String(value.value ?? "");
+            })
+            .join("\t");
+          body.push(rowData);
+        }
+
+        return body.join("\n");
+      }
+
+      return "";
     },
     toJson: (selection) => {
-      if (selection.rows.length === 0) {
-        return [];
+      // Handle full row selections
+      if (selection.rows.length > 0) {
+        return selection.rows
+          .toArray()
+          .map((idx) => rowsRef.current[idx])
+          .filter(Boolean)
+          .map((row) => {
+            const jsonRow: Record<string, unknown> = {};
+            finalColumns.forEach((col) => {
+              const value = row?.[col.field];
+              if (value && typeof value === "object" && "value" in value) {
+                const cellValue = value.value;
+                jsonRow[col.field] =
+                  typeof cellValue === "bigint"
+                    ? cellValue.toString()
+                    : cellValue;
+              }
+            });
+            return jsonRow;
+          });
       }
-      return selection.rows
-        .toArray()
-        .map((idx) => rowsRef.current[idx])
-        .filter(Boolean)
-        .map((row) => {
+
+      // Handle cell-level selections (rectangular ranges)
+      if (selection.current?.range) {
+        const { range } = selection.current;
+        const { x: startCol, y: startRow, width, height } = range;
+
+        const selectedCols = finalColumns.slice(startCol, startCol + width);
+        const result: Record<string, unknown>[] = [];
+
+        for (let rowIdx = startRow; rowIdx < startRow + height; rowIdx++) {
+          const row = rowsRef.current[rowIdx];
+          if (!row) continue;
+
           const jsonRow: Record<string, unknown> = {};
-          finalColumns.forEach((col) => {
-            const value = row?.[col.field];
+          selectedCols.forEach((col) => {
+            const value = row[col.field];
             if (value && typeof value === "object" && "value" in value) {
               const cellValue = value.value;
               jsonRow[col.field] =
@@ -844,8 +933,13 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
                   : cellValue;
             }
           });
-          return jsonRow;
-        });
+          result.push(jsonRow);
+        }
+
+        return result;
+      }
+
+      return [];
     },
     onCopySuccess: (mode) => {
       toast(
@@ -1117,6 +1211,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           description: message,
         });
         return undefined;
+      } finally {
+        // Clear editing state when commit completes
+        setIsEditingCell(false);
       }
     },
     [
@@ -1131,6 +1228,16 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       getTableKey,
     ],
   );
+
+  // Handler: Cell edit start → Track editing state
+  const handleCellEditStart = useCallback(() => {
+    setIsEditingCell(true);
+  }, []);
+
+  // Handler: Cell edit cancel → Clear editing state
+  const handleCellEditCancel = useCallback(() => {
+    setIsEditingCell(false);
+  }, []);
 
   // Handler: Row append → Stage insert command
   const handleRowAppend = useCallback(
@@ -1147,6 +1254,20 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           finalColumns,
         );
         stageCommand(command);
+
+        // After staging the insert, focus on the first cell of the new row
+        // Use setTimeout to ensure the grid has re-rendered with the new row
+        setTimeout(() => {
+          if (
+            gridRef.current &&
+            finalColumns.length > 0 &&
+            "setFocus" in gridRef.current
+          ) {
+            // Inserted rows appear at index 0 (top)
+            // Set focus and open editor on the first column
+            (gridRef.current as any).setFocus([0, 0], true);
+          }
+        }, 50);
 
         return undefined;
       } catch (err) {
@@ -1203,22 +1324,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     ],
   );
 
-  const handleKeyDownCapture = useCallback(
-    (event: ReactKeyboardEvent<HTMLDivElement>) => {
-      if (!gridSelection) {
-        return;
-      }
-      const key = event.key.toLowerCase();
-      if (!(event.metaKey || event.ctrlKey) || key !== "c") {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      void copySelection(gridSelection, event.shiftKey ? "json" : "text");
-    },
-    [copySelection, gridSelection],
-  );
-
   useCommand(
     "dataGrid.action.copy",
     async () => {
@@ -1230,7 +1335,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     {
       label: "Copy Selection",
       category: "Data Grid",
-      when: "dataGridFocus && !selectionEmpty",
+      when: "dataGridFocus && !selectionEmpty && !editingCell",
     },
   );
 
@@ -1245,7 +1350,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     {
       label: "Copy Selection as JSON",
       category: "Data Grid",
-      when: "dataGridFocus && !selectionEmpty",
+      when: "dataGridFocus && !selectionEmpty && !editingCell",
     },
   );
 
@@ -1704,7 +1809,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   );
 
   const selectedRowCount = selectedRowsSet.size;
-  const hasSelection = selectedRowCount > 0;
+  // Check if there's any selection: full rows, columns, or cell ranges
+  const hasSelection =
+    selectedRowCount > 0 ||
+    (gridSelection?.rows && gridSelection.rows.length > 0) ||
+    (gridSelection?.columns && gridSelection.columns.length > 0) ||
+    gridSelection?.current !== undefined;
 
   useContextKey("selectionEmpty", !hasSelection, {
     scopeId,
@@ -1735,7 +1845,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         onFocusCapture={handleFocusCapture}
         onBlurCapture={handleBlurCapture}
         onPointerDown={handleFocusCapture}
-        onKeyDownCapture={handleKeyDownCapture}
       >
         <GridContextMenu
           selectedRows={selectedRows}
@@ -1780,9 +1889,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             columns={finalColumns}
             getCellContent={getCellContent}
             history={history}
-            onCellEditStart={undefined}
+            onCellEditStart={handleCellEditStart}
             onCellEditCommit={handleCellEditCommit}
-            onCellEditCancel={undefined}
+            onCellEditCancel={handleCellEditCancel}
             onRowAppend={handleRowAppend}
             onRowDelete={handleRowDelete}
             onPaste={undefined}

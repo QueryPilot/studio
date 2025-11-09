@@ -5,6 +5,10 @@ interface TextSingleLineCellData {
   value: string | null;
   nullable?: boolean;
   maxLength?: number;
+  // Column metadata for editor header display
+  columnName?: string;
+  isPrimaryKey?: boolean;
+  dbType?: string;
 }
 
 export interface TextSingleLineCustomCell extends CustomCell {

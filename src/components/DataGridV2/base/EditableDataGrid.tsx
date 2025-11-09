@@ -241,13 +241,14 @@ export const EditableDataGrid = forwardRef<
   );
 
   const handleFinishedEditing = useCallback(
-    (newValue: GridCell | undefined, _movement: Item) => {
+    (newValue: GridCell | undefined, movement: Item) => {
       const cell = editingCellRef.current;
       editingCellRef.current = null;
 
       console.log("🟡 handleFinishedEditing called:", {
         newValue,
         cell,
+        movement,
         hasNewValue: newValue !== undefined,
       });
 
@@ -256,6 +257,53 @@ export const EditableDataGrid = forwardRef<
         if (cell) {
           console.log("🟢 Calling handleCellEdited with:", { cell, newValue });
           handleCellEdited(cell, newValue);
+
+          // Handle movement (e.g., Tab to next cell with editor open)
+          if (Array.isArray(movement)) {
+            const [colOffset, rowOffset] = movement;
+            if (colOffset !== 0 || rowOffset !== 0) {
+              const [currentCol, currentRow] = cell;
+              const nextCol = currentCol + colOffset;
+              const nextRow = currentRow + rowOffset;
+
+              // Ensure the target cell is within bounds
+              if (
+                nextCol >= 0 &&
+                nextCol < columns.length &&
+                nextRow >= 0 &&
+                nextRow < rows.length
+              ) {
+                console.log("🔵 Moving to next cell and opening editor:", {
+                  from: cell,
+                  to: [nextCol, nextRow],
+                });
+
+                // Use setTimeout to allow the current edit to finish processing
+                setTimeout(() => {
+                  if (gridRef.current) {
+                    // First, set focus on the target cell
+                    (gridRef.current as any).setFocus([nextCol, nextRow]);
+
+                    // Then simulate Enter key to open the editor
+                    setTimeout(() => {
+                      // Find the grid scroller element
+                      const gridElement = document.querySelector(".dvn-scroller");
+                      if (gridElement) {
+                        const enterEvent = new KeyboardEvent("keydown", {
+                          key: "Enter",
+                          code: "Enter",
+                          keyCode: 13,
+                          bubbles: true,
+                          cancelable: true,
+                        });
+                        gridElement.dispatchEvent(enterEvent);
+                      }
+                    }, 10);
+                  }
+                }, 10);
+              }
+            }
+          }
         }
         return;
       }
@@ -266,7 +314,7 @@ export const EditableDataGrid = forwardRef<
       if (!coords) return;
       onCellEditCancel(coords);
     },
-    [getCoordinates, onCellEditCancel, handleCellEdited],
+    [getCoordinates, onCellEditCancel, handleCellEdited, columns.length, rows.length],
   );
 
   // Row append handler - exposed via ref for external button

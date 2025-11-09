@@ -843,12 +843,15 @@ export function ConnectionDialog({
             onValueChange={(v) => {
               setDbType(v as DatabaseType);
             }}
+            enableShortcuts={true}
+            tabGroupId="connection-db-type"
+            focused={open}
           >
             <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="postgresql">PostgreSQL</TabsTrigger>
-              <TabsTrigger value="mysql">MySQL</TabsTrigger>
-              <TabsTrigger value="sqlite">SQLite</TabsTrigger>
-              <TabsTrigger value="mssql">SQL Server</TabsTrigger>
+              <TabsTrigger value="postgresql" tabIndex={0}>PostgreSQL</TabsTrigger>
+              <TabsTrigger value="mysql" tabIndex={1}>MySQL</TabsTrigger>
+              <TabsTrigger value="sqlite" tabIndex={2}>SQLite</TabsTrigger>
+              <TabsTrigger value="mssql" tabIndex={3}>SQL Server</TabsTrigger>
             </TabsList>
 
             <TabsContent value={dbType} className="space-y-6 mt-6">

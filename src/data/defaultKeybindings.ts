@@ -173,4 +173,50 @@ export const defaultKeybindings: Keybinding[] = [
     command: 'workbench.action.reloadWindow',
     key: 'cmd+shift+r',
   },
+  // Tab Group Navigation (Cmd/Ctrl + 1-9)
+  {
+    command: 'tabs.switchToTab1',
+    key: 'cmd+1',
+    when: 'tabGroupFocused',
+  },
+  {
+    command: 'tabs.switchToTab2',
+    key: 'cmd+2',
+    when: 'tabGroupFocused',
+  },
+  {
+    command: 'tabs.switchToTab3',
+    key: 'cmd+3',
+    when: 'tabGroupFocused',
+  },
+  {
+    command: 'tabs.switchToTab4',
+    key: 'cmd+4',
+    when: 'tabGroupFocused',
+  },
+  {
+    command: 'tabs.switchToTab5',
+    key: 'cmd+5',
+    when: 'tabGroupFocused',
+  },
+  {
+    command: 'tabs.switchToTab6',
+    key: 'cmd+6',
+    when: 'tabGroupFocused',
+  },
+  {
+    command: 'tabs.switchToTab7',
+    key: 'cmd+7',
+    when: 'tabGroupFocused',
+  },
+  {
+    command: 'tabs.switchToTab8',
+    key: 'cmd+8',
+    when: 'tabGroupFocused',
+  },
+  {
+    command: 'tabs.switchToTab9',
+    key: 'cmd+9',
+    when: 'tabGroupFocused',
+  },
 ];

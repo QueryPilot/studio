@@ -8,6 +8,7 @@ import useWorkbenchStore from "@/stores/workbenchStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useTabStateStore } from "@/stores/tabStateStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
+import { tabGroupRegistry } from "@/services/tabGroupRegistry";
 //
 
 const commandPaletteStore = useCommandPaletteStore.getState();
@@ -375,6 +376,88 @@ export const defaultCommands: Command[] = [
     category: "Workbench",
     handler: () => {
       window.location.reload();
+    },
+  },
+  // Tab Group Navigation Commands (Cmd/Ctrl + 1-9)
+  {
+    id: "tabs.switchToTab1",
+    label: "Switch to Tab 1",
+    category: "Tabs",
+    when: "tabGroupFocused",
+    handler: () => {
+      tabGroupRegistry.switchToTab(0);
+    },
+  },
+  {
+    id: "tabs.switchToTab2",
+    label: "Switch to Tab 2",
+    category: "Tabs",
+    when: "tabGroupFocused",
+    handler: () => {
+      tabGroupRegistry.switchToTab(1);
+    },
+  },
+  {
+    id: "tabs.switchToTab3",
+    label: "Switch to Tab 3",
+    category: "Tabs",
+    when: "tabGroupFocused",
+    handler: () => {
+      tabGroupRegistry.switchToTab(2);
+    },
+  },
+  {
+    id: "tabs.switchToTab4",
+    label: "Switch to Tab 4",
+    category: "Tabs",
+    when: "tabGroupFocused",
+    handler: () => {
+      tabGroupRegistry.switchToTab(3);
+    },
+  },
+  {
+    id: "tabs.switchToTab5",
+    label: "Switch to Tab 5",
+    category: "Tabs",
+    when: "tabGroupFocused",
+    handler: () => {
+      tabGroupRegistry.switchToTab(4);
+    },
+  },
+  {
+    id: "tabs.switchToTab6",
+    label: "Switch to Tab 6",
+    category: "Tabs",
+    when: "tabGroupFocused",
+    handler: () => {
+      tabGroupRegistry.switchToTab(5);
+    },
+  },
+  {
+    id: "tabs.switchToTab7",
+    label: "Switch to Tab 7",
+    category: "Tabs",
+    when: "tabGroupFocused",
+    handler: () => {
+      tabGroupRegistry.switchToTab(6);
+    },
+  },
+  {
+    id: "tabs.switchToTab8",
+    label: "Switch to Tab 8",
+    category: "Tabs",
+    when: "tabGroupFocused",
+    handler: () => {
+      tabGroupRegistry.switchToTab(7);
+    },
+  },
+  {
+    id: "tabs.switchToTab9",
+    label: "Switch to Tab 9",
+    category: "Tabs",
+    when: "tabGroupFocused",
+    handler: () => {
+      tabGroupRegistry.switchToTab(8);
     },
   },
 ];

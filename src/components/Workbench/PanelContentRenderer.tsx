@@ -55,6 +55,8 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
     const activeConnectionId = useConnectionStore(
       (state) => state.activeConnectionId,
     );
+    const focusedPanelId = useWorkbenchStore((state) => state.focusedPanelId);
+    const isPanelFocused = focusedPanelId === panelId;
     const type = metadata?.type || "table";
     const [activeView, setActiveView] = useState(metadata?.viewType || "data");
     const definitionRef = useRef<string>("");
@@ -180,11 +182,18 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
           {/* Table Toolbar */}
           <div className="flex-none py-1 bg-background">
             <div className="flex items-center justify-between px-1 h-full">
-              <Tabs value={activeView} onValueChange={setActiveView}>
+              <Tabs
+                value={activeView}
+                onValueChange={setActiveView}
+                enableShortcuts={true}
+                tabGroupId={`table-views-${tabId}`}
+                focused={isPanelFocused}
+              >
                 <TabsList className="p-0.5">
                   <TabsTrigger
                     value="data"
-                    className="flex items-center gap-1 text-xs px-2"
+                    className="!flex items-center gap-1 text-xs px-2"
+                    tabIndex={0}
                   >
                     <Table className="h-3 w-3" />
                     <span>Data</span>
@@ -192,6 +201,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                   <TabsTrigger
                     value="structure"
                     className="flex items-center gap-1 text-xs px-2"
+                    tabIndex={1}
                   >
                     <Bolt className="h-3 w-3" />
                     <span>Structure</span>
@@ -202,6 +212,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                     <TabsTrigger
                       value="definition"
                       className="flex items-center gap-1 text-xs px-2"
+                      tabIndex={2}
                     >
                       <Code className="h-3 w-3" />
                       <span>Definition</span>
@@ -214,6 +225,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                       <TabsTrigger
                         value="indexes"
                         className="flex items-center gap-1 text-xs px-2"
+                        tabIndex={2}
                       >
                         <BookMarked className="h-3 w-3" />
                         <span>Indexes</span>
@@ -221,6 +233,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                       <TabsTrigger
                         value="triggers"
                         className="flex items-center gap-1 text-xs px-2"
+                        tabIndex={3}
                       >
                         <Zap className="h-3 w-3" />
                         <span>Triggers</span>
@@ -228,6 +241,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                       <TabsTrigger
                         value="definition"
                         className="flex items-center gap-1 text-xs px-2"
+                        tabIndex={4}
                       >
                         <Code className="h-3 w-3" />
                         <span>Definition</span>
@@ -240,6 +254,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                     <TabsTrigger
                       value="indexes"
                       className="flex items-center gap-1 text-xs px-2"
+                      tabIndex={2}
                     >
                       <BookMarked className="h-3 w-3" />
                       <span>Indexes</span>
@@ -251,6 +266,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                     <TabsTrigger
                       value="definition"
                       className="flex items-center gap-1 text-xs px-2"
+                      tabIndex={3}
                     >
                       <Code className="h-3 w-3" />
                       Definition

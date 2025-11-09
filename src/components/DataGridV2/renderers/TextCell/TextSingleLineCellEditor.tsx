@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import type { TextSingleLineCustomCell } from "./types";
 import { Button } from "@/components/ui/button";
-import { Trash2 } from "lucide-react";
+import { Trash2, Key } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
@@ -21,10 +21,15 @@ export const TextSingleLineCellEditor: React.FC<
   const finishedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Extract column metadata for header
+  const { columnName, isPrimaryKey, dbType } = value.data;
+
   useEffect(() => {
     if (inputRef.current) {
       inputRef.current.focus();
-      inputRef.current.select();
+      // Move cursor to end instead of selecting all
+      const length = inputRef.current.value.length;
+      inputRef.current.setSelectionRange(length, length);
     }
   }, []);
 
@@ -77,7 +82,23 @@ export const TextSingleLineCellEditor: React.FC<
         ? [-1, 0]
         : [1, 0];
       finishedRef.current = true;
-      onFinishedEditing(value, movement);
+
+      // Commit the current text value before moving
+      const trimmed = text.trim();
+      const committedValue: string | null = !trimmed && value.data.nullable ? null : (trimmed || text);
+
+      const newCell: TextSingleLineCustomCell = {
+        kind: value.kind,
+        data: {
+          ...value.data,
+          value: committedValue,
+        },
+        copyData: committedValue ?? "NULL",
+        allowOverlay: value.allowOverlay,
+        readonly: value.readonly,
+      };
+
+      onFinishedEditing(newCell, movement);
     }
   };
 
@@ -90,33 +111,51 @@ export const TextSingleLineCellEditor: React.FC<
   };
 
   return (
-    <div className="w-full h-full flex items-center relative click-outside-ignore z-50">
-      <input
-        ref={inputRef}
-        type="text"
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value);
-        }}
-        onKeyDown={handleKeyDown}
-        maxLength={value.data.maxLength}
-        className={cn(
-          "h-8 w-full bg-transparent py-1 px-2 text-xs outline-none",
-          !value.data.value ? "italic text-muted-foreground" : "",
-          { "pr-8": value.data.nullable },
+    <div className="w-full h-full flex flex-col relative click-outside-ignore z-50">
+      {/* Header with column info */}
+      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
+        {isPrimaryKey && (
+          <Key className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
         )}
-        placeholder={value.data.nullable ? "NULL" : ""}
-      />
-      {value.data.nullable && (
-        <Button
-          variant="ghost"
-          className="h-5 w-5 p-0 absolute right-2 top-1/2 -translate-y-1/2"
-          onClick={handleClear}
-          title="Clear (NULL)"
-        >
-          <Trash2 className="h-3 w-3" />
-        </Button>
-      )}
+        <span className="text-[10px] font-medium text-foreground/80">
+          {columnName}
+        </span>
+        {dbType && (
+          <span className="text-[9px] text-muted-foreground ml-auto">
+            {dbType}
+          </span>
+        )}
+      </div>
+
+      {/* Input field */}
+      <div className="flex items-center flex-1 relative">
+        <input
+          ref={inputRef}
+          type="text"
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+          }}
+          onKeyDown={handleKeyDown}
+          maxLength={value.data.maxLength}
+          className={cn(
+            "h-full w-full bg-transparent py-1 px-2 text-xs outline-none",
+            !value.data.value ? "italic text-muted-foreground" : "",
+            { "pr-8": value.data.nullable },
+          )}
+          placeholder={value.data.nullable ? "NULL" : ""}
+        />
+        {value.data.nullable && (
+          <Button
+            variant="ghost"
+            className="h-5 w-5 p-0 absolute right-2 top-1/2 -translate-y-1/2"
+            onClick={handleClear}
+            title="Clear (NULL)"
+          >
+            <Trash2 className="h-3 w-3" />
+          </Button>
+        )}
+      </div>
     </div>
   );
 };

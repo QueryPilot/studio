@@ -16,7 +16,6 @@ import {
   useEdgesState,
   useNodesState,
   EdgeLabelRenderer,
-  
   type EdgeProps,
   type Node,
   type NodeChange,
@@ -274,7 +273,9 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
       <div className="overflow-auto px-1.5 py-1">
         <ul className="space-y-0">
           {columns.map((column) => {
-            const { type, constraints } = formatColumnType(column as ColumnMeta);
+            const { type, constraints } = formatColumnType(
+              column as ColumnMeta,
+            );
             return (
               <Tooltip key={column.name} delayDuration={200}>
                 <TooltipTrigger asChild>
@@ -342,7 +343,11 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
                     <Handle
                       type="target"
                       position={Position.Right}
-                      id={makeHandleId(column.name as string, "target", "right")}
+                      id={makeHandleId(
+                        column.name as string,
+                        "target",
+                        "right",
+                      )}
                       className="absolute right-0 top-1/2 opacity-0 group-hover:opacity-100"
                       style={{
                         width: 8,
@@ -356,7 +361,11 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
                     <Handle
                       type="source"
                       position={Position.Right}
-                      id={makeHandleId(column.name as string, "source", "right")}
+                      id={makeHandleId(
+                        column.name as string,
+                        "source",
+                        "right",
+                      )}
                       className="absolute right-0 top-1/2 opacity-0 group-hover:opacity-100"
                       style={{
                         width: 8,
@@ -618,38 +627,44 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
       />
 
       {/* Cardinality indicators only show when line is hovered or highlighted */}
-      {edgeData?.sourceCardinality && (edgeData.isHovered || edgeData.highlighted) && (
-        <EdgeLabelRenderer>
-          <div
-            style={{
-              position: "absolute",
-              transform: `translate(-50%, -50%) translate(${startLabelX}px, ${startLabelY}px)`,
-              pointerEvents: "none",
-              opacity: edgeData.isHovered || edgeData.highlighted ? 1 : 0,
-              transition: "opacity 150ms ease-in-out",
-            }}
-            className="text-xs font-bold text-primary bg-background rounded-full w-6 h-6 flex items-center justify-center shadow-sm border border-primary/40"
-          >
-            {edgeData.sourceCardinality === "n" ? "N" : edgeData.sourceCardinality}
-          </div>
-        </EdgeLabelRenderer>
-      )}
-      {edgeData?.targetCardinality && (edgeData.isHovered || edgeData.highlighted) && (
-        <EdgeLabelRenderer>
-          <div
-            style={{
-              position: "absolute",
-              transform: `translate(-50%, -50%) translate(${endLabelX}px, ${endLabelY}px)`,
-              pointerEvents: "none",
-              opacity: edgeData.isHovered || edgeData.highlighted ? 1 : 0,
-              transition: "opacity 150ms ease-in-out",
-            }}
-            className="text-xs font-bold text-primary bg-background rounded-full w-6 h-6 flex items-center justify-center shadow-sm border border-primary/40"
-          >
-            {edgeData.targetCardinality === "n" ? "N" : edgeData.targetCardinality}
-          </div>
-        </EdgeLabelRenderer>
-      )}
+      {edgeData?.sourceCardinality &&
+        (edgeData.isHovered || edgeData.highlighted) && (
+          <EdgeLabelRenderer>
+            <div
+              style={{
+                position: "absolute",
+                transform: `translate(-50%, -50%) translate(${startLabelX}px, ${startLabelY}px)`,
+                pointerEvents: "none",
+                opacity: edgeData.isHovered || edgeData.highlighted ? 1 : 0,
+                transition: "opacity 150ms ease-in-out",
+              }}
+              className="text-xs font-bold text-primary bg-background rounded-full w-6 h-6 flex items-center justify-center shadow-sm border border-primary/40"
+            >
+              {edgeData.sourceCardinality === "n"
+                ? "N"
+                : edgeData.sourceCardinality}
+            </div>
+          </EdgeLabelRenderer>
+        )}
+      {edgeData?.targetCardinality &&
+        (edgeData.isHovered || edgeData.highlighted) && (
+          <EdgeLabelRenderer>
+            <div
+              style={{
+                position: "absolute",
+                transform: `translate(-50%, -50%) translate(${endLabelX}px, ${endLabelY}px)`,
+                pointerEvents: "none",
+                opacity: edgeData.isHovered || edgeData.highlighted ? 1 : 0,
+                transition: "opacity 150ms ease-in-out",
+              }}
+              className="text-xs font-bold text-primary bg-background rounded-full w-6 h-6 flex items-center justify-center shadow-sm border border-primary/40"
+            >
+              {edgeData.targetCardinality === "n"
+                ? "N"
+                : edgeData.targetCardinality}
+            </div>
+          </EdgeLabelRenderer>
+        )}
 
       {edgeData?.label && edgeData.isHovered && (
         <EdgeLabelRenderer>
@@ -664,7 +679,8 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
             {edgeData.label}
             {/* Show relationship type in label when highlighted */}
             <span className="ml-1 text-xs text-muted-foreground">
-              ({edgeData.sourceCardinality || "1"}:{edgeData.targetCardinality || "1"})
+              ({edgeData.sourceCardinality || "1"}:
+              {edgeData.targetCardinality || "1"})
             </span>
           </div>
         </EdgeLabelRenderer>
@@ -823,9 +839,11 @@ export const ERDVisualizer = React.forwardRef<
           }
 
           const sourceX =
-            ((sourceNode.position.x as number | undefined) ?? 0) + (((sourceNode.width as number | undefined) ?? NODE_WIDTH) / 2);
+            ((sourceNode.position.x as number | undefined) ?? 0) +
+            ((sourceNode.width as number | undefined) ?? NODE_WIDTH) / 2;
           const targetX =
-            ((targetNode.position.x as number | undefined) ?? 0) + (((targetNode.width as number | undefined) ?? NODE_WIDTH) / 2);
+            ((targetNode.position.x as number | undefined) ?? 0) +
+            ((targetNode.width as number | undefined) ?? NODE_WIDTH) / 2;
 
           // Calculate which sides would give the shortest connection
           const isTargetToTheRight = targetX > sourceX;
@@ -1222,7 +1240,7 @@ export const ERDVisualizer = React.forwardRef<
           edgeTypes={edgeTypes as any}
           fitView
           minZoom={0.1}
-          maxZoom={2}
+          maxZoom={1.5}
           nodesDraggable={true}
           nodesConnectable={false}
           elementsSelectable={true}
