@@ -5,7 +5,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Check, X, Undo2, Redo2, GitCommit } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { useCrudStore } from "@/stores/crudStore";
 import { GlobalChangesModal } from "@/components/GlobalChangesModal";
 
@@ -23,19 +23,12 @@ export function StagingActionsToolbar(props: StagingActionsToolbarProps) {
     stagedCommands,
     getTableKey,
     discardChanges,
-    undo,
-    redo,
-    historyIndex,
-    history,
   } = useCrudStore();
 
   const [showCommitPreview, setShowCommitPreview] = useState(false);
 
   const tableKey = getTableKey({ connectionId, database, schema, table });
   const commands = stagedCommands.get(tableKey) ?? [];
-
-  const canUndo = historyIndex > 0;
-  const canRedo = historyIndex < history.length - 1;
 
   const handleDiscard = () => {
     discardChanges(tableKey);
@@ -52,53 +45,7 @@ export function StagingActionsToolbar(props: StagingActionsToolbarProps) {
 
   return (
     <div className="flex items-center gap-1">
-      {/* Pending Changes Badge */}
-      <div className="flex items-center gap-1.5 mr-1 px-2 py-0.5 rounded-md bg-primary/10">
-        <GitCommit className="h-3 w-3 text-primary" />
-        <span className="text-xs font-medium text-primary">
-          {commands.length} {commands.length === 1 ? "change" : "changes"}
-        </span>
-      </div>
-
-      {/* Undo */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0"
-            onClick={undo}
-            disabled={!canUndo}
-          >
-            <Undo2 className="h-3 w-3" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          <p className="text-xs">Undo (Cmd+Z)</p>
-        </TooltipContent>
-      </Tooltip>
-
-      {/* Redo */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0"
-            onClick={redo}
-            disabled={!canRedo}
-          >
-            <Redo2 className="h-3 w-3" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          <p className="text-xs">Redo (Cmd+Shift+Z)</p>
-        </TooltipContent>
-      </Tooltip>
-
-      <div className="h-4 w-px bg-border mx-1" />
-
-      {/* Commit */}
+      {/* Commit with count */}
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
@@ -108,11 +55,14 @@ export function StagingActionsToolbar(props: StagingActionsToolbarProps) {
             onClick={handleOpenCommitPreview}
           >
             <Check className="h-3 w-3 mr-1" />
-            Commit
+            Commit ({commands.length})
           </Button>
         </TooltipTrigger>
         <TooltipContent>
-          <p className="text-xs">Review and commit changes</p>
+          <p className="text-xs">
+            Review and commit {commands.length}{" "}
+            {commands.length === 1 ? "change" : "changes"}
+          </p>
         </TooltipContent>
       </Tooltip>
 

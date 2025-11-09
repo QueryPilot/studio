@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import ReactDiffViewer from "react-diff-viewer-continued";
+import { useTheme } from "next-themes";
 
 interface GlobalChangesModalProps {
   connectionId: string;
@@ -386,6 +387,8 @@ interface RowChangesCardProps {
 }
 
 function RowChangesCard({ row }: RowChangesCardProps) {
+  const { theme, resolvedTheme } = useTheme();
+
   // Determine the operation type (insert, update, delete)
   const hasInsert = row.commands.some((cmd) => cmd.type === "data.insert");
   const hasDelete = row.commands.some((cmd) => cmd.type === "data.delete");
@@ -545,10 +548,7 @@ function RowChangesCard({ row }: RowChangesCardProps) {
           splitView={true}
           hideLineNumbers={true}
           showDiffOnly={false}
-          useDarkTheme={
-            document.documentElement.classList.contains("dark") ||
-            window.matchMedia("(prefers-color-scheme: dark)").matches
-          }
+          useDarkTheme={resolvedTheme === "dark"}
           styles={{
             variables: {
               light: {

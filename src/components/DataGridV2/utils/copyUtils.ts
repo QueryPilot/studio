@@ -76,6 +76,7 @@ export function copyAsTSV(
 
 /**
  * Generate SQL INSERT statement based on database type
+ * Uses single INSERT with multiple VALUES clauses: INSERT INTO ... VALUES (...), (...), (...)
  */
 export function copyAsInsert(
   rows: GridRowModel[],
@@ -95,7 +96,8 @@ export function copyAsInsert(
     .map((col) => quoteIdentifier(col.field))
     .join(", ");
 
-  const statements = rows.map((row) => {
+  // Generate all value sets
+  const valueSets = rows.map((row) => {
     const values = columns.map((col) => {
       const cellValue = row[col.field];
       const value =
@@ -105,12 +107,11 @@ export function copyAsInsert(
       return formatSQLValue(value, dbType);
     });
 
-    return `INSERT INTO ${fullTableName} (${columnNames}) VALUES (${values.join(
-      ", ",
-    )});`;
+    return `  (${values.join(", ")})`;
   });
 
-  return statements.join("\n");
+  // Single INSERT statement with multiple VALUES
+  return `INSERT INTO ${fullTableName} (${columnNames})\nVALUES\n${valueSets.join(",\n")};`;
 }
 
 /**
