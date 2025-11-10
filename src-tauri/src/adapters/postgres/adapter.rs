@@ -87,7 +87,7 @@ impl PostgresAdapter {
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
-        let mut client = pool
+        let client = pool
             .get()
             .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;

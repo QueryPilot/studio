@@ -93,7 +93,7 @@ mod cell_value_tests {
     #[test]
     fn test_timestamp_formatting() {
         // Test valid timestamp (Jan 1, 2024, 00:00:00 UTC)
-        let micros = 1704067200_000000i64; // 2024-01-01 00:00:00 UTC
+        let micros = 1_704_067_200_000_000_i64; // 2024-01-01 00:00:00 UTC
         let cell = CellValue::Timestamp(micros);
         let formatted = cell.to_string();
         assert!(formatted.contains("2024-01-01"));

@@ -76,7 +76,7 @@ fn test_hashmap_operations() {
 
 #[test]
 fn test_iterator_operations() {
-    let numbers = vec![1, 2, 3, 4, 5];
+    let numbers = [1, 2, 3, 4, 5];
 
     let sum: i32 = numbers.iter().sum();
     assert_eq!(sum, 15);

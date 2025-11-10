@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed Tauri build script validation error by building frontend (dist directory) before running Rust tests in CI
 - Fixed macOS DMG bundling failure by installing create-dmg tool on macOS runners
 - Fixed Linux AppImage bundling failure by installing libfuse2 for linuxdeploy
+- Fixed Rust clippy linting errors (unused imports, inconsistent digit grouping, redundant field names, useless vec!)
 
 ## [0.2.0] - 2025-11-10
 ### Added

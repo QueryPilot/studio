@@ -157,7 +157,7 @@ async fn test_connection_with_options() {
         ssl_mode: None,
         ssl_config: None,
         ssh_tunnel: None,
-        options: options,
+        options,
     };
 
     let _result = manager.get_or_create_connection(&profile).await;
@@ -312,7 +312,7 @@ async fn test_connection_id_uniqueness() {
 async fn test_connection_color_codes() {
     let manager = ConnectionManager::new();
 
-    let colors = vec!["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6"];
+    let colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6"];
 
     for i in 0..colors.len() {
         let profile = ConnectionProfile {

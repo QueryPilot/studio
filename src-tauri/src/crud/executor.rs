@@ -126,8 +126,6 @@ async fn execute_postgres_transaction(
     transaction_id: String,
     start_time: Instant,
 ) -> Result<TransactionResult> {
-    use crate::adapters::postgres::adapter::PostgresAdapter;
-
     let mut committed = Vec::new();
     let mut id_mappings = HashMap::new();
     let mut warnings = Vec::new();
