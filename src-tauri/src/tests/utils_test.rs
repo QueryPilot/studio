@@ -42,7 +42,10 @@ fn test_option_handling() {
 
     assert!(none_value.is_none());
     assert!(!none_value.is_some());
-    assert_eq!(none_value.unwrap_or(0), 0);
+
+    // Test unwrap_or with a function that might return None
+    let get_default = || -> Option<i32> { None };
+    assert_eq!(get_default().unwrap_or(0), 0);
 }
 
 #[test]

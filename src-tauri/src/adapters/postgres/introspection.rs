@@ -787,7 +787,7 @@ impl PostgresIntrospector {
                 let quoted_indexdef = quote_index_definition(&indexdef);
                 definition.push_str(&format!("{};\n", quoted_indexdef));
             }
-            definition.push_str("\n");
+            definition.push('\n');
         }
 
         // Get constraints
@@ -815,7 +815,7 @@ impl PostgresIntrospector {
                     schema, table_name, conname, condef
                 ));
             }
-            definition.push_str("\n");
+            definition.push('\n');
         }
 
         // Get custom type definitions used by this table

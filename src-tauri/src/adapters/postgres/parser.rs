@@ -273,7 +273,7 @@ impl PostgresTypeParser {
         let trimmed = input.trim();
 
         // Remove currency symbol and commas
-        let cleaned = trimmed.replace('$', "").replace(',', "");
+        let cleaned: String = trimmed.chars().filter(|c| *c != '$' && *c != ',').collect();
 
         let amount = cleaned
             .parse::<f64>()

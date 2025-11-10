@@ -809,7 +809,7 @@ mod tests {
     fn converts_timetz() {
         let mut raw = [0u8; 12];
         // 01:02:03.500000
-        let micros: i64 = (1 * 3600 + 2 * 60 + 3) * 1_000_000 + 500_000;
+        let micros: i64 = (3600 + 2 * 60 + 3) * 1_000_000 + 500_000;
         raw[..8].copy_from_slice(&micros.to_be_bytes());
         // UTC+02:00 (stored as seconds west of UTC, so -7200)
         let offset = (-7200i32).to_be_bytes();
