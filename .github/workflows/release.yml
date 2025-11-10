@@ -3,20 +3,20 @@ name: Release Build
 on:
   push:
     tags:
-      - 'v*.*.*'  # Trigger on version tags like v1.0.0
-  workflow_dispatch:  # Allow manual triggering
+      - "v*.*.*" # Trigger on version tags like v1.0.0
+  workflow_dispatch: # Allow manual triggering
     inputs:
       tag:
-        description: 'Release tag (e.g., v1.0.0)'
+        description: "Release tag (e.g., v1.0.0)"
         required: true
         type: string
 
 permissions:
-  contents: write  # Required for creating releases
+  contents: write # Required for creating releases
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false  # Don't cancel release builds
+  cancel-in-progress: false # Don't cancel release builds
 
 jobs:
   create-release:
@@ -101,7 +101,7 @@ jobs:
             target: aarch64-apple-darwin
             arch: aarch64
 
-          - os: macos-13  # Intel Mac
+          - os: macos-13 # Intel Mac
             platform: macos
             target: x86_64-apple-darwin
             arch: x86_64
@@ -166,7 +166,7 @@ jobs:
           bun-version: latest
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install
 
       - name: Build AI sidecar
         run: |
