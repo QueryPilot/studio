@@ -23,10 +23,12 @@ jobs:
     name: Create Release
     runs-on: ubuntu-latest
     outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
       version: ${{ steps.get_version.outputs.version }}
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Get version from tag
         id: get_version
         run: |
@@ -39,47 +41,50 @@ jobs:
           echo "Building version: $VERSION"
 
       - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ steps.get_version.outputs.version }}
-          release_name: Query Pilot ${{ steps.get_version.outputs.version }}
-          draft: true  # Create as draft for review
-          prerelease: ${{ contains(steps.get_version.outputs.version, 'beta') || contains(steps.get_version.outputs.version, 'alpha') }}
-          body: |
-            ## 🚀 Query Pilot ${{ steps.get_version.outputs.version }}
+          VERSION: ${{ steps.get_version.outputs.version }}
+        run: |
+          PRERELEASE=""
+          if [[ "$VERSION" == *"alpha"* ]] || [[ "$VERSION" == *"beta"* ]]; then
+            PRERELEASE="--prerelease"
+          fi
 
-            ### What's New
-            <!-- Add release notes here -->
+          gh release create "$VERSION" \
+            --draft \
+            $PRERELEASE \
+            --title "Query Pilot $VERSION" \
+            --notes "## 🚀 Query Pilot $VERSION
 
-            ### 📦 Installation
+          ### What's New
+          <!-- Add release notes here -->
 
-            **macOS (Apple Silicon)**
-            - Download `Query-Pilot_aarch64.dmg`
-            - Open and drag to Applications
+          ### 📦 Installation
 
-            **macOS (Intel)**
-            - Download `Query-Pilot_x86_64.dmg`
-            - Open and drag to Applications
+          **macOS (Apple Silicon)**
+          - Download \`Query-Pilot_aarch64.dmg\`
+          - Open and drag to Applications
 
-            **Windows**
-            - Download `Query-Pilot_x64_setup.exe`
-            - Run installer
+          **macOS (Intel)**
+          - Download \`Query-Pilot_x86_64.dmg\`
+          - Open and drag to Applications
 
-            **Linux**
-            - Download `Query-Pilot_amd64.AppImage`
-            - Make executable: `chmod +x Query-Pilot_amd64.AppImage`
-            - Run: `./Query-Pilot_amd64.AppImage`
+          **Windows**
+          - Download \`Query-Pilot_x64_setup.exe\`
+          - Run installer
 
-            ### ⚠️ Code Signing
-            - **macOS**: Self-signed (you may need to allow in System Preferences > Security)
-            - **Windows**: Self-signed (SmartScreen warning expected on first run)
-            - **Linux**: No signature required
+          **Linux**
+          - Download \`Query-Pilot_amd64.AppImage\`
+          - Make executable: \`chmod +x Query-Pilot_amd64.AppImage\`
+          - Run: \`./Query-Pilot_amd64.AppImage\`
 
-            ### 📝 Full Changelog
-            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md)
+          ### ⚠️ Code Signing
+          - **macOS**: Self-signed (you may need to allow in System Preferences > Security)
+          - **Windows**: Self-signed (SmartScreen warning expected on first run)
+          - **Linux**: No signature required
+
+          ### 📝 Full Changelog
+          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md)"
 
   build-release:
     name: Build (${{ matrix.platform }})
