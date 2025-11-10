@@ -119,6 +119,7 @@ jobs:
       - name: Build Tauri app
         env:
           NODE_OPTIONS: --max-old-space-size=4096
+          APPIMAGE_EXTRACT_AND_RUN: 1
         run: pnpm tauri:build
 
       - name: Build Summary
