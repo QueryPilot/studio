@@ -76,6 +76,12 @@ jobs:
 
           echo "✅ Sidecar built successfully"
 
+      # Build frontend (required by Tauri build script)
+      - name: Build frontend
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: pnpm build
+
       # Frontend coverage
       - name: Run frontend tests with coverage
         run: pnpm test:coverage
