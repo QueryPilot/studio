@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed "Load PostgreSQL Dev" and "Emergency Clear All" buttons from main screen
 
 ### Fixed
-- N/A
+- Fixed pnpm version mismatch in GitHub Actions workflows (now uses packageManager field from package.json)
 
 ## [0.2.0] - 2025-11-10
 ### Added
