@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import type { TextMultiLineCustomCell } from "./types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
-import { Trash2 } from "lucide-react";
+import { Trash2, Key } from "lucide-react";
 import { computeArrayStringsFromText } from "../../utils/arrayFormat";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
@@ -27,6 +27,9 @@ export const TextMultiLineCellEditor: React.FC<
     width: 400,
     height: 100, // Start with minimum height
   });
+
+  // Extract column metadata for header
+  const { columnName, isPrimaryKey, dbType } = value.data;
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -228,6 +231,21 @@ export const TextMultiLineCellEditor: React.FC<
         position: "relative",
       }}
     >
+      {/* Header with column info */}
+      <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50">
+        {isPrimaryKey && (
+          <Key className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
+        )}
+        <span className="text-[10px] font-medium text-foreground/80">
+          {columnName}
+        </span>
+        {dbType && (
+          <span className="text-[9px] text-muted-foreground ml-auto">
+            {dbType}
+          </span>
+        )}
+      </div>
+
       <div className="flex-1 overflow-hidden p-2">
         <textarea
           ref={textareaRef}

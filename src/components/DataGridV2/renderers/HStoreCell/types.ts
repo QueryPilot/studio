@@ -4,6 +4,10 @@ interface HStoreCellData {
   kind: "hstore-cell";
   value: string | null;
   nullable?: boolean;
+  // Column metadata for editor header display
+  columnName?: string;
+  isPrimaryKey?: boolean;
+  dbType?: string;
 }
 
 export interface HStoreCustomCell extends CustomCell {

@@ -6,6 +6,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Key } from "lucide-react";
 import type { EnumCustomCell } from "./types";
 import { cn } from "@/lib/cn";
 
@@ -30,6 +31,9 @@ export const EnumCellEditor: React.FC<EnumCellEditorProps> = ({
 
   const [open, setOpen] = useState(false);
   const finishedRef = useRef(false);
+
+  // Extract column metadata for header
+  const { columnName, isPrimaryKey, dbType } = value.data;
 
   // Auto-open the dropdown when editor mounts (double-click activated)
   useEffect(() => {
@@ -105,41 +109,59 @@ export const EnumCellEditor: React.FC<EnumCellEditorProps> = ({
   const currentValue = initialValue ?? "NULL";
 
   return (
-    <div
-      className="w-full h-full flex items-center click-outside-ignore"
-      onKeyDown={handleKeyDown}
-    >
-      <Select
-        value={currentValue}
-        onValueChange={handleValueChange}
-        open={open}
-        onOpenChange={handleOpenChange}
+    <div className="w-full h-full flex flex-col relative click-outside-ignore z-50">
+      {/* Header with column info */}
+      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
+        {isPrimaryKey && (
+          <Key className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
+        )}
+        <span className="text-[10px] font-medium text-foreground/80">
+          {columnName}
+        </span>
+        {dbType && (
+          <span className="text-[9px] text-muted-foreground ml-auto">
+            {dbType}
+          </span>
+        )}
+      </div>
+
+      {/* Select dropdown */}
+      <div
+        className="flex items-center flex-1 px-2"
+        onKeyDown={handleKeyDown}
       >
-        <SelectTrigger
-          size="sm"
-          className="!text-xs border-0 focus:ring-0 focus:ring-offset-0 bg-transparent w-full shadow-none"
+        <Select
+          value={currentValue}
+          onValueChange={handleValueChange}
+          open={open}
+          onOpenChange={handleOpenChange}
         >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent className="max-h-[300px] click-outside-ignore z-50">
-          {options.map((option) => (
-            <SelectItem
-              key={option}
-              value={option}
-              className={cn(
-                option === "NULL" ? "text-muted-foreground" : "",
-                "text-xs outline-none ring-0",
-              )}
-            >
-              {option === "NULL" ? (
-                <span className="text-muted-foreground">NULL</span>
-              ) : (
-                <span>{option}</span>
-              )}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+          <SelectTrigger
+            size="sm"
+            className="!text-xs border-0 focus:ring-0 focus:ring-offset-0 bg-transparent w-full shadow-none"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="max-h-[300px] click-outside-ignore z-50">
+            {options.map((option) => (
+              <SelectItem
+                key={option}
+                value={option}
+                className={cn(
+                  option === "NULL" ? "text-muted-foreground" : "",
+                  "text-xs outline-none ring-0",
+                )}
+              >
+                {option === "NULL" ? (
+                  <span className="text-muted-foreground">NULL</span>
+                ) : (
+                  <span>{option}</span>
+                )}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
     </div>
   );
 };

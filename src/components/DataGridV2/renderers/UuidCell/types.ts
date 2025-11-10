@@ -4,6 +4,10 @@ interface UuidCellData {
   value: string | null;
   nullable?: boolean;
   isValid?: boolean;
+  // Column metadata for editor header display
+  columnName?: string;
+  isPrimaryKey?: boolean;
+  dbType?: string;
 }
 
 export interface UuidCustomCell extends CustomCell {

@@ -6,7 +6,7 @@ import React, {
   useState,
 } from "react";
 import { Button } from "@/components/ui/button";
-import { Trash2 } from "lucide-react";
+import { Trash2, Key } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { HStoreCustomCell } from "./types";
 import { hstoreToEditorText, normalizeHstoreEditorText } from "./hstoreFormat";
@@ -25,6 +25,7 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
   onFinishedEditing,
 }) => {
   const nullable = Boolean(value.data.nullable);
+  const { columnName, isPrimaryKey, dbType } = value.data;
   const initial = useMemo(
     () => hstoreToEditorText(value.data.value),
     [value.data.value],
@@ -123,27 +124,44 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
   useCommitOnUnmount(finishedRef, commitCurrentText);
 
   return (
-    <div className="w-full h-full flex flex-col gap-2 p-2 click-outside-ignore">
-      <textarea
-        ref={textareaRef}
-        value={text}
-        autoComplete="off"
-        autoCorrect="off"
-        spellCheck={false}
-        onChange={(e) => {
-          setText(e.target.value);
-        }}
-        onKeyDown={handleKeyDown}
-        className={cn(
-          "flex-1 min-h-[120px] w-full resize-none bg-transparent text-xs font-mono leading-5 outline-none",
-          text.trim().length === 0 ? "italic text-muted-foreground" : "",
+    <div className="w-full h-full flex flex-col click-outside-ignore">
+      {/* Header with column info */}
+      <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50">
+        {isPrimaryKey && (
+          <Key className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
         )}
-        placeholder={
-          nullable
-            ? `"key"=>"value",\n"another"=>"next",`
-            : `"key"=>"value",\n"another"=>"next",`
-        }
-      />
+        <span className="text-[10px] font-medium text-foreground/80">
+          {columnName}
+        </span>
+        {dbType && (
+          <span className="text-[9px] text-muted-foreground ml-auto">
+            {dbType}
+          </span>
+        )}
+      </div>
+
+      {/* Editor content */}
+      <div className="flex-1 flex flex-col gap-2 p-2">
+        <textarea
+          ref={textareaRef}
+          value={text}
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          onChange={(e) => {
+            setText(e.target.value);
+          }}
+          onKeyDown={handleKeyDown}
+          className={cn(
+            "flex-1 min-h-[120px] w-full resize-none bg-transparent text-xs font-mono leading-5 outline-none",
+            text.trim().length === 0 ? "italic text-muted-foreground" : "",
+          )}
+          placeholder={
+            nullable
+              ? `"key"=>"value",\n"another"=>"next",`
+              : `"key"=>"value",\n"another"=>"next",`
+          }
+        />
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <div className="flex flex-col gap-0.5">
           <span>Enter to save · Shift+Enter for newline · Esc to cancel</span>
@@ -185,6 +203,7 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
             Save
           </Button>
         </div>
+      </div>
       </div>
     </div>
   );

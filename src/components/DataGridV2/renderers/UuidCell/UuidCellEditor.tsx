@@ -16,7 +16,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { XIcon, RefreshCcw } from "lucide-react";
+import { XIcon, RefreshCcw, Key } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
@@ -56,6 +56,9 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
   );
   const finishedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Extract column metadata for header
+  const { columnName, isPrimaryKey, dbType } = value.data;
 
   useEffect(() => {
     if (inputRef.current) {
@@ -166,69 +169,87 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
   useCommitOnUnmount(finishedRef, commitCurrentText);
 
   return (
-    <div
-      className={cn(
-        "w-full h-7 flex items-center gap-1 pl-2 click-outside-ignore",
-        {
-          "min-w-[330px]": value.data.nullable,
-          "min-w-[310px]": !value.data.nullable,
-        },
-      )}
-    >
-      <input
-        ref={inputRef}
-        type="text"
-        value={text}
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        className={cn(
-          "flex-1 h-full bg-transparent text-xs font-mono outline-none",
-          !isValid ? "text-destructive" : "",
-          !value.data.value ? "italic text-muted-foreground" : "",
+    <div className="w-full h-full flex flex-col relative click-outside-ignore z-50">
+      {/* Header with column info */}
+      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
+        {isPrimaryKey && (
+          <Key className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
         )}
-        placeholder={
-          value.data.nullable ? "NULL" : "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-        }
-      />
-      <div className="flex items-center gap-0">
-        {value.data.nullable && (
-          <Button
-            variant="ghost"
-            className="h-6 w-6 p-0"
-            onClick={handleClear}
-            title="Clear (NULL)"
-          >
-            <XIcon className="h-3 w-3" />
-          </Button>
+        <span className="text-[10px] font-medium text-foreground/80">
+          {columnName}
+        </span>
+        {dbType && (
+          <span className="text-[9px] text-muted-foreground ml-auto">
+            {dbType}
+          </span>
         )}
+      </div>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+      {/* UUID input and controls */}
+      <div
+        className={cn(
+          "flex-1 flex items-center gap-1 px-2",
+          {
+            "min-w-[330px]": value.data.nullable,
+            "min-w-[310px]": !value.data.nullable,
+          },
+        )}
+      >
+        <input
+          ref={inputRef}
+          type="text"
+          value={text}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          className={cn(
+            "flex-1 h-full bg-transparent text-xs font-mono outline-none",
+            !isValid ? "text-destructive" : "",
+            !value.data.value ? "italic text-muted-foreground" : "",
+          )}
+          placeholder={
+            value.data.nullable ? "NULL" : "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+          }
+        />
+        <div className="flex items-center gap-0">
+          {value.data.nullable && (
             <Button
               variant="ghost"
-              className="h-6 px-2 text-[11px] font-mono gap-1 hover:bg-muted"
-              title={`Generate UUID v${selectedVersion}`}
+              className="h-6 w-6 p-0"
+              onClick={handleClear}
+              title="Clear (NULL)"
             >
-              <RefreshCcw className="h-3 w-3" />
+              <XIcon className="h-3 w-3" />
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            className="w-auto click-outside-ignore z-50"
-            align="end"
-          >
-            {UUID_VERSIONS.map((version) => (
-              <DropdownMenuItem
-                key={version.value}
-                className="text-xs font-mono"
-                onClick={() => {
-                  generateUuid(version.value);
-                }}
+          )}
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                className="h-6 px-2 text-[11px] font-mono gap-1 hover:bg-muted"
+                title={`Generate UUID v${selectedVersion}`}
               >
-                Generate v{version.value}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+                <RefreshCcw className="h-3 w-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              className="w-auto click-outside-ignore z-50"
+              align="end"
+            >
+              {UUID_VERSIONS.map((version) => (
+                <DropdownMenuItem
+                  key={version.value}
+                  className="text-xs font-mono"
+                  onClick={() => {
+                    generateUuid(version.value);
+                  }}
+                >
+                  Generate v{version.value}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
     </div>
   );

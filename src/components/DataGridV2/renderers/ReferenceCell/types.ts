@@ -10,6 +10,10 @@ interface ReferenceCellData {
     column: string;
   };
   displayValue?: string;
+  // Column metadata for editor header display
+  columnName?: string;
+  isPrimaryKey?: boolean;
+  dbType?: string;
 }
 
 export interface ReferenceCustomCell extends CustomCell {

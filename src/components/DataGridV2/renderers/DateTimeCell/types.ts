@@ -7,6 +7,10 @@ interface DateTimeCellData {
   value: string | null;
   nullable?: boolean;
   format?: string; // display/parse hint
+  // Column metadata for editor header display
+  columnName?: string;
+  isPrimaryKey?: boolean;
+  dbType?: string;
 }
 
 export interface DateTimeCustomCell extends CustomCell {
@@ -22,6 +26,10 @@ export interface TstzRangeCellData {
   kind: "tstzrange-cell";
   // Canonical text representation, e.g. "[2025-01-01T00:00:00Z,2025-01-02T00:00:00Z)"
   value: string | null;
+  // Column metadata for editor header display
+  columnName?: string;
+  isPrimaryKey?: boolean;
+  dbType?: string;
 }
 
 export interface TstzRangeCustomCell extends CustomCell {
