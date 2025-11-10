@@ -21,6 +21,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - N/A
 
+## [0.2.0] - 2025-11-10
+### Added
+- TabGroupProvider and modifier-key tracking enable Cmd/Ctrl+number shortcuts for instant tab focusing across the workbench.
+- GlobalChangesModal surfaces workspace-wide pending CRUD operations with indicators, bulk commit/discard actions, and shortcut bindings.
+- CRUD diff viewer suite (DataDiff, StructureDiff, SqlPreview, ImpactSummary) visualizes data, schema, and SQL impacts before committing changes.
+- Cross-platform GitHub Actions workflows now run build verification and generate frontend/Rust coverage reports with Vitest coverage output bundled.
+- ERD tooling gained layout-direction toggles (LR/TB), Dagre-powered positioning, node memoization, and faster edge handling for smoother diagrams.
+
+### Changed
+- **Breaking** TableDataGridV2 has transitioned to read-only mode, retiring the centralized editing store and write-path UI until the redesigned editor ships.
+- Row insertion, staging, and context menus were overhauled: inserts can target relative positions, copy/export options are consolidated, and undo/redo clutter was removed.
+- All cell editors now display column metadata (name, PK/FK status, database type) directly in the editor header for safer, context-aware edits.
+- Global ErrorBoundary and FeatureErrorBoundary wrappers isolate crashes at the app and feature level, keeping the workspace responsive during failures.
+
+### Fixed
+- Streaming query batches are now fully accumulated before resolving, and TabStateStore caching prevents runaway rerenders during long-running queries.
+- Smart-release changelog generation writes via a temp file to eliminate awk newline errors that previously broke release automation.
+- WorkspaceTitleBar and sidebar interactions now log disconnect failures and show user-facing errors instead of failing silently.
+
+### Removed
+- BulkEditModal, undo/redo staging controls, and the legacy CommitPreviewModal were retired in favor of the streamlined global change review flow.
+- The deprecated CommandPalette and its keyboard plumbing were removed to reduce bundle size ahead of the new keyboard/tab experience.
+
 ---
 
 <!--
