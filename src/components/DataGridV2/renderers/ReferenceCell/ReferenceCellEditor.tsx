@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import type { ReferenceCustomCell } from "./types";
 import { Button } from "@/components/ui/button";
-import { XIcon, SearchIcon, Loader2Icon } from "lucide-react";
+import { XIcon, SearchIcon, Loader2Icon, Key } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
@@ -188,24 +188,42 @@ export const ReferenceCellEditor: React.FC<ReferenceCellEditorProps> = ({
 
   const fkRef = value.data.fkReference;
   const refTableName = fkRef ? `${fkRef.schema}.${fkRef.table}` : "unknown";
+  const { columnName, isPrimaryKey, dbType } = value.data;
 
   return (
     <div className="w-full h-full click-outside-ignore">
-      <div className="absolute inset-0 flex flex-col bg-background border border-border rounded-md shadow-lg p-2 gap-2 z-50 min-w-[400px] min-h-[300px]">
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>Search in {refTableName}</span>
-          {value.data.nullable && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-5 px-2 text-xs"
-              onClick={handleClear}
-              title="Clear (NULL)"
-            >
-              <XIcon className="h-3 w-3" />
-            </Button>
+      <div className="absolute inset-0 flex flex-col bg-background border border-border rounded-md shadow-lg z-50 min-w-[400px] min-h-[300px]">
+        {/* Header with column info */}
+        <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50">
+          {isPrimaryKey && (
+            <Key className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
+          )}
+          <span className="text-[10px] font-medium text-foreground/80">
+            {columnName}
+          </span>
+          {dbType && (
+            <span className="text-[9px] text-muted-foreground ml-auto">
+              {dbType}
+            </span>
           )}
         </div>
+
+        {/* Editor content */}
+        <div className="flex flex-col p-2 gap-2 flex-1">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>Search in {refTableName}</span>
+            {value.data.nullable && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-5 px-2 text-xs"
+                onClick={handleClear}
+                title="Clear (NULL)"
+              >
+                <XIcon className="h-3 w-3" />
+              </Button>
+            )}
+          </div>
 
         <div className="relative">
           <SearchIcon className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
@@ -266,6 +284,7 @@ export const ReferenceCellEditor: React.FC<ReferenceCellEditorProps> = ({
 
         <div className="text-[10px] text-muted-foreground">
           Type to search • Enter to select • Esc to cancel
+        </div>
         </div>
       </div>
     </div>

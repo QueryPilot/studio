@@ -32,6 +32,7 @@ import {
   Clock,
   ChevronDown,
   Save,
+  Key,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
@@ -90,7 +91,7 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
   value,
   onFinishedEditing,
 }) => {
-  const { kind, value: raw, nullable } = value.data;
+  const { kind, value: raw, nullable, columnName, isPrimaryKey, dbType } = value.data;
   const finishedRef = useRef(false);
 
   // Parse initial value
@@ -272,53 +273,70 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
     const built = buildDateTimeString();
     const nextText = built ?? "";
     setManualText((current) => (current === nextText ? current : nextText));
-  }, [buildDateTimeString, manualDirty]);
+  }, [kind, selectedDate, hour, minute, second, millisecond, selectedTimezone, manualDirty, buildDateTimeString]);
 
   useCommitOnUnmount(finishedRef, commitCurrentValue);
 
   return (
-    <div className="w-full h-full flex items-center gap-1 px-2 click-outside-ignore relative justify-between">
-      <input
-        ref={inputRef}
-        className={cn(
-          "h-[31px] w-[200px] bg-transparent z-50 text-xs leading-6 outline-none flex-1 min-w-0",
-          !manualText ? "italic text-muted-foreground" : "",
+    <div className="w-full h-full flex flex-col relative z-50">
+      {/* Header with column info */}
+      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50 click-outside-ignore">
+        {isPrimaryKey && (
+          <Key className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
         )}
-        placeholder={
-          kind === "date-cell"
-            ? "YYYY-MM-DD"
-            : kind === "time-cell"
-            ? "HH:mm[:ss]"
-            : "YYYY-MM-DD HH:mm[:ss]"
-        }
-        autoFocus
-        value={manualText}
-        onChange={(e) => {
-          const nextValue = e.target.value;
-          setManualText(nextValue);
-          setManualDirty(true);
-          // Try to parse and update picker state when the text is a valid value
-          const parsed = parseDateTime(nextValue, kind);
-          const hasParsedValue = Boolean(parsed.date) || Boolean(parsed.time);
-          if (!hasParsedValue) {
-            return;
+        <span className="text-[10px] font-medium text-foreground/80">
+          {columnName}
+        </span>
+        {dbType && (
+          <span className="text-[9px] text-muted-foreground ml-auto">
+            {dbType}
+          </span>
+        )}
+      </div>
+
+      {/* DateTime input and picker */}
+      <div className="flex-1 flex items-center gap-1 px-2 justify-between click-outside-ignore">
+        <input
+          ref={inputRef}
+          className={cn(
+            "h-full w-[200px] bg-transparent z-50 text-xs leading-6 outline-none flex-1 min-w-0",
+            !manualText ? "italic text-muted-foreground" : "",
+          )}
+          placeholder={
+            kind === "date-cell"
+              ? "YYYY-MM-DD"
+              : kind === "time-cell"
+              ? "HH:mm[:ss]"
+              : "YYYY-MM-DD HH:mm[:ss]"
           }
-          if (parsed.date) {
-            setSelectedDate(parsed.date);
-          }
-          if (parsed.time) {
-            if (parsed.time.hour) setHour(parsed.time.hour);
-            if (parsed.time.minute) setMinute(parsed.time.minute);
-            if (parsed.time.second) setSecond(parsed.time.second);
-            if (parsed.time.millisecond)
-              setMillisecond(parsed.time.millisecond);
-          }
-          const timezoneValue = parsed.timezone ?? "none";
-          setSelectedTimezone(timezoneValue);
-        }}
-        onKeyDown={handleInputKeyDown}
-      />
-      <div className="flex items-center gap-0">
+          autoFocus
+          value={manualText}
+          onChange={(e) => {
+            const nextValue = e.target.value;
+            setManualText(nextValue);
+            setManualDirty(true);
+            // Try to parse and update picker state when the text is a valid value
+            const parsed = parseDateTime(nextValue, kind);
+            const hasParsedValue = Boolean(parsed.date) || Boolean(parsed.time);
+            if (!hasParsedValue) {
+              return;
+            }
+            if (parsed.date) {
+              setSelectedDate(parsed.date);
+            }
+            if (parsed.time) {
+              if (parsed.time.hour) setHour(parsed.time.hour);
+              if (parsed.time.minute) setMinute(parsed.time.minute);
+              if (parsed.time.second) setSecond(parsed.time.second);
+              if (parsed.time.millisecond)
+                setMillisecond(parsed.time.millisecond);
+            }
+            const timezoneValue = parsed.timezone ?? "none";
+            setSelectedTimezone(timezoneValue);
+          }}
+          onKeyDown={handleInputKeyDown}
+        />
+        <div className="flex items-center gap-0">
         {nullable && (
           <Button
             variant="ghost"
@@ -546,6 +564,7 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
             </div>
           </PopoverContent>
         </Popover>
+        </div>
       </div>
     </div>
   );

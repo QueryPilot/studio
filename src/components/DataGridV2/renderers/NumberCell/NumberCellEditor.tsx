@@ -6,7 +6,7 @@ import React, {
   useState,
 } from "react";
 import { Button } from "@/components/ui/button";
-import { Trash2 } from "lucide-react";
+import { Trash2, Key } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { NumberCustomCell } from "./types";
 import { isMeaningful, isValidNumberText, normalizeValue } from "./utils";
@@ -40,6 +40,9 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
   const nullable = Boolean(value.data.nullable);
   const precision = value.data.precision;
   const scale = value.data.scale;
+
+  // Extract column metadata for header
+  const { columnName, isPrimaryKey, dbType } = value.data;
 
   useEffect(() => {
     const input = inputRef.current;
@@ -138,12 +141,28 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
   }, [precision, scale]);
 
   return (
-    <div className="w-full h-full flex flex-col justify-center px-2 click-outside-ignore">
-      <div className="flex items-center gap-1">
+    <div className="w-full h-full flex flex-col relative click-outside-ignore z-50">
+      {/* Header with column info */}
+      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
+        {isPrimaryKey && (
+          <Key className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
+        )}
+        <span className="text-[10px] font-medium text-foreground/80">
+          {columnName}
+        </span>
+        {dbType && (
+          <span className="text-[9px] text-muted-foreground ml-auto">
+            {dbType}
+          </span>
+        )}
+      </div>
+
+      {/* Input field */}
+      <div className="flex items-center flex-1 relative px-2">
         <input
           ref={inputRef}
           className={cn(
-            "h-[31px] w-full bg-transparent text-xs font-mono outline-none leading-6",
+            "h-full w-full bg-transparent text-xs font-mono outline-none",
             !isMeaningful(text) ? "italic text-muted-foreground" : "",
             !isValid
               ? "border-b border-destructive focus:border-destructive"
@@ -161,16 +180,18 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
         {nullable && (
           <Button
             variant="ghost"
-            className="h-6 w-6 p-0 z-50"
-            title="Clear"
+            className="h-5 w-5 p-0 absolute right-2 top-1/2 -translate-y-1/2"
+            title="Clear (NULL)"
             onClick={handleClear}
           >
             <Trash2 className="h-3 w-3" />
           </Button>
         )}
       </div>
+
+      {/* Validation hint */}
       {!isValid && validationHint && (
-        <div className="text-[10px] text-destructive mt-0.5 leading-tight">
+        <div className="px-2 pb-1 text-[10px] text-destructive leading-tight">
           {validationHint}
         </div>
       )}

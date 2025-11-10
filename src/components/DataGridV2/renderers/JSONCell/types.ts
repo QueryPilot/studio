@@ -5,6 +5,10 @@ interface JsonCellData {
   value: string | null;
   nullable?: boolean;
   isValid?: boolean;
+  // Column metadata for editor header display
+  columnName?: string;
+  isPrimaryKey?: boolean;
+  dbType?: string;
 }
 
 export interface JsonCustomCell extends CustomCell {

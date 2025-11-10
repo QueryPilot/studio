@@ -8,7 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
-import { Calendar as CalendarIcon, X as ClearIcon } from "lucide-react";
+import { Calendar as CalendarIcon, X as ClearIcon, Key } from "lucide-react";
 
 import dayjs from "dayjs";
 
@@ -35,7 +35,7 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
   value,
   onFinishedEditing,
 }) => {
-  const { value: raw } = value.data;
+  const { value: raw, columnName, isPrimaryKey, dbType } = value.data;
   const parsed = useMemo(() => parseRange(raw), [raw]);
   const [lowerText, setLowerText] = useState<string>(parsed.lower ?? "");
   const [upperText, setUpperText] = useState<string>(parsed.upper ?? "");
@@ -146,8 +146,25 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
   useCommitOnUnmount(finishedRef, commitCurrentValues);
 
   return (
-    <div className="w-full h-full flex items-center gap-2 px-2 click-outside-ignore">
-      {/* Left bound toggle */}
+    <div className="w-full h-full flex flex-col relative click-outside-ignore z-50">
+      {/* Header with column info */}
+      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
+        {isPrimaryKey && (
+          <Key className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
+        )}
+        <span className="text-[10px] font-medium text-foreground/80">
+          {columnName}
+        </span>
+        {dbType && (
+          <span className="text-[9px] text-muted-foreground ml-auto">
+            {dbType}
+          </span>
+        )}
+      </div>
+
+      {/* Range inputs */}
+      <div className="flex-1 flex items-center gap-2 px-2">
+        {/* Left bound toggle */}
       <Button
         variant="ghost"
         size="sm"
@@ -357,6 +374,7 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
             </div>
           </PopoverContent>
         </Popover>
+      </div>
       </div>
     </div>
   );

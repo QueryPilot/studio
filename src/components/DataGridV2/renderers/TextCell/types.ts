@@ -25,6 +25,10 @@ interface TextMultiLineCellData {
   displayValue?: string | null;
   showLineBadge?: boolean;
   formatDisplayMode?: "array-inline";
+  // Column metadata for editor header display
+  columnName?: string;
+  isPrimaryKey?: boolean;
+  dbType?: string;
 }
 
 export interface TextMultiLineCustomCell extends CustomCell {

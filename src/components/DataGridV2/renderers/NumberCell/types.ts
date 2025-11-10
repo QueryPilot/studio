@@ -7,6 +7,9 @@ export interface NumberCellData {
   dbType?: string;
   precision?: number | null;
   scale?: number | null;
+  // Column metadata for editor header display
+  columnName?: string;
+  isPrimaryKey?: boolean;
 }
 
 export interface NumberCustomCell extends CustomCell {
