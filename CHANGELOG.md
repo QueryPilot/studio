@@ -22,7 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed pnpm version mismatch in GitHub Actions workflows (now uses packageManager field from package.json)
 - Fixed YAML syntax error in coverage.yml caused by corrupted emoji characters
 - Fixed deprecated set-output command in release workflow (replaced actions/create-release@v1 with gh CLI)
+- Fixed deprecated upload-artifact action (upgraded from v3 to v4)
 - Fixed Node.js out-of-memory errors during production builds by increasing heap size to 4GB
+- Fixed Linux build errors by adding missing glib2 and GTK3 development libraries
 
 ## [0.2.0] - 2025-11-10
 ### Added
