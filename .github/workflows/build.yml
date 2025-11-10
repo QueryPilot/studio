@@ -92,10 +92,10 @@ jobs:
       - name: Build Summary
         if: always()
         run: |
-          echo "## <� Build Results - ${{ matrix.platform }}" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 Build Results - ${{ matrix.platform }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "-  AI Sidecar built successfully" >> $GITHUB_STEP_SUMMARY
-          echo "-  Tauri app built successfully" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ AI Sidecar built successfully" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Tauri app built successfully" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Platform:** ${{ matrix.platform }}" >> $GITHUB_STEP_SUMMARY
           echo "**Target:** ${{ matrix.target }}" >> $GITHUB_STEP_SUMMARY
@@ -104,7 +104,7 @@ jobs:
       # Only upload artifacts on release events (optional)
       - name: Upload artifacts
         if: github.event_name == 'release'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: app-${{ matrix.platform }}
           path: |
