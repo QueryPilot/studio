@@ -1,4 +1,4 @@
-.PHONY: help d dev build build-ai-sidecar build-ai-sidecar-all dev-sidecar ds package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup
+.PHONY: help d dev build build-ai-sidecar build-ai-sidecar-all dev-sidecar ds package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup version release
 
 # Default target - show help
 help:
@@ -37,6 +37,11 @@ help:
 	@echo "  make seed-sqlserver - Seed SQL Server only"
 	@echo "  make seed-oracle    - Seed Oracle only"
 	@echo "  make reseed-all     - Drop and reseed all databases (DELETES existing data)"
+	@echo ""
+	@echo "Release Management:"
+	@echo "  make release                - AI-powered release (auto version + changelog)"
+	@echo "  make release-manual VERSION=1.2.3  - Manual release with specific version"
+	@echo "  make version VERSION=1.2.3  - Bump version only (no commit)"
 	@echo ""
 	@echo "Quick Start:"
 	@echo "  make setup          - Start containers and seed all databases"
@@ -228,3 +233,52 @@ setup: docker-up
 	@echo "  Oracle:     localhost:11521 (user: todoapp, pass: DevPass123, service: XE)"
 	@echo ""
 	@echo "Run 'make dev' to start the application"
+
+# Release Management
+
+# Smart AI-powered release (no version input needed!)
+release:
+	@bash scripts/smart-release.sh
+
+# Manual release with specific version
+release-manual:
+	@if [ -z "$(VERSION)" ]; then \
+		echo "❌ Error: VERSION not specified"; \
+		echo "Usage: make release-manual VERSION=1.2.3"; \
+		exit 1; \
+	fi
+	@echo "🚀 Creating release v$(VERSION)..."
+	@echo ""
+	@bash scripts/bump-version.sh $(VERSION)
+	@echo ""
+	@echo "📝 Please update CHANGELOG.md with release notes"
+	@echo "Press Enter when ready to continue, or Ctrl+C to abort..."
+	@read dummy
+	@echo ""
+	@echo "📦 Committing changes..."
+	@git add .
+	@git commit -m "chore: bump version to v$(VERSION)"
+	@echo ""
+	@echo "🏷️  Creating tag..."
+	@git tag v$(VERSION)
+	@echo ""
+	@echo "⬆️  Pushing to GitHub..."
+	@git push origin master
+	@git push origin v$(VERSION)
+	@echo ""
+	@echo "✅ Release v$(VERSION) created!"
+	@echo ""
+	@echo "🔗 Monitor the build at:"
+	@echo "   https://github.com/$$(git config --get remote.origin.url | sed 's/.*github.com[:/]\(.*\)\.git/\1/')/actions"
+	@echo ""
+	@echo "📦 View releases at:"
+	@echo "   https://github.com/$$(git config --get remote.origin.url | sed 's/.*github.com[:/]\(.*\)\.git/\1/')/releases"
+
+# Bump version only (no commit/tag)
+version:
+	@if [ -z "$(VERSION)" ]; then \
+		echo "❌ Error: VERSION not specified"; \
+		echo "Usage: make version VERSION=1.2.3"; \
+		exit 1; \
+	fi
+	@bash scripts/bump-version.sh $(VERSION)
