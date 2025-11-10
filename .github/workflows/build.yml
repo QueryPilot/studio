@@ -120,7 +120,13 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
           APPIMAGE_EXTRACT_AND_RUN: 1
-        run: pnpm tauri:build
+        run: |
+          # Ensure linuxdeploy tools have execute permissions if they exist
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            find /tmp -name "linuxdeploy*" -type f -exec chmod +x {} \; 2>/dev/null || true
+            find /tmp -name "AppRun*" -type f -exec chmod +x {} \; 2>/dev/null || true
+          fi
+          pnpm tauri:build
 
       - name: Build Summary
         if: always()
