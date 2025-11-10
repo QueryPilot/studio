@@ -218,15 +218,19 @@ echo -e "${BLUE}📝 Updating CHANGELOG.md...${NC}"
 
 # Update CHANGELOG.md
 if [ -f "CHANGELOG.md" ]; then
-    # Insert new entry after "## [Unreleased]" section
+    # Write new changelog to temp file
+    TEMP_CHANGELOG=$(mktemp)
+    echo "$NEW_CHANGELOG" > "$TEMP_CHANGELOG"
+
+    # Create output file
     TEMP_FILE=$(mktemp)
 
     # Find line number of first ## [version] or end of file
-    if grep -q "^## \[" CHANGELOG.md; then
+    if grep -q "^## \[[0-9]" CHANGELOG.md; then
         # Insert before first version entry
-        awk -v new="$NEW_CHANGELOG" '
+        awk '
             /^## \[[0-9]/ && !inserted {
-                print new
+                system("cat '"$TEMP_CHANGELOG"'")
                 print ""
                 inserted=1
             }
@@ -234,9 +238,9 @@ if [ -f "CHANGELOG.md" ]; then
         ' CHANGELOG.md > "$TEMP_FILE"
     else
         # No version entries yet, insert after [Unreleased] section
-        awk -v new="$NEW_CHANGELOG" '
+        awk '
             /^---$/ && !inserted {
-                print new
+                system("cat '"$TEMP_CHANGELOG"'")
                 print ""
                 print "---"
                 inserted=1
@@ -247,6 +251,7 @@ if [ -f "CHANGELOG.md" ]; then
     fi
 
     mv "$TEMP_FILE" CHANGELOG.md
+    rm -f "$TEMP_CHANGELOG"
     echo -e "${GREEN}✓${NC} CHANGELOG.md updated"
 else
     echo -e "${YELLOW}⚠️  CHANGELOG.md not found, skipping${NC}"
