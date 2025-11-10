@@ -45,6 +45,9 @@ fn main() {
         window_states: window_states.clone(),
     };
 
+    let mut context = tauri::generate_context!();
+    apply_macos_traffic_light_position(context.config_mut());
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_window_state::Builder::new().build())
@@ -154,7 +157,7 @@ fn main() {
             commands::drop_trigger,
             commands::enable_disable_trigger,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application");
 
     // Initialize AI sidecar
@@ -189,4 +192,53 @@ fn app_show_main_window(app: tauri::AppHandle) -> Result<(), String> {
         let _ = main.set_focus();
     }
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn apply_macos_traffic_light_position(config: &mut tauri::Config) {
+    if let Some(position) = macos_traffic_light_position() {
+        for window in &mut config.app.windows {
+            if window.label == "main" {
+                window.traffic_light_position = Some(position.clone());
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn apply_macos_traffic_light_position(_config: &mut tauri::Config) {}
+
+#[cfg(target_os = "macos")]
+fn macos_traffic_light_position() -> Option<tauri::utils::config::LogicalPosition> {
+    let version_string = tauri_plugin_os::version().to_string();
+    let major_version = extract_leading_number(&version_string)?;
+
+    let (x, y) = if major_version >= 26 {
+        (10.0, 19.0)
+    } else {
+        (10.0, 14.0)
+    };
+
+    Some(tauri::utils::config::LogicalPosition { x, y })
+}
+
+#[cfg(target_os = "macos")]
+fn extract_leading_number(value: &str) -> Option<u32> {
+    let mut digits = String::new();
+    let mut started = false;
+
+    for ch in value.chars() {
+        if ch.is_ascii_digit() {
+            digits.push(ch);
+            started = true;
+        } else if started {
+            break;
+        }
+    }
+
+    if digits.is_empty() {
+        None
+    } else {
+        digits.parse().ok()
+    }
 }
