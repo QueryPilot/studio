@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed deprecated upload-artifact action (upgraded from v3 to v4)
 - Fixed Node.js out-of-memory errors during production builds by increasing heap size to 4GB
 - Fixed Linux build errors by adding missing glib2 and GTK3 development libraries
+- Fixed pkg-config missing in Linux workflows causing glib-2.0 not found errors
 - Fixed AI sidecar build verification in CI workflows with platform-specific binary checks and executable permissions
 - Fixed Rust test targets to build AI sidecar first (required by Tauri build script validation)
 - Fixed unit-tests.yml workflow to build AI sidecar before running Rust tests
