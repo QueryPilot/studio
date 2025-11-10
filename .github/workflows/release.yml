@@ -106,17 +106,17 @@ jobs:
             target: x86_64-apple-darwin
             arch: x86_64
 
-          # Linux build
-          - os: ubuntu-latest
-            platform: linux
-            target: x86_64-unknown-linux-gnu
-            arch: amd64
+          # Linux build - DISABLED FOR NOW
+          # - os: ubuntu-latest
+          #   platform: linux
+          #   target: x86_64-unknown-linux-gnu
+          #   arch: amd64
 
-          # Windows build
-          - os: windows-latest
-            platform: windows
-            target: x86_64-pc-windows-msvc
-            arch: x64
+          # Windows build - DISABLED FOR NOW
+          # - os: windows-latest
+          #   platform: windows
+          #   target: x86_64-pc-windows-msvc
+          #   arch: x64
 
     steps:
       - name: Checkout code
@@ -262,6 +262,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
         run: |
           # Ensure linuxdeploy tools have execute permissions if they exist
           if [ "${{ matrix.platform }}" = "linux" ]; then
@@ -278,6 +279,7 @@ jobs:
           # Disable code signing for self-signed builds
           TAURI_PRIVATE_KEY: ""
           TAURI_KEY_PASSWORD: ""
+        shell: bash
         run: |
           # Ensure linuxdeploy tools have execute permissions if they exist
           if [ "${{ matrix.platform }}" = "linux" ]; then
@@ -310,17 +312,27 @@ jobs:
 
       - name: Find and upload macOS DMG
         if: matrix.platform == 'macos'
+        shell: bash
         run: |
+          echo "🔍 Searching for DMG files..."
+          find src-tauri/target/${{ matrix.target }}/release/bundle -type f -name "*.dmg" || echo "No DMG files found"
+
           DMG_PATH=$(find src-tauri/target/${{ matrix.target }}/release/bundle/dmg -name "*.dmg" | head -n 1)
           if [ -n "$DMG_PATH" ]; then
             DMG_NAME="Query-Pilot_${{ matrix.arch }}.dmg"
+            echo "📦 Found DMG: $DMG_PATH"
+            echo "📤 Renaming to: $DMG_NAME"
             mv "$DMG_PATH" "$DMG_NAME"
 
+            echo "🚀 Uploading to release: ${{ needs.create-release.outputs.version }}"
             gh release upload ${{ needs.create-release.outputs.version }} \
               "$DMG_NAME" \
               --clobber
 
             echo "✅ Uploaded: $DMG_NAME"
+          else
+            echo "❌ ERROR: No DMG file found!"
+            exit 1
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
