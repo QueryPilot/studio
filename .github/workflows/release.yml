@@ -162,9 +162,6 @@ jobs:
       - name: Build AI sidecar
         run: pnpm build:ai-sidecar
 
-      - name: Set Node memory limit
-        run: echo "NODE_OPTIONS=--max-old-space-size=4096" >> $GITHUB_ENV
-
       # ============================================
       # Code Signing Configuration (Optional)
       # ============================================
@@ -227,6 +224,7 @@ jobs:
       - name: Build Tauri app (with signing)
         if: env.ENABLE_CODE_SIGNING == 'true'
         env:
+          NODE_OPTIONS: --max-old-space-size=4096
           # macOS notarization (optional)
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
@@ -235,11 +233,12 @@ jobs:
 
       - name: Build Tauri app (without signing)
         if: env.ENABLE_CODE_SIGNING != 'true'
-        run: pnpm tauri:build
         env:
+          NODE_OPTIONS: --max-old-space-size=4096
           # Disable code signing for self-signed builds
           TAURI_PRIVATE_KEY: ""
           TAURI_KEY_PASSWORD: ""
+        run: pnpm tauri:build
 
       # ============================================
       # Self-sign macOS app (fallback)
