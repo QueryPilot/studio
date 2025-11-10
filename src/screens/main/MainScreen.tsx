@@ -10,26 +10,24 @@ import {
 import { toast } from "sonner";
 
 import { ThemeToggle } from "@/components/theme-toggle";
-import { Database, Settings, Search, Trash2, Download } from "lucide-react";
+import { Database, Settings, Search } from "lucide-react";
 import { useRef, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import logo from "@/assets/logo.png";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useConnectionSync } from "@/hooks/useConnectionSync";
+import packageJson from "../../../package.json";
 
-import { type ConnectionProfile, DbType, SslMode } from "@/types/connection";
 import { ConnectionDialog } from "@/components/ConnectionDialog";
 import { ConnectionList } from "@/components/ConnectionList";
 
 export function MainScreen() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [isLoadingDefaults, setIsLoadingDefaults] = useState(false);
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
-  const { fetchConnections, saveConnection, deleteConnection, connections } =
-    useConnectionStore();
+  const { fetchConnections } = useConnectionStore();
 
   // Enable cross-window sync
   useConnectionSync();
@@ -53,60 +51,6 @@ export function MainScreen() {
       });
     }
   };
-
-  const handleLoadPostgreSQLDev = async () => {
-    setIsLoadingDefaults(true);
-    try {
-      // Check if PostgreSQL Dev already exists
-      const existingPg = connections.find(
-        (conn) =>
-          conn.profile.name === "PostgreSQL Dev" &&
-          conn.profile.host === "localhost" &&
-          conn.profile.port === 15432,
-      );
-
-      if (existingPg) {
-        toast("Connection Already Exists", {
-          description:
-            "PostgreSQL Dev connection is already in your connection list.",
-        });
-        setIsLoadingDefaults(false);
-        return;
-      }
-
-      // Create PostgreSQL Dev connection profile
-      const pgProfile: ConnectionProfile = {
-        id: "",
-        name: "PostgreSQL Dev",
-        db_type: DbType.PostgreSQL,
-        host: "localhost",
-        port: 15432,
-        database: "todoapp",
-        username: "devuser",
-        password: "devpass123",
-        ssl_mode: SslMode.Disable,
-        options: {},
-      };
-
-      // Save to backend
-      await saveConnection(pgProfile);
-
-      toast.success("PostgreSQL Dev Added", {
-        description:
-          "PostgreSQL development database connection has been added successfully.",
-      });
-    } catch (error) {
-      console.error("Failed to load Development Database connection:", error);
-      toast.error("Error Loading Connection", {
-        description:
-          "Failed to add PostgreSQL Dev connection. Make sure Docker is running: make docker-up",
-      });
-    } finally {
-      setIsLoadingDefaults(false);
-    }
-  };
-
-  // Debug: Log workspaces on demand
   return (
     <div className="flex flex-col h-screen overflow-hidden">
       <div
@@ -139,7 +83,7 @@ export function MainScreen() {
 
             {/* Version Badge */}
             <Badge variant="secondary" className="mb-6">
-              Version 0.1.0
+              v{packageJson.version}
             </Badge>
 
             {/* CTA Actions */}
@@ -154,69 +98,6 @@ export function MainScreen() {
               >
                 <Database className="mr-2 h-4 w-4" />
                 Connect Database
-              </Button>
-
-              <Button
-                variant="secondary"
-                className="w-full justify-start"
-                size="default"
-                onClick={handleLoadPostgreSQLDev}
-                disabled={isLoadingDefaults}
-              >
-                <Download className="mr-2 h-4 w-4" />
-                {isLoadingDefaults ? "Loading..." : "Load PostgreSQL Dev"}
-              </Button>
-
-              <Button
-                variant="destructive"
-                className="w-full justify-start"
-                size="default"
-                onClick={async () => {
-                  console.log("User confirmed clear all operation");
-                  try {
-                    console.log("Step 1: Clearing browser storage...");
-                    // Clear all data including browser storage
-                    localStorage.clear();
-                    sessionStorage.clear();
-                    console.log("✓ Browser storage cleared");
-
-                    console.log(
-                      "Step 2: Clearing all connections from backend...",
-                    );
-                    // Clear all connections one by one
-                    for (const conn of connections) {
-                      await deleteConnection(conn.profile.id);
-                    }
-                    console.log("✓ All connections deleted");
-
-                    console.log("Step 3: Reloading connections list...");
-                    // Reload connections to reflect the change
-                    await fetchConnections();
-                    console.log("✓ Connections reloaded");
-
-                    console.log("=====================================");
-                    console.log("Clear All operation completed successfully");
-                    console.log("=====================================");
-
-                    toast.success("All Data Cleared", {
-                      description:
-                        "All connections and stored data have been removed.",
-                    });
-                  } catch (error) {
-                    console.error("=====================================");
-                    console.error("ERROR during clear all operation:", error);
-                    console.error("=====================================");
-                    toast.error("Error Clearing Data", {
-                      description:
-                        error instanceof Error
-                          ? error.message
-                          : "Failed to clear all data. Please try again.",
-                    });
-                  }
-                }}
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Emergency Clear All
               </Button>
             </div>
           </div>

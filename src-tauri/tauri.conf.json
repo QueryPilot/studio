@@ -37,7 +37,10 @@
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "visible": false,
-        "trafficLightPosition": { "x": 10, "y": 14 }
+        "trafficLightPosition": {
+          "x": 10,
+          "y": 14
+        }
       }
     ],
     "security": {
@@ -82,7 +85,11 @@
       "files": {},
       "hardenedRuntime": true
     },
-    "resources": ["sidecars/manifest.json"],
-    "externalBin": ["sidecars/ai-server"]
+    "resources": [
+      "sidecars/manifest.json"
+    ],
+    "externalBin": [
+      "sidecars/ai-server"
+    ]
   }
 }
