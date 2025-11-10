@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Version bump automation script
 - Release management Makefile commands
 - Version display on main screen (dynamically from package.json)
+- cross-env package for cross-platform environment variable support
 
 ### Changed
 - Removed "Load PostgreSQL Dev" and "Emergency Clear All" buttons from main screen
@@ -26,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed Node.js out-of-memory errors during production builds by increasing heap size to 4GB
 - Fixed Linux build errors by adding missing glib2 and GTK3 development libraries
 - Fixed pkg-config missing in Linux workflows causing glib-2.0 not found errors
+- Fixed Windows build failure by using cross-env for NODE_OPTIONS and setting it in workflow environment
 - Fixed AI sidecar build verification in CI workflows with platform-specific binary checks and executable permissions
 - Fixed Rust test targets to build AI sidecar first (required by Tauri build script validation)
 - Fixed unit-tests.yml workflow to build AI sidecar before running Rust tests
