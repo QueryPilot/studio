@@ -115,7 +115,7 @@ fn test_vec_storage() {
 
 #[test]
 fn test_vec_storage_search() {
-    let storage = vec!["apple", "banana", "cherry", "date"];
+    let storage = ["apple", "banana", "cherry", "date"];
 
     assert!(storage.contains(&"banana"));
     assert!(!storage.contains(&"grape"));
