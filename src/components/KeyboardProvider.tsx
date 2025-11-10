@@ -1,5 +1,4 @@
 import React, { type ReactNode, createContext, useContext, useEffect, useMemo } from 'react';
-import { shallow } from 'zustand/shallow';
 
 import { contextKeyDefinitions } from '@/data/contextKeys';
 import { defaultCommands } from '@/data/defaultCommands';
@@ -67,19 +66,22 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): React.JSX
 
     setSidebarContext(useWorkspaceScreenStore.getState().getSidebars());
 
-    const unsubscribeSidebars = (useWorkspaceScreenStore.subscribe as any)(
-      (state: any) => state.getSidebars(),
-      setSidebarContext,
-      {
-        equalityFn: (left: any, right: any) => left.left === right.left && left.right === right.right,
-      }
-    );
+    // Subscribe to sidebar changes (using simple subscription that always fires)
+    const unsubscribeSidebars = useWorkspaceScreenStore.subscribe((state) => {
+      const sidebars = state.getSidebars();
+      setSidebarContext(sidebars);
+    });
 
     const setWorkbenchContext = (payload: { panelCount: number; focusedPanelId: string | null }) => {
       contextService.setValue('editorCount', payload.panelCount);
       contextService.setValue('hasMultipleEditors', payload.panelCount > 1);
       // activeEditor should be true if there's at least one panel, even if focusedPanelId is null
       const hasActiveEditor = payload.panelCount > 0 || Boolean(payload.focusedPanelId);
+      console.log('[KeyboardProvider] Setting activeEditor context:', {
+        panelCount: payload.panelCount,
+        focusedPanelId: payload.focusedPanelId,
+        hasActiveEditor,
+      });
       contextService.setValue('activeEditor', hasActiveEditor);
     };
 
@@ -89,16 +91,39 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): React.JSX
       focusedPanelId: initialWorkbenchState.focusedPanelId,
     });
 
-    const unsubscribeWorkbench = (useWorkbenchStore.subscribe as any)(
-      (state: any) => ({
+    // Subscribe to ALL workbench store changes (the selector approach wasn't firing)
+    const unsubscribeWorkbench = useWorkbenchStore.subscribe((state) => {
+      setWorkbenchContext({
         panelCount: state.panelContents.size,
         focusedPanelId: state.focusedPanelId,
-      }),
-      setWorkbenchContext,
-      {
-        equalityFn: shallow,
+      });
+    });
+
+    // CRITICAL FIX: Re-sync context after subscription setup to catch any updates
+    // that happened between initial read and subscription registration.
+    // This fixes the race condition where workbench initializes before subscription is active.
+    const currentWorkbenchState = useWorkbenchStore.getState();
+    setWorkbenchContext({
+      panelCount: currentWorkbenchState.panelContents.size,
+      focusedPanelId: currentWorkbenchState.focusedPanelId,
+    });
+
+    // ADDITIONAL FIX: Poll for workbench initialization for a short period
+    // This catches the case where WorkbenchLayout initializes after KeyboardProvider mounts
+    let pollAttempts = 0;
+    const maxPollAttempts = 10; // 10 attempts x 100ms = 1 second max
+    const pollInterval = setInterval(() => {
+      pollAttempts++;
+      const state = useWorkbenchStore.getState();
+      if (state.panelContents.size > 0 || pollAttempts >= maxPollAttempts) {
+        // Workbench is initialized or we've waited long enough
+        setWorkbenchContext({
+          panelCount: state.panelContents.size,
+          focusedPanelId: state.focusedPanelId,
+        });
+        clearInterval(pollInterval);
       }
-    );
+    }, 100);
 
     // NOW attach keyboard listener - context is ready!
     keyboardHandler.initialize();
@@ -107,6 +132,7 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): React.JSX
       keyboardHandler.dispose();
       unsubscribeSidebars();
       unsubscribeWorkbench();
+      clearInterval(pollInterval); // Clean up polling interval
     };
   }, []);
 

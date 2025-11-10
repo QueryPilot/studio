@@ -20,6 +20,7 @@ import {
 import { useConnectionAutoReconnect } from "@/hooks/useConnectionAutoReconnect";
 import { AIAssistantSidebar } from "@/components/AIAssistant/AIAssistantSidebar";
 import { PreferencesDialog } from "@/components/Preferences/PreferencesDialog";
+import { DebugKeybindings } from "@/components/DebugKeybindings";
 
 // Default sidebars state - using a constant to avoid creating new objects
 const DEFAULT_SIDEBARS = { left: true, right: false };
@@ -225,6 +226,9 @@ export function WorkspaceScreen() {
 
       {/* Global Preferences Dialog */}
       <PreferencesDialog />
+
+      {/* Debug panel for keyboard shortcuts (Cmd+Shift+K to toggle) */}
+      <DebugKeybindings />
     </div>
   );
 }

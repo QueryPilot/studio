@@ -75,6 +75,22 @@ export class KeyboardHandler {
     const nextSequence = [...this.chordSequence, dispatch];
     const { match, isChordPending } = this.keybindingService.resolve(nextSequence);
 
+    // Debug logging for cmd+t and cmd+\
+    if (dispatch.includes('KeyT') || dispatch.includes('Backslash')) {
+      const snapshot = this.contextService.snapshot();
+      console.log('[KeyboardHandler] Key pressed:', {
+        dispatch,
+        nextSequence,
+        match: match ? match.command : 'NO MATCH',
+        isChordPending,
+        contextSnapshot: {
+          activeEditor: snapshot.get('activeEditor'),
+          editorCount: snapshot.get('editorCount'),
+          hasMultipleEditors: snapshot.get('hasMultipleEditors'),
+        },
+      });
+    }
+
     if (isChordPending) {
       this.startChord(nextSequence);
       if (this.preventDefault) {
@@ -84,6 +100,7 @@ export class KeyboardHandler {
     }
 
     if (match) {
+      console.log('[KeyboardHandler] Executing command:', match.command);
       this.execute(match.command, match.resolved.args);
       this.resetChord();
       if (this.preventDefault) {
