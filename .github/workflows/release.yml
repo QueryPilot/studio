@@ -162,7 +162,30 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build AI sidecar
-        run: pnpm build:ai-sidecar
+        run: |
+          echo "Building AI sidecar for ${{ matrix.target }}..."
+          pnpm build:ai-sidecar
+
+          # Verify the sidecar was built
+          echo "Checking for built sidecar..."
+          ls -la src-tauri/sidecars/ || echo "Sidecars directory not found!"
+
+          # Show what Tauri is looking for
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            EXPECTED_FILE="src-tauri/sidecars/ai-server-${{ matrix.target }}.exe"
+          else
+            EXPECTED_FILE="src-tauri/sidecars/ai-server-${{ matrix.target }}"
+          fi
+
+          echo "Tauri expects: $EXPECTED_FILE"
+
+          if [ ! -f "$EXPECTED_FILE" ]; then
+            echo "ERROR: Sidecar binary not found!"
+            exit 1
+          fi
+
+          echo "✅ Sidecar built successfully"
+        shell: bash
 
       # ============================================
       # Code Signing Configuration (Optional)

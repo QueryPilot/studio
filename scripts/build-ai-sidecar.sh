@@ -19,7 +19,7 @@ ARCH="$(uname -m)"
 build_for_platform() {
     local target=$1
     local triple=$2
-    
+
     echo "Building for $target (triple: $triple)..."
     bun build index.ts \
         --compile \
@@ -27,7 +27,12 @@ build_for_platform() {
         --sourcemap \
         --target="bun-$target" \
         --outfile="../sidecars/ai-server-$triple"
-    
+
+    # Make sure the binary is executable (Unix-like systems)
+    if [[ "$target" != "windows"* ]]; then
+        chmod +x "../sidecars/ai-server-$triple"
+    fi
+
     echo "✅ Built ai-server-$triple"
 }
 
