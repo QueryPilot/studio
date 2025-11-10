@@ -257,20 +257,34 @@ jobs:
         if: env.ENABLE_CODE_SIGNING == 'true'
         env:
           NODE_OPTIONS: --max-old-space-size=4096
+          APPIMAGE_EXTRACT_AND_RUN: 1
           # macOS notarization (optional)
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: pnpm tauri:build
+        run: |
+          # Ensure linuxdeploy tools have execute permissions if they exist
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            find /tmp -name "linuxdeploy*" -type f -exec chmod +x {} \; 2>/dev/null || true
+            find /tmp -name "AppRun*" -type f -exec chmod +x {} \; 2>/dev/null || true
+          fi
+          pnpm tauri:build
 
       - name: Build Tauri app (without signing)
         if: env.ENABLE_CODE_SIGNING != 'true'
         env:
           NODE_OPTIONS: --max-old-space-size=4096
+          APPIMAGE_EXTRACT_AND_RUN: 1
           # Disable code signing for self-signed builds
           TAURI_PRIVATE_KEY: ""
           TAURI_KEY_PASSWORD: ""
-        run: pnpm tauri:build
+        run: |
+          # Ensure linuxdeploy tools have execute permissions if they exist
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            find /tmp -name "linuxdeploy*" -type f -exec chmod +x {} \; 2>/dev/null || true
+            find /tmp -name "AppRun*" -type f -exec chmod +x {} \; 2>/dev/null || true
+          fi
+          pnpm tauri:build
 
       # ============================================
       # Self-sign macOS app (fallback)
