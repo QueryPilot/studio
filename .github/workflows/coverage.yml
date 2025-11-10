@@ -66,19 +66,19 @@ jobs:
       - name: Coverage Summary
         if: always()
         run: |
-          echo "## =� Code Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo "## Code Coverage Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Frontend Coverage" >> $GITHUB_STEP_SUMMARY
-          echo "- <� **Stores:** 41.46% lines (86.2% branches, 90.9% functions)" >> $GITHUB_STEP_SUMMARY
-          echo "-  **erdStore:** 98.61%" >> $GITHUB_STEP_SUMMARY
-          echo "-  **panelStore:** 95.1%" >> $GITHUB_STEP_SUMMARY
-          echo "-  **aiStore:** 80.28%" >> $GITHUB_STEP_SUMMARY
-          echo "-  **8 stores:** 100%" >> $GITHUB_STEP_SUMMARY
+          echo "- **Stores:** 41.46% lines (86.2% branches, 90.9% functions)" >> $GITHUB_STEP_SUMMARY
+          echo "- **erdStore:** 98.61%" >> $GITHUB_STEP_SUMMARY
+          echo "- **panelStore:** 95.1%" >> $GITHUB_STEP_SUMMARY
+          echo "- **aiStore:** 80.28%" >> $GITHUB_STEP_SUMMARY
+          echo "- **8 stores:** 100%" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Test Count" >> $GITHUB_STEP_SUMMARY
-          echo "-  **Frontend:** 501 tests" >> $GITHUB_STEP_SUMMARY
-          echo "-  **Rust:** 93 tests" >> $GITHUB_STEP_SUMMARY
-          echo "- =� **Total:** 594 tests" >> $GITHUB_STEP_SUMMARY
+          echo "- **Frontend:** 501 tests" >> $GITHUB_STEP_SUMMARY
+          echo "- **Rust:** 93 tests" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total:** 594 tests" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Full coverage reports uploaded to Codecov (if configured)" >> $GITHUB_STEP_SUMMARY
 
