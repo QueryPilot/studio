@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed unit-tests.yml workflow to build AI sidecar before running Rust tests
 - Fixed coverage.yml workflow to build AI sidecar and install Linux dependencies before generating Rust coverage
 - Fixed Tauri build script validation error by building frontend (dist directory) before running Rust tests in CI
+- Fixed macOS DMG bundling failure by installing create-dmg tool on macOS runners
 
 ## [0.2.0] - 2025-11-10
 ### Added

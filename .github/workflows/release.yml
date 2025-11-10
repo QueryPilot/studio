@@ -122,6 +122,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install macOS dependencies
+        if: matrix.platform == 'macos'
+        run: |
+          brew install create-dmg
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
