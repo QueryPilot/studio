@@ -30,6 +30,23 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libglib2.0-dev \
+            libgtk-3-dev
+
       - name: Cache Rust dependencies
         uses: actions/cache@v4
         with:
@@ -65,6 +82,38 @@ jobs:
       - name: Install sidecar dependencies
         working-directory: src-tauri/sidecar-ai
         run: bun install
+
+      # Build AI sidecar (required by Tauri build script)
+      - name: Build AI sidecar
+        run: pnpm build:ai-sidecar
+
+      - name: Verify AI sidecar build
+        run: |
+          echo "Checking for built sidecar..."
+          ls -la src-tauri/sidecars/ || echo "Sidecars directory not found!"
+
+          # Determine expected filename based on OS
+          case "${{ matrix.os }}" in
+            macos-latest)
+              EXPECTED_FILE="src-tauri/sidecars/ai-server-aarch64-apple-darwin"
+              ;;
+            ubuntu-latest)
+              EXPECTED_FILE="src-tauri/sidecars/ai-server-x86_64-unknown-linux-gnu"
+              ;;
+            windows-latest)
+              EXPECTED_FILE="src-tauri/sidecars/ai-server-x86_64-pc-windows-msvc.exe"
+              ;;
+          esac
+
+          echo "Expecting: $EXPECTED_FILE"
+
+          if [ ! -f "$EXPECTED_FILE" ]; then
+            echo "ERROR: Sidecar binary not found!"
+            exit 1
+          fi
+
+          echo "✅ Sidecar built successfully"
+        shell: bash
 
       # Run tests
       - name: Run Rust unit tests

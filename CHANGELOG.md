@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed Linux build errors by adding missing glib2 and GTK3 development libraries
 - Fixed AI sidecar build verification in CI workflows with platform-specific binary checks and executable permissions
 - Fixed Rust test targets to build AI sidecar first (required by Tauri build script validation)
+- Fixed unit-tests.yml workflow to build AI sidecar before running Rust tests
 
 ## [0.2.0] - 2025-11-10
 ### Added
