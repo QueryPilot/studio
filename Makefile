@@ -106,7 +106,7 @@ test-unit:
 	@$(MAKE) test
 
 # Run Rust backend tests
-test-backend:
+test-backend: build-ai
 	@echo "Running Rust unit tests..."
 	@cd src-tauri && cargo test --lib --bins
 	@echo "Rust tests completed!"
@@ -128,7 +128,7 @@ test-coverage:
 	@pnpm test:coverage
 
 # Run all tests (unit + integration)
-test-all:
+test-all: build-ai
 	@echo "Running all Rust unit tests..."
 	@cd src-tauri && cargo test
 	@echo "Running Frontend unit tests..."
@@ -138,7 +138,7 @@ test-all:
 	@echo "All tests completed!"
 
 # Quick test - just check if database connection works
-test-quick:
+test-quick: build-ai
 	@echo "Quick database connection test..."
 	@cd src-tauri && cargo run --example test_connection
 	@echo "Connection test passed!"
