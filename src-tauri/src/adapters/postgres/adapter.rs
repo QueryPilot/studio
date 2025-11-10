@@ -79,59 +79,6 @@ impl PostgresAdapter {
         Ok(results)
     }
 
-    /// Execute a query within a transaction and return results
-    /// Used for INSERT...RETURNING statements
-    pub async fn query_in_transaction(&self, sql: &str) -> Result<QueryResult> {
-        let pool = self
-            .pool
-            .as_ref()
-            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-
-        let client = pool
-            .get()
-            .await
-            .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
-
-        let rows = client
-            .query(sql, &[])
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
-
-        // Convert rows to QueryResult format
-        if rows.is_empty() {
-            return Ok(QueryResult {
-                columns: Vec::new(),
-                rows: Vec::new(),
-            });
-        }
-
-        let columns = rows[0]
-            .columns()
-            .iter()
-            .map(|col| ColumnMeta {
-                name: col.name().to_string(),
-                data_type: super::types::PostgresTypeConverter::type_to_cell_type(col.type_()),
-                nullable: true,
-                primary_key: false,
-                db_type: col.type_().name().to_string(),
-                type_oid: Some(col.type_().oid()),
-                default_value: None,
-                comment: None,
-                enum_values: None,
-                type_category: None,
-                precision: None,
-                scale: None,
-            })
-            .collect();
-
-        let json_rows = super::fast_converter::FastPostgresConverter::rows_to_json(&rows)?;
-
-        Ok(QueryResult {
-            columns,
-            rows: json_rows,
-        })
-    }
-
     fn build_config(profile: &ConnectionProfile) -> Result<(Config, PgSslMode)> {
         let mut config = Config::new();
         config.host(&profile.host);

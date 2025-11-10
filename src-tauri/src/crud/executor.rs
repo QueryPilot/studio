@@ -127,8 +127,8 @@ async fn execute_postgres_transaction(
     start_time: Instant,
 ) -> Result<TransactionResult> {
     let mut committed = Vec::new();
-    let mut id_mappings = HashMap::new();
-    let mut warnings = Vec::new();
+    let id_mappings = HashMap::new();
+    let warnings = Vec::new();
     let mut sql_statements = Vec::new();
 
     // Build all SQL statements
