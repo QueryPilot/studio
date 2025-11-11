@@ -64,9 +64,7 @@ impl PostgresAdapter {
             let rows_affected = transaction
                 .execute(&sql, &[])
                 .await
-                .map_err(|e| {
-                    AppError::DatabaseError(format!("Transaction failed: {}", e))
-                })?;
+                .map_err(|e| AppError::DatabaseError(format!("Transaction failed: {}", e)))?;
             results.push(rows_affected);
         }
 

@@ -7,12 +7,40 @@ use tokio::task::JoinHandle;
 
 use crate::adapters::postgres::PostgresAdapter;
 use crate::error::{AppError, Result};
+use crate::ssh::secrets::delete_ssh_passphrase;
+use crate::ssh::SshTunnel;
 use crate::types::*;
+
+enum ManagedTunnel {
+    Ssh(SshTunnel),
+    // Future: AwsSsm(SsmTunnel)
+}
+
+impl ManagedTunnel {
+    fn local_port(&self) -> u16 {
+        match self {
+            Self::Ssh(tunnel) => tunnel.local_port(),
+        }
+    }
+
+    async fn health_check(&self) -> Result<()> {
+        match self {
+            Self::Ssh(tunnel) => tunnel.health_check().await,
+        }
+    }
+
+    async fn close(self) -> Result<()> {
+        match self {
+            Self::Ssh(tunnel) => tunnel.close().await,
+        }
+    }
+}
 
 pub struct ConnectionManager {
     connections: Arc<DashMap<String, LiveConnection>>,
     // Store profiles separately so we can reconnect after reaper removes connection
     profiles: Arc<DashMap<String, ConnectionProfile>>,
+    tunnels: Arc<DashMap<String, ManagedTunnel>>,
     #[allow(dead_code)]
     queries: Arc<DashMap<String, QueryHandle>>,
     idle_timeout: Duration,
@@ -33,16 +61,125 @@ pub struct LiveConnection {
     pub active_queries: Arc<AtomicUsize>,
 }
 
+enum TunnelStatus {
+    NotRequired,
+    Reused { local_port: u16 },
+    Created { local_port: u16 },
+}
+
+impl TunnelStatus {
+    fn local_port(&self) -> Option<u16> {
+        match self {
+            TunnelStatus::NotRequired => None,
+            TunnelStatus::Reused { local_port } | TunnelStatus::Created { local_port } => {
+                Some(*local_port)
+            }
+        }
+    }
+
+    fn requires_reconnect(&self) -> bool {
+        matches!(self, TunnelStatus::Created { .. })
+    }
+}
+
 impl ConnectionManager {
     pub fn new() -> Self {
         Self {
             connections: Arc::new(DashMap::new()),
             profiles: Arc::new(DashMap::new()),
+            tunnels: Arc::new(DashMap::new()),
             queries: Arc::new(DashMap::new()),
             idle_timeout: Duration::from_secs(1800), // 30 minutes
             reaper_handle: Arc::new(tokio::sync::Mutex::new(None)),
             total_connections: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    async fn ensure_tunnel(
+        &self,
+        conn_id: &str,
+        profile: &ConnectionProfile,
+    ) -> Result<TunnelStatus> {
+        // Check if bastion is configured (new approach)
+        if let Some(ref bastion) = profile.bastion {
+            return self.ensure_bastion_tunnel(conn_id, profile, bastion).await;
+        }
+
+        // Fallback to legacy ssh_tunnel field
+        let Some(ssh_config) = &profile.ssh_tunnel else {
+            return Ok(TunnelStatus::NotRequired);
+        };
+
+        if let Some((_, tunnel)) = self.tunnels.remove(conn_id) {
+            match tunnel.health_check().await {
+                Ok(()) => {
+                    let local_port = tunnel.local_port();
+                    self.tunnels.insert(conn_id.to_string(), tunnel);
+                    return Ok(TunnelStatus::Reused { local_port });
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        "Tunnel for connection {} failed health check: {}. Recreating...",
+                        conn_id,
+                        err
+                    );
+                    let _ = tunnel.close().await;
+                }
+            }
+        }
+
+        self.create_ssh_tunnel(conn_id, profile, ssh_config).await
+    }
+
+    async fn ensure_bastion_tunnel(
+        &self,
+        conn_id: &str,
+        profile: &ConnectionProfile,
+        bastion: &BastionConfig,
+    ) -> Result<TunnelStatus> {
+        // Check existing tunnel health
+        if let Some((_, tunnel)) = self.tunnels.remove(conn_id) {
+            match tunnel.health_check().await {
+                Ok(()) => {
+                    let local_port = tunnel.local_port();
+                    self.tunnels.insert(conn_id.to_string(), tunnel);
+                    return Ok(TunnelStatus::Reused { local_port });
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        "Bastion tunnel for connection {} failed health check: {}. Recreating...",
+                        conn_id,
+                        err
+                    );
+                    let _ = tunnel.close().await;
+                }
+            }
+        }
+
+        match bastion {
+            BastionConfig::Ssh(ssh_config) => {
+                self.create_ssh_tunnel(conn_id, profile, ssh_config).await
+            }
+            BastionConfig::AwsSsm(_ssm_config) => {
+                // TODO: Implement SSM tunnel
+                Err(AppError::Unsupported(
+                    "AWS SSM bastion tunnels are not yet fully implemented. Coming soon!".into(),
+                ))
+            }
+        }
+    }
+
+    async fn create_ssh_tunnel(
+        &self,
+        conn_id: &str,
+        profile: &ConnectionProfile,
+        ssh_config: &SshTunnelConfig,
+    ) -> Result<TunnelStatus> {
+        let tunnel = SshTunnel::establish(ssh_config, &profile.host, profile.port).await?;
+        let local_port = tunnel.local_port();
+        self.tunnels
+            .insert(conn_id.to_string(), ManagedTunnel::Ssh(tunnel));
+        Ok(TunnelStatus::Created { local_port })
     }
 
     async fn start_reaper_internal(&self) {
@@ -94,16 +231,30 @@ impl ConnectionManager {
             ));
         }
 
+        let tunnel_status = self.ensure_tunnel(&conn_id, profile).await?;
+        let effective_profile = Self::build_effective_profile(profile, &tunnel_status);
+
         // Check if connection exists. If it does but the adapter is no longer connected,
         // attempt a transparent reconnect to heal broken sessions after reloads/network hiccups.
-        if let Some(mut entry) = self.connections.get_mut(&conn_id) {
-            *entry.last_used.write().await = Instant::now();
+        if let Some((_, mut conn)) = self.connections.remove(&conn_id) {
+            let needs_reconnect =
+                !conn.adapter.is_connected().await || tunnel_status.requires_reconnect();
 
-            if !entry.adapter.is_connected().await {
-                // Reconnect in-place; adapter.connect should cleanly reset any prior state
-                entry.adapter.connect(profile).await?;
+            if needs_reconnect {
+                if let Err(err) = conn.adapter.connect(&effective_profile).await {
+                    if tunnel_status.requires_reconnect() {
+                        if let Some((_, tunnel)) = self.tunnels.remove(&conn_id) {
+                            let _ = tunnel.close().await;
+                        }
+                    }
+                    return Err(err);
+                }
             }
 
+            *conn.last_used.write().await = Instant::now();
+            conn.profile = profile.clone();
+            self.connections.insert(conn_id.clone(), conn);
+            self.profiles.insert(conn_id.clone(), profile.clone());
             return Ok(conn_id);
         }
 
@@ -114,7 +265,14 @@ impl ConnectionManager {
 
         // Create new connection
         let mut adapter = self.create_adapter(profile)?;
-        adapter.connect(profile).await?;
+        if let Err(err) = adapter.connect(&effective_profile).await {
+            if tunnel_status.local_port().is_some() {
+                if let Some((_, tunnel)) = self.tunnels.remove(&conn_id) {
+                    let _ = tunnel.close().await;
+                }
+            }
+            return Err(err);
+        }
 
         let live_conn = LiveConnection {
             id: conn_id.clone(),
@@ -221,8 +379,12 @@ impl ConnectionManager {
             conn.adapter.disconnect().await?;
             self.total_connections.fetch_sub(1, Ordering::SeqCst);
         }
+        if let Some((_, tunnel)) = self.tunnels.remove(conn_id) {
+            tunnel.close().await?;
+        }
         // Also remove stored profile
         self.profiles.remove(conn_id);
+        delete_ssh_passphrase(conn_id).await.ok();
         Ok(())
     }
 
@@ -235,6 +397,19 @@ impl ConnectionManager {
 
         for key in keys {
             self.disconnect(&key).await?;
+        }
+
+        // Close any remaining tunnels (if any connections failed earlier)
+        let tunnel_keys: Vec<String> = self
+            .tunnels
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect();
+
+        for key in tunnel_keys {
+            if let Some((_, tunnel)) = self.tunnels.remove(&key) {
+                tunnel.close().await?;
+            }
         }
 
         Ok(())
@@ -274,6 +449,24 @@ impl ConnectionManager {
             total_connections,
             active_connections,
             total_queries,
+        }
+    }
+}
+
+impl ConnectionManager {
+    fn build_effective_profile(
+        profile: &ConnectionProfile,
+        tunnel_status: &TunnelStatus,
+    ) -> ConnectionProfile {
+        if let Some(local_port) = tunnel_status.local_port() {
+            let mut effective = profile.clone();
+            effective.host = "127.0.0.1".into();
+            effective.port = local_port;
+            // Prevent adapters from attempting nested tunnel creation.
+            effective.ssh_tunnel = None;
+            effective
+        } else {
+            profile.clone()
         }
     }
 }

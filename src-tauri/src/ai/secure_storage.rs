@@ -37,4 +37,3 @@ pub fn delete_ai_api_key(provider: String) -> Result<(), String> {
         Err(e) => Err(format!("Failed to delete from keychain: {}", e)),
     }
 }
-

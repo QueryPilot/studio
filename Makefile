@@ -1,4 +1,12 @@
-.PHONY: help d dev build build-ai-sidecar build-ai-sidecar-all dev-sidecar ds package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup version release
+.PHONY: help d dev build build-ai-sidecar build-ai-sidecar-all dev-sidecar ds package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup version release test-ssh-setup test-ssh test-ssh-clean test-ssh-full setup-ssm-plugin
+
+SSH_KEYGEN ?= ssh-keygen
+
+ifeq ($(OS),Windows_NT)
+SETUP_SSM_PLUGIN_CMD := powershell -ExecutionPolicy Bypass -File scripts/download-ssm-plugin.ps1
+else
+SETUP_SSM_PLUGIN_CMD := bash scripts/download-ssm-plugin.sh
+endif
 
 # Default target - show help
 help:
@@ -126,6 +134,45 @@ test-watch:
 test-coverage:
 	@echo "Running tests with coverage..."
 	@pnpm test:coverage
+
+# SSH tunnel integration tests
+test-ssh-setup:
+	@echo "🔧 Setting up SSH test environment..."
+	@mkdir -p tests/ssh-keys
+	@$(SSH_KEYGEN) -t rsa -b 4096 -f tests/ssh-keys/test_rsa_key -N "" -C "test@querypilot" >/dev/null 2>&1 || true
+	@$(SSH_KEYGEN) -t ed25519 -f tests/ssh-keys/test_ed25519_key -N "testpass123" -C "test@querypilot" >/dev/null 2>&1 || true
+	@docker compose up -d ssh-bastion-password ssh-bastion-key postgres-private
+	@echo "⏳ Waiting for bastions and private database to be ready..."
+	@sleep 10
+	@echo "✅ SSH testing environment ready"
+
+test-ssh:
+	@echo "🧪 Running SSH tunnel integration tests..."
+	@cd src-tauri && \
+		TEST_SSH_ENABLED=1 \
+		TEST_SSH_KEY_HOST=127.0.0.1 \
+		TEST_SSH_KEY_PORT=2223 \
+		TEST_SSH_KEY_USER=sshuser \
+		TEST_SSH_KEY_PATH=../tests/ssh-keys/test_rsa_key \
+		TEST_DB_POSTGRES_HOST=postgres-private \
+		TEST_DB_POSTGRES_PORT=5432 \
+		TEST_DB_POSTGRES_USER=devuser \
+		TEST_DB_POSTGRES_PASSWORD=devpass123 \
+		TEST_DB_POSTGRES_DB=todoapp \
+		cargo test --test ssh_tunnel_test -- --nocapture --test-threads=1
+
+test-ssh-clean:
+	@echo "🧹 Cleaning up SSH testing environment..."
+	@docker compose down -v
+	@rm -rf tests/ssh-keys/test_*
+	@echo "✅ Cleanup complete"
+
+test-ssh-full: test-ssh-setup test-ssh test-ssh-clean
+
+setup-ssm-plugin:
+	@echo "📦 Downloading AWS Session Manager plugin binaries..."
+	@$(SETUP_SSM_PLUGIN_CMD)
+	@echo "✅ session-manager-plugin downloaded"
 
 # Run all tests (unit + integration)
 test-all: build-ai

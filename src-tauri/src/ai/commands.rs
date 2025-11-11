@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use tauri::{async_runtime, Emitter, State, Window};
 use serde::{Deserialize, Serialize};
+use tauri::{async_runtime, Emitter, State, Window};
 
 use crate::ai::manager::AIManager;
 use crate::ai::provider::ProviderEvent;
@@ -162,9 +162,7 @@ pub async fn get_ai_sidecar_url(
 
 /// Reload API keys and send to sidecar (called after user updates keys in settings)
 #[tauri::command]
-pub async fn reload_ai_api_keys(
-    manager: State<'_, Arc<AIManager>>,
-) -> Result<(), String> {
+pub async fn reload_ai_api_keys(manager: State<'_, Arc<AIManager>>) -> Result<(), String> {
     use keyring::Entry;
     use std::collections::HashMap;
 
@@ -189,7 +187,8 @@ pub async fn reload_ai_api_keys(
         tracing::warn!("⚠️ No API keys found during reload");
     }
 
-    manager.sidecar_manager()
+    manager
+        .sidecar_manager()
         .configure_api_keys(keys)
         .await
         .map_err(|e| {
@@ -238,7 +237,8 @@ pub async fn get_sidecar_status(
         let client = reqwest::Client::new();
 
         // Try to get status from /status endpoint
-        match client.get(format!("{}/status", url))
+        match client
+            .get(format!("{}/status", url))
             .timeout(std::time::Duration::from_secs(2))
             .send()
             .await
@@ -266,13 +266,11 @@ pub async fn debug_sidecar_status(
         // Check if sidecar is running
         let client = reqwest::Client::new();
         match client.get(format!("{}/health", url)).send().await {
-            Ok(resp) if resp.status().is_success() => {
-                Ok(serde_json::json!({
-                    "sidecar_running": true,
-                    "sidecar_url": url,
-                    "note": "Sidecar is running. Check browser console and sidecar logs for /config POST."
-                }))
-            }
+            Ok(resp) if resp.status().is_success() => Ok(serde_json::json!({
+                "sidecar_running": true,
+                "sidecar_url": url,
+                "note": "Sidecar is running. Check browser console and sidecar logs for /config POST."
+            })),
             _ => Ok(serde_json::json!({
                 "sidecar_running": false,
                 "sidecar_url": url,
@@ -299,7 +297,10 @@ pub async fn get_ai_providers(
                 .map_err(|e| format!("Failed to parse providers: {}", e))
         }
         Err(e) => {
-            tracing::warn!("Failed to fetch providers from sidecar, using fallback: {}", e);
+            tracing::warn!(
+                "Failed to fetch providers from sidecar, using fallback: {}",
+                e
+            );
 
             // Fallback to hardcoded list if sidecar is not available
             Ok(vec![

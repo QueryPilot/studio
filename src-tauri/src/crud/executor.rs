@@ -24,9 +24,13 @@ pub async fn execute_crud_transaction(
     tracing::info!("  ✅ Validation passed");
 
     // Try to use PostgreSQL's proper transaction method if available
-    if let Some(pg_adapter) = adapter.as_any().downcast_ref::<crate::adapters::postgres::adapter::PostgresAdapter>() {
+    if let Some(pg_adapter) = adapter
+        .as_any()
+        .downcast_ref::<crate::adapters::postgres::adapter::PostgresAdapter>()
+    {
         tracing::info!("  Using PostgreSQL transaction (single connection)");
-        return execute_postgres_transaction(pg_adapter, transaction, transaction_id, start_time).await;
+        return execute_postgres_transaction(pg_adapter, transaction, transaction_id, start_time)
+            .await;
     }
 
     // Fallback to old (broken) method for other databases
@@ -49,7 +53,8 @@ pub async fn execute_crud_transaction(
 
     // Execute each command sequentially
     for (idx, command) in transaction.commands.iter().enumerate() {
-        tracing::info!("  Executing command {}/{}: {} ({})",
+        tracing::info!(
+            "  Executing command {}/{}: {} ({})",
             idx + 1,
             transaction.commands.len(),
             command.operation_type,
@@ -110,7 +115,11 @@ pub async fn execute_crud_transaction(
         duration_ms: start_time.elapsed().as_millis() as u64,
         committed,
         failures: vec![],
-        warnings: if warnings.is_empty() { None } else { Some(warnings) },
+        warnings: if warnings.is_empty() {
+            None
+        } else {
+            Some(warnings)
+        },
         id_mappings: if id_mappings.is_empty() {
             None
         } else {
@@ -133,7 +142,8 @@ async fn execute_postgres_transaction(
 
     // Build all SQL statements
     for (idx, command) in transaction.commands.iter().enumerate() {
-        tracing::info!("  Building SQL for command {}/{}: {} ({})",
+        tracing::info!(
+            "  Building SQL for command {}/{}: {} ({})",
             idx + 1,
             transaction.commands.len(),
             command.operation_type,
@@ -148,7 +158,10 @@ async fn execute_postgres_transaction(
                 let summary = CommandSummary {
                     id: command.id.clone(),
                     operation_type: command.operation_type.clone(),
-                    description: command.metadata.as_ref().and_then(|m| m.description.clone()),
+                    description: command
+                        .metadata
+                        .as_ref()
+                        .and_then(|m| m.description.clone()),
                     affected_rows: Some(1), // Will be updated after execution
                 };
                 committed.push(summary);
@@ -184,7 +197,10 @@ async fn execute_postgres_transaction(
     }
 
     // Execute all statements in a single transaction
-    tracing::info!("  Executing {} statements in transaction...", sql_statements.len());
+    tracing::info!(
+        "  Executing {} statements in transaction...",
+        sql_statements.len()
+    );
     match adapter.execute_in_transaction(sql_statements).await {
         Ok(results) => {
             tracing::info!("  ✅ Transaction committed successfully");
@@ -203,8 +219,16 @@ async fn execute_postgres_transaction(
                 duration_ms: start_time.elapsed().as_millis() as u64,
                 committed,
                 failures: vec![],
-                warnings: if warnings.is_empty() { None } else { Some(warnings) },
-                id_mappings: if id_mappings.is_empty() { None } else { Some(id_mappings) },
+                warnings: if warnings.is_empty() {
+                    None
+                } else {
+                    Some(warnings)
+                },
+                id_mappings: if id_mappings.is_empty() {
+                    None
+                } else {
+                    Some(id_mappings)
+                },
             })
         }
         Err(e) => {
@@ -243,7 +267,10 @@ fn build_command_sql(command: &CrudCommand) -> Result<String> {
         "data.update" => build_update_sql(command),
         "data.insert" => build_insert_sql(command),
         "data.delete" => build_delete_sql(command),
-        _ => Err(AppError::Unsupported(format!("Operation type {} not yet supported in transactions", command.operation_type))),
+        _ => Err(AppError::Unsupported(format!(
+            "Operation type {} not yet supported in transactions",
+            command.operation_type
+        ))),
     }
 }
 
@@ -268,9 +295,11 @@ fn build_update_sql(command: &CrudCommand) -> Result<String> {
         .ok_or_else(|| AppError::InvalidInput("Missing 'primaryKeys' in payload".to_string()))?;
 
     let schema = command.target.schema.as_deref().unwrap_or("public");
-    let table = command.target.table.as_ref().ok_or_else(|| {
-        AppError::InvalidInput("Missing table in target".to_string())
-    })?;
+    let table = command
+        .target
+        .table
+        .as_ref()
+        .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
     let where_clause = primary_keys
         .iter()
@@ -300,9 +329,11 @@ fn build_insert_sql(command: &CrudCommand) -> Result<String> {
         .ok_or_else(|| AppError::InvalidInput("Missing 'values' in payload".to_string()))?;
 
     let schema = command.target.schema.as_deref().unwrap_or("public");
-    let table = command.target.table.as_ref().ok_or_else(|| {
-        AppError::InvalidInput("Missing table in target".to_string())
-    })?;
+    let table = command
+        .target
+        .table
+        .as_ref()
+        .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
     let columns: Vec<&str> = values.keys().map(|s| s.as_str()).collect();
     let column_list = columns
@@ -338,9 +369,11 @@ fn build_delete_sql(command: &CrudCommand) -> Result<String> {
         .ok_or_else(|| AppError::InvalidInput("Missing 'primaryKeys' in payload".to_string()))?;
 
     let schema = command.target.schema.as_deref().unwrap_or("public");
-    let table = command.target.table.as_ref().ok_or_else(|| {
-        AppError::InvalidInput("Missing table in target".to_string())
-    })?;
+    let table = command
+        .target
+        .table
+        .as_ref()
+        .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
     let where_clause = primary_keys
         .iter()
@@ -390,7 +423,10 @@ async fn execute_command(
     let summary = CommandSummary {
         id: command.id.clone(),
         operation_type: command.operation_type.clone(),
-        description: command.metadata.as_ref().and_then(|m| m.description.clone()),
+        description: command
+            .metadata
+            .as_ref()
+            .and_then(|m| m.description.clone()),
         affected_rows: Some(affected_rows),
     };
 
@@ -423,9 +459,11 @@ async fn execute_data_update(adapter: &dyn DbAdapter, command: &CrudCommand) -> 
 
     // Build SQL (basic implementation - should use parameterized queries)
     let schema = command.target.schema.as_deref().unwrap_or("public");
-    let table = command.target.table.as_ref().ok_or_else(|| {
-        AppError::InvalidInput("Missing table in target".to_string())
-    })?;
+    let table = command
+        .target
+        .table
+        .as_ref()
+        .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
     // Build WHERE clause from primary keys
     let where_clause = primary_keys
@@ -464,9 +502,11 @@ async fn execute_data_insert(
         .ok_or_else(|| AppError::InvalidInput("Missing 'values' in payload".to_string()))?;
 
     let schema = command.target.schema.as_deref().unwrap_or("public");
-    let table = command.target.table.as_ref().ok_or_else(|| {
-        AppError::InvalidInput("Missing table in target".to_string())
-    })?;
+    let table = command
+        .target
+        .table
+        .as_ref()
+        .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
     // Build INSERT statement
     let columns: Vec<&str> = values.keys().map(|s| s.as_str()).collect();
@@ -520,9 +560,11 @@ async fn execute_data_delete(adapter: &dyn DbAdapter, command: &CrudCommand) -> 
         .ok_or_else(|| AppError::InvalidInput("Missing 'primaryKeys' in payload".to_string()))?;
 
     let schema = command.target.schema.as_deref().unwrap_or("public");
-    let table = command.target.table.as_ref().ok_or_else(|| {
-        AppError::InvalidInput("Missing table in target".to_string())
-    })?;
+    let table = command
+        .target
+        .table
+        .as_ref()
+        .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
     // Build WHERE clause
     let where_clause = primary_keys
@@ -551,34 +593,44 @@ async fn execute_column_add(adapter: &dyn DbAdapter, command: &CrudCommand) -> R
     })?;
 
     let schema = command.target.schema.as_deref().unwrap_or("public");
-    let table = command.target.table.as_ref().ok_or_else(|| {
-        AppError::InvalidInput("Missing table in target".to_string())
-    })?;
+    let table = command
+        .target
+        .table
+        .as_ref()
+        .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
     let column_def = crate::types::AddColumnRequest {
-        name: payload.get("name")
+        name: payload
+            .get("name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AppError::InvalidInput("Missing column name".to_string()))?
             .to_string(),
-        data_type: payload.get("dataType")
+        data_type: payload
+            .get("dataType")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AppError::InvalidInput("Missing dataType".to_string()))?
             .to_string(),
-        nullable: payload.get("nullable")
+        nullable: payload
+            .get("nullable")
             .and_then(|v| v.as_bool())
             .unwrap_or(true),
-        default_value: payload.get("defaultValue")
+        default_value: payload
+            .get("defaultValue")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
-        check_constraint: payload.get("checkExpression")
+        check_constraint: payload
+            .get("checkExpression")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
-        comment: payload.get("comment")
+        comment: payload
+            .get("comment")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
     };
 
-    adapter.alter_table_add_column(schema, table, &column_def).await?;
+    adapter
+        .alter_table_add_column(schema, table, &column_def)
+        .await?;
     Ok(1)
 }
 
@@ -588,41 +640,52 @@ async fn execute_column_modify(adapter: &dyn DbAdapter, command: &CrudCommand) -
     })?;
 
     let schema = command.target.schema.as_deref().unwrap_or("public");
-    let table = command.target.table.as_ref().ok_or_else(|| {
-        AppError::InvalidInput("Missing table in target".to_string())
-    })?;
+    let table = command
+        .target
+        .table
+        .as_ref()
+        .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
     let modify_req = crate::types::ModifyColumnRequest {
-        name: payload.get("name")
+        name: payload
+            .get("name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AppError::InvalidInput("Missing column name".to_string()))?
             .to_string(),
-        new_name: payload.get("newName")
+        new_name: payload
+            .get("newName")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
-        new_type: payload.get("newType")
+        new_type: payload
+            .get("newType")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
-        nullable: payload.get("nullable")
-            .and_then(|v| v.as_bool()),
-        default_value: payload.get("defaultValue")
+        nullable: payload.get("nullable").and_then(|v| v.as_bool()),
+        default_value: payload
+            .get("defaultValue")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
-        drop_default: payload.get("dropDefault")
+        drop_default: payload
+            .get("dropDefault")
             .and_then(|v| v.as_bool())
             .unwrap_or(false),
-        new_check_constraint: payload.get("checkExpression")
+        new_check_constraint: payload
+            .get("checkExpression")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
-        drop_check_constraint: payload.get("dropCheckConstraint")
+        drop_check_constraint: payload
+            .get("dropCheckConstraint")
             .and_then(|v| v.as_bool())
             .unwrap_or(false),
-        comment: payload.get("comment")
+        comment: payload
+            .get("comment")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
     };
 
-    adapter.alter_table_modify_column(schema, table, &modify_req).await?;
+    adapter
+        .alter_table_modify_column(schema, table, &modify_req)
+        .await?;
     Ok(1)
 }
 
@@ -632,15 +695,20 @@ async fn execute_column_drop(adapter: &dyn DbAdapter, command: &CrudCommand) -> 
     })?;
 
     let schema = command.target.schema.as_deref().unwrap_or("public");
-    let table = command.target.table.as_ref().ok_or_else(|| {
-        AppError::InvalidInput("Missing table in target".to_string())
-    })?;
+    let table = command
+        .target
+        .table
+        .as_ref()
+        .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
-    let column_name = payload.get("name")
+    let column_name = payload
+        .get("name")
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::InvalidInput("Missing column name".to_string()))?;
 
-    adapter.alter_table_drop_column(schema, table, column_name).await?;
+    adapter
+        .alter_table_drop_column(schema, table, column_name)
+        .await?;
     Ok(1)
 }
 
@@ -650,19 +718,25 @@ async fn execute_column_rename(adapter: &dyn DbAdapter, command: &CrudCommand) -
     })?;
 
     let schema = command.target.schema.as_deref().unwrap_or("public");
-    let table = command.target.table.as_ref().ok_or_else(|| {
-        AppError::InvalidInput("Missing table in target".to_string())
-    })?;
+    let table = command
+        .target
+        .table
+        .as_ref()
+        .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
-    let old_name = payload.get("oldName")
+    let old_name = payload
+        .get("oldName")
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::InvalidInput("Missing oldName".to_string()))?;
 
-    let new_name = payload.get("newName")
+    let new_name = payload
+        .get("newName")
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::InvalidInput("Missing newName".to_string()))?;
 
-    adapter.alter_table_rename_column(schema, table, old_name, new_name).await?;
+    adapter
+        .alter_table_rename_column(schema, table, old_name, new_name)
+        .await?;
     Ok(1)
 }
 
@@ -672,11 +746,14 @@ async fn execute_index_create(adapter: &dyn DbAdapter, command: &CrudCommand) ->
     })?;
 
     let schema = command.target.schema.as_deref().unwrap_or("public");
-    let table = command.target.table.as_ref().ok_or_else(|| {
-        AppError::InvalidInput("Missing table in target".to_string())
-    })?;
+    let table = command
+        .target
+        .table
+        .as_ref()
+        .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
-    let columns = payload.get("columns")
+    let columns = payload
+        .get("columns")
         .and_then(|v| v.as_array())
         .ok_or_else(|| AppError::InvalidInput("Missing or invalid columns array".to_string()))?
         .iter()
@@ -685,23 +762,29 @@ async fn execute_index_create(adapter: &dyn DbAdapter, command: &CrudCommand) ->
         .collect::<Vec<_>>();
 
     if columns.is_empty() {
-        return Err(AppError::InvalidInput("columns array cannot be empty".to_string()));
+        return Err(AppError::InvalidInput(
+            "columns array cannot be empty".to_string(),
+        ));
     }
 
     let index_req = crate::types::CreateIndexRequest {
-        name: payload.get("name")
+        name: payload
+            .get("name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AppError::InvalidInput("Missing index name".to_string()))?
             .to_string(),
         columns,
-        unique: payload.get("unique")
+        unique: payload
+            .get("unique")
             .and_then(|v| v.as_bool())
             .unwrap_or(false),
-        index_type: payload.get("indexType")
+        index_type: payload
+            .get("indexType")
             .and_then(|v| v.as_str())
             .unwrap_or("btree")
             .to_string(),
-        condition: payload.get("condition")
+        condition: payload
+            .get("condition")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
     };
@@ -717,7 +800,8 @@ async fn execute_index_drop(adapter: &dyn DbAdapter, command: &CrudCommand) -> R
 
     let schema = command.target.schema.as_deref().unwrap_or("public");
 
-    let index_name = payload.get("name")
+    let index_name = payload
+        .get("name")
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::InvalidInput("Missing index name".to_string()))?;
 
@@ -732,11 +816,13 @@ async fn execute_index_rename(adapter: &dyn DbAdapter, command: &CrudCommand) ->
 
     let schema = command.target.schema.as_deref().unwrap_or("public");
 
-    let old_name = payload.get("oldName")
+    let old_name = payload
+        .get("oldName")
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::InvalidInput("Missing oldName".to_string()))?;
 
-    let new_name = payload.get("newName")
+    let new_name = payload
+        .get("newName")
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::InvalidInput("Missing newName".to_string()))?;
 
@@ -744,67 +830,78 @@ async fn execute_index_rename(adapter: &dyn DbAdapter, command: &CrudCommand) ->
     Ok(1)
 }
 
-async fn execute_foreign_key_add(
-    adapter: &dyn DbAdapter,
-    command: &CrudCommand,
-) -> Result<u64> {
-    let payload = command.payload.as_object().ok_or_else(|| {
-        AppError::InvalidInput("fk.add payload must be an object".to_string())
-    })?;
+async fn execute_foreign_key_add(adapter: &dyn DbAdapter, command: &CrudCommand) -> Result<u64> {
+    let payload = command
+        .payload
+        .as_object()
+        .ok_or_else(|| AppError::InvalidInput("fk.add payload must be an object".to_string()))?;
 
     let schema = command.target.schema.as_deref().unwrap_or("public");
-    let table = command.target.table.as_ref().ok_or_else(|| {
-        AppError::InvalidInput("Missing table in target".to_string())
-    })?;
+    let table = command
+        .target
+        .table
+        .as_ref()
+        .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
     let fk_req = crate::types::AddForeignKeyRequest {
-        constraint_name: payload.get("constraintName")
+        constraint_name: payload
+            .get("constraintName")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
-        column_name: payload.get("columnName")
+        column_name: payload
+            .get("columnName")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AppError::InvalidInput("Missing columnName".to_string()))?
             .to_string(),
-        referenced_table: payload.get("referencedTable")
+        referenced_table: payload
+            .get("referencedTable")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AppError::InvalidInput("Missing referencedTable".to_string()))?
             .to_string(),
-        referenced_column: payload.get("referencedColumn")
+        referenced_column: payload
+            .get("referencedColumn")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AppError::InvalidInput("Missing referencedColumn".to_string()))?
             .to_string(),
-        on_update: payload.get("onUpdate")
+        on_update: payload
+            .get("onUpdate")
             .and_then(|v| v.as_str())
             .unwrap_or("NO ACTION")
             .to_string(),
-        on_delete: payload.get("onDelete")
+        on_delete: payload
+            .get("onDelete")
             .and_then(|v| v.as_str())
             .unwrap_or("NO ACTION")
             .to_string(),
     };
 
-    adapter.alter_table_add_foreign_key(schema, table, &fk_req).await?;
+    adapter
+        .alter_table_add_foreign_key(schema, table, &fk_req)
+        .await?;
     Ok(1)
 }
 
-async fn execute_foreign_key_drop(
-    adapter: &dyn DbAdapter,
-    command: &CrudCommand,
-) -> Result<u64> {
-    let payload = command.payload.as_object().ok_or_else(|| {
-        AppError::InvalidInput("fk.drop payload must be an object".to_string())
-    })?;
+async fn execute_foreign_key_drop(adapter: &dyn DbAdapter, command: &CrudCommand) -> Result<u64> {
+    let payload = command
+        .payload
+        .as_object()
+        .ok_or_else(|| AppError::InvalidInput("fk.drop payload must be an object".to_string()))?;
 
     let schema = command.target.schema.as_deref().unwrap_or("public");
-    let table = command.target.table.as_ref().ok_or_else(|| {
-        AppError::InvalidInput("Missing table in target".to_string())
-    })?;
+    let table = command
+        .target
+        .table
+        .as_ref()
+        .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
-    let constraint_name = payload.get("constraintName")
+    let constraint_name = payload
+        .get("constraintName")
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::InvalidInput("Missing constraintName".to_string()))?;
 
-    adapter.alter_table_drop_foreign_key(schema, table, constraint_name).await?;
+    adapter
+        .alter_table_drop_foreign_key(schema, table, constraint_name)
+        .await?;
     Ok(1)
 }
 

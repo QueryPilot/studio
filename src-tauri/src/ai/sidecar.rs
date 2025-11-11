@@ -1,8 +1,8 @@
+use anyhow::{anyhow, Result};
+use std::io::{BufRead, BufReader};
+use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use anyhow::{Result, anyhow};
-use std::process::{Child, Command, Stdio};
-use std::io::{BufRead, BufReader};
 
 pub struct SidecarManager {
     port: RwLock<Option<u16>>,
@@ -84,7 +84,7 @@ impl SidecarManager {
     fn get_sidecar_path(&self) -> Result<std::path::PathBuf> {
         // In development, look for the binary in src-tauri/sidecars
         // In production, it will be bundled by Tauri
-        
+
         // Try to get from Tauri resource directory first
         let resource_path = std::env::current_exe()
             .ok()
@@ -124,7 +124,7 @@ impl SidecarManager {
         // Try multiple possible paths
         let current_dir = std::env::current_dir()?;
         tracing::info!("Current directory: {:?}", current_dir);
-        
+
         // Try relative to current directory
         let mut dev_path = current_dir.clone();
         dev_path.push("src-tauri");
@@ -136,7 +136,7 @@ impl SidecarManager {
         }
 
         tracing::info!("Trying path: {:?}", dev_path);
-        
+
         if dev_path.exists() {
             tracing::info!("Found sidecar at: {:?}", dev_path);
             return Ok(dev_path);
@@ -153,7 +153,7 @@ impl SidecarManager {
                 {
                     alt_path.set_extension("exe");
                 }
-                
+
                 if let Ok(canonical) = alt_path.canonicalize() {
                     tracing::info!("Trying alternate path: {:?}", canonical);
                     if canonical.exists() {
@@ -190,13 +190,22 @@ impl SidecarManager {
 
     /// Get the sidecar URL
     pub async fn get_url(&self) -> Option<String> {
-        self.port.read().await.map(|port| format!("http://localhost:{}", port))
+        self.port
+            .read()
+            .await
+            .map(|port| format!("http://localhost:{}", port))
     }
 
     /// Configure API keys for the sidecar
-    pub async fn configure_api_keys(&self, keys: std::collections::HashMap<String, String>) -> Result<()> {
-        let url = self.get_url().await.ok_or_else(|| anyhow!("Sidecar not running"))?;
-        
+    pub async fn configure_api_keys(
+        &self,
+        keys: std::collections::HashMap<String, String>,
+    ) -> Result<()> {
+        let url = self
+            .get_url()
+            .await
+            .ok_or_else(|| anyhow!("Sidecar not running"))?;
+
         let client = reqwest::Client::new();
         let response = client
             .post(format!("{}/config", url))
@@ -205,7 +214,10 @@ impl SidecarManager {
             .await?;
 
         if !response.status().is_success() {
-            return Err(anyhow!("Failed to configure API keys: {}", response.status()));
+            return Err(anyhow!(
+                "Failed to configure API keys: {}",
+                response.status()
+            ));
         }
 
         tracing::info!("✅ API keys configured for sidecar");
@@ -214,7 +226,10 @@ impl SidecarManager {
 
     /// Fetch supported providers from the sidecar
     pub async fn get_providers(&self) -> Result<serde_json::Value> {
-        let url = self.get_url().await.ok_or_else(|| anyhow!("Sidecar not running"))?;
+        let url = self
+            .get_url()
+            .await
+            .ok_or_else(|| anyhow!("Sidecar not running"))?;
 
         let client = reqwest::Client::new();
         let response = client
@@ -236,7 +251,8 @@ impl SidecarManager {
         let client = reqwest::Client::new();
         let url = format!("http://localhost:{}/health", port);
 
-        match client.get(&url)
+        match client
+            .get(&url)
             .timeout(std::time::Duration::from_secs(2))
             .send()
             .await
@@ -245,7 +261,6 @@ impl SidecarManager {
             Err(_) => false,
         }
     }
-
 }
 
 impl Default for SidecarManager {
@@ -253,4 +268,3 @@ impl Default for SidecarManager {
         Self::new()
     }
 }
-

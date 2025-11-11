@@ -63,6 +63,19 @@ dirs = "5.0"
 rayon = "1.8"  # Parallel processing for row conversion
 moka = { version = "0.12", features = ["sync"] }  # LRU cache for prepared statements
 
+# SSH
+ssh2 = { version = "0.9.5", features = ["vendored-openssl"] }  # Primary SSH library with libssh2 v1.11.1 (supports modern key types)
+ssh_config = "0.1.0"  # For parsing ~/.ssh/config
+shellexpand = "3.1"  # For expanding ~ in paths
+
+# AWS & OAuth
+aws-config = "1.1"
+aws-sdk-ssm = "1.13"
+aws-sdk-sts = "1.13"
+aws-credential-types = "1.1"
+aws-types = "1.1"
+oauth2 = "4.4"
+
 # Security
 keyring = { version = "3.3", features = ["apple-native", "windows-native", "linux-native"] }
 rand = "0.8"

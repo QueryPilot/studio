@@ -5,12 +5,14 @@
 
 mod adapters;
 mod ai;
+mod aws;
 mod commands;
 mod core;
 mod crud;
 mod error;
 mod http_server;
 mod keychain;
+mod ssh;
 mod state;
 mod storage;
 mod types;
@@ -18,6 +20,7 @@ mod vault;
 mod window_state;
 
 use ai::manager::AIManager;
+use ssh::rate_limiter::RateLimiter;
 use state::AppState;
 use std::sync::Arc;
 use tauri::Manager;
@@ -43,6 +46,7 @@ fn main() {
     // Create app state
     let app_state = AppState {
         window_states: window_states.clone(),
+        ssh_test_rate_limiter: RateLimiter::new(5),
     };
 
     let mut context = tauri::generate_context!();
@@ -103,6 +107,10 @@ fn main() {
             commands::disconnect,
             commands::disconnect_all,
             commands::test_connection,
+            commands::test_ssh_connection,
+            commands::start_oauth_flow,
+            commands::get_oauth_token_status,
+            commands::clear_oauth_token,
             commands::get_databases,
             commands::get_schemas,
             commands::get_tables,

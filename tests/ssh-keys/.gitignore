@@ -1,0 +1,9 @@
+# Ignore all SSH keys (private and public)
+test_*
+*.pub
+
+# Keep the generation script
+!generate-test-keys.sh
+!.gitignore
+
+
