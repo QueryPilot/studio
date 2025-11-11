@@ -1,6 +1,6 @@
-import { memo, useCallback } from "react";
+import { memo, useCallback, forwardRef } from "react";
 import { CodeEditor } from "@/components/CodeEditor";
-import type { SqlDialect } from "@/components/CodeEditor";
+import type { SqlDialect, CodeEditorRef } from "@/components/CodeEditor";
 
 interface QueryEditorProps {
   connectionId: string;
@@ -15,7 +15,7 @@ interface QueryEditorProps {
   readOnly?: boolean;
 }
 
-export const QueryEditor = memo(function QueryEditor({
+export const QueryEditor = memo(forwardRef<CodeEditorRef, QueryEditorProps>(function QueryEditor({
   connectionId,
   database,
   schema,
@@ -26,7 +26,7 @@ export const QueryEditor = memo(function QueryEditor({
   isExecuting = false,
   height = "100%",
   readOnly = false,
-}: QueryEditorProps) {
+}, ref) {
   // Map dbType to CodeEditor dialect
   const dialect: SqlDialect =
     dbType === "mysql"
@@ -66,6 +66,7 @@ export const QueryEditor = memo(function QueryEditor({
   return (
     <div className="h-full overflow-hidden">
       <CodeEditor
+        ref={ref}
         value={value}
         onChange={onChange}
         onExecute={handleExecute}
@@ -83,4 +84,4 @@ export const QueryEditor = memo(function QueryEditor({
       />
     </div>
   );
-});
+}));

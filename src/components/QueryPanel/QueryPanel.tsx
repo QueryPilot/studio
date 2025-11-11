@@ -30,8 +30,10 @@ import { useTabStateStore, type QueryResult } from "@/stores/tabStateStore";
 import type { ColumnMeta } from "@/types/database";
 import { formatSql } from "@/utils/codeFormatter";
 import type { SqlDialect } from "@/components/CodeEditor/types";
+import type { CodeEditorRef } from "@/components/CodeEditor";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
+import { handleMutationCache, isMutationQuery, isSelectQuery } from "@/lib/cacheManager";
 
 interface QueryPanelProps {
   panelId: string;
@@ -83,10 +85,20 @@ export const QueryPanel = memo(function QueryPanel({
     globalState?.viewMode || "table",
   );
 
+  // Editor ref for focusing
+  const editorRef = useRef<CodeEditorRef>(null);
+
   // Wrapper setters that update ONLY local state (Zustand sync happens in useEffect)
-  const setQuery = useCallback((value: string) => {
-    setQueryInternal(value);
-  }, []);
+  const setQuery = useCallback(
+    (value: string) => {
+      setQueryInternal(value);
+      // Mark as having unsaved changes when query is modified
+      const lastExecutedQuery = globalState?.lastExecutedQuery || "";
+      const hasChanges = value.trim() !== lastExecutedQuery.trim();
+      setQueryState(tabId, { hasUnsavedChanges: hasChanges });
+    },
+    [tabId, setQueryState, globalState?.lastExecutedQuery],
+  );
 
   const setResult = useCallback(
     (
@@ -395,6 +407,36 @@ export const QueryPanel = memo(function QueryPanel({
         // Streaming complete - stop streaming indicator
         setIsStreaming(false);
 
+        // Handle mutations and auto-refresh
+        if (effectiveConnectionId) {
+          const wasMutation = isMutationQuery(sql);
+          if (wasMutation) {
+            // Clear cache
+            handleMutationCache(sql, effectiveConnectionId);
+            console.log("[QueryPanel] Mutation detected - cache invalidated");
+
+            // Auto-refresh: Re-run last SELECT query to show updated data
+            const lastSelectQuery = globalState?.lastSelectQuery;
+            if (lastSelectQuery) {
+              toast.info("Data modified - Refreshing results...");
+              // Schedule refresh after current query completes
+              setTimeout(() => {
+                handleExecute(lastSelectQuery);
+              }, 100);
+            }
+          }
+        }
+
+        // Store SELECT queries for auto-refresh after mutations
+        const isSelect = isSelectQuery(sql);
+
+        // Clear unsaved changes flag and update last executed query
+        setQueryState(tabId, {
+          hasUnsavedChanges: false,
+          lastExecutedQuery: sql,
+          ...(isSelect ? { lastSelectQuery: sql } : {}),
+        });
+
         queryResult = {
           columns: final.columns.map((c) => c.name),
           columnMeta: final.columns as unknown as ColumnMeta[],
@@ -523,6 +565,10 @@ export const QueryPanel = memo(function QueryPanel({
     setShowHistory((prev) => !prev);
   }, []);
 
+  const focusEditor = useCallback(() => {
+    editorRef.current?.focus();
+  }, []);
+
   // Register keyboard commands
   useEffect(() => {
     if (!keyboardServices) {
@@ -602,6 +648,7 @@ export const QueryPanel = memo(function QueryPanel({
               >
                 <div className="flex flex-col h-full">
                   <QueryEditor
+                    ref={editorRef}
                     connectionId={effectiveConnectionId}
                     database={database}
                     schema={schema}
@@ -629,6 +676,7 @@ export const QueryPanel = memo(function QueryPanel({
                     onBeautify={handleBeautify}
                     onToggleHistory={toggleHistory}
                     onViewModeChange={setViewMode}
+                    onFocusEditor={focusEditor}
                   />
                 </div>
               </ResizablePanel>

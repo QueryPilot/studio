@@ -106,6 +106,10 @@ export const defaultKeybindings: Keybinding[] = [
     when: 'activeEditor',
   },
   {
+    command: 'workbench.action.refreshAll',
+    key: 'cmd+r',
+  },
+  {
     command: 'workbench.action.nextTab',
     key: 'cmd+shift+]',
     when: 'activeEditor',

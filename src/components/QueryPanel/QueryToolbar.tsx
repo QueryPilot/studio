@@ -19,6 +19,7 @@ interface QueryToolbarProps {
   onBeautify: () => void;
   onToggleHistory: () => void;
   onViewModeChange: (mode: "table" | "json") => void;
+  onFocusEditor?: () => void;
 }
 
 export const QueryToolbar = memo(function QueryToolbar({
@@ -35,6 +36,7 @@ export const QueryToolbar = memo(function QueryToolbar({
   onBeautify,
   onToggleHistory,
   onViewModeChange,
+  onFocusEditor,
 }: QueryToolbarProps) {
   return (
     <div className="flex items-center justify-between gap-1 p-1 bg-muted/20 flex-shrink-0">
@@ -61,7 +63,7 @@ export const QueryToolbar = memo(function QueryToolbar({
       </div>
 
       <div className="flex items-center gap-2">
-        <QueryLimitControl appliedLimit={appliedLimit} />
+        <QueryLimitControl appliedLimit={appliedLimit} onFocusEditor={onFocusEditor} />
 
         <Button
           size="sm"

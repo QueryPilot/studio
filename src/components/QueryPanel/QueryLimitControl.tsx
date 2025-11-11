@@ -10,9 +10,10 @@ import { usePreferencesStore } from "@/stores/preferencesStore";
 
 interface QueryLimitControlProps {
   appliedLimit?: number;
+  onFocusEditor?: () => void;
 }
 
-export function QueryLimitControl({ appliedLimit }: QueryLimitControlProps) {
+export function QueryLimitControl({ appliedLimit, onFocusEditor }: QueryLimitControlProps) {
   const { smartQueryLimit, setSmartQueryLimit } = usePreferencesStore();
   const limits = [
     100, 1000, 5000, 10000, 50000, 100000, 250000, 500000, 1000000,
@@ -36,6 +37,8 @@ export function QueryLimitControl({ appliedLimit }: QueryLimitControlProps) {
           } else {
             setSmartQueryLimit(Number(value));
           }
+          // Focus editor after selection
+          onFocusEditor?.();
         }}
       >
         <SelectTrigger size="sm" className="!h-7 w-[130px] text-xs">
