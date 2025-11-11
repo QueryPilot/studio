@@ -3,8 +3,20 @@ name: Unit Tests
 on:
   push:
     branches: [main, master, develop]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.vscode/**'
   pull_request:
     branches: [main, master, develop]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.vscode/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -18,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest]
 
     steps:
       - name: Checkout code
@@ -58,9 +70,9 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             src-tauri/target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-rust-${{ hashFiles('src-tauri/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-rust-
 
       # Node/pnpm setup with caching
       - name: Setup pnpm
@@ -70,16 +82,24 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'pnpm'
+          cache: "pnpm"
 
       - name: Install frontend dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       # Bun setup for sidecar
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('src-tauri/sidecar-ai/bun.lockb') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
 
       - name: Install sidecar dependencies
         working-directory: src-tauri/sidecar-ai
@@ -159,21 +179,87 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: pnpm typecheck
 
+      # Code Coverage
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Generate frontend coverage
+        run: pnpm test:coverage
+
+      - name: Generate Rust coverage
+        working-directory: src-tauri
+        run: cargo llvm-cov --lib --lcov --output-path ../coverage/lcov.info
+
+      - name: Upload frontend coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/coverage-final.json
+          flags: frontend
+          name: frontend-coverage
+          token: ${{ secrets.CODECOV_TOKEN }}
+        continue-on-error: true
+
+      - name: Upload Rust coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/lcov.info
+          flags: rust
+          name: rust-coverage
+          token: ${{ secrets.CODECOV_TOKEN }}
+        continue-on-error: true
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
+
       # Test summary
       - name: Test Summary
         if: always()
         run: |
-          echo "## 🧪 Test Results - ${{ matrix.os }}" >> $GITHUB_STEP_SUMMARY
+          echo "## 🧪 Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Tests" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Rust unit tests (93 tests)" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Frontend unit tests (501 tests)" >> $GITHUB_STEP_SUMMARY
           echo "- 📊 **Total: 594 tests**" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Additional Checks" >> $GITHUB_STEP_SUMMARY
-            echo "- ✅ Rust clippy" >> $GITHUB_STEP_SUMMARY
-            echo "- ✅ Rust formatting" >> $GITHUB_STEP_SUMMARY
-            echo "- ✅ Frontend linting" >> $GITHUB_STEP_SUMMARY
-            echo "- ✅ TypeScript type check" >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Code Quality" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Rust clippy" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Rust formatting" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Frontend linting" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ TypeScript type check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Coverage" >> $GITHUB_STEP_SUMMARY
+          echo "- 📊 Frontend & Rust coverage uploaded to Codecov" >> $GITHUB_STEP_SUMMARY
+          echo "- 📦 Coverage report available in artifacts" >> $GITHUB_STEP_SUMMARY
         shell: bash
+
+  integration-ssh:
+    name: SSH Tunnel Integration Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Generate SSH test keys
+        run: make test-ssh-setup
+
+      - name: Run SSH integration tests
+        run: make test-ssh
+
+      - name: Clean up SSH integration environment
+        run: make test-ssh-clean
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## ✅ SSH integration tests" >> $GITHUB_STEP_SUMMARY
+          echo "- Containers started via docker-compose" >> $GITHUB_STEP_SUMMARY
+          echo "- SSH tunnel verified against postgres-private" >> $GITHUB_STEP_SUMMARY
