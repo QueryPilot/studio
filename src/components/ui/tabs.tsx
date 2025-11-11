@@ -36,7 +36,14 @@ const Tabs = React.forwardRef<
   TabsProps
 >(
   (
-    { enableShortcuts = false, tabGroupId, focused, enableGlobalShortcuts = true, children, ...props },
+    {
+      enableShortcuts = false,
+      tabGroupId,
+      focused,
+      enableGlobalShortcuts = true,
+      children,
+      ...props
+    },
     ref,
   ) => {
     if (!enableShortcuts) {
@@ -99,7 +106,7 @@ const TabsList = React.forwardRef<
     <TabsPrimitive.List
       ref={ref}
       className={cn(
-        "inline-flex items-center justify-center rounded-lg bg-muted p-1 text-muted-foreground",
+        "inline-flex items-center justify-center rounded-xl bg-muted p-1 text-muted-foreground",
         className,
       )}
       onClick={handleClick}

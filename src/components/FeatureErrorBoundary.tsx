@@ -1,7 +1,7 @@
-import React from 'react';
-import { ErrorBoundary } from './ErrorBoundary';
-import { AlertCircle, RefreshCw } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import React from "react";
+import { ErrorBoundary } from "./ErrorBoundary";
+import { AlertCircle, RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface FeatureErrorBoundaryProps {
   children: React.ReactNode;
@@ -22,7 +22,7 @@ export function FeatureErrorBoundary({
     <ErrorBoundary
       onReset={onReset}
       fallback={
-        <div className="flex items-center justify-center h-full min-h-[200px] bg-muted/10 rounded-lg border border-border">
+        <div className="flex items-center justify-center h-full min-h-[200px] bg-muted/10 rounded-xl border border-border">
           <div className="max-w-md w-full p-6 space-y-4 text-center">
             <div className="flex justify-center">
               <AlertCircle className="h-10 w-10 text-destructive" />
@@ -32,7 +32,8 @@ export function FeatureErrorBoundary({
                 {featureName} Error
               </h3>
               <p className="text-sm text-muted-foreground">
-                This feature encountered an error. Other parts of the application should still work.
+                This feature encountered an error. Other parts of the
+                application should still work.
               </p>
             </div>
             <Button

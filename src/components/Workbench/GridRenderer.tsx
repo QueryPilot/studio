@@ -7,6 +7,7 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from "@/components/ui/resizable";
+import { cn } from "@/lib/cn";
 
 interface GridRendererProps {
   node: GridNode;
@@ -19,7 +20,7 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
   path = [],
   className,
 }) => {
-  const { resizePanelAction } = useWorkbenchStore();
+  const { resizePanelAction, focusedPanelId } = useWorkbenchStore();
 
   const handlePanelResize = useCallback(
     (sizes: number[]) => {
@@ -34,7 +35,16 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
 
   if (node.type === "leaf") {
     if (!node.content) return null;
-    return <Panel content={node.content} path={path} className={className} />;
+    return (
+      <Panel
+        content={node.content}
+        path={path}
+        className={cn(className, "rounded-xl overflow-hidden border-2", {
+          "border-primary/30": node.id === focusedPanelId,
+          "border-background": node.id !== focusedPanelId,
+        })}
+      />
+    );
   }
 
   if (node.children && node.children.length === 2) {
@@ -53,7 +63,9 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
           defaultSize={defaultSizes[0]}
           minSize={10}
           maxSize={90}
-          className="rounded-xl overflow-hidden bg-transparent"
+          className={cn("rounded-xl overflow-hidden bg-transparent", {
+            "border border-primary/20": node.id === focusedPanelId,
+          })}
         >
           {node.children[0] && (
             <GridRenderer node={node.children[0]} path={[...path, 0]} />
@@ -64,7 +76,9 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
           defaultSize={defaultSizes[1]}
           minSize={10}
           maxSize={90}
-          className="rounded-xl overflow-hidden bg-transparent"
+          className={cn("rounded-xl overflow-hidden bg-transparent", {
+            "border border-primary/20": node.id === focusedPanelId,
+          })}
         >
           {node.children[1] && (
             <GridRenderer node={node.children[1]} path={[...path, 1]} />

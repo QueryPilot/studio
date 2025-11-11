@@ -89,7 +89,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 </div>
 
                 {this.state.error && (
-                  <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 select-text">
+                  <div className="bg-destructive/10 border border-destructive/20 rounded-xl p-4 select-text">
                     <p className="text-sm font-semibold text-destructive mb-2">
                       Error Details:
                     </p>

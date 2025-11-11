@@ -13,14 +13,19 @@ interface SqlPreviewProps {
 export function SqlPreview({ statements, className }: SqlPreviewProps) {
   if (!statements.length) {
     return (
-      <div className={cn("flex h-full items-center justify-center rounded-lg border border-dashed border-muted-foreground/40 p-6 text-sm text-muted-foreground", className)}>
+      <div
+        className={cn(
+          "flex h-full items-center justify-center rounded-xl border border-dashed border-muted-foreground/40 p-6 text-sm text-muted-foreground",
+          className,
+        )}
+      >
         No SQL statements generated for the staged changes.
       </div>
     );
   }
 
   return (
-    <ScrollArea className={cn("max-h-[480px] rounded-lg border", className)}>
+    <ScrollArea className={cn("max-h-[480px] rounded-xl border", className)}>
       <div className="divide-y divide-border">
         {statements.map((statement) => (
           <SqlStatementPanel key={statement.id} statement={statement} />
@@ -41,7 +46,9 @@ function SqlStatementPanel({ statement }: SqlStatementPanelProps) {
     try {
       await navigator.clipboard.writeText(statement.statement);
       setCopied(true);
-      setTimeout(() => { setCopied(false); }, 2000);
+      setTimeout(() => {
+        setCopied(false);
+      }, 2000);
     } catch (error) {
       console.error("Failed to copy SQL statement", error);
     }
@@ -51,7 +58,8 @@ function SqlStatementPanel({ statement }: SqlStatementPanelProps) {
     <article className="space-y-3 bg-background p-4">
       <header className="flex items-center justify-between gap-2">
         <div className="text-xs text-muted-foreground">
-          <span className="font-medium text-foreground">Command</span>: {statement.commandId}
+          <span className="font-medium text-foreground">Command</span>:{" "}
+          {statement.commandId}
         </div>
         <Button variant="ghost" size="xs" onClick={handleCopy}>
           {copied ? "Copied" : "Copy"}
@@ -63,4 +71,3 @@ function SqlStatementPanel({ statement }: SqlStatementPanelProps) {
     </article>
   );
 }
-

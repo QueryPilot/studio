@@ -98,7 +98,7 @@ export default function GeneralPanel() {
           </div>
         </div>
 
-        <div className="flex items-center justify-between py-3 border rounded-lg px-4">
+        <div className="flex items-center justify-between py-3 border rounded-xl px-4">
           <div className="space-y-0.5">
             <Label className="text-base">Sidebar Collapsed</Label>
             <p className="text-sm text-muted-foreground">

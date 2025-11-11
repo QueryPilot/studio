@@ -57,6 +57,24 @@ interface ERDVisualizerProps {
   onLayoutDirectionChange?: (direction: LayoutDirection) => void;
 }
 
+type ColumnHandleSets = {
+  source: ReadonlySet<string>;
+  target: ReadonlySet<string>;
+};
+
+type MutableColumnHandleSets = {
+  source: Set<string>;
+  target: Set<string>;
+};
+
+const EMPTY_SOURCE_HANDLE_SET: ReadonlySet<string> = new Set<string>();
+const EMPTY_TARGET_HANDLE_SET: ReadonlySet<string> = new Set<string>();
+
+const DEFAULT_COLUMN_HANDLES: ColumnHandleSets = {
+  source: EMPTY_SOURCE_HANDLE_SET,
+  target: EMPTY_TARGET_HANDLE_SET,
+};
+
 interface TableNodeData {
   table: TableStructure;
   expanded: boolean;
@@ -68,6 +86,7 @@ interface TableNodeData {
   onColumnHover?: (columnName: string) => void;
   onColumnLeave?: () => void;
   onColumnDoubleClick?: (tableName: string, columnName: string) => void;
+  columnHandles: ColumnHandleSets;
 }
 
 interface ForeignEdgeData {
@@ -110,6 +129,7 @@ const edgeStylesInjected = (() => {
         -webkit-backface-visibility: hidden;
         perspective: 1000px;
         -webkit-perspective: 1000px;
+        contain: layout style paint;
       }
       .erd-table-card-selected {
         box-shadow: 0 0 0 2px hsl(var(--primary));
@@ -181,39 +201,15 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
     onColumnHover,
     onColumnLeave,
     onColumnDoubleClick,
+    columnHandles,
   } = data;
 
-  // Memoize expensive column sorting - CRITICAL for performance
-  const sortedColumns = useMemo(() => {
-    return [...table.columns].sort((a, b) => {
-      // Primary keys always come first
-      if (a.is_pk && !b.is_pk) return -1;
-      if (!a.is_pk && b.is_pk) return 1;
-
-      // Among primary keys, 'id' comes first
-      if (a.is_pk && b.is_pk) {
-        if (a.name.toLowerCase() === "id") return -1;
-        if (b.name.toLowerCase() === "id") return 1;
-        return 0;
-      }
-
-      // Then FKs (including _id columns that aren't PKs)
-      const aIsFk =
-        a.is_fk || (!a.is_pk && a.name.toLowerCase().includes("_id"));
-      const bIsFk =
-        b.is_fk || (!b.is_pk && b.name.toLowerCase().includes("_id"));
-      if (aIsFk && !bIsFk) return -1;
-      if (!aIsFk && bIsFk) return 1;
-
-      // Keep original order for remaining columns
-      return 0;
-    });
-  }, [table.columns]);
-
-  const columns = expanded
-    ? sortedColumns
-    : sortedColumns.slice(0, PREVIEW_COLUMN_LIMIT);
-  const hasMore = sortedColumns.length > PREVIEW_COLUMN_LIMIT;
+  // Columns are pre-sorted in the worker for performance
+  // No need to sort again in the UI component
+  const columns: ColumnMeta[] = expanded
+    ? table.columns
+    : table.columns.slice(0, PREVIEW_COLUMN_LIMIT);
+  const hasMore = table.columns.length > PREVIEW_COLUMN_LIMIT;
 
   const renderColumnIcons = useCallback((column: ColumnMeta) => {
     const icons = [];
@@ -282,6 +278,8 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
             const { type, constraints } = formatColumnType(
               column as ColumnMeta,
             );
+            const showSourceHandles = columnHandles.source.has(column.name);
+            const showTargetHandles = columnHandles.target.has(column.name);
             return (
               <Tooltip key={column.name} delayDuration={200}>
                 <TooltipTrigger asChild>
@@ -299,34 +297,38 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
                     }}
                   >
                     {/* Left side handles - hidden by default, shown on row hover */}
-                    <Handle
-                      type="target"
-                      position={Position.Left}
-                      id={makeHandleId(column.name as string, "target", "left")}
-                      className="absolute left-0 top-1/2 opacity-0 group-hover:opacity-100"
-                      style={{
-                        width: 8,
-                        height: 8,
-                        border: "none",
-                        background: "transparent",
-                        pointerEvents: "all",
-                        transform: "translate(-8px, -50%)",
-                      }}
-                    />
-                    <Handle
-                      type="source"
-                      position={Position.Left}
-                      id={makeHandleId(column.name as string, "source", "left")}
-                      className="absolute left-0 top-1/2 opacity-0 group-hover:opacity-100"
-                      style={{
-                        width: 8,
-                        height: 8,
-                        border: "none",
-                        background: "transparent",
-                        pointerEvents: "all",
-                        transform: "translate(-8px, -50%)",
-                      }}
-                    />
+                    {showTargetHandles ? (
+                      <Handle
+                        type="target"
+                        position={Position.Left}
+                        id={makeHandleId(column.name as string, "target", "left")}
+                        className="absolute left-0 top-1/2 opacity-0 group-hover:opacity-100"
+                        style={{
+                          width: 8,
+                          height: 8,
+                          border: "none",
+                          background: "transparent",
+                          pointerEvents: "all",
+                          transform: "translate(-8px, -50%)",
+                        }}
+                      />
+                    ) : null}
+                    {showSourceHandles ? (
+                      <Handle
+                        type="source"
+                        position={Position.Left}
+                        id={makeHandleId(column.name as string, "source", "left")}
+                        className="absolute left-0 top-1/2 opacity-0 group-hover:opacity-100"
+                        style={{
+                          width: 8,
+                          height: 8,
+                          border: "none",
+                          background: "transparent",
+                          pointerEvents: "all",
+                          transform: "translate(-8px, -50%)",
+                        }}
+                      />
+                    ) : null}
                     <div className="flex flex-1 items-center gap-2 min-w-0 text-xs">
                       <div className="flex-1 inline-flex items-center gap-2">
                         <span className="font-medium text-foreground truncate max-w-[160px]">
@@ -346,42 +348,46 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
                       </div>
                     </div>
                     {/* Right side handles - hidden by default, shown on row hover */}
-                    <Handle
-                      type="target"
-                      position={Position.Right}
-                      id={makeHandleId(
-                        column.name as string,
-                        "target",
-                        "right",
-                      )}
-                      className="absolute right-0 top-1/2 opacity-0 group-hover:opacity-100"
-                      style={{
-                        width: 8,
-                        height: 8,
-                        border: "none",
-                        background: "transparent",
-                        pointerEvents: "all",
-                        transform: "translate(8px, -50%)",
-                      }}
-                    />
-                    <Handle
-                      type="source"
-                      position={Position.Right}
-                      id={makeHandleId(
-                        column.name as string,
-                        "source",
-                        "right",
-                      )}
-                      className="absolute right-0 top-1/2 opacity-0 group-hover:opacity-100"
-                      style={{
-                        width: 8,
-                        height: 8,
-                        border: "none",
-                        background: "transparent",
-                        pointerEvents: "all",
-                        transform: "translate(8px, -50%)",
-                      }}
-                    />
+                    {showTargetHandles ? (
+                      <Handle
+                        type="target"
+                        position={Position.Right}
+                        id={makeHandleId(
+                          column.name as string,
+                          "target",
+                          "right",
+                        )}
+                        className="absolute right-0 top-1/2 opacity-0 group-hover:opacity-100"
+                        style={{
+                          width: 8,
+                          height: 8,
+                          border: "none",
+                          background: "transparent",
+                          pointerEvents: "all",
+                          transform: "translate(8px, -50%)",
+                        }}
+                      />
+                    ) : null}
+                    {showSourceHandles ? (
+                      <Handle
+                        type="source"
+                        position={Position.Right}
+                        id={makeHandleId(
+                          column.name as string,
+                          "source",
+                          "right",
+                        )}
+                        className="absolute right-0 top-1/2 opacity-0 group-hover:opacity-100"
+                        style={{
+                          width: 8,
+                          height: 8,
+                          border: "none",
+                          background: "transparent",
+                          pointerEvents: "all",
+                          transform: "translate(8px, -50%)",
+                        }}
+                      />
+                    ) : null}
                   </li>
                 </TooltipTrigger>
                 {(column.default || column.comment) && (
@@ -397,7 +403,7 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
           })}
           {hasMore && !expanded ? (
             <li className="pt-1 pl-2 text-xs text-muted-foreground">
-              +{sortedColumns.length - PREVIEW_COLUMN_LIMIT} more columns
+              +{table.columns.length - PREVIEW_COLUMN_LIMIT} more columns
             </li>
           ) : null}
         </ul>
@@ -425,11 +431,59 @@ const areTableNodesEqual = (
   if (prevData.expanded !== nextData.expanded) return false;
   if (prevData.isSelected !== nextData.isSelected) return false;
   if (prevData.table !== nextData.table) return false;
+  if (prevData.columnHandles !== nextData.columnHandles) return false;
   
   return true;
 };
 
 const TableNode = React.memo(TableNodeComponent, areTableNodesEqual);
+
+// Pre-computed marker styles cache - CRITICAL for performance
+const MARKER_STYLES_CACHE = {
+  "1-source-primary": {
+    markerWidth: 4, markerHeight: 7, refX: 0, refY: 3.5,
+    orient: "auto", fill: "none", stroke: "hsl(var(--primary))", strokeWidth: 0.8,
+  },
+  "1-target-primary": {
+    markerWidth: 4, markerHeight: 7, refX: 4, refY: 3.5,
+    orient: "auto", fill: "none", stroke: "hsl(var(--primary))", strokeWidth: 0.8,
+  },
+  "n-source-primary": {
+    markerWidth: 7, markerHeight: 6, refX: 0, refY: 3,
+    orient: "auto", fill: "none", stroke: "hsl(var(--primary))", strokeWidth: 0.6,
+  },
+  "n-target-primary": {
+    markerWidth: 7, markerHeight: 6, refX: 7, refY: 3,
+    orient: "auto", fill: "none", stroke: "hsl(var(--primary))", strokeWidth: 0.6,
+  },
+  "1-source-muted": {
+    markerWidth: 4, markerHeight: 7, refX: 0, refY: 3.5,
+    orient: "auto", fill: "none", stroke: "hsl(var(--muted-foreground))", strokeWidth: 0.8,
+  },
+  "1-target-muted": {
+    markerWidth: 4, markerHeight: 7, refX: 4, refY: 3.5,
+    orient: "auto", fill: "none", stroke: "hsl(var(--muted-foreground))", strokeWidth: 0.8,
+  },
+  "n-source-muted": {
+    markerWidth: 7, markerHeight: 6, refX: 0, refY: 3,
+    orient: "auto", fill: "none", stroke: "hsl(var(--muted-foreground))", strokeWidth: 0.6,
+  },
+  "n-target-muted": {
+    markerWidth: 7, markerHeight: 6, refX: 7, refY: 3,
+    orient: "auto", fill: "none", stroke: "hsl(var(--muted-foreground))", strokeWidth: 0.6,
+  },
+} as const;
+
+// Pre-computed line styles cache
+const LINE_STYLES_CACHE = {
+  "1-1": { strokeLinecap: "round" as const, strokeLinejoin: "round" as const },
+  "1-n": { strokeLinecap: "round" as const, strokeLinejoin: "round" as const },
+  "n-1": { strokeLinecap: "round" as const, strokeLinejoin: "round" as const },
+  "n-n": { strokeLinecap: "round" as const, strokeLinejoin: "round" as const, strokeDasharray: "5,5" },
+} as const;
+
+// Edge path cache for better performance during pan/zoom
+const edgePathCache = new Map<string, [string, number, number]>();
 
 const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
   id,
@@ -446,87 +500,74 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
 }) => {
   const edgeData = data as ForeignEdgeData | undefined;
 
-  // Determine relationship type based on cardinalities
-  const getRelationshipType = () => {
-    const source = edgeData?.sourceCardinality || "1";
-    const target = edgeData?.targetCardinality || "1";
-    return `${source}-${target}`;
-  };
-
-  const relationshipType = getRelationshipType();
+  const relationshipType = `${edgeData?.sourceCardinality || "1"}-${edgeData?.targetCardinality || "1"}`;
   const highlighted = Boolean(selected || edgeData?.highlighted);
+  const colorKey = highlighted ? "primary" : "muted";
 
-  // Create custom markers for different relationship types
-  const getMarkerStyle = (
-    cardinality: "1" | "n",
-    position: "source" | "target",
-  ) => {
-    const baseColor = highlighted
-      ? "hsl(var(--primary))"
-      : "hsl(var(--muted-foreground))";
+  const computeSmoothPath = () => {
+    const result = getSmoothStepPath({
+      sourceX,
+      sourceY,
+      targetX,
+      targetY,
+      sourcePosition,
+      targetPosition,
+      borderRadius: 8,
+      offset: 32,
+    });
+    return {
+      path: result[0],
+      labelX: result[1],
+      labelY: result[2],
+    } as const;
+  };
 
-    if (cardinality === "1") {
-      // Single line for "one" side
-      return {
-        markerWidth: 4,
-        markerHeight: 7,
-        refX: position === "target" ? 4 : 0,
-        refY: 3.5,
-        orient: "auto",
-        fill: "none",
-        stroke: baseColor,
-        strokeWidth: 0.8,
-      };
+  let edgePath: string;
+  let labelX: number;
+  let labelY: number;
+
+  const shouldUseCache = !edgeData?.isDragging;
+
+  if (shouldUseCache) {
+    const cacheKey = `${sourceX}-${sourceY}-${targetX}-${targetY}-${sourcePosition}-${targetPosition}`;
+    const cached = edgePathCache.get(cacheKey);
+    if (cached) {
+      [edgePath, labelX, labelY] = cached;
     } else {
-      // Crow's foot for "many" side
-      return {
-        markerWidth: 7,
-        markerHeight: 6,
-        refX: position === "target" ? 7 : 0,
-        refY: 3,
-        orient: "auto",
-        fill: "none",
-        stroke: baseColor,
-        strokeWidth: 0.6,
-      };
-    }
-  };
+      const computed = computeSmoothPath();
+      edgePath = computed.path;
+      labelX = computed.labelX;
+      labelY = computed.labelY;
+      edgePathCache.set(cacheKey, [edgePath, labelX, labelY]);
 
-  // Get line style based on relationship type
-  const getLineStyle = () => {
-    const baseStyle = {
-      strokeLinecap: "round" as const,
-      strokeLinejoin: "round" as const,
-    };
-
-    switch (relationshipType) {
-      case "1-1":
-        return { ...baseStyle }; // Solid line
-      case "1-n":
-      case "n-1":
-        return { ...baseStyle }; // Solid line
-      case "n-n":
-        return {
-          ...baseStyle,
-          strokeDasharray: "5,5", // Dashed line for many-to-many
-        };
-      default:
-        return baseStyle;
+      // Limit cache size to prevent memory bloat
+      if (edgePathCache.size > 500) {
+        const firstKey = edgePathCache.keys().next().value;
+        if (firstKey) edgePathCache.delete(firstKey);
+      }
     }
-  };
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    sourcePosition,
-    targetPosition,
-    borderRadius: 8,
-    offset: 32,
-  });
+  } else {
+    const computed = computeSmoothPath();
+    edgePath = computed.path;
+    labelX = computed.labelX;
+    labelY = computed.labelY;
+  }
+
+  // Use cached line style
+  const lineStyle = LINE_STYLES_CACHE[relationshipType as keyof typeof LINE_STYLES_CACHE] || LINE_STYLES_CACHE["1-1"];
+
+  // Use cached marker styles
+  const sourceMarkerId = `marker-source-${id}`;
+  const targetMarkerId = `marker-target-${id}`;
+  const sourceMarkerStyle = edgeData?.sourceCardinality
+    ? MARKER_STYLES_CACHE[`${edgeData.sourceCardinality}-source-${colorKey}` as keyof typeof MARKER_STYLES_CACHE]
+    : null;
+  const targetMarkerStyle = edgeData?.targetCardinality
+    ? MARKER_STYLES_CACHE[`${edgeData.targetCardinality}-target-${colorKey}` as keyof typeof MARKER_STYLES_CACHE]
+    : null;
 
   // Position cardinality labels closer to the actual connection points
-  const sourceOffset = 20; // Distance from the node edge
+  const sourceOffset = 20;
   const targetOffset = 20;
 
   // Calculate positions based on source and target positions
@@ -565,17 +606,6 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
       endLabelY = targetY + targetOffset;
       break;
   }
-
-  const lineStyle = getLineStyle();
-
-  const sourceMarkerId = `marker-source-${id}`;
-  const targetMarkerId = `marker-target-${id}`;
-  const sourceMarkerStyle = edgeData?.sourceCardinality
-    ? getMarkerStyle(edgeData.sourceCardinality, "source")
-    : null;
-  const targetMarkerStyle = edgeData?.targetCardinality
-    ? getMarkerStyle(edgeData.targetCardinality, "target")
-    : null;
 
   return (
     <>
@@ -854,16 +884,62 @@ export const ERDVisualizer = React.forwardRef<
       onColumnDoubleClick,
     }), [toggleExpanded, handleTableClick, onColumnDoubleClick]);
 
+    const handleColumnMap = useMemo(() => {
+      if (!relationships.length) {
+        return new Map<string, MutableColumnHandleSets>();
+      }
+
+      const map = new Map<string, MutableColumnHandleSets>();
+
+      const ensureEntry = (nodeId: string) => {
+        let entry = map.get(nodeId);
+        if (!entry) {
+          entry = { source: new Set<string>(), target: new Set<string>() };
+          map.set(nodeId, entry);
+        }
+        return entry;
+      };
+
+      relationships.forEach((relationship) => {
+        const sourceId = `${relationship.fromSchema ?? "public"}.${
+          relationship.fromTable
+        }`;
+        const targetId = `${relationship.toSchema ?? "public"}.${
+          relationship.toTable
+        }`;
+
+        const sourceEntry = ensureEntry(sourceId);
+        relationship.fromColumns.forEach((columnName) => {
+          if (columnName) {
+            sourceEntry.source.add(columnName);
+          }
+        });
+
+        const targetEntry = ensureEntry(targetId);
+        relationship.toColumns.forEach((columnName) => {
+          if (columnName) {
+            targetEntry.target.add(columnName);
+          }
+        });
+      });
+
+      return map;
+    }, [relationships]);
+
     // Memoize node data factory for performance - CRITICAL optimization
     // Use useMemo instead of useCallback to cache the entire data objects
     const nodeDataMap = useMemo(() => {
       const map = new Map<string, TableNodeData>();
       tables.forEach((table) => {
         const nodeId = buildNodeId(table);
+        const columnHandles =
+          (handleColumnMap.get(nodeId) as ColumnHandleSets | undefined) ??
+          DEFAULT_COLUMN_HANDLES;
         map.set(nodeId, {
           table,
           expanded: expandedNodes.has(nodeId),
           isSelected: selectedTableId === nodeId,
+          columnHandles,
           ...stableCallbacks,
           onLeave: () => {
             setHoveredNodeId((prev) => (prev === nodeId ? null : prev));
@@ -871,7 +947,7 @@ export const ERDVisualizer = React.forwardRef<
         });
       });
       return map;
-    }, [tables, expandedNodes, selectedTableId, stableCallbacks]);
+    }, [tables, expandedNodes, selectedTableId, stableCallbacks, handleColumnMap]);
 
     // Memoize edge creation for performance - CRITICAL optimization
     const createEdges = useMemo((): any[] => {
