@@ -10,8 +10,14 @@ mod cell_value_tests {
         assert!(matches!(CellValue::boolean(true), CellValue::Bool(true)));
         assert!(matches!(CellValue::integer(42), CellValue::I64(42)));
         assert!(matches!(CellValue::text("hello"), CellValue::Text(_)));
-        assert!(matches!(CellValue::bytes(vec![1, 2, 3]), CellValue::Bytes(_)));
-        assert!(matches!(CellValue::timestamp(1234567890), CellValue::Timestamp(1234567890)));
+        assert!(matches!(
+            CellValue::bytes(vec![1, 2, 3]),
+            CellValue::Bytes(_)
+        ));
+        assert!(matches!(
+            CellValue::timestamp(1234567890),
+            CellValue::Timestamp(1234567890)
+        ));
         assert!(matches!(CellValue::date(100), CellValue::Date(100)));
     }
 
@@ -57,15 +63,25 @@ mod cell_value_tests {
             (CellValue::Null, ""),
             (CellValue::Bool(true), "true"),
             (CellValue::Bool(false), "false"),
-            (CellValue::Text("Hello, World!".to_string()), "Hello, World!"),
-            (CellValue::Json(serde_json::json!({"test": "value"})), "{\"test\":\"value\"}"),
+            (
+                CellValue::Text("Hello, World!".to_string()),
+                "Hello, World!",
+            ),
+            (
+                CellValue::Json(serde_json::json!({"test": "value"})),
+                "{\"test\":\"value\"}",
+            ),
         ];
 
         for (value, expected_str) in test_cases {
             let json = serde_json::to_string(&value).expect("Failed to serialize");
-            let deserialized: CellValue = serde_json::from_str(&json).expect("Failed to deserialize");
+            let deserialized: CellValue =
+                serde_json::from_str(&json).expect("Failed to deserialize");
             // Check that the deserialized value produces expected string output
-            assert!(deserialized.to_string().contains(expected_str) || deserialized.to_string() == expected_str);
+            assert!(
+                deserialized.to_string().contains(expected_str)
+                    || deserialized.to_string() == expected_str
+            );
         }
 
         // Test numeric types serialize/deserialize (may change variant due to untagged)
@@ -77,7 +93,8 @@ mod cell_value_tests {
 
         for value in numeric_cases {
             let json = serde_json::to_string(&value).expect("Failed to serialize");
-            let _deserialized: CellValue = serde_json::from_str(&json).expect("Failed to deserialize");
+            let _deserialized: CellValue =
+                serde_json::from_str(&json).expect("Failed to deserialize");
             // Just verify it deserializes without error
         }
 
@@ -157,7 +174,9 @@ mod cell_value_tests {
 
         // Array
         let arr = CellValue::json(serde_json::json!([1, 2, 3, 4, 5]));
-        assert!(arr.to_string().contains("[1,2,3,4,5]") || arr.to_string().contains("[1, 2, 3, 4, 5]"));
+        assert!(
+            arr.to_string().contains("[1,2,3,4,5]") || arr.to_string().contains("[1, 2, 3, 4, 5]")
+        );
 
         // Nested structure
         let nested = CellValue::json(serde_json::json!({
@@ -172,7 +191,10 @@ mod cell_value_tests {
     #[test]
     fn test_float_precision() {
         assert_eq!(CellValue::F32(3.14159).to_string(), "3.14159");
-        assert_eq!(CellValue::F64(2.718281828459045).to_string(), "2.718281828459045");
+        assert_eq!(
+            CellValue::F64(2.718281828459045).to_string(),
+            "2.718281828459045"
+        );
     }
 
     #[test]
@@ -309,7 +331,11 @@ mod column_meta_tests {
             type_oid: Some(16385),
             default_value: Some("'pending'".to_string()),
             comment: None,
-            enum_values: Some(vec!["pending".to_string(), "active".to_string(), "completed".to_string()]),
+            enum_values: Some(vec![
+                "pending".to_string(),
+                "active".to_string(),
+                "completed".to_string(),
+            ]),
             type_category: Some("e".to_string()),
             precision: None,
             scale: None,
@@ -460,6 +486,7 @@ mod connection_types_tests {
             ssl_mode: None,
             ssl_config: None,
             ssh_tunnel: None,
+            bastion: None,
             options: std::collections::HashMap::new(),
         };
 

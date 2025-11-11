@@ -26,6 +26,7 @@ async fn test_connection_manager_empty_id_error() {
         ssl_mode: None,
         ssl_config: None,
         ssh_tunnel: None,
+        bastion: None,
         options: HashMap::new(),
     };
 
@@ -107,9 +108,15 @@ async fn test_multiple_connections() {
     let _id3 = manager.get_or_create_connection(&profile3).await;
 
     // All connections should be retrievable
-    assert!(manager.get_connection("multi-1").is_some() || manager.get_connection("multi-1").is_none());
-    assert!(manager.get_connection("multi-2").is_some() || manager.get_connection("multi-2").is_none());
-    assert!(manager.get_connection("multi-3").is_some() || manager.get_connection("multi-3").is_none());
+    assert!(
+        manager.get_connection("multi-1").is_some() || manager.get_connection("multi-1").is_none()
+    );
+    assert!(
+        manager.get_connection("multi-2").is_some() || manager.get_connection("multi-2").is_none()
+    );
+    assert!(
+        manager.get_connection("multi-3").is_some() || manager.get_connection("multi-3").is_none()
+    );
 }
 
 #[tokio::test]
@@ -128,6 +135,7 @@ async fn test_connection_profile_types() {
         ssl_mode: None,
         ssl_config: None,
         ssh_tunnel: None,
+        bastion: None,
         options: HashMap::new(),
     };
 
@@ -157,6 +165,7 @@ async fn test_connection_with_options() {
         ssl_mode: None,
         ssl_config: None,
         ssh_tunnel: None,
+        bastion: None,
         options,
     };
 
@@ -179,6 +188,7 @@ async fn test_connection_with_no_password() {
         ssl_mode: None,
         ssl_config: None,
         ssh_tunnel: None,
+        bastion: None,
         options: HashMap::new(),
     };
 
@@ -201,6 +211,7 @@ async fn test_connection_different_ports() {
         ssl_mode: None,
         ssl_config: None,
         ssh_tunnel: None,
+        bastion: None,
         options: HashMap::new(),
     };
 
@@ -216,6 +227,7 @@ async fn test_connection_different_ports() {
         ssl_mode: None,
         ssl_config: None,
         ssh_tunnel: None,
+        bastion: None,
         options: HashMap::new(),
     };
 
@@ -241,6 +253,7 @@ async fn test_connection_special_characters_in_name() {
         ssl_mode: None,
         ssl_config: None,
         ssh_tunnel: None,
+        bastion: None,
         options: HashMap::new(),
     };
 
@@ -263,6 +276,7 @@ async fn test_connection_unicode_in_fields() {
         ssl_mode: None,
         ssl_config: None,
         ssh_tunnel: None,
+        bastion: None,
         options: HashMap::new(),
     };
 
@@ -325,8 +339,9 @@ async fn test_connection_color_codes() {
             username: "user".to_string(),
             password: Some("pass".to_string()),
             ssl_mode: None,
-        ssl_config: None,
-        ssh_tunnel: None,
+            ssl_config: None,
+            ssh_tunnel: None,
+            bastion: None,
             options: HashMap::new(),
         };
 
@@ -348,6 +363,7 @@ fn create_test_profile(id: &str) -> ConnectionProfile {
         ssl_mode: None,
         ssl_config: None,
         ssh_tunnel: None,
+        bastion: None,
         options: HashMap::new(),
     }
 }

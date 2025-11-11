@@ -1,13 +1,22 @@
 use std::fs; // needed for reset_vault_vault
 use std::sync::Arc;
+use std::time::Instant;
 use tauri::{AppHandle, Manager, State};
 use tokio::time::{timeout, Duration};
 
 use crate::core::ConnectionManager;
+use crate::ssh;
+use crate::state::AppState;
 use crate::types::*;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 use tokio_postgres::Row;
+
+#[derive(Serialize)]
+pub struct SshTestResult {
+    pub success: bool,
+    pub latency_ms: u64,
+}
 
 #[tauri::command]
 pub async fn connect(
@@ -25,6 +34,97 @@ pub async fn connect(
         database: profile.database,
         version: None,
     })
+}
+
+#[tauri::command]
+pub async fn test_ssh_connection(
+    config: SshTunnelConfig,
+    app_state: State<'_, AppState>,
+) -> std::result::Result<SshTestResult, String> {
+    if !app_state
+        .ssh_test_rate_limiter
+        .check_rate_limit(&config.host)
+        .await
+    {
+        return Err("Too many SSH test attempts. Please wait before trying again.".to_string());
+    }
+
+    let start = Instant::now();
+    let verify_future = ssh::verify_connection(&config);
+
+    timeout(Duration::from_secs(10), verify_future)
+        .await
+        .map_err(|_| "SSH connection test timed out after 10 seconds".to_string())?
+        .map_err(|e| e.to_string())?;
+
+    Ok(SshTestResult {
+        success: true,
+        latency_ms: start.elapsed().as_millis() as u64,
+    })
+}
+
+#[derive(Serialize)]
+pub struct OAuthTokenStatus {
+    pub has_token: bool,
+    pub provider: String,
+}
+
+#[tauri::command]
+pub async fn start_oauth_flow(
+    provider: OAuthProvider,
+) -> std::result::Result<String, String> {
+    // TODO: Implement device code flow
+    // For now, return instruction message
+    let provider_name = match &provider {
+        OAuthProvider::Microsoft => "Microsoft Entra ID",
+        OAuthProvider::Google => "Google",
+        OAuthProvider::Okta => "Okta",
+        OAuthProvider::Auth0 => "Auth0",
+        OAuthProvider::Keycloak => "Keycloak",
+        OAuthProvider::Generic { name, .. } => name.as_str(),
+    };
+    
+    Ok(format!(
+        "OAuth flow for {} is not yet implemented. Please configure via AWS CLI for now.",
+        provider_name
+    ))
+}
+
+#[tauri::command]
+pub async fn get_oauth_token_status(
+    provider: OAuthProvider,
+) -> std::result::Result<OAuthTokenStatus, String> {
+    use crate::aws::oauth;
+    
+    let has_token = oauth::get_oauth_token(&provider)
+        .await
+        .map_err(|e| e.to_string())?
+        .is_some();
+    
+    let provider_name = match &provider {
+        OAuthProvider::Microsoft => "Microsoft",
+        OAuthProvider::Google => "Google",
+        OAuthProvider::Okta => "Okta",
+        OAuthProvider::Auth0 => "Auth0",
+        OAuthProvider::Keycloak => "Keycloak",
+        OAuthProvider::Generic { name, .. } => name.as_str(),
+    };
+    
+    Ok(OAuthTokenStatus {
+        has_token,
+        provider: provider_name.to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn clear_oauth_token(
+    provider: OAuthProvider,
+) -> std::result::Result<(), String> {
+    use crate::aws::oauth;
+    
+    oauth::delete_oauth_token(&provider)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1305,8 +1405,14 @@ pub async fn execute_crud_transaction(
     tracing::info!("🔵 execute_crud_transaction called");
     tracing::info!("  conn_id: {}", conn_id);
     tracing::info!("  transaction.id: {}", transaction.id);
-    tracing::info!("  transaction.commands.len(): {}", transaction.commands.len());
-    tracing::info!("  transaction.rollback_on_error: {}", transaction.rollback_on_error);
+    tracing::info!(
+        "  transaction.commands.len(): {}",
+        transaction.commands.len()
+    );
+    tracing::info!(
+        "  transaction.rollback_on_error: {}",
+        transaction.rollback_on_error
+    );
 
     if !transaction.commands.is_empty() {
         let first_cmd = &transaction.commands[0];
@@ -1318,12 +1424,10 @@ pub async fn execute_crud_transaction(
     }
 
     // Get connection and adapter
-    let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| {
-            tracing::error!("❌ Connection {} not found", conn_id);
-            format!("Connection {} not found", conn_id)
-        })?;
+    let conn = manager.get_connection(&conn_id).ok_or_else(|| {
+        tracing::error!("❌ Connection {} not found", conn_id);
+        format!("Connection {} not found", conn_id)
+    })?;
 
     tracing::info!("✅ Connection found, executing transaction...");
 

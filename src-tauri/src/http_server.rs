@@ -1,10 +1,4 @@
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::Json,
-    routing::post,
-    Router,
-};
+use axum::{extract::State, http::StatusCode, response::Json, routing::post, Router};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::Manager;
@@ -56,8 +50,12 @@ async fn proxy_tauri_invoke(
                 .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
             let table: String = serde_json::from_value(args["table"].clone())
                 .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-            let schema: String = serde_json::from_value(args.get("schema").cloned().unwrap_or(serde_json::json!("public")))
-                .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+            let schema: String = serde_json::from_value(
+                args.get("schema")
+                    .cloned()
+                    .unwrap_or(serde_json::json!("public")),
+            )
+            .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
             invoke_get_columns(&state.app_handle, conn_id, schema, table).await
         }
@@ -103,10 +101,7 @@ async fn proxy_tauri_invoke(
 
             invoke_get_table_count(&state.app_handle, conn_id, schema, table).await
         }
-        _ => Err((
-            StatusCode::NOT_FOUND,
-            format!("Unknown command: {}", cmd),
-        )),
+        _ => Err((StatusCode::NOT_FOUND, format!("Unknown command: {}", cmd))),
     }?;
 
     Ok(Json(result))
@@ -134,8 +129,7 @@ async fn invoke_tauri_command(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    serde_json::to_value(&tables)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    serde_json::to_value(&tables).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 async fn invoke_get_columns(
@@ -159,8 +153,7 @@ async fn invoke_get_columns(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    serde_json::to_value(&columns)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    serde_json::to_value(&columns).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 async fn invoke_get_constraints(
@@ -207,8 +200,7 @@ async fn invoke_get_indexes(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    serde_json::to_value(&indexes)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    serde_json::to_value(&indexes).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 async fn invoke_get_schemas(
@@ -231,8 +223,7 @@ async fn invoke_get_schemas(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    serde_json::to_value(&schemas)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    serde_json::to_value(&schemas).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 async fn invoke_get_views(
@@ -255,8 +246,7 @@ async fn invoke_get_views(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    serde_json::to_value(&views)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    serde_json::to_value(&views).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 async fn invoke_get_table_count(
@@ -280,11 +270,12 @@ async fn invoke_get_table_count(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    serde_json::to_value(&count)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    serde_json::to_value(&count).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
-pub async fn start_http_server(app_handle: tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn start_http_server(
+    app_handle: tauri::AppHandle,
+) -> Result<(), Box<dyn std::error::Error>> {
     let state = Arc::new(AppState {
         app_handle: app_handle.clone(),
     });

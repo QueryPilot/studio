@@ -20,6 +20,7 @@ fn test_connection_profile_serialization() {
         ssl_mode: None,
         ssl_config: None,
         ssh_tunnel: None,
+        bastion: None,
         options: HashMap::new(),
     };
 
@@ -49,6 +50,7 @@ fn test_multiple_connections_serialization() {
             ssl_mode: None,
             ssl_config: None,
             ssh_tunnel: None,
+            bastion: None,
             options: HashMap::new(),
         },
         ConnectionProfile {
@@ -63,6 +65,7 @@ fn test_multiple_connections_serialization() {
             ssl_mode: None,
             ssl_config: None,
             ssh_tunnel: None,
+            bastion: None,
             options: HashMap::new(),
         },
     ];
@@ -96,6 +99,7 @@ fn test_connection_with_options() {
         ssl_mode: None,
         ssl_config: None,
         ssh_tunnel: None,
+        bastion: None,
         options: options.clone(),
     };
 
@@ -138,6 +142,7 @@ fn test_connection_password_handling() {
         ssl_mode: None,
         ssl_config: None,
         ssh_tunnel: None,
+        bastion: None,
         options: HashMap::new(),
     };
 
@@ -154,6 +159,7 @@ fn test_connection_password_handling() {
         ssl_mode: None,
         ssl_config: None,
         ssh_tunnel: None,
+        bastion: None,
         options: HashMap::new(),
     };
 

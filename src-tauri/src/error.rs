@@ -27,6 +27,21 @@ pub enum AppError {
     #[error("SSH error: {0}")]
     Ssh(String),
 
+    #[error("SSH authentication failed: {0}")]
+    SshAuthFailed(String),
+
+    #[error("SSH connection timeout: {0}")]
+    SshTimeout(String),
+
+    #[error("SSH key error: {0}")]
+    SshKeyError(String),
+
+    #[error("SSH host key verification failed: {0}")]
+    SshHostKey(String),
+
+    #[error("SSH tunnel error: {0}")]
+    SshTunnelError(String),
+
     #[error("Crypto error: {0}")]
     Crypto(String),
 
@@ -57,6 +72,11 @@ impl AppError {
             AppError::Driver(_) => "E_DRIVER",
             AppError::Io(_) => "E_IO",
             AppError::Ssh(_) => "E_SSH",
+            AppError::SshAuthFailed(_) => "E_SSH_AUTH",
+            AppError::SshTimeout(_) => "E_SSH_TIMEOUT",
+            AppError::SshKeyError(_) => "E_SSH_KEY",
+            AppError::SshHostKey(_) => "E_SSH_HOSTKEY",
+            AppError::SshTunnelError(_) => "E_SSH_TUNNEL",
             AppError::Crypto(_) => "E_CRYPTO",
             AppError::Internal(_) => "E_INTERNAL",
             AppError::Unsupported(_) => "E_UNSUPPORTED",

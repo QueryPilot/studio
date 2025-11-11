@@ -16,6 +16,8 @@ pub struct ConnectionProfile {
     pub ssl_mode: Option<SslMode>,
     pub ssl_config: Option<SslConfig>,
     pub ssh_tunnel: Option<SshTunnelConfig>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub bastion: Option<BastionConfig>,
     pub options: HashMap<String, String>,
 }
 
@@ -60,6 +62,56 @@ pub enum SshAuthMethod {
     KeyFile {
         path: String,
         passphrase: Option<String>,
+    },
+    Agent,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BastionConfig {
+    Ssh(SshTunnelConfig),
+    AwsSsm(AwsSsmConfig),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AwsSsmConfig {
+    pub target_id: String,
+    pub region: String,
+    pub auth: AwsAuthMethod,
+    pub remote_host: String,
+    pub remote_port: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AwsAuthMethod {
+    OAuthFederated(OAuthConfig),
+    AwsProfile { profile_name: String },
+    IamRole { role_arn: String },
+    AccessKey { access_key_id: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OAuthConfig {
+    pub provider: OAuthProvider,
+    pub client_id: String,
+    pub tenant_id: Option<String>,
+    pub organization: Option<String>,
+    pub domain: Option<String>,
+    pub scopes: Vec<String>,
+    pub assume_role_arn: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum OAuthProvider {
+    Microsoft,
+    Google,
+    Okta,
+    Auth0,
+    Keycloak,
+    Generic {
+        name: String,
+        auth_url: String,
+        token_url: String,
+        issuer: String,
     },
 }
 

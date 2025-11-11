@@ -5,13 +5,22 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogClose,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Database,
   Loader2,
@@ -37,7 +46,13 @@ import {
   type DatabaseType,
 } from "@/utils/connectionParser";
 
-import { type ConnectionProfile, DbType, SslMode } from "@/types/connection";
+import {
+  type ConnectionProfile,
+  type AwsSsmConfig,
+  type AwsAuthMethod,
+  DbType,
+  SslMode,
+} from "@/types/connection";
 import {
   Popover,
   PopoverContent,
@@ -123,12 +138,17 @@ export function ConnectionDialog({
           2: "sqlite", // DbType.SQLite
           3: "mssql", // DbType.SQLServer
         };
-        return dbTypeMap[connection.db_type as unknown as number] || "postgresql";
+        return (
+          dbTypeMap[connection.db_type as unknown as number] || "postgresql"
+        );
       }
       // Otherwise it's a DatabaseConnection (has type field)
       const type = (connection as any).type.toLowerCase();
       if (type === "mariadb") return "mysql";
-      if (type && ["postgresql", "mysql", "sqlite", "mssql"].includes(type as string)) {
+      if (
+        type &&
+        ["postgresql", "mysql", "sqlite", "mssql"].includes(type as string)
+      ) {
         return type as DatabaseType;
       }
     }
@@ -161,24 +181,84 @@ export function ConnectionDialog({
   const [editingGroupName, setEditingGroupName] = useState("");
 
   // SSH tunnel state
-  const [useSSH, setUseSSH] = useState(!!connection?.ssh_tunnel);
-  const [sshHost, setSshHost] = useState(connection?.ssh_tunnel?.host || "");
-  const [sshPort, setSshPort] = useState(
-    connection?.ssh_tunnel?.port.toString() || "22",
+  const existingSshTunnel: ConnectionProfile["ssh_tunnel"] =
+    connection?.ssh_tunnel ??
+    ((connection as any)?.bastion?.Ssh as ConnectionProfile["ssh_tunnel"]);
+
+  const [useSSH, setUseSSH] = useState(!!existingSshTunnel);
+  const [sshHost, setSshHost] = useState(
+    (existingSshTunnel && existingSshTunnel.host) || "",
   );
-  const [sshUser, setSshUser] = useState(connection?.ssh_tunnel?.user || "");
+  const [sshPort, setSshPort] = useState(
+    (existingSshTunnel && existingSshTunnel.port.toString()) || "22",
+  );
+  const [sshUser, setSshUser] = useState(existingSshTunnel?.user || "");
   const [sshPassword, setSshPassword] = useState(
-    connection?.ssh_tunnel?.auth && "Password" in connection.ssh_tunnel.auth
-      ? connection.ssh_tunnel.auth.Password
+    existingSshTunnel?.auth && "Password" in existingSshTunnel.auth
+      ? existingSshTunnel.auth.Password
       : "",
   );
   const [useSSHKey, setUseSSHKey] = useState(
-    !!(connection?.ssh_tunnel?.auth && "KeyFile" in connection.ssh_tunnel.auth),
+    !!(existingSshTunnel?.auth && "KeyFile" in existingSshTunnel.auth),
   );
   const [sshKeyPath, setSshKeyPath] = useState(
-    connection?.ssh_tunnel?.auth && "KeyFile" in connection.ssh_tunnel.auth
-      ? connection.ssh_tunnel.auth.KeyFile.path
+    existingSshTunnel?.auth && "KeyFile" in existingSshTunnel.auth
+      ? existingSshTunnel.auth.KeyFile.path
       : "",
+  );
+  const [sshKeyPassphrase, setSshKeyPassphrase] = useState(
+    existingSshTunnel?.auth && "KeyFile" in existingSshTunnel.auth
+      ? existingSshTunnel.auth.KeyFile.passphrase || ""
+      : "",
+  );
+  const [useSSHAgent, setUseSSHAgent] = useState(
+    !!(existingSshTunnel?.auth && "Agent" in existingSshTunnel.auth),
+  );
+  const existingAwsSsm: AwsSsmConfig | undefined = (connection as any)?.bastion
+    ? ((connection as any).bastion.AwsSsm as AwsSsmConfig | undefined)
+    : undefined;
+  const [useAwsSsm, setUseAwsSsm] = useState(!!existingAwsSsm);
+  const [ssmTargetId, setSsmTargetId] = useState(
+    existingAwsSsm?.target_id || "",
+  );
+  const [ssmRegion, setSsmRegion] = useState(existingAwsSsm?.region || "");
+  const [ssmProfileName, setSsmProfileName] = useState(
+    existingAwsSsm && (existingAwsSsm.auth as any)?.AwsProfile
+      ? (existingAwsSsm.auth as any).AwsProfile.profile_name
+      : "",
+  );
+  const [ssmAuthType, setSsmAuthType] = useState<"profile" | "oauth">(
+    existingAwsSsm && (existingAwsSsm.auth as any)?.OAuthFederated
+      ? "oauth"
+      : "profile",
+  );
+  const [ssmOAuthProvider, setSsmOAuthProvider] = useState<string>(
+    existingAwsSsm && (existingAwsSsm.auth as any)?.OAuthFederated?.provider
+      ? typeof (existingAwsSsm.auth as any).OAuthFederated.provider === "string"
+        ? (existingAwsSsm.auth as any).OAuthFederated.provider
+        : "Microsoft"
+      : "Microsoft",
+  );
+  const [ssmOAuthClientId, setSsmOAuthClientId] = useState(
+    existingAwsSsm && (existingAwsSsm.auth as any)?.OAuthFederated
+      ? (existingAwsSsm.auth as any).OAuthFederated.client_id || ""
+      : "",
+  );
+  const [ssmOAuthTenantId, setSsmOAuthTenantId] = useState(
+    existingAwsSsm && (existingAwsSsm.auth as any)?.OAuthFederated
+      ? (existingAwsSsm.auth as any).OAuthFederated.tenant_id || ""
+      : "",
+  );
+  const [ssmAssumeRoleArn, setSsmAssumeRoleArn] = useState(
+    existingAwsSsm && (existingAwsSsm.auth as any)?.OAuthFederated
+      ? (existingAwsSsm.auth as any).OAuthFederated.assume_role_arn || ""
+      : "",
+  );
+  const [ssmRemoteHost, setSsmRemoteHost] = useState(
+    existingAwsSsm?.remote_host || host,
+  );
+  const [ssmRemotePort, setSsmRemotePort] = useState(
+    existingAwsSsm?.remote_port ? existingAwsSsm.remote_port.toString() : port,
   );
 
   // SSL certificates state
@@ -199,6 +279,8 @@ export function ConnectionDialog({
   const [uriParsed, setUriParsed] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testSuccess, setTestSuccess] = useState(false);
+  const [testStage, setTestStage] = useState<"idle" | "ssh" | "db">("idle");
+  const [testStatusMessage, setTestStatusMessage] = useState("");
 
   // Update port when database type changes
   useEffect(() => {
@@ -206,6 +288,33 @@ export function ConnectionDialog({
       setPort(getDefaultPort(dbType));
     }
   }, [dbType, connection]);
+
+  useEffect(() => {
+    if (useSSHAgent) {
+      setUseSSHKey(false);
+      setSshPassword("");
+    }
+  }, [useSSHAgent]);
+
+  useEffect(() => {
+    if (!useSSHKey) {
+      setSshKeyPassphrase("");
+    } else {
+      setUseSSHAgent(false);
+    }
+  }, [useSSHKey]);
+
+  useEffect(() => {
+    if (useAwsSsm) {
+      setUseSSH(false);
+    }
+  }, [useAwsSsm]);
+
+  useEffect(() => {
+    if (useSSH) {
+      setUseAwsSsm(false);
+    }
+  }, [useSSH]);
 
   function getDefaultPort(type: DatabaseType): string {
     switch (type) {
@@ -318,7 +427,8 @@ export function ConnectionDialog({
         }
       } else {
         toast.error("Clipboard Empty", {
-          description: "No text found in clipboard. Copy connection details first.",
+          description:
+            "No text found in clipboard. Copy connection details first.",
         });
       }
     } catch (error) {
@@ -332,7 +442,8 @@ export function ConnectionDialog({
         errorMessage.includes("clipboard is empty")
       ) {
         toast.error("Clipboard Empty", {
-          description: "No text found in clipboard. Copy connection details first.",
+          description:
+            "No text found in clipboard. Copy connection details first.",
         });
         return;
       }
@@ -526,37 +637,217 @@ export function ConnectionDialog({
     return { bg: "bg-gray-500", text: "text-gray-50" };
   };
 
+  const handleSelectSSHKey = async () => {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const result = await open({
+        title: "Select SSH Private Key",
+        multiple: false,
+        filters: [
+          {
+            name: "SSH Keys",
+            extensions: ["pem", "key", "ppk", "rsa", "ed25519"],
+          },
+        ],
+      });
+
+      if (result) {
+        if (typeof result === "string") {
+          setSshKeyPath(result);
+        } else if (Array.isArray(result)) {
+          const paths = result as string[];
+          if (paths.length > 0 && paths[0]) {
+            setSshKeyPath(paths[0]);
+          }
+        }
+      }
+    } catch (error) {
+      toast.error("Failed to open file picker", {
+        description:
+          error instanceof Error ? error.message : "Unknown error occurred",
+      });
+    }
+  };
+
+  const buildConnectionProfile = (idOverride?: string): ConnectionProfile => {
+    const resolvedId = idOverride ?? connection?.id ?? `conn-${Date.now()}`;
+
+    const profile: ConnectionProfile = {
+      id: resolvedId,
+      name,
+      db_type:
+        dbType === "postgresql"
+          ? DbType.PostgreSQL
+          : dbType === "mysql"
+          ? DbType.MySQL
+          : dbType === "sqlite"
+          ? DbType.SQLite
+          : DbType.SQLServer,
+      host: dbType !== "sqlite" ? host : "localhost",
+      port:
+        dbType !== "sqlite"
+          ? parseInt(port, 10) || parseInt(getDefaultPort(dbType), 10)
+          : 5432,
+      username: dbType !== "sqlite" ? username : "",
+      password: dbType !== "sqlite" ? password || undefined : undefined,
+      database,
+      ssl_mode: sslMode,
+      ssl_config:
+        sslMode !== SslMode.Disable && (sslKeyFile || sslCertFile || sslCAFile)
+          ? {
+              key_file: sslKeyFile || undefined,
+              cert_file: sslCertFile || undefined,
+              ca_file: sslCAFile || undefined,
+            }
+          : undefined,
+      ssh_tunnel: undefined,
+      bastion: undefined,
+      options: {},
+    };
+
+    let sshTunnelConfig: ConnectionProfile["ssh_tunnel"] = undefined;
+
+    if (useSSH) {
+      const portNumber = Number.parseInt(sshPort, 10) || 22;
+
+      const auth = useSSHAgent
+        ? { Agent: true as const }
+        : useSSHKey
+        ? {
+            KeyFile: {
+              path: sshKeyPath,
+              passphrase: sshKeyPassphrase || undefined,
+            },
+          }
+        : { Password: sshPassword };
+
+      sshTunnelConfig = {
+        host: sshHost,
+        port: portNumber,
+        user: sshUser,
+        auth,
+      };
+    }
+
+    profile.ssh_tunnel = useAwsSsm ? undefined : sshTunnelConfig;
+
+    if (useAwsSsm) {
+      const auth: AwsAuthMethod =
+        ssmAuthType === "oauth"
+          ? {
+              OAuthFederated: {
+                provider: ssmOAuthProvider as any, // Type checked at runtime
+                client_id: ssmOAuthClientId,
+                tenant_id: ssmOAuthTenantId || undefined,
+                organization: undefined,
+                domain: undefined,
+                scopes: [],
+                assume_role_arn: ssmAssumeRoleArn,
+              },
+            }
+          : {
+              AwsProfile: {
+                profile_name: ssmProfileName || "default",
+              },
+            };
+
+      profile.bastion = {
+        AwsSsm: {
+          target_id: ssmTargetId,
+          region: ssmRegion,
+          auth,
+          remote_host: ssmRemoteHost || profile.host,
+          remote_port:
+            Number.parseInt(ssmRemotePort, 10) || profile.port || 5432,
+        },
+      };
+    } else if (sshTunnelConfig) {
+      profile.bastion = { Ssh: sshTunnelConfig };
+    }
+
+    return profile;
+  };
+
   const handleTest = async () => {
     setIsTesting(true);
     setTestSuccess(false);
+    setTestStage(useSSH ? "ssh" : "db");
+    setTestStatusMessage("");
 
     try {
-      // Build connection profile for testing
-      const profile: ConnectionProfile = {
-        id: `test-${Date.now()}`, // Temporary ID for testing
-        name: name || "Test Connection",
-        db_type:
-          dbType === "postgresql"
-            ? DbType.PostgreSQL
-            : dbType === "mysql"
-            ? DbType.MySQL
-            : dbType === "sqlite"
-            ? DbType.SQLite
-            : DbType.SQLServer,
-        host: dbType !== "sqlite" ? host : "localhost",
-        port:
-          dbType !== "sqlite"
-            ? parseInt(port) || parseInt(getDefaultPort(dbType))
-            : 5432,
-        username: dbType !== "sqlite" ? username : "",
-        password: dbType !== "sqlite" ? password : undefined,
-        database,
-        ssl_mode: sslMode,
-        options: {},
-      };
+      // Basic validation for SSH-specific inputs
+      if (useSSH) {
+        if (!sshHost.trim()) {
+          throw new Error(
+            "SSH host is required when SSH tunneling is enabled.",
+          );
+        }
+        if (!sshUser.trim() && !useSSHAgent) {
+          throw new Error(
+            "SSH user is required when SSH tunneling is enabled.",
+          );
+        }
+        if (useSSHKey && !sshKeyPath) {
+          throw new Error(
+            "Select a private key file or disable key authentication.",
+          );
+        }
+        if (!useSSHKey && !useSSHAgent && !sshPassword) {
+          throw new Error(
+            "Provide an SSH password or switch to key authentication.",
+          );
+        }
+      }
+
+      if (useAwsSsm) {
+        if (!ssmRegion.trim()) {
+          throw new Error(
+            "AWS region is required for SSM bastion connections.",
+          );
+        }
+        if (!ssmTargetId.trim()) {
+          throw new Error("Provide the SSM target instance or task ID.");
+        }
+        if (!ssmRemoteHost.trim()) {
+          throw new Error("Remote host is required when using AWS SSM.");
+        }
+        if (ssmAuthType === "oauth") {
+          if (!ssmOAuthClientId.trim()) {
+            throw new Error("OAuth Client ID is required.");
+          }
+          if (!ssmAssumeRoleArn.trim()) {
+            throw new Error(
+              "AWS IAM Role ARN is required for OAuth authentication.",
+            );
+          }
+        }
+      }
+
+      const profile = buildConnectionProfile(`test-${Date.now()}`);
 
       // Use Tauri commands directly
       const { invoke } = await import("@tauri-apps/api/core");
+
+      // Test SSH tunnel if using bastion with SSH
+      if (useSSH && profile.bastion && "Ssh" in profile.bastion) {
+        try {
+          setTestStage("ssh");
+          setTestStatusMessage("Establishing SSH tunnel…");
+          await invoke("test_ssh_connection", {
+            config: profile.bastion.Ssh,
+          });
+          setTestStatusMessage("SSH tunnel ok");
+        } catch (sshError: unknown) {
+          const message =
+            sshError instanceof Error ? sshError.message : String(sshError);
+          throw new Error(
+            message || "SSH tunnel failed. Verify host, user, and credentials.",
+          );
+        }
+      }
+
+      setTestStage("db");
+      setTestStatusMessage("Connecting to database…");
 
       // Connect to the database
       const connectionInfo = await invoke<{ id: string }>("connect", {
@@ -574,6 +865,7 @@ export function ConnectionDialog({
 
       if (testResult.success) {
         setTestSuccess(true);
+        setTestStatusMessage("Database connection ok");
         // Auto-reset success state after 3 seconds
         setTimeout(() => {
           setTestSuccess(false);
@@ -644,12 +936,15 @@ export function ConnectionDialog({
         }
       }
 
+      setTestStatusMessage(errorMessage);
+
       toast.error("Connection Failed", {
         description: errorMessage,
         duration: 5000,
       });
     } finally {
       setIsTesting(false);
+      setTestStage("idle");
     }
   };
 
@@ -661,75 +956,67 @@ export function ConnectionDialog({
       return;
     }
 
+    if (useSSH) {
+      if (!sshHost.trim()) {
+        toast.error("Error", {
+          description: "SSH host is required when SSH tunneling is enabled",
+        });
+        return;
+      }
+      if (!useSSHAgent && !sshUser.trim()) {
+        toast.error("Error", {
+          description: "SSH user is required when SSH tunneling is enabled",
+        });
+        return;
+      }
+      if (useSSHKey && !sshKeyPath) {
+        toast.error("Error", {
+          description:
+            "Select a private key file or disable key authentication",
+        });
+        return;
+      }
+      if (!useSSHKey && !useSSHAgent && !sshPassword) {
+        toast.error("Error", {
+          description:
+            "Provide an SSH password or choose key/agent authentication",
+        });
+        return;
+      }
+    }
+
+    if (useAwsSsm) {
+      if (!ssmRegion.trim()) {
+        toast.error("Error", {
+          description: "AWS region is required when AWS SSM is enabled",
+        });
+        return;
+      }
+      if (!ssmTargetId.trim()) {
+        toast.error("Error", {
+          description: "Provide the SSM target instance or task identifier",
+        });
+        return;
+      }
+      if (!ssmRemoteHost.trim()) {
+        toast.error("Error", {
+          description: "Remote host is required when using AWS SSM",
+        });
+        return;
+      }
+    }
+
     setIsSaving(true);
     try {
-      const profile: ConnectionProfile = {
-        id: connection?.id || `conn-${Date.now()}`,
-        name,
-        db_type:
-          dbType === "postgresql"
-            ? DbType.PostgreSQL
-            : dbType === "mysql"
-            ? DbType.MySQL
-            : dbType === "sqlite"
-            ? DbType.SQLite
-            : DbType.SQLServer,
-        host: dbType !== "sqlite" ? host : "localhost",
-        port:
-          dbType !== "sqlite"
-            ? parseInt(port) || parseInt(getDefaultPort(dbType))
-            : 5432,
-        username: dbType !== "sqlite" ? username : "",
-        password: dbType !== "sqlite" ? password : undefined,
-        database: dbType !== "sqlite" ? database : database,
-        ssl_mode: sslMode,
-        ssl_config:
-          sslMode !== SslMode.Disable &&
-          (sslKeyFile || sslCertFile || sslCAFile)
-            ? {
-                key_file: sslKeyFile || undefined,
-                cert_file: sslCertFile || undefined,
-                ca_file: sslCAFile || undefined,
-              }
-            : undefined,
-        ssh_tunnel: useSSH
-          ? {
-              host: sshHost,
-              port: Number.parseInt(sshPort),
-              user: sshUser,
-              auth: useSSHKey
-                ? { KeyFile: { path: sshKeyPath, passphrase: undefined } }
-                : { Password: sshPassword },
-            }
-          : undefined,
-        options: {},
-      };
-
-      // Save or update the connection with tags
-      console.log("Saving connection with tags:", selectedTags);
-      console.log("Profile:", JSON.stringify(profile, null, 2));
+      const profile = buildConnectionProfile(connection?.id);
 
       try {
         if (isEditMode && connection.id) {
-          console.log(
-            "Updating connection via vault:",
-            connection.id,
-            profile,
-            selectedTags,
-          );
           await persistUpdate(connection.id, profile, selectedTags);
-          console.log("Update successful");
         } else {
-          console.log(
-            "Creating new connection via vault:",
-            profile,
-            selectedTags,
-          );
           await persistConnection(profile, selectedTags);
-          console.log("Create successful");
         }
       } catch (invokeError) {
-        console.error("Invoke error:", invokeError);
         throw invokeError;
       }
 
@@ -741,10 +1028,8 @@ export function ConnectionDialog({
 
       onOpenChange(false);
     } catch (error) {
-      console.error("Save connection error:", error);
       const errorMessage =
         error instanceof Error ? error.message : "Failed to save connection";
-      console.error("Error details:", errorMessage);
       toast.error("Error", {
         description: errorMessage,
       });
@@ -825,16 +1110,11 @@ export function ConnectionDialog({
             <Database className="h-4 w-4" />
             {isEditMode ? "Edit Connection" : "Connect Database"}
           </DialogTitle>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-5 w-5 p-0"
-            onClick={() => {
-              onOpenChange(false);
-            }}
-          >
-            <XIcon className="size-5" />
-          </Button>
+          <DialogClose asChild>
+            <Button variant="ghost" size="icon" className="h-5 w-5 p-0">
+              <XIcon className="size-5" />
+            </Button>
+          </DialogClose>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-4">
@@ -848,10 +1128,18 @@ export function ConnectionDialog({
             focused={open}
           >
             <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="postgresql" tabIndex={0}>PostgreSQL</TabsTrigger>
-              <TabsTrigger value="mysql" tabIndex={1}>MySQL</TabsTrigger>
-              <TabsTrigger value="sqlite" tabIndex={2}>SQLite</TabsTrigger>
-              <TabsTrigger value="mssql" tabIndex={3}>SQL Server</TabsTrigger>
+              <TabsTrigger value="postgresql" tabIndex={0}>
+                PostgreSQL
+              </TabsTrigger>
+              <TabsTrigger value="mysql" tabIndex={1}>
+                MySQL
+              </TabsTrigger>
+              <TabsTrigger value="sqlite" tabIndex={2}>
+                SQLite
+              </TabsTrigger>
+              <TabsTrigger value="mssql" tabIndex={3}>
+                SQL Server
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value={dbType} className="space-y-6 mt-6">
@@ -1393,7 +1681,7 @@ export function ConnectionDialog({
                                 setSshPassword(e.target.value);
                               }}
                               placeholder="password"
-                              disabled={useSSHKey}
+                              disabled={useSSHKey || useSSHAgent}
                             />
                           </div>
                         </div>
@@ -1401,51 +1689,82 @@ export function ConnectionDialog({
                         <div className="space-y-3">
                           <div className="flex items-center gap-2">
                             <Checkbox
+                              id="use-ssh-agent"
+                              checked={useSSHAgent}
+                              onCheckedChange={(checked) => {
+                                setUseSSHAgent(!!checked);
+                              }}
+                            />
+                            <Label
+                              htmlFor="use-ssh-agent"
+                              className="cursor-pointer"
+                            >
+                              Use SSH Agent
+                            </Label>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <Checkbox
                               id="use-ssh-key"
                               checked={useSSHKey}
+                              disabled={useSSHAgent}
                               onCheckedChange={(checked) => {
                                 setUseSSHKey(!!checked);
                               }}
                             />
                             <Label
                               htmlFor="use-ssh-key"
-                              className="cursor-pointer"
+                              className={cn(
+                                "cursor-pointer",
+                                useSSHAgent && "text-muted-foreground",
+                              )}
                             >
                               Use SSH Key
                             </Label>
                           </div>
+
                           {useSSHKey && (
-                            <div>
-                              <Label htmlFor="ssh-key" className="text-xs">
-                                Private Key
-                              </Label>
-                              <div className="relative mt-1.5">
-                                <Input
-                                  id="ssh-key"
-                                  type="file"
-                                  accept=".pem,.key,id_rsa,id_ed25519,id_ecdsa"
-                                  onChange={(e) => {
-                                    const file = e.target.files?.[0];
-                                    if (file) {
-                                      setSshKeyPath(file.name);
-                                    }
-                                  }}
-                                  className="absolute inset-0 opacity-0 cursor-pointer"
-                                />
-                                <div className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-2 text-xs">
-                                  <span
-                                    className={cn(
-                                      "truncate",
-                                      sshKeyPath
-                                        ? "text-foreground"
-                                        : "text-muted-foreground",
-                                    )}
+                            <>
+                              <div>
+                                <Label htmlFor="ssh-key" className="text-xs">
+                                  Private Key
+                                </Label>
+                                <div className="mt-1.5 flex gap-2">
+                                  <Input
+                                    id="ssh-key"
+                                    value={sshKeyPath}
+                                    readOnly
+                                    placeholder="Select private key..."
+                                    className="flex-1"
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={handleSelectSSHKey}
                                   >
-                                    {sshKeyPath || "Choose private key..."}
-                                  </span>
+                                    Browse
+                                  </Button>
                                 </div>
                               </div>
-                            </div>
+                              <div>
+                                <Label
+                                  htmlFor="ssh-key-passphrase"
+                                  className="text-xs"
+                                >
+                                  Key Passphrase
+                                </Label>
+                                <Input
+                                  id="ssh-key-passphrase"
+                                  className="mt-1.5"
+                                  type="password"
+                                  value={sshKeyPassphrase}
+                                  onChange={(e) => {
+                                    setSshKeyPassphrase(e.target.value);
+                                  }}
+                                  placeholder="Optional"
+                                />
+                              </div>
+                            </>
                           )}
                         </div>
                       </>
@@ -1455,6 +1774,196 @@ export function ConnectionDialog({
               )}
             </TabsContent>
           </Tabs>
+          <div className="mt-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <Label className="flex items-center gap-2">
+                <Server className="h-3.5 w-3.5 text-muted-foreground" />
+                AWS SSM Bastion
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                  Beta
+                </Badge>
+              </Label>
+              <Switch
+                checked={useAwsSsm}
+                onCheckedChange={(checked) => {
+                  setUseAwsSsm(!!checked);
+                }}
+              />
+            </div>
+            {useAwsSsm && (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="ssm-region">Region *</Label>
+                    <Input
+                      id="ssm-region"
+                      className="mt-1.5"
+                      value={ssmRegion}
+                      onChange={(e) => {
+                        setSsmRegion(e.target.value);
+                      }}
+                      placeholder="us-east-1"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="ssm-target">Target ID *</Label>
+                    <Input
+                      id="ssm-target"
+                      className="mt-1.5"
+                      value={ssmTargetId}
+                      onChange={(e) => {
+                        setSsmTargetId(e.target.value);
+                      }}
+                      placeholder="i-0123456789abcdef0 or ecs:cluster/task"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <Label>Authentication Method</Label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="ssm-auth"
+                        value="profile"
+                        checked={ssmAuthType === "profile"}
+                        onChange={() => {
+                          setSsmAuthType("profile");
+                        }}
+                        className="h-4 w-4"
+                      />
+                      <span className="text-sm">AWS Profile</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="ssm-auth"
+                        value="oauth"
+                        checked={ssmAuthType === "oauth"}
+                        onChange={() => {
+                          setSsmAuthType("oauth");
+                        }}
+                        className="h-4 w-4"
+                      />
+                      <span className="text-sm">SSO / OAuth</span>
+                    </label>
+                  </div>
+                </div>
+                {ssmAuthType === "profile" ? (
+                  <div>
+                    <Label htmlFor="ssm-profile">AWS Profile Name</Label>
+                    <Input
+                      id="ssm-profile"
+                      className="mt-1.5"
+                      value={ssmProfileName}
+                      onChange={(e) => {
+                        setSsmProfileName(e.target.value);
+                      }}
+                      placeholder="default"
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div>
+                      <Label htmlFor="oauth-provider">SSO Provider *</Label>
+                      <Select
+                        value={ssmOAuthProvider}
+                        onValueChange={(value) => {
+                          setSsmOAuthProvider(value);
+                        }}
+                      >
+                        <SelectTrigger className="mt-1.5 w-full">
+                          <SelectValue placeholder="Select SSO provider" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Microsoft">
+                            Microsoft Entra ID
+                          </SelectItem>
+                          <SelectItem value="Google">
+                            Google Workspace
+                          </SelectItem>
+                          <SelectItem value="Okta">Okta</SelectItem>
+                          <SelectItem value="Auth0">Auth0</SelectItem>
+                          <SelectItem value="Keycloak">Keycloak</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label htmlFor="oauth-client-id">Client ID *</Label>
+                        <Input
+                          id="oauth-client-id"
+                          className="mt-1.5"
+                          value={ssmOAuthClientId}
+                          onChange={(e) => {
+                            setSsmOAuthClientId(e.target.value);
+                          }}
+                          placeholder="Your OAuth app client ID"
+                        />
+                      </div>
+                      {ssmOAuthProvider === "Microsoft" && (
+                        <div>
+                          <Label htmlFor="oauth-tenant-id">Tenant ID</Label>
+                          <Input
+                            id="oauth-tenant-id"
+                            className="mt-1.5"
+                            value={ssmOAuthTenantId}
+                            onChange={(e) => {
+                              setSsmOAuthTenantId(e.target.value);
+                            }}
+                            placeholder="common or your tenant ID"
+                          />
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <Label htmlFor="assume-role-arn">
+                        AWS IAM Role ARN *
+                      </Label>
+                      <Input
+                        id="assume-role-arn"
+                        className="mt-1.5"
+                        value={ssmAssumeRoleArn}
+                        onChange={(e) => {
+                          setSsmAssumeRoleArn(e.target.value);
+                        }}
+                        placeholder="arn:aws:iam::123456789012:role/SSMAccessRole"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        IAM role to assume using the OAuth token
+                      </p>
+                    </div>
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="ssm-remote-host">Remote Host</Label>
+                    <Input
+                      id="ssm-remote-host"
+                      className="mt-1.5"
+                      value={ssmRemoteHost}
+                      onChange={(e) => {
+                        setSsmRemoteHost(e.target.value);
+                      }}
+                      placeholder={host}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="ssm-remote-port">Remote Port</Label>
+                    <Input
+                      id="ssm-remote-port"
+                      className="mt-1.5"
+                      value={ssmRemotePort}
+                      onChange={(e) => {
+                        setSsmRemotePort(e.target.value);
+                      }}
+                      placeholder={getDefaultPort(dbType)}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
         <DialogFooter className="sticky bottom-0 bg-background border-t px-3 py-1.5 gap-1.5">
@@ -1514,20 +2023,23 @@ export function ConnectionDialog({
             disabled={isTesting || isSaving || isConnecting}
             className={cn("h-8 px-3", testSuccess && "text-green-600")}
           >
-            {isTesting && (
+            {isTesting ? (
               <>
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                Testing...
+                {testStage === "ssh" ? "Testing SSH…" : "Testing Database…"}
               </>
-            )}
-            {!isTesting && testSuccess && (
+            ) : testSuccess ? (
               <>
                 <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
                 Tested
               </>
+            ) : (
+              "Test"
             )}
-            {!isTesting && !testSuccess && "Test"}
           </Button>
+          <span className="min-w-[160px] text-xs text-muted-foreground select-text">
+            {testStatusMessage}
+          </span>
           <Button
             variant="outline"
             size="sm"

@@ -11,6 +11,7 @@ export interface ConnectionProfile {
   ssl_mode?: SslMode;
   ssl_config?: SslConfig;
   ssh_tunnel?: SshTunnelConfig;
+  bastion?: BastionConfig;
   options: Record<string, string>;
 }
 
@@ -43,7 +44,44 @@ export interface SshTunnelConfig {
 
 export type SshAuthMethod =
   | { Password: string }
-  | { KeyFile: { path: string; passphrase?: string } };
+  | { KeyFile: { path: string; passphrase?: string | null } }
+  | { Agent: true };
+
+export type BastionConfig =
+  | { Ssh: SshTunnelConfig }
+  | { AwsSsm: AwsSsmConfig };
+
+export interface AwsSsmConfig {
+  target_id: string;
+  region: string;
+  auth: AwsAuthMethod;
+  remote_host: string;
+  remote_port: number;
+}
+
+export type AwsAuthMethod =
+  | { OAuthFederated: OAuthConfig }
+  | { AwsProfile: { profile_name: string } }
+  | { IamRole: { role_arn: string } }
+  | { AccessKey: { access_key_id: string } };
+
+export interface OAuthConfig {
+  provider: OAuthProvider;
+  client_id: string;
+  tenant_id?: string;
+  organization?: string;
+  domain?: string;
+  scopes: string[];
+  assume_role_arn: string;
+}
+
+export type OAuthProvider =
+  | "Microsoft"
+  | "Google"
+  | "Okta"
+  | "Auth0"
+  | "Keycloak"
+  | { Generic: { name: string; auth_url: string; token_url: string; issuer: string } };
 
 export interface StoredConnection {
   profile: ConnectionProfile;

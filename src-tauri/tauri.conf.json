@@ -89,7 +89,8 @@
       "sidecars/manifest.json"
     ],
     "externalBin": [
-      "sidecars/ai-server"
+      "sidecars/ai-server",
+      "sidecars/session-manager-plugin"
     ]
   }
 }
