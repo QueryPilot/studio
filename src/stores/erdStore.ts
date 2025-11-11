@@ -25,6 +25,7 @@ interface UpdateViewInput {
   tableCount?: number;
   relationshipCount?: number;
   layoutDirection?: "LR" | "RL" | "TB" | "BT";
+  hasManualPositions?: boolean;
   isTemporary?: boolean;
   nodePositions?: Record<string, NodePosition>;
   viewport?: ViewportState;
@@ -42,6 +43,7 @@ export interface ErdView {
   nodePositions: Record<string, NodePosition>;
   viewport?: ViewportState;
   layoutDirection: "LR" | "RL" | "TB" | "BT";
+  hasManualPositions: boolean;
   isTemporary?: boolean;
   createdAt: string;
   updatedAt: string;
@@ -108,6 +110,7 @@ export const useErdStore = create<ErdStoreState>()(
           nodePositions: {},
           viewport: undefined,
           layoutDirection: DEFAULT_LAYOUT_DIRECTION,
+          hasManualPositions: false,
           isTemporary,
           createdAt: timestamp,
           updatedAt: timestamp,
@@ -145,6 +148,10 @@ export const useErdStore = create<ErdStoreState>()(
             nodePositions: updates.nodePositions ?? existing.nodePositions,
             viewport: updates.viewport ?? existing.viewport,
             layoutDirection: updates.layoutDirection ?? existing.layoutDirection,
+            hasManualPositions:
+              updates.hasManualPositions !== undefined
+                ? updates.hasManualPositions
+                : existing.hasManualPositions,
             dbml: updates.dbml ?? existing.dbml,
             tableCount: updates.tableCount ?? existing.tableCount,
             relationshipCount: updates.relationshipCount ?? existing.relationshipCount,
@@ -262,6 +269,7 @@ export const useErdStore = create<ErdStoreState>()(
                   ...view.nodePositions,
                   [nodeId]: position,
                 },
+                hasManualPositions: true,
                 updatedAt: new Date().toISOString(),
               },
             },

@@ -37,9 +37,9 @@ import type { ColumnMeta } from "@/types/database";
 import type { DBMLRelationship } from "@/services/dbmlService";
 import type { NodePosition, ViewportState } from "@/stores/erdStore";
 
-export type LayoutDirection = "LR" | "TB";
+export type LayoutDirection = "LR" | "TB" | "RL" | "BT";
 
-const NODE_WIDTH = 260;
+const NODE_WIDTH = 320;
 const FIT_VIEW_PADDING = 0.08;
 const PREVIEW_COLUMN_LIMIT = 10;
 
@@ -49,10 +49,12 @@ interface ERDVisualizerProps {
   nodePositions: Record<string, NodePosition>;
   initialViewport?: ViewportState;
   layoutDirection?: LayoutDirection;
+  hasManualPositions?: boolean;
   onNodePositionsChange?: (positions: Record<string, NodePosition>) => void;
   onNodePositionChange?: (nodeId: string, position: NodePosition) => void;
   onViewportChange?: (viewport: ViewportState) => void;
   onColumnDoubleClick?: (tableName: string, columnName: string) => void;
+  onLayoutDirectionChange?: (direction: LayoutDirection) => void;
 }
 
 interface TableNodeData {
@@ -104,6 +106,10 @@ const edgeStylesInjected = (() => {
         text-rendering: optimizeLegibility;
         image-rendering: -webkit-optimize-contrast;
         image-rendering: crisp-edges;
+        backface-visibility: hidden;
+        -webkit-backface-visibility: hidden;
+        perspective: 1000px;
+        -webkit-perspective: 1000px;
       }
       .erd-table-card-selected {
         box-shadow: 0 0 0 2px hsl(var(--primary));
@@ -235,7 +241,7 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
   return (
     <div
       className={[
-        "erd-table-card w-[260px] rounded-md border bg-card text-xs shadow-sm",
+        "erd-table-card w-[320px] rounded-md border bg-card text-xs shadow-sm",
         selected || isSelected ? "erd-table-card-selected" : "border-border",
       ].join(" ")}
       onMouseEnter={() => {
@@ -323,18 +329,18 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
                     />
                     <div className="flex flex-1 items-center gap-2 min-w-0 text-xs">
                       <div className="flex-1 inline-flex items-center gap-2">
-                        <span className="font-medium text-foreground truncate max-w-[120px]">
+                        <span className="font-medium text-foreground truncate max-w-[160px]">
                           {column.name}
                         </span>
                         {renderColumnIcons(column as ColumnMeta)}
                       </div>
-                      <div className="flex items-center gap-2 min-w-0">
+                      <div className="flex items-center gap-2 min-w-0 flex-shrink-0">
                         {constraints.length > 0 && (
                           <span className="text-xs text-orange-500 font-semibold flex-shrink-0">
                             {constraints.join(",")}
                           </span>
                         )}
-                        <span className="text-xs text-muted-foreground truncate">
+                        <span className="text-xs text-muted-foreground truncate max-w-[80px]" title={type}>
                           {type}
                         </span>
                       </div>
@@ -400,7 +406,30 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
   );
 };
 
-const TableNode = React.memo(TableNodeComponent);
+// Custom comparison to prevent unnecessary re-renders
+const areTableNodesEqual = (
+  prevProps: NodeProps<any>,
+  nextProps: NodeProps<any>,
+): boolean => {
+  // Compare basic props
+  if (prevProps.id !== nextProps.id) return false;
+  if (prevProps.selected !== nextProps.selected) return false;
+  
+  // Compare data object deeply
+  const prevData = prevProps.data as TableNodeData;
+  const nextData = nextProps.data as TableNodeData;
+  
+  if (!prevData || !nextData) return prevData === nextData;
+  
+  // Compare relevant data properties
+  if (prevData.expanded !== nextData.expanded) return false;
+  if (prevData.isSelected !== nextData.isSelected) return false;
+  if (prevData.table !== nextData.table) return false;
+  
+  return true;
+};
+
+const TableNode = React.memo(TableNodeComponent, areTableNodesEqual);
 
 const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
   id,
@@ -689,7 +718,36 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
   );
 };
 
-const ForeignKeyEdge = React.memo(ForeignKeyEdgeComponent);
+// Custom comparison to prevent unnecessary edge re-renders
+const areForeignKeyEdgesEqual = (
+  prevProps: EdgeProps<any>,
+  nextProps: EdgeProps<any>,
+): boolean => {
+  // Compare basic props
+  if (prevProps.id !== nextProps.id) return false;
+  if (prevProps.selected !== nextProps.selected) return false;
+  if (prevProps.sourceX !== nextProps.sourceX) return false;
+  if (prevProps.sourceY !== nextProps.sourceY) return false;
+  if (prevProps.targetX !== nextProps.targetX) return false;
+  if (prevProps.targetY !== nextProps.targetY) return false;
+  if (prevProps.sourcePosition !== nextProps.sourcePosition) return false;
+  if (prevProps.targetPosition !== nextProps.targetPosition) return false;
+  
+  // Compare edge data
+  const prevData = prevProps.data as ForeignEdgeData | undefined;
+  const nextData = nextProps.data as ForeignEdgeData | undefined;
+  
+  if (!prevData || !nextData) return prevData === nextData;
+  
+  if (prevData.relationshipId !== nextData.relationshipId) return false;
+  if (prevData.highlighted !== nextData.highlighted) return false;
+  if (prevData.isHovered !== nextData.isHovered) return false;
+  if (prevData.isDragging !== nextData.isDragging) return false;
+  
+  return true;
+};
+
+const ForeignKeyEdge = React.memo(ForeignKeyEdgeComponent, areForeignKeyEdgesEqual);
 
 const nodeTypes = {
   [TABLE_NODE_TYPE]: TableNode,
@@ -717,10 +775,12 @@ export const ERDVisualizer = React.forwardRef<
       nodePositions,
       initialViewport,
       layoutDirection = "LR",
+      hasManualPositions = false,
       onNodePositionsChange,
       onNodePositionChange,
       onViewportChange,
       onColumnDoubleClick,
+      // onLayoutDirectionChange is passed but not used internally
     },
     ref,
   ) => {
@@ -739,6 +799,9 @@ export const ERDVisualizer = React.forwardRef<
     const flowInstanceRef = useRef<ReactFlowInstance | null>(null);
     const fitAppliedRef = useRef(false);
     const autoArrangeTriggeredRef = useRef(false);
+    const isInitialMountRef = useRef(true);
+    const edgeUpdateFrameRef = useRef<number | null>(null);
+    const isDraggingRef = useRef(false);
 
     // Use a ref to track current nodes to avoid dependency cycles
     const nodesRef = useRef(nodes);
@@ -781,32 +844,34 @@ export const ERDVisualizer = React.forwardRef<
       setSelectedTableId(null);
     }, []);
 
+    // Stable callbacks that don't change - CRITICAL for performance
+    const stableCallbacks = useMemo(() => ({
+      onToggleExpand: toggleExpanded,
+      onHover: setHoveredNodeId,
+      onClick: handleTableClick,
+      onColumnHover: setHoveredColumn,
+      onColumnLeave: () => setHoveredColumn(null),
+      onColumnDoubleClick,
+    }), [toggleExpanded, handleTableClick, onColumnDoubleClick]);
+
     // Memoize node data factory for performance - CRITICAL optimization
-    const createNodeData = useCallback(
-      (table: TableStructure, nodeId: string): TableNodeData => ({
-        table,
-        expanded: expandedNodes.has(nodeId),
-        isSelected: selectedTableId === nodeId,
-        onToggleExpand: toggleExpanded,
-        onHover: setHoveredNodeId,
-        onLeave: () => {
-          setHoveredNodeId((prev) => (prev === nodeId ? null : prev));
-        },
-        onClick: handleTableClick,
-        onColumnHover: setHoveredColumn,
-        onColumnLeave: () => {
-          setHoveredColumn(null);
-        },
-        onColumnDoubleClick,
-      }),
-      [
-        expandedNodes,
-        selectedTableId,
-        toggleExpanded,
-        handleTableClick,
-        onColumnDoubleClick,
-      ],
-    );
+    // Use useMemo instead of useCallback to cache the entire data objects
+    const nodeDataMap = useMemo(() => {
+      const map = new Map<string, TableNodeData>();
+      tables.forEach((table) => {
+        const nodeId = buildNodeId(table);
+        map.set(nodeId, {
+          table,
+          expanded: expandedNodes.has(nodeId),
+          isSelected: selectedTableId === nodeId,
+          ...stableCallbacks,
+          onLeave: () => {
+            setHoveredNodeId((prev) => (prev === nodeId ? null : prev));
+          },
+        });
+      });
+      return map;
+    }, [tables, expandedNodes, selectedTableId, stableCallbacks]);
 
     // Memoize edge creation for performance - CRITICAL optimization
     const createEdges = useMemo((): any[] => {
@@ -967,7 +1032,7 @@ export const ERDVisualizer = React.forwardRef<
         return {
           id,
           position,
-          data: createNodeData(table, id),
+          data: nodeDataMap.get(id),
           type: TABLE_NODE_TYPE,
           // Force React to re-render when expansion changes
           style: {
@@ -998,7 +1063,7 @@ export const ERDVisualizer = React.forwardRef<
       tables,
       relationships,
       layoutDirection,
-      createNodeData,
+      nodeDataMap,
       setNodes,
       setEdges,
       createEdges,
@@ -1040,7 +1105,7 @@ export const ERDVisualizer = React.forwardRef<
           return {
             id,
             position,
-            data: createNodeData(table, id),
+            data: nodeDataMap.get(id),
             type: TABLE_NODE_TYPE,
             // Force React to re-render when expansion changes
             style: {
@@ -1058,7 +1123,8 @@ export const ERDVisualizer = React.forwardRef<
         return;
       }
 
-      if (hasStoredPositions) {
+      // Skip auto-layout if manual positions exist
+      if (hasStoredPositions || hasManualPositions) {
         applyStoredPositions();
       } else {
         layoutWithDagre();
@@ -1067,7 +1133,8 @@ export const ERDVisualizer = React.forwardRef<
       tables,
       nodePositions,
       hasStoredPositions,
-      createNodeData,
+      hasManualPositions,
+      nodeDataMap,
       setNodes,
       setEdges,
       createEdges,
@@ -1077,18 +1144,24 @@ export const ERDVisualizer = React.forwardRef<
     useEffect(() => {
       setNodes((nds) =>
         nds.map((node) => {
-          const table = tables.find((tbl) => buildNodeId(tbl) === node.id);
-          if (!table) return node;
+          const data = nodeDataMap.get(node.id as string);
+          if (!data) return node;
           return {
             ...node,
-            data: createNodeData(table, node.id as string),
+            data,
           };
         }),
       );
-    }, [tables, createNodeData, setNodes]);
+    }, [nodeDataMap, setNodes]);
 
     // Trigger re-layout when layout direction changes
     useEffect(() => {
+      // Skip on initial mount
+      if (isInitialMountRef.current) {
+        isInitialMountRef.current = false;
+        return;
+      }
+      
       // Only re-layout if we have tables to layout
       if (tables.length > 0) {
         layoutWithDagre();
@@ -1132,6 +1205,7 @@ export const ERDVisualizer = React.forwardRef<
 
     const handleNodeDragStop = useCallback(
       (_event: React.MouseEvent, node: Node) => {
+        isDraggingRef.current = false;
         setDraggingNodeId(null);
         onNodePositionChange?.(node.id, node.position);
       },
@@ -1140,6 +1214,7 @@ export const ERDVisualizer = React.forwardRef<
 
     const handleNodeDragStart = useCallback(
       (_event: React.MouseEvent, node: Node) => {
+        isDraggingRef.current = true;
         setDraggingNodeId(node.id);
         setHoveredNodeId(node.id);
       },
@@ -1160,59 +1235,78 @@ export const ERDVisualizer = React.forwardRef<
       [onViewportChange],
     );
 
-    // Simplified edge highlighting - updates on hover/selection
+    // Optimized edge highlighting with RAF throttling for smooth 60fps+ performance
     useEffect(() => {
-      const selectedIds = new Set(
-        nodes.filter((node) => node.selected).map((node) => node.id),
-      );
-      if (selectedTableId) {
-        selectedIds.add(selectedTableId);
+      // Cancel any pending frame
+      if (edgeUpdateFrameRef.current !== null) {
+        cancelAnimationFrame(edgeUpdateFrameRef.current);
       }
 
-      setEdges((eds) => {
-        const updatedEdges = eds.map((edge) => {
-          const isRelatedToSelected =
-            selectedIds.has(edge.source) || selectedIds.has(edge.target);
+      // Throttle edge updates using requestAnimationFrame
+      edgeUpdateFrameRef.current = requestAnimationFrame(() => {
+        const selectedIds = new Set(
+          nodes.filter((node) => node.selected).map((node) => node.id),
+        );
+        if (selectedTableId) {
+          selectedIds.add(selectedTableId);
+        }
 
-          const isTemporarilyHighlighted =
-            hoveredNodeId === edge.source ||
-            hoveredNodeId === edge.target ||
-            (hoveredRelationshipId !== null &&
+        // Skip edge updates during active drag for maximum performance
+        if (isDraggingRef.current && draggingNodeId) {
+          return;
+        }
+
+        setEdges((eds) => {
+          const updatedEdges = eds.map((edge) => {
+            const isRelatedToSelected =
+              selectedIds.has(edge.source) || selectedIds.has(edge.target);
+
+            const isTemporarilyHighlighted =
+              hoveredNodeId === edge.source ||
+              hoveredNodeId === edge.target ||
+              (hoveredRelationshipId !== null &&
+                (edge.data as ForeignEdgeData).relationshipId ===
+                  hoveredRelationshipId);
+
+            const isEdgeHovered =
+              hoveredRelationshipId !== null &&
               (edge.data as ForeignEdgeData).relationshipId ===
-                hoveredRelationshipId);
+                hoveredRelationshipId;
 
-          const isEdgeHovered =
-            hoveredRelationshipId !== null &&
-            (edge.data as ForeignEdgeData).relationshipId ===
-              hoveredRelationshipId;
+            const highlighted = isRelatedToSelected || isTemporarilyHighlighted;
+            const isHovered = isEdgeHovered;
+            const isDragging = draggingNodeId !== null;
 
-          const highlighted = isRelatedToSelected || isTemporarilyHighlighted;
-          const isHovered = isEdgeHovered;
-          const isDragging = draggingNodeId !== null;
+            // Only update if values changed
+            const currentData = edge.data as ForeignEdgeData;
+            if (
+              currentData.highlighted === highlighted &&
+              currentData.isHovered === isHovered &&
+              currentData.isDragging === isDragging
+            ) {
+              return edge;
+            }
 
-          // Only update if values changed
-          const currentData = edge.data as ForeignEdgeData;
-          if (
-            currentData.highlighted === highlighted &&
-            currentData.isHovered === isHovered &&
-            currentData.isDragging === isDragging
-          ) {
-            return edge;
-          }
+            return {
+              ...edge,
+              data: {
+                ...currentData,
+                highlighted,
+                isHovered,
+                isDragging,
+              },
+            };
+          });
 
-          return {
-            ...edge,
-            data: {
-              ...currentData,
-              highlighted,
-              isHovered,
-              isDragging,
-            },
-          };
+          return updatedEdges;
         });
-
-        return updatedEdges;
       });
+
+      return () => {
+        if (edgeUpdateFrameRef.current !== null) {
+          cancelAnimationFrame(edgeUpdateFrameRef.current);
+        }
+      };
     }, [
       nodes,
       hoveredNodeId,
@@ -1253,6 +1347,14 @@ export const ERDVisualizer = React.forwardRef<
           selectNodesOnDrag={false}
           panActivationKeyCode="Space"
           proOptions={{ hideAttribution: true }}
+          // Performance optimizations for 60-120fps
+          elevateNodesOnSelect={false}
+          elevateEdgesOnSelect={false}
+          autoPanOnNodeDrag={false}
+          autoPanOnConnect={false}
+          nodeOrigin={[0, 0]}
+          // Disable RAF-based viewport updates during drag for better performance
+          preventScrolling={false}
           onInit={(instance) => {
             flowInstanceRef.current = instance;
             if (initialViewport) {

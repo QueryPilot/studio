@@ -17,7 +17,7 @@ import {
   ArrowUpDown,
 } from "lucide-react";
 
-export type LayoutDirection = "LR" | "TB";
+export type LayoutDirection = "LR" | "TB" | "RL" | "BT";
 
 interface ERDToolbarProps {
   isCodeVisible: boolean;
