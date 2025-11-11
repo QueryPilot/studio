@@ -224,7 +224,7 @@ export const TextMultiLineCellEditor: React.FC<
   return (
     <div
       ref={containerRef}
-      className="flex flex-col bg-popover border border-border rounded-lg shadow-lg click-outside-ignore"
+      className="flex flex-col bg-popover border border-border rounded-xl shadow-lg click-outside-ignore"
       style={{
         width: `${size.width}px`,
         height: `${size.height}px`,

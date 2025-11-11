@@ -634,7 +634,7 @@ export const QueryPanel = memo(function QueryPanel({
               </ResizablePanel>
 
               <div className="px-1">
-                <ResizableHandle className="bg-secondary !h-1 rounded-lg" />
+                <ResizableHandle className="bg-secondary !h-1 rounded-xl" />
               </div>
 
               {/* Results */}
@@ -672,7 +672,7 @@ export const QueryPanel = memo(function QueryPanel({
               <ResizablePanel defaultSize={30} minSize={20}>
                 <Tabs
                   defaultValue="history"
-                  className="h-full flex flex-col px-1 rounded-lg"
+                  className="h-full flex flex-col px-1 rounded-xl"
                   enableShortcuts={true}
                   tabGroupId={`query-history-${tabId}`}
                   focused={isPanelFocused && showHistory}

@@ -37,8 +37,23 @@ interface GlobalChangesModalProps {
 }
 
 export function GlobalChangesModal(props: GlobalChangesModalProps) {
-  const { connectionId, database, schema, table, open, onOpenChange, onCommitSuccess } = props;
-  const { stagedCommands, commitAll, discardAll, getTableKey, commitChanges, discardChanges } = useCrudStore();
+  const {
+    connectionId,
+    database,
+    schema,
+    table,
+    open,
+    onOpenChange,
+    onCommitSuccess,
+  } = props;
+  const {
+    stagedCommands,
+    commitAll,
+    discardAll,
+    getTableKey,
+    commitChanges,
+    discardChanges,
+  } = useCrudStore();
 
   const [isCommitting, setIsCommitting] = useState(false);
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
@@ -50,11 +65,16 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
   const connectionCommands = Array.from(stagedCommands.entries()).filter(
     ([tableKey]) => {
       if (isTableSpecific) {
-        const specificTableKey = getTableKey({ connectionId, database: database!, schema, table: table! });
+        const specificTableKey = getTableKey({
+          connectionId,
+          database: database!,
+          schema,
+          table: table!,
+        });
         return tableKey === specificTableKey;
       }
       return tableKey.startsWith(`${connectionId}:`);
-    }
+    },
   );
 
   // Group commands by table, then by row
@@ -173,13 +193,20 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
     try {
       if (isTableSpecific) {
         // Table-specific commit
-        const tableKey = getTableKey({ connectionId, database: database!, schema, table: table! });
+        const tableKey = getTableKey({
+          connectionId,
+          database: database!,
+          schema,
+          table: table!,
+        });
         const result = await commitChanges(tableKey);
 
         toast.success("Changes committed", {
-          description: `Successfully committed ${result.committed.length} change${
-            result.committed.length === 1 ? "" : "s"
-          } in ${result.durationMs}ms`,
+          description: `Successfully committed ${
+            result.committed.length
+          } change${result.committed.length === 1 ? "" : "s"} in ${
+            result.durationMs
+          }ms`,
         });
       } else {
         // Workspace-wide commit
@@ -215,7 +242,12 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
 
   const handleDiscardAll = () => {
     if (isTableSpecific) {
-      const tableKey = getTableKey({ connectionId, database: database!, schema, table: table! });
+      const tableKey = getTableKey({
+        connectionId,
+        database: database!,
+        schema,
+        table: table!,
+      });
       discardChanges(tableKey);
       toast.success("Changes discarded");
     } else {
@@ -239,14 +271,13 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
           <DialogDescription>
             {isTableSpecific
               ? "Review the changes that will be committed to the database."
-              : "Review and commit all pending changes across all tables"
-            }
+              : "Review and commit all pending changes across all tables"}
           </DialogDescription>
         </DialogHeader>
 
         {/* Summary Statistics */}
         <div className="grid grid-cols-4 gap-3">
-          <div className="flex items-center gap-2 rounded-lg border bg-card p-3">
+          <div className="flex items-center gap-2 rounded-xl border bg-card p-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
               <CheckCircle2 className="h-4 w-4 text-primary" />
             </div>
@@ -256,7 +287,7 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 rounded-lg border bg-card p-3">
+          <div className="flex items-center gap-2 rounded-xl border bg-card p-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-500/10">
               <Pencil className="h-4 w-4 text-blue-500" />
             </div>
@@ -266,7 +297,7 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 rounded-lg border bg-card p-3">
+          <div className="flex items-center gap-2 rounded-xl border bg-card p-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-green-500/10">
               <Plus className="h-4 w-4 text-green-500" />
             </div>
@@ -276,7 +307,7 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 rounded-lg border bg-card p-3">
+          <div className="flex items-center gap-2 rounded-xl border bg-card p-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-red-500/10">
               <Trash2 className="h-4 w-4 text-red-500" />
             </div>
@@ -293,10 +324,9 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
             {Array.from(groupedByTableAndRow.entries()).map(
               ([tableKey, tableGroup]) => {
                 const isExpanded = expandedTables.has(tableKey);
-                const totalChanges = Array.from(tableGroup.rows.values()).reduce(
-                  (sum, row) => sum + row.commands.length,
-                  0,
-                );
+                const totalChanges = Array.from(
+                  tableGroup.rows.values(),
+                ).reduce((sum, row) => sum + row.commands.length, 0);
 
                 return (
                   <div key={tableKey} className="space-y-2">
@@ -369,7 +399,8 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
             ) : (
               <>
                 <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
-                Commit {totalSummary.total} {totalSummary.total === 1 ? "Change" : "Changes"}
+                Commit {totalSummary.total}{" "}
+                {totalSummary.total === 1 ? "Change" : "Changes"}
               </>
             )}
           </Button>
@@ -425,7 +456,9 @@ function RowChangesCard({ row }: RowChangesCardProps) {
         .map(([key, value]) => {
           const formatted = formatValue(value);
           // For long INSERT values, truncate in the middle
-          return `${key}: ${formatted.length > 100 ? truncateMiddle(formatted, 100) : formatted}`;
+          return `${key}: ${
+            formatted.length > 100 ? truncateMiddle(formatted, 100) : formatted
+          }`;
         })
         .join("\n");
 
@@ -445,7 +478,9 @@ function RowChangesCard({ row }: RowChangesCardProps) {
         .map(([key, value]) => {
           const formatted = formatValue(value);
           // For long DELETE values, truncate in the middle
-          return `${key}: ${formatted.length > 100 ? truncateMiddle(formatted, 100) : formatted}`;
+          return `${key}: ${
+            formatted.length > 100 ? truncateMiddle(formatted, 100) : formatted
+          }`;
         })
         .join("\n");
 
@@ -482,7 +517,7 @@ function RowChangesCard({ row }: RowChangesCardProps) {
         const { old, new: newVal } = formatValueWithSmartTruncation(
           values.old,
           values.new,
-          column
+          column,
         );
         oldRow.push(`${column}: ${old}`);
         newRow.push(`${column}: ${newVal}`);
@@ -497,7 +532,7 @@ function RowChangesCard({ row }: RowChangesCardProps) {
   const { old, new: newVal } = buildRowDiff();
 
   return (
-    <div className="rounded-lg border bg-card overflow-hidden">
+    <div className="rounded-xl border bg-card overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 bg-muted/50 border-b">
         {hasInsert && (
@@ -619,7 +654,7 @@ function formatValue(value: unknown): string {
  */
 function formatValueWithSmartTruncation(
   oldValue: unknown,
-  newValue: unknown
+  newValue: unknown,
 ): { old: string; new: string } {
   const oldStr = formatValue(oldValue);
   const newStr = formatValue(newValue);
@@ -633,8 +668,14 @@ function formatValueWithSmartTruncation(
   // For very different values (insert/delete), show with ellipsis
   if (oldStr === "NULL" || newStr === "NULL") {
     return {
-      old: oldStr.length > MAX_LENGTH ? truncateMiddle(oldStr, MAX_LENGTH) : oldStr,
-      new: newStr.length > MAX_LENGTH ? truncateMiddle(newStr, MAX_LENGTH) : newStr,
+      old:
+        oldStr.length > MAX_LENGTH
+          ? truncateMiddle(oldStr, MAX_LENGTH)
+          : oldStr,
+      new:
+        newStr.length > MAX_LENGTH
+          ? truncateMiddle(newStr, MAX_LENGTH)
+          : newStr,
     };
   }
 
@@ -642,20 +683,24 @@ function formatValueWithSmartTruncation(
   const { prefix, suffix, oldMiddle, newMiddle } = findDiff(oldStr, newStr);
 
   const CONTEXT_LENGTH = 30;
-  const prefixContext = prefix.length > CONTEXT_LENGTH
-    ? "..." + prefix.slice(-CONTEXT_LENGTH)
-    : prefix;
-  const suffixContext = suffix.length > CONTEXT_LENGTH
-    ? suffix.slice(0, CONTEXT_LENGTH) + "..."
-    : suffix;
+  const prefixContext =
+    prefix.length > CONTEXT_LENGTH
+      ? "..." + prefix.slice(-CONTEXT_LENGTH)
+      : prefix;
+  const suffixContext =
+    suffix.length > CONTEXT_LENGTH
+      ? suffix.slice(0, CONTEXT_LENGTH) + "..."
+      : suffix;
 
   // If the middle parts are still too long, truncate them
-  const oldMiddleTruncated = oldMiddle.length > MAX_LENGTH
-    ? truncateMiddle(oldMiddle, MAX_LENGTH)
-    : oldMiddle;
-  const newMiddleTruncated = newMiddle.length > MAX_LENGTH
-    ? truncateMiddle(newMiddle, MAX_LENGTH)
-    : newMiddle;
+  const oldMiddleTruncated =
+    oldMiddle.length > MAX_LENGTH
+      ? truncateMiddle(oldMiddle, MAX_LENGTH)
+      : oldMiddle;
+  const newMiddleTruncated =
+    newMiddle.length > MAX_LENGTH
+      ? truncateMiddle(newMiddle, MAX_LENGTH)
+      : newMiddle;
 
   return {
     old: prefixContext + oldMiddleTruncated + suffixContext,
@@ -666,7 +711,10 @@ function formatValueWithSmartTruncation(
 /**
  * Find the common prefix, suffix, and differing middle parts of two strings.
  */
-function findDiff(str1: string, str2: string): {
+function findDiff(
+  str1: string,
+  str2: string,
+): {
   prefix: string;
   suffix: string;
   oldMiddle: string;

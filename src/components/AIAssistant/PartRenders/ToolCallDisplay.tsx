@@ -53,7 +53,7 @@ export function ToolCallDisplay({
   return (
     <div
       className={cn(
-        "my-3 rounded-lg border bg-background p-4 text-xs shadow-sm",
+        "my-3 rounded-xl border bg-background p-4 text-xs shadow-sm",
         theme.container,
       )}
     >

@@ -21,53 +21,78 @@ const formatDictionary = (record?: Record<string, unknown>): string => {
     .join(", ");
 };
 
-const operationVariant = (operation?: DataRowDiff['operation']): Parameters<typeof Badge>[0]['variant'] => {
+const operationVariant = (
+  operation?: DataRowDiff["operation"],
+): Parameters<typeof Badge>[0]["variant"] => {
   switch (operation) {
-    case 'insert':
-      return 'default';
-    case 'delete':
-      return 'destructive';
-    case 'update':
-      return 'secondary';
+    case "insert":
+      return "default";
+    case "delete":
+      return "destructive";
+    case "update":
+      return "secondary";
     default:
-      return 'outline';
+      return "outline";
   }
 };
 
 export function DataDiff({ rows, className }: DataDiffProps) {
   if (!rows.length) {
     return (
-      <div className={cn("flex h-full items-center justify-center rounded-lg border border-dashed border-muted-foreground/40 p-6 text-sm text-muted-foreground", className)}>
+      <div
+        className={cn(
+          "flex h-full items-center justify-center rounded-xl border border-dashed border-muted-foreground/40 p-6 text-sm text-muted-foreground",
+          className,
+        )}
+      >
         {EMPTY_STATE}
       </div>
     );
   }
 
   return (
-    <div className={cn("overflow-hidden rounded-lg border", className)}>
+    <div className={cn("overflow-hidden rounded-xl border", className)}>
       <table className="min-w-full divide-y divide-border text-sm">
         <thead className="bg-muted/60">
           <tr>
-            <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
+            <th
+              scope="col"
+              className="px-4 py-2 text-left font-medium text-muted-foreground"
+            >
               Operation
             </th>
-            <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
+            <th
+              scope="col"
+              className="px-4 py-2 text-left font-medium text-muted-foreground"
+            >
               Primary Key
             </th>
-            <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
+            <th
+              scope="col"
+              className="px-4 py-2 text-left font-medium text-muted-foreground"
+            >
               Before
             </th>
-            <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
+            <th
+              scope="col"
+              className="px-4 py-2 text-left font-medium text-muted-foreground"
+            >
               After
             </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border bg-background">
           {rows.map((row, index) => (
-            <tr key={`${row.operation ?? 'row'}-${index}`} className="align-top">
+            <tr
+              key={`${row.operation ?? "row"}-${index}`}
+              className="align-top"
+            >
               <td className="px-4 py-3">
-                <Badge variant={operationVariant(row.operation)} className="capitalize">
-                  {row.operation ?? 'pending'}
+                <Badge
+                  variant={operationVariant(row.operation)}
+                  className="capitalize"
+                >
+                  {row.operation ?? "pending"}
                 </Badge>
               </td>
               <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
@@ -104,7 +129,7 @@ function DiffDictionary({ value }: DiffDictionaryProps) {
         <Fragment key={key}>
           <dt className="font-medium text-foreground">{key}</dt>
           <dd className="rounded bg-muted/60 px-2 py-1 font-mono text-[11px] text-muted-foreground">
-            {typeof rawValue === 'object' && rawValue !== null
+            {typeof rawValue === "object" && rawValue !== null
               ? JSON.stringify(rawValue)
               : String(rawValue)}
           </dd>
@@ -113,4 +138,3 @@ function DiffDictionary({ value }: DiffDictionaryProps) {
     </dl>
   );
 }
-

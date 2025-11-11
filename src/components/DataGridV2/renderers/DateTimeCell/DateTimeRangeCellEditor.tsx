@@ -165,216 +165,216 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
       {/* Range inputs */}
       <div className="flex-1 flex items-center gap-2 px-2">
         {/* Left bound toggle */}
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-6 w-6 p-0 text-xs"
-        title="Toggle lower bound"
-        onClick={cycleLower}
-      >
-        {bounds[0]}
-      </Button>
-
-      {/* Lower input */}
-      <input
-        className="h-[31px] w-[200px] bg-transparent text-xs leading-6 outline-none"
-        placeholder="lower ISO"
-        autoFocus
-        value={lowerText}
-        onChange={(e) => {
-          setLowerText(e.target.value);
-        }}
-        onKeyDown={handleKeyDown}
-      />
-
-      <span className="text-xs text-muted-foreground">to</span>
-
-      {/* Upper input */}
-      <input
-        className="h-[31px] w-[200px] bg-transparent text-xs leading-6 outline-none"
-        placeholder="upper ISO"
-        value={upperText}
-        onChange={(e) => {
-          setUpperText(e.target.value);
-        }}
-        onKeyDown={handleKeyDown}
-      />
-
-      {/* Right bound toggle */}
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-6 w-6 p-0 text-xs"
-        title="Toggle upper bound"
-        onClick={cycleUpper}
-      >
-        {bounds[1]}
-      </Button>
-
-      {/* Clear + unified dual-calendar trigger aligned to the far right */}
-      <div className="ml-auto flex items-center gap-1">
         <Button
           variant="ghost"
-          className="h-6 w-6 p-0 z-50"
-          title="Clear"
-      onClick={() => {
-          commit(null, null, bounds);
-        }}
+          size="sm"
+          className="h-6 w-6 p-0 text-xs"
+          title="Toggle lower bound"
+          onClick={cycleLower}
         >
-          <ClearIcon className="h-3 w-3" />
+          {bounds[0]}
         </Button>
 
-        <Popover open={openRange} onOpenChange={setOpenRange}>
-          <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              className="h-6 w-6 p-0 z-50"
-              title="Pick range"
-            >
-              <CalendarIcon className="h-3 w-3" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent
-            align="end"
-            sideOffset={12}
-            className="w-[640px] max-w-[90vw] rounded-xl click-outside-ignore p-0 z-[100]"
+        {/* Lower input */}
+        <input
+          className="h-[31px] w-[200px] bg-transparent text-xs leading-6 outline-none"
+          placeholder="lower ISO"
+          autoFocus
+          value={lowerText}
+          onChange={(e) => {
+            setLowerText(e.target.value);
+          }}
+          onKeyDown={handleKeyDown}
+        />
+
+        <span className="text-xs text-muted-foreground">to</span>
+
+        {/* Upper input */}
+        <input
+          className="h-[31px] w-[200px] bg-transparent text-xs leading-6 outline-none"
+          placeholder="upper ISO"
+          value={upperText}
+          onChange={(e) => {
+            setUpperText(e.target.value);
+          }}
+          onKeyDown={handleKeyDown}
+        />
+
+        {/* Right bound toggle */}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 w-6 p-0 text-xs"
+          title="Toggle upper bound"
+          onClick={cycleUpper}
+        >
+          {bounds[1]}
+        </Button>
+
+        {/* Clear + unified dual-calendar trigger aligned to the far right */}
+        <div className="ml-auto flex items-center gap-1">
+          <Button
+            variant="ghost"
+            className="h-6 w-6 p-0 z-50"
+            title="Clear"
+            onClick={() => {
+              commit(null, null, bounds);
+            }}
           >
-            <div className="flex flex-col gap-3 p-3">
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-xl border bg-card p-3">
-                  <span className="text-xs font-medium uppercase text-muted-foreground">
-                    Start
-                  </span>
-                  <Calendar
-                    mode="single"
-                    month={displayLowerDate}
-                    selected={lowerDateValue}
-                    defaultMonth={displayLowerDate}
-                    onSelect={(d) => {
-                      if (!d) return;
-                      const from = dayjs(lowerDateValue ?? d);
-                      const next = dayjs(d)
-                        .hour(from.hour())
-                        .minute(from.minute())
-                        .second(from.second())
-                        .millisecond(from.millisecond());
-                      setLowerText(
-                        next.tz(tz).format("YYYY-MM-DDTHH:mm:ss.SSSZ"),
-                      );
-                    }}
-                    captionLayout="dropdown"
-                    className="mt-2 border-0 bg-transparent p-0 shadow-none"
-                  />
-                  <div className="flex items-center gap-2 pt-3">
-                    <span className="w-12 text-xs text-muted-foreground">
-                      Time
+            <ClearIcon className="h-3 w-3" />
+          </Button>
+
+          <Popover open={openRange} onOpenChange={setOpenRange}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                className="h-6 w-6 p-0 z-50"
+                title="Pick range"
+              >
+                <CalendarIcon className="h-3 w-3" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              sideOffset={12}
+              className="w-[640px] max-w-[90vw] rounded-xl click-outside-ignore p-0 z-[100]"
+            >
+              <div className="flex flex-col gap-3 p-3">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded-xl border bg-card p-3">
+                    <span className="text-xs font-medium uppercase text-muted-foreground">
+                      Start
                     </span>
-                    <Input
-                      type="time"
-                      step="1"
-                      value={lowerTimeValue}
-                      onChange={(e) => {
-                        const base =
-                          dayjs(displayLowerDate).format("YYYY-MM-DD");
-                        const parsed = dayjs.tz(
-                          `${base}T${e.target.value}`,
-                          tz,
+                    <Calendar
+                      mode="single"
+                      month={displayLowerDate}
+                      selected={lowerDateValue}
+                      defaultMonth={displayLowerDate}
+                      onSelect={(d) => {
+                        if (!d) return;
+                        const from = dayjs(lowerDateValue ?? d);
+                        const next = dayjs(d)
+                          .hour(from.hour())
+                          .minute(from.minute())
+                          .second(from.second())
+                          .millisecond(from.millisecond());
+                        setLowerText(
+                          next.tz(tz).format("YYYY-MM-DDTHH:mm:ss.SSSZ"),
                         );
-                        if (parsed.isValid()) {
-                          setLowerText(
-                            parsed.format("YYYY-MM-DDTHH:mm:ss.SSSZ"),
-                          );
-                        }
                       }}
-                      className="h-8 text-xs"
+                      captionLayout="dropdown"
+                      className="mt-2 border-0 bg-transparent p-0 shadow-none"
                     />
+                    <div className="flex items-center gap-2 pt-3">
+                      <span className="w-12 text-xs text-muted-foreground">
+                        Time
+                      </span>
+                      <Input
+                        type="time"
+                        step="1"
+                        value={lowerTimeValue}
+                        onChange={(e) => {
+                          const base =
+                            dayjs(displayLowerDate).format("YYYY-MM-DD");
+                          const parsed = dayjs.tz(
+                            `${base}T${e.target.value}`,
+                            tz,
+                          );
+                          if (parsed.isValid()) {
+                            setLowerText(
+                              parsed.format("YYYY-MM-DDTHH:mm:ss.SSSZ"),
+                            );
+                          }
+                        }}
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                  </div>
+                  <div className="rounded-xl border bg-card p-3">
+                    <span className="text-xs font-medium uppercase text-muted-foreground">
+                      End
+                    </span>
+                    <Calendar
+                      mode="single"
+                      month={displayUpperDate}
+                      selected={upperDateValue}
+                      defaultMonth={displayUpperDate}
+                      onSelect={(d) => {
+                        if (!d) return;
+                        const to = dayjs(upperDateValue ?? d);
+                        const next = dayjs(d)
+                          .hour(to.hour())
+                          .minute(to.minute())
+                          .second(to.second())
+                          .millisecond(to.millisecond());
+                        setUpperText(
+                          next.tz(tz).format("YYYY-MM-DDTHH:mm:ss.SSSZ"),
+                        );
+                      }}
+                      captionLayout="dropdown"
+                      className="mt-2 border-0 bg-transparent p-0 shadow-none"
+                    />
+                    <div className="flex items-center gap-2 pt-3">
+                      <span className="w-12 text-xs text-muted-foreground">
+                        Time
+                      </span>
+                      <Input
+                        type="time"
+                        step="1"
+                        value={upperTimeValue}
+                        onChange={(e) => {
+                          const base =
+                            dayjs(displayUpperDate).format("YYYY-MM-DD");
+                          const parsed = dayjs.tz(
+                            `${base}T${e.target.value}`,
+                            tz,
+                          );
+                          if (parsed.isValid()) {
+                            setUpperText(
+                              parsed.format("YYYY-MM-DDTHH:mm:ss.SSSZ"),
+                            );
+                          }
+                        }}
+                        className="h-8 text-xs"
+                      />
+                    </div>
                   </div>
                 </div>
-                <div className="rounded-xl border bg-card p-3">
-                  <span className="text-xs font-medium uppercase text-muted-foreground">
-                    End
+                <div className="flex flex-col gap-2 border-t pt-3">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Timezone
                   </span>
-                  <Calendar
-                    mode="single"
-                    month={displayUpperDate}
-                    selected={upperDateValue}
-                    defaultMonth={displayUpperDate}
-                    onSelect={(d) => {
-                      if (!d) return;
-                      const to = dayjs(upperDateValue ?? d);
-                      const next = dayjs(d)
-                        .hour(to.hour())
-                        .minute(to.minute())
-                        .second(to.second())
-                        .millisecond(to.millisecond());
-                      setUpperText(
-                        next.tz(tz).format("YYYY-MM-DDTHH:mm:ss.SSSZ"),
-                      );
-                    }}
-                    captionLayout="dropdown"
-                    className="mt-2 border-0 bg-transparent p-0 shadow-none"
-                  />
-                  <div className="flex items-center gap-2 pt-3">
-                    <span className="w-12 text-xs text-muted-foreground">
-                      Time
-                    </span>
-                    <Input
-                      type="time"
-                      step="1"
-                      value={upperTimeValue}
-                      onChange={(e) => {
-                        const base =
-                          dayjs(displayUpperDate).format("YYYY-MM-DD");
-                        const parsed = dayjs.tz(
-                          `${base}T${e.target.value}`,
+                  <Select value={tz} onValueChange={setTz}>
+                    <SelectTrigger className="h-8 w-full px-2 text-xs md:w-[280px]">
+                      <SelectValue placeholder="Timezone" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-64 text-xs">
+                      {Array.from(
+                        new Set([
                           tz,
-                        );
-                        if (parsed.isValid()) {
-                          setUpperText(
-                            parsed.format("YYYY-MM-DDTHH:mm:ss.SSSZ"),
-                          );
-                        }
-                      }}
-                      className="h-8 text-xs"
-                    />
-                  </div>
+                          "UTC",
+                          "America/Los_Angeles",
+                          "America/New_York",
+                          "Europe/London",
+                          "Europe/Berlin",
+                          "Asia/Singapore",
+                          "Asia/Ho_Chi_Minh",
+                          "Asia/Tokyo",
+                          "Asia/Shanghai",
+                          "Australia/Sydney",
+                        ]),
+                      ).map((name) => (
+                        <SelectItem key={name} value={name}>
+                          {name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
-              <div className="flex flex-col gap-2 border-t pt-3">
-                <span className="text-xs font-medium text-muted-foreground">
-                  Timezone
-                </span>
-                <Select value={tz} onValueChange={setTz}>
-                  <SelectTrigger className="h-8 w-full px-2 text-xs md:w-[280px]">
-                    <SelectValue placeholder="Timezone" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-64 text-xs">
-                    {Array.from(
-                      new Set([
-                        tz,
-                        "UTC",
-                        "America/Los_Angeles",
-                        "America/New_York",
-                        "Europe/London",
-                        "Europe/Berlin",
-                        "Asia/Singapore",
-                        "Asia/Ho_Chi_Minh",
-                        "Asia/Tokyo",
-                        "Asia/Shanghai",
-                        "Australia/Sydney",
-                      ]),
-                    ).map((name) => (
-                      <SelectItem key={name} value={name}>
-                        {name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </PopoverContent>
-        </Popover>
-      </div>
+            </PopoverContent>
+          </Popover>
+        </div>
       </div>
     </div>
   );

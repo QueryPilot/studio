@@ -77,9 +77,7 @@ export function MainScreen() {
             </div>
 
             {/* Welcome Message */}
-            <h1 className="text-2xl font-bold mb-3 text-center">
-              Query Pilot
-            </h1>
+            <h1 className="text-2xl font-bold mb-3 text-center">Query Pilot</h1>
 
             {/* Version Badge */}
             <Badge variant="secondary" className="mb-6">

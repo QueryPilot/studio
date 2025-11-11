@@ -131,7 +131,7 @@ export default function AIPanel() {
       try {
         await invoke("reload_ai_api_keys");
         console.log("✅ API keys reloaded in sidecar");
-        
+
         // Reload configured providers list
         const providers: string[] = await invoke("get_configured_providers");
         useAIStore.getState().setConfiguredProviders(providers);
@@ -140,7 +140,7 @@ export default function AIPanel() {
         console.error("Failed to reload API keys in sidecar:", reloadError);
         // Don't fail the save, just log it
       }
-      
+
       toast.success("API Key saved securely.");
     } catch (error) {
       console.error("Failed to save API key:", error);
@@ -164,7 +164,7 @@ export default function AIPanel() {
       </div>
 
       {/* Sidecar Status */}
-      <div className="rounded-lg border p-4 space-y-2">
+      <div className="rounded-xl border p-4 space-y-2">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-sm font-medium">AI Sidecar Status</h3>

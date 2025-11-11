@@ -7,22 +7,29 @@ interface StructureDiffProps {
   readonly className?: string;
 }
 
-const changeVariant = (changeType: StructureDiffEntry['changeType']): Parameters<typeof Badge>[0]['variant'] => {
+const changeVariant = (
+  changeType: StructureDiffEntry["changeType"],
+): Parameters<typeof Badge>[0]["variant"] => {
   switch (changeType) {
-    case 'added':
-      return 'default';
-    case 'removed':
-      return 'destructive';
-    case 'modified':
+    case "added":
+      return "default";
+    case "removed":
+      return "destructive";
+    case "modified":
     default:
-      return 'secondary';
+      return "secondary";
   }
 };
 
 export function StructureDiff({ entries, className }: StructureDiffProps) {
   if (!entries.length) {
     return (
-      <div className={cn("flex h-full items-center justify-center rounded-lg border border-dashed border-muted-foreground/40 p-6 text-sm text-muted-foreground", className)}>
+      <div
+        className={cn(
+          "flex h-full items-center justify-center rounded-xl border border-dashed border-muted-foreground/40 p-6 text-sm text-muted-foreground",
+          className,
+        )}
+      >
         No schema changes staged for this table.
       </div>
     );
@@ -31,18 +38,28 @@ export function StructureDiff({ entries, className }: StructureDiffProps) {
   return (
     <div className={cn("space-y-3", className)}>
       {entries.map((entry) => (
-        <div key={`${entry.path}-${entry.changeType}`} className="rounded-lg border bg-background p-4 shadow-sm">
+        <div
+          key={`${entry.path}-${entry.changeType}`}
+          className="rounded-xl border bg-background p-4 shadow-sm"
+        >
           <div className="flex items-center gap-2 text-sm font-medium">
-            <Badge variant={changeVariant(entry.changeType)} className="capitalize">
+            <Badge
+              variant={changeVariant(entry.changeType)}
+              className="capitalize"
+            >
               {entry.changeType}
             </Badge>
-            <span className="font-mono text-xs text-muted-foreground">{entry.path}</span>
+            <span className="font-mono text-xs text-muted-foreground">
+              {entry.path}
+            </span>
           </div>
           <div className="mt-2 grid gap-2 text-xs text-muted-foreground">
             {entry.before && (
               <DiffBlock title="Before" value={entry.before} tone="muted" />
             )}
-            {entry.after && <DiffBlock title="After" value={entry.after} tone="default" />}
+            {entry.after && (
+              <DiffBlock title="After" value={entry.after} tone="default" />
+            )}
           </div>
         </div>
       ))}
@@ -53,19 +70,23 @@ export function StructureDiff({ entries, className }: StructureDiffProps) {
 interface DiffBlockProps {
   readonly title: string;
   readonly value: unknown;
-  readonly tone?: 'muted' | 'default';
+  readonly tone?: "muted" | "default";
 }
 
-function DiffBlock({ title, value, tone = 'default' }: DiffBlockProps) {
+function DiffBlock({ title, value, tone = "default" }: DiffBlockProps) {
   return (
-    <div className={cn("rounded-md border px-3 py-2", tone === 'muted' ? 'bg-muted/40' : 'bg-card')}>
+    <div
+      className={cn(
+        "rounded-md border px-3 py-2",
+        tone === "muted" ? "bg-muted/40" : "bg-card",
+      )}
+    >
       <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         {title}
       </p>
       <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px]">
-        {typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
+        {typeof value === "string" ? value : JSON.stringify(value, null, 2)}
       </pre>
     </div>
   );
 }
-
