@@ -469,6 +469,34 @@ fn extract_limit_from_sql(sql: &str) -> Option<usize> {
     caps.get(1)?.as_str().parse::<usize>().ok()
 }
 
+/// Check if SQL query is a SELECT statement
+fn is_select_query(sql: &str) -> bool {
+    // Trim whitespace and comments, get first significant SQL keyword
+    let trimmed = sql.trim();
+
+    // Remove leading comments (-- and /* */)
+    let without_comments = trimmed
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("--"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // Remove block comments
+    let re = regex::Regex::new(r"/\*.*?\*/").unwrap_or_else(|_| regex::Regex::new(r"a^").unwrap());
+    let cleaned = re.replace_all(&without_comments, "");
+
+    // Get first word (ignoring WITH for CTEs)
+    let first_keyword = cleaned
+        .trim()
+        .split_whitespace()
+        .find(|word| !word.is_empty())
+        .unwrap_or("")
+        .to_uppercase();
+
+    // Check if it's a SELECT or starts with WITH (CTE that typically ends in SELECT)
+    first_keyword == "SELECT" || first_keyword == "WITH"
+}
+
 /// Execute query with TRUE streaming (rows arrive as they're fetched from PostgreSQL)
 async fn execute_single_fetch_stream(
     sql: &str,
@@ -849,13 +877,17 @@ pub async fn stream_query(
         .await
         .map_err(|e| e.to_string())?;
 
+    // Check if query is a SELECT statement
+    let is_select = is_select_query(&sql);
+
     // Check if query has LIMIT clause
     let has_limit = extract_limit_from_sql(&sql).is_some();
 
     // Apply smart limit only if:
-    // 1. Query doesn't have LIMIT
-    // 2. User has a preference set (Some(limit)) - if None, user chose "No limit"
-    let applied_limit = if !has_limit {
+    // 1. Query is a SELECT statement (not INSERT/UPDATE/DELETE/CREATE/etc.)
+    // 2. Query doesn't have LIMIT
+    // 3. User has a preference set (Some(limit)) - if None, user chose "No limit"
+    let applied_limit = if is_select && !has_limit {
         user_limit_preference // Returns Some(limit) or None based on user preference
     } else {
         None
@@ -879,7 +911,9 @@ pub async fn stream_query(
     tracing::info!("==========================================");
     tracing::info!("FAST PATH (query_raw streaming): sql={}", final_sql);
     if let Some(limit) = applied_limit {
-        tracing::info!("Auto-applied LIMIT {}", limit);
+        tracing::info!("Auto-applied LIMIT {} (SELECT query)", limit);
+    } else if !is_select {
+        tracing::info!("No auto-limit (not a SELECT query)");
     } else if !has_limit {
         tracing::info!("No auto-limit (user preference: no limit)");
     }

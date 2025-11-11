@@ -11,7 +11,7 @@ pub struct PostgresPoolBuilder {
 impl Default for PostgresPoolBuilder {
     fn default() -> Self {
         Self {
-            pool_size: 10, // Max 10 connections per window (increased for concurrent queries)
+            pool_size: 50, // Max 50 connections per window for concurrent introspection + streaming queries
         }
     }
 }

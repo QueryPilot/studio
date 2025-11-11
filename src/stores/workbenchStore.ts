@@ -18,6 +18,7 @@ import {
   findNodePath,
 } from "@/utils/workbenchTree";
 import { useTabStateStore } from "./tabStateStore";
+import { clearTabCache } from "@/lib/cacheManager";
 
 interface WorkbenchStore {
   layoutTree: GridNode | null;
@@ -265,8 +266,13 @@ const useWorkbenchStore = create<WorkbenchStore>()(
         preventAutoInit: finalState.preventAutoInit,
       });
 
+      // Clear both Zustand and React Query cache for all tabs in closed panel
       if (tabsToClear.length > 0) {
-        tabsToClear.forEach((tabId) => { tabStateStore.clearQueryState(tabId); });
+        tabsToClear.forEach((tabId) => {
+          const tabMetadata = panel?.metadata?.[tabId];
+          const connectionId = tabMetadata?.connectionId;
+          clearTabCache(tabId, connectionId);
+        });
       }
     },
 
@@ -517,8 +523,10 @@ const useWorkbenchStore = create<WorkbenchStore>()(
         panelContents: newContents,
       });
 
-      // Clear global tab state when tab is actually removed
-      useTabStateStore.getState().clearQueryState(tabId);
+      // Clear both Zustand and React Query cache for this tab
+      const tabMetadata = panel.metadata?.[tabId];
+      const connectionId = tabMetadata?.connectionId;
+      clearTabCache(tabId, connectionId);
 
       if (newTabIds.length === 0 && totalPanels > 1) {
         get().closePanelAction(panelId);

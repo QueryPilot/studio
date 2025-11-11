@@ -24,6 +24,9 @@ interface QueryState {
   isStreaming: boolean;
   viewMode: "table" | "json";
   appliedLimit: { originalSql: string; limit: number } | null;
+  hasUnsavedChanges: boolean;
+  lastExecutedQuery: string;
+  lastSelectQuery: string | null; // Store last SELECT query for auto-refresh after mutations
 }
 
 interface TabStateStore {
@@ -38,6 +41,9 @@ interface TabStateStore {
 
   // Clear query state for a tab (when tab is closed)
   clearQueryState: (tabId: string) => void;
+
+  // Check if any tab has unsaved changes
+  hasAnyUnsavedChanges: () => boolean;
 }
 
 export const useTabStateStore = create<TabStateStore>((set, get) => ({
@@ -60,6 +66,9 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
         isStreaming: false,
         viewMode: "table" as const,
         appliedLimit: null,
+        hasUnsavedChanges: false,
+        lastExecutedQuery: "",
+        lastSelectQuery: null,
       };
       newStates.set(tabId, { ...existing, ...state });
       return { queryStates: newStates };
@@ -72,5 +81,15 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
       newStates.delete(tabId);
       return { queryStates: newStates };
     });
+  },
+
+  hasAnyUnsavedChanges: () => {
+    const states = get().queryStates;
+    for (const state of states.values()) {
+      if (state.hasUnsavedChanges) {
+        return true;
+      }
+    }
+    return false;
   },
 }));

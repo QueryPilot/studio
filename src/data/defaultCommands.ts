@@ -9,6 +9,7 @@ import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useTabStateStore } from "@/stores/tabStateStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { tabGroupRegistry } from "@/services/tabGroupRegistry";
+import { clearAllCaches } from "@/lib/cacheManager";
 //
 
 const commandPaletteStore = useCommandPaletteStore.getState();
@@ -211,6 +212,31 @@ export const defaultCommands: Command[] = [
           store.removeTab(panelId, tabId);
         }
       }
+    },
+  },
+  {
+    id: "workbench.action.refreshAll",
+    label: "Refresh All",
+    category: "Workbench",
+    handler: async () => {
+      // Check for unsaved changes and show confirmation dialog
+      const tabStateStore = useTabStateStore.getState();
+      const hasUnsavedChanges = tabStateStore.hasAnyUnsavedChanges();
+
+      if (hasUnsavedChanges) {
+        const confirmed = window.confirm(
+          "You have unsaved changes in your query tabs. Refreshing will discard these changes. Do you want to continue?",
+        );
+        if (!confirmed) {
+          return; // User cancelled
+        }
+      }
+
+      // Clear all query caches (React Query + Zustand)
+      clearAllCaches();
+
+      // Force a reload of the window to refresh all data
+      window.location.reload();
     },
   },
   {
