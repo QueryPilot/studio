@@ -61,27 +61,13 @@ jobs:
 
           ### 📦 Installation
 
-          **macOS (Apple Silicon)**
-          - Download \`Query-Pilot_aarch64.dmg\`
-          - Open and drag to Applications
-
-          **macOS (Intel)**
-          - Download \`Query-Pilot_x86_64.dmg\`
-          - Open and drag to Applications
-
-          **Windows**
-          - Download \`Query-Pilot_x64_setup.exe\`
-          - Run installer
-
           **Linux**
           - Download \`Query-Pilot_amd64.AppImage\`
           - Make executable: \`chmod +x Query-Pilot_amd64.AppImage\`
           - Run: \`./Query-Pilot_amd64.AppImage\`
 
           ### ⚠️ Code Signing
-          - **macOS**: Self-signed (you may need to allow in System Preferences > Security)
-          - **Windows**: Self-signed (SmartScreen warning expected on first run)
-          - **Linux**: No signature required
+          - **Linux**: No signature required (unsigned build)
 
           ### 📝 Full Changelog
           See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md)"
@@ -95,37 +81,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS builds
-          - os: macos-latest
-            platform: macos
-            target: aarch64-apple-darwin
-            arch: aarch64
-
-          - os: macos-13 # Intel Mac
-            platform: macos
-            target: x86_64-apple-darwin
-            arch: x86_64
-
-          # Linux build - DISABLED FOR NOW
-          # - os: ubuntu-latest
-          #   platform: linux
-          #   target: x86_64-unknown-linux-gnu
-          #   arch: amd64
-
-          # Windows build - DISABLED FOR NOW
-          # - os: windows-latest
-          #   platform: windows
-          #   target: x86_64-pc-windows-msvc
-          #   arch: x64
+          - os: ubuntu-latest
+            platform: linux
+            target: x86_64-unknown-linux-gnu
+            arch: amd64
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Install macOS dependencies
-        if: matrix.platform == 'macos'
-        run: |
-          brew install create-dmg
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -151,6 +114,20 @@ jobs:
             libgtk-3-dev \
             libfuse2
 
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-tauri/target/
+          key: ${{ runner.os }}-rust-release-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-release-
+            ${{ runner.os }}-rust-
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
@@ -165,8 +142,16 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('src-tauri/sidecar-ai/bun.lockb') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Build AI sidecar
         run: |
@@ -195,181 +180,46 @@ jobs:
         shell: bash
 
       # ============================================
-      # Code Signing Configuration (Optional)
+      # Build Tauri App (Linux - No Signing)
       # ============================================
 
-      # macOS Code Signing (Optional)
-      - name: Import macOS certificate
-        if: matrix.platform == 'macos' && env.APPLE_CERTIFICATE != ''
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          # Create keychain
-          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
-          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
-
-          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-
-          # Import certificate
-          CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
-          echo "$APPLE_CERTIFICATE" | base64 --decode > $CERTIFICATE_PATH
-          security import $CERTIFICATE_PATH \
-            -P "$APPLE_CERTIFICATE_PASSWORD" \
-            -A -t cert -f pkcs12 \
-            -k $KEYCHAIN_PATH
-
-          security list-keychain -d user -s $KEYCHAIN_PATH
-
-          # Set signing identity
-          echo "APPLE_SIGNING_IDENTITY=${{ secrets.APPLE_SIGNING_IDENTITY }}" >> $GITHUB_ENV
-          echo "ENABLE_CODE_SIGNING=true" >> $GITHUB_ENV
-
-      # Windows Code Signing (Optional)
-      - name: Setup Windows certificate
-        if: matrix.platform == 'windows' && env.WINDOWS_CERTIFICATE != ''
-        env:
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        shell: powershell
-        run: |
-          # Decode certificate
-          $certBytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
-          $certPath = Join-Path $env:RUNNER_TEMP "certificate.pfx"
-          [IO.File]::WriteAllBytes($certPath, $certBytes)
-
-          # Import to certificate store
-          $cert = Import-PfxCertificate `
-            -FilePath $certPath `
-            -CertStoreLocation Cert:\CurrentUser\My `
-            -Password (ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force)
-
-          echo "WINDOWS_CERTIFICATE_THUMBPRINT=$($cert.Thumbprint)" >> $env:GITHUB_ENV
-          echo "ENABLE_CODE_SIGNING=true" >> $env:GITHUB_ENV
-
-      # ============================================
-      # Build Tauri App
-      # ============================================
-
-      - name: Build Tauri app (with signing)
-        if: env.ENABLE_CODE_SIGNING == 'true'
+      - name: Build Tauri app
         env:
           NODE_OPTIONS: --max-old-space-size=4096
           APPIMAGE_EXTRACT_AND_RUN: 1
-          # macOS notarization (optional)
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         shell: bash
         run: |
-          # Ensure linuxdeploy tools have execute permissions if they exist
-          if [ "${{ matrix.platform }}" = "linux" ]; then
-            find /tmp -name "linuxdeploy*" -type f -exec chmod +x {} \; 2>/dev/null || true
-            find /tmp -name "AppRun*" -type f -exec chmod +x {} \; 2>/dev/null || true
-          fi
+          # Ensure linuxdeploy tools have execute permissions
+          find /tmp -name "linuxdeploy*" -type f -exec chmod +x {} \; 2>/dev/null || true
+          find /tmp -name "AppRun*" -type f -exec chmod +x {} \; 2>/dev/null || true
           pnpm tauri:build
-
-      - name: Build Tauri app (without signing)
-        if: env.ENABLE_CODE_SIGNING != 'true'
-        env:
-          NODE_OPTIONS: --max-old-space-size=4096
-          APPIMAGE_EXTRACT_AND_RUN: 1
-          # Disable code signing for self-signed builds
-          TAURI_PRIVATE_KEY: ""
-          TAURI_KEY_PASSWORD: ""
-        shell: bash
-        run: |
-          # Ensure linuxdeploy tools have execute permissions if they exist
-          if [ "${{ matrix.platform }}" = "linux" ]; then
-            find /tmp -name "linuxdeploy*" -type f -exec chmod +x {} \; 2>/dev/null || true
-            find /tmp -name "AppRun*" -type f -exec chmod +x {} \; 2>/dev/null || true
-          fi
-          pnpm tauri:build
-
-      # ============================================
-      # Self-sign macOS app (fallback)
-      # ============================================
-
-      - name: Self-sign macOS app
-        if: matrix.platform == 'macos' && env.ENABLE_CODE_SIGNING != 'true'
-        run: |
-          echo "🔓 Creating self-signed macOS app..."
-
-          # Find the .app bundle
-          APP_PATH=$(find src-tauri/target/${{ matrix.target }}/release/bundle/macos -name "*.app" | head -n 1)
-
-          if [ -n "$APP_PATH" ]; then
-            # Ad-hoc sign (allows running on local machine)
-            codesign --force --deep --sign - "$APP_PATH"
-            echo "✅ Self-signed: $APP_PATH"
-          fi
 
       # ============================================
       # Upload Artifacts to Release
       # ============================================
 
-      - name: Find and upload macOS DMG
-        if: matrix.platform == 'macos'
-        shell: bash
-        run: |
-          echo "🔍 Searching for DMG files..."
-          find src-tauri/target/${{ matrix.target }}/release/bundle -type f -name "*.dmg" || echo "No DMG files found"
-
-          DMG_PATH=$(find src-tauri/target/${{ matrix.target }}/release/bundle/dmg -name "*.dmg" | head -n 1)
-          if [ -n "$DMG_PATH" ]; then
-            DMG_NAME="Query-Pilot_${{ matrix.arch }}.dmg"
-            echo "📦 Found DMG: $DMG_PATH"
-            echo "📤 Renaming to: $DMG_NAME"
-            mv "$DMG_PATH" "$DMG_NAME"
-
-            echo "🚀 Uploading to release: ${{ needs.create-release.outputs.version }}"
-            gh release upload ${{ needs.create-release.outputs.version }} \
-              "$DMG_NAME" \
-              --clobber
-
-            echo "✅ Uploaded: $DMG_NAME"
-          else
-            echo "❌ ERROR: No DMG file found!"
-            exit 1
-          fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Find and upload Windows installer
-        if: matrix.platform == 'windows'
-        shell: bash
-        run: |
-          # Find MSI or NSIS installer
-          INSTALLER_PATH=$(find src-tauri/target/${{ matrix.target }}/release/bundle -name "*.msi" -o -name "*_setup.exe" | head -n 1)
-          if [ -n "$INSTALLER_PATH" ]; then
-            INSTALLER_NAME="Query-Pilot_${{ matrix.arch }}_setup.exe"
-            mv "$INSTALLER_PATH" "$INSTALLER_NAME"
-
-            gh release upload ${{ needs.create-release.outputs.version }} \
-              "$INSTALLER_NAME" \
-              --clobber
-
-            echo "✅ Uploaded: $INSTALLER_NAME"
-          fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Find and upload Linux AppImage
-        if: matrix.platform == 'linux'
         run: |
+          echo "🔍 Searching for AppImage files..."
+          find src-tauri/target/${{ matrix.target }}/release/bundle -type f -name "*.AppImage" || echo "No AppImage files found"
+
           APPIMAGE_PATH=$(find src-tauri/target/${{ matrix.target }}/release/bundle/appimage -name "*.AppImage" | head -n 1)
           if [ -n "$APPIMAGE_PATH" ]; then
             APPIMAGE_NAME="Query-Pilot_${{ matrix.arch }}.AppImage"
+            echo "📦 Found AppImage: $APPIMAGE_PATH"
+            echo "📤 Renaming to: $APPIMAGE_NAME"
             mv "$APPIMAGE_PATH" "$APPIMAGE_NAME"
             chmod +x "$APPIMAGE_NAME"
 
+            echo "🚀 Uploading to release: ${{ needs.create-release.outputs.version }}"
             gh release upload ${{ needs.create-release.outputs.version }} \
               "$APPIMAGE_NAME" \
               --clobber
 
             echo "✅ Uploaded: $APPIMAGE_NAME"
+          else
+            echo "❌ ERROR: No AppImage file found!"
+            exit 1
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -380,16 +230,7 @@ jobs:
           name: app-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
             src-tauri/target/${{ matrix.target }}/release/bundle/
-          retention-days: 7
-
-      # ============================================
-      # Cleanup
-      # ============================================
-
-      - name: Cleanup macOS keychain
-        if: matrix.platform == 'macos' && env.ENABLE_CODE_SIGNING == 'true'
-        run: |
-          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+          retention-days: 3
 
   finalize-release:
     name: Finalize Release
