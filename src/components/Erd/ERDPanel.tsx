@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -35,6 +35,22 @@ import {
 
 const DEFAULT_SCHEMA = "public";
 const PARSE_DEBOUNCE_MS = 500;
+
+// Generate a structural hash from tables to detect real changes vs text edits
+const generateStructuralHash = (tables: TableStructure[]): string => {
+  const sortedTables = [...tables].sort((a, b) => 
+    `${a.schema}.${a.name}`.localeCompare(`${b.schema}.${b.name}`)
+  );
+  
+  const structure = sortedTables.map((table) => {
+    const sortedColumns = [...table.columns]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((col) => `${col.name}:${col.db_type}:${col.is_pk}:${col.is_fk}`);
+    return `${table.schema}.${table.name}|${sortedColumns.join(',')}`;
+  });
+  
+  return structure.join('||');
+};
 
 const relationToCardinality = (relation?: string | null): "1" | "n" => {
   if (!relation) return "1";
@@ -81,6 +97,8 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   const parseTimerRef = useRef<number | undefined>(undefined);
   const erdVisualizerRef = useRef<ERDVisualizerRef | null>(null);
   const editorRef = useRef<CodeEditorRef>(null);
+  const lastStructuralHashRef = useRef<string>("");
+  const dbmlWorkerRef = useRef<Worker | null>(null);
 
   const ensureView = useErdStore((state) => state.ensureView);
   const setActiveViewStore = useErdStore((state) => state.setActiveView);
@@ -99,6 +117,32 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   const connection = storedConnection?.profile || null;
 
   const targetDatabase = database ?? connection?.database ?? "";
+
+  // Initialize layout direction from activeView
+  useEffect(() => {
+    if (activeView?.layoutDirection) {
+      setLayoutDirection(activeView.layoutDirection);
+    }
+  }, [activeView?.layoutDirection]);
+
+  // Initialize and manage web worker lifecycle
+  useEffect(() => {
+    // Create worker on mount
+    if (!dbmlWorkerRef.current) {
+      dbmlWorkerRef.current = new Worker(
+        new URL("@/workers/dbmlParser.worker.ts", import.meta.url),
+        { type: "module" },
+      );
+    }
+
+    // Clean up worker on unmount
+    return () => {
+      if (dbmlWorkerRef.current) {
+        dbmlWorkerRef.current.terminate();
+        dbmlWorkerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (lastConnectionRef.current !== connectionId) {
@@ -177,6 +221,8 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
         setError(null);
         setParseError(null);
         setLoading(false);
+        // Initialize structural hash for cached data
+        lastStructuralHashRef.current = generateStructuralHash(cacheHit.tables);
         updateView(viewId, {
           dbml: cacheHit.dbml,
           tableCount: cacheHit.metadata.tableCount,
@@ -255,6 +301,8 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
         setTables(result.tables);
         setRelationships(result.relationships);
         setError(null);
+        // Initialize structural hash for newly loaded data
+        lastStructuralHashRef.current = generateStructuralHash(result.tables);
         erdCache.set(connectionId, targetDatabase, schemaName, result);
         updateView(viewId, {
           dbml: result.dbml,
@@ -306,7 +354,8 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   const handleNodePositionsChange = useCallback(
     (positions: Record<string, NodePosition>) => {
       if (!activeViewId) return;
-      updateView(activeViewId, { nodePositions: positions });
+      // When all positions are updated at once (auto-arrange), reset hasManualPositions
+      updateView(activeViewId, { nodePositions: positions, hasManualPositions: false });
     },
     [activeViewId, updateView],
   );
@@ -635,38 +684,64 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
 
     window.clearTimeout(parseTimerRef.current);
     parseTimerRef.current = window.setTimeout(() => {
-      try {
-        const parsed = convertProjectToStructures(dbmlDocument);
-        setTables(parsed.tables);
-        setRelationships(parsed.relationships);
-        setParseError(null);
-        if (activeViewId) {
-          updateView(activeViewId, {
-            dbml: dbmlDocument,
-            tableCount: parsed.tables.length,
-            relationshipCount: parsed.relationships.length,
-          });
-          erdCache.set(connectionId, targetDatabase, selectedSchema, {
-            dbml: dbmlDocument,
-            ast: null,
-            metadata: {
-              tableCount: parsed.tables.length,
-              relationshipCount: parsed.relationships.length,
-              enumCount: 0,
-              version: "1.0",
-              generatedAt: new Date(),
-            },
-            relationships: parsed.relationships,
-            tables: parsed.tables,
-          });
-        }
-      } catch (err) {
-        if (err instanceof Error) {
-          setParseError(err.message);
-        } else {
-          setParseError("Unable to parse DBML document");
-        }
+      const worker = dbmlWorkerRef.current;
+      if (!worker) {
+        setParseError("Parser worker not initialized");
+        return;
       }
+
+      // Set up one-time message handler for this parse operation
+      const handleWorkerMessage = (e: MessageEvent) => {
+        const output = e.data as {
+          success: boolean;
+          result?: { tables: TableStructure[]; relationships: DBMLRelationship[] };
+          error?: string;
+        };
+
+        worker.removeEventListener("message", handleWorkerMessage);
+
+        if (output.success && output.result) {
+          const { tables: parsedTables, relationships: parsedRelationships } = output.result;
+          const newStructuralHash = generateStructuralHash(parsedTables);
+          const structureChanged = newStructuralHash !== lastStructuralHashRef.current;
+          
+          // Only update tables if structure actually changed
+          if (structureChanged) {
+            lastStructuralHashRef.current = newStructuralHash;
+            setTables(parsedTables);
+          }
+          
+          // Always update relationships as they might change independently
+          setRelationships(parsedRelationships);
+          setParseError(null);
+          
+          if (activeViewId) {
+            updateView(activeViewId, {
+              dbml: dbmlDocument,
+              tableCount: parsedTables.length,
+              relationshipCount: parsedRelationships.length,
+            });
+            erdCache.set(connectionId, targetDatabase, selectedSchema, {
+              dbml: dbmlDocument,
+              ast: null,
+              metadata: {
+                tableCount: parsedTables.length,
+                relationshipCount: parsedRelationships.length,
+                enumCount: 0,
+                version: "1.0",
+                generatedAt: new Date(),
+              },
+              relationships: parsedRelationships,
+              tables: parsedTables,
+            });
+          }
+        } else {
+          setParseError(output.error ?? "Unable to parse DBML document");
+        }
+      };
+
+      worker.addEventListener("message", handleWorkerMessage);
+      worker.postMessage({ dbml: dbmlDocument, targetDatabase });
     }, PARSE_DEBOUNCE_MS);
 
     return () => {
@@ -690,6 +765,24 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
       }
     },
     [activeViewId, updateView],
+  );
+
+  // Memoize CodeEditor to prevent unnecessary re-renders
+  const memoizedCodeEditor = useMemo(
+    () => (
+      <CodeEditor
+        ref={editorRef}
+        value={dbmlDocument}
+        onChange={handleEditorChange}
+        language="dbml"
+        readOnly={false}
+        className="h-full"
+        placeholder={loading ? "Loading schema..." : "Edit DBML to update the diagram"}
+        // Performance: disable heavy extensions for smoother scrolling
+        lineNumbers={true}
+      />
+    ),
+    [dbmlDocument, handleEditorChange, loading],
   );
 
   const handleColumnDoubleClick = useCallback(
@@ -768,24 +861,19 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
             maxSize={70}
             order={1}
             collapsible={true}
+            collapsedSize={0}
             onCollapse={() => {
               setIsCodeVisible(false);
             }}
             className="border-r bg-background"
+            style={{
+              // GPU acceleration for smooth resizing and scrolling
+              transform: 'translateZ(0)',
+              willChange: 'width',
+              backfaceVisibility: 'hidden',
+            }}
           >
-            <CodeEditor
-              ref={editorRef}
-              value={dbmlDocument}
-              onChange={handleEditorChange}
-              language="dbml"
-              readOnly={false}
-              className="h-full"
-              placeholder={
-                loading
-                  ? "Loading schema..."
-                  : "Edit DBML to update the diagram"
-              }
-            />
+            {memoizedCodeEditor}
           </ResizablePanel>
         )}
         {isCodeVisible && <ResizableHandle />}
@@ -796,6 +884,12 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
           minSize={30}
           order={2}
           className="relative"
+          style={{
+            // GPU acceleration for smooth rendering
+            transform: 'translateZ(0)',
+            willChange: 'width',
+            backfaceVisibility: 'hidden',
+          }}
         >
           {tables.length > 0 && !loading && !error ? (
             <>
@@ -822,7 +916,12 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
                     erdVisualizerRef.current?.fitView();
                   }}
                   layoutDirection={layoutDirection}
-                  onLayoutDirectionChange={setLayoutDirection}
+                  onLayoutDirectionChange={(direction) => {
+                    setLayoutDirection(direction);
+                    if (activeViewId) {
+                      updateView(activeViewId, { layoutDirection: direction });
+                    }
+                  }}
                 />
               </div>
 
@@ -834,10 +933,17 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
                   nodePositions={activeView?.nodePositions ?? {}}
                   initialViewport={activeView?.viewport}
                   layoutDirection={layoutDirection}
+                  hasManualPositions={activeView?.hasManualPositions ?? false}
                   onNodePositionsChange={handleNodePositionsChange}
                   onNodePositionChange={handleNodePositionChange}
                   onViewportChange={handleViewportChange}
                   onColumnDoubleClick={handleColumnDoubleClick}
+                  onLayoutDirectionChange={(direction) => {
+                    setLayoutDirection(direction);
+                    if (activeViewId) {
+                      updateView(activeViewId, { layoutDirection: direction });
+                    }
+                  }}
                 />
               </ReactFlowProvider>
             </>
