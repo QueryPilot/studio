@@ -75,6 +75,7 @@ import {
   createDeleteCommand,
   createCrudTarget,
 } from "../utils/crudHelpers";
+import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import type {
   GridEditCommitEvent,
   GridRowAppendEvent,
@@ -226,6 +227,51 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     resetOnUnmount: true,
   });
 
+  // Load table structure to determine default sorting
+  const { structure: tableStructure } = useTableFullStructure({
+    connectionId: isTableMode ? props.connectionId : "",
+    database: isTableMode ? props.database : "",
+    table: isTableMode ? props.table : "",
+    schema: isTableMode ? props.schema : undefined,
+    options: {
+      includeIndexes: false,
+      includeConstraints: false,
+      includeTriggers: false,
+      includeStatistics: false,
+      includeForeignKeys: false,
+    },
+    enabled: isTableMode,
+  });
+
+  // Determine default sort order: primary key (ASC) > created_at (DESC) > first column (ASC)
+  const defaultSorts = useMemo(() => {
+    if (!isTableMode || !tableStructure?.columns || tableStructure.columns.length === 0) {
+      return undefined;
+    }
+
+    // Priority 1: Primary key column (ascending)
+    const pkColumn = tableStructure.columns.find((col) => col.is_pk);
+    if (pkColumn) {
+      return [{ column: pkColumn.name, direction: "asc" as const }];
+    }
+
+    // Priority 2: created_at column (descending to show newest first)
+    const createdAtColumn = tableStructure.columns.find(
+      (col) => col.name === "created_at" || col.name === "createdAt"
+    );
+    if (createdAtColumn) {
+      return [{ column: createdAtColumn.name, direction: "desc" as const }];
+    }
+
+    // Priority 3: First column (ascending)
+    const firstColumn = tableStructure.columns[0];
+    if (firstColumn) {
+      return [{ column: firstColumn.name, direction: "asc" as const }];
+    }
+
+    return undefined;
+  }, [isTableMode, tableStructure?.columns]);
+
   const tableDataQuery = useTableDataQuery({
     connectionId,
     database,
@@ -234,6 +280,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     entityType,
     enabled: isTableMode,
     pageSize: 300,
+    sorts: defaultSorts,
   });
 
   useEffect(() => {
@@ -245,6 +292,45 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       cancelStream();
     };
   }, [isTableMode, tableDataQuery.cancelStream]);
+
+  // Subscribe to data invalidation events for this table
+  // Use refs to avoid recreating subscription on every render
+  const tableDataQueryRef = useRef(tableDataQuery);
+  tableDataQueryRef.current = tableDataQuery;
+
+  useEffect(() => {
+    if (!isTableMode) {
+      return;
+    }
+
+    console.log(
+      `[TableDataGridV2] Subscribing to invalidations for: ${connectionId}:${database}:${schema ?? "public"}:${table}`,
+    );
+
+    const unsubscribe = useDataInvalidationStore
+      .getState()
+      .subscribe(connectionId, database, schema ?? "public", table, async () => {
+        console.log(
+          `[TableDataGridV2] Data invalidated for ${database}.${schema ?? "public"}.${table} - invalidating cache and refetching`,
+        );
+
+        // Use ref to get current tableDataQuery instance
+        // Force refetch by calling refetch - React Query will fetch fresh data
+        // The refetch() method automatically bypasses cache when called explicitly
+        const result = await tableDataQueryRef.current.refetch();
+
+        console.log(
+          `[TableDataGridV2] Refetch completed, got ${result.data?.pages[0]?.rows.length ?? 0} rows in first page`,
+        );
+      });
+
+    return () => {
+      console.log(
+        `[TableDataGridV2] Unsubscribing from invalidations for: ${connectionId}:${database}:${schema ?? "public"}:${table}`,
+      );
+      unsubscribe();
+    };
+  }, [isTableMode, connectionId, database, schema, table]); // Removed tableDataQuery from deps
 
   const queryData = isQueryMode ? props.data : null;
 
@@ -349,21 +435,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         loadMore: undefined,
         hasNextPage: false,
       };
-
-  const { structure: tableStructure } = useTableFullStructure({
-    connectionId: isTableMode ? props.connectionId : "",
-    database: isTableMode ? props.database : "",
-    table: isTableMode ? props.table : "",
-    schema: isTableMode ? props.schema : undefined,
-    options: {
-      includeIndexes: false,
-      includeConstraints: false,
-      includeTriggers: false,
-      includeStatistics: false,
-      includeForeignKeys: false,
-    },
-    enabled: isTableMode,
-  });
 
   const structureMetaByName = useMemo(() => {
     const map = new Map<
@@ -1568,9 +1639,24 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
               database={database}
               schema={schema}
               table={table}
-              onCommitSuccess={() => {
+              onCommitSuccess={async () => {
                 // Refresh table data from server after successful commit
-                void tableDataQuery.refetch();
+                console.log(
+                  "[TableDataGridV2] onCommitSuccess called - refetching data",
+                  {
+                    connectionId,
+                    database,
+                    schema,
+                    table,
+                  },
+                );
+
+                // Force refetch to get latest data from database
+                const result = await tableDataQuery.refetch();
+
+                console.log(
+                  `[TableDataGridV2] onCommitSuccess refetch completed, got ${result.data?.pages[0]?.rows.length ?? 0} rows`,
+                );
               }}
             />
           </>

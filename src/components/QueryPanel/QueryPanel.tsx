@@ -34,6 +34,8 @@ import type { CodeEditorRef } from "@/components/CodeEditor";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import { handleMutationCache, isMutationQuery, isSelectQuery } from "@/lib/cacheManager";
+import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
+import { parseMutationTables } from "@/utils/sqlParser";
 
 interface QueryPanelProps {
   panelId: string;
@@ -414,6 +416,28 @@ export const QueryPanel = memo(function QueryPanel({
             // Clear cache
             handleMutationCache(sql, effectiveConnectionId);
             console.log("[QueryPanel] Mutation detected - cache invalidated");
+
+            // NEW: Broadcast invalidation to all components displaying affected tables
+            const affectedTables = parseMutationTables(sql);
+            if (affectedTables.length > 0) {
+              const { invalidateTable } = useDataInvalidationStore.getState();
+              affectedTables.forEach(({ schema, table }) => {
+                console.log(
+                  `[QueryPanel] Invalidating table: ${schema ?? "public"}.${table}`,
+                );
+                invalidateTable(
+                  effectiveConnectionId,
+                  database,
+                  schema ?? "public",
+                  table,
+                );
+              });
+            } else {
+              console.warn(
+                "[QueryPanel] Mutation detected but no tables parsed from SQL:",
+                sql,
+              );
+            }
 
             // Auto-refresh: Re-run last SELECT query to show updated data
             const lastSelectQuery = globalState?.lastSelectQuery;
