@@ -130,7 +130,9 @@ export function WorkspaceTitleBar({
     async () => {
       if (totalChanges > 0) {
         try {
-          console.log("[WorkspaceTitleBar] Cmd+S pressed - committing all changes");
+          console.log(
+            "[WorkspaceTitleBar] Cmd+S pressed - committing all changes",
+          );
 
           // Get all staged commands before committing
           const stagedCommandsSnapshot = Array.from(stagedCommands.entries());
@@ -155,7 +157,9 @@ export function WorkspaceTitleBar({
             const [connId, db, sch, tbl] = parts;
             if (connId && db && tbl) {
               console.log(
-                `[WorkspaceTitleBar] Invalidating table: ${db}.${sch ?? "public"}.${tbl}`,
+                `[WorkspaceTitleBar] Invalidating table: ${db}.${
+                  sch ?? "public"
+                }.${tbl}`,
               );
               invalidateTable(connId, db, sch ?? "public", tbl);
             }
@@ -207,6 +211,36 @@ export function WorkspaceTitleBar({
     },
     {
       label: "Review All Changes",
+      category: "Workspace",
+      when: "!editorTextFocus && !editingCell",
+    },
+  );
+
+  useCommand(
+    "workspace.undo",
+    () => {
+      if (canUndo) {
+        undo();
+        toast.success("Changes undone");
+      }
+    },
+    {
+      label: "Undo",
+      category: "Workspace",
+      when: "!editorTextFocus && !editingCell",
+    },
+  );
+
+  useCommand(
+    "workspace.redo",
+    () => {
+      if (canRedo) {
+        redo();
+        toast.success("Changes redone");
+      }
+    },
+    {
+      label: "Redo",
       category: "Workspace",
       when: "!editorTextFocus && !editingCell",
     },
@@ -620,6 +654,66 @@ export function WorkspaceTitleBar({
             </Command>
           </PopoverContent>
         </Popover>
+
+        {/* Pending Changes Count */}
+        {totalChanges > 0 && (
+          <>
+            <div
+              className="h-3 w-px bg-border flex-shrink-0"
+              data-tauri-drag-region
+            />
+            {/* Undo/Redo buttons */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 w-5 p-0"
+                  onClick={undo}
+                  disabled={!canUndo}
+                  title="Undo"
+                >
+                  <Undo2 className="h-3 w-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Undo (Cmd+Z)</p>
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 w-5 p-0"
+                  onClick={redo}
+                  disabled={!canRedo}
+                  title="Redo"
+                >
+                  <Redo2 className="h-3 w-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Redo (Cmd+Shift+Z)</p>
+              </TooltipContent>
+            </Tooltip>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setShowGlobalChanges(true);
+              }}
+              className="h-5 px-2 text-xs gap-1.5 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/20 rounded-full"
+              title="Click to review and commit changes"
+            >
+              <GitCommit className="h-2.5 w-2.5 text-orange-600 dark:text-orange-400" />
+              <span className="font-medium text-orange-600 dark:text-orange-400">
+                {totalChanges} {totalChanges === 1 ? "change" : "changes"}
+              </span>
+            </Button>
+          </>
+        )}
       </div>
 
       {/* Center Section - Absolute positioning for true center */}
@@ -690,67 +784,6 @@ export function WorkspaceTitleBar({
               Reconnect
             </Button>
           )}
-
-        {/* Pending Changes Count */}
-        {totalChanges > 0 && (
-          <>
-            <div
-              className="h-3 w-px bg-border flex-shrink-0"
-              data-tauri-drag-region
-            />
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setShowGlobalChanges(true);
-              }}
-              className="h-5 px-2 text-xs gap-1.5 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/20 rounded-full"
-              title="Click to review and commit changes"
-            >
-              <GitCommit className="h-2.5 w-2.5 text-orange-600 dark:text-orange-400" />
-              <span className="font-medium text-orange-600 dark:text-orange-400">
-                {totalChanges} {totalChanges === 1 ? "change" : "changes"}
-              </span>
-            </Button>
-
-            {/* Undo/Redo buttons */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-5 w-5 p-0"
-                  onClick={undo}
-                  disabled={!canUndo}
-                  title="Undo"
-                >
-                  <Undo2 className="h-3 w-3" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="text-xs">Undo (Cmd+Z)</p>
-              </TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-5 w-5 p-0"
-                  onClick={redo}
-                  disabled={!canRedo}
-                  title="Redo"
-                >
-                  <Redo2 className="h-3 w-3" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="text-xs">Redo (Cmd+Shift+Z)</p>
-              </TooltipContent>
-            </Tooltip>
-          </>
-        )}
       </div>
 
       {/* Right Section */}

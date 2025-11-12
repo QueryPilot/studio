@@ -1,10 +1,4 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Trash2, Key } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -25,7 +19,6 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
   onFinishedEditing,
 }) => {
   const initialText = useMemo(() => value.data.value ?? "", [value.data.value]);
-  const [text, setText] = useState(initialText);
   const [isValid, setIsValid] = useState(() =>
     isValidNumberText(
       initialText,
@@ -43,14 +36,6 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
 
   // Extract column metadata for header
   const { columnName, isPrimaryKey, dbType } = value.data;
-
-  useEffect(() => {
-    const input = inputRef.current;
-    if (input) {
-      input.focus();
-      input.select();
-    }
-  }, []);
 
   const commit = useCallback(
     (nextRaw: string | null) => {
@@ -76,6 +61,19 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
   );
 
   const commitCurrentValue = useCallback(() => {
+    const text = inputRef.current?.value ?? "";
+
+    // Check if value actually changed (compare raw text with initial)
+    const hasChanged = text !== initialText;
+
+    // If no changes were made, cancel the edit
+    if (!hasChanged) {
+      finishedRef.current = true;
+      onFinishedEditing(undefined);
+      return;
+    }
+
+    // Commit the changed value
     const normalized = normalizeValue(text);
     if (!normalized) {
       if (nullable) {
@@ -86,7 +84,7 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
     } else {
       commit(normalized);
     }
-  }, [commit, nullable, text]);
+  }, [commit, nullable, initialText, onFinishedEditing]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -131,11 +129,10 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
         onFinishedEditing(newCell, movement);
       }
     },
-    [commitCurrentValue, onFinishedEditing, value, text, nullable],
+    [commitCurrentValue, onFinishedEditing, value, nullable],
   );
 
   const handleChange = (next: string) => {
-    setText(next);
     setIsValid(isValidNumberText(next, precision, scale, value.data.dbType));
   };
 
@@ -183,13 +180,15 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
           ref={inputRef}
           className={cn(
             "h-full w-full bg-transparent text-xs font-mono outline-none",
-            !isMeaningful(text) ? "italic text-muted-foreground" : "",
+            !isMeaningful(initialText) ? "italic text-muted-foreground" : "",
             !isValid
               ? "border-b border-destructive focus:border-destructive"
               : "",
           )}
           spellCheck={false}
-          value={text}
+          defaultValue={initialText}
+          autoFocus
+          onFocus={(e) => e.target.select()}
           onChange={(e) => {
             handleChange(e.target.value);
           }}

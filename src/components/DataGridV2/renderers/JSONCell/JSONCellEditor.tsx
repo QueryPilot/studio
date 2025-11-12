@@ -46,6 +46,7 @@ export const JsonCellEditor: React.FC<JsonCellEditorProps> = ({
   const finishedRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 400, height: 300 });
+  const originalValueRef = useRef(value.data.value); // Store original value for change detection
 
   // Extract column metadata for header
   const { columnName, isPrimaryKey, dbType } = value.data;
@@ -101,12 +102,28 @@ export const JsonCellEditor: React.FC<JsonCellEditorProps> = ({
 
   const commitCurrentText = useCallback(() => {
     const trimmed = text.trim();
+
+    // Minify both for comparison
+    const currentMinified = trimmed ? minifyJson(trimmed) : null;
+    const originalMinified = originalValueRef.current ? minifyJson(originalValueRef.current) : null;
+
+    // Check if value actually changed
+    const hasChanged = currentMinified !== originalMinified;
+
+    // If no changes were made, cancel the edit
+    if (!hasChanged) {
+      finishedRef.current = true;
+      onFinishedEditing(undefined);
+      return;
+    }
+
+    // Commit the changed value
     if (!trimmed && value.data.nullable) {
       commit(null);
     } else if (isValid) {
       commit(trimmed);
     }
-  }, [commit, isValid, text, value.data.nullable]);
+  }, [commit, isValid, text, value.data.nullable, onFinishedEditing]);
 
   const handleEnter = useCallback(() => {
     if (finishedRef.current) return false;

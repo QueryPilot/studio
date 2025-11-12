@@ -49,7 +49,6 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
   onFinishedEditing,
 }) => {
   const initialValue = value.data.value || "";
-  const [text, setText] = useState<string>(initialValue);
   const [selectedVersion, setSelectedVersion] = useState<UuidVersion>("4");
   const [isValid, setIsValid] = useState<boolean>(
     !initialValue || isValidUuid(initialValue),
@@ -60,16 +59,8 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
   // Extract column metadata for header
   const { columnName, isPrimaryKey, dbType } = value.data;
 
-  useEffect(() => {
-    if (inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
-    }
-  }, []);
-
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newText = e.target.value;
-    setText(newText);
     setIsValid(!newText || isValidUuid(newText));
   };
 
@@ -101,7 +92,9 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
         break;
     }
 
-    setText(newUuid);
+    if (inputRef.current) {
+      inputRef.current.value = newUuid;
+    }
     setIsValid(true);
     setSelectedVersion(versionToUse);
   };
@@ -129,13 +122,26 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
   );
 
   const commitCurrentText = useCallback(() => {
+    const text = inputRef.current?.value ?? "";
+
+    // Check if value actually changed
+    const hasChanged = text !== initialValue;
+
+    // If no changes were made, cancel the edit
+    if (!hasChanged) {
+      finishedRef.current = true;
+      onFinishedEditing(undefined);
+      return;
+    }
+
+    // Commit the changed value
     const trimmed = text.trim();
     if (!trimmed && value.data.nullable) {
       commit(null);
     } else if (isValid) {
       commit(trimmed);
     }
-  }, [commit, isValid, text, value.data.nullable]);
+  }, [commit, isValid, value.data.nullable, initialValue, onFinishedEditing]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (finishedRef.current) return;
@@ -216,7 +222,9 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
         <input
           ref={inputRef}
           type="text"
-          value={text}
+          defaultValue={initialValue}
+          autoFocus
+          onFocus={(e) => e.target.select()}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           className={cn(

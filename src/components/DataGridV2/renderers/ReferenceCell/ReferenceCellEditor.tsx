@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import type { ReferenceCustomCell } from "./types";
 import { Button } from "@/components/ui/button";
 import { XIcon, SearchIcon, Loader2Icon, Key } from "lucide-react";
@@ -29,13 +29,6 @@ export const ReferenceCellEditor: React.FC<ReferenceCellEditorProps> = ({
   const finishedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  useEffect(() => {
-    if (inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
-    }
-  }, []);
 
   // Debounced search
   const performSearch = useCallback(
@@ -129,11 +122,23 @@ export const ReferenceCellEditor: React.FC<ReferenceCellEditorProps> = ({
   );
 
   const commitCurrentValue = useCallback(() => {
+    // Check if value actually changed
+    const hasChanged = searchText !== initialValue;
+
+    // If no changes were made, cancel the edit
+    if (!hasChanged) {
+      finishedRef.current = true;
+      onFinishedEditing(undefined);
+      return;
+    }
+
+    // If a result is selected, use it
     if (selectedIndex >= 0 && results[selectedIndex]) {
       handleSelectResult(results[selectedIndex]);
       return;
     }
 
+    // Otherwise commit the search text
     const trimmed = searchText.trim();
     if (!trimmed && value.data.nullable) {
       commit(null);
@@ -147,6 +152,8 @@ export const ReferenceCellEditor: React.FC<ReferenceCellEditorProps> = ({
     searchText,
     selectedIndex,
     value.data.nullable,
+    initialValue,
+    onFinishedEditing,
   ]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -277,6 +284,8 @@ export const ReferenceCellEditor: React.FC<ReferenceCellEditorProps> = ({
             ref={inputRef}
             type="text"
             value={searchText}
+            autoFocus
+            onFocus={(e) => e.target.select()}
             onChange={handleSearchChange}
             onKeyDown={handleKeyDown}
             className="w-full h-8 pl-7 pr-2 text-xs bg-background border border-border rounded outline-none"
