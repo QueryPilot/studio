@@ -1,0 +1,24 @@
+FROM alpine:latest
+
+# Install OpenSSH
+RUN apk add --no-cache openssh openssh-server
+
+# Create SSH user
+RUN adduser -D sshuser && \
+    echo "sshuser:bastionpass123" | chpasswd
+
+# Generate host keys
+RUN ssh-keygen -A
+
+# Copy custom sshd_config
+COPY sshd_config /etc/ssh/sshd_config
+
+# Create .ssh directory for authorized_keys
+RUN mkdir -p /home/sshuser/.ssh && \
+    chmod 700 /home/sshuser/.ssh && \
+    chown sshuser:sshuser /home/sshuser/.ssh
+
+EXPOSE 22
+
+# Run SSHD in foreground
+CMD ["/usr/sbin/sshd", "-D", "-e"]

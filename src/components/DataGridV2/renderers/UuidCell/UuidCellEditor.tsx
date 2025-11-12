@@ -156,7 +156,25 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
         ? [-1, 0]
         : [1, 0];
       finishedRef.current = true;
-      onFinishedEditing(value, movement);
+
+      // Commit the current text value before moving
+      const trimmed = text.trim();
+      const committedValue: string | null =
+        !trimmed && value.data.nullable ? null : isValid ? trimmed : null;
+
+      const newCell: UuidCustomCell = {
+        kind: value.kind,
+        data: {
+          ...value.data,
+          value: committedValue,
+          isValid: committedValue ? isValidUuid(committedValue) : true,
+        },
+        copyData: committedValue ?? "NULL",
+        allowOverlay: value.allowOverlay,
+        readonly: value.readonly,
+      };
+
+      onFinishedEditing(newCell, movement);
     }
   };
 

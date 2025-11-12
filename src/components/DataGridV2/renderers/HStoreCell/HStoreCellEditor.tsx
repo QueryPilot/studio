@@ -108,7 +108,30 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
         ? [-1, 0]
         : [1, 0];
       finishedRef.current = true;
-      onFinishedEditing(value, movement);
+
+      // Commit the current text value before moving
+      const trimmed = text.trim();
+      const committedValue: string | null = !trimmed && nullable ? null : trimmed;
+
+      const normalization = normalizeHstoreEditorText(committedValue);
+      const canonical = normalization.normalized;
+      const finalValue =
+        canonical == null && !nullable && committedValue !== null
+          ? ""
+          : canonical;
+
+      const newCell: HStoreCustomCell = {
+        kind: value.kind,
+        data: {
+          ...value.data,
+          value: finalValue,
+        },
+        copyData: finalValue ?? "NULL",
+        allowOverlay: value.allowOverlay,
+        readonly: value.readonly,
+      };
+
+      onFinishedEditing(newCell, movement);
     }
   };
 

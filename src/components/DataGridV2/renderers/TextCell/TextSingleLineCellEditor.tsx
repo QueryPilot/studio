@@ -17,7 +17,6 @@ export const TextSingleLineCellEditor: React.FC<
   TextSingleLineCellEditorProps
 > = ({ value, onFinishedEditing }) => {
   const initialValue = value.data.value || "";
-  const [text, setText] = useState<string>(initialValue);
   const finishedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -55,13 +54,14 @@ export const TextSingleLineCellEditor: React.FC<
   );
 
   const commitCurrentText = useCallback(() => {
+    const text = inputRef.current?.value ?? "";
     const trimmed = text.trim();
     if (!trimmed && value.data.nullable) {
       commit(null);
     } else {
       commit(trimmed || text);
     }
-  }, [commit, text, value.data.nullable]);
+  }, [commit, value.data.nullable]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (finishedRef.current) return;
@@ -84,8 +84,10 @@ export const TextSingleLineCellEditor: React.FC<
       finishedRef.current = true;
 
       // Commit the current text value before moving
+      const text = inputRef.current?.value ?? "";
       const trimmed = text.trim();
-      const committedValue: string | null = !trimmed && value.data.nullable ? null : (trimmed || text);
+      const committedValue: string | null =
+        !trimmed && value.data.nullable ? null : trimmed || text;
 
       const newCell: TextSingleLineCustomCell = {
         kind: value.kind,
@@ -132,10 +134,7 @@ export const TextSingleLineCellEditor: React.FC<
         <input
           ref={inputRef}
           type="text"
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-          }}
+          defaultValue={initialValue}
           onKeyDown={handleKeyDown}
           maxLength={value.data.maxLength}
           className={cn(

@@ -237,7 +237,23 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
         : [1, 0];
       finishedRef.current = true;
       setOpen(false);
-      onFinishedEditing(value, movement);
+
+      // Commit the current text value before moving
+      const trimmed = manualText.trim();
+      const committedValue: string | null = !trimmed && nullable ? null : trimmed;
+
+      const newCell: DateTimeCustomCell = {
+        kind: value.kind,
+        data: {
+          ...value.data,
+          value: committedValue,
+        },
+        copyData: committedValue ?? "NULL",
+        allowOverlay: value.allowOverlay,
+        readonly: value.readonly,
+      };
+
+      onFinishedEditing(newCell, movement);
     }
   };
 

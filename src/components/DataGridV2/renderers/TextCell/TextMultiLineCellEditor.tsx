@@ -18,7 +18,6 @@ export const TextMultiLineCellEditor: React.FC<
   TextMultiLineCellEditorProps
 > = ({ value, onFinishedEditing }) => {
   const initialValue = value.data.value || "";
-  const [text, setText] = useState<string>(initialValue);
   const finishedRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -43,7 +42,7 @@ export const TextMultiLineCellEditor: React.FC<
     const textarea = textareaRef.current;
     if (!textarea) return;
 
-    // Simple approach: just adjust height when text changes
+    // Simple approach: just adjust height when textarea changes
     const adjustHeight = () => {
       // Reset height to auto to get the correct scrollHeight
       textarea.style.height = "auto";
@@ -64,10 +63,18 @@ export const TextMultiLineCellEditor: React.FC<
     // Use setTimeout to ensure this runs after the DOM has updated
     const timeoutId = setTimeout(adjustHeight, 0);
 
+    // Also adjust on input events
+    const handleInput = () => {
+      adjustHeight();
+    };
+
+    textarea.addEventListener("input", handleInput);
+
     return () => {
       clearTimeout(timeoutId);
+      textarea.removeEventListener("input", handleInput);
     };
-  }, [text]);
+  }, []);
 
   // Handle container resize (for manual resizing)
   useEffect(() => {
@@ -89,10 +96,6 @@ export const TextMultiLineCellEditor: React.FC<
       resizeObserver.disconnect();
     };
   }, []);
-
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setText(e.target.value);
-  };
 
   const commit = useCallback(
     (nextValue: string | null) => {
@@ -131,13 +134,14 @@ export const TextMultiLineCellEditor: React.FC<
   );
 
   const commitCurrentText = useCallback(() => {
+    const text = textareaRef.current?.value ?? "";
     const trimmed = text.trim();
     if (!trimmed && value.data.nullable) {
       commit(null);
     } else {
       commit(text);
     }
-  }, [commit, text, value.data.nullable]);
+  }, [commit, value.data.nullable]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (finishedRef.current) return;
@@ -159,7 +163,40 @@ export const TextMultiLineCellEditor: React.FC<
         ? [-1, 0]
         : [1, 0];
       finishedRef.current = true;
-      onFinishedEditing(value, movement);
+
+      // Commit the current text value before moving
+      const text = textareaRef.current?.value ?? "";
+      const trimmed = text.trim();
+      const committedValue: string | null =
+        !trimmed && value.data.nullable ? null : text;
+
+      let formattedValue = committedValue;
+      let displayValue = value.data.displayValue;
+
+      if (value.data.formatDisplayMode === "array-inline") {
+        const { pretty, inline } = computeArrayStringsFromText(committedValue);
+        formattedValue = pretty;
+        displayValue = inline;
+      }
+
+      const copyPayload =
+        formattedValue == null || formattedValue.length === 0
+          ? "NULL"
+          : displayValue ?? formattedValue;
+
+      const newCell: TextMultiLineCustomCell = {
+        kind: value.kind,
+        data: {
+          ...value.data,
+          value: formattedValue,
+          displayValue,
+        },
+        copyData: copyPayload,
+        allowOverlay: value.allowOverlay,
+        readonly: value.readonly,
+      };
+
+      onFinishedEditing(newCell, movement);
     }
   };
 
@@ -249,11 +286,10 @@ export const TextMultiLineCellEditor: React.FC<
       <div className="flex-1 overflow-hidden p-2">
         <textarea
           ref={textareaRef}
-          value={text}
+          defaultValue={initialValue}
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}
-          onChange={handleChange}
           onKeyDown={handleKeyDown}
           className={cn(
             "w-full text-xs font-mono bg-transparent resize-none outline-none overflow-hidden",
