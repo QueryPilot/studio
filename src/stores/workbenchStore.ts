@@ -153,7 +153,7 @@ const useWorkbenchStore = create<WorkbenchStore>()(
       }
 
       console.log("🔧 splitPanelAction called:", action);
-      const newTree = splitPanel(
+      const result = splitPanel(
         layoutTree,
         action.targetPanelId,
         action.direction,
@@ -161,8 +161,9 @@ const useWorkbenchStore = create<WorkbenchStore>()(
         action.splitRatio,
       );
 
-      if (newTree) {
+      if (result) {
         console.log("✅ Split successful, new tree created");
+        const { tree: newTree, newPanelId } = result;
         const newHistory = layoutHistory.slice(0, historyIndex + 1);
         newHistory.push(newTree);
 
@@ -174,6 +175,7 @@ const useWorkbenchStore = create<WorkbenchStore>()(
           panelContents: newContents,
           layoutHistory: newHistory,
           historyIndex: newHistory.length - 1,
+          focusedPanelId: newPanelId, // Focus the newly created panel
         });
       } else {
         console.error("❌ splitPanel returned null - split failed!", {

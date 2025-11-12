@@ -58,6 +58,7 @@ export interface CrudStoreState {
   historyIndex: number;
   previewMode: "split" | "unified" | "compact";
   isDirty: boolean;
+  committingTableKeys: Set<string>; // Track which tables are currently committing
 
   stageCommand: (command: CrudCommand) => StageCommandResult;
   stageCommands: (commands: CrudCommand[]) => StageCommandResult[];
@@ -66,10 +67,12 @@ export interface CrudStoreState {
   discardAll: () => void;
   commitChanges: (tableKey: string) => Promise<CommitResult>;
   commitAll: () => Promise<Record<string, CommitResult>>;
+  clearCommittedChanges: (tableKey: string) => void; // Clear after refetch completes
   undo: () => void;
   redo: () => void;
   getTableKey: (target: CrudCommandTarget) => string;
   getStagedCommands: (tableKey: string) => CrudCommand[];
+  isCommitting: (tableKey: string) => boolean;
 }
 
 export const useCrudStore = create<CrudStoreState>()((set, get) => {
@@ -81,6 +84,7 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
     historyIndex: 0,
     previewMode: "split",
     isDirty: false,
+    committingTableKeys: new Set<string>(),
 
     stageCommand: (command) => {
       let result: StageCommandResult | undefined;
@@ -293,35 +297,68 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
         throw new Error("CrudStore: Missing connectionId for staged commands");
       }
 
+      // Mark table as committing (for optimistic updates)
+      set((state) => ({
+        committingTableKeys: new Set(state.committingTableKeys).add(tableKey),
+      }));
+
       console.log("[CrudStore] Calling executeCrudTransaction with connectionId:", connectionId);
       console.log("[CrudStore] Commands count:", commands.length);
       console.log("[CrudStore] Commands to commit:", commands);
 
-      const result = await BackendAPI.executeCrudTransaction(
-        connectionId,
-        commands,
-      );
+      try {
+        const result = await BackendAPI.executeCrudTransaction(
+          connectionId,
+          commands,
+        );
 
-      console.log("[CrudStore] Backend execution result:", result);
+        console.log("[CrudStore] Backend execution result:", result);
 
-      // Check if transaction was successful
-      if (!result.success) {
-        // Format error message from failures
-        const errorMessages = result.failures
-          .map((f) => f.error.message)
-          .join(", ");
-        throw new Error(errorMessages || "Transaction failed");
+        // Check if transaction was successful
+        if (!result.success) {
+          // Unmark as committing on failure
+          set((state) => {
+            const committingTableKeys = new Set(state.committingTableKeys);
+            committingTableKeys.delete(tableKey);
+            return { committingTableKeys };
+          });
+
+          // Format error message from failures
+          const errorMessages = result.failures
+            .map((f) => f.error.message)
+            .join(", ");
+          throw new Error(errorMessages || "Transaction failed");
+        }
+
+        // SUCCESS: Keep staged commands for optimistic display
+        // They will be cleared after refetch completes via clearCommittedChanges()
+        console.log("[CrudStore] Commit succeeded, keeping staged commands for optimistic display");
+
+        return result;
+      } catch (error) {
+        // Unmark as committing on error
+        set((state) => {
+          const committingTableKeys = new Set(state.committingTableKeys);
+          committingTableKeys.delete(tableKey);
+          return { committingTableKeys };
+        });
+        throw error;
       }
+    },
 
-      // Only clear staged commands if successful
+    clearCommittedChanges: (tableKey) => {
+      console.log("[CrudStore] Clearing committed changes for:", tableKey);
       set((state) => {
         const stagedCommands = cloneStagedCommands(state.stagedCommands);
         const commandIndex = new Map(state.commandIndex);
+        const committingTableKeys = new Set(state.committingTableKeys);
 
+        const commands = stagedCommands.get(tableKey) ?? [];
         stagedCommands.delete(tableKey);
         commands.forEach((command) => {
           commandIndex.delete(command.id);
         });
+        committingTableKeys.delete(tableKey);
 
         const snapshot = cloneStagedCommands(stagedCommands);
         const { history, historyIndex } = pushHistorySnapshot(
@@ -336,10 +373,9 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
           history,
           historyIndex,
           isDirty: stagedCommands.size > 0,
+          committingTableKeys,
         };
       });
-
-      return result;
     },
 
     commitAll: async () => {
@@ -403,6 +439,8 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
 
     getStagedCommands: (tableKey) =>
       get().stagedCommands.get(tableKey) ?? [],
+
+    isCommitting: (tableKey) => get().committingTableKeys.has(tableKey),
   };
 });
 

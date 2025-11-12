@@ -6,6 +6,7 @@ import type {
   GridSelection,
   Item,
 } from "@glideapps/glide-data-grid";
+import { CompactSelection } from "@glideapps/glide-data-grid";
 import { DataGridBase, type DataGridBaseProps } from "./DataGridBase";
 import type {
   GridColumnV2,
@@ -279,13 +280,55 @@ export const EditableDataGrid = forwardRef<
                   to: nextCell,
                 });
 
-                // Schedule the next cell activation after current edit completes
-                setTimeout(() => {
-                  if (gridRef.current) {
-                    // Activate the next cell for editing
-                    handleCellActivated(nextCell);
-                  }
-                }, 0);
+                // Schedule the next cell selection and editor activation
+                // Use requestAnimationFrame for smoother transition
+                requestAnimationFrame(() => {
+                  requestAnimationFrame(() => {
+                    // Update selection to the next cell
+                    const newSelection: GridSelection = {
+                      columns: CompactSelection.empty(),
+                      rows: CompactSelection.empty(),
+                      current: {
+                        cell: nextCell,
+                        range: {
+                          x: nextCell[0],
+                          y: nextCell[1],
+                          width: 1,
+                          height: 1,
+                        },
+                        rangeStack: [],
+                      },
+                    };
+
+                    onGridSelectionChange?.(newSelection);
+
+                    // Focus the grid and trigger edit mode on the next frame
+                    requestAnimationFrame(() => {
+                      if (gridRef.current) {
+                        gridRef.current.focus();
+
+                        // Dispatch Enter key to the grid canvas to trigger edit mode
+                        requestAnimationFrame(() => {
+                          const canvas = document.querySelector(
+                            ".dvn-scroller canvas",
+                          ) as HTMLCanvasElement;
+                          if (canvas) {
+                            canvas.dispatchEvent(
+                              new KeyboardEvent("keydown", {
+                                key: "Enter",
+                                code: "Enter",
+                                keyCode: 13,
+                                which: 13,
+                                bubbles: true,
+                                cancelable: true,
+                              }),
+                            );
+                          }
+                        });
+                      }
+                    });
+                  });
+                });
               }
             }
           }

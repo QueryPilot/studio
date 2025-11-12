@@ -322,6 +322,16 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         console.log(
           `[TableDataGridV2] Refetch completed, got ${result.data?.pages[0]?.rows.length ?? 0} rows in first page`,
         );
+
+        // Clear committed changes after refetch completes (for optimistic updates)
+        const { clearCommittedChanges, getTableKey } = useCrudStore.getState();
+        const tableKey = getTableKey({
+          connectionId,
+          database,
+          schema: schema ?? "public",
+          table,
+        });
+        clearCommittedChanges(tableKey);
       });
 
     return () => {
