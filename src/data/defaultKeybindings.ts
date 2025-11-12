@@ -165,6 +165,16 @@ export const defaultKeybindings: Keybinding[] = [
     when: '!editorTextFocus && !editingCell',
   },
   {
+    command: 'workspace.undo',
+    key: 'cmd+z',
+    when: '!editorTextFocus && !editingCell',
+  },
+  {
+    command: 'workspace.redo',
+    key: 'cmd+shift+z',
+    when: '!editorTextFocus && !editingCell',
+  },
+  {
     command: 'workbench.action.discardAllChanges',
     key: 'cmd+r',
   },

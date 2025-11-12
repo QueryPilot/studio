@@ -1,10 +1,4 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Trash2, Key } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -31,20 +25,8 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
     [value.data.value],
   );
 
-  const [text, setText] = useState<string>(initial);
   const finishedRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const normalizationPreview = useMemo(
-    () => normalizeHstoreEditorText(text),
-    [text],
-  );
-
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.focus();
-      textareaRef.current.select();
-    }
-  }, []);
 
   const commit = useCallback(
     (nextRaw: string | null) => {
@@ -74,13 +56,26 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
   );
 
   const commitCurrentText = useCallback(() => {
+    const text = textareaRef.current?.value ?? "";
+
+    // Check if value actually changed
+    const hasChanged = text !== initial;
+
+    // If no changes were made, cancel the edit
+    if (!hasChanged) {
+      finishedRef.current = true;
+      onFinishedEditing(undefined);
+      return;
+    }
+
+    // Commit the changed value
     const trimmed = text.trim();
     if (!trimmed && nullable) {
       commit(null);
     } else {
       commit(trimmed);
     }
-  }, [commit, nullable, text]);
+  }, [commit, nullable, initial, onFinishedEditing]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (finishedRef.current) return;
@@ -167,17 +162,16 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
       <div className="flex-1 flex flex-col gap-2 p-2">
         <textarea
           ref={textareaRef}
-          value={text}
+          defaultValue={initial}
+          autoFocus
+          onFocus={(e) => e.target.select()}
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}
-          onChange={(e) => {
-            setText(e.target.value);
-          }}
           onKeyDown={handleKeyDown}
           className={cn(
             "flex-1 min-h-[120px] w-full resize-none bg-transparent text-xs font-mono leading-5 outline-none",
-            text.trim().length === 0 ? "italic text-muted-foreground" : "",
+            initial.trim().length === 0 ? "italic text-muted-foreground" : "",
           )}
           placeholder={
             nullable
@@ -188,21 +182,6 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <div className="flex flex-col gap-0.5">
           <span>Enter to save · Shift+Enter for newline · Esc to cancel</span>
-          {normalizationPreview.hasDuplicateKeys && (
-            <span className="text-[10px] text-muted-foreground/80">
-              Duplicate keys detected; keeping the last value for each key
-              (removed
-              {` ${normalizationPreview.duplicatesRemoved} duplicate${
-                normalizationPreview.duplicatesRemoved === 1 ? "" : "s"
-              }`}
-              ).
-            </span>
-          )}
-          {normalizationPreview.parseErrors && (
-            <span className="text-[10px] text-destructive/80">
-              Some lines could not be parsed; they will be saved as typed.
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-2">
           {nullable && (

@@ -100,6 +100,7 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
     dbType,
   } = value.data;
   const finishedRef = useRef(false);
+  const originalValueRef = useRef(raw); // Store original value for change detection
 
   // Parse initial value
   const initialParsed = useMemo(() => parseDateTime(raw, kind), [raw, kind]);
@@ -121,14 +122,6 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
   const [manualText, setManualText] = useState<string>(raw ?? "");
   const [manualDirty, setManualDirty] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setOpen(true);
-    }, 0);
-    return () => {
-      clearTimeout(t);
-    };
-  }, []);
 
   const buildDateTimeString = useCallback(() => {
     if (kind === "time-cell") {
@@ -181,12 +174,26 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
 
   const commitCurrentValue = useCallback(() => {
     const trimmed = manualText.trim();
+    const currentValue = !trimmed && nullable ? null : trimmed;
+
+    // Check if value actually changed
+    const hasChanged = currentValue !== originalValueRef.current;
+
+    // If no changes were made, cancel the edit
+    if (!hasChanged) {
+      finishedRef.current = true;
+      setOpen(false);
+      onFinishedEditing(undefined);
+      return;
+    }
+
+    // Commit the changed value
     if (!trimmed && nullable) {
       commit(null);
     } else {
       commit(trimmed);
     }
-  }, [commit, manualText, nullable]);
+  }, [commit, manualText, nullable, onFinishedEditing]);
 
   const handleCancel = useCallback(() => {
     if (finishedRef.current) return;
@@ -238,10 +245,18 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
       finishedRef.current = true;
       setOpen(false);
 
-      // Commit the current text value before moving
+      // Check if value actually changed
       const trimmed = manualText.trim();
       const committedValue: string | null = !trimmed && nullable ? null : trimmed;
+      const hasChanged = committedValue !== originalValueRef.current;
 
+      // If no changes, cancel and move
+      if (!hasChanged) {
+        onFinishedEditing(undefined, movement);
+        return;
+      }
+
+      // Commit the current text value before moving
       const newCell: DateTimeCustomCell = {
         kind: value.kind,
         data: {

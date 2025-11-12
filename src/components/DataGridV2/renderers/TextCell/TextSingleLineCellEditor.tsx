@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useRef, useCallback } from "react";
 import type { TextSingleLineCustomCell } from "./types";
 import { Button } from "@/components/ui/button";
 import { Trash2, Key } from "lucide-react";
@@ -16,21 +16,14 @@ interface TextSingleLineCellEditorProps {
 export const TextSingleLineCellEditor: React.FC<
   TextSingleLineCellEditorProps
 > = ({ value, onFinishedEditing }) => {
-  const initialValue = value.data.value || "";
+  const initialValue = value.data.value ?? "";
   const finishedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Store the original value to properly detect changes including null
+  const originalValueRef = useRef(value.data.value);
 
   // Extract column metadata for header
   const { columnName, isPrimaryKey, dbType } = value.data;
-
-  useEffect(() => {
-    if (inputRef.current) {
-      inputRef.current.focus();
-      // Move cursor to end instead of selecting all
-      const length = inputRef.current.value.length;
-      inputRef.current.setSelectionRange(length, length);
-    }
-  }, []);
 
   const commit = useCallback(
     (nextValue: string | null) => {
@@ -55,13 +48,31 @@ export const TextSingleLineCellEditor: React.FC<
 
   const commitCurrentText = useCallback(() => {
     const text = inputRef.current?.value ?? "";
+
+    // Normalize current value for comparison
+    const currentValue = text.trim() || (value.data.nullable ? null : text);
+
+    // Normalize original value for comparison
+    const originalValue = originalValueRef.current;
+
+    // Check if value actually changed
+    const hasChanged = currentValue !== originalValue;
+
+    // If no changes were made, cancel the edit
+    if (!hasChanged) {
+      finishedRef.current = true;
+      onFinishedEditing(undefined);
+      return;
+    }
+
+    // Commit the changed value
     const trimmed = text.trim();
     if (!trimmed && value.data.nullable) {
       commit(null);
     } else {
       commit(trimmed || text);
     }
-  }, [commit, value.data.nullable]);
+  }, [commit, value.data.nullable, onFinishedEditing]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (finishedRef.current) return;
@@ -135,6 +146,12 @@ export const TextSingleLineCellEditor: React.FC<
           ref={inputRef}
           type="text"
           defaultValue={initialValue}
+          autoFocus
+          onFocus={(e) => {
+            // Move cursor to end
+            const length = e.target.value.length;
+            e.target.setSelectionRange(length, length);
+          }}
           onKeyDown={handleKeyDown}
           maxLength={value.data.maxLength}
           className={cn(

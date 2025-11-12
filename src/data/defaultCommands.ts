@@ -10,6 +10,11 @@ import { useTabStateStore } from "@/stores/tabStateStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { tabGroupRegistry } from "@/services/tabGroupRegistry";
 import { clearAllCaches } from "@/lib/cacheManager";
+import { useCrudStore } from "@/stores/crudStore";
+import { queryClient } from "@/lib/react-query-client";
+import { toast } from "sonner";
+import React from "react";
+import { ConfirmationToast } from "@/components/ConfirmationToast";
 //
 
 const commandPaletteStore = useCommandPaletteStore.getState();
@@ -219,24 +224,146 @@ export const defaultCommands: Command[] = [
     label: "Refresh All",
     category: "Workbench",
     handler: async () => {
-      // Check for unsaved changes and show confirmation dialog
-      const tabStateStore = useTabStateStore.getState();
-      const hasUnsavedChanges = tabStateStore.hasAnyUnsavedChanges();
+      try {
+        console.log("[RefreshAll] Handler started");
 
-      if (hasUnsavedChanges) {
-        const confirmed = window.confirm(
-          "You have unsaved changes in your query tabs. Refreshing will discard these changes. Do you want to continue?",
-        );
-        if (!confirmed) {
-          return; // User cancelled
+        // Get store states
+        const crudStore = useCrudStore.getState();
+        const tabStateStore = useTabStateStore.getState();
+
+        // Check for pending changes
+        const hasPendingEdits = crudStore.stagedCommands.size > 0;
+        const hasUnsavedQueryChanges = tabStateStore.hasAnyUnsavedChanges();
+
+        console.log("[RefreshAll] Pending edits:", hasPendingEdits);
+        console.log("[RefreshAll] Unsaved queries:", hasUnsavedQueryChanges);
+
+        if (hasPendingEdits || hasUnsavedQueryChanges) {
+          // Build description of changes
+          let description = "";
+          if (hasPendingEdits) {
+            const totalChanges = Array.from(crudStore.stagedCommands.values())
+              .reduce((sum, cmds) => sum + cmds.length, 0);
+            description += `${totalChanges} pending data ${totalChanges === 1 ? 'edit' : 'edits'}`;
+          }
+          if (hasUnsavedQueryChanges) {
+            if (description) description += " and ";
+            description += "unsaved query changes";
+          }
+
+          console.log("[RefreshAll] Showing confirmation toast");
+
+          // Show a promise-based toast that waits for user confirmation
+          const confirmed = await new Promise<boolean>((resolve) => {
+            let resolved = false;
+            let toastId: string | number;
+
+            const handleConfirm = () => {
+              resolved = true;
+              toast.dismiss(toastId);
+              resolve(true);
+            };
+
+            const handleCancel = () => {
+              resolved = true;
+              toast.dismiss(toastId);
+              resolve(false);
+            };
+
+            toastId = toast.warning(
+              React.createElement(ConfirmationToast, {
+                title: "Unsaved changes will be lost",
+                description: `You have ${description}. This action cannot be undone.`,
+                confirmLabel: "Refresh Anyway",
+                cancelLabel: "Cancel",
+                onConfirm: handleConfirm,
+                onCancel: handleCancel,
+              }),
+              {
+                duration: 15000, // 15 seconds to decide
+                onDismiss: () => {
+                  if (!resolved) {
+                    resolve(false);
+                  }
+                },
+                onAutoClose: () => {
+                  if (!resolved) {
+                    resolve(false);
+                  }
+                },
+              }
+            );
+          });
+
+          console.log("[RefreshAll] User confirmed:", confirmed);
+
+          if (!confirmed) {
+            console.log("[RefreshAll] User cancelled");
+            return;
+          }
         }
+
+        // Discard all pending edits
+        if (hasPendingEdits) {
+          console.log("[RefreshAll] Discarding pending edits");
+          crudStore.discardAll();
+        }
+
+        // Clear all caches (React Query + Zustand)
+        console.log("[RefreshAll] Clearing all caches");
+        clearAllCaches();
+
+        // Invalidate all queries to trigger refetch
+        console.log("[RefreshAll] Invalidating queries");
+        await queryClient.invalidateQueries();
+
+        // Show success toast
+        console.log("[RefreshAll] Showing success toast");
+        toast.success("Refreshed", {
+          description: "All caches cleared and data reloaded",
+        });
+      } catch (error) {
+        console.error("[RefreshAll] Error:", error);
+        toast.error("Refresh failed", {
+          description: error instanceof Error ? error.message : "Unknown error",
+        });
       }
+    },
+  },
+  {
+    id: "workbench.action.discardAllChanges",
+    label: "Discard All Changes and Refresh",
+    category: "Workbench",
+    handler: async () => {
+      try {
+        console.log("[DiscardAllChanges] Handler started");
 
-      // Clear all query caches (React Query + Zustand)
-      clearAllCaches();
+        // Get store states
+        const crudStore = useCrudStore.getState();
 
-      // Force a reload of the window to refresh all data
-      window.location.reload();
+        // Discard all pending edits without confirmation
+        console.log("[DiscardAllChanges] Discarding all changes");
+        crudStore.discardAll();
+
+        // Clear all caches
+        console.log("[DiscardAllChanges] Clearing all caches");
+        clearAllCaches();
+
+        // Invalidate all queries to trigger refetch
+        console.log("[DiscardAllChanges] Invalidating queries");
+        await queryClient.invalidateQueries();
+
+        // Show success toast
+        console.log("[DiscardAllChanges] Showing success toast");
+        toast.success("Changes discarded and refreshed", {
+          description: "All pending changes discarded and data reloaded",
+        });
+      } catch (error) {
+        console.error("[DiscardAllChanges] Error:", error);
+        toast.error("Operation failed", {
+          description: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
     },
   },
   {

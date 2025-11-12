@@ -42,6 +42,7 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
   const [bounds, setBounds] = useState<Bounds>(parsed.bounds);
   const [openRange, setOpenRange] = useState(false);
   const finishedRef = useRef(false);
+  const originalValueRef = useRef(raw); // Store original value for change detection
 
   // No auto-open; keep UI steady
 
@@ -68,8 +69,22 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
   const commitCurrentValues = useCallback(() => {
     const nextLower = lowerText.trim() || null;
     const nextUpper = upperText.trim() || null;
+    const currentValue = `${bounds[0]}${nextLower ?? ""},${nextUpper ?? ""}${bounds[1]}`;
+
+    // Check if value actually changed
+    const hasChanged = currentValue !== originalValueRef.current;
+
+    // If no changes were made, cancel the edit
+    if (!hasChanged) {
+      finishedRef.current = true;
+      setOpenRange(false);
+      onFinishedEditing(undefined);
+      return;
+    }
+
+    // Commit the changed value
     commit(nextLower, nextUpper, bounds);
-  }, [bounds, commit, lowerText, upperText]);
+  }, [bounds, commit, lowerText, upperText, onFinishedEditing]);
 
   const handleKeyDown: React.KeyboardEventHandler<HTMLInputElement> = (e) => {
     if (finishedRef.current) return;
@@ -92,11 +107,19 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
       finishedRef.current = true;
       setOpenRange(false);
 
-      // Commit the current range values before moving
+      // Check if value actually changed
       const nextLower = lowerText.trim() || null;
       const nextUpper = upperText.trim() || null;
       const text = `${bounds[0]}${nextLower ?? ""},${nextUpper ?? ""}${bounds[1]}`;
+      const hasChanged = text !== originalValueRef.current;
 
+      // If no changes, cancel and move
+      if (!hasChanged) {
+        onFinishedEditing(undefined, movement);
+        return;
+      }
+
+      // Commit the current range values before moving
       const newCell: TstzRangeCustomCell = {
         kind: value.kind,
         data: { ...value.data, value: text },

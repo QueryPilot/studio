@@ -30,13 +30,6 @@ export const TextMultiLineCellEditor: React.FC<
   // Extract column metadata for header
   const { columnName, isPrimaryKey, dbType } = value.data;
 
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.focus();
-      textareaRef.current.select();
-    }
-  }, []);
-
   // Auto-resize based on content
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -135,13 +128,25 @@ export const TextMultiLineCellEditor: React.FC<
 
   const commitCurrentText = useCallback(() => {
     const text = textareaRef.current?.value ?? "";
+
+    // Check if value actually changed (compare with original value)
+    const hasChanged = text !== initialValue;
+
+    // If no changes were made, cancel the edit
+    if (!hasChanged) {
+      finishedRef.current = true;
+      onFinishedEditing(undefined);
+      return;
+    }
+
+    // Commit the changed value
     const trimmed = text.trim();
     if (!trimmed && value.data.nullable) {
       commit(null);
     } else {
       commit(text);
     }
-  }, [commit, value.data.nullable]);
+  }, [commit, value.data.nullable, initialValue, onFinishedEditing]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (finishedRef.current) return;
@@ -164,8 +169,17 @@ export const TextMultiLineCellEditor: React.FC<
         : [1, 0];
       finishedRef.current = true;
 
-      // Commit the current text value before moving
+      // Check if value actually changed
       const text = textareaRef.current?.value ?? "";
+      const hasChanged = text !== initialValue;
+
+      // If no changes, cancel and move
+      if (!hasChanged) {
+        onFinishedEditing(undefined, movement);
+        return;
+      }
+
+      // Commit the current text value before moving
       const trimmed = text.trim();
       const committedValue: string | null =
         !trimmed && value.data.nullable ? null : text;
@@ -287,6 +301,8 @@ export const TextMultiLineCellEditor: React.FC<
         <textarea
           ref={textareaRef}
           defaultValue={initialValue}
+          autoFocus
+          onFocus={(e) => e.target.select()}
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}
