@@ -270,7 +270,7 @@ export const defaultCommands: Command[] = [
               resolve(false);
             };
 
-            toastId = toast.warning(
+            toastId = toast(
               React.createElement(ConfirmationToast, {
                 title: "Unsaved changes will be lost",
                 description: `You have ${description}. This action cannot be undone.`,
