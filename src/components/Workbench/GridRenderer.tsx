@@ -1,4 +1,4 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useMemo } from "react";
 import { type GridNode } from "@/types/workbench";
 import { Panel } from "./PanelDnd";
 import useWorkbenchStore from "@/stores/workbenchStore";
@@ -8,6 +8,7 @@ import {
   ResizableHandle,
 } from "@/components/ui/resizable";
 import { cn } from "@/lib/cn";
+import { getAllPanels } from "@/utils/workbenchTree";
 
 interface GridRendererProps {
   node: GridNode;
@@ -20,7 +21,13 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
   path = [],
   className,
 }) => {
-  const { resizePanelAction, focusedPanelId } = useWorkbenchStore();
+  const { resizePanelAction, focusedPanelId, layoutTree } = useWorkbenchStore();
+
+  // Count total panels in the workbench
+  const totalPanels = useMemo(() => {
+    if (!layoutTree) return 0;
+    return getAllPanels(layoutTree).length;
+  }, [layoutTree]);
 
   const handlePanelResize = useCallback(
     (sizes: number[]) => {
@@ -40,8 +47,8 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
         content={node.content}
         path={path}
         className={cn(className, "rounded-xl overflow-hidden border-2", {
-          "border-primary/30": node.id === focusedPanelId,
-          "border-background": node.id !== focusedPanelId,
+          "border-primary/30": totalPanels > 1 && node.id === focusedPanelId,
+          "border-background": totalPanels <= 1 || node.id !== focusedPanelId,
         })}
       />
     );
@@ -64,7 +71,7 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
           minSize={10}
           maxSize={90}
           className={cn("rounded-xl overflow-hidden bg-transparent", {
-            "border border-primary/20": node.id === focusedPanelId,
+            "border border-primary/20": totalPanels > 1 && node.id === focusedPanelId,
           })}
         >
           {node.children[0] && (
@@ -77,7 +84,7 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
           minSize={10}
           maxSize={90}
           className={cn("rounded-xl overflow-hidden bg-transparent", {
-            "border border-primary/20": node.id === focusedPanelId,
+            "border border-primary/20": totalPanels > 1 && node.id === focusedPanelId,
           })}
         >
           {node.children[1] && (

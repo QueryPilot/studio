@@ -55,7 +55,7 @@ export function MainScreen() {
     <div className="flex flex-col h-screen overflow-hidden">
       <div
         data-tauri-drag-region
-        className="select-none h-7 w-full absolute top-0 left-0 cursor-grab z-50"
+        className="select-none h-7 w-full absolute top-0 left-0 cursor-grab z-50 ml-20"
       ></div>
 
       <div className="flex-1 flex overflow-hidden">
