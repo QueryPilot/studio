@@ -46,6 +46,7 @@ export function DatabaseSidebar({
 }: DatabaseSidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Use shared schema data hook
   const {
@@ -84,7 +85,10 @@ export function DatabaseSidebar({
           selectedSchema &&
           selectedDatabase
         ) {
-          void refreshSchemaData();
+          setIsRefreshing(true);
+          void refreshSchemaData().finally(() => {
+            setIsRefreshing(false);
+          });
         }
       });
     };
@@ -95,6 +99,18 @@ export function DatabaseSidebar({
       if (cleanup) cleanup();
     };
   }, [connectionId, selectedSchema, selectedDatabase, refreshSchemaData]);
+
+  // Track database/schema changes to show loading state
+  useEffect(() => {
+    if (selectedDatabase && selectedSchema) {
+      setIsRefreshing(true);
+      // Reset after data loads
+      const timer = setTimeout(() => {
+        setIsRefreshing(false);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedDatabase, selectedSchema]);
 
   const toggleNode = (nodeId: string) => {
     const newExpanded = new Set(expandedNodes);
@@ -240,9 +256,11 @@ export function DatabaseSidebar({
     return commands ? commands.length > 0 : false;
   };
 
-  // Show loading skeleton during initial connection or when actively loading schema data
+  // Show loading skeleton during initial connection, actively loading, or refreshing
   const showLoadingSkeleton =
-    initialLoading || (isLoadingData && selectedSchema);
+    initialLoading ||
+    (isLoadingData && selectedSchema) ||
+    (isRefreshing && tables.length === 0);
 
   if (showLoadingSkeleton) {
     return (
@@ -302,11 +320,14 @@ export function DatabaseSidebar({
             size="sm"
             className="h-6 w-6 p-0"
             onClick={handleRefresh}
-            disabled={isLoadingData}
+            disabled={isLoadingData || isRefreshing}
             title="Refresh"
           >
             <RefreshCw
-              className={cn("h-3 w-3", isLoadingData && "animate-spin")}
+              className={cn(
+                "h-3 w-3",
+                (isLoadingData || isRefreshing) && "animate-spin",
+              )}
             />
           </Button>
         </div>
@@ -324,7 +345,12 @@ export function DatabaseSidebar({
 
       {/* Object Tree */}
       <div className="flex-1 relative min-h-0 overflow-auto">
-        <div className="pb-2 min-w-0">
+        <div
+          className={cn(
+            "pb-2 min-w-0 transition-opacity duration-150",
+            isRefreshing && tables.length > 0 && "opacity-50 pointer-events-none",
+          )}
+        >
           {/* Starred Section */}
           {starredItems.length > 0 && (
             <SidebarSection

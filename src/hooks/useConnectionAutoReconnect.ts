@@ -1,12 +1,25 @@
 import { useEffect, useRef } from "react";
 import { databaseService } from "@/services/databaseService";
 import { isTauri, safeEmit } from "@/utils/tauri";
+import { toast } from "sonner";
 
-const RECONNECT_DELAYS = [1000, 5000, 10000] as const;
+// 10 attempts total:
+// - First 3: wait 500ms, 1s, 3s
+// - Next 3: wait 5s between attempts  
+// - Last 4: wait 10s between attempts
+const RECONNECT_DELAYS = [
+  500, 1000, 3000, // Attempts 1-3: 500ms, 1s, 3s
+  5000, 5000, 5000, // Attempts 4-6: 5s
+  10000, 10000, 10000, 10000, // Attempts 7-10: 10s
+] as const;
 
 /**
- * Automatically attempts to reconnect when the window regains focus.
- * Handles idle disconnects from the native connection manager.
+ * Automatically attempts to reconnect when:
+ * - Window regains focus
+ * - Network connection is restored
+ * - Connection health check fails
+ * 
+ * Uses progressive retry strategy with up to 10 attempts.
  */
 export function useConnectionAutoReconnect(connectionId?: string) {
   const latestIdRef = useRef<string | undefined>(connectionId);
@@ -41,18 +54,38 @@ export function useConnectionAutoReconnect(connectionId?: string) {
       try {
         const health = await databaseService.getConnectionHealth(targetId);
         if (health.status !== "error") {
+          console.log(`[AutoReconnect] Connection already healthy, stopping`);
           return true;
         }
       } catch (err: unknown) {
-        console.error("Failed to inspect connection health:", err);
+        console.error("[AutoReconnect] Failed to inspect connection health:", err);
       }
+
+      const attemptNumber = attemptIndex + 1;
+      console.log(
+        `[AutoReconnect] Attempt ${attemptNumber}/${RECONNECT_DELAYS.length} for connection ${targetId}`,
+      );
 
       try {
         await databaseService.connectById(targetId);
         await safeEmit("database-reconnected", { connectionId: targetId });
+        
+        console.log(`[AutoReconnect] Successfully reconnected on attempt ${attemptNumber}`);
+        toast.success("Connection Restored", {
+          description: "Successfully reconnected to the database.",
+        });
+        
         return true;
       } catch (err: unknown) {
-        console.error(`Auto reconnect attempt ${attemptIndex + 1} failed:`, err);
+        console.error(`[AutoReconnect] Attempt ${attemptNumber} failed:`, err);
+        
+        // Show warning on last attempt
+        if (attemptNumber === RECONNECT_DELAYS.length) {
+          toast.error("Reconnection Failed", {
+            description: `Failed to reconnect after ${RECONNECT_DELAYS.length} attempts. Please check your connection.`,
+          });
+        }
+        
         return false;
       }
     };
@@ -108,14 +141,40 @@ export function useConnectionAutoReconnect(connectionId?: string) {
     };
 
     const handleFocus = () => {
+      console.log("[AutoReconnect] Window focused, checking connection");
       void startSequence();
     };
 
+    const handleOnline = () => {
+      console.log("[AutoReconnect] Network connection restored, attempting reconnect");
+      toast.info("Network Restored", {
+        description: "Attempting to reconnect to database...",
+        duration: 2000,
+      });
+      void startSequence();
+    };
+
+    const handleOffline = () => {
+      console.log("[AutoReconnect] Network connection lost");
+      toast.warning("Network Lost", {
+        description: "Network connection lost. Will reconnect when restored.",
+        duration: 3000,
+      });
+      stopSequence(); // Stop ongoing attempts if network is lost
+    };
+
+    // Listen for window focus
     window.addEventListener("focus", handleFocus);
+    
+    // Listen for network events
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
 
     return () => {
       isDisposed = true;
       window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
       stopSequence();
     };
   }, [connectionId]);

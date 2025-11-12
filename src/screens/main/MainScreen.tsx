@@ -39,8 +39,20 @@ export function MainScreen() {
 
   const handleConnectToDatabase = async (connectionId: string) => {
     try {
+      const connection = useConnectionStore
+        .getState()
+        .getConnection(connectionId);
+      const defaultDatabase = connection?.profile.database.trim();
+      const params = new URLSearchParams();
+      if (defaultDatabase) {
+        params.set("dbname", defaultDatabase);
+      }
+      const targetUrl = params.size
+        ? `/workspace/${connectionId}?${params.toString()}`
+        : `/workspace/${connectionId}`;
+
       // Navigate to workspace with the new connection
-      await navigate(`/workspace/${connectionId}`);
+      await navigate(targetUrl);
     } catch (error) {
       console.error("Failed to connect to database:", error);
       toast.error("Connection Error", {

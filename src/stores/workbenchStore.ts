@@ -55,6 +55,7 @@ interface WorkbenchStore {
 
   addTab: (panelId: string, tabId: string, tabData?: TabMetadata) => void;
   removeTab: (panelId: string, tabId: string) => void;
+  closeAllTabs: () => void;
   setActiveTab: (panelId: string, tabId: string) => void;
   updateTabMetadata: (
     panelId: string,
@@ -533,6 +534,25 @@ const useWorkbenchStore = create<WorkbenchStore>()(
       if (newTabIds.length === 0 && totalPanels > 1) {
         get().closePanelAction(panelId);
       }
+    },
+
+    closeAllTabs: () => {
+      const { panelContents, layoutTree } = get();
+      if (!layoutTree) return;
+
+      console.log("[WorkbenchStore] Closing all tabs");
+
+      // Clear cache for all tabs
+      panelContents.forEach((panel) => {
+        panel.tabIds.forEach((tabId) => {
+          const tabMetadata = panel.metadata?.[tabId];
+          const connectionId = tabMetadata?.connectionId;
+          clearTabCache(tabId, connectionId);
+        });
+      });
+
+      // Reset to single panel with no tabs
+      get().resetLayout();
     },
 
     setActiveTab: (panelId, tabId) => {

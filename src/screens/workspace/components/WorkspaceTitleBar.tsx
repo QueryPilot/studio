@@ -37,6 +37,7 @@ import {
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useCrudStore } from "@/stores/crudStore";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
+import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
@@ -359,7 +360,12 @@ export function WorkspaceTitleBar({
               : "Failed to disconnect from the database.",
         });
       }
-      await databaseService.connectById(connectionId);
+      // Get the currently selected database from store to maintain it on reconnect
+      const selectedDatabase = useWorkspaceSelectionStore.getState().database;
+      await databaseService.connectById(
+        connectionId,
+        selectedDatabase || undefined,
+      );
       // Emit event to refresh sidebar data
       await safeEmit("database-reconnected", { connectionId });
       toast.success("Reconnection Successful", {
@@ -520,6 +526,9 @@ export function WorkspaceTitleBar({
         await windowManager.openWorkspace(
           targetConnectionId,
           targetConnection.profile.name,
+          {
+            database: targetConnection.profile.database || undefined,
+          },
         );
       }
     } catch (error) {
