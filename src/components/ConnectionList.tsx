@@ -15,6 +15,7 @@ import {
   Edit2,
   Trash2,
   Plus,
+  Copy,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
@@ -62,6 +63,7 @@ interface ConnectionItemProps {
   onClick: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onDuplicate: () => void;
 }
 
 interface ConnectionGroupProps {
@@ -71,6 +73,7 @@ interface ConnectionGroupProps {
   onConnectionClick: (connection: StoredConnection) => void;
   onEdit: (connection: StoredConnection) => void;
   onDelete: (connection: StoredConnection) => void;
+  onDuplicate: (connection: StoredConnection) => void;
   onAddConnection?: () => void;
 }
 
@@ -80,6 +83,7 @@ function ConnectionItem({
   onClick,
   onEdit,
   onDelete,
+  onDuplicate,
 }: ConnectionItemProps) {
   const dbTypeStr = DbType[connection.profile.db_type];
   const IconComponent = databaseIcons[dbTypeStr] || Database;
@@ -115,7 +119,7 @@ function ConnectionItem({
             <div className="flex flex-wrap gap-1 mt-1 items-center">
               {connection.metadata.tags
                 .filter((tag) =>
-                  ["local", "dev", "staging", "prod", "test"].includes(tag),
+                  ["local", "dev", "staging", "uat", "prod", "test"].includes(tag),
                 )
                 .map((tag) => {
                   const tagColor =
@@ -125,6 +129,8 @@ function ConnectionItem({
                       ? "bg-blue-500"
                       : tag === "staging"
                       ? "bg-yellow-500"
+                      : tag === "uat"
+                      ? "bg-amber-600"
                       : tag === "prod"
                       ? "bg-red-500"
                       : "bg-green-500";
@@ -197,6 +203,7 @@ function ConnectionGroup({
   onConnectionClick,
   onEdit,
   onDelete,
+  onDuplicate,
   onAddConnection,
 }: ConnectionGroupProps) {
   return (
@@ -221,6 +228,9 @@ function ConnectionGroup({
           const handleDelete = () => {
             onDelete(connection);
           };
+          const handleDuplicate = () => {
+            onDuplicate(connection);
+          };
 
           return (
             <ContextMenu key={connection.profile.id}>
@@ -234,6 +244,7 @@ function ConnectionGroup({
                     }}
                     onEdit={handleEdit}
                     onDelete={handleDelete}
+                    onDuplicate={handleDuplicate}
                   />
                 </div>
               </ContextMenuTrigger>
@@ -245,6 +256,14 @@ function ConnectionGroup({
                   <Edit2 className="mr-1.5 h-3 w-3" />
                   Edit
                 </ContextMenuItem>
+                <ContextMenuItem
+                  onClick={handleDuplicate}
+                  className="py-1 px-2 text-sm"
+                >
+                  <Copy className="mr-1.5 h-3 w-3" />
+                  Duplicate
+                </ContextMenuItem>
+                <ContextMenuSeparator />
                 <ContextMenuItem
                   onClick={handleDelete}
                   className="text-destructive focus:text-destructive py-1 px-2 text-sm"
@@ -280,6 +299,7 @@ export function ConnectionList({
   const {
     connections,
     deleteConnection,
+    saveConnection,
     loading: isLoading,
   } = useConnectionStore();
   const navigate = useNavigate();
@@ -287,8 +307,11 @@ export function ConnectionList({
     useState<StoredConnection | null>(null);
   const [deletingConnection, setDeletingConnection] =
     useState<StoredConnection | null>(null);
+  const [duplicatingConnection, setDuplicatingConnection] =
+    useState<StoredConnection | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDuplicateDialogOpen, setIsDuplicateDialogOpen] = useState(false);
   const [activeConnectionId, setActiveConnectionId] = useState<string | null>(
     null,
   );
@@ -311,7 +334,7 @@ export function ConnectionList({
     const ungroupedConnections: StoredConnection[] = [];
 
     // Environment tags that shouldn't be used for grouping
-    const envTags = ["local", "dev", "staging", "prod", "test"];
+    const envTags = ["local", "dev", "staging", "uat", "prod", "test"];
 
     filteredConnections.forEach((connection) => {
       const tags = connection.metadata.tags;
@@ -388,6 +411,11 @@ export function ConnectionList({
     setIsDeleteDialogOpen(true);
   };
 
+  const handleDuplicate = (connection: StoredConnection) => {
+    setDuplicatingConnection(connection);
+    setIsDuplicateDialogOpen(true);
+  };
+
   return (
     <>
       <ContextMenu>
@@ -405,6 +433,7 @@ export function ConnectionList({
                     onConnectionClick={handleConnectionClick}
                     onEdit={handleEdit}
                     onDelete={handleDelete}
+                    onDuplicate={handleDuplicate}
                     onAddConnection={onAddConnection}
                   />
                 ),
@@ -419,6 +448,7 @@ export function ConnectionList({
                   onConnectionClick={handleConnectionClick}
                   onEdit={handleEdit}
                   onDelete={handleDelete}
+                  onDuplicate={handleDuplicate}
                   onAddConnection={onAddConnection}
                 />
               )}
@@ -459,6 +489,25 @@ export function ConnectionList({
             {
               ...editingConnection.profile,
               metadata: editingConnection.metadata,
+            } as ConnectionProfile
+          }
+        />
+      )}
+
+      {/* Duplicate Connection Dialog */}
+      {duplicatingConnection && (
+        <ConnectionDialog
+          open={isDuplicateDialogOpen}
+          onOpenChange={(open) => {
+            setIsDuplicateDialogOpen(open);
+            if (!open) setDuplicatingConnection(null);
+          }}
+          connection={
+            {
+              ...duplicatingConnection.profile,
+              id: `conn-${Date.now()}`,
+              name: `${duplicatingConnection.profile.name} (Copy)`,
+              metadata: duplicatingConnection.metadata,
             } as ConnectionProfile
           }
         />

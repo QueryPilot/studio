@@ -90,6 +90,7 @@ const ENVIRONMENT_TAGS: EnvironmentTag[] = [
   { name: "local", color: "bg-gray-500", textColor: "text-gray-50" },
   { name: "dev", color: "bg-blue-500", textColor: "text-blue-50" },
   { name: "staging", color: "bg-yellow-500", textColor: "text-yellow-50" },
+  { name: "uat", color: "bg-amber-600", textColor: "text-amber-50" },
   { name: "prod", color: "bg-red-500", textColor: "text-red-50" },
   { name: "test", color: "bg-green-500", textColor: "text-green-50" },
 ];
@@ -103,6 +104,14 @@ const TAG_COLORS = [
   { value: "orange", class: "bg-orange-500", textClass: "text-orange-50" },
   { value: "cyan", class: "bg-cyan-500", textClass: "text-cyan-50" },
   { value: "emerald", class: "bg-emerald-500", textClass: "text-emerald-50" },
+  { value: "rose", class: "bg-rose-500", textClass: "text-rose-50" },
+  { value: "violet", class: "bg-violet-500", textClass: "text-violet-50" },
+  { value: "fuchsia", class: "bg-fuchsia-500", textClass: "text-fuchsia-50" },
+  { value: "lime", class: "bg-lime-500", textClass: "text-lime-50" },
+  { value: "amber", class: "bg-amber-500", textClass: "text-amber-50" },
+  { value: "sky", class: "bg-sky-500", textClass: "text-sky-50" },
+  { value: "slate", class: "bg-slate-500", textClass: "text-slate-50" },
+  { value: "zinc", class: "bg-zinc-500", textClass: "text-zinc-50" },
 ];
 
 // Get group tags from localStorage
@@ -537,13 +546,16 @@ export function ConnectionDialog({
       return;
     }
 
-    // Assign a color from available colors
+    // Assign a random color from available colors
     const usedColors = groupTags.map((t) => t.color);
-    const availableColor = TAG_COLORS.find(
+    const availableColors = TAG_COLORS.filter(
       (c) => !usedColors.includes(c.class),
     );
-    const color =
-      availableColor?.class || TAG_COLORS[0]?.class || "bg-gray-500";
+
+    // If no available colors, pick randomly from all colors
+    const colorPool = availableColors.length > 0 ? availableColors : TAG_COLORS;
+    const randomColor = colorPool[Math.floor(Math.random() * colorPool.length)];
+    const color = randomColor?.class || "bg-gray-500";
 
     const newGroup: GroupTag = {
       name: groupName.trim(),
@@ -615,6 +627,24 @@ export function ConnectionDialog({
     toast.success("Group deleted", {
       description: `"${groupName}" has been removed`,
     });
+  };
+
+  const handleChangeGroupColor = (groupName: string) => {
+    const currentTag = groupTags.find((t) => t.name === groupName);
+    if (!currentTag) return;
+
+    // Get next color in the list
+    const currentIndex = TAG_COLORS.findIndex(
+      (c) => c.class === currentTag.color,
+    );
+    const nextIndex = (currentIndex + 1) % TAG_COLORS.length;
+    const newColor = TAG_COLORS[nextIndex].class;
+
+    const updatedTags = groupTags.map((t) =>
+      t.name === groupName ? { ...t, color: newColor } : t,
+    );
+    setGroupTags(updatedTags);
+    saveGroupTags(updatedTags);
   };
 
   const getTagColor = (tagName: string, isGroup: boolean = false) => {
@@ -1278,9 +1308,14 @@ export function ConnectionDialog({
                                   <div className="flex items-center gap-2">
                                     <div
                                       className={cn(
-                                        "w-3 h-3 rounded-full",
+                                        "w-3 h-3 rounded-full cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-primary transition-all",
                                         t.color,
                                       )}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleChangeGroupColor(t.name);
+                                      }}
+                                      title="Click to change color"
                                     />
                                     {editingGroupTag === t.name ? (
                                       <Input
