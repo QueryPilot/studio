@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/command";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useCrudStore } from "@/stores/crudStore";
+import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
@@ -129,11 +130,37 @@ export function WorkspaceTitleBar({
     async () => {
       if (totalChanges > 0) {
         try {
+          console.log("[WorkspaceTitleBar] Cmd+S pressed - committing all changes");
+
+          // Get all staged commands before committing
+          const stagedCommandsSnapshot = Array.from(stagedCommands.entries());
+
           const results = await commitAll();
           const totalCommitted = Object.values(results).reduce(
             (sum, result) => sum + result.committed.length,
             0,
           );
+
+          console.log(
+            `[WorkspaceTitleBar] Commit succeeded, invalidating ${stagedCommandsSnapshot.length} table(s)...`,
+          );
+
+          // Small delay to ensure database transaction is fully committed
+          await new Promise((resolve) => setTimeout(resolve, 100));
+
+          // Broadcast invalidation for all affected tables
+          const { invalidateTable } = useDataInvalidationStore.getState();
+          stagedCommandsSnapshot.forEach(([tableKey]) => {
+            const parts = tableKey.split(":");
+            const [connId, db, sch, tbl] = parts;
+            if (connId && db && tbl) {
+              console.log(
+                `[WorkspaceTitleBar] Invalidating table: ${db}.${sch ?? "public"}.${tbl}`,
+              );
+              invalidateTable(connId, db, sch ?? "public", tbl);
+            }
+          });
+
           toast.success("All changes committed", {
             description: `Successfully committed ${totalCommitted} change${
               totalCommitted === 1 ? "" : "s"

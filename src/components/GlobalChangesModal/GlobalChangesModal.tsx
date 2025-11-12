@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useCrudStore } from "@/stores/crudStore";
 import type { CrudCommand } from "@/types/crud";
+import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import {
   Dialog,
   DialogContent,
@@ -201,6 +202,21 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
         });
         const result = await commitChanges(tableKey);
 
+        console.log(
+          `[GlobalChangesModal] Commit succeeded, waiting 100ms before invalidating...`,
+        );
+
+        // Small delay to ensure database transaction is fully committed
+        // before triggering refetch in other components
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        // Broadcast invalidation to all components displaying this table
+        const { invalidateTable } = useDataInvalidationStore.getState();
+        invalidateTable(connectionId, database!, schema, table!);
+        console.log(
+          `[GlobalChangesModal] Invalidated table after commit: ${database}.${schema ?? "public"}.${table}`,
+        );
+
         toast.success("Changes committed", {
           description: `Successfully committed ${
             result.committed.length
@@ -215,6 +231,19 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
           (sum, result) => sum + result.committed.length,
           0,
         );
+
+        // Broadcast invalidation for all affected tables
+        const { invalidateTable } = useDataInvalidationStore.getState();
+        connectionCommands.forEach(([tableKey]) => {
+          const parts = tableKey.split(":");
+          const [connId, db, sch, tbl] = parts;
+          if (connId && db && tbl) {
+            invalidateTable(connId, db, sch, tbl);
+            console.log(
+              `[GlobalChangesModal] Invalidated table after commit: ${db}.${sch ?? "public"}.${tbl}`,
+            );
+          }
+        });
 
         toast.success("All changes committed", {
           description: `Successfully committed ${totalCommitted} change${
@@ -517,7 +546,6 @@ function RowChangesCard({ row }: RowChangesCardProps) {
         const { old, new: newVal } = formatValueWithSmartTruncation(
           values.old,
           values.new,
-          column,
         );
         oldRow.push(`${column}: ${old}`);
         newRow.push(`${column}: ${newVal}`);

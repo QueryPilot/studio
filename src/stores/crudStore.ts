@@ -293,14 +293,16 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
         throw new Error("CrudStore: Missing connectionId for staged commands");
       }
 
-      console.log("Calling executeCrudTransaction with connectionId:", connectionId);
-      console.log("Commands count:", commands.length);
-      console.log("First command:", commands[0]);
+      console.log("[CrudStore] Calling executeCrudTransaction with connectionId:", connectionId);
+      console.log("[CrudStore] Commands count:", commands.length);
+      console.log("[CrudStore] Commands to commit:", commands);
 
       const result = await BackendAPI.executeCrudTransaction(
         connectionId,
         commands,
       );
+
+      console.log("[CrudStore] Backend execution result:", result);
 
       // Check if transaction was successful
       if (!result.success) {
