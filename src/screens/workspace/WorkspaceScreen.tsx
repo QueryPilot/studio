@@ -1,16 +1,17 @@
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { useEffect, useState, useCallback } from "react";
 import { WorkspaceTitleBar } from "./components/WorkspaceTitleBar";
 import { DatabaseSidebar } from "./components/DatabaseSidebar";
 import { DatabaseSchemaSelector } from "./components/DatabaseSchemaSelector";
 import { WorkbenchLayout } from "@/components/Workbench";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
+import useWorkbenchStore from "@/stores/workbenchStore";
 
 import { usePanelStore } from "@/stores/panelStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { databaseService } from "@/services/databaseService";
-import { Backend } from "@/services/backend";
+import { Backend as BackendAPI } from "@/services/backend";
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -27,6 +28,7 @@ const DEFAULT_SIDEBARS = { left: true, right: false };
 
 export function WorkspaceScreen() {
   const { connectionId } = useParams<{ connectionId: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { initWorkspace, setActiveConnection: setActiveWorkspace } =
     useWorkspaceScreenStore();
   // Subscribe to sidebar state reactively - use memoized selector
@@ -57,6 +59,28 @@ export function WorkspaceScreen() {
 
   useConnectionAutoReconnect(connectionId);
 
+  // Update URL params without navigation
+  const updateUrlParams = useCallback(
+    (dbname: string, schema?: string) => {
+      setSearchParams((prev) => {
+        const newParams = new URLSearchParams(prev);
+        if (dbname) {
+          newParams.set("dbname", dbname);
+        } else {
+          newParams.delete("dbname");
+        }
+        if (schema) {
+          newParams.set("schema", schema);
+        } else {
+          newParams.delete("schema");
+        }
+        return newParams;
+      });
+    },
+    [setSearchParams],
+  );
+
+  // Initialize from URL params or connection defaults
   useEffect(() => {
     setActiveWorkspaceConnection(connectionId ?? null);
     // Set active connection in workspace screen store for sidebar state
@@ -68,16 +92,34 @@ export function WorkspaceScreen() {
         useConnectionStore.setState({ activeConnectionId: connectionId });
       }
 
+      // Read URL params
+      const urlDbname = searchParams.get("dbname");
+      const urlSchema = searchParams.get("schema");
+
       const currentDatabase = useWorkspaceSelectionStore.getState().database;
-      if (!currentDatabase) {
+
+      // Priority: URL param > current store value > connection profile default
+      if (urlDbname) {
+        if (currentDatabase !== urlDbname) {
+          useWorkspaceSelectionStore.setState({ database: urlDbname });
+        }
+      } else if (!currentDatabase) {
         const stored = useConnectionStore
           .getState()
           .getConnection(connectionId);
         const profile = stored?.profile;
         if (profile?.database) {
-          useWorkspaceSelectionStore.setState({
-            database: profile.database,
-          });
+          useWorkspaceSelectionStore.setState({ database: profile.database });
+          // Set URL param to match
+          updateUrlParams(profile.database);
+        }
+      }
+
+      // Handle schema from URL
+      if (urlSchema) {
+        const currentSchema = useWorkspaceSelectionStore.getState().schema;
+        if (currentSchema !== urlSchema) {
+          useWorkspaceSelectionStore.setState({ schema: urlSchema });
         }
       }
     }
@@ -86,6 +128,8 @@ export function WorkspaceScreen() {
     setActiveWorkspaceConnection,
     setWorkspaceDatabase,
     setActiveWorkspace,
+    searchParams,
+    updateUrlParams,
   ]);
 
   useEffect(() => {
@@ -95,16 +139,20 @@ export function WorkspaceScreen() {
       initWorkspace(connectionId);
       initializePanels(connectionId);
 
-      // Connect to the database
+      // Get database from URL or use default
+      const urlDbname = searchParams.get("dbname");
+
+      // Connect to the database with optional database override
       void databaseService
-        .connectById(connectionId)
+        .connectById(connectionId, urlDbname || undefined)
         .then(() => {
           // Minimal pre-warming: Prepare tiny queries to "prime" the statement cache
           // These run in ~15ms total and eliminate cold start on first real query
-          Backend.prewarmQuery(connectionId, "SELECT 1").catch(() => {});
-          Backend.prewarmQuery(connectionId, "SELECT current_database()").catch(
-            () => {},
-          );
+          BackendAPI.prewarmQuery(connectionId, "SELECT 1").catch(() => {});
+          BackendAPI.prewarmQuery(
+            connectionId,
+            "SELECT current_database()",
+          ).catch(() => {});
         })
         .catch((err: unknown) => {
           console.error("Failed to connect to database:", err);
@@ -120,14 +168,35 @@ export function WorkspaceScreen() {
         void databaseService.disconnect(connectionId);
       }
     };
-  }, [connectionId, initWorkspace, initializePanels]);
+  }, [connectionId, initWorkspace, initializePanels, searchParams]);
 
   const handleDatabaseChange = useCallback(
-    (database: string) => {
+    async (database: string) => {
       if (!connectionId) {
         return;
       }
+
+      console.log(`[WorkspaceScreen] Switching to database: ${database}`);
+
+      // Close all open tabs since they're tied to the old database
+      const workbenchStore = useWorkbenchStore.getState();
+      workbenchStore.closeAllTabs();
+
+      // Update store
       useWorkspaceSelectionStore.setState({ database });
+
+      // Switch to the new database using proper method
+      try {
+        // This will clear caches and reconnect with new database
+        await databaseService.switchDatabase(connectionId, database);
+
+        // Emit reconnection event to refresh UI components
+        const { safeEmit } = await import("@/utils/tauri");
+        await safeEmit("database-reconnected", { connectionId });
+      } catch (error) {
+        console.error("Failed to switch database:", error);
+        // Connection will show as failed, user can manually reconnect
+      }
     },
     [connectionId],
   );
@@ -169,6 +238,7 @@ export function WorkspaceScreen() {
                   selectedSchema={selectedSchema ?? ""}
                   onDatabaseChange={handleDatabaseChange}
                   onSchemaChange={setSelectedSchema}
+                  onUrlUpdate={updateUrlParams}
                 />
               </div>
               {/* Database Sidebar */}

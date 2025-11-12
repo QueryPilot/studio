@@ -100,10 +100,12 @@ class DatabaseService {
 
   /**
    * Connect to a database using stored credentials
+   * @param connectionId The connection ID
+   * @param databaseOverride Optional database name to override the profile default
    */
   async connectById(
     connectionId: string,
-    _workspaceId?: string,
+    databaseOverride?: string,
   ): Promise<ConnectResponse> {
     // If a connect for this id is already running, return the same promise
     const inflight = this.inflightConnects.get(connectionId);
@@ -136,6 +138,14 @@ class DatabaseService {
           throw new Error(`Connection ${connectionId} not found`);
         }
 
+        // Use database override if provided, otherwise use profile default
+        const targetDatabase = databaseOverride || stored.profile.database;
+
+        console.log(
+          `[DatabaseService] Connecting to ${stored.profile.name} (ID: ${stored.profile.id}) - database: ${targetDatabase}`,
+        );
+        console.log(`[DatabaseService] Frontend connectionId: ${connectionId}, Profile ID: ${stored.profile.id}`);
+
         // Convert to backend profile type
         const profile: ConnectionProfile = {
           id: stored.profile.id,
@@ -143,7 +153,7 @@ class DatabaseService {
           db_type: stored.profile.db_type as unknown as DbType,
           host: stored.profile.host,
           port: stored.profile.port,
-          database: stored.profile.database,
+          database: targetDatabase,
           username: stored.profile.username,
           password: stored.profile.password,
           ssl_mode: stored.profile.ssl_mode,
@@ -270,6 +280,34 @@ class DatabaseService {
       console.error("Failed to disconnect from database:", error);
       throw error;
     }
+  }
+
+  /**
+   * Switch to a different database on the same connection.
+   * This will reconnect with the new database.
+   */
+  async switchDatabase(
+    connectionId: string,
+    database: string,
+  ): Promise<ConnectResponse> {
+    console.log(
+      `[DatabaseService] Switching connection ${connectionId} to database: ${database}`,
+    );
+
+    // Clear caches to force reconnection
+    this.activeConnections.delete(connectionId);
+    this.inflightConnects.delete(connectionId);
+
+    // Also disconnect from backend to ensure clean reconnect
+    try {
+      await BackendAPI.disconnect(connectionId);
+      console.log(`[DatabaseService] Disconnected backend connection: ${connectionId}`);
+    } catch (error) {
+      console.log(`[DatabaseService] Backend disconnect failed (expected if not connected):`, error);
+    }
+
+    // Reconnect with new database
+    return await this.connectById(connectionId, database);
   }
 
   /**

@@ -22,13 +22,41 @@ class WindowManager {
     return instance;
   }
 
+  private buildWorkspaceUrl(
+    connectionId: string,
+    database?: string,
+    schema?: string,
+  ): string {
+    const params = new URLSearchParams();
+    if (database) {
+      params.set("dbname", database);
+      if (schema) {
+        params.set("schema", schema);
+      } else {
+        params.delete("schema");
+      }
+    }
+
+    const query = params.toString();
+    return query
+      ? `/workspace/${connectionId}?${query}`
+      : `/workspace/${connectionId}`;
+  }
+
   async openWorkspace(
     connectionId: string,
     connectionName: string,
+    options: { database?: string; schema?: string } = {},
   ): Promise<string> {
+    const targetUrl = this.buildWorkspaceUrl(
+      connectionId,
+      options.database,
+      options.schema,
+    );
+
     if (!isTauri()) {
       // In browser mode, just navigate to the workspace
-      window.location.href = `/workspace/${connectionId}`;
+      window.location.href = targetUrl;
       return `workspace-${connectionId}`;
     }
 
@@ -61,7 +89,7 @@ class WindowManager {
     // Create window options with traffic light position
     // TypeScript types for trafficLightPosition might not be updated yet
     const windowOptions: Record<string, unknown> = {
-      url: `/workspace/${connectionId}`,
+      url: targetUrl,
       title: `${connectionName} - Query Pilot`,
       width: 1400,
       height: 900,
@@ -174,6 +202,50 @@ class WindowManager {
 
   getActiveWindows(): Map<string, WindowInfo> {
     return new Map(this.windows);
+  }
+
+  async updateWorkspaceUrl(
+    connectionId: string,
+    database: string,
+    schema?: string,
+  ): Promise<void> {
+    const targetUrl = this.buildWorkspaceUrl(connectionId, database, schema);
+
+    if (!isTauri()) {
+      if (window.location.pathname === `/workspace/${connectionId}`) {
+        window.history.replaceState(null, "", targetUrl);
+      }
+      return;
+    }
+
+    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+    const windowInfo = this.getWindowByConnectionId(connectionId);
+    if (!windowInfo) {
+      return;
+    }
+
+    const webview = await WebviewWindow.getByLabel(windowInfo.label);
+    if (!webview) {
+      return;
+    }
+
+    const webviewWithNavigate = webview as unknown as {
+      navigate?: (url: string) => Promise<void>;
+      setUrl?: (url: string) => Promise<void>;
+      emit: (event: string, payload: unknown) => Promise<void>;
+    };
+
+    if (typeof webviewWithNavigate.navigate === "function") {
+      await webviewWithNavigate.navigate(targetUrl);
+      return;
+    }
+
+    if (typeof webviewWithNavigate.setUrl === "function") {
+      await webviewWithNavigate.setUrl(targetUrl);
+      return;
+    }
+
+    await webviewWithNavigate.emit("workspace:update-url", { url: targetUrl });
   }
 
   async broadcastToWorkspaces(event: string, data: unknown): Promise<void> {
