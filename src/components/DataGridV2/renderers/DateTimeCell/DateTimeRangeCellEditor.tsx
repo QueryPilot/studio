@@ -91,7 +91,21 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
         : [1, 0];
       finishedRef.current = true;
       setOpenRange(false);
-      onFinishedEditing(value, movement);
+
+      // Commit the current range values before moving
+      const nextLower = lowerText.trim() || null;
+      const nextUpper = upperText.trim() || null;
+      const text = `${bounds[0]}${nextLower ?? ""},${nextUpper ?? ""}${bounds[1]}`;
+
+      const newCell: TstzRangeCustomCell = {
+        kind: value.kind,
+        data: { ...value.data, value: text },
+        copyData: text,
+        allowOverlay: value.allowOverlay,
+        readonly: value.readonly,
+      };
+
+      onFinishedEditing(newCell, movement);
     }
   };
 

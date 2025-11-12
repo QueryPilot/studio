@@ -108,10 +108,30 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
           ? [-1, 0]
           : [1, 0];
         finishedRef.current = true;
-        onFinishedEditing(value, movement);
+
+        // Commit the current text value before moving
+        const normalized = normalizeValue(text);
+        const committedValue: string | null = !normalized
+          ? nullable
+            ? null
+            : ""
+          : normalized;
+
+        const newCell: NumberCustomCell = {
+          kind: value.kind,
+          data: {
+            ...value.data,
+            value: committedValue,
+          },
+          copyData: committedValue == null ? "NULL" : committedValue,
+          allowOverlay: value.allowOverlay,
+          readonly: value.readonly,
+        };
+
+        onFinishedEditing(newCell, movement);
       }
     },
-    [commitCurrentValue, onFinishedEditing, value],
+    [commitCurrentValue, onFinishedEditing, value, text, nullable],
   );
 
   const handleChange = (next: string) => {

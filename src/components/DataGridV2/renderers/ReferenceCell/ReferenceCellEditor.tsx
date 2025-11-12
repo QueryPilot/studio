@@ -174,7 +174,53 @@ export const ReferenceCellEditor: React.FC<ReferenceCellEditorProps> = ({
         ? [-1, 0]
         : [1, 0];
       finishedRef.current = true;
-      onFinishedEditing(value, movement);
+
+      // Commit the current value before moving
+      // If a result is selected, use it; otherwise use the search text
+      if (selectedIndex >= 0 && results[selectedIndex]) {
+        const result = results[selectedIndex];
+        const pkColumn = value.data.fkReference?.column || "id";
+        const pkValue = result[pkColumn];
+
+        const displayCol = Object.keys(result).find(
+          (key) => key !== pkColumn && typeof result[key] === "string",
+        );
+        const displayValue = displayCol
+          ? String(result[displayCol])
+          : String(pkValue);
+
+        const newCell: ReferenceCustomCell = {
+          kind: value.kind,
+          data: {
+            ...value.data,
+            value: pkValue as string | number,
+            displayValue,
+          },
+          copyData: String(pkValue),
+          allowOverlay: value.allowOverlay,
+          readonly: value.readonly,
+        };
+
+        onFinishedEditing(newCell, movement);
+      } else {
+        const trimmed = searchText.trim();
+        const committedValue: string | null =
+          !trimmed && value.data.nullable ? null : trimmed || null;
+
+        const newCell: ReferenceCustomCell = {
+          kind: value.kind,
+          data: {
+            ...value.data,
+            value: committedValue,
+            displayValue: undefined,
+          },
+          copyData: committedValue ?? "NULL",
+          allowOverlay: value.allowOverlay,
+          readonly: value.readonly,
+        };
+
+        onFinishedEditing(newCell, movement);
+      }
     }
   };
 

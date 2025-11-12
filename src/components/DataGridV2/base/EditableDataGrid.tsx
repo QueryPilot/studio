@@ -273,34 +273,19 @@ export const EditableDataGrid = forwardRef<
                 nextRow >= 0 &&
                 nextRow < rows.length
               ) {
+                const nextCell: Item = [nextCol, nextRow];
                 console.log("🔵 Moving to next cell and opening editor:", {
                   from: cell,
-                  to: [nextCol, nextRow],
+                  to: nextCell,
                 });
 
-                // Use setTimeout to allow the current edit to finish processing
+                // Schedule the next cell activation after current edit completes
                 setTimeout(() => {
                   if (gridRef.current) {
-                    // First, set focus on the target cell
-                    (gridRef.current as any).setFocus([nextCol, nextRow]);
-
-                    // Then simulate Enter key to open the editor
-                    setTimeout(() => {
-                      // Find the grid scroller element
-                      const gridElement = document.querySelector(".dvn-scroller");
-                      if (gridElement) {
-                        const enterEvent = new KeyboardEvent("keydown", {
-                          key: "Enter",
-                          code: "Enter",
-                          keyCode: 13,
-                          bubbles: true,
-                          cancelable: true,
-                        });
-                        gridElement.dispatchEvent(enterEvent);
-                      }
-                    }, 10);
+                    // Activate the next cell for editing
+                    handleCellActivated(nextCell);
                   }
-                }, 10);
+                }, 0);
               }
             }
           }
@@ -314,7 +299,14 @@ export const EditableDataGrid = forwardRef<
       if (!coords) return;
       onCellEditCancel(coords);
     },
-    [getCoordinates, onCellEditCancel, handleCellEdited, columns.length, rows.length],
+    [
+      getCoordinates,
+      onCellEditCancel,
+      handleCellEdited,
+      handleCellActivated,
+      columns.length,
+      rows.length,
+    ],
   );
 
   // Row append handler - exposed via ref for external button
