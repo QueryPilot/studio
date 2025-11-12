@@ -33,6 +33,7 @@ import {
   hasStagedCellChange,
   isRowPendingDeletion,
   isRowPendingInsertion,
+  type CopyMode,
 } from "../hooks";
 import {
   useGridPreferences,
@@ -526,6 +527,10 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     undefined,
   );
 
+  // Use ref to provide latest gridSelection to command handlers without causing re-registration
+  const gridSelectionRef = useRef<GridSelection | undefined>(gridSelection);
+  gridSelectionRef.current = gridSelection;
+
   const { pinnedRows, unpinnedRows, pinnedRowIds, pinRow, unpinRow } =
     useRowPinning({
       rows,
@@ -902,8 +907,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     columns: finalColumns,
   });
 
-  const { copySelection } = useClipboardBridge({
-    toText: (selection) => {
+  // Memoize clipboard callbacks to prevent recreation on every render
+  const toTextCallback = useCallback(
+    (selection: GridSelection) => {
       // Handle full row selections
       if (selection.rows.length > 0) {
         const selected = selection.rows
@@ -951,7 +957,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       return "";
     },
-    toJson: (selection) => {
+    [finalColumns],
+  );
+
+  const toJsonCallback = useCallback(
+    (selection: GridSelection) => {
       // Handle full row selections
       if (selection.rows.length > 0) {
         return selection.rows
@@ -1005,14 +1015,24 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       return [];
     },
-    onCopySuccess: (mode) => {
-      toast(
-        mode === "json" ? "Copied selection as JSON" : "Copied to clipboard",
-      );
-    },
-    onCopyError: (_mode, error) => {
-      toast.error(`Failed to copy: ${error}`);
-    },
+    [finalColumns],
+  );
+
+  const onCopySuccessCallback = useCallback((mode: CopyMode) => {
+    toast(
+      mode === "json" ? "Copied selection as JSON" : "Copied to clipboard",
+    );
+  }, []);
+
+  const onCopyErrorCallback = useCallback((_mode: CopyMode, error: unknown) => {
+    toast.error(`Failed to copy: ${error}`);
+  }, []);
+
+  const { copySelection } = useClipboardBridge({
+    toText: toTextCallback,
+    toJson: toJsonCallback,
+    onCopySuccess: onCopySuccessCallback,
+    onCopyError: onCopyErrorCallback,
   });
 
   // CRUD Handlers - Must be after finalColumns is defined
@@ -1345,7 +1365,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     (gridSelection?.columns && gridSelection.columns.length > 0) ||
     gridSelection?.current !== undefined;
 
-  // Register copy commands directly (like QueryPanel does)
+  // Register copy commands once on mount
+  // Using ref for gridSelection to avoid re-registering on every state change
   useEffect(() => {
     if (!keyboardServices) {
       console.log("[TableDataGridV2] No keyboard services available");
@@ -1362,17 +1383,14 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         category: "Data Grid",
         when: "dataGridFocus && !selectionEmpty && !editingCell",
         handler: async () => {
-          console.log("🟢 Copy as text command fired", {
-            gridSelection,
-            hasSelection,
-            isGridFocused,
-            isEditingCell,
-          });
-          if (!gridSelection) {
+          // Use ref to get latest gridSelection without re-registering
+          const currentSelection = gridSelectionRef.current;
+          if (!currentSelection) {
             console.log("🔴 No grid selection");
             return;
           }
-          await copySelection(gridSelection, "text");
+          console.log("🟢 Copy as text command fired");
+          await copySelection(currentSelection, "text");
         },
       },
       "default",
@@ -1386,17 +1404,14 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         category: "Data Grid",
         when: "dataGridFocus && !selectionEmpty && !editingCell",
         handler: async () => {
-          console.log("🔵 Copy as JSON command fired", {
-            gridSelection,
-            hasSelection,
-            isGridFocused,
-            isEditingCell,
-          });
-          if (!gridSelection) {
+          // Use ref to get latest gridSelection without re-registering
+          const currentSelection = gridSelectionRef.current;
+          if (!currentSelection) {
             console.log("🔴 No grid selection");
             return;
           }
-          await copySelection(gridSelection, "json");
+          console.log("🔵 Copy as JSON command fired");
+          await copySelection(currentSelection, "json");
         },
       },
       "default",
@@ -1407,14 +1422,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       keyboardServices.commandService.unregister("dataGrid.action.copy");
       keyboardServices.commandService.unregister("dataGrid.action.copyAsJson");
     };
-  }, [
-    keyboardServices,
-    gridSelection,
-    hasSelection,
-    isGridFocused,
-    isEditingCell,
-    copySelection,
-  ]);
+  }, [keyboardServices, copySelection]);
 
 
   const handleSelectionChange = useCallback(
