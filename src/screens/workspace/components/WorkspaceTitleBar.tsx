@@ -198,6 +198,20 @@ export function WorkspaceTitleBar({
     },
   );
 
+  useCommand(
+    "workspace.reviewChanges",
+    () => {
+      if (totalChanges > 0) {
+        setShowGlobalChanges(true);
+      }
+    },
+    {
+      label: "Review All Changes",
+      category: "Workspace",
+      when: "!editorTextFocus && !editingCell",
+    },
+  );
+
   // Warn before reload if there are pending changes
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {

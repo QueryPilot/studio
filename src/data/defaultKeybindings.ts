@@ -160,6 +160,11 @@ export const defaultKeybindings: Keybinding[] = [
     when: '!editorTextFocus && !editingCell',
   },
   {
+    command: 'workspace.reviewChanges',
+    key: 'cmd+shift+g',
+    when: '!editorTextFocus && !editingCell',
+  },
+  {
     command: 'workbench.action.discardAllChanges',
     key: 'cmd+r',
   },

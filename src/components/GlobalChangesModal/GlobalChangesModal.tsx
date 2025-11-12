@@ -22,6 +22,7 @@ import {
   CheckCircle2,
   X,
   Loader2,
+  Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
 import ReactDiffViewer from "react-diff-viewer-continued";
@@ -54,13 +55,32 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
     getTableKey,
     commitChanges,
     discardChanges,
+    unstageCommand,
   } = useCrudStore();
 
   const [isCommitting, setIsCommitting] = useState(false);
-  const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
 
   // Check if this is table-specific or workspace-wide
   const isTableSpecific = database !== undefined && table !== undefined;
+
+  // Default expand all tables on mount
+  const [expandedTables, setExpandedTables] = useState<Set<string>>(() => {
+    const allTableKeys = Array.from(stagedCommands.entries())
+      .filter(([tableKey]) => {
+        if (isTableSpecific) {
+          const specificTableKey = getTableKey({
+            connectionId,
+            database: database!,
+            schema,
+            table: table!,
+          });
+          return tableKey === specificTableKey;
+        }
+        return tableKey.startsWith(`${connectionId}:`);
+      })
+      .map(([tableKey]) => tableKey);
+    return new Set(allTableKeys);
+  });
 
   // Filter commands based on scope
   const connectionCommands = Array.from(stagedCommands.entries()).filter(
@@ -286,6 +306,18 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
     onOpenChange(false);
   };
 
+  const handleUndoRow = (commands: CrudCommand[]) => {
+    commands.forEach((cmd) => {
+      unstageCommand(cmd.id);
+    });
+
+    const commandCount = commands.length;
+    const commandType = commands[0]?.type.split('.')[1] || 'change';
+    toast.success(`${commandType} change undone`, {
+      description: `Removed ${commandCount} ${commandCount === 1 ? 'field' : 'fields'}`,
+    });
+  };
+
   if (connectionCommands.length === 0) {
     return null;
   }
@@ -386,7 +418,11 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
                     {isExpanded && (
                       <div className="ml-4 space-y-2">
                         {Array.from(tableGroup.rows.values()).map((row) => (
-                          <RowChangesCard key={row.rowKey} row={row} />
+                          <RowChangesCard
+                            key={row.rowKey}
+                            row={row}
+                            onUndo={handleUndoRow}
+                          />
                         ))}
                       </div>
                     )}
@@ -444,9 +480,10 @@ interface RowChangesCardProps {
     rowKey: string;
     commands: CrudCommand[];
   };
+  onUndo: (commands: CrudCommand[]) => void;
 }
 
-function RowChangesCard({ row }: RowChangesCardProps) {
+function RowChangesCard({ row, onUndo }: RowChangesCardProps) {
   const { theme, resolvedTheme } = useTheme();
 
   // Determine the operation type (insert, update, delete)
@@ -595,12 +632,26 @@ function RowChangesCard({ row }: RowChangesCardProps) {
                 WHERE {pkInfo}
               </span>
             )}
-            <span className="text-xs text-muted-foreground ml-auto">
+            <span className="text-xs text-muted-foreground">
               {row.commands.length}{" "}
               {row.commands.length === 1 ? "field" : "fields"}
             </span>
           </>
         )}
+
+        {/* Undo Button */}
+        <Button
+          size="xs"
+          variant="ghost"
+          className="ml-auto h-6 px-2 text-xs hover:bg-destructive/10 hover:text-destructive"
+          onClick={(e) => {
+            e.stopPropagation();
+            onUndo(row.commands);
+          }}
+        >
+          <Undo2 className="h-3 w-3 mr-1" />
+          Undo
+        </Button>
       </div>
 
       {/* Diff Viewer */}
@@ -662,7 +713,7 @@ function formatValue(value: unknown): string {
     return "NULL";
   }
   if (typeof value === "string") {
-    return `"${value}"`;
+    return value; // No quotes for cleaner display
   }
   if (typeof value === "boolean") {
     return value ? "true" : "false";
