@@ -12,11 +12,11 @@ import { toast } from "sonner";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Database, Settings, Search } from "lucide-react";
 import { useRef, useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import logo from "@/assets/logo.png";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useConnectionSync } from "@/hooks/useConnectionSync";
 import packageJson from "../../../package.json";
+import { windowManager } from "@/services/windowManager";
 
 import { ConnectionDialog } from "@/components/ConnectionDialog";
 import { ConnectionList } from "@/components/ConnectionList";
@@ -26,7 +26,6 @@ export function MainScreen() {
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const navigate = useNavigate();
   const { fetchConnections } = useConnectionStore();
 
   // Enable cross-window sync
@@ -43,16 +42,14 @@ export function MainScreen() {
         .getState()
         .getConnection(connectionId);
       const defaultDatabase = connection?.profile.database.trim();
-      const params = new URLSearchParams();
-      if (defaultDatabase) {
-        params.set("dbname", defaultDatabase);
-      }
-      const targetUrl = params.size
-        ? `/workspace/${connectionId}?${params.toString()}`
-        : `/workspace/${connectionId}`;
+      const connectionName = connection?.profile.name || "Workspace";
 
-      // Navigate to workspace with the new connection
-      await navigate(targetUrl);
+      // Open workspace in a new window
+      await windowManager.openWorkspace(
+        connectionId,
+        connectionName,
+        defaultDatabase ? { database: defaultDatabase } : undefined,
+      );
     } catch (error) {
       console.error("Failed to connect to database:", error);
       toast.error("Connection Error", {

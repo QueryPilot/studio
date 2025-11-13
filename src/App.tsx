@@ -93,7 +93,17 @@ function App() {
           // Mark vault as ready to show main UI
           setVaultReady(true);
         }
+        // Only register close handler for main window
+        const windowLabel = currentWindow.label;
+        const isMainWindow = windowLabel === "main";
+
+        if (!isMainWindow) {
+          // Workspace windows handle their own close logic in WorkspaceScreen
+          return;
+        }
+
         const unlisten = await currentWindow.onCloseRequested(async (event) => {
+          // For main window, handle vault and cleanup
           event.preventDefault();
 
           let toastId: string | number | undefined;
@@ -115,7 +125,7 @@ function App() {
             console.error("Database cleanup failed on window close", err);
           }
 
-          await currentWindow.close();
+          await currentWindow.destroy();
         });
 
         if (disposed) {
