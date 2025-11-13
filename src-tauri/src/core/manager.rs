@@ -311,6 +311,11 @@ impl ConnectionManager {
         }
     }
 
+    /// Get stored connection profile
+    pub fn get_stored_profile(&self, conn_id: &str) -> Option<ConnectionProfile> {
+        self.profiles.get(conn_id).map(|p| p.clone())
+    }
+
     /// Get connection with automatic retry and reconnect
     /// If connection is not found, attempts to reconnect using stored profile
     pub async fn get_connection_with_retry(

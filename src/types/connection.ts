@@ -13,6 +13,7 @@ export interface ConnectionProfile {
   ssh_tunnel?: SshTunnelConfig;
   bastion?: BastionConfig;
   options: Record<string, string>;
+  group?: string; // Optional group name for organizing related connections
 }
 
 export enum DbType {

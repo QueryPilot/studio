@@ -284,30 +284,44 @@ class DatabaseService {
 
   /**
    * Switch to a different database on the same connection.
-   * This will reconnect with the new database.
+   * This will disconnect and reconnect with the new database, verifying the switch.
    */
   async switchDatabase(
     connectionId: string,
     database: string,
-  ): Promise<ConnectResponse> {
+  ): Promise<void> {
     console.log(
       `[DatabaseService] Switching connection ${connectionId} to database: ${database}`,
     );
 
-    // Clear caches to force reconnection
-    this.activeConnections.delete(connectionId);
-    this.inflightConnects.delete(connectionId);
-
-    // Also disconnect from backend to ensure clean reconnect
-    try {
-      await BackendAPI.disconnect(connectionId);
-      console.log(`[DatabaseService] Disconnected backend connection: ${connectionId}`);
-    } catch (error) {
-      console.log(`[DatabaseService] Backend disconnect failed (expected if not connected):`, error);
+    if (!isTauri()) {
+      console.warn("Database switch requires Tauri runtime - skipping in browser mode");
+      return;
     }
 
-    // Reconnect with new database
-    return await this.connectById(connectionId, database);
+    try {
+      // Use the new backend command that atomically switches database
+      await BackendAPI.switchDatabase(connectionId, database);
+
+      // Update connection info with new database
+      const stored = await vaultStorage.getConnection(connectionId);
+      if (stored) {
+        const response: ConnectResponse = {
+          connection_id: connectionId,
+          server_version: null, // Keep existing version
+        };
+        this.activeConnections.set(connectionId, response);
+      }
+
+      // Clear pre-warm cache for this connection since database changed
+      const { clearPrewarmCache } = await import("@/hooks/useSchemaData");
+      clearPrewarmCache(connectionId);
+
+      console.log(`[DatabaseService] Successfully switched to database: ${database}`);
+    } catch (error) {
+      console.error(`[DatabaseService] Failed to switch database:`, error);
+      throw error;
+    }
   }
 
   /**

@@ -74,14 +74,19 @@ class WindowManager {
       }
     }
 
-    // Close the main window
+    // Only hide main window if we're currently in the main window
     try {
-      const mainWindow = await WebviewWindow.getByLabel("main");
-      if (mainWindow) {
-        await mainWindow.hide();
+      const currentWindow = WebviewWindow.getCurrent();
+      const currentLabel = currentWindow.label;
+
+      if (currentLabel === "main") {
+        const mainWindow = await WebviewWindow.getByLabel("main");
+        if (mainWindow) {
+          await mainWindow.hide();
+        }
       }
     } catch (error) {
-      console.error("Failed to hide main window:", error);
+      console.error("Failed to check/hide main window:", error);
     }
 
     // Create new window with transparent title bar
@@ -105,9 +110,6 @@ class WindowManager {
       titleBarStyle: "overlay",
       hiddenTitle: true,
       skipTaskbar: false,
-      // Traffic light position for macOS (available in Tauri v2.8+)
-      // This will be ignored on other platforms
-      trafficLightPosition: { x: 16, y: 22 },
     };
 
     const webview = new WebviewWindow(

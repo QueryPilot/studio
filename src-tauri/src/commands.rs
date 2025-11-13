@@ -139,6 +139,52 @@ pub async fn disconnect(
 }
 
 #[tauri::command]
+pub async fn switch_database(
+    conn_id: String,
+    new_database: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<(), String> {
+    tracing::info!("Switching connection {} to database: {}", conn_id, new_database);
+
+    // Get current connection profile
+    let mut profile = manager.get_stored_profile(&conn_id)
+        .ok_or_else(|| format!("Connection {} not found", conn_id))?;
+
+    // Disconnect current connection
+    manager.disconnect(&conn_id).await.map_err(|e| e.to_string())?;
+
+    // Update profile with new database
+    profile.database = new_database.clone();
+
+    // Reconnect with new database
+    manager.get_or_create_connection(&profile)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Verify we're connected to the correct database
+    let conn = manager.get_connection(&conn_id)
+        .ok_or_else(|| "Connection not found after reconnect".to_string())?;
+
+    let result = conn.adapter.query("SELECT current_database()").await
+        .map_err(|e| e.to_string())?;
+
+    if let Some(row) = result.rows.first() {
+        if let Some(cell) = row.first() {
+            let current_db = cell.to_string();
+            if current_db != new_database {
+                return Err(format!(
+                    "Database verification failed: expected {}, got {}",
+                    new_database, current_db
+                ));
+            }
+        }
+    }
+
+    tracing::info!("Successfully switched to database: {}", new_database);
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn disconnect_all(
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<(), String> {

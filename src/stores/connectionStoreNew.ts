@@ -40,6 +40,18 @@ interface ConnectionStore {
   getActiveConnection: () => { id: string } | null;
   getFavoriteConnections: () => StoredConnection[];
   getRecentConnections: (limit?: number) => StoredConnection[];
+
+  // Connection cloning for database switching
+  getOrCreateDatabaseConnection: (
+    sourceId: string,
+    database: string
+  ) => Promise<string>;
+  findConnectionByDatabase: (
+    host: string,
+    port: number,
+    database: string,
+    username: string
+  ) => StoredConnection | undefined;
 }
 
 export const useConnectionStore = create<ConnectionStore>((set, get) => ({
@@ -246,5 +258,66 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     });
 
     return connections.slice(0, limit);
+  },
+
+  // Find connection by database credentials
+  findConnectionByDatabase: (host, port, database, username) => {
+    return get().connections.find(
+      (conn) =>
+        conn.profile.host === host &&
+        conn.profile.port === port &&
+        conn.profile.database === database &&
+        conn.profile.username === username
+    );
+  },
+
+  // Get or create a connection for a specific database (clone if needed)
+  getOrCreateDatabaseConnection: async (sourceId, database) => {
+    const source = get().getConnection(sourceId);
+    if (!source) {
+      throw new Error(`Source connection ${sourceId} not found`);
+    }
+
+    // Check if a connection for this database already exists
+    const existing = get().findConnectionByDatabase(
+      source.profile.host,
+      source.profile.port,
+      database,
+      source.profile.username
+    );
+
+    if (existing) {
+      console.log(
+        `[ConnectionStore] Found existing connection for database ${database}: ${existing.profile.id}`
+      );
+      return existing.profile.id;
+    }
+
+    // Clone the source profile with new database
+    const groupName = source.profile.group || `${source.profile.host}:${source.profile.port}`;
+
+    const newProfile: ConnectionProfile = {
+      ...source.profile,
+      id: crypto.randomUUID(),
+      name: database, // Use database name as connection name
+      database: database,
+      group: groupName,
+    };
+
+    console.log(
+      `[ConnectionStore] Cloning connection for database ${database}, group: ${groupName}`
+    );
+
+    // If source wasn't in a group, update it to be in the same group
+    if (!source.profile.group) {
+      await get().updateConnection(sourceId, {
+        ...source.profile,
+        group: groupName,
+      });
+    }
+
+    // Save the new connection
+    const newId = await get().saveConnection(newProfile);
+    return newId;
   },
 }));
