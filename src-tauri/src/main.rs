@@ -105,6 +105,7 @@ fn main() {
             crate::vault::vault_reset,
             commands::connect,
             commands::disconnect,
+            commands::switch_database,
             commands::disconnect_all,
             commands::test_connection,
             commands::test_ssh_connection,

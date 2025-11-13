@@ -19,6 +19,8 @@ pub struct ConnectionProfile {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub bastion: Option<BastionConfig>,
     pub options: HashMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub group: Option<String>,
 }
 
 impl ConnectionProfile {

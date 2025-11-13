@@ -56,6 +56,7 @@ interface WorkbenchStore {
   addTab: (panelId: string, tabId: string, tabData?: TabMetadata) => void;
   removeTab: (panelId: string, tabId: string) => void;
   closeAllTabs: () => void;
+  clearDatabaseTabs: (connectionId: string, database: string) => void;
   setActiveTab: (panelId: string, tabId: string) => void;
   updateTabMetadata: (
     panelId: string,
@@ -554,6 +555,57 @@ const useWorkbenchStore = create<WorkbenchStore>()(
       // Reset to single panel with no tabs
       get().resetLayout();
     },
+
+  clearDatabaseTabs: (connectionId: string, database: string) => {
+    const { panelContents, layoutTree } = get();
+    if (!layoutTree) return;
+
+    console.log(`[WorkbenchStore] Clearing tabs for database: ${database}`);
+
+    const newContents = new Map(panelContents);
+    let hasChanges = false;
+
+    panelContents.forEach((panel, panelId) => {
+      // Find tabs that belong to this database
+      const tabsToRemove: string[] = [];
+      panel.tabIds.forEach((tabId) => {
+        const meta = panel.metadata?.[tabId];
+        if (meta?.connectionId === connectionId && meta?.database === database) {
+          tabsToRemove.push(tabId);
+        }
+      });
+
+      if (tabsToRemove.length > 0) {
+        hasChanges = true;
+
+        // Clear cache for these tabs
+        tabsToRemove.forEach((tabId) => {
+          clearTabCache(tabId, connectionId);
+        });
+
+        // Remove tabs from panel
+        const newTabIds = panel.tabIds.filter((id) => !tabsToRemove.includes(id));
+        const newActiveTab =
+          tabsToRemove.includes(panel.activeTabId || "")
+            ? newTabIds[0] || ""
+            : panel.activeTabId;
+
+        newContents.set(panelId, {
+          ...panel,
+          tabIds: newTabIds,
+          activeTabId: newActiveTab,
+        });
+      }
+    });
+
+    if (hasChanges) {
+      const updatedTree = updatePanelContents(layoutTree, newContents);
+      set({
+        layoutTree: updatedTree,
+        panelContents: newContents,
+      });
+    }
+  },
 
     setActiveTab: (panelId, tabId) => {
       const { panelContents, layoutTree } = get();

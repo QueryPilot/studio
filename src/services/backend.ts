@@ -284,6 +284,10 @@ export class BackendAPI {
     return invoke("disconnect", { connId });
   }
 
+  static async switchDatabase(connId: string, newDatabase: string): Promise<void> {
+    return invoke("switch_database", { connId, newDatabase });
+  }
+
   static async disconnectAll(): Promise<void> {
     return invoke("disconnect_all");
   }

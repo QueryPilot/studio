@@ -3,7 +3,6 @@ import {
   Home,
   RefreshCw,
   Lock,
-  SwatchBook,
   Settings,
   PanelLeft,
   Check,
@@ -41,6 +40,8 @@ import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
+import { useQuery } from "@tanstack/react-query";
+import Fuse, { type IFuseOptions } from "fuse.js";
 import { useCommand } from "@/hooks/useCommand";
 import { windowManager } from "@/services/windowManager";
 import {
@@ -75,6 +76,19 @@ interface WorkspaceTitleBarProps {
   isConnecting?: boolean;
 }
 
+interface DatabaseItem {
+  name: string;
+  hasProfile: boolean;
+}
+
+// Fuse.js configuration for database fuzzy search
+const DATABASE_FUSE_OPTIONS: IFuseOptions<DatabaseItem> = {
+  keys: ["name"],
+  threshold: 0.3, // Lower = more strict matching
+  includeScore: true,
+  minMatchCharLength: 1,
+};
+
 export function WorkspaceTitleBar({
   connectionId,
   isConnecting: isInitiallyConnecting = false,
@@ -88,11 +102,60 @@ export function WorkspaceTitleBar({
   const navigate = useNavigate();
   const [openWindows, setOpenWindows] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const selectedDatabase = useWorkspaceSelectionStore((state) => state.database);
   const [serverVersion, setServerVersion] = useState<string | null>(null);
   const [connectionHealth, setConnectionHealth] =
     useState<ConnectionHealth | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const { theme, setTheme } = useTheme();
+
+  // Query for databases list
+  const {
+    data: databases = [],
+    isLoading: isLoadingDatabases,
+  } = useQuery({
+    queryKey: ["databases", connectionId],
+    queryFn: async () => {
+      if (!databaseService.isConnectionActive(connectionId)) {
+        return [];
+      }
+      return await databaseService.listDatabases(connectionId);
+    },
+    enabled: !!connectionId && databaseService.isConnectionActive(connectionId),
+    staleTime: 60_000, // 1 minute
+    retry: 2,
+  });
+
+  // Group databases by whether they have profiles
+  const groupedDatabases = useMemo(() => {
+    if (!connection) return { savedProfiles: [], others: [] };
+
+    const databaseItems: DatabaseItem[] = databases.map((db) => {
+      const hasProfile = connections.some(
+        (conn) =>
+          conn.profile.host === connection.host &&
+          conn.profile.port === connection.port &&
+          conn.profile.database === db &&
+          conn.profile.username === connection.username
+      );
+      return { name: db, hasProfile };
+    });
+
+    // Apply fuzzy search if there's a query
+    let filteredDatabases = databaseItems;
+    if (searchQuery.trim()) {
+      const fuse = new Fuse(databaseItems, DATABASE_FUSE_OPTIONS);
+      const results = fuse.search(searchQuery);
+      filteredDatabases = results.map((result) => result.item);
+    }
+
+    // Split into groups
+    const savedProfiles = filteredDatabases.filter((db) => db.hasProfile);
+    const others = filteredDatabases.filter((db) => !db.hasProfile);
+
+    return { savedProfiles, others };
+  }, [databases, connections, connection, searchQuery]);
   const { toggleSidebar: onToggleSidebar } = useWorkspaceScreenStore();
   const { openPreferences } = usePreferencesStore();
   const {
@@ -498,43 +561,72 @@ export function WorkspaceTitleBar({
     window.location.reload();
   };
 
-  const handleSwitchConnection = async (targetConnectionId: string) => {
-    if (targetConnectionId === connectionId) {
+  const handleSwitchDatabase = async (targetDatabase: string) => {
+    if (targetDatabase === selectedDatabase) {
       setOpen(false);
-      return; // Already on this connection
+      return; // Already on this database
     }
 
     setOpen(false); // Close the popover
 
     try {
-      // Get the target connection details
-      const targetConnection = connections.find(
-        (c) => c.profile.id === targetConnectionId,
-      );
-
-      if (!targetConnection) {
-        console.error("Target connection not found");
+      if (!connection) {
+        console.error("Current connection not found");
         return;
       }
 
-      // Use windowManager to handle window switching/opening
+      // Check if a connection profile exists for this database
+      const connectionStore = useConnectionStore.getState();
+      const existingConnection = connectionStore.findConnectionByDatabase(
+        connection.host,
+        connection.port,
+        targetDatabase,
+        connection.username
+      );
+
+      let targetConnectionId: string;
+
+      if (existingConnection) {
+        // Profile exists - use it
+        console.log(
+          `[WorkspaceTitleBar] Found existing profile for database ${targetDatabase}: ${existingConnection.profile.id}`
+        );
+        targetConnectionId = existingConnection.profile.id;
+      } else {
+        // No profile exists - create one
+        console.log(
+          `[WorkspaceTitleBar] Creating new profile for database ${targetDatabase}`
+        );
+        targetConnectionId = await connectionStore.getOrCreateDatabaseConnection(
+          connectionId,
+          targetDatabase
+        );
+
+        // Refetch to show the new cloned connection
+        await connectionStore.fetchConnections();
+      }
+
+      // Always open or focus workspace window (multi-window support)
       if (windowManager.isWorkspaceOpen(targetConnectionId)) {
         // Window exists, focus it
+        console.log(`[WorkspaceTitleBar] Focusing existing window for ${targetDatabase}`);
         await windowManager.focusWorkspace(targetConnectionId);
       } else {
-        // Create new window for this connection
+        // Create new window for this database
+        console.log(`[WorkspaceTitleBar] Opening new window for ${targetDatabase}`);
         await windowManager.openWorkspace(
           targetConnectionId,
-          targetConnection.profile.name,
+          targetDatabase, // Use database name as window title
           {
-            database: targetConnection.profile.database || undefined,
+            database: targetDatabase,
           },
         );
       }
     } catch (error) {
-      console.error("Failed to switch connection:", error);
-      // Fallback: navigate in current window
-      await navigate(`/workspace/${targetConnectionId}`);
+      console.error("Failed to switch database:", error);
+      toast.error("Failed to switch database", {
+        description: error instanceof Error ? error.message : String(error),
+      });
     }
   };
 
@@ -603,62 +695,114 @@ export function WorkspaceTitleBar({
           <Lock className="h-3.5 w-3.5" />
         </Button>
 
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover
+          open={open}
+          onOpenChange={(isOpen) => {
+            setOpen(isOpen);
+            if (!isOpen) setSearchQuery(""); // Clear search on close
+          }}
+        >
           <PopoverTrigger asChild>
             <Button
               variant="ghost"
               size="sm"
               className="h-7 w-7 p-0"
-              title="Switch connection"
+              title="Switch database"
+              disabled={isLoadingDatabases}
             >
-              <SwatchBook className="h-3.5 w-3.5" />
+              <Database className="h-3.5 w-3.5" />
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-80 p-0" align="start">
-            <Command className="[&_[cmdk-input]]:outline-none [&_[cmdk-input]]:focus:outline-none">
+            <Command
+              className="[&_[cmdk-input]]:outline-none [&_[cmdk-input]]:focus:outline-none"
+              shouldFilter={false}
+            >
               <CommandInput
-                placeholder="Search connections..."
-                className="h-9 focus-visible:ring-0"
+                placeholder="Search databases..."
+                className="h-8 text-xs focus-visible:ring-0"
+                value={searchQuery}
+                onValueChange={setSearchQuery}
               />
               <CommandList>
-                <CommandEmpty>No connections found.</CommandEmpty>
-                <CommandGroup>
-                  {connections.map((conn) => (
-                    <CommandItem
-                      key={conn.profile.id}
-                      value={`${conn.profile.name} ${conn.profile.db_type} ${
-                        conn.profile.host || ""
-                      }`}
-                      onSelect={() => handleSwitchConnection(conn.profile.id)}
-                      className="cursor-pointer"
-                    >
-                      <div className="flex items-center justify-between w-full">
-                        <div className="flex items-center gap-2">
-                          <Database className={cn("h-4 w-4")} />
-                          <div className="flex flex-col">
-                            <span className="font-medium">
-                              {conn.profile.name}
-                            </span>
-                            <span className="text-xs text-muted-foreground">
-                              {conn.profile.db_type} •{" "}
-                              {conn.profile.host || "localhost"}:
-                              {conn.profile.port || ""}
-                            </span>
+                <CommandEmpty>
+                  {isLoadingDatabases ? "Loading databases..." : "No databases found."}
+                </CommandEmpty>
+
+                {/* Saved Profiles Group */}
+                {groupedDatabases.savedProfiles.length > 0 && (
+                  <CommandGroup heading="Saved Profiles" className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
+                    {groupedDatabases.savedProfiles.map((dbItem) => {
+                      const dbConnection = connections.find(
+                        (conn) =>
+                          conn.profile.host === connection?.host &&
+                          conn.profile.port === connection?.port &&
+                          conn.profile.database === dbItem.name &&
+                          conn.profile.username === connection?.username
+                      );
+                      const isOpen = dbConnection && openWindows.includes(dbConnection.profile.id);
+                      const isCurrent = dbItem.name === selectedDatabase;
+
+                      return (
+                        <CommandItem
+                          key={dbItem.name}
+                          value={dbItem.name}
+                          onSelect={() => {
+                            handleSwitchDatabase(dbItem.name);
+                            setSearchQuery("");
+                          }}
+                          className="cursor-pointer py-1.5 px-2"
+                        >
+                          <div className="flex items-center justify-between w-full">
+                            <div className="flex items-center gap-2">
+                              <Database className="h-3.5 w-3.5 shrink-0" />
+                              <span className="text-xs font-medium truncate">{dbItem.name}</span>
+                            </div>
+                            <div className="flex items-center gap-2 ml-auto shrink-0">
+                              {isCurrent && (
+                                <Check className="h-3.5 w-3.5 text-green-500" />
+                              )}
+                              {isOpen && !isCurrent && (
+                                <Circle className="h-2 w-2 fill-blue-500 text-blue-500" />
+                              )}
+                            </div>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-2 ml-auto">
-                          {conn.profile.id === connectionId && (
-                            <Check className="h-4 w-4 text-green-500" />
-                          )}
-                          {openWindows.includes(conn.profile.id) &&
-                            conn.profile.id !== connectionId && (
-                              <Circle className="h-2 w-2 fill-blue-500 text-blue-500" />
+                        </CommandItem>
+                      );
+                    })}
+                  </CommandGroup>
+                )}
+
+                {/* Others Group */}
+                {groupedDatabases.others.length > 0 && (
+                  <CommandGroup heading="Others" className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
+                    {groupedDatabases.others.map((dbItem) => {
+                      const isCurrent = dbItem.name === selectedDatabase;
+
+                      return (
+                        <CommandItem
+                          key={dbItem.name}
+                          value={dbItem.name}
+                          onSelect={() => {
+                            handleSwitchDatabase(dbItem.name);
+                            setSearchQuery("");
+                          }}
+                          className="cursor-pointer py-1.5 px-2"
+                        >
+                          <div className="flex items-center justify-between w-full">
+                            <div className="flex items-center gap-2">
+                              <Database className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                              <span className="text-xs truncate">{dbItem.name}</span>
+                            </div>
+                            {isCurrent && (
+                              <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
                             )}
-                        </div>
-                      </div>
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
+                          </div>
+                        </CommandItem>
+                      );
+                    })}
+                  </CommandGroup>
+                )}
               </CommandList>
             </Command>
           </PopoverContent>
@@ -730,7 +874,7 @@ export function WorkspaceTitleBar({
         {/* Database Name with Type */}
         <div className="flex items-center gap-2 min-w-0" data-tauri-drag-region>
           <span className="font-medium text-xs truncate" data-tauri-drag-region>
-            {connection?.name || "Loading..."}
+            {selectedDatabase || connection?.database || "Loading..."}
           </span>
           <span
             className="text-muted-foreground whitespace-nowrap"
@@ -749,7 +893,7 @@ export function WorkspaceTitleBar({
               className="text-muted-foreground truncate min-w-0"
               data-tauri-drag-region
             >
-              {connection.host}:{connection.port}/{connection.database}
+              {connection.host}:{connection.port}
             </span>
           </>
         )}

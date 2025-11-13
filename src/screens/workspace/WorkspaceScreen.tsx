@@ -5,7 +5,6 @@ import { DatabaseSidebar } from "./components/DatabaseSidebar";
 import { DatabaseSchemaSelector } from "./components/DatabaseSchemaSelector";
 import { WorkbenchLayout } from "@/components/Workbench";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
-import useWorkbenchStore from "@/stores/workbenchStore";
 
 import { usePanelStore } from "@/stores/panelStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
@@ -170,37 +169,6 @@ export function WorkspaceScreen() {
     };
   }, [connectionId, initWorkspace, initializePanels, searchParams]);
 
-  const handleDatabaseChange = useCallback(
-    async (database: string) => {
-      if (!connectionId) {
-        return;
-      }
-
-      console.log(`[WorkspaceScreen] Switching to database: ${database}`);
-
-      // Close all open tabs since they're tied to the old database
-      const workbenchStore = useWorkbenchStore.getState();
-      workbenchStore.closeAllTabs();
-
-      // Update store
-      useWorkspaceSelectionStore.setState({ database });
-
-      // Switch to the new database using proper method
-      try {
-        // This will clear caches and reconnect with new database
-        await databaseService.switchDatabase(connectionId, database);
-
-        // Emit reconnection event to refresh UI components
-        const { safeEmit } = await import("@/utils/tauri");
-        await safeEmit("database-reconnected", { connectionId });
-      } catch (error) {
-        console.error("Failed to switch database:", error);
-        // Connection will show as failed, user can manually reconnect
-      }
-    },
-    [connectionId],
-  );
-
   if (!connectionId) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -230,15 +198,13 @@ export function WorkspaceScreen() {
               maxSize={30}
               className="flex flex-col rounded-xl bg-background"
             >
-              {/* Database/Schema Selector aligned with tabs */}
+              {/* Schema Selector aligned with tabs */}
               <div className="flex items-center overflow-hidden">
                 <DatabaseSchemaSelector
                   connectionId={connectionId}
                   selectedDatabase={selectedDatabase ?? ""}
                   selectedSchema={selectedSchema ?? ""}
-                  onDatabaseChange={handleDatabaseChange}
                   onSchemaChange={setSelectedSchema}
-                  onUrlUpdate={updateUrlParams}
                 />
               </div>
               {/* Database Sidebar */}

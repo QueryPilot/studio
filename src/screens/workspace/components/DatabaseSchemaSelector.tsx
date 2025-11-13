@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useRef, useState } from "react";
-import { Database, Check, ChevronsUpDown } from "lucide-react";
+import { Check, ChevronsUpDown } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -22,7 +22,6 @@ import {
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { databaseService } from "@/services/databaseService";
-import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { cn } from "@/lib/utils";
 import { safeListen } from "@/utils/tauri";
 import { toast } from "sonner";
@@ -32,9 +31,7 @@ interface DatabaseSchemaSelectorProps {
   connectionId: string;
   selectedDatabase: string;
   selectedSchema: string;
-  onDatabaseChange: (database: string) => void;
   onSchemaChange: (schema: string) => void;
-  onUrlUpdate?: (dbname: string, schema: string) => void;
 }
 
 const COMMAND_THRESHOLD = 10;
@@ -43,40 +40,15 @@ export function DatabaseSchemaSelector({
   connectionId,
   selectedDatabase,
   selectedSchema,
-  onDatabaseChange,
   onSchemaChange,
-  onUrlUpdate,
 }: DatabaseSchemaSelectorProps) {
   const [isSwitchingSchema, setIsSwitchingSchema] = useState(false);
-  const [databasePopoverOpen, setDatabasePopoverOpen] = useState(false);
   const [schemaPopoverOpen, setSchemaPopoverOpen] = useState(false);
   const queryClient = useQueryClient();
-  const { connections } = useConnectionStore();
-  const connection = connections.find(
-    (c) => c.profile.id === connectionId,
-  )?.profile;
 
   // Check if connection is active
   const isConnectionActive = databaseService.isConnectionActive(connectionId);
   const prevActiveRef = useRef(isConnectionActive);
-
-  // Query for databases list
-  const {
-    data: databases = [],
-    isLoading: isLoadingDatabases,
-    error: databasesError,
-  } = useQuery({
-    queryKey: ["databases", connectionId],
-    queryFn: async () => {
-      if (!databaseService.isConnectionActive(connectionId)) {
-        throw new Error("Connection is not active");
-      }
-      return await databaseService.listDatabases(connectionId);
-    },
-    enabled: !!connectionId && isConnectionActive,
-    staleTime: 60_000, // 1 minute
-    retry: 2,
-  });
 
   // Query for schemas list
   const {
@@ -106,12 +78,9 @@ export function DatabaseSchemaSelector({
   useEffect(() => {
     if (!prevActiveRef.current && isConnectionActive) {
       console.log(
-        "[DatabaseSchemaSelector] Connection became active - refreshing lists",
+        "[DatabaseSchemaSelector] Connection became active - refreshing schemas",
       );
       // Connection just became active - invalidate queries
-      void queryClient.invalidateQueries({
-        queryKey: ["databases", connectionId],
-      });
       if (selectedDatabase) {
         void queryClient.invalidateQueries({
           queryKey: ["schemas", connectionId, selectedDatabase],
@@ -121,14 +90,6 @@ export function DatabaseSchemaSelector({
     prevActiveRef.current = isConnectionActive;
   }, [isConnectionActive, connectionId, selectedDatabase, queryClient]);
 
-  // Handle database errors
-  useEffect(() => {
-    if (databasesError) {
-      console.error("Failed to load databases:", databasesError);
-      toast.error("Failed to load databases");
-    }
-  }, [databasesError]);
-
   // Handle schema errors
   useEffect(() => {
     if (schemasError) {
@@ -136,31 +97,6 @@ export function DatabaseSchemaSelector({
       toast.error("Failed to load schemas");
     }
   }, [schemasError]);
-
-  // Auto-select database when databases are loaded
-  useEffect(() => {
-    if (!databases.length || selectedDatabase || isLoadingDatabases) {
-      return;
-    }
-
-    // Select default database
-    const defaultDb =
-      connection?.database && databases.includes(connection.database)
-        ? connection.database
-        : databases[0];
-
-    if (defaultDb) {
-      onDatabaseChange(defaultDb);
-      onSchemaChange("");
-    }
-  }, [
-    databases,
-    selectedDatabase,
-    connection,
-    onDatabaseChange,
-    onSchemaChange,
-    isLoadingDatabases,
-  ]);
 
   const selectSchema = useCallback(
     async (schema: string, options: { force?: boolean } = {}) => {
@@ -184,10 +120,6 @@ export function DatabaseSchemaSelector({
       try {
         await databaseService.switchSchema(connectionId, schema);
         onSchemaChange(schema);
-        // Update URL
-        if (onUrlUpdate && selectedDatabase) {
-          onUrlUpdate(selectedDatabase, schema);
-        }
       } catch (err) {
         console.error("Failed to switch schema:", err);
         toast.error("Failed to switch schema");
@@ -195,7 +127,7 @@ export function DatabaseSchemaSelector({
         setIsSwitchingSchema(false);
       }
     },
-    [connectionId, onSchemaChange, selectedDatabase, selectedSchema, onUrlUpdate],
+    [connectionId, onSchemaChange, selectedDatabase, selectedSchema],
   );
 
   // Auto-select schema when schemas are loaded
@@ -219,18 +151,6 @@ export function DatabaseSchemaSelector({
     }
   }, [schemas, selectedSchema, isLoadingSchemas, selectSchema]);
 
-  const handleDatabaseSelect = useCallback(
-    (database: string) => {
-      onDatabaseChange(database);
-      onSchemaChange("");
-      // Update URL
-      if (onUrlUpdate) {
-        onUrlUpdate(database, "");
-      }
-    },
-    [onDatabaseChange, onSchemaChange, onUrlUpdate],
-  );
-
   const handleSchemaSelect = useCallback(
     (schema: string) => {
       void selectSchema(schema);
@@ -247,12 +167,9 @@ export function DatabaseSchemaSelector({
         const payload = event.payload as { connectionId: string };
         if (payload.connectionId === connectionId) {
           console.log(
-            "[DatabaseSchemaSelector] Received reconnection event - refreshing lists",
+            "[DatabaseSchemaSelector] Received reconnection event - refreshing schemas",
           );
-          // Invalidate and refetch both databases and schemas
-          void queryClient.invalidateQueries({
-            queryKey: ["databases", connectionId],
-          });
+          // Invalidate and refetch schemas
           void queryClient.invalidateQueries({
             queryKey: ["schemas", connectionId],
           });
@@ -267,76 +184,6 @@ export function DatabaseSchemaSelector({
     };
   }, [connectionId, queryClient]);
 
-  // Render database selector (Select for <=10 items, Command for >10)
-  const renderDatabaseSelector = () => {
-    if (databases.length === 0) return null;
-
-    if (databases.length <= COMMAND_THRESHOLD) {
-      return (
-        <Select value={selectedDatabase} onValueChange={handleDatabaseSelect}>
-          <SelectTrigger className="text-xs min-w-[120px] max-w-[180px] border-0 !bg-background hover:bg-muted/50">
-            <Database className="!h-3.5 !w-3.5 mr-1" />
-            <SelectValue placeholder="Select database" />
-          </SelectTrigger>
-          <SelectContent>
-            {databases.map((db) => (
-              <SelectItem key={db} value={db} className="text-xs">
-                {db}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      );
-    }
-
-    // Use Command component for long lists
-    return (
-      <Popover open={databasePopoverOpen} onOpenChange={setDatabasePopoverOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            variant="ghost"
-            role="combobox"
-            aria-expanded={databasePopoverOpen}
-            className="text-xs min-w-[120px] max-w-[180px] justify-between border-0 !bg-background hover:bg-muted/50 h-8"
-          >
-            <Database className="!h-3.5 !w-3.5 mr-1 shrink-0" />
-            <span className="truncate">{selectedDatabase || "Select database"}</span>
-            <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-[240px] p-0" align="start">
-          <Command>
-            <CommandInput placeholder="Search databases..." className="h-9" />
-            <CommandList>
-              <CommandEmpty>No database found.</CommandEmpty>
-              <CommandGroup>
-                {databases.map((db) => (
-                  <CommandItem
-                    key={db}
-                    value={db}
-                    onSelect={(value) => {
-                      handleDatabaseSelect(value);
-                      setDatabasePopoverOpen(false);
-                    }}
-                    className="text-xs"
-                  >
-                    <Check
-                      className={cn(
-                        "mr-2 h-3 w-3",
-                        selectedDatabase === db ? "opacity-100" : "opacity-0",
-                      )}
-                    />
-                    {db}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
-    );
-  };
-
   // Render schema selector (Select for <=10 items, Command for >10)
   const renderSchemaSelector = () => {
     if (schemas.length === 0) return null;
@@ -345,12 +192,7 @@ export function DatabaseSchemaSelector({
       return (
         <Select value={selectedSchema} onValueChange={handleSchemaSelect}>
           <SelectTrigger
-            className={cn(
-              "text-xs border-0 !bg-background hover:bg-muted/50",
-              databases.length > 1
-                ? "min-w-[100px] max-w-[150px]"
-                : "min-w-[120px] max-w-[180px]",
-            )}
+            className="text-xs min-w-[120px] max-w-[180px] border-0 !bg-background hover:bg-muted/50"
             disabled={isSwitchingSchema}
           >
             <SelectValue placeholder="Select schema" />
@@ -375,12 +217,7 @@ export function DatabaseSchemaSelector({
             role="combobox"
             aria-expanded={schemaPopoverOpen}
             disabled={isSwitchingSchema}
-            className={cn(
-              "text-xs justify-between border-0 !bg-background hover:bg-muted/50 h-8",
-              databases.length > 1
-                ? "min-w-[100px] max-w-[150px]"
-                : "min-w-[120px] max-w-[180px]",
-            )}
+            className="text-xs min-w-[120px] max-w-[180px] justify-between border-0 !bg-background hover:bg-muted/50 h-8"
           >
             <span className="truncate">{selectedSchema || "Select schema"}</span>
             <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
@@ -419,10 +256,5 @@ export function DatabaseSchemaSelector({
     );
   };
 
-  return (
-    <div className="flex items-center gap-1">
-      {renderDatabaseSelector()}
-      {renderSchemaSelector()}
-    </div>
-  );
+  return <div className="flex items-center gap-1">{renderSchemaSelector()}</div>;
 }
