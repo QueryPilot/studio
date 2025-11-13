@@ -26,10 +26,10 @@ import { cn } from "@/lib/utils";
 import { safeListen } from "@/utils/tauri";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 
 interface DatabaseSchemaSelectorProps {
   connectionId: string;
-  selectedDatabase: string;
   selectedSchema: string;
   onSchemaChange: (schema: string) => void;
 }
@@ -38,7 +38,6 @@ const COMMAND_THRESHOLD = 10;
 
 export function DatabaseSchemaSelector({
   connectionId,
-  selectedDatabase,
   selectedSchema,
   onSchemaChange,
 }: DatabaseSchemaSelectorProps) {
@@ -49,6 +48,11 @@ export function DatabaseSchemaSelector({
   // Check if connection is active
   const isConnectionActive = databaseService.isConnectionActive(connectionId);
   const prevActiveRef = useRef(isConnectionActive);
+
+  // Get current database from workspace selection store
+  const selectedDatabase = useWorkspaceSelectionStore(
+    (state) => state.database,
+  );
 
   // Query for schemas list
   const {
@@ -219,7 +223,9 @@ export function DatabaseSchemaSelector({
             disabled={isSwitchingSchema}
             className="text-xs min-w-[120px] max-w-[180px] justify-between border-0 !bg-background hover:bg-muted/50 h-8"
           >
-            <span className="truncate">{selectedSchema || "Select schema"}</span>
+            <span className="truncate">
+              {selectedSchema || "Select schema"}
+            </span>
             <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
@@ -256,5 +262,7 @@ export function DatabaseSchemaSelector({
     );
   };
 
-  return <div className="flex items-center gap-1">{renderSchemaSelector()}</div>;
+  return (
+    <div className="flex items-center gap-1">{renderSchemaSelector()}</div>
+  );
 }

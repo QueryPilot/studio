@@ -188,6 +188,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
   const removeTab = useWorkbenchStore((state) => state.removeTab);
   const addTab = useWorkbenchStore((state) => state.addTab);
 
+  const panelRef = useRef<HTMLDivElement>(null);
   const tabsContainerRef = useRef<HTMLDivElement>(null);
 
   // Subscribe to drag state
@@ -203,6 +204,27 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
   const showDropZones = isDragActive && (!isSourcePanel || panelCount === 1);
 
   const isFocused = focusedPanelId === content.id;
+
+  // CRITICAL FIX: Set DOM focus when logical focus changes
+  // This ensures keyboard shortcuts target the correct panel
+  useEffect(() => {
+    if (isFocused && panelRef.current) {
+      // Use requestAnimationFrame to ensure DOM is updated
+      requestAnimationFrame(() => {
+        // Look for the data grid content area specifically (not toolbar buttons)
+        // The DataGrid container has tabindex="0" and is inside .relative.flex-1.outline-none
+        const gridContainer = panelRef.current?.querySelector<HTMLElement>(
+          '.relative.flex-1.outline-none[tabindex="0"]'
+        );
+        if (gridContainer) {
+          gridContainer.focus({ preventScroll: true });
+        } else {
+          // Fallback: focus the panel itself
+          panelRef.current?.focus({ preventScroll: true });
+        }
+      });
+    }
+  }, [isFocused]);
 
   // Removed auto-scroll logic - using sticky positioning instead
 
@@ -285,11 +307,14 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
 
   return (
     <div
+      ref={panelRef}
+      tabIndex={0}
       className={cn(
-        "panel flex flex-col bg-background h-full overflow-hidden relative rounded-xl",
+        "panel flex flex-col bg-background h-full overflow-hidden relative rounded-xl outline-none",
         className,
       )}
       onClick={handleClick}
+      onFocus={() => focusPanel(content.id)}
     >
       <div className="panel-header flex items-center justify-between bg-background">
         <div className="flex-1 overflow-x-auto relative scrollbar-none pt-1 px-1">

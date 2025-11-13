@@ -124,6 +124,7 @@ export const defaultKeybindings: Keybinding[] = [
     key: 'cmd+shift+e',
     when: 'pendingEditsAvailable',
   },
+  // Data Grid keybindings
   {
     command: 'dataGrid.action.copy',
     key: 'cmd+c',
@@ -133,21 +134,6 @@ export const defaultKeybindings: Keybinding[] = [
     command: 'dataGrid.action.copyAsJson',
     key: 'cmd+shift+c',
     when: 'dataGridFocus && !editingCell && !selectionEmpty',
-  },
-  {
-    command: 'dataGrid.action.insertRowBelow',
-    key: 'cmd+enter',
-    when: 'dataGridFocus && dataGridEditable && !editingCell && !selectionEmpty',
-  },
-  {
-    command: 'dataGrid.action.insertRowAbove',
-    key: 'cmd+shift+enter',
-    when: 'dataGridFocus && dataGridEditable && !editingCell && !selectionEmpty',
-  },
-  {
-    command: 'dataGrid.action.deleteRows',
-    key: 'cmd+backspace',
-    when: 'dataGridFocus && dataGridEditable && !editingCell && !selectionEmpty',
   },
   {
     command: 'workspace.commitAll',
