@@ -80,36 +80,31 @@ impl SidecarManager {
         Ok(port)
     }
 
-    /// Get the sidecar binary path
+    /// Get the sidecar binary path by trying multiple candidate locations
     fn get_sidecar_path(&self) -> Result<std::path::PathBuf> {
-        // In development, look for the binary in src-tauri/sidecars
-        // In production, it will be bundled by Tauri
+        // Build list of candidate paths to try (similar to session-manager-plugin approach)
+        let candidates = self.get_candidate_paths();
 
-        // Try to get from Tauri resource directory first
-        let resource_path = std::env::current_exe()
-            .ok()
-            .and_then(|exe| exe.parent().map(|p| p.to_path_buf()))
-            .map(|mut p| {
-                // On macOS, binaries are in the bundle
-                #[cfg(target_os = "macos")]
-                {
-                    p.push("../Resources");
-                }
-                p.push("ai-server");
-                #[cfg(target_os = "windows")]
-                {
-                    p.set_extension("exe");
-                }
-                p
-            });
-
-        if let Some(path) = resource_path {
+        // Try each candidate in order
+        for (desc, path) in candidates {
+            tracing::debug!("Trying {} path: {:?}", desc, path);
             if path.exists() {
+                tracing::info!("✅ Found AI sidecar at {}: {:?}", desc, path);
                 return Ok(path);
             }
         }
 
-        // Development fallback: look in src-tauri/sidecars
+        Err(anyhow!(
+            "AI sidecar binary not found. Run 'pnpm build:ai-sidecar' first."
+        ))
+    }
+
+    /// Get list of candidate paths to search for the sidecar binary
+    /// Tauri bundles sidecars with their full target triple name (e.g., ai-server-aarch64-apple-darwin)
+    fn get_candidate_paths(&self) -> Vec<(&'static str, std::path::PathBuf)> {
+        let mut candidates = Vec::new();
+
+        // Determine target triple for platform-specific binary name
         let target_triple = std::env::consts::ARCH;
         let os = std::env::consts::OS;
         let triple = match (os, target_triple) {
@@ -118,57 +113,59 @@ impl SidecarManager {
             ("linux", "x86_64") => "x86_64-unknown-linux-gnu",
             ("linux", "aarch64") => "aarch64-unknown-linux-gnu",
             ("windows", "x86_64") => "x86_64-pc-windows-msvc",
-            _ => return Err(anyhow!("Unsupported platform: {}-{}", os, target_triple)),
+            _ => {
+                tracing::warn!("Unsupported platform: {}-{}", os, target_triple);
+                return candidates;
+            }
         };
 
-        // Try multiple possible paths
-        let current_dir = std::env::current_dir()?;
-        tracing::info!("Current directory: {:?}", current_dir);
+        let binary_name = format!("ai-server-{}", triple);
 
-        // Try relative to current directory
-        let mut dev_path = current_dir.clone();
-        dev_path.push("src-tauri");
-        dev_path.push("sidecars");
-        dev_path.push(format!("ai-server-{}", triple));
-        #[cfg(target_os = "windows")]
+        // 1. Production bundle (Tauri resource directory)
+        if let Some(mut production_path) = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|p| p.to_path_buf()))
         {
+            #[cfg(target_os = "macos")]
+            production_path.push("../Resources");
+
+            production_path.push(&binary_name);
+
+            #[cfg(target_os = "windows")]
+            production_path.set_extension("exe");
+
+            candidates.push(("production", production_path));
+        }
+
+        // 2. Development: src-tauri/sidecars relative to current directory
+        if let Ok(mut dev_path) = std::env::current_dir() {
+            dev_path.push("src-tauri");
+            dev_path.push("sidecars");
+            dev_path.push(&binary_name);
+
+            #[cfg(target_os = "windows")]
             dev_path.set_extension("exe");
+
+            candidates.push(("dev (cwd)", dev_path));
         }
 
-        tracing::info!("Trying path: {:?}", dev_path);
-
-        if dev_path.exists() {
-            tracing::info!("Found sidecar at: {:?}", dev_path);
-            return Ok(dev_path);
-        }
-
-        // Try relative to executable (for dev mode when cwd is different)
+        // 3. Development: src-tauri/sidecars relative to executable
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(exe_dir) = exe_path.parent() {
                 let mut alt_path = exe_dir.to_path_buf();
-                // In dev mode, go up to workspace root
                 alt_path.push("../../../src-tauri/sidecars");
-                alt_path.push(format!("ai-server-{}", triple));
+                alt_path.push(&binary_name);
+
                 #[cfg(target_os = "windows")]
-                {
-                    alt_path.set_extension("exe");
-                }
+                alt_path.set_extension("exe");
 
                 if let Ok(canonical) = alt_path.canonicalize() {
-                    tracing::info!("Trying alternate path: {:?}", canonical);
-                    if canonical.exists() {
-                        tracing::info!("Found sidecar at alternate path: {:?}", canonical);
-                        return Ok(canonical);
-                    }
+                    candidates.push(("dev (exe)", canonical));
                 }
             }
         }
 
-        Err(anyhow!(
-            "AI sidecar binary not found at {:?}. Run 'pnpm build:ai-sidecar' first. Current dir: {:?}",
-            dev_path,
-            current_dir
-        ))
+        candidates
     }
 
     /// Stop the AI sidecar process

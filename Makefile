@@ -1,4 +1,4 @@
-.PHONY: help d dev build build-ai-sidecar build-ai-sidecar-all dev-sidecar ds package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup version release test-ssh-setup test-ssh test-ssh-clean test-ssh-full setup-ssm-plugin
+.PHONY: help d dev build build-ai build-ai-all verify-sidecars dev-sidecar ds package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup version release test-ssh-setup test-ssh test-ssh-clean test-ssh-full setup-ssm-plugin
 
 SSH_KEYGEN ?= ssh-keygen
 
@@ -15,9 +15,11 @@ help:
 	@echo "Development:"
 	@echo "  make dev, make d       - Run in development mode"
 	@echo "  make dev-sidecar, ds   - Run AI sidecar in dev mode (Bun)"
-	@echo "  make build             - Build for production (includes AI sidecar)"
-	@echo "  make build-ai-sidecar  - Build AI sidecar for current platform"
+	@echo "  make build             - Build for production (includes all sidecars)"
+	@echo "  make build-ai          - Build AI sidecar for current platform"
 	@echo "  make build-ai-all      - Build AI sidecar for all platforms"
+	@echo "  make setup-ssm-plugin  - Download AWS Session Manager plugin"
+	@echo "  make verify-sidecars   - Verify all sidecar binaries are present"
 	@echo "  make package-dist      - Package build with installation instructions"
 	@echo "  make install           - Install dependencies"
 	@echo "  make clean             - Clean build artifacts"
@@ -71,10 +73,18 @@ build-ai-all:
 	@echo "Building AI sidecar for all platforms..."
 	@BUILD_ALL=true bash scripts/build-ai-sidecar.sh
 
+# Verify all sidecars are present
+verify-sidecars:
+	@bash scripts/verify-sidecars.sh
+
 # Build for production
 build:
 	@echo "Building AI sidecar..."
-	@$(MAKE) build-ai-sidecar
+	@$(MAKE) build-ai
+	@echo "Downloading AWS Session Manager plugin..."
+	@$(MAKE) setup-ssm-plugin
+	@echo "Verifying all sidecars..."
+	@$(MAKE) verify-sidecars
 	@echo "Building Tauri app..."
 	@pnpm tauri:build
 
@@ -96,6 +106,7 @@ clean:
 	@rm -rf node_modules
 	@rm -rf src-tauri/sidecar-ai/node_modules
 	@rm -f src-tauri/sidecars/ai-server-*
+	@rm -f src-tauri/sidecars/session-manager-plugin-*
 	@echo "Clean complete!"
 
 # Run all unit tests (Rust + Frontend)
