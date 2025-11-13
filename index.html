@@ -6,10 +6,78 @@
   <link rel="icon" type="image/svg+xml" href="/vite.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Query Pilot</title>
+  <script>
+    (function() {
+      const storageKey = 'query-pilot-theme';
+      const savedTheme = localStorage.getItem(storageKey);
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const theme = savedTheme || (prefersDark ? 'dark' : 'light');
+
+      if (theme === 'dark' || (theme === 'system' && prefersDark)) {
+        document.documentElement.classList.add('dark');
+      }
+    })();
+  </script>
+  <style>
+    :root {
+      --loader-bg: 0 0% 100%;
+      --loader-fg: 240 10% 3.9%;
+      --loader-border: 240 5.9% 90%;
+      --loader-primary: 37 97% 53%;
+      --loader-muted: 240 3.8% 46.1%;
+    }
+    .dark {
+      --loader-bg: 240 10% 3.9%;
+      --loader-fg: 0 0% 90%;
+      --loader-border: 240 10% 16%;
+      --loader-primary: 37 97% 53%;
+      --loader-muted: 240 5% 60%;
+    }
+    #root-loader {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      background: hsl(var(--loader-bg));
+      color: hsl(var(--loader-fg));
+    }
+    #root-loader img {
+      width: 80px;
+      height: 80px;
+      border-radius: 16px;
+      margin-bottom: 24px;
+    }
+    #root-loader .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid hsl(var(--loader-border));
+      border-top-color: hsl(var(--loader-primary));
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 12px;
+    }
+    #root-loader .text {
+      color: hsl(var(--loader-muted));
+      font-size: 14px;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    body { margin: 0; padding: 0; }
+  </style>
 </head>
 
 <body>
-  <div id="root"></div>
+  <div id="root">
+    <div id="root-loader">
+      <img src="/logo.png" alt="Query Pilot" />
+      <div class="spinner"></div>
+      <div class="text">Initializing vault…</div>
+    </div>
+  </div>
   <div id="portal"></div>
   <script type="module" src="/src/main.tsx"></script>
 </body>

@@ -12,19 +12,6 @@
   "app": {
     "windows": [
       {
-        "label": "splash",
-        "title": "Loading…",
-        "width": 420,
-        "height": 280,
-        "decorations": false,
-        "resizable": false,
-        "fullscreen": false,
-        "center": true,
-        "transparent": false,
-        "url": "splash.html",
-        "hiddenTitle": true
-      },
-      {
         "label": "main",
         "title": "Query Pilot",
         "resizable": true,
@@ -36,11 +23,7 @@
         "transparent": false,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "visible": false,
-        "trafficLightPosition": {
-          "x": 10,
-          "y": 14
-        }
+        "visible": true
       }
     ],
     "security": {
@@ -85,12 +68,7 @@
       "files": {},
       "hardenedRuntime": true
     },
-    "resources": [
-      "sidecars/manifest.json"
-    ],
-    "externalBin": [
-      "sidecars/ai-server",
-      "sidecars/session-manager-plugin"
-    ]
+    "resources": ["sidecars/manifest.json"],
+    "externalBin": ["sidecars/ai-server", "sidecars/session-manager-plugin"]
   }
 }

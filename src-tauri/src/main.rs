@@ -98,8 +98,6 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            // App window helpers
-            app_show_main_window,
             crate::vault::vault_write,
             crate::vault::vault_read,
             crate::vault::vault_reset,
@@ -188,19 +186,6 @@ fn main() {
 
     // Run the app
     app.run(|_app_handle, _event| {});
-}
-
-#[tauri::command]
-fn app_show_main_window(app: tauri::AppHandle) -> Result<(), String> {
-    // If a splash window exists, hide it; then show main window
-    if let Some(splash) = app.get_webview_window("splash") {
-        let _ = splash.close();
-    }
-    if let Some(main) = app.get_webview_window("main") {
-        let _ = main.show();
-        let _ = main.set_focus();
-    }
-    Ok(())
 }
 
 #[cfg(target_os = "macos")]

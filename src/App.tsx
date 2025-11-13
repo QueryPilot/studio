@@ -1,8 +1,8 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { MainScreen } from "./screens/main/MainScreen";
 import { WorkspaceScreen } from "./screens/workspace/WorkspaceScreen";
-import { useEffect } from "react";
-import { isTauri, safeInvoke } from "./utils/tauri";
+import { useEffect, useState } from "react";
+import { isTauri } from "./utils/tauri";
 import type { Update } from "@tauri-apps/plugin-updater";
 import { vaultStorage } from "./services/vaultStorage";
 import { toast } from "sonner";
@@ -10,6 +10,20 @@ import { databaseService } from "./services/databaseService";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { useAIStore } from "./stores/aiStore";
+
+function VaultLoadingScreen() {
+  return (
+    <div className="flex flex-col items-center justify-center h-screen bg-background">
+      <img
+        src="/logo.png"
+        alt="Query Pilot"
+        className="h-20 w-20 rounded-2xl mb-6"
+      />
+      <div className="w-8 h-8 border-[3px] border-border border-t-primary rounded-full animate-spin mb-3" />
+      <div className="text-muted-foreground text-sm">Initializing vault…</div>
+    </div>
+  );
+}
 
 function AppContent() {
   return (
@@ -23,6 +37,7 @@ function AppContent() {
 }
 
 function App() {
+  const [vaultReady, setVaultReady] = useState(!isTauri());
   const { setConfiguredProviders, setInitialized } = useAIStore();
 
   // Load configured AI providers on startup
@@ -75,12 +90,8 @@ function App() {
         } catch (error) {
           console.error("Preload failed", error);
         } finally {
-          // Hide splash and show main window (no-op if no splash configured)
-          try {
-            await safeInvoke("app_show_main_window");
-          } catch {
-            // ignore
-          }
+          // Mark vault as ready to show main UI
+          setVaultReady(true);
         }
         const unlisten = await currentWindow.onCloseRequested(async (event) => {
           event.preventDefault();
@@ -209,6 +220,10 @@ function App() {
       void closeUpdate();
     };
   }, []);
+
+  if (!vaultReady) {
+    return <VaultLoadingScreen />;
+  }
 
   return <AppContent />;
 }
