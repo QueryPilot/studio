@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
+const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
 import {
   Select,
   SelectContent,
@@ -350,7 +351,10 @@ export function ConnectionDialog({
       if (config.port) setPort(config.port);
       if (config.username) setUsername(config.username);
       if (config.password) setPassword(config.password);
-      if (config.database) setDatabase(config.database);
+      if (config.database) {
+        setDatabase(config.database);
+        setName(config.database);
+      }
       if (config.sslMode !== undefined) setSslMode(config.sslMode);
       if (config.sslKeyFile) setSslKeyFile(config.sslKeyFile);
       if (config.sslCertFile) setSslCertFile(config.sslCertFile);
@@ -397,7 +401,10 @@ export function ConnectionDialog({
       if (config.port) setPort(config.port);
       if (config.username) setUsername(config.username);
       if (config.password) setPassword(config.password);
-      if (config.database) setDatabase(config.database);
+      if (config.database) {
+        setDatabase(config.database);
+        setName(config.database);
+      }
       if (config.sslMode !== undefined) setSslMode(config.sslMode);
 
       setUriParsed(true);
@@ -417,7 +424,7 @@ export function ConnectionDialog({
   const handlePasteUri = async () => {
     try {
       // Always use Tauri clipboard API when available
-      const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
+
       const text = await readText();
 
       if (text && text.trim()) {
@@ -1040,14 +1047,10 @@ export function ConnectionDialog({
     try {
       const profile = buildConnectionProfile(connection?.id);
 
-      try {
-        if (isEditMode && connection.id) {
-          await persistUpdate(connection.id, profile, selectedTags);
-        } else {
-          await persistConnection(profile, selectedTags);
-        }
-      } catch (invokeError) {
-        throw invokeError;
+      if (isEditMode && connection.id) {
+        await persistUpdate(connection.id, profile, selectedTags);
+      } else {
+        await persistConnection(profile, selectedTags);
       }
 
       toast.success("Success", {
