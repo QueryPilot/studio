@@ -33,7 +33,6 @@ import {
   hasStagedCellChange,
   isRowPendingDeletion,
   isRowPendingInsertion,
-  type CopyMode,
 } from "../hooks";
 import {
   useGridPreferences,
@@ -62,9 +61,8 @@ import type { ColumnMeta } from "@/types/database";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { cn } from "@/lib/utils";
 import { GridContextMenu } from "../components/GridContextMenu";
-import { useCommand } from "@/hooks/useCommand";
 import { useContextKey, useScopedKeybindings } from "@/hooks/useContextKey";
-import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
+import { useCommand } from "@/hooks/useCommand";
 import {
   deriveValueType,
   normalizeBackendValue,
@@ -82,8 +80,7 @@ import type {
   GridRowAppendEvent,
   GridRowDeleteEvent,
 } from "../types";
-import { nanoid } from "nanoid";
-import type { JsonValue, CrudCommand, DataUpdatePayload } from "@/types/crud";
+import type { JsonValue } from "@/types/crud";
 
 /**
  * Compare two values for equality, handling null/undefined and type coercion
@@ -178,7 +175,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const [isEditingCell, setIsEditingCell] = useState(false);
   const scopeId = useScopedKeybindings(gridId);
   const [showDetailsSheet, setShowDetailsSheet] = useState(false);
-  const keyboardServices = useKeyboardServicesOptional();
 
   useContextKey("dataGridFocus", isGridFocused, {
     scopeId,
@@ -246,7 +242,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   // Determine default sort order: primary key (ASC) > created_at (DESC) > first column (ASC)
   const defaultSorts = useMemo(() => {
-    if (!isTableMode || !tableStructure?.columns || tableStructure.columns.length === 0) {
+    if (
+      !isTableMode ||
+      !tableStructure?.columns ||
+      tableStructure.columns.length === 0
+    ) {
       return undefined;
     }
 
@@ -258,7 +258,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
     // Priority 2: created_at column (descending to show newest first)
     const createdAtColumn = tableStructure.columns.find(
-      (col) => col.name === "created_at" || col.name === "createdAt"
+      (col) => col.name === "created_at" || col.name === "createdAt",
     );
     if (createdAtColumn) {
       return [{ column: createdAtColumn.name, direction: "desc" as const }];
@@ -305,39 +305,54 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     }
 
     console.log(
-      `[TableDataGridV2] Subscribing to invalidations for: ${connectionId}:${database}:${schema ?? "public"}:${table}`,
+      `[TableDataGridV2] Subscribing to invalidations for: ${connectionId}:${database}:${
+        schema ?? "public"
+      }:${table}`,
     );
 
     const unsubscribe = useDataInvalidationStore
       .getState()
-      .subscribe(connectionId, database, schema ?? "public", table, async () => {
-        console.log(
-          `[TableDataGridV2] Data invalidated for ${database}.${schema ?? "public"}.${table} - invalidating cache and refetching`,
-        );
+      .subscribe(
+        connectionId,
+        database,
+        schema ?? "public",
+        table,
+        async () => {
+          console.log(
+            `[TableDataGridV2] Data invalidated for ${database}.${
+              schema ?? "public"
+            }.${table} - invalidating cache and refetching`,
+          );
 
-        // Use ref to get current tableDataQuery instance
-        // Force refetch by calling refetch - React Query will fetch fresh data
-        // The refetch() method automatically bypasses cache when called explicitly
-        const result = await tableDataQueryRef.current.refetch();
+          // Use ref to get current tableDataQuery instance
+          // Force refetch by calling refetch - React Query will fetch fresh data
+          // The refetch() method automatically bypasses cache when called explicitly
+          const result = await tableDataQueryRef.current.refetch();
 
-        console.log(
-          `[TableDataGridV2] Refetch completed, got ${result.data?.pages[0]?.rows.length ?? 0} rows in first page`,
-        );
+          console.log(
+            `[TableDataGridV2] Refetch completed, got ${
+              result.data?.pages[0]?.rows.length ?? 0
+            } rows in first page`,
+          );
 
-        // Clear committed changes after refetch completes (for optimistic updates)
-        const { clearCommittedChanges, getTableKey } = useCrudStore.getState();
-        const tableKey = getTableKey({
-          connectionId,
-          database,
-          schema: schema ?? "public",
-          table,
-        });
-        clearCommittedChanges(tableKey);
-      });
+          // Clear committed changes after refetch completes (for optimistic updates)
+          const { clearCommittedChanges, getTableKey } =
+            useCrudStore.getState();
+          const tableKey = getTableKey({
+            connectionId,
+            database,
+            schema: schema ?? "public",
+            table,
+          });
+          clearCommittedChanges(tableKey);
+        },
+      );
 
     return () => {
       console.log(
-        `[TableDataGridV2] Unsubscribing from invalidations for: ${connectionId}:${database}:${schema ?? "public"}:${table}`,
+        `[TableDataGridV2] Unsubscribing from invalidations for: ${connectionId}:${database}:${
+          schema ?? "public"
+        }:${table}`,
       );
       unsubscribe();
     };
@@ -1018,21 +1033,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     [finalColumns],
   );
 
-  const onCopySuccessCallback = useCallback((mode: CopyMode) => {
-    toast(
-      mode === "json" ? "Copied selection as JSON" : "Copied to clipboard",
-    );
-  }, []);
-
-  const onCopyErrorCallback = useCallback((_mode: CopyMode, error: unknown) => {
-    toast.error(`Failed to copy: ${error}`);
-  }, []);
-
   const { copySelection } = useClipboardBridge({
     toText: toTextCallback,
     toJson: toJsonCallback,
-    onCopySuccess: onCopySuccessCallback,
-    onCopyError: onCopyErrorCallback,
+    onCopySuccess: console.log,
+    onCopyError: console.error,
   });
 
   // CRUD Handlers - Must be after finalColumns is defined
@@ -1365,66 +1370,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     (gridSelection?.columns && gridSelection.columns.length > 0) ||
     gridSelection?.current !== undefined;
 
-  // Register copy commands once on mount
-  // Using ref for gridSelection to avoid re-registering on every state change
-  useEffect(() => {
-    if (!keyboardServices) {
-      console.log("[TableDataGridV2] No keyboard services available");
-      return;
-    }
-
-    console.log("[TableDataGridV2] Registering copy commands");
-
-    // Register copy command (Cmd+C)
-    keyboardServices.commandService.register(
-      {
-        id: "dataGrid.action.copy",
-        label: "Copy Selection",
-        category: "Data Grid",
-        when: "dataGridFocus && !selectionEmpty && !editingCell",
-        handler: async () => {
-          // Use ref to get latest gridSelection without re-registering
-          const currentSelection = gridSelectionRef.current;
-          if (!currentSelection) {
-            console.log("🔴 No grid selection");
-            return;
-          }
-          console.log("🟢 Copy as text command fired");
-          await copySelection(currentSelection, "text");
-        },
-      },
-      "default",
-    );
-
-    // Register copy as JSON command (Cmd+Shift+C)
-    keyboardServices.commandService.register(
-      {
-        id: "dataGrid.action.copyAsJson",
-        label: "Copy Selection as JSON",
-        category: "Data Grid",
-        when: "dataGridFocus && !selectionEmpty && !editingCell",
-        handler: async () => {
-          // Use ref to get latest gridSelection without re-registering
-          const currentSelection = gridSelectionRef.current;
-          if (!currentSelection) {
-            console.log("🔴 No grid selection");
-            return;
-          }
-          console.log("🔵 Copy as JSON command fired");
-          await copySelection(currentSelection, "json");
-        },
-      },
-      "default",
-    );
-
-    return () => {
-      console.log("[TableDataGridV2] Unregistering copy commands");
-      keyboardServices.commandService.unregister("dataGrid.action.copy");
-      keyboardServices.commandService.unregister("dataGrid.action.copyAsJson");
-    };
-  }, [keyboardServices, copySelection]);
-
-
   const handleSelectionChange = useCallback(
     (selection: GridSelection) => {
       setGridSelection(selection);
@@ -1584,41 +1529,36 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     gridSelection,
   ]);
 
-  // Keyboard shortcuts for insert row below and delete rows
+  // Removed useCommand hooks - now using event bus subscriptions below
+
+  // Register copy commands directly - bypassing event bus complexity
   useCommand(
-    "dataGrid.action.insertRowBelow",
-    () => {
-      if (isTableMode) {
-        handleInsertRowBelow();
-      }
+    "dataGrid.action.copy",
+    async () => {
+      const selection = gridSelectionRef.current;
+      if (!selection) return;
+      console.log("🟢 Copy command executed");
+      await copySelection(selection, "text");
     },
     {
-      label: "Insert Row Below",
+      label: "Copy Selection",
       category: "Data Grid",
-      when: "dataGridFocus && dataGridEditable && !editingCell && !selectionEmpty",
+      when: "dataGridFocus && !selectionEmpty && !editingCell",
     },
   );
 
   useCommand(
-    "dataGrid.action.deleteRows",
-    () => {
-      if (isTableMode && selectedRowKeys.length > 0) {
-        handleRowDelete({
-          selection:
-            gridSelection ??
-            ({
-              columns: CompactSelection.empty(),
-              rows: CompactSelection.empty(),
-            } as GridSelection),
-          rowIndexes: Array.from(selectedRowsSet),
-          rows: selectedRows,
-        });
-      }
+    "dataGrid.action.copyAsJson",
+    async () => {
+      const selection = gridSelectionRef.current;
+      if (!selection) return;
+      console.log("🟢 Copy as JSON command executed");
+      await copySelection(selection, "json");
     },
     {
-      label: "Delete Rows",
+      label: "Copy Selection as JSON",
       category: "Data Grid",
-      when: "dataGridFocus && dataGridEditable && !editingCell && !selectionEmpty",
+      when: "dataGridFocus && !selectionEmpty && !editingCell",
     },
   );
 
@@ -1673,7 +1613,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
                 const result = await tableDataQuery.refetch();
 
                 console.log(
-                  `[TableDataGridV2] onCommitSuccess refetch completed, got ${result.data?.pages[0]?.rows.length ?? 0} rows`,
+                  `[TableDataGridV2] onCommitSuccess refetch completed, got ${
+                    result.data?.pages[0]?.rows.length ?? 0
+                  } rows`,
                 );
               }}
             />
@@ -1849,7 +1791,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     <div className="flex h-full flex-col">
       <div
         ref={containerRef}
-        className="relative flex-1"
+        tabIndex={0}
+        className="relative flex-1 outline-none"
         onFocusCapture={handleFocusCapture}
         onBlurCapture={handleBlurCapture}
         onPointerDown={handleFocusCapture}
@@ -1896,7 +1839,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             rows={rowsRef.current}
             columns={finalColumns}
             getCellContent={getCellContent}
-            history={history}
             onCellEditStart={handleCellEditStart}
             onCellEditCommit={handleCellEditCommit}
             onCellEditCancel={handleCellEditCancel}

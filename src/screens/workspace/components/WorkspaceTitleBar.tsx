@@ -561,8 +561,8 @@ export function WorkspaceTitleBar({
     window.location.reload();
   };
 
-  const handleSwitchDatabase = async (targetDatabase: string) => {
-    if (targetDatabase === selectedDatabase) {
+  const handleSelectDatabase = async (dbName: string, hasProfile: boolean) => {
+    if (dbName === selectedDatabase) {
       setOpen(false);
       return; // Already on this database
     }
@@ -575,31 +575,35 @@ export function WorkspaceTitleBar({
         return;
       }
 
-      // Check if a connection profile exists for this database
       const connectionStore = useConnectionStore.getState();
-      const existingConnection = connectionStore.findConnectionByDatabase(
-        connection.host,
-        connection.port,
-        targetDatabase,
-        connection.username
-      );
-
       let targetConnectionId: string;
 
-      if (existingConnection) {
-        // Profile exists - use it
+      if (hasProfile) {
+        // Existing logic: find and open/focus workspace
+        const existingConnection = connectionStore.findConnectionByDatabase(
+          connection.host,
+          connection.port,
+          dbName,
+          connection.username
+        );
+
+        if (!existingConnection) {
+          console.error(`[WorkspaceTitleBar] Profile not found for database ${dbName}`);
+          return;
+        }
+
         console.log(
-          `[WorkspaceTitleBar] Found existing profile for database ${targetDatabase}: ${existingConnection.profile.id}`
+          `[WorkspaceTitleBar] Using existing profile for database ${dbName}: ${existingConnection.profile.id}`
         );
         targetConnectionId = existingConnection.profile.id;
       } else {
-        // No profile exists - create one
+        // New logic: create profile and open workspace
         console.log(
-          `[WorkspaceTitleBar] Creating new profile for database ${targetDatabase}`
+          `[WorkspaceTitleBar] Creating new profile for database ${dbName}`
         );
         targetConnectionId = await connectionStore.getOrCreateDatabaseConnection(
           connectionId,
-          targetDatabase
+          dbName
         );
 
         // Refetch to show the new cloned connection
@@ -609,22 +613,22 @@ export function WorkspaceTitleBar({
       // Always open or focus workspace window (multi-window support)
       if (windowManager.isWorkspaceOpen(targetConnectionId)) {
         // Window exists, focus it
-        console.log(`[WorkspaceTitleBar] Focusing existing window for ${targetDatabase}`);
+        console.log(`[WorkspaceTitleBar] Focusing existing window for ${dbName}`);
         await windowManager.focusWorkspace(targetConnectionId);
       } else {
         // Create new window for this database
-        console.log(`[WorkspaceTitleBar] Opening new window for ${targetDatabase}`);
+        console.log(`[WorkspaceTitleBar] Opening new window for ${dbName}`);
         await windowManager.openWorkspace(
           targetConnectionId,
-          targetDatabase, // Use database name as window title
+          dbName, // Use database name as window title
           {
-            database: targetDatabase,
+            database: dbName,
           },
         );
       }
     } catch (error) {
-      console.error("Failed to switch database:", error);
-      toast.error("Failed to switch database", {
+      console.error("Failed to select database:", error);
+      toast.error("Failed to select database", {
         description: error instanceof Error ? error.message : String(error),
       });
     }
@@ -707,7 +711,7 @@ export function WorkspaceTitleBar({
               variant="ghost"
               size="sm"
               className="h-7 w-7 p-0"
-              title="Switch database"
+              title="Select database"
               disabled={isLoadingDatabases}
             >
               <Database className="h-3.5 w-3.5" />
@@ -748,7 +752,7 @@ export function WorkspaceTitleBar({
                           key={dbItem.name}
                           value={dbItem.name}
                           onSelect={() => {
-                            handleSwitchDatabase(dbItem.name);
+                            handleSelectDatabase(dbItem.name, true);
                             setSearchQuery("");
                           }}
                           className="cursor-pointer py-1.5 px-2"
@@ -773,9 +777,9 @@ export function WorkspaceTitleBar({
                   </CommandGroup>
                 )}
 
-                {/* Others Group */}
+                {/* Other Databases Group */}
                 {groupedDatabases.others.length > 0 && (
-                  <CommandGroup heading="Others" className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
+                  <CommandGroup heading="Other Databases" className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
                     {groupedDatabases.others.map((dbItem) => {
                       const isCurrent = dbItem.name === selectedDatabase;
 
@@ -784,7 +788,7 @@ export function WorkspaceTitleBar({
                           key={dbItem.name}
                           value={dbItem.name}
                           onSelect={() => {
-                            handleSwitchDatabase(dbItem.name);
+                            handleSelectDatabase(dbItem.name, false);
                             setSearchQuery("");
                           }}
                           className="cursor-pointer py-1.5 px-2"

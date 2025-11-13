@@ -15,6 +15,7 @@ import { queryClient } from "@/lib/react-query-client";
 import { toast } from "sonner";
 import React from "react";
 import { ConfirmationToast } from "@/components/ConfirmationToast";
+import { eventBus } from "@/services/eventBus";
 //
 
 const commandPaletteStore = useCommandPaletteStore.getState();
@@ -611,6 +612,52 @@ export const defaultCommands: Command[] = [
     when: "tabGroupFocused",
     handler: () => {
       tabGroupRegistry.switchToTab(8);
+    },
+  },
+  // Data Grid Commands (registered dynamically by component via useCommand)
+  {
+    id: "dataGrid.action.copy",
+    label: "Copy Selection",
+    category: "Data Grid",
+    when: "dataGridFocus && !selectionEmpty && !editingCell",
+    handler: () => {
+      // Actual handler registered in TableDataGridV2 component
+    },
+  },
+  {
+    id: "dataGrid.action.copyAsJson",
+    label: "Copy Selection as JSON",
+    category: "Data Grid",
+    when: "dataGridFocus && !selectionEmpty && !editingCell",
+    handler: () => {
+      // Actual handler registered in TableDataGridV2 component
+    },
+  },
+  // Query Editor Commands (Event-Driven)
+  {
+    id: "editor.action.formatQuery",
+    label: "Format Query",
+    category: "Editor",
+    when: "editorTextFocus && queryEditor",
+    handler: () => {
+      eventBus.emit("query-editor:format", {});
+    },
+  },
+  {
+    id: "query.action.toggleHistory",
+    label: "Toggle History",
+    category: "Query",
+    handler: () => {
+      eventBus.emit("query-editor:toggle-history", {});
+    },
+  },
+  {
+    id: "editor.action.executeQuery",
+    label: "Execute Query",
+    category: "Editor",
+    when: "editorTextFocus && queryEditor",
+    handler: () => {
+      eventBus.emit("query-editor:execute", {});
     },
   },
 ];

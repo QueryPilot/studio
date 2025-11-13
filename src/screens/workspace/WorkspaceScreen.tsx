@@ -202,7 +202,6 @@ export function WorkspaceScreen() {
               <div className="flex items-center overflow-hidden">
                 <DatabaseSchemaSelector
                   connectionId={connectionId}
-                  selectedDatabase={selectedDatabase ?? ""}
                   selectedSchema={selectedSchema ?? ""}
                   onSchemaChange={setSelectedSchema}
                 />

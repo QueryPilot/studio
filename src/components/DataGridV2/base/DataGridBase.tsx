@@ -21,6 +21,8 @@ export interface DataGridBaseProps
   getRowThemeOverride?: DataEditorProps["getRowThemeOverride"];
   /** Optional rectangular highlight regions */
   highlightRegions?: DataEditorProps["highlightRegions"];
+  /** Optional keybindings override */
+  keybindings?: DataEditorProps["keybindings"];
 }
 
 export const DataGridBase = forwardRef(function DataGridBase(
@@ -63,9 +65,15 @@ export const DataGridBase = forwardRef(function DataGridBase(
         headerHeight={28}
         getRowThemeOverride={rest.getRowThemeOverride}
         highlightRegions={rest.highlightRegions}
+        keybindings={rest.keybindings}
         columnSelect="multi"
         rowSelect="multi"
         editOnType={false}
+        fixedShadowX={false}
+        fixedShadowY={false}
+        fillHandle
+        onPaste
+        getCellsForSelection
         {...editorProps}
       />
     </div>

@@ -36,6 +36,7 @@ import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import { handleMutationCache, isMutationQuery, isSelectQuery } from "@/lib/cacheManager";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { parseMutationTables } from "@/utils/sqlParser";
+import { eventBus } from "@/services/eventBus";
 
 interface QueryPanelProps {
   panelId: string;
@@ -593,49 +594,52 @@ export const QueryPanel = memo(function QueryPanel({
     editorRef.current?.focus();
   }, []);
 
-  // Register keyboard commands
+  // Subscribe to event bus for keyboard shortcuts
+  // Track if this panel is focused using a ref to avoid re-subscribing
+  const isFocusedRef = useRef(false);
+  
   useEffect(() => {
-    if (!keyboardServices) {
-      console.log("[QueryPanel] No keyboardServices available");
-      return;
-    }
+    // Update focus state
+    isFocusedRef.current = (panelId === useWorkbenchStore.getState().focusedPanelId);
+    
+    const unsubscribe = useWorkbenchStore.subscribe((state) => {
+      isFocusedRef.current = (panelId === state.focusedPanelId);
+    });
+    
+    return unsubscribe;
+  }, [panelId]);
 
-    console.log("[QueryPanel] Registering keyboard commands");
+  useEffect(() => {
+    const handleFormat = () => {
+      // Check if THIS panel should handle the event
+      if (!isFocusedRef.current) return;
+      console.log("🟢 QueryPanel handling format event");
+      handleBeautify();
+    };
 
-    // Register format query command (Alt+F)
-    keyboardServices.commandService.register(
-      {
-        id: "editor.action.formatQuery",
-        label: "Format Query",
-        category: "Editor",
-        when: "editorTextFocus && queryEditor",
-        handler: () => {
-          console.log("[editor.action.formatQuery] Command triggered");
-          handleBeautify();
-        },
-      },
-      "default",
-    );
+    const handleToggleHistory = () => {
+      if (!isFocusedRef.current) return;
+      console.log("🟢 QueryPanel handling toggle history event");
+      toggleHistory();
+    };
 
-    // Register toggle history command (Alt+H)
-    keyboardServices.commandService.register(
-      {
-        id: "query.action.toggleHistory",
-        label: "Toggle History",
-        category: "Query",
-        handler: () => {
-          console.log("[query.action.toggleHistory] Command triggered");
-          toggleHistory();
-        },
-      },
-      "default",
-    );
+    const handleExecute = () => {
+      if (!isFocusedRef.current) return;
+      console.log("🟢 QueryPanel handling execute event");
+      handleExecuteQuery();
+    };
+
+    // Subscribe ALWAYS - handlers check focus
+    eventBus.on("query-editor:format", handleFormat);
+    eventBus.on("query-editor:toggle-history", handleToggleHistory);
+    eventBus.on("query-editor:execute", handleExecute);
 
     return () => {
-      keyboardServices.commandService.unregister("editor.action.formatQuery");
-      keyboardServices.commandService.unregister("query.action.toggleHistory");
+      eventBus.off("query-editor:format", handleFormat);
+      eventBus.off("query-editor:toggle-history", handleToggleHistory);
+      eventBus.off("query-editor:execute", handleExecute);
     };
-  }, [keyboardServices, handleBeautify, toggleHistory]);
+  }, [handleBeautify, toggleHistory, handleExecuteQuery]);
 
   // Focus panel when QueryPanel is clicked or focused
   const handleFocusPanel = useCallback(() => {
