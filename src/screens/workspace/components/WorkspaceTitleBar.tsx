@@ -575,11 +575,13 @@ export function WorkspaceTitleBar({
         return;
       }
 
+      console.log(`[WorkspaceTitleBar] Selecting database ${dbName}, hasProfile: ${hasProfile}, currentConnectionId: ${connectionId}`);
+
       const connectionStore = useConnectionStore.getState();
       let targetConnectionId: string;
 
       if (hasProfile) {
-        // Existing logic: find and open/focus workspace
+        // Existing profile - find it
         const existingConnection = connectionStore.findConnectionByDatabase(
           connection.host,
           connection.port,
@@ -597,27 +599,31 @@ export function WorkspaceTitleBar({
         );
         targetConnectionId = existingConnection.profile.id;
       } else {
-        // New logic: create profile and open workspace
+        // New profile - create it
         console.log(
-          `[WorkspaceTitleBar] Creating new profile for database ${dbName}`
+          `[WorkspaceTitleBar] Creating new profile for database ${dbName} from source ${connectionId}`
         );
         targetConnectionId = await connectionStore.getOrCreateDatabaseConnection(
           connectionId,
           dbName
         );
 
+        console.log(`[WorkspaceTitleBar] Created new profile with ID: ${targetConnectionId}`);
+
         // Refetch to show the new cloned connection
         await connectionStore.fetchConnections();
       }
 
-      // Always open or focus workspace window (multi-window support)
+      console.log(`[WorkspaceTitleBar] Target connectionId: ${targetConnectionId}, isWorkspaceOpen: ${windowManager.isWorkspaceOpen(targetConnectionId)}`);
+
+      // Check if we need to open a new window or if one already exists
       if (windowManager.isWorkspaceOpen(targetConnectionId)) {
         // Window exists, focus it
         console.log(`[WorkspaceTitleBar] Focusing existing window for ${dbName}`);
         await windowManager.focusWorkspace(targetConnectionId);
       } else {
-        // Create new window for this database
-        console.log(`[WorkspaceTitleBar] Opening new window for ${dbName}`);
+        // Create new window for this database (keep current window open)
+        console.log(`[WorkspaceTitleBar] Opening new window for ${dbName} with connectionId: ${targetConnectionId}`);
         await windowManager.openWorkspace(
           targetConnectionId,
           dbName, // Use database name as window title
@@ -625,6 +631,7 @@ export function WorkspaceTitleBar({
             database: dbName,
           },
         );
+        console.log(`[WorkspaceTitleBar] New window opened successfully`);
       }
     } catch (error) {
       console.error("Failed to select database:", error);

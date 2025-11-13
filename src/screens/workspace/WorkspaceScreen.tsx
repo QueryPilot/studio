@@ -21,6 +21,9 @@ import { useConnectionAutoReconnect } from "@/hooks/useConnectionAutoReconnect";
 import { AIAssistantSidebar } from "@/components/AIAssistant/AIAssistantSidebar";
 import { PreferencesDialog } from "@/components/Preferences/PreferencesDialog";
 import { DebugKeybindings } from "@/components/DebugKeybindings";
+import { useCrudStore } from "@/stores/crudStore";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isTauri } from "@/utils/tauri";
 
 // Default sidebars state - using a constant to avoid creating new objects
 const DEFAULT_SIDEBARS = { left: true, right: false };
@@ -168,6 +171,92 @@ export function WorkspaceScreen() {
       }
     };
   }, [connectionId, initWorkspace, initializePanels, searchParams]);
+
+  // Handle window close with pending changes check
+  useEffect(() => {
+    if (!isTauri() || !connectionId) return;
+
+    let unlisten: (() => void) | null = null;
+
+    const setupCloseHandler = async () => {
+      const currentWindow = getCurrentWindow();
+      unlisten = await currentWindow.onCloseRequested(async (event) => {
+        // Check if there are pending changes for this connection
+        const { stagedCommands } = useCrudStore.getState();
+        let hasPendingChanges = false;
+
+        stagedCommands.forEach((commands, tableKey) => {
+          if (tableKey.startsWith(`${connectionId}:`)) {
+            if (commands.length > 0) {
+              hasPendingChanges = true;
+            }
+          }
+        });
+
+        if (hasPendingChanges) {
+          // Prevent close and show confirmation dialog
+          event.preventDefault();
+          
+          const confirmed = await import("@tauri-apps/plugin-dialog").then(
+            (dialog) =>
+              dialog.confirm(
+                "You have unsaved changes. Are you sure you want to close this workspace?",
+                {
+                  title: "Unsaved Changes",
+                  kind: "warning",
+                }
+              )
+          );
+
+          if (confirmed) {
+            // User confirmed, disconnect and destroy window
+            console.log(`[WorkspaceScreen] Closing window with unsaved changes - disconnecting ${connectionId}`);
+            try {
+              if (databaseService.isConnectionActive(connectionId)) {
+                await databaseService.disconnect(connectionId);
+                console.log(`[WorkspaceScreen] Successfully disconnected ${connectionId}`);
+              }
+            } catch (error) {
+              console.error(`[WorkspaceScreen] Failed to disconnect ${connectionId}:`, error);
+            }
+            
+            // Small delay to ensure disconnect completes
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            // Use destroy() instead of close() - it requires the destroy permission
+            await currentWindow.destroy();
+          }
+        } else {
+          // No pending changes, prevent default and handle cleanup
+          event.preventDefault();
+          
+          console.log(`[WorkspaceScreen] Closing window - disconnecting ${connectionId}`);
+          
+          // Disconnect if needed
+          try {
+            if (databaseService.isConnectionActive(connectionId)) {
+              await databaseService.disconnect(connectionId);
+              console.log(`[WorkspaceScreen] Successfully disconnected ${connectionId}`);
+            }
+          } catch (error) {
+            console.error(`[WorkspaceScreen] Failed to disconnect ${connectionId}:`, error);
+          }
+          
+          // Small delay to ensure disconnect completes
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          // Destroy the window
+          await currentWindow.destroy();
+        }
+      });
+    };
+
+    void setupCloseHandler();
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [connectionId]);
 
   if (!connectionId) {
     return (
