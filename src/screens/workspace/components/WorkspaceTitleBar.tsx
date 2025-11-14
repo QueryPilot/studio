@@ -103,7 +103,9 @@ export function WorkspaceTitleBar({
   const [openWindows, setOpenWindows] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const selectedDatabase = useWorkspaceSelectionStore((state) => state.database);
+  const selectedDatabase = useWorkspaceSelectionStore(
+    (state) => state.database,
+  );
   const [serverVersion, setServerVersion] = useState<string | null>(null);
   const [connectionHealth, setConnectionHealth] =
     useState<ConnectionHealth | null>(null);
@@ -112,10 +114,7 @@ export function WorkspaceTitleBar({
   const [isOpeningWindow, setIsOpeningWindow] = useState(false);
 
   // Query for databases list
-  const {
-    data: databases = [],
-    isLoading: isLoadingDatabases,
-  } = useQuery({
+  const { data: databases = [], isLoading: isLoadingDatabases } = useQuery({
     queryKey: ["databases", connectionId],
     queryFn: async () => {
       if (!databaseService.isConnectionActive(connectionId)) {
@@ -131,7 +130,7 @@ export function WorkspaceTitleBar({
   // Group databases by whether they have profiles
   // Memoize connections length to prevent unnecessary recalculations
   const connectionsLength = connections.length;
-  
+
   const groupedDatabases = useMemo(() => {
     if (!connection) return { savedProfiles: [], others: [] };
 
@@ -141,7 +140,7 @@ export function WorkspaceTitleBar({
           conn.profile.host === connection.host &&
           conn.profile.port === connection.port &&
           conn.profile.database === db &&
-          conn.profile.username === connection.username
+          conn.profile.username === connection.username,
       );
       return { name: db, hasProfile };
     });
@@ -568,7 +567,9 @@ export function WorkspaceTitleBar({
   const handleSelectDatabase = async (dbName: string, hasProfile: boolean) => {
     // Prevent multiple simultaneous window operations
     if (isOpeningWindow) {
-      console.log(`[WorkspaceTitleBar] Already opening a window, ignoring request for ${dbName}`);
+      console.log(
+        `[WorkspaceTitleBar] Already opening a window, ignoring request for ${dbName}`,
+      );
       return;
     }
 
@@ -586,7 +587,9 @@ export function WorkspaceTitleBar({
         return;
       }
 
-      console.log(`[WorkspaceTitleBar] Selecting database ${dbName}, hasProfile: ${hasProfile}, currentConnectionId: ${connectionId}`);
+      console.log(
+        `[WorkspaceTitleBar] Selecting database ${dbName}, hasProfile: ${hasProfile}, currentConnectionId: ${connectionId}`,
+      );
 
       const connectionStore = useConnectionStore.getState();
       let targetConnectionId: string;
@@ -597,59 +600,74 @@ export function WorkspaceTitleBar({
           connection.host,
           connection.port,
           dbName,
-          connection.username
+          connection.username,
         );
 
         if (!existingConnection) {
-          console.error(`[WorkspaceTitleBar] Profile not found for database ${dbName}`);
+          console.error(
+            `[WorkspaceTitleBar] Profile not found for database ${dbName}`,
+          );
           return;
         }
 
         console.log(
-          `[WorkspaceTitleBar] Using existing profile for database ${dbName}: ${existingConnection.profile.id}`
+          `[WorkspaceTitleBar] Using existing profile for database ${dbName}: ${existingConnection.profile.id}`,
         );
         targetConnectionId = existingConnection.profile.id;
       } else {
         // New profile - create it
         console.log(
-          `[WorkspaceTitleBar] Creating new profile for database ${dbName} from source ${connectionId}`
+          `[WorkspaceTitleBar] Creating new profile for database ${dbName} from source ${connectionId}`,
         );
-        
+
         // CRITICAL: Check if we're already creating a profile for this database
         // This prevents infinite loops where opening a window triggers another profile creation
         const existingBeforeCreate = connectionStore.findConnectionByDatabase(
           connection.host,
           connection.port,
           dbName,
-          connection.username
+          connection.username,
         );
-        
+
         if (existingBeforeCreate) {
-          console.log(`[WorkspaceTitleBar] Profile was just created for ${dbName}, using it: ${existingBeforeCreate.profile.id}`);
+          console.log(
+            `[WorkspaceTitleBar] Profile was just created for ${dbName}, using it: ${existingBeforeCreate.profile.id}`,
+          );
           targetConnectionId = existingBeforeCreate.profile.id;
         } else {
-          targetConnectionId = await connectionStore.getOrCreateDatabaseConnection(
-            connectionId,
-            dbName
+          targetConnectionId =
+            await connectionStore.getOrCreateDatabaseConnection(
+              connectionId,
+              dbName,
+            );
+
+          console.log(
+            `[WorkspaceTitleBar] Created new profile with ID: ${targetConnectionId}`,
           );
 
-          console.log(`[WorkspaceTitleBar] Created new profile with ID: ${targetConnectionId}`);
-
-          // Refetch to show the new cloned connection
-          await connectionStore.fetchConnections();
+          // Note: No need to refetch - the store already updated its cache
+          // and the UI will re-render automatically via Zustand subscriptions
         }
       }
 
-      console.log(`[WorkspaceTitleBar] Target connectionId: ${targetConnectionId}, isWorkspaceOpen: ${windowManager.isWorkspaceOpen(targetConnectionId)}`);
+      console.log(
+        `[WorkspaceTitleBar] Target connectionId: ${targetConnectionId}, isWorkspaceOpen: ${windowManager.isWorkspaceOpen(
+          targetConnectionId,
+        )}`,
+      );
 
       // Check if we need to open a new window or if one already exists
       if (windowManager.isWorkspaceOpen(targetConnectionId)) {
         // Window exists, focus it
-        console.log(`[WorkspaceTitleBar] Focusing existing window for ${dbName}`);
+        console.log(
+          `[WorkspaceTitleBar] Focusing existing window for ${dbName}`,
+        );
         await windowManager.focusWorkspace(targetConnectionId);
       } else {
         // Create new window for this database (keep current window open)
-        console.log(`[WorkspaceTitleBar] Opening new window for ${dbName} with connectionId: ${targetConnectionId}`);
+        console.log(
+          `[WorkspaceTitleBar] Opening new window for ${dbName} with connectionId: ${targetConnectionId}`,
+        );
         await windowManager.openWorkspace(
           targetConnectionId,
           dbName, // Use database name as window title
@@ -768,21 +786,28 @@ export function WorkspaceTitleBar({
               />
               <CommandList>
                 <CommandEmpty>
-                  {isLoadingDatabases ? "Loading databases..." : "No databases found."}
+                  {isLoadingDatabases
+                    ? "Loading databases..."
+                    : "No databases found."}
                 </CommandEmpty>
 
                 {/* Saved Profiles Group */}
                 {groupedDatabases.savedProfiles.length > 0 && (
-                  <CommandGroup heading="Saved Profiles" className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
+                  <CommandGroup
+                    heading="Saved Profiles"
+                    className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5"
+                  >
                     {groupedDatabases.savedProfiles.map((dbItem) => {
                       const dbConnection = connections.find(
                         (conn) =>
                           conn.profile.host === connection?.host &&
-                          conn.profile.port === connection?.port &&
+                          conn.profile.port === connection.port &&
                           conn.profile.database === dbItem.name &&
-                          conn.profile.username === connection?.username
+                          conn.profile.username === connection.username,
                       );
-                      const isOpen = dbConnection && openWindows.includes(dbConnection.profile.id);
+                      const isOpen =
+                        dbConnection &&
+                        openWindows.includes(dbConnection.profile.id);
                       const isCurrent = dbItem.name === selectedDatabase;
 
                       return (
@@ -798,7 +823,9 @@ export function WorkspaceTitleBar({
                           <div className="flex items-center justify-between w-full">
                             <div className="flex items-center gap-2">
                               <Database className="h-3.5 w-3.5 shrink-0" />
-                              <span className="text-xs font-medium truncate">{dbItem.name}</span>
+                              <span className="text-xs font-medium truncate">
+                                {dbItem.name}
+                              </span>
                             </div>
                             <div className="flex items-center gap-2 ml-auto shrink-0">
                               {isCurrent && (
@@ -817,7 +844,10 @@ export function WorkspaceTitleBar({
 
                 {/* Other Databases Group */}
                 {groupedDatabases.others.length > 0 && (
-                  <CommandGroup heading="Other Databases" className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
+                  <CommandGroup
+                    heading="Other Databases"
+                    className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5"
+                  >
                     {groupedDatabases.others.map((dbItem) => {
                       const isCurrent = dbItem.name === selectedDatabase;
 
@@ -834,7 +864,9 @@ export function WorkspaceTitleBar({
                           <div className="flex items-center justify-between w-full">
                             <div className="flex items-center gap-2">
                               <Database className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                              <span className="text-xs truncate">{dbItem.name}</span>
+                              <span className="text-xs truncate">
+                                {dbItem.name}
+                              </span>
                             </div>
                             {isCurrent && (
                               <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />

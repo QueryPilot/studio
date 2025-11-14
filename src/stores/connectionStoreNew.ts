@@ -44,13 +44,13 @@ interface ConnectionStore {
   // Connection cloning for database switching
   getOrCreateDatabaseConnection: (
     sourceId: string,
-    database: string
+    database: string,
   ) => Promise<string>;
   findConnectionByDatabase: (
     host: string,
     port: number,
     database: string,
-    username: string
+    username: string,
   ) => StoredConnection | undefined;
 }
 
@@ -95,8 +95,9 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
         }
       }
 
-      // No need to flush - changes are already in memory and will auto-save
-      await get().fetchConnections();
+      // Update UI immediately from cache - no need to refetch
+      const connections = await vaultStorage.listConnections();
+      set({ connections });
       return id;
     } catch (err) {
       const error =
@@ -123,8 +124,9 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
         await vaultStorage.updateTags(id, uniqueTags);
       }
 
-      // No need to flush - changes are already in memory and will auto-save
-      await get().fetchConnections();
+      // Update UI immediately from cache - no need to refetch
+      const connections = await vaultStorage.listConnections();
+      set({ connections });
     } catch (err) {
       const error =
         err instanceof Error ? err.message : "Failed to update connection";
@@ -138,8 +140,9 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     set({ error: null });
     try {
       await vaultStorage.deleteConnection(id);
-      // No need to flush - changes are already in memory and will auto-save
-      await get().fetchConnections();
+      // Update UI immediately from cache - no need to refetch
+      const connections = await vaultStorage.listConnections();
+      set({ connections });
     } catch (err) {
       const error =
         err instanceof Error ? err.message : "Failed to delete connection";
@@ -152,8 +155,9 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
   toggleFavorite: async (id: string) => {
     try {
       const isFavorite = await vaultStorage.toggleFavorite(id);
-      // No need to flush - changes are already in memory and will auto-save
-      await get().fetchConnections();
+      // Update UI immediately from cache - no need to refetch
+      const connections = await vaultStorage.listConnections();
+      set({ connections });
       return isFavorite;
     } catch (err) {
       const error =
@@ -174,8 +178,9 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
       const tags = new Set(connection.metadata.tags);
       tags.add(tag.trim());
       await vaultStorage.updateTags(id, Array.from(tags).filter(Boolean));
-      // No need to flush - changes are already in memory and will auto-save
-      await get().fetchConnections();
+      // Update UI immediately from cache - no need to refetch
+      const connections = await vaultStorage.listConnections();
+      set({ connections });
     } catch (err) {
       const error = err instanceof Error ? err.message : "Failed to add tag";
       set({ error });
@@ -195,8 +200,9 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
         (existingTag) => existingTag !== tag,
       );
       await vaultStorage.updateTags(id, tags);
-      // No need to flush - changes are already in memory and will auto-save
-      await get().fetchConnections();
+      // Update UI immediately from cache - no need to refetch
+      const connections = await vaultStorage.listConnections();
+      set({ connections });
     } catch (err) {
       const error = err instanceof Error ? err.message : "Failed to remove tag";
       set({ error });
@@ -208,8 +214,9 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
   markAsUsed: async (id: string) => {
     try {
       await vaultStorage.markAsUsed(id);
-      // No need to flush - changes are already in memory and will auto-save
-      await get().fetchConnections();
+      // Update UI immediately from cache - no need to refetch
+      const connections = await vaultStorage.listConnections();
+      set({ connections });
     } catch (err) {
       const error =
         err instanceof Error ? err.message : "Failed to mark as used";
@@ -274,7 +281,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
         conn.profile.host === host &&
         conn.profile.port === port &&
         conn.profile.database === database &&
-        conn.profile.username === username
+        conn.profile.username === username,
     );
   },
 
@@ -290,18 +297,19 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
       source.profile.host,
       source.profile.port,
       database,
-      source.profile.username
+      source.profile.username,
     );
 
     if (existing) {
       console.log(
-        `[ConnectionStore] Found existing connection for database ${database}: ${existing.profile.id}`
+        `[ConnectionStore] Found existing connection for database ${database}: ${existing.profile.id}`,
       );
       return existing.profile.id;
     }
 
     // Clone the source profile with new database
-    const groupName = source.profile.group || `${source.profile.host}:${source.profile.port}`;
+    const groupName =
+      source.profile.group || `${source.profile.host}:${source.profile.port}`;
 
     const newProfile: ConnectionProfile = {
       ...source.profile,
@@ -312,16 +320,16 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     };
 
     console.log(
-      `[ConnectionStore] Cloning connection for database ${database}, group: ${groupName}`
+      `[ConnectionStore] Cloning connection for database ${database}, group: ${groupName}`,
     );
 
     // Save the new connection
     const newId = await get().saveConnection(newProfile);
-    
+
     // Don't update the source connection to avoid triggering workspace reload
     // The source will be updated to the group on next app restart or when
     // the user manually edits it
-    
+
     return newId;
   },
 }));
