@@ -1072,53 +1072,75 @@ export function ConnectionDialog({
   };
 
   const handleConnect = async () => {
+    if (!name.trim()) {
+      toast.error("Error", {
+        description: "Please provide a connection name",
+      });
+      return;
+    }
+
+    if (useSSH) {
+      if (!sshHost.trim()) {
+        toast.error("Error", {
+          description: "SSH host is required when SSH tunneling is enabled",
+        });
+        return;
+      }
+      if (!useSSHAgent && !sshUser.trim()) {
+        toast.error("Error", {
+          description: "SSH user is required when SSH tunneling is enabled",
+        });
+        return;
+      }
+      if (useSSHKey && !sshKeyPath) {
+        toast.error("Error", {
+          description:
+            "Select a private key file or disable key authentication",
+        });
+        return;
+      }
+      if (!useSSHKey && !useSSHAgent && !sshPassword) {
+        toast.error("Error", {
+          description:
+            "Provide an SSH password or choose key/agent authentication",
+        });
+        return;
+      }
+    }
+
+    if (useAwsSsm) {
+      if (!ssmRegion.trim()) {
+        toast.error("Error", {
+          description: "AWS region is required when AWS SSM is enabled",
+        });
+        return;
+      }
+      if (!ssmTargetId.trim()) {
+        toast.error("Error", {
+          description: "Provide the SSM target instance or task identifier",
+        });
+        return;
+      }
+      if (!ssmRemoteHost.trim()) {
+        toast.error("Error", {
+          description: "Remote host is required when using AWS SSM",
+        });
+        return;
+      }
+    }
+
     setIsConnecting(true);
     try {
-      const profile: ConnectionProfile = {
-        id: connection?.id || `conn-${Date.now()}`,
-        name,
-        db_type:
-          dbType === "postgresql"
-            ? DbType.PostgreSQL
-            : dbType === "mysql"
-            ? DbType.MySQL
-            : dbType === "sqlite"
-            ? DbType.SQLite
-            : DbType.SQLServer,
-        host: dbType !== "sqlite" ? host : "localhost",
-        port:
-          dbType !== "sqlite"
-            ? parseInt(port) || parseInt(getDefaultPort(dbType))
-            : 5432,
-        username: dbType !== "sqlite" ? username : "",
-        password: dbType !== "sqlite" ? password : undefined,
-        database: dbType !== "sqlite" ? database : database,
-        ssl_mode: sslMode,
-        ssl_config:
-          sslMode !== SslMode.Disable &&
-          (sslKeyFile || sslCertFile || sslCAFile)
-            ? {
-                key_file: sslKeyFile || undefined,
-                cert_file: sslCertFile || undefined,
-                ca_file: sslCAFile || undefined,
-              }
-            : undefined,
-        ssh_tunnel: useSSH
-          ? {
-              host: sshHost,
-              port: Number.parseInt(sshPort),
-              user: sshUser,
-              auth: useSSHKey
-                ? { KeyFile: { path: sshKeyPath, passphrase: undefined } }
-                : { Password: sshPassword },
-            }
-          : undefined,
-        options: {},
-      };
+      const profile = buildConnectionProfile(connection?.id);
 
-      const connectionId = await persistConnection(profile, selectedTags);
+      if (isEditMode && connection.id) {
+        await persistUpdate(connection.id, profile, selectedTags);
+      } else {
+        await persistConnection(profile, selectedTags);
+      }
+
       if (onConnect) {
-        onConnect(connectionId || profile.id);
+        onConnect(profile.id);
       }
 
       onOpenChange(false);
@@ -1138,14 +1160,14 @@ export function ConnectionDialog({
         showCloseButton={false}
         className="max-w-2xl max-h-[90vh] flex flex-col overflow-hidden p-0 [&>button[data-slot='dialog-close']]:size-auto [&>button[data-slot='dialog-close']_svg]:size-5 [&>button[data-slot='dialog-close']]:top-[0.625rem]"
       >
-        <DialogHeader className="sticky top-0 bg-background px-4 py-2 border-b flex flex-row items-center justify-between">
-          <DialogTitle className="flex items-center gap-2 text-base">
-            <Database className="h-4 w-4" />
+        <DialogHeader className="sticky top-0 bg-background px-4 py-2.5 border-b flex flex-row items-center justify-between">
+          <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
+            <Database className="h-3.5 w-3.5" />
             {isEditMode ? "Edit Connection" : "Connect Database"}
           </DialogTitle>
           <DialogClose asChild>
-            <Button variant="ghost" size="icon" className="h-5 w-5 p-0">
-              <XIcon className="size-5" />
+            <Button variant="ghost" size="icon" className="h-6 w-6 p-0">
+              <XIcon className="size-4" />
             </Button>
           </DialogClose>
         </DialogHeader>
@@ -1175,14 +1197,16 @@ export function ConnectionDialog({
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value={dbType} className="space-y-6 mt-6">
+            <TabsContent value={dbType} className="space-y-4 mt-4">
               {/* Name and Tags */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label htmlFor="name">Name</Label>
+                  <Label htmlFor="name" className="text-xs">
+                    Name
+                  </Label>
                   <Input
                     id="name"
-                    className="mt-1.5"
+                    className="mt-1 h-8 text-xs"
                     value={name}
                     onChange={(e) => {
                       setName(e.target.value);
@@ -1192,7 +1216,9 @@ export function ConnectionDialog({
                   />
                 </div>
                 <div>
-                  <Label htmlFor="tags">Tags</Label>
+                  <Label htmlFor="tags" className="text-xs">
+                    Tags
+                  </Label>
                   <Popover
                     open={tagsCommandOpen}
                     onOpenChange={setTagsCommandOpen}
@@ -1202,7 +1228,7 @@ export function ConnectionDialog({
                         variant="outline"
                         role="combobox"
                         aria-expanded={tagsCommandOpen}
-                        className="w-full justify-between mt-1.5 focus:ring-0 focus:ring-offset-0"
+                        className="w-full justify-between mt-1 h-8 text-xs focus:ring-0 focus:ring-offset-0"
                         disabled={isTesting}
                       >
                         <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -1219,29 +1245,29 @@ export function ConnectionDialog({
                                 >
                                   <div
                                     className={cn(
-                                      "w-3 h-3 rounded-full flex-shrink-0",
+                                      "w-2.5 h-2.5 rounded-full flex-shrink-0",
                                       tagColor.bg,
                                     )}
                                   />
-                                  <span className="text-sm truncate max-w-[100px]">
+                                  <span className="text-xs truncate max-w-[100px]">
                                     {tag}
                                   </span>
                                 </div>
                               );
                             })
                           ) : (
-                            <span className="text-muted-foreground">
+                            <span className="text-muted-foreground text-xs">
                               Select tags...
                             </span>
                           )}
                         </div>
-                        <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        <ChevronDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-[400px] p-0">
                       <Command>
                         <CommandInput
-                          className="outline-none focus:ring-0 focus:ring-offset-0"
+                          className="outline-none focus:ring-0 focus:ring-offset-0 text-xs h-8"
                           placeholder="Search or create group..."
                           value={groupSearchValue}
                           onValueChange={setGroupSearchValue}
@@ -1249,7 +1275,7 @@ export function ConnectionDialog({
                         <CommandList>
                           <CommandEmpty>
                             <div className="py-2 text-center">
-                              <p className="text-sm text-muted-foreground mb-2">
+                              <p className="text-xs text-muted-foreground mb-2">
                                 No group found.
                               </p>
                               {groupSearchValue && (
@@ -1259,7 +1285,7 @@ export function ConnectionDialog({
                                   onClick={() => {
                                     handleCreateGroup(groupSearchValue);
                                   }}
-                                  className="gap-2"
+                                  className="gap-1.5 h-7 px-2 text-xs"
                                 >
                                   <Plus className="h-3 w-3" />
                                   Create "{groupSearchValue}"
@@ -1269,7 +1295,10 @@ export function ConnectionDialog({
                           </CommandEmpty>
 
                           {/* Environment Tags */}
-                          <CommandGroup heading="Environment">
+                          <CommandGroup
+                            heading="Environment"
+                            className="text-xs"
+                          >
                             {ENVIRONMENT_TAGS.map((t) => (
                               <CommandItem
                                 key={t.name}
@@ -1277,19 +1306,19 @@ export function ConnectionDialog({
                                 onSelect={() => {
                                   handleTagToggle(t.name);
                                 }}
-                                className="flex items-center justify-between"
+                                className="flex items-center justify-between text-xs"
                               >
                                 <div className="flex items-center gap-2">
                                   <div
                                     className={cn(
-                                      "w-3 h-3 rounded-full",
+                                      "w-2.5 h-2.5 rounded-full",
                                       t.color,
                                     )}
                                   />
                                   <span>{t.name}</span>
                                 </div>
                                 {selectedTags.includes(t.name) && (
-                                  <Check className="h-4 w-4" />
+                                  <Check className="h-3.5 w-3.5" />
                                 )}
                               </CommandItem>
                             ))}
@@ -1297,7 +1326,7 @@ export function ConnectionDialog({
 
                           {/* Group Tags */}
                           {groupTags.length > 0 && (
-                            <CommandGroup heading="Groups">
+                            <CommandGroup heading="Groups" className="text-xs">
                               {groupTags.map((t) => (
                                 <CommandItem
                                   key={t.name}
@@ -1306,12 +1335,12 @@ export function ConnectionDialog({
                                     if (editingGroupTag === t.name) return;
                                     handleTagToggle(t.name);
                                   }}
-                                  className="group flex items-center justify-between"
+                                  className="group flex items-center justify-between text-xs"
                                 >
                                   <div className="flex items-center gap-2">
                                     <div
                                       className={cn(
-                                        "w-3 h-3 rounded-full cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-primary transition-all",
+                                        "w-2.5 h-2.5 rounded-full cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-primary transition-all",
                                         t.color,
                                       )}
                                       onClick={(e) => {
@@ -1322,7 +1351,7 @@ export function ConnectionDialog({
                                     />
                                     {editingGroupTag === t.name ? (
                                       <Input
-                                        className="h-6 px-1"
+                                        className="h-6 px-1 text-xs"
                                         value={editingGroupName}
                                         onChange={(e) => {
                                           setEditingGroupName(e.target.value);
@@ -1359,30 +1388,30 @@ export function ConnectionDialog({
                                         <Button
                                           variant="ghost"
                                           size="sm"
-                                          className="h-6 w-6 p-0 hover:bg-accent"
+                                          className="h-5 w-5 p-0 hover:bg-accent"
                                           onClick={(e) => {
                                             e.stopPropagation();
                                             setEditingGroupTag(t.name);
                                             setEditingGroupName(t.name);
                                           }}
                                         >
-                                          <Edit2 className="h-3 w-3" />
+                                          <Edit2 className="h-2.5 w-2.5" />
                                         </Button>
                                         <Button
                                           variant="ghost"
                                           size="sm"
-                                          className="h-6 w-6 p-0 hover:bg-destructive/10"
+                                          className="h-5 w-5 p-0 hover:bg-destructive/10"
                                           onClick={(e) => {
                                             e.stopPropagation();
                                             handleDeleteGroup(t.name);
                                           }}
                                         >
-                                          <X className="h-3 w-3 text-destructive" />
+                                          <X className="h-2.5 w-2.5 text-destructive" />
                                         </Button>
                                       </div>
                                     )}
                                     {selectedTags.includes(t.name) && (
-                                      <Check className="h-4 w-4" />
+                                      <Check className="h-3.5 w-3.5" />
                                     )}
                                   </div>
                                 </CommandItem>
@@ -1403,8 +1432,9 @@ export function ConnectionDialog({
                                   onSelect={() => {
                                     handleCreateGroup(groupSearchValue);
                                   }}
+                                  className="text-xs"
                                 >
-                                  <Plus className="h-4 w-4 mr-2" />
+                                  <Plus className="h-3 w-3 mr-2" />
                                   Create "{groupSearchValue}"
                                 </CommandItem>
                               </CommandGroup>
@@ -1419,12 +1449,14 @@ export function ConnectionDialog({
               {/* Connection Details */}
               {dbType !== "sqlite" ? (
                 <>
-                  <div className="grid grid-cols-12 gap-4">
+                  <div className="grid grid-cols-12 gap-3">
                     <div className="col-span-8">
-                      <Label htmlFor="host">Host/Socket</Label>
+                      <Label htmlFor="host" className="text-xs">
+                        Host/Socket
+                      </Label>
                       <Input
                         id="host"
-                        className="mt-1.5"
+                        className="mt-1 h-8 text-xs"
                         value={host}
                         onChange={(e) => {
                           setHost(e.target.value);
@@ -1434,10 +1466,12 @@ export function ConnectionDialog({
                       />
                     </div>
                     <div className="col-span-4">
-                      <Label htmlFor="port">Port</Label>
+                      <Label htmlFor="port" className="text-xs">
+                        Port
+                      </Label>
                       <Input
                         id="port"
-                        className="mt-1.5"
+                        className="mt-1 h-8 text-xs"
                         value={port}
                         onChange={(e) => {
                           setPort(e.target.value);
@@ -1448,12 +1482,14 @@ export function ConnectionDialog({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <Label htmlFor="username">User</Label>
+                      <Label htmlFor="username" className="text-xs">
+                        User
+                      </Label>
                       <Input
                         id="username"
-                        className="mt-1.5"
+                        className="mt-1 h-8 text-xs"
                         value={username}
                         onChange={(e) => {
                           setUsername(e.target.value);
@@ -1463,10 +1499,12 @@ export function ConnectionDialog({
                       />
                     </div>
                     <div>
-                      <Label htmlFor="password">Password</Label>
+                      <Label htmlFor="password" className="text-xs">
+                        Password
+                      </Label>
                       <Input
                         id="password"
-                        className="mt-1.5"
+                        className="mt-1 h-8 text-xs"
                         type="password"
                         value={password}
                         onChange={(e) => {
@@ -1479,10 +1517,12 @@ export function ConnectionDialog({
                   </div>
 
                   <div>
-                    <Label htmlFor="database">Database</Label>
+                    <Label htmlFor="database" className="text-xs">
+                      Database
+                    </Label>
                     <Input
                       id="database"
-                      className="mt-1.5"
+                      className="mt-1 h-8 text-xs"
                       value={database}
                       onChange={(e) => {
                         setDatabase(e.target.value);
@@ -1494,10 +1534,12 @@ export function ConnectionDialog({
                 </>
               ) : (
                 <div>
-                  <Label htmlFor="database">Database File</Label>
+                  <Label htmlFor="database" className="text-xs">
+                    Database File
+                  </Label>
                   <Input
                     id="database"
-                    className="mt-1.5"
+                    className="mt-1 h-8 text-xs"
                     value={database}
                     onChange={(e) => {
                       setDatabase(e.target.value);
@@ -1511,13 +1553,13 @@ export function ConnectionDialog({
               {/* SSL and SSH Options */}
               {dbType !== "sqlite" && (
                 <>
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     <div>
                       <Label
                         htmlFor="ssl-mode"
-                        className="flex items-center gap-2"
+                        className="flex items-center gap-1.5 text-xs"
                       >
-                        <Shield className="h-3.5 w-3.5 text-muted-foreground" />
+                        <Shield className="h-3 w-3 text-muted-foreground" />
                         SSL Mode
                       </Label>
                       <Popover open={sslModeOpen} onOpenChange={setSslModeOpen}>
@@ -1525,10 +1567,10 @@ export function ConnectionDialog({
                           <Button
                             id="ssl-mode"
                             variant="outline"
-                            className="w-full justify-between mt-1.5"
+                            className="w-full justify-between mt-1 h-8 text-xs"
                           >
                             <span className="capitalize">{sslMode}</span>
-                            <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            <ChevronDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent
@@ -1547,7 +1589,7 @@ export function ConnectionDialog({
                                 variant={
                                   sslMode === mode ? "secondary" : "ghost"
                                 }
-                                className="justify-start capitalize"
+                                className="justify-start capitalize text-xs h-8"
                                 onClick={() => {
                                   setSslMode(mode);
                                   setSslModeOpen(false);
@@ -1562,13 +1604,13 @@ export function ConnectionDialog({
                     </div>
 
                     {sslMode !== SslMode.Disable && (
-                      <div className="space-y-4">
-                        <div className="grid grid-cols-3 gap-4">
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-3 gap-3">
                           <div>
                             <Label htmlFor="ssl-key" className="text-xs">
                               Key File
                             </Label>
-                            <div className="relative mt-1.5">
+                            <div className="relative mt-1">
                               <Input
                                 id="ssl-key"
                                 type="file"
@@ -1579,7 +1621,7 @@ export function ConnectionDialog({
                                 }}
                                 className="absolute inset-0 opacity-0 cursor-pointer"
                               />
-                              <div className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-2 text-xs">
+                              <div className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-xs">
                                 <span
                                   className={cn(
                                     "truncate",
@@ -1597,7 +1639,7 @@ export function ConnectionDialog({
                             <Label htmlFor="ssl-cert" className="text-xs">
                               Certificate
                             </Label>
-                            <div className="relative mt-1.5">
+                            <div className="relative mt-1">
                               <Input
                                 id="ssl-cert"
                                 type="file"
@@ -1608,7 +1650,7 @@ export function ConnectionDialog({
                                 }}
                                 className="absolute inset-0 opacity-0 cursor-pointer"
                               />
-                              <div className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-2 text-xs">
+                              <div className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-xs">
                                 <span
                                   className={cn(
                                     "truncate",
@@ -1626,7 +1668,7 @@ export function ConnectionDialog({
                             <Label htmlFor="ssl-ca" className="text-xs">
                               CA Certificate
                             </Label>
-                            <div className="relative mt-1.5">
+                            <div className="relative mt-1">
                               <Input
                                 id="ssl-ca"
                                 type="file"
@@ -1637,7 +1679,7 @@ export function ConnectionDialog({
                                 }}
                                 className="absolute inset-0 opacity-0 cursor-pointer"
                               />
-                              <div className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-2 text-xs">
+                              <div className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-xs">
                                 <span
                                   className={cn(
                                     "truncate",
@@ -1657,10 +1699,10 @@ export function ConnectionDialog({
                   </div>
 
                   {/* SSH Tunnel */}
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <Label className="flex items-center gap-2">
-                        <Server className="h-3.5 w-3.5 text-muted-foreground" />
+                      <Label className="flex items-center gap-1.5 text-xs">
+                        <Server className="h-3 w-3 text-muted-foreground" />
                         SSH Tunnel
                       </Label>
                       <Switch checked={useSSH} onCheckedChange={setUseSSH} />
@@ -1668,12 +1710,14 @@ export function ConnectionDialog({
 
                     {useSSH && (
                       <>
-                        <div className="grid grid-cols-12 gap-4">
+                        <div className="grid grid-cols-12 gap-3">
                           <div className="col-span-8">
-                            <Label htmlFor="ssh-host">SSH Server</Label>
+                            <Label htmlFor="ssh-host" className="text-xs">
+                              SSH Server
+                            </Label>
                             <Input
                               id="ssh-host"
-                              className="mt-1.5"
+                              className="mt-1 h-8 text-xs"
                               value={sshHost}
                               onChange={(e) => {
                                 setSshHost(e.target.value);
@@ -1682,10 +1726,12 @@ export function ConnectionDialog({
                             />
                           </div>
                           <div className="col-span-4">
-                            <Label htmlFor="ssh-port">Port</Label>
+                            <Label htmlFor="ssh-port" className="text-xs">
+                              Port
+                            </Label>
                             <Input
                               id="ssh-port"
-                              className="mt-1.5"
+                              className="mt-1 h-8 text-xs"
                               value={sshPort}
                               onChange={(e) => {
                                 setSshPort(e.target.value);
@@ -1695,12 +1741,14 @@ export function ConnectionDialog({
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <Label htmlFor="ssh-user">SSH User</Label>
+                            <Label htmlFor="ssh-user" className="text-xs">
+                              SSH User
+                            </Label>
                             <Input
                               id="ssh-user"
-                              className="mt-1.5"
+                              className="mt-1 h-8 text-xs"
                               value={sshUser}
                               onChange={(e) => {
                                 setSshUser(e.target.value);
@@ -1709,10 +1757,12 @@ export function ConnectionDialog({
                             />
                           </div>
                           <div>
-                            <Label htmlFor="ssh-password">SSH Password</Label>
+                            <Label htmlFor="ssh-password" className="text-xs">
+                              SSH Password
+                            </Label>
                             <Input
                               id="ssh-password"
-                              className="mt-1.5"
+                              className="mt-1 h-8 text-xs"
                               type="password"
                               value={sshPassword}
                               onChange={(e) => {
@@ -1724,7 +1774,7 @@ export function ConnectionDialog({
                           </div>
                         </div>
 
-                        <div className="space-y-3">
+                        <div className="space-y-2">
                           <div className="flex items-center gap-2">
                             <Checkbox
                               id="use-ssh-agent"
@@ -1735,7 +1785,7 @@ export function ConnectionDialog({
                             />
                             <Label
                               htmlFor="use-ssh-agent"
-                              className="cursor-pointer"
+                              className="cursor-pointer text-xs"
                             >
                               Use SSH Agent
                             </Label>
@@ -1753,7 +1803,7 @@ export function ConnectionDialog({
                             <Label
                               htmlFor="use-ssh-key"
                               className={cn(
-                                "cursor-pointer",
+                                "cursor-pointer text-xs",
                                 useSSHAgent && "text-muted-foreground",
                               )}
                             >
@@ -1767,18 +1817,19 @@ export function ConnectionDialog({
                                 <Label htmlFor="ssh-key" className="text-xs">
                                   Private Key
                                 </Label>
-                                <div className="mt-1.5 flex gap-2">
+                                <div className="mt-1 flex gap-2">
                                   <Input
                                     id="ssh-key"
                                     value={sshKeyPath}
                                     readOnly
                                     placeholder="Select private key..."
-                                    className="flex-1"
+                                    className="flex-1 h-8 text-xs"
                                   />
                                   <Button
                                     type="button"
                                     variant="outline"
                                     onClick={handleSelectSSHKey}
+                                    className="h-8 px-3 text-xs"
                                   >
                                     Browse
                                   </Button>
@@ -1793,7 +1844,7 @@ export function ConnectionDialog({
                                 </Label>
                                 <Input
                                   id="ssh-key-passphrase"
-                                  className="mt-1.5"
+                                  className="mt-1 h-8 text-xs"
                                   type="password"
                                   value={sshKeyPassphrase}
                                   onChange={(e) => {
@@ -1812,10 +1863,10 @@ export function ConnectionDialog({
               )}
             </TabsContent>
           </Tabs>
-          <div className="mt-6 space-y-4">
+          <div className="mt-4 space-y-3">
             <div className="flex items-center justify-between">
-              <Label className="flex items-center gap-2">
-                <Server className="h-3.5 w-3.5 text-muted-foreground" />
+              <Label className="flex items-center gap-1.5 text-xs">
+                <Server className="h-3 w-3 text-muted-foreground" />
                 AWS SSM Bastion
                 <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
                   Beta
@@ -1830,12 +1881,14 @@ export function ConnectionDialog({
             </div>
             {useAwsSsm && (
               <>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label htmlFor="ssm-region">Region *</Label>
+                    <Label htmlFor="ssm-region" className="text-xs">
+                      Region *
+                    </Label>
                     <Input
                       id="ssm-region"
-                      className="mt-1.5"
+                      className="mt-1 h-8 text-xs"
                       value={ssmRegion}
                       onChange={(e) => {
                         setSsmRegion(e.target.value);
@@ -1844,10 +1897,12 @@ export function ConnectionDialog({
                     />
                   </div>
                   <div>
-                    <Label htmlFor="ssm-target">Target ID *</Label>
+                    <Label htmlFor="ssm-target" className="text-xs">
+                      Target ID *
+                    </Label>
                     <Input
                       id="ssm-target"
-                      className="mt-1.5"
+                      className="mt-1 h-8 text-xs"
                       value={ssmTargetId}
                       onChange={(e) => {
                         setSsmTargetId(e.target.value);
@@ -1856,8 +1911,8 @@ export function ConnectionDialog({
                     />
                   </div>
                 </div>
-                <div className="space-y-3">
-                  <Label>Authentication Method</Label>
+                <div className="space-y-2">
+                  <Label className="text-xs">Authentication Method</Label>
                   <div className="flex gap-4">
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
@@ -1868,9 +1923,9 @@ export function ConnectionDialog({
                         onChange={() => {
                           setSsmAuthType("profile");
                         }}
-                        className="h-4 w-4"
+                        className="h-3.5 w-3.5"
                       />
-                      <span className="text-sm">AWS Profile</span>
+                      <span className="text-xs">AWS Profile</span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
@@ -1881,18 +1936,20 @@ export function ConnectionDialog({
                         onChange={() => {
                           setSsmAuthType("oauth");
                         }}
-                        className="h-4 w-4"
+                        className="h-3.5 w-3.5"
                       />
-                      <span className="text-sm">SSO / OAuth</span>
+                      <span className="text-xs">SSO / OAuth</span>
                     </label>
                   </div>
                 </div>
                 {ssmAuthType === "profile" ? (
                   <div>
-                    <Label htmlFor="ssm-profile">AWS Profile Name</Label>
+                    <Label htmlFor="ssm-profile" className="text-xs">
+                      AWS Profile Name
+                    </Label>
                     <Input
                       id="ssm-profile"
-                      className="mt-1.5"
+                      className="mt-1 h-8 text-xs"
                       value={ssmProfileName}
                       onChange={(e) => {
                         setSsmProfileName(e.target.value);
@@ -1901,16 +1958,18 @@ export function ConnectionDialog({
                     />
                   </div>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     <div>
-                      <Label htmlFor="oauth-provider">SSO Provider *</Label>
+                      <Label htmlFor="oauth-provider" className="text-xs">
+                        SSO Provider *
+                      </Label>
                       <Select
                         value={ssmOAuthProvider}
                         onValueChange={(value) => {
                           setSsmOAuthProvider(value);
                         }}
                       >
-                        <SelectTrigger className="mt-1.5 w-full">
+                        <SelectTrigger className="mt-1 h-8 text-xs w-full">
                           <SelectValue placeholder="Select SSO provider" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1926,12 +1985,14 @@ export function ConnectionDialog({
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <Label htmlFor="oauth-client-id">Client ID *</Label>
+                        <Label htmlFor="oauth-client-id" className="text-xs">
+                          Client ID *
+                        </Label>
                         <Input
                           id="oauth-client-id"
-                          className="mt-1.5"
+                          className="mt-1 h-8 text-xs"
                           value={ssmOAuthClientId}
                           onChange={(e) => {
                             setSsmOAuthClientId(e.target.value);
@@ -1941,10 +2002,12 @@ export function ConnectionDialog({
                       </div>
                       {ssmOAuthProvider === "Microsoft" && (
                         <div>
-                          <Label htmlFor="oauth-tenant-id">Tenant ID</Label>
+                          <Label htmlFor="oauth-tenant-id" className="text-xs">
+                            Tenant ID
+                          </Label>
                           <Input
                             id="oauth-tenant-id"
-                            className="mt-1.5"
+                            className="mt-1 h-8 text-xs"
                             value={ssmOAuthTenantId}
                             onChange={(e) => {
                               setSsmOAuthTenantId(e.target.value);
@@ -1955,30 +2018,32 @@ export function ConnectionDialog({
                       )}
                     </div>
                     <div>
-                      <Label htmlFor="assume-role-arn">
+                      <Label htmlFor="assume-role-arn" className="text-xs">
                         AWS IAM Role ARN *
                       </Label>
                       <Input
                         id="assume-role-arn"
-                        className="mt-1.5"
+                        className="mt-1 h-8 text-xs"
                         value={ssmAssumeRoleArn}
                         onChange={(e) => {
                           setSsmAssumeRoleArn(e.target.value);
                         }}
                         placeholder="arn:aws:iam::123456789012:role/SSMAccessRole"
                       />
-                      <p className="text-xs text-muted-foreground mt-1">
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
                         IAM role to assume using the OAuth token
                       </p>
                     </div>
                   </div>
                 )}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label htmlFor="ssm-remote-host">Remote Host</Label>
+                    <Label htmlFor="ssm-remote-host" className="text-xs">
+                      Remote Host
+                    </Label>
                     <Input
                       id="ssm-remote-host"
-                      className="mt-1.5"
+                      className="mt-1 h-8 text-xs"
                       value={ssmRemoteHost}
                       onChange={(e) => {
                         setSsmRemoteHost(e.target.value);
@@ -1987,10 +2052,12 @@ export function ConnectionDialog({
                     />
                   </div>
                   <div>
-                    <Label htmlFor="ssm-remote-port">Remote Port</Label>
+                    <Label htmlFor="ssm-remote-port" className="text-xs">
+                      Remote Port
+                    </Label>
                     <Input
                       id="ssm-remote-port"
-                      className="mt-1.5"
+                      className="mt-1 h-8 text-xs"
                       value={ssmRemotePort}
                       onChange={(e) => {
                         setSsmRemotePort(e.target.value);
@@ -2004,8 +2071,8 @@ export function ConnectionDialog({
           </div>
         </div>
 
-        <DialogFooter className="sticky bottom-0 bg-background border-t px-3 py-1.5 gap-1.5">
-          <div className="flex-1">
+        <DialogFooter className="sticky bottom-0 bg-background border-t px-4 py-2.5 gap-2">
+          <div className="flex items-center gap-2 flex-1">
             <div
               role="button"
               tabIndex={0}
@@ -2035,73 +2102,75 @@ export function ConnectionDialog({
                 }
               }}
               className={cn(
-                "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground h-8 px-3 py-1 cursor-pointer select-none",
+                "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground h-8 px-3 cursor-pointer select-none",
                 uriParsed && "text-green-600",
               )}
               style={{ WebkitUserSelect: "none", userSelect: "none" }}
             >
               {uriParsed && (
                 <>
-                  <ClipboardCheck className="h-3.5 w-3.5" />
+                  <ClipboardCheck className="h-3 w-3" />
                   Parsed
                 </>
               )}
               {!uriParsed && (
                 <>
-                  <ClipboardPaste className="h-3.5 w-3.5" />
+                  <ClipboardPaste className="h-3 w-3" />
                   Paste Config
                 </>
               )}
             </div>
+            {testStatusMessage && (
+              <span className="text-xs text-muted-foreground select-text truncate">
+                {testStatusMessage}
+              </span>
+            )}
           </div>
           <Button
             variant="outline"
-            size="sm"
+            size="xs"
             onClick={handleTest}
             disabled={isTesting || isSaving || isConnecting}
-            className={cn("h-8 px-3", testSuccess && "text-green-600")}
+            className={cn("h-8 px-3 text-xs", testSuccess && "text-green-600")}
           >
             {isTesting ? (
               <>
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                {testStage === "ssh" ? "Testing SSH…" : "Testing Database…"}
+                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                {testStage === "ssh" ? "Testing SSH…" : "Testing DB…"}
               </>
             ) : testSuccess ? (
               <>
-                <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                <CheckCircle2 className="mr-1.5 h-3 w-3" />
                 Tested
               </>
             ) : (
               "Test"
             )}
           </Button>
-          <span className="min-w-[160px] text-xs text-muted-foreground select-text">
-            {testStatusMessage}
-          </span>
           <Button
             variant="outline"
-            size="sm"
+            size="xs"
             onClick={handleSave}
             disabled={isSaving || isConnecting || isTesting}
-            className="h-8 px-3"
+            className="h-8 px-3 text-xs"
           >
             {isSaving && (
               <>
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
                 Saving...
               </>
             )}
             {!isSaving && "Save"}
           </Button>
           <Button
-            size="sm"
+            size="xs"
             onClick={handleConnect}
             disabled={isConnecting || isSaving || isTesting}
-            className="h-8 px-4"
+            className="h-8 px-4 text-xs"
           >
             {isConnecting && (
               <>
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
                 Connecting...
               </>
             )}

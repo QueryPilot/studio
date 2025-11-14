@@ -10,6 +10,7 @@ import { databaseService } from "./services/databaseService";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { useAIStore } from "./stores/aiStore";
+import { useConnectionWindowStore } from "./stores/connectionWindowStore";
 
 function VaultLoadingScreen() {
   return (
@@ -39,6 +40,8 @@ function AppContent() {
 function App() {
   const [vaultReady, setVaultReady] = useState(!isTauri());
   const { setConfiguredProviders, setInitialized } = useAIStore();
+  const { initialize: initializeConnectionWindowStore } =
+    useConnectionWindowStore();
 
   // Load configured AI providers on startup
   useEffect(() => {
@@ -58,6 +61,13 @@ function App() {
 
     void loadConfiguredProviders();
   }, [setConfiguredProviders, setInitialized]);
+
+  // Initialize connection window tracking
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    void initializeConnectionWindowStore();
+  }, [initializeConnectionWindowStore]);
 
   // Ensure connections are closed on hard reloads as well
   useEffect(() => {

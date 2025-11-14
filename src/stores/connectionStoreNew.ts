@@ -308,16 +308,13 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
       `[ConnectionStore] Cloning connection for database ${database}, group: ${groupName}`
     );
 
-    // If source wasn't in a group, update it to be in the same group
-    if (!source.profile.group) {
-      await get().updateConnection(sourceId, {
-        ...source.profile,
-        group: groupName,
-      });
-    }
-
     // Save the new connection
     const newId = await get().saveConnection(newProfile);
+    
+    // Don't update the source connection to avoid triggering workspace reload
+    // The source will be updated to the group on next app restart or when
+    // the user manually edits it
+    
     return newId;
   },
 }));

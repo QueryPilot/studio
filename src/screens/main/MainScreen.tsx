@@ -96,15 +96,15 @@ export function MainScreen() {
             {/* CTA Actions */}
             <div className="w-full space-y-2">
               <Button
-                variant="outline"
+                variant="default"
                 className="w-full justify-start"
-                size="default"
+                size="sm"
                 onClick={() => {
                   setConnectionDialogOpen(true);
                 }}
               >
                 <Database className="mr-2 h-4 w-4" />
-                Connect Database
+                New Connection
               </Button>
             </div>
           </div>
@@ -120,12 +120,12 @@ export function MainScreen() {
                     size="sm"
                   >
                     <Settings className="mr-2 h-4 w-4" />
-                    Settings
+                    Preferences
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-56">
                   <DropdownMenuItem onClick={() => {}}>
-                    Settings coming soon...
+                    Preferences coming soon...
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -166,11 +166,13 @@ export function MainScreen() {
       </div>
 
       {/* Connection Dialog */}
-      <ConnectionDialog
-        open={connectionDialogOpen}
-        onOpenChange={setConnectionDialogOpen}
-        onConnect={handleConnectToDatabase}
-      />
+      {connectionDialogOpen && (
+        <ConnectionDialog
+          open
+          onOpenChange={setConnectionDialogOpen}
+          onConnect={handleConnectToDatabase}
+        />
+      )}
     </div>
   );
 }
