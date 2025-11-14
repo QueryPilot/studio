@@ -95,6 +95,9 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
         }
       }
 
+      // Force immediate flush to ensure changes persist
+      await vaultStorage.flushPendingChanges();
+
       await get().fetchConnections();
       return id;
     } catch (err) {
@@ -122,6 +125,9 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
         await vaultStorage.updateTags(id, uniqueTags);
       }
 
+      // Force immediate flush to ensure changes persist
+      await vaultStorage.flushPendingChanges();
+
       await get().fetchConnections();
     } catch (err) {
       const error =
@@ -136,6 +142,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     set({ error: null });
     try {
       await vaultStorage.deleteConnection(id);
+      await vaultStorage.flushPendingChanges();
       await get().fetchConnections();
     } catch (err) {
       const error =
@@ -149,6 +156,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
   toggleFavorite: async (id: string) => {
     try {
       const isFavorite = await vaultStorage.toggleFavorite(id);
+      await vaultStorage.flushPendingChanges();
       await get().fetchConnections();
       return isFavorite;
     } catch (err) {
@@ -170,6 +178,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
       const tags = new Set(connection.metadata.tags);
       tags.add(tag.trim());
       await vaultStorage.updateTags(id, Array.from(tags).filter(Boolean));
+      await vaultStorage.flushPendingChanges();
       await get().fetchConnections();
     } catch (err) {
       const error = err instanceof Error ? err.message : "Failed to add tag";
@@ -190,6 +199,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
         (existingTag) => existingTag !== tag,
       );
       await vaultStorage.updateTags(id, tags);
+      await vaultStorage.flushPendingChanges();
       await get().fetchConnections();
     } catch (err) {
       const error = err instanceof Error ? err.message : "Failed to remove tag";
@@ -202,6 +212,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
   markAsUsed: async (id: string) => {
     try {
       await vaultStorage.markAsUsed(id);
+      await vaultStorage.flushPendingChanges();
       await get().fetchConnections();
     } catch (err) {
       const error =

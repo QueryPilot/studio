@@ -3,9 +3,10 @@ import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useConnectionWindowStore } from "@/stores/connectionWindowStore";
-import { useNavigate } from "react-router-dom";
 import type { ConnectionProfile, StoredConnection } from "@/types/connection";
 import { DbType } from "@/types/connection";
+import { windowManager } from "@/services/windowManager";
+import { toast } from "sonner";
 import {
   Database,
   Server,
@@ -38,7 +39,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ConnectionDialog } from "@/components/ConnectionDialog";
-import { toast } from "sonner";
 
 const databaseIcons: Record<string, typeof Database> = {
   PostgreSQL: Database,
@@ -85,7 +85,7 @@ function ConnectionItem({
   onClick,
   onEdit,
   onDelete,
-  onDuplicate,
+  onDuplicate: _onDuplicate,
 }: ConnectionItemProps) {
   const dbTypeStr = DbType[connection.profile.db_type];
   const IconComponent = databaseIcons[dbTypeStr] || Database;
@@ -319,10 +319,8 @@ export function ConnectionList({
   const {
     connections,
     deleteConnection,
-
     loading: isLoading,
   } = useConnectionStore();
-  const navigate = useNavigate();
   const [editingConnection, setEditingConnection] =
     useState<StoredConnection | null>(null);
   const [deletingConnection, setDeletingConnection] =
@@ -416,9 +414,28 @@ export function ConnectionList({
     );
   }
 
-  const handleConnectionClick = (connection: StoredConnection) => {
+  const handleConnectionClick = async (connection: StoredConnection) => {
     setActiveConnectionId(connection.profile.id);
-    void navigate(`/workspace/${connection.profile.id}`);
+
+    try {
+      const defaultDatabase = connection.profile.database.trim();
+      const connectionName = connection.profile.name || "Workspace";
+
+      // Open workspace in a new window
+      await windowManager.openWorkspace(
+        connection.profile.id,
+        connectionName,
+        defaultDatabase ? { database: defaultDatabase } : undefined,
+      );
+    } catch (error) {
+      console.error("Failed to open workspace:", error);
+      toast.error("Failed to open workspace", {
+        description:
+          error instanceof Error
+            ? error.message
+            : "Failed to open workspace window",
+      });
+    }
   };
 
   const handleEdit = (connection: StoredConnection) => {

@@ -109,6 +109,7 @@ export function WorkspaceTitleBar({
     useState<ConnectionHealth | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const { theme, setTheme } = useTheme();
+  const [isOpeningWindow, setIsOpeningWindow] = useState(false);
 
   // Query for databases list
   const {
@@ -128,6 +129,9 @@ export function WorkspaceTitleBar({
   });
 
   // Group databases by whether they have profiles
+  // Memoize connections length to prevent unnecessary recalculations
+  const connectionsLength = connections.length;
+  
   const groupedDatabases = useMemo(() => {
     if (!connection) return { savedProfiles: [], others: [] };
 
@@ -155,7 +159,7 @@ export function WorkspaceTitleBar({
     const others = filteredDatabases.filter((db) => !db.hasProfile);
 
     return { savedProfiles, others };
-  }, [databases, connections, connection, searchQuery]);
+  }, [databases, connectionsLength, connection, searchQuery]);
   const { toggleSidebar: onToggleSidebar } = useWorkspaceScreenStore();
   const { openPreferences } = usePreferencesStore();
   const {
@@ -562,12 +566,19 @@ export function WorkspaceTitleBar({
   };
 
   const handleSelectDatabase = async (dbName: string, hasProfile: boolean) => {
+    // Prevent multiple simultaneous window operations
+    if (isOpeningWindow) {
+      console.log(`[WorkspaceTitleBar] Already opening a window, ignoring request for ${dbName}`);
+      return;
+    }
+
     if (dbName === selectedDatabase) {
       setOpen(false);
       return; // Already on this database
     }
 
     setOpen(false); // Close the popover
+    setIsOpeningWindow(true);
 
     try {
       if (!connection) {
@@ -603,15 +614,30 @@ export function WorkspaceTitleBar({
         console.log(
           `[WorkspaceTitleBar] Creating new profile for database ${dbName} from source ${connectionId}`
         );
-        targetConnectionId = await connectionStore.getOrCreateDatabaseConnection(
-          connectionId,
-          dbName
+        
+        // CRITICAL: Check if we're already creating a profile for this database
+        // This prevents infinite loops where opening a window triggers another profile creation
+        const existingBeforeCreate = connectionStore.findConnectionByDatabase(
+          connection.host,
+          connection.port,
+          dbName,
+          connection.username
         );
+        
+        if (existingBeforeCreate) {
+          console.log(`[WorkspaceTitleBar] Profile was just created for ${dbName}, using it: ${existingBeforeCreate.profile.id}`);
+          targetConnectionId = existingBeforeCreate.profile.id;
+        } else {
+          targetConnectionId = await connectionStore.getOrCreateDatabaseConnection(
+            connectionId,
+            dbName
+          );
 
-        console.log(`[WorkspaceTitleBar] Created new profile with ID: ${targetConnectionId}`);
+          console.log(`[WorkspaceTitleBar] Created new profile with ID: ${targetConnectionId}`);
 
-        // Refetch to show the new cloned connection
-        await connectionStore.fetchConnections();
+          // Refetch to show the new cloned connection
+          await connectionStore.fetchConnections();
+        }
       }
 
       console.log(`[WorkspaceTitleBar] Target connectionId: ${targetConnectionId}, isWorkspaceOpen: ${windowManager.isWorkspaceOpen(targetConnectionId)}`);
@@ -638,6 +664,11 @@ export function WorkspaceTitleBar({
       toast.error("Failed to select database", {
         description: error instanceof Error ? error.message : String(error),
       });
+    } finally {
+      // Reset the flag after a delay to allow window creation to complete
+      setTimeout(() => {
+        setIsOpeningWindow(false);
+      }, 1000);
     }
   };
 
