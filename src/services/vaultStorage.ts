@@ -210,6 +210,7 @@ class VaultStorageService {
     metadata: ConnectionMetadata,
   ): Promise<void> {
     await this.updateMetadataInternal(id, metadata);
+    this.scheduleSave();
   }
 
   async toggleFavorite(id: string): Promise<boolean> {

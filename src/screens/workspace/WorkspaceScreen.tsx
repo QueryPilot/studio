@@ -25,6 +25,7 @@ import { useCrudStore } from "@/stores/crudStore";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauri } from "@/utils/tauri";
 import { connectionWindowTracker } from "@/services/connectionWindowTracker";
+import { windowManager } from "@/services/windowManager";
 
 // Default sidebars state - using a constant to avoid creating new objects
 const DEFAULT_SIDEBARS = { left: true, right: false };
@@ -178,6 +179,24 @@ export function WorkspaceScreen() {
       }
     };
   }, [connectionId, initWorkspace, initializePanels, searchParams]);
+
+  // Handle Cmd+Shift+N to open new main window
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Cmd+Shift+N (macOS) or Ctrl+Shift+N (Windows/Linux)
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === 'N') {
+        event.preventDefault();
+        console.log('[WorkspaceScreen] Opening new main window (Cmd+Shift+N)');
+        void windowManager.openNewMainWindow();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   // Handle window close with pending changes check
   useEffect(() => {

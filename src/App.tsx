@@ -92,20 +92,29 @@ function App() {
     const registerWindowHandlers = async () => {
       try {
         const currentWindow = getCurrentWindow();
-
-        // Preload vault and data before showing the main UI
-        try {
-          await vaultStorage.initialize();
-          await vaultStorage.preloadAll();
-        } catch (error) {
-          console.error("Preload failed", error);
-        } finally {
-          // Mark vault as ready to show main UI
-          setVaultReady(true);
-        }
-        // Only register close handler for main window
         const windowLabel = currentWindow.label;
         const isMainWindow = windowLabel === "main";
+
+        // Preload vault and data before showing the main UI
+        // Only block on vault loading for the primary main window
+        // For secondary windows (main-<timestamp>), initialize in background
+        if (isMainWindow) {
+          try {
+            await vaultStorage.initialize();
+            await vaultStorage.preloadAll();
+          } catch (error) {
+            console.error("Preload failed", error);
+          } finally {
+            // Mark vault as ready to show main UI
+            setVaultReady(true);
+          }
+        } else {
+          // For secondary windows, initialize vault in background without blocking
+          setVaultReady(true);
+          void vaultStorage.initialize().then(() => vaultStorage.preloadAll()).catch((error) => {
+            console.error("Background preload failed", error);
+          });
+        }
 
         if (!isMainWindow) {
           // Workspace windows handle their own close logic in WorkspaceScreen
