@@ -33,53 +33,63 @@ fn key_from_keychain() -> Result<[u8; 32], String> {
 }
 
 #[tauri::command]
-pub fn vault_write(app: tauri::AppHandle, plaintext_json: String) -> Result<(), String> {
-    let key = key_from_keychain()?;
-    let cipher = ChaCha20Poly1305::new(&key.into());
+pub async fn vault_write(app: tauri::AppHandle, plaintext_json: String) -> Result<(), String> {
+    // Run encryption and file I/O in a blocking task to avoid blocking the async runtime
+    tokio::task::spawn_blocking(move || {
+        let key = key_from_keychain()?;
+        let cipher = ChaCha20Poly1305::new(&key.into());
 
-    let mut nonce_bytes = [0u8; 12];
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
+        let mut nonce_bytes = [0u8; 12];
+        rand::thread_rng().fill_bytes(&mut nonce_bytes);
+        let nonce = Nonce::from_slice(&nonce_bytes);
 
-    let ciphertext = cipher
-        .encrypt(nonce, plaintext_json.as_bytes())
-        .map_err(|e| format!("Encrypt failed: {}", e))?;
+        let ciphertext = cipher
+            .encrypt(nonce, plaintext_json.as_bytes())
+            .map_err(|e| format!("Encrypt failed: {}", e))?;
 
-    let mut out = Vec::with_capacity(12 + ciphertext.len());
-    out.extend_from_slice(&nonce_bytes);
-    out.extend_from_slice(&ciphertext);
+        let mut out = Vec::with_capacity(12 + ciphertext.len());
+        out.extend_from_slice(&nonce_bytes);
+        out.extend_from_slice(&ciphertext);
 
-    let path = vault_path(&app)?;
-    let tmp = path.with_extension("tmp");
-    {
-        let mut f = fs::File::create(&tmp).map_err(|e| format!("Write tmp failed: {}", e))?;
-        f.write_all(&out)
-            .map_err(|e| format!("Write tmp failed: {}", e))?;
-        f.flush().map_err(|e| format!("Flush tmp failed: {}", e))?;
-    }
-    fs::rename(&tmp, &path).map_err(|e| format!("Atomic rename failed: {}", e))?;
-    Ok(())
+        let path = vault_path(&app)?;
+        let tmp = path.with_extension("tmp");
+        {
+            let mut f = fs::File::create(&tmp).map_err(|e| format!("Write tmp failed: {}", e))?;
+            f.write_all(&out)
+                .map_err(|e| format!("Write tmp failed: {}", e))?;
+            f.flush().map_err(|e| format!("Flush tmp failed: {}", e))?;
+        }
+        fs::rename(&tmp, &path).map_err(|e| format!("Atomic rename failed: {}", e))?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Task join failed: {}", e))?
 }
 
 #[tauri::command]
-pub fn vault_read(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    let path = vault_path(&app)?;
-    if !path.exists() {
-        return Ok(None);
-    }
-    let bytes = fs::read(path).map_err(|e| format!("Read vault failed: {}", e))?;
-    if bytes.len() < 12 {
-        return Err("Vault file too small".into());
-    }
-    let (nonce_bytes, ct) = bytes.split_at(12);
-    let key = key_from_keychain()?;
-    let cipher = ChaCha20Poly1305::new(&key.into());
-    let nonce = Nonce::from_slice(nonce_bytes);
-    let plaintext = cipher
-        .decrypt(nonce, ct)
-        .map_err(|e| format!("Decrypt failed: {}", e))?;
-    let s = String::from_utf8(plaintext).map_err(|e| format!("Invalid UTF-8: {}", e))?;
-    Ok(Some(s))
+pub async fn vault_read(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    // Run file I/O and decryption in a blocking task to avoid blocking the async runtime
+    tokio::task::spawn_blocking(move || {
+        let path = vault_path(&app)?;
+        if !path.exists() {
+            return Ok(None);
+        }
+        let bytes = fs::read(path).map_err(|e| format!("Read vault failed: {}", e))?;
+        if bytes.len() < 12 {
+            return Err("Vault file too small".into());
+        }
+        let (nonce_bytes, ct) = bytes.split_at(12);
+        let key = key_from_keychain()?;
+        let cipher = ChaCha20Poly1305::new(&key.into());
+        let nonce = Nonce::from_slice(nonce_bytes);
+        let plaintext = cipher
+            .decrypt(nonce, ct)
+            .map_err(|e| format!("Decrypt failed: {}", e))?;
+        let s = String::from_utf8(plaintext).map_err(|e| format!("Invalid UTF-8: {}", e))?;
+        Ok(Some(s))
+    })
+    .await
+    .map_err(|e| format!("Task join failed: {}", e))?
 }
 
 #[tauri::command]

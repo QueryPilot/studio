@@ -107,39 +107,39 @@ class VaultStorageService {
   async storeConnection(profile: ConnectionProfile): Promise<string> {
     await this.ensureInitialized();
 
-    return withTimeout(
-      (async () => {
-        const profileToStore: ConnectionProfile = { ...profile };
-        if (!profileToStore.id) {
-          profileToStore.id = crypto.randomUUID();
-        }
+    const profileToStore: ConnectionProfile = { ...profile };
+    if (!profileToStore.id) {
+      profileToStore.id = crypto.randomUUID();
+    }
 
-        const stored: StoredConnection = {
-          profile: profileToStore,
-          metadata: {
-            created_at: new Date().toISOString(),
-            last_used: null,
-            use_count: 0,
-            tags: [],
-            is_favorite: false,
-          },
-        };
+    const stored: StoredConnection = {
+      profile: profileToStore,
+      metadata: {
+        created_at: new Date().toISOString(),
+        last_used: null,
+        use_count: 0,
+        tags: [],
+        is_favorite: false,
+      },
+    };
 
-        this.connectionCache.set(profileToStore.id, stored);
+    // Immediately update in-memory cache (synchronous)
+    this.connectionCache.set(profileToStore.id, stored);
 
-        const index = await this.getIndex();
-        if (!index.includes(profileToStore.id)) {
-          index.push(profileToStore.id);
-          await this.storeIndex(index);
-        }
+    // Update index in-memory (synchronous)
+    const index = await this.getIndex();
+    if (!index.includes(profileToStore.id)) {
+      index.push(profileToStore.id);
+      this.indexCache = [...index];
+      this.indexDirty = true;
+    }
 
-        this.dirtyIds.add(profileToStore.id);
-        this.scheduleSave();
-        return profileToStore.id;
-      })(),
-      STORE_TIMEOUT,
-      "Store connection",
-    );
+    // Mark as dirty and schedule async save (non-blocking)
+    this.dirtyIds.add(profileToStore.id);
+    this.scheduleSave();
+    
+    // Return immediately without waiting for disk write
+    return profileToStore.id;
   }
 
   async getConnection(id: string): Promise<StoredConnection | null> {
@@ -165,31 +165,38 @@ class VaultStorageService {
     profile: ConnectionProfile,
   ): Promise<void> {
     await this.ensureInitialized();
-    const existing = await this.getConnection(id);
+    const existing = this.connectionCache.get(id);
     if (!existing) {
       throw new Error(`Connection ${id} not found`);
     }
     const profileToStore: ConnectionProfile = { ...profile, id };
     const metadata: ConnectionMetadata = { ...existing.metadata };
+    
+    // Immediately update in-memory cache (synchronous)
     this.connectionCache.set(id, { profile: profileToStore, metadata });
+    
+    // Mark as dirty and schedule async save (non-blocking)
     this.dirtyIds.add(id);
     this.scheduleSave();
+    
+    // Return immediately without waiting for disk write
   }
 
   async deleteConnection(id: string): Promise<void> {
     await this.ensureInitialized();
-    return withTimeout(
-      (async () => {
-        const index = await this.getIndex();
-        const newIndex = index.filter((connId) => connId !== id);
-        await this.storeIndex(newIndex);
-        this.connectionCache.delete(id);
-        this.deletedIds.add(id);
-        this.scheduleSave();
-      })(),
-      OPERATION_TIMEOUT,
-      `Delete connection ${id}`,
-    );
+    
+    // Immediately update in-memory cache (synchronous)
+    const index = await this.getIndex();
+    const newIndex = index.filter((connId) => connId !== id);
+    this.indexCache = [...newIndex];
+    this.indexDirty = true;
+    this.connectionCache.delete(id);
+    
+    // Mark as dirty and schedule async save (non-blocking)
+    this.deletedIds.add(id);
+    this.scheduleSave();
+    
+    // Return immediately without waiting for disk write
   }
 
   private async updateMetadataInternal(

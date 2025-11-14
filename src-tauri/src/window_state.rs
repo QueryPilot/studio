@@ -211,9 +211,17 @@ impl WindowStateManager {
             crate::error::AppError::internal(&format!("Failed to lock connections: {}", e))
         })?;
 
+        // Build statuses while holding the lock (avoid double-lock deadlock)
         Ok(connections
-            .keys()
-            .filter_map(|connection_id| self.get_connection_status(connection_id).ok())
+            .iter()
+            .map(|(connection_id, window_set)| {
+                let window_labels: Vec<String> = window_set.iter().cloned().collect();
+                ConnectionStatus {
+                    connection_id: connection_id.clone(),
+                    window_count: window_labels.len(),
+                    window_labels,
+                }
+            })
             .collect())
     }
 }

@@ -155,22 +155,6 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
           <TooltipTrigger asChild>
             <Button
               type="button"
-              variant={layoutDirection === "LR" ? "secondary" : "ghost"}
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => {
-                onLayoutDirectionChange?.("LR");
-              }}
-            >
-              <ArrowRightLeft className="h-3.5 w-3.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Horizontal Layout</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
               variant={layoutDirection === "TB" ? "secondary" : "ghost"}
               size="icon"
               className="h-7 w-7"
@@ -182,6 +166,22 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
             </Button>
           </TooltipTrigger>
           <TooltipContent>Vertical Layout</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant={layoutDirection === "LR" ? "secondary" : "ghost"}
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => {
+                onLayoutDirectionChange?.("LR");
+              }}
+            >
+              <ArrowRightLeft className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Horizontal Layout</TooltipContent>
         </Tooltip>
         {/* Divider */}
         <div className="h-5 w-px bg-border mx-0.5" />
