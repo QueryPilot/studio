@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { useConnectionWindowStore } from "@/stores/connectionWindowStore";
 import { useNavigate } from "react-router-dom";
 import type { ConnectionProfile, StoredConnection } from "@/types/connection";
 import { DbType } from "@/types/connection";
@@ -16,6 +17,7 @@ import {
   Trash2,
   Plus,
   Copy,
+  ExternalLink,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
@@ -89,6 +91,12 @@ function ConnectionItem({
   const IconComponent = databaseIcons[dbTypeStr] || Database;
   const colorClass = databaseColors[dbTypeStr] || "text-gray-600";
 
+  // Get window count for this connection
+  const windowCount = useConnectionWindowStore((state) =>
+    state.getWindowCount(connection.profile.id),
+  );
+  const hasOpenWindows = windowCount > 0;
+
   return (
     <div
       className={`group flex items-center justify-between px-1 py-1.5 rounded-xl bg-muted/40 hover:bg-muted/50 cursor-pointer transition-colors ${
@@ -111,6 +119,16 @@ function ConnectionItem({
               {isActive && (
                 <Circle className="h-1.5 w-1.5 fill-primary text-primary flex-shrink-0" />
               )}
+              {hasOpenWindows && !isActive && (
+                <div className="flex items-center gap-0.5 flex-shrink-0">
+                  <ExternalLink className="h-3 w-3 text-blue-500" />
+                  {windowCount > 1 && (
+                    <span className="text-[10px] font-medium text-blue-500">
+                      {windowCount}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
             <div className="text-sm text-muted-foreground truncate">
               {connection.profile.host}:{connection.profile.port}/
@@ -119,7 +137,9 @@ function ConnectionItem({
             <div className="flex flex-wrap gap-1 mt-1 items-center">
               {connection.metadata.tags
                 .filter((tag) =>
-                  ["local", "dev", "staging", "uat", "prod", "test"].includes(tag),
+                  ["local", "dev", "staging", "uat", "prod", "test"].includes(
+                    tag,
+                  ),
                 )
                 .map((tag) => {
                   const tagColor =
@@ -299,7 +319,7 @@ export function ConnectionList({
   const {
     connections,
     deleteConnection,
-    saveConnection,
+
     loading: isLoading,
   } = useConnectionStore();
   const navigate = useNavigate();

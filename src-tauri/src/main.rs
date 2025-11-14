@@ -163,6 +163,12 @@ fn main() {
             commands::create_trigger,
             commands::drop_trigger,
             commands::enable_disable_trigger,
+            // Window state / Connection tracking
+            commands::register_connection_window,
+            commands::unregister_connection_window,
+            commands::get_connection_status,
+            commands::get_all_connection_statuses,
+            commands::get_windows_for_connection,
         ])
         .build(context)
         .expect("error while building tauri application");

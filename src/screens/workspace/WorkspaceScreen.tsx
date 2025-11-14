@@ -24,6 +24,7 @@ import { DebugKeybindings } from "@/components/DebugKeybindings";
 import { useCrudStore } from "@/stores/crudStore";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauri } from "@/utils/tauri";
+import { connectionWindowTracker } from "@/services/connectionWindowTracker";
 
 // Default sidebars state - using a constant to avoid creating new objects
 const DEFAULT_SIDEBARS = { left: true, right: false };
@@ -141,6 +142,9 @@ export function WorkspaceScreen() {
       initWorkspace(connectionId);
       initializePanels(connectionId);
 
+      // Register this window with the connection tracker
+      void connectionWindowTracker.registerWindow(connectionId);
+
       // Get database from URL or use default
       const urlDbname = searchParams.get("dbname");
 
@@ -166,6 +170,9 @@ export function WorkspaceScreen() {
 
     // Cleanup on unmount
     return () => {
+      // Unregister window from connection tracker
+      void connectionWindowTracker.unregisterWindow();
+
       if (connectionId && databaseService.isConnectionActive(connectionId)) {
         void databaseService.disconnect(connectionId);
       }
