@@ -623,23 +623,23 @@ export const QueryPanel = memo(function QueryPanel({
       toggleHistory();
     };
 
-    const handleExecute = () => {
+    const handleExecuteEvent = () => {
       if (!isFocusedRef.current) return;
       console.log("🟢 QueryPanel handling execute event");
-      handleExecuteQuery();
+      handleExecute();
     };
 
     // Subscribe ALWAYS - handlers check focus
     eventBus.on("query-editor:format", handleFormat);
     eventBus.on("query-editor:toggle-history", handleToggleHistory);
-    eventBus.on("query-editor:execute", handleExecute);
+    eventBus.on("query-editor:execute", handleExecuteEvent);
 
     return () => {
       eventBus.off("query-editor:format", handleFormat);
       eventBus.off("query-editor:toggle-history", handleToggleHistory);
-      eventBus.off("query-editor:execute", handleExecute);
+      eventBus.off("query-editor:execute", handleExecuteEvent);
     };
-  }, [handleBeautify, toggleHistory, handleExecuteQuery]);
+  }, [handleBeautify, toggleHistory, handleExecute]);
 
   // Focus panel when QueryPanel is clicked or focused
   const handleFocusPanel = useCallback(() => {

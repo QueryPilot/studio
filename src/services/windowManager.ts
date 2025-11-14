@@ -126,7 +126,8 @@ class WindowManager {
     });
 
     // Handle window close - show main window again
-    await webview.once("tauri://destroyed", async () => {
+    // Note: Don't await this - it sets up a listener for future destruction
+    void webview.once("tauri://destroyed", async () => {
       this.windows.delete(label);
       // Show main window when workspace closes
       try {

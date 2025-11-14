@@ -94,11 +94,12 @@ function App() {
         const currentWindow = getCurrentWindow();
         const windowLabel = currentWindow.label;
         const isMainWindow = windowLabel === "main";
+        const isWorkspaceWindow = windowLabel.startsWith("workspace-");
 
         // Preload vault and data before showing the main UI
         // Only block on vault loading for the primary main window
-        // For secondary windows (main-<timestamp>), initialize in background
         if (isMainWindow) {
+          // Primary main window - block on vault load
           try {
             await vaultStorage.initialize();
             await vaultStorage.preloadAll();
@@ -108,8 +109,17 @@ function App() {
             // Mark vault as ready to show main UI
             setVaultReady(true);
           }
+        } else if (isWorkspaceWindow) {
+          // Workspace windows - show immediately, vault loads in background
+          // Workspace windows don't need vault data to render since they get
+          // connection info from URL params
+          setVaultReady(true);
+          // Initialize vault in background for metadata operations
+          void vaultStorage.initialize().then(() => vaultStorage.preloadAll()).catch((error) => {
+            console.error("Background vault load for workspace window failed", error);
+          });
         } else {
-          // For secondary windows, initialize vault in background without blocking
+          // Secondary main windows (main-<timestamp>) - minimal background init
           setVaultReady(true);
           void vaultStorage.initialize().then(() => vaultStorage.preloadAll()).catch((error) => {
             console.error("Background preload failed", error);
