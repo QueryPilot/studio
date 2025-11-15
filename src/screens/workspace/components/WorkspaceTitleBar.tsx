@@ -70,7 +70,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { GlobalChangesModal } from "@/components/GlobalChangesModal";
+import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
 
 interface WorkspaceTitleBarProps {
@@ -1198,8 +1198,8 @@ export function WorkspaceTitleBar({
         </DropdownMenu>
       </div>
 
-      {/* Global Changes Modal */}
-      <GlobalChangesModal
+      {/* Global Changes Dialog */}
+      <GlobalChangesDialog
         connectionId={connectionId}
         open={showGlobalChanges}
         onOpenChange={setShowGlobalChanges}

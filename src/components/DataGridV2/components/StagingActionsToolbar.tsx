@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Check, X } from "lucide-react";
 import { useCrudStore } from "@/stores/crudStore";
-import { GlobalChangesModal } from "@/components/GlobalChangesModal";
+import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
 
 interface StagingActionsToolbarProps {
   connectionId: string;
@@ -84,8 +84,8 @@ export function StagingActionsToolbar(props: StagingActionsToolbarProps) {
         </TooltipContent>
       </Tooltip>
 
-      {/* Commit Preview Modal */}
-      <GlobalChangesModal
+      {/* Commit Preview Dialog */}
+      <GlobalChangesDialog
         connectionId={connectionId}
         database={database}
         schema={schema}

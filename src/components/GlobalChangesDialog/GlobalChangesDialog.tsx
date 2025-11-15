@@ -14,8 +14,6 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
-  ChevronDown,
-  ChevronRight,
   Pencil,
   Plus,
   Trash2,
@@ -28,7 +26,7 @@ import { toast } from "sonner";
 import ReactDiffViewer from "react-diff-viewer-continued";
 import { useTheme } from "next-themes";
 
-interface GlobalChangesModalProps {
+interface GlobalChangesDialogProps {
   connectionId: string;
   database?: string;
   schema?: string;
@@ -38,7 +36,7 @@ interface GlobalChangesModalProps {
   onCommitSuccess?: () => void;
 }
 
-export function GlobalChangesModal(props: GlobalChangesModalProps) {
+export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
   const {
     connectionId,
     database,
@@ -63,25 +61,6 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
   // Check if this is table-specific or workspace-wide
   const isTableSpecific = database !== undefined && table !== undefined;
 
-  // Default expand all tables on mount
-  const [expandedTables, setExpandedTables] = useState<Set<string>>(() => {
-    const allTableKeys = Array.from(stagedCommands.entries())
-      .filter(([tableKey]) => {
-        if (isTableSpecific) {
-          const specificTableKey = getTableKey({
-            connectionId,
-            database: database!,
-            schema,
-            table: table!,
-          });
-          return tableKey === specificTableKey;
-        }
-        return tableKey.startsWith(`${connectionId}:`);
-      })
-      .map(([tableKey]) => tableKey);
-    return new Set(allTableKeys);
-  });
-
   // Filter commands based on scope
   const connectionCommands = Array.from(stagedCommands.entries()).filter(
     ([tableKey]) => {
@@ -98,21 +77,20 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
     },
   );
 
-  // Group commands by table, then by row
-  const groupedByTableAndRow = useMemo(() => {
-    const result = new Map<
-      string,
-      {
-        displayName: string;
-        rows: Map<
-          string,
-          {
-            rowKey: string;
-            commands: CrudCommand[];
-          }
-        >;
-      }
-    >();
+  // Group commands by row ID only, preserving user edit order
+  const groupedByRow = useMemo(() => {
+    const result: Array<{
+      rowKey: string;
+      tableName: string;
+      commands: CrudCommand[];
+    }> = [];
+
+    // Collect all commands in order they were added
+    const allCommands: Array<{
+      tableKey: string;
+      tableName: string;
+      command: CrudCommand;
+    }> = [];
 
     connectionCommands.forEach(([tableKey, commands]) => {
       const parts = tableKey.split(":");
@@ -122,55 +100,65 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
         ? `${schemaName}.${tableName}`
         : tableName || "";
 
-      if (!result.has(tableKey)) {
-        result.set(tableKey, {
-          displayName,
-          rows: new Map(),
+      commands.forEach((cmd) => {
+        allCommands.push({
+          tableKey,
+          tableName: displayName,
+          command: cmd,
         });
+      });
+    });
+
+    // Group by row key while preserving order
+    const rowMap = new Map<
+      string,
+      {
+        rowKey: string;
+        tableName: string;
+        commands: CrudCommand[];
+      }
+    >();
+
+    allCommands.forEach(({ tableName, command }) => {
+      let rowKey: string;
+
+      if (command.type === "data.insert") {
+        // For inserts, use command ID as row key
+        rowKey = `insert-${command.id}`;
+      } else if (command.type === "data.update") {
+        // For updates, use primary keys
+        const payload = command.payload as {
+          primaryKeys?: Record<string, unknown>;
+        };
+        rowKey = payload.primaryKeys
+          ? JSON.stringify(payload.primaryKeys)
+          : `update-${command.id}`;
+      } else if (command.type === "data.delete") {
+        // For deletes, use primary keys
+        const payload = command.payload as {
+          primaryKeys?: Record<string, unknown>;
+        };
+        rowKey = payload.primaryKeys
+          ? JSON.stringify(payload.primaryKeys)
+          : `delete-${command.id}`;
+      } else {
+        rowKey = command.id;
       }
 
-      const tableGroup = result.get(tableKey);
-      if (!tableGroup) return;
+      if (!rowMap.has(rowKey)) {
+        const row = {
+          rowKey,
+          tableName,
+          commands: [],
+        };
+        rowMap.set(rowKey, row);
+        result.push(row);
+      }
 
-      // Group commands by row
-      commands.forEach((cmd) => {
-        let rowKey: string;
-
-        if (cmd.type === "data.insert") {
-          // For inserts, use command ID as row key
-          rowKey = `insert-${cmd.id}`;
-        } else if (cmd.type === "data.update") {
-          // For updates, use primary keys
-          const payload = cmd.payload as {
-            primaryKeys?: Record<string, unknown>;
-          };
-          rowKey = payload.primaryKeys
-            ? JSON.stringify(payload.primaryKeys)
-            : `update-${cmd.id}`;
-        } else if (cmd.type === "data.delete") {
-          // For deletes, use primary keys
-          const payload = cmd.payload as {
-            primaryKeys?: Record<string, unknown>;
-          };
-          rowKey = payload.primaryKeys
-            ? JSON.stringify(payload.primaryKeys)
-            : `delete-${cmd.id}`;
-        } else {
-          rowKey = cmd.id;
-        }
-
-        if (!tableGroup.rows.has(rowKey)) {
-          tableGroup.rows.set(rowKey, {
-            rowKey,
-            commands: [],
-          });
-        }
-
-        const row = tableGroup.rows.get(rowKey);
-        if (row) {
-          row.commands.push(cmd);
-        }
-      });
+      const row = rowMap.get(rowKey);
+      if (row) {
+        row.commands.push(command);
+      }
     });
 
     return result;
@@ -197,18 +185,6 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
     totalSummary.total += commands.length;
   });
 
-  const toggleTable = (tableKey: string) => {
-    setExpandedTables((prev) => {
-      const next = new Set(prev);
-      if (next.has(tableKey)) {
-        next.delete(tableKey);
-      } else {
-        next.add(tableKey);
-      }
-      return next;
-    });
-  };
-
   const handleCommitAll = async () => {
     setIsCommitting(true);
     try {
@@ -223,7 +199,7 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
         const result = await commitChanges(tableKey);
 
         console.log(
-          `[GlobalChangesModal] Commit succeeded, waiting 100ms before invalidating...`,
+          `[GlobalChangesDialog] Commit succeeded, waiting 100ms before invalidating...`,
         );
 
         // Small delay to ensure database transaction is fully committed
@@ -234,7 +210,7 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
         const { invalidateTable } = useDataInvalidationStore.getState();
         invalidateTable(connectionId, database!, schema, table!);
         console.log(
-          `[GlobalChangesModal] Invalidated table after commit: ${database}.${schema ?? "public"}.${table}`,
+          `[GlobalChangesDialog] Invalidated table after commit: ${database}.${schema ?? "public"}.${table}`,
         );
 
         toast.success("Changes committed", {
@@ -260,7 +236,7 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
           if (connId && db && tbl) {
             invalidateTable(connId, db, sch, tbl);
             console.log(
-              `[GlobalChangesModal] Invalidated table after commit: ${db}.${sch ?? "public"}.${tbl}`,
+              `[GlobalChangesDialog] Invalidated table after commit: ${db}.${sch ?? "public"}.${tbl}`,
             );
           }
         });
@@ -312,9 +288,9 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
     });
 
     const commandCount = commands.length;
-    const commandType = commands[0]?.type.split('.')[1] || 'change';
+    const commandType = commands[0]?.type.split(".")[1] || "change";
     toast.success(`${commandType} change undone`, {
-      description: `Removed ${commandCount} ${commandCount === 1 ? 'field' : 'fields'}`,
+      description: `Removed ${commandCount} ${commandCount === 1 ? "field" : "fields"}`,
     });
   };
 
@@ -326,10 +302,10 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="!max-w-[80vw] max-h-[80vh] flex flex-col p-4">
         <DialogHeader>
-          <DialogTitle>
+          <DialogTitle className="text-sm">
             {isTableSpecific ? "Commit changes" : "Review All Changes"}
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="text-xs">
             {isTableSpecific
               ? "Review the changes that will be committed to the database."
               : "Review and commit all pending changes across all tables"}
@@ -379,57 +355,17 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
           </div>
         </div>
 
-        {/* Tables List - Grouped by Table and Row */}
+        {/* Changes List - Grouped by Row ID */}
         <ScrollArea className="flex-1 -mx-4 px-4 max-h-[60vh] overflow-scroll">
-          <div className="space-y-3">
-            {Array.from(groupedByTableAndRow.entries()).map(
-              ([tableKey, tableGroup]) => {
-                const isExpanded = expandedTables.has(tableKey);
-                const totalChanges = Array.from(
-                  tableGroup.rows.values(),
-                ).reduce((sum, row) => sum + row.commands.length, 0);
-
-                return (
-                  <div key={tableKey} className="space-y-2">
-                    {/* Table Header */}
-                    <button
-                      onClick={() => {
-                        toggleTable(tableKey);
-                      }}
-                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left font-medium hover:bg-accent border"
-                    >
-                      {isExpanded ? (
-                        <ChevronDown className="h-4 w-4" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4" />
-                      )}
-                      <span className="font-semibold">
-                        {tableGroup.displayName}
-                      </span>
-                      <span className="ml-auto text-sm text-muted-foreground">
-                        {totalChanges}{" "}
-                        {totalChanges === 1 ? "change" : "changes"} •{" "}
-                        {tableGroup.rows.size}{" "}
-                        {tableGroup.rows.size === 1 ? "row" : "rows"}
-                      </span>
-                    </button>
-
-                    {/* Rows */}
-                    {isExpanded && (
-                      <div className="ml-4 space-y-2">
-                        {Array.from(tableGroup.rows.values()).map((row) => (
-                          <RowChangesCard
-                            key={row.rowKey}
-                            row={row}
-                            onUndo={handleUndoRow}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              },
-            )}
+          <div className="space-y-2">
+            {groupedByRow.map((row, index) => (
+              <RowChangesCard
+                key={row.rowKey}
+                row={row}
+                index={index}
+                onUndo={handleUndoRow}
+              />
+            ))}
           </div>
         </ScrollArea>
 
@@ -478,12 +414,14 @@ export function GlobalChangesModal(props: GlobalChangesModalProps) {
 interface RowChangesCardProps {
   row: {
     rowKey: string;
+    tableName: string;
     commands: CrudCommand[];
   };
+  index: number;
   onUndo: (commands: CrudCommand[]) => void;
 }
 
-function RowChangesCard({ row, onUndo }: RowChangesCardProps) {
+function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
   const { theme, resolvedTheme } = useTheme();
 
   // Determine the operation type (insert, update, delete)
@@ -600,41 +538,45 @@ function RowChangesCard({ row, onUndo }: RowChangesCardProps) {
     <div className="rounded-xl border bg-card overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 bg-muted/50 border-b">
+        <span className="text-xs text-muted-foreground font-mono">
+          #{index + 1}
+        </span>
+        <span className="text-xs text-muted-foreground">{row.tableName}</span>
         {hasInsert && (
           <>
-            <Plus className="h-3.5 w-3.5 text-green-500" />
-            <span className="text-sm font-medium text-green-600 dark:text-green-400">
-              Insert Row
+            <Plus className="h-3.5 w-3.5 text-green-500 ml-2" />
+            <span className="text-xs font-medium text-green-600 dark:text-green-400">
+              Insert
             </span>
           </>
         )}
         {hasDelete && (
           <>
-            <Trash2 className="h-3.5 w-3.5 text-red-500" />
-            <span className="text-sm font-medium text-red-600 dark:text-red-400">
-              Delete Row
+            <Trash2 className="h-3.5 w-3.5 text-red-500 ml-2" />
+            <span className="text-xs font-medium text-red-600 dark:text-red-400">
+              Delete
             </span>
             {pkInfo && (
-              <span className="text-xs text-muted-foreground ml-2">
-                WHERE {pkInfo}
+              <span className="text-xs text-muted-foreground ml-1">
+                {pkInfo}
               </span>
             )}
           </>
         )}
         {hasUpdate && (
           <>
-            <Pencil className="h-3.5 w-3.5 text-blue-500" />
-            <span className="text-sm font-medium text-blue-600 dark:text-blue-400">
-              Update Row
+            <Pencil className="h-3.5 w-3.5 text-blue-500 ml-2" />
+            <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
+              Update
             </span>
             {pkInfo && (
-              <span className="text-xs text-muted-foreground ml-2">
-                WHERE {pkInfo}
+              <span className="text-xs text-muted-foreground ml-1">
+                {pkInfo}
               </span>
             )}
             <span className="text-xs text-muted-foreground">
-              {row.commands.length}{" "}
-              {row.commands.length === 1 ? "field" : "fields"}
+              ({row.commands.length}{" "}
+              {row.commands.length === 1 ? "field" : "fields"})
             </span>
           </>
         )}
@@ -655,7 +597,7 @@ function RowChangesCard({ row, onUndo }: RowChangesCardProps) {
       </div>
 
       {/* Diff Viewer */}
-      <div className="text-[11px] [&_.diff-viewer]:!text-[11px] [&_.diff-viewer]:!font-mono">
+      <div className="text-xs [&_.diff-viewer]:!text-xs [&_.diff-viewer]:!font-mono">
         <ReactDiffViewer
           oldValue={old}
           newValue={newVal}
