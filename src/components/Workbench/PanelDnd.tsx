@@ -214,7 +214,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
         // Look for the data grid content area specifically (not toolbar buttons)
         // The DataGrid container has tabindex="0" and is inside .relative.flex-1.outline-none
         const gridContainer = panelRef.current?.querySelector<HTMLElement>(
-          '.relative.flex-1.outline-none[tabindex="0"]'
+          '.relative.flex-1.outline-none[tabindex="0"]',
         );
         if (gridContainer) {
           gridContainer.focus({ preventScroll: true });
@@ -314,7 +314,9 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
         className,
       )}
       onClick={handleClick}
-      onFocus={() => focusPanel(content.id)}
+      onFocus={() => {
+        focusPanel(content.id);
+      }}
     >
       <div className="panel-header flex items-center justify-between bg-background">
         <div className="flex-1 overflow-x-auto relative scrollbar-none pt-1 px-1">
