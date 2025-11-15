@@ -1,0 +1,57 @@
+import type { GridColumnV2 } from "@/components/DataGridV2/types";
+
+export const indexColumns: GridColumnV2[] = [
+  {
+    id: "row_number",
+    field: "row_number",
+    title: "#",
+    name: "#",
+    width: 48,
+    minWidth: 48,
+    maxWidth: 80,
+  } as GridColumnV2,
+  {
+    id: "name",
+    field: "name",
+    title: "Name",
+    name: "Name",
+    width: 240,
+    minWidth: 120,
+    maxWidth: 400,
+  } as GridColumnV2,
+  {
+    id: "columns",
+    field: "columns",
+    title: "Columns",
+    name: "Columns",
+    width: 280,
+    minWidth: 160,
+    maxWidth: 500,
+  } as GridColumnV2,
+  {
+    id: "index_type",
+    field: "index_type",
+    title: "Type",
+    name: "Type",
+    width: 128,
+    minWidth: 80,
+    maxWidth: 160,
+  } as GridColumnV2,
+  {
+    id: "unique",
+    field: "unique",
+    title: "Unique",
+    name: "Unique",
+    width: 96,
+    minWidth: 72,
+    maxWidth: 120,
+  } as GridColumnV2,
+  {
+    id: "condition",
+    field: "condition",
+    title: "Definition",
+    name: "Definition",
+    width: 360,
+    minWidth: 200,
+  } as GridColumnV2,
+];

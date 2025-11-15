@@ -1,15 +1,20 @@
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
-  memo,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+  GridCellKind,
+  type Item,
+  type CustomCell,
+  type CustomRenderer,
+} from "@glideapps/glide-data-grid";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle } from "lucide-react";
 import { databaseService, type TableIndex } from "@/services/databaseService";
-import { cn } from "@/lib/utils";
+import { DataGridBase } from "@/components/DataGridV2/base/DataGridBase";
+import { indexColumns } from "./columns";
+import { transformIndexesToRows } from "./utils";
+import IndexNameCellRenderer from "./IndexNameCellRenderer";
+import type { IndexGridRow } from "./types";
+
+type AnyCell = CustomCell<Record<string, unknown>>;
 
 interface TableIndexesProps {
   connectionId: string;
@@ -52,7 +57,94 @@ export const TableIndexes = memo(function TableIndexes({
     void loadIndexes();
   }, [loadIndexes]);
 
+  // Transform indexes to grid rows
+  const gridRows = useMemo(
+    () => transformIndexesToRows(indexes),
+    [indexes],
+  );
+
+  // Cell content factory
+  const getCellContent = useCallback(
+    (cell: Item) => {
+      const [colIndex, rowIndex] = cell;
+      const column = indexColumns[colIndex];
+      const row = gridRows[rowIndex];
+
+      if (!column || !row) {
+        return {
+          kind: GridCellKind.Text,
+          data: "",
+          displayData: "",
+          readonly: true,
+          allowOverlay: false,
+        } as const;
+      }
+
+      const value = row[column.field as keyof IndexGridRow];
+
+      // Custom cell for index name with badges
+      if (column.field === "name") {
+        return {
+          kind: GridCellKind.Custom,
+          data: {
+            kind: "index-name-cell",
+            name: row.name,
+            isPrimary: row.name_meta.primary,
+            isUnique: row.name_meta.unique,
+          },
+          copyData: row.name,
+          readonly: true,
+          allowOverlay: false,
+        } as const;
+      }
+
+      // Row number (right-aligned, muted)
+      if (column.field === "row_number") {
+        return {
+          kind: GridCellKind.Text,
+          data: String(value),
+          displayData: String(value),
+          readonly: true,
+          allowOverlay: false,
+          contentAlign: "right" as const,
+          themeOverride: {
+            textDark: "rgba(127, 127, 127, 0.7)",
+          },
+        } as const;
+      }
+
+      // Columns and condition (monospace font)
+      if (column.field === "columns" || column.field === "condition") {
+        return {
+          kind: GridCellKind.Text,
+          data: String(value || ""),
+          displayData: String(value || ""),
+          readonly: true,
+          allowOverlay: true,
+          themeOverride: {
+            baseFontStyle: "400 11px monospace",
+          },
+        } as const;
+      }
+
+      // Default text cell
+      return {
+        kind: GridCellKind.Text,
+        data: String(value || ""),
+        displayData: String(value || ""),
+        readonly: true,
+        allowOverlay: false,
+      } as const;
+    },
+    [gridRows],
+  );
+
   const hasIndexes = useMemo(() => indexes.length > 0, [indexes.length]);
+
+  const customRenderers = useMemo<CustomRenderer<AnyCell>[]>(
+    () => [IndexNameCellRenderer as unknown as CustomRenderer<AnyCell>],
+    [],
+  );
 
   if (isLoading) {
     return <TableIndexesSkeleton />;
@@ -80,53 +172,15 @@ export const TableIndexes = memo(function TableIndexes({
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex-1 overflow-auto">
-        <table className="min-w-full border-separate border-spacing-0">
-          <thead className="sticky top-0 z-10 bg-muted border-b border-border">
-            <tr className="text-xs" style={{ height: "28px" }}>
-              <HeaderCell className="w-12">#</HeaderCell>
-              <HeaderCell className="w-48">Name</HeaderCell>
-              <HeaderCell className="w-60">Columns</HeaderCell>
-              <HeaderCell className="w-32">Type</HeaderCell>
-              <HeaderCell className="w-24">Unique</HeaderCell>
-              <HeaderCell className="">Definition</HeaderCell>
-            </tr>
-          </thead>
-          <tbody className="text-xs">
-            {indexes.map((index, idx) => (
-              <tr
-                key={index.name}
-                className={cn(
-                  "border-b border-border hover:bg-muted/40 transition-colors",
-                  index.primary && "bg-muted/20",
-                )}
-              >
-                <Cell className="text-muted-foreground">{idx + 1}</Cell>
-                <Cell className="font-medium">
-                  {index.name}
-                  {index.primary && (
-                    <span className="ml-2 text-[10px] uppercase tracking-wide text-yellow-600">
-                      PRIMARY
-                    </span>
-                  )}
-                  {index.unique && !index.primary && (
-                    <span className="ml-2 text-[10px] uppercase tracking-wide text-emerald-600">
-                      UNIQUE
-                    </span>
-                  )}
-                </Cell>
-                <Cell className="font-mono text-[11px]">
-                  {index.columns.join(", ")}
-                </Cell>
-                <Cell>{index.index_type}</Cell>
-                <Cell>{index.unique ? "YES" : "NO"}</Cell>
-                <Cell className="font-mono text-[11px]">
-                  {index.condition || ""}
-                </Cell>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="flex-1">
+        <DataGridBase
+          columns={indexColumns}
+          rowCount={gridRows.length}
+          getCellContent={getCellContent}
+          customRenderers={customRenderers}
+          rowSelect="none"
+          columnSelect="none"
+        />
       </div>
       <div className="px-4 py-2 text-xs text-muted-foreground border-t">
         Total indexes: {indexes.length}
@@ -141,35 +195,6 @@ export const TableIndexes = memo(function TableIndexes({
     </div>
   );
 });
-
-const HeaderCell = ({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) => (
-  <th
-    className={cn(
-      "text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80",
-      className,
-    )}
-  >
-    {children}
-  </th>
-);
-
-const Cell = ({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) => (
-  <td className={cn("px-2 py-1 border-b border-r border-border", className)}>
-    {children}
-  </td>
-);
 
 const TableIndexesSkeleton = memo(function TableIndexesSkeleton() {
   return (
