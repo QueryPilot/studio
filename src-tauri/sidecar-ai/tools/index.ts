@@ -2,6 +2,25 @@ import { tool } from "ai";
 import { z } from "zod";
 import { TAURI_API_URL } from "../config/constants";
 
+// Common validation schemas
+const connectionIdSchema = z
+  .string()
+  .min(1, "Connection ID is required")
+  .regex(/^[a-zA-Z0-9_-]+$/, "Invalid connection ID format");
+
+const identifierSchema = z
+  .string()
+  .min(1, "Identifier is required")
+  .max(63, "Identifier too long")
+  .regex(
+    /^[a-zA-Z0-9_]+$/,
+    "Identifier contains invalid characters (only alphanumeric and underscore allowed)"
+  );
+
+const databaseSchema = z.string().min(1, "Database name is required");
+const schemaNameSchema = identifierSchema;
+const tableSchema = identifierSchema;
+
 // Helper to call Tauri backend via HTTP proxy
 async function callTauri(command: string, args: Record<string, any>) {
   const response = await fetch(`${TAURI_API_URL}/__tauri__/invoke`, {
@@ -26,10 +45,10 @@ export const list_tables = tool({
   description:
     "Get all tables in a database schema. Use this to discover what tables are available.",
   parameters: z.object({
-    connectionId: z.string().describe("The database connection ID"),
-    schema: z
-      .string()
-      .describe('The schema name (e.g., "public" for PostgreSQL)'),
+    connectionId: connectionIdSchema.describe("The database connection ID"),
+    schema: schemaNameSchema.describe(
+      'The schema name (e.g., "public" for PostgreSQL)'
+    ),
   }),
   execute: async ({ connectionId, schema }) => {
     try {
@@ -59,9 +78,9 @@ export const get_table_structure = tool({
   description:
     "Get detailed structure of a table including columns, data types, constraints, and keys.",
   parameters: z.object({
-    connectionId: z.string().describe("The database connection ID"),
-    schema: z.string().describe("The schema name"),
-    table: z.string().describe("The table name"),
+    connectionId: connectionIdSchema.describe("The database connection ID"),
+    schema: schemaNameSchema.describe("The schema name"),
+    table: tableSchema.describe("The table name"),
   }),
   execute: async ({ connectionId, schema, table }) => {
     try {
@@ -91,6 +110,7 @@ export const get_table_structure = tool({
       return {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
+        errorCode: "QUERY_FAILED",
       };
     }
   },
@@ -100,34 +120,37 @@ export const get_sample_data = tool({
   description:
     "Get sample rows from a table (up to 10 rows). Useful for understanding the data structure.",
   parameters: z.object({
-    connectionId: z.string().describe("The database connection ID"),
-    schema: z.string().describe("The schema name"),
-    table: z.string().describe("The table name"),
+    connectionId: connectionIdSchema.describe("The database connection ID"),
+    schema: schemaNameSchema.describe("The schema name"),
+    table: tableSchema.describe("The table name"),
     limit: z
       .number()
+      .min(1)
+      .max(100)
       .optional()
       .default(10)
       .describe("Number of rows to fetch (max 100)"),
   }),
   execute: async ({ connectionId, schema, table, limit }) => {
     try {
-      // Use stream_query command with a simple SELECT
-      const sql = `SELECT * FROM "${schema}"."${table}" LIMIT ${Math.min(
-        limit,
-        100,
-      )}`;
+      // Use backend to safely construct and execute query
+      const rows = await callTauri("get_sample_data", {
+        conn_id: connectionId,
+        schema,
+        table,
+        limit: Math.min(limit, 100),
+      });
 
-      // Note: This is a simplified version. In production, we'd use the streaming API
-      // For now, we'll return a placeholder
       return {
         success: true,
-        message: `Would execute: ${sql}`,
-        note: "Full implementation requires streaming query support",
+        rows,
+        rowCount: rows.length,
       };
     } catch (error) {
       return {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
+        errorCode: "QUERY_FAILED",
       };
     }
   },
@@ -137,7 +160,10 @@ export const execute_readonly_query = tool({
   description:
     "Execute a read-only SQL query (SELECT only). Use this to query data from the database.",
   parameters: z.object({
-    connectionId: z.string().describe("The database connection ID"),
+    connectionId: z
+      .string()
+      .min(1, "Connection ID is required")
+      .regex(/^[a-zA-Z0-9_-]+$/, "Invalid connection ID format"),
     sql: z
       .string()
       .optional()
@@ -156,26 +182,52 @@ export const execute_readonly_query = tool({
       .describe("Optional database context for the query"),
     limit: z
       .number()
+      .min(1)
+      .max(1000)
       .optional()
       .default(100)
       .describe("Maximum rows to return"),
   }),
-  execute: async ({ connectionId, sql, query, limit, schema, database }) => {
+  execute: async ({ connectionId, sql, query, limit }) => {
     const rawSql = sql ?? query;
     if (!rawSql || rawSql.trim().length === 0) {
       return {
         success: false,
         error:
           "No SQL provided. Please supply either the `sql` or `query` parameter with a SELECT statement.",
+        errorCode: "MISSING_QUERY",
       };
     }
 
-    // Validate that it's a SELECT query
+    // Validate that it's a SELECT or WITH query
     const trimmedSql = rawSql.trim().toLowerCase();
-    if (!trimmedSql.startsWith("select")) {
+    if (!trimmedSql.startsWith("select") && !trimmedSql.startsWith("with")) {
       return {
         success: false,
-        error: "Only SELECT queries are allowed for safety reasons",
+        error:
+          "Only SELECT or WITH (CTE) queries are allowed for safety reasons",
+        errorCode: "INVALID_QUERY_TYPE",
+      };
+    }
+
+    // Block dangerous keywords
+    const dangerous = [
+      "insert",
+      "update",
+      "delete",
+      "drop",
+      "create",
+      "alter",
+      "truncate",
+      "grant",
+      "revoke",
+    ];
+    const foundDangerous = dangerous.find((kw) => trimmedSql.includes(kw));
+    if (foundDangerous) {
+      return {
+        success: false,
+        error: `Query contains forbidden keyword: ${foundDangerous.toUpperCase()}`,
+        errorCode: "FORBIDDEN_KEYWORD",
       };
     }
 
@@ -185,20 +237,22 @@ export const execute_readonly_query = tool({
         ? rawSql
         : `${rawSql} LIMIT ${limit}`;
 
+      const rows = await callTauri("execute_query", {
+        conn_id: connectionId,
+        sql: finalSql,
+      });
+
       return {
         success: true,
-        message: `Would execute: ${finalSql}`,
-        note: "Full implementation requires streaming query support",
-        context: {
-          connectionId,
-          schema,
-          database,
-        },
+        rows,
+        rowCount: rows.length,
+        query: finalSql,
       };
     } catch (error) {
       return {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
+        errorCode: "QUERY_FAILED",
       };
     }
   },
@@ -208,8 +262,8 @@ export const execute_readonly_query = tool({
 export const get_indexes = tool({
   description: "Get all indexes for a table, including index type and columns.",
   parameters: z.object({
-    connectionId: z.string().describe("The database connection ID"),
-    table: z.string().describe("The table name"),
+    connectionId: connectionIdSchema.describe("The database connection ID"),
+    table: tableSchema.describe("The table name"),
   }),
   execute: async ({ connectionId, table }) => {
     try {
@@ -230,6 +284,7 @@ export const get_indexes = tool({
       return {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
+        errorCode: "QUERY_FAILED",
       };
     }
   },
@@ -238,9 +293,9 @@ export const get_indexes = tool({
 export const get_triggers = tool({
   description: "Get all triggers defined on a table.",
   parameters: z.object({
-    connectionId: z.string().describe("The database connection ID"),
-    schema: z.string().describe("The schema name"),
-    table: z.string().describe("The table name"),
+    connectionId: connectionIdSchema.describe("The database connection ID"),
+    schema: schemaNameSchema.describe("The schema name"),
+    table: tableSchema.describe("The table name"),
   }),
   execute: async ({ connectionId, schema, table }) => {
     try {
@@ -262,6 +317,7 @@ export const get_triggers = tool({
       return {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
+        errorCode: "QUERY_FAILED",
       };
     }
   },
@@ -270,8 +326,8 @@ export const get_triggers = tool({
 export const get_foreign_keys = tool({
   description: "Get foreign key relationships for a table.",
   parameters: z.object({
-    connectionId: z.string().describe("The database connection ID"),
-    table: z.string().describe("The table name"),
+    connectionId: connectionIdSchema.describe("The database connection ID"),
+    table: tableSchema.describe("The table name"),
   }),
   execute: async ({ connectionId, table }) => {
     try {
@@ -298,6 +354,7 @@ export const get_foreign_keys = tool({
       return {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
+        errorCode: "QUERY_FAILED",
       };
     }
   },
@@ -306,9 +363,9 @@ export const get_foreign_keys = tool({
 export const get_table_statistics = tool({
   description: "Get statistics about a table (row count, size, etc.).",
   parameters: z.object({
-    connectionId: z.string().describe("The database connection ID"),
-    schema: z.string().describe("The schema name"),
-    table: z.string().describe("The table name"),
+    connectionId: connectionIdSchema.describe("The database connection ID"),
+    schema: schemaNameSchema.describe("The schema name"),
+    table: tableSchema.describe("The table name"),
   }),
   execute: async ({ connectionId, schema, table }) => {
     try {
@@ -330,6 +387,7 @@ export const get_table_statistics = tool({
       return {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
+        errorCode: "QUERY_FAILED",
       };
     }
   },
@@ -339,8 +397,8 @@ export const get_table_statistics = tool({
 export const get_views = tool({
   description: "Get all views in a schema.",
   parameters: z.object({
-    connectionId: z.string().describe("The database connection ID"),
-    schema: z.string().describe("The schema name"),
+    connectionId: connectionIdSchema.describe("The database connection ID"),
+    schema: schemaNameSchema.describe("The schema name"),
   }),
   execute: async ({ connectionId, schema }) => {
     try {
@@ -360,6 +418,7 @@ export const get_views = tool({
       return {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
+        errorCode: "QUERY_FAILED",
       };
     }
   },
@@ -368,8 +427,8 @@ export const get_views = tool({
 export const get_functions = tool({
   description: "Get all functions/stored procedures in a schema.",
   parameters: z.object({
-    connectionId: z.string().describe("The database connection ID"),
-    schema: z.string().describe("The schema name"),
+    connectionId: connectionIdSchema.describe("The database connection ID"),
+    schema: schemaNameSchema.describe("The schema name"),
   }),
   execute: async ({ connectionId, schema }) => {
     try {
@@ -390,6 +449,7 @@ export const get_functions = tool({
       return {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
+        errorCode: "QUERY_FAILED",
       };
     }
   },
@@ -398,8 +458,8 @@ export const get_functions = tool({
 export const list_schemas = tool({
   description: "Get all schemas in the database.",
   parameters: z.object({
-    connectionId: z.string().describe("The database connection ID"),
-    database: z.string().describe("The database name"),
+    connectionId: connectionIdSchema.describe("The database connection ID"),
+    database: databaseSchema.describe("The database name"),
   }),
   execute: async ({ connectionId, database }) => {
     try {
@@ -418,6 +478,7 @@ export const list_schemas = tool({
       return {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
+        errorCode: "QUERY_FAILED",
       };
     }
   },
@@ -427,12 +488,13 @@ export const get_object_definition = tool({
   description:
     "Get the SQL definition of a database object (table, view, function, etc.).",
   parameters: z.object({
-    connectionId: z.string().describe("The database connection ID"),
-    database: z.string().describe("The database name"),
-    schema: z.string().describe("The schema name"),
-    objectName: z.string().describe("The object name"),
+    connectionId: connectionIdSchema.describe("The database connection ID"),
+    database: databaseSchema.describe("The database name"),
+    schema: schemaNameSchema.describe("The schema name"),
+    objectName: identifierSchema.describe("The object name"),
     objectType: z
       .string()
+      .min(1)
       .describe("The object type (table, view, function, etc.)"),
   }),
   execute: async ({
@@ -458,6 +520,143 @@ export const get_object_definition = tool({
       return {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
+        errorCode: "QUERY_FAILED",
+      };
+    }
+  },
+});
+
+export const explain_query = tool({
+  description:
+    "Get query execution plan (EXPLAIN) for performance analysis. Helps understand how PostgreSQL will execute a query.",
+  parameters: z.object({
+    connectionId: connectionIdSchema.describe("The database connection ID"),
+    sql: z
+      .string()
+      .min(1, "SQL query is required")
+      .describe("The SELECT query to explain"),
+    analyze: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Use EXPLAIN ANALYZE to get actual execution stats (runs the query)"
+      ),
+  }),
+  execute: async ({ connectionId, sql, analyze }) => {
+    // Validate SELECT query
+    const trimmed = sql.trim().toLowerCase();
+    if (!trimmed.startsWith("select") && !trimmed.startsWith("with")) {
+      return {
+        success: false,
+        error: "Only SELECT or WITH queries can be explained",
+        errorCode: "INVALID_QUERY_TYPE",
+      };
+    }
+
+    try {
+      const explainSql = analyze
+        ? `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${sql}`
+        : `EXPLAIN (FORMAT JSON) ${sql}`;
+
+      const rows = await callTauri("execute_query", {
+        conn_id: connectionId,
+        sql: explainSql,
+      });
+
+      return {
+        success: true,
+        plan: rows[0]?.[0], // EXPLAIN JSON returns plan in first column
+        analyzed: analyze,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+        errorCode: "EXPLAIN_FAILED",
+      };
+    }
+  },
+});
+
+export const get_relationship_graph = tool({
+  description:
+    "Get relationship graph between tables via foreign keys. Shows how tables are connected in the database schema.",
+  parameters: z.object({
+    connectionId: connectionIdSchema.describe("The database connection ID"),
+    schema: schemaNameSchema.describe("The schema name"),
+    depth: z
+      .number()
+      .min(1)
+      .max(3)
+      .optional()
+      .default(2)
+      .describe("How many levels of relationships to traverse (1-3)"),
+  }),
+  execute: async ({ connectionId, schema, depth }) => {
+    try {
+      // Get all tables in schema
+      const tables = await callTauri("get_tables", {
+        conn_id: connectionId,
+        schema,
+      });
+
+      // Build relationship graph
+      const graph: Record<
+        string,
+        Array<{ to: string; via: string; type: string }>
+      > = {};
+
+      // Get foreign keys for each table
+      for (const table of tables) {
+        const tableName = table.name;
+        graph[tableName] = [];
+
+        const constraints = await callTauri("get_constraints", {
+          conn_id: connectionId,
+          table: tableName,
+        });
+
+        const foreignKeys = constraints.filter(
+          (c: any) =>
+            c.constraint_type === "ForeignKey" ||
+            c.constraint_type === "FOREIGN KEY"
+        );
+
+        for (const fk of foreignKeys) {
+          if (fk.foreign_table) {
+            graph[tableName].push({
+              to: fk.foreign_table,
+              via: fk.name,
+              type: "foreign_key",
+            });
+          }
+        }
+      }
+
+      // Count relationships
+      const stats = {
+        totalTables: tables.length,
+        totalRelationships: Object.values(graph).reduce(
+          (sum, rels) => sum + rels.length,
+          0
+        ),
+        tablesWithRelationships: Object.values(graph).filter(
+          (rels) => rels.length > 0
+        ).length,
+      };
+
+      return {
+        success: true,
+        graph,
+        stats,
+        depth,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+        errorCode: "GRAPH_FAILED",
       };
     }
   },
@@ -477,4 +676,6 @@ export const tools = {
   get_functions,
   list_schemas,
   get_object_definition,
+  explain_query,
+  get_relationship_graph,
 };
