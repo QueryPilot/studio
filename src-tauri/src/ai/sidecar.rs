@@ -1,12 +1,10 @@
 use anyhow::{anyhow, Result};
-use std::io::{BufRead, BufReader};
-use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 pub struct SidecarManager {
     port: RwLock<Option<u16>>,
-    process_handle: RwLock<Option<Arc<Child>>>,
+    process_handle: RwLock<Option<Arc<tauri_plugin_shell::process::CommandChild>>>,
 }
 
 impl SidecarManager {
@@ -18,7 +16,7 @@ impl SidecarManager {
     }
 
     /// Start the AI sidecar process
-    pub async fn start(&self) -> Result<u16> {
+    pub async fn start(&self, app_handle: &tauri::AppHandle) -> Result<u16> {
         // Check if already running
         if self.port.read().await.is_some() {
             return Ok(self.port.read().await.unwrap());
@@ -27,41 +25,39 @@ impl SidecarManager {
         // Use hardcoded port 47856
         let port = 47856u16;
 
-        // Get sidecar binary path
-        tracing::info!("Looking for AI sidecar binary...");
-        let sidecar_path = self.get_sidecar_path()?;
-        tracing::info!("Found AI sidecar at: {:?}", sidecar_path);
+        // Start sidecar using Tauri's sidecar API
+        tracing::info!("Starting AI sidecar binary...");
+        use tauri_plugin_shell::ShellExt;
 
-        // Start the sidecar process
-        let mut child = Command::new(&sidecar_path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+        let (mut rx, child) = app_handle
+            .shell()
+            .sidecar("ai-server")
+            .map_err(|e| anyhow!("Failed to create sidecar command: {}", e))?
             .spawn()
             .map_err(|e| anyhow!("Failed to spawn sidecar: {}", e))?;
 
-        // Monitor stdout
-        if let Some(stdout) = child.stdout.take() {
-            tokio::spawn(async move {
-                let reader = BufReader::new(stdout);
-                for line in reader.lines() {
-                    if let Ok(line) = line {
-                        tracing::info!("AI Sidecar [stdout]: {}", line);
+        // Monitor stdout and stderr
+        tokio::spawn(async move {
+            use tauri_plugin_shell::process::CommandEvent;
+            while let Some(event) = rx.recv().await {
+                match event {
+                    CommandEvent::Stdout(line) => {
+                        tracing::info!("AI Sidecar [stdout]: {}", String::from_utf8_lossy(&line));
                     }
-                }
-            });
-        }
-
-        // Monitor stderr
-        if let Some(stderr) = child.stderr.take() {
-            tokio::spawn(async move {
-                let reader = BufReader::new(stderr);
-                for line in reader.lines() {
-                    if let Ok(line) = line {
-                        tracing::warn!("AI Sidecar [stderr]: {}", line);
+                    CommandEvent::Stderr(line) => {
+                        tracing::warn!("AI Sidecar [stderr]: {}", String::from_utf8_lossy(&line));
                     }
+                    CommandEvent::Error(err) => {
+                        tracing::error!("AI Sidecar error: {}", err);
+                    }
+                    CommandEvent::Terminated(status) => {
+                        tracing::info!("AI Sidecar terminated with status: {:?}", status);
+                        break;
+                    }
+                    _ => {}
                 }
-            });
-        }
+            }
+        });
 
         // Store the child process
         *self.process_handle.write().await = Some(Arc::new(child));
@@ -78,94 +74,6 @@ impl SidecarManager {
         tracing::info!("AI Sidecar started on port {}", port);
 
         Ok(port)
-    }
-
-    /// Get the sidecar binary path by trying multiple candidate locations
-    fn get_sidecar_path(&self) -> Result<std::path::PathBuf> {
-        // Build list of candidate paths to try (similar to session-manager-plugin approach)
-        let candidates = self.get_candidate_paths();
-
-        // Try each candidate in order
-        for (desc, path) in candidates {
-            tracing::debug!("Trying {} path: {:?}", desc, path);
-            if path.exists() {
-                tracing::info!("✅ Found AI sidecar at {}: {:?}", desc, path);
-                return Ok(path);
-            }
-        }
-
-        Err(anyhow!(
-            "AI sidecar binary not found. Run 'pnpm build:ai-sidecar' first."
-        ))
-    }
-
-    /// Get list of candidate paths to search for the sidecar binary
-    /// Tauri bundles sidecars with their full target triple name (e.g., ai-server-aarch64-apple-darwin)
-    fn get_candidate_paths(&self) -> Vec<(&'static str, std::path::PathBuf)> {
-        let mut candidates = Vec::new();
-
-        // Determine target triple for platform-specific binary name
-        let target_triple = std::env::consts::ARCH;
-        let os = std::env::consts::OS;
-        let triple = match (os, target_triple) {
-            ("macos", "aarch64") => "aarch64-apple-darwin",
-            ("macos", "x86_64") => "x86_64-apple-darwin",
-            ("linux", "x86_64") => "x86_64-unknown-linux-gnu",
-            ("linux", "aarch64") => "aarch64-unknown-linux-gnu",
-            ("windows", "x86_64") => "x86_64-pc-windows-msvc",
-            _ => {
-                tracing::warn!("Unsupported platform: {}-{}", os, target_triple);
-                return candidates;
-            }
-        };
-
-        let binary_name = format!("ai-server-{}", triple);
-
-        // 1. Production bundle (Tauri resource directory)
-        if let Some(mut production_path) = std::env::current_exe()
-            .ok()
-            .and_then(|exe| exe.parent().map(|p| p.to_path_buf()))
-        {
-            #[cfg(target_os = "macos")]
-            production_path.push("../Resources");
-
-            production_path.push(&binary_name);
-
-            #[cfg(target_os = "windows")]
-            production_path.set_extension("exe");
-
-            candidates.push(("production", production_path));
-        }
-
-        // 2. Development: src-tauri/sidecars relative to current directory
-        if let Ok(mut dev_path) = std::env::current_dir() {
-            dev_path.push("src-tauri");
-            dev_path.push("sidecars");
-            dev_path.push(&binary_name);
-
-            #[cfg(target_os = "windows")]
-            dev_path.set_extension("exe");
-
-            candidates.push(("dev (cwd)", dev_path));
-        }
-
-        // 3. Development: src-tauri/sidecars relative to executable
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(exe_dir) = exe_path.parent() {
-                let mut alt_path = exe_dir.to_path_buf();
-                alt_path.push("../../../src-tauri/sidecars");
-                alt_path.push(&binary_name);
-
-                #[cfg(target_os = "windows")]
-                alt_path.set_extension("exe");
-
-                if let Ok(canonical) = alt_path.canonicalize() {
-                    candidates.push(("dev (exe)", canonical));
-                }
-            }
-        }
-
-        candidates
     }
 
     /// Stop the AI sidecar process
