@@ -11,7 +11,7 @@ pub mod state;
 pub mod storage;
 pub mod types;
 pub mod vault;
-pub mod window_state;
+// NOTE: window_state module removed - tracking now uses BroadcastChannel API on frontend
 
 // Test modules - separated for better organization
 #[cfg(test)]

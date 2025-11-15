@@ -1489,57 +1489,5 @@ pub async fn execute_crud_transaction(
 // ========================================
 // Window State / Connection Tracking Commands
 // ========================================
-
-#[tauri::command]
-pub fn register_connection_window(
-    connection_id: String,
-    window_label: String,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    state
-        .window_states
-        .register_window(window_label, connection_id, &app)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn unregister_connection_window(
-    window_label: String,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    state
-        .window_states
-        .unregister_window(&window_label, &app)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn get_connection_status(
-    connection_id: String,
-    state: State<'_, AppState>,
-) -> Result<crate::window_state::ConnectionStatus, String> {
-    state
-        .window_states
-        .get_connection_status(&connection_id)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn get_all_connection_statuses(
-    state: State<'_, AppState>,
-) -> Result<Vec<crate::window_state::ConnectionStatus>, String> {
-    state
-        .window_states
-        .get_all_connection_statuses()
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn get_windows_for_connection(
-    connection_id: String,
-    state: State<'_, AppState>,
-) -> Result<Vec<String>, String> {
-    Ok(state.window_states.get_windows_for_connection(&connection_id))
-}
+// NOTE: Window tracking now uses BroadcastChannel API on the frontend
+// These Tauri commands have been removed and replaced with web-based tracking

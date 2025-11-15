@@ -1,4 +1,5 @@
 import { isTauri } from "@/utils/tauri";
+import { windowChannelTracker } from "./windowChannelTracker";
 
 interface WindowInfo {
   label: string;
@@ -125,19 +126,29 @@ class WindowManager {
       createdAt: new Date(),
     });
 
-    // Handle window close - show main window again
+    // Handle window close cleanup
     // Note: Don't await this - it sets up a listener for future destruction
     void webview.once("tauri://destroyed", async () => {
       this.windows.delete(label);
-      // Show main window when workspace closes
-      try {
-        const mainWindow = await WebviewWindow.getByLabel("main");
-        if (mainWindow) {
-          await mainWindow.show();
-          await mainWindow.setFocus();
+      console.log(
+        `[WindowManager] Window ${label} destroyed, ${this.windows.size} windows remaining`,
+      );
+
+      // Only show main window if ALL workspace windows are closed
+      // This allows users to have multiple workspace windows open
+      if (this.windows.size === 0) {
+        console.log(
+          `[WindowManager] All workspace windows closed, showing main window`,
+        );
+        try {
+          const mainWindow = await WebviewWindow.getByLabel("main");
+          if (mainWindow) {
+            await mainWindow.show();
+            await mainWindow.setFocus();
+          }
+        } catch (error) {
+          console.error("Failed to show main window:", error);
         }
-      } catch (error) {
-        console.error("Failed to show main window:", error);
       }
     });
 
@@ -162,15 +173,20 @@ class WindowManager {
       this.windows.delete(workspaceWindow.label);
     }
 
-    // Show main window when closing workspace
-    try {
-      const mainWindow = await WebviewWindow.getByLabel("main");
-      if (mainWindow) {
-        await mainWindow.show();
-        await mainWindow.setFocus();
+    // Only show main window if ALL workspace windows are closed
+    if (this.windows.size === 0) {
+      console.log(
+        `[WindowManager] All workspace windows closed, showing main window`,
+      );
+      try {
+        const mainWindow = await WebviewWindow.getByLabel("main");
+        if (mainWindow) {
+          await mainWindow.show();
+          await mainWindow.setFocus();
+        }
+      } catch (error) {
+        console.error("Failed to show main window:", error);
       }
-    } catch (error) {
-      console.error("Failed to show main window:", error);
     }
   }
 
@@ -181,12 +197,69 @@ class WindowManager {
 
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
 
-    const window = this.getWindowByConnectionId(connectionId);
-    if (window) {
-      const webview = await WebviewWindow.getByLabel(window.label);
-      if (webview) {
+    // Use windowChannelTracker which syncs across all windows via BroadcastChannel
+    const windowLabels =
+      windowChannelTracker.getWindowsForConnection(connectionId);
+
+    if (windowLabels.length === 0) {
+      console.error(
+        `[WindowManager] No windows found for connection ${connectionId}`,
+      );
+      return;
+    }
+
+    // Use the first window (should only be one window per connection)
+    const windowLabel = windowLabels[0];
+
+    if (!windowLabel) {
+      console.error(
+        `[WindowManager] Window label is undefined for connection ${connectionId}`,
+      );
+      return;
+    }
+
+    console.log(
+      `[WindowManager] Attempting to focus window ${windowLabel} for connection ${connectionId}`,
+    );
+
+    const webview = await WebviewWindow.getByLabel(windowLabel);
+    if (webview) {
+      try {
+        // On macOS, we need to unminimize and show the window first
+        const isMinimized = await webview.isMinimized();
+        if (isMinimized) {
+          console.log(`[WindowManager] Window is minimized, unminimizing...`);
+          await webview.unminimize();
+        }
+
+        // Ensure window is visible
+        const isVisible = await webview.isVisible();
+        if (!isVisible) {
+          console.log(`[WindowManager] Window is hidden, showing...`);
+          await webview.show();
+        }
+
+        // Set focus
         await webview.setFocus();
+
+        // On macOS, also request attention if focus didn't work
+        // This will bounce the dock icon
+        try {
+          await webview.requestUserAttention(1); // 1 = Critical (bounce until focused)
+        } catch {
+          // requestUserAttention might not be available, ignore
+        }
+
+        console.log(
+          `[WindowManager] Successfully focused window ${windowLabel}`,
+        );
+      } catch (error) {
+        console.error(`[WindowManager] Failed to focus window:`, error);
       }
+    } else {
+      console.error(
+        `[WindowManager] Could not find webview for label ${windowLabel}`,
+      );
     }
   }
 
@@ -200,7 +273,8 @@ class WindowManager {
   }
 
   isWorkspaceOpen(connectionId: string): boolean {
-    return this.getWindowByConnectionId(connectionId) !== undefined;
+    // Use BroadcastChannel tracker for accurate cross-window status
+    return windowChannelTracker.hasOpenWindows(connectionId);
   }
 
   getActiveWindows(): Map<string, WindowInfo> {

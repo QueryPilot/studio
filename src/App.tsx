@@ -63,23 +63,14 @@ function App() {
   }, [setConfiguredProviders, setInitialized]);
 
   // Initialize connection window tracking
+  // Note: BroadcastChannel works in both Tauri and browser
   useEffect(() => {
-    if (!isTauri()) return;
-
-    void initializeConnectionWindowStore();
+    initializeConnectionWindowStore();
   }, [initializeConnectionWindowStore]);
 
-  // Ensure connections are closed on hard reloads as well
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      // Fire-and-forget; best effort before webview reload
-      void databaseService.cleanup();
-    };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-    };
-  }, []);
+  // Note: Removed global cleanup on beforeunload
+  // Each workspace window now handles its own connection cleanup
+  // This prevents closing one window from disconnecting other windows' connections
 
   useEffect(() => {
     if (!isTauri()) {

@@ -46,6 +46,7 @@ import {
   parseConnectionUri,
   type DatabaseType,
 } from "@/utils/connectionParser";
+import { getDatabaseLogo } from "@/utils/databaseLogos";
 
 import {
   type ConnectionProfile,
@@ -1183,16 +1184,36 @@ export function ConnectionDialog({
             focused={open}
           >
             <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="postgresql" tabIndex={0}>
+              <TabsTrigger value="postgresql" tabIndex={0} className="gap-1.5">
+                <img
+                  src={getDatabaseLogo(DbType.PostgreSQL)}
+                  alt="PostgreSQL"
+                  className="h-4 w-4"
+                />
                 PostgreSQL
               </TabsTrigger>
-              <TabsTrigger value="mysql" tabIndex={1}>
+              <TabsTrigger value="mysql" tabIndex={1} className="gap-1.5">
+                <img
+                  src={getDatabaseLogo(DbType.MySQL)}
+                  alt="MySQL"
+                  className="h-4 w-4"
+                />
                 MySQL
               </TabsTrigger>
-              <TabsTrigger value="sqlite" tabIndex={2}>
+              <TabsTrigger value="sqlite" tabIndex={2} className="gap-1.5">
+                <img
+                  src={getDatabaseLogo(DbType.SQLite)}
+                  alt="SQLite"
+                  className="h-4 w-4"
+                />
                 SQLite
               </TabsTrigger>
-              <TabsTrigger value="mssql" tabIndex={3}>
+              <TabsTrigger value="mssql" tabIndex={3} className="gap-1.5">
+                <img
+                  src={getDatabaseLogo(DbType.SQLServer)}
+                  alt="SQL Server"
+                  className="h-4 w-4"
+                />
                 SQL Server
               </TabsTrigger>
             </TabsList>

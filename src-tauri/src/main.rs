@@ -17,7 +17,7 @@ mod state;
 mod storage;
 mod types;
 mod vault;
-mod window_state;
+// NOTE: window_state module removed - tracking now uses BroadcastChannel API on frontend
 
 use ai::manager::AIManager;
 use ssh::rate_limiter::RateLimiter;
@@ -40,12 +40,8 @@ fn main() {
     // Create AI manager with default provider
     let ai_manager = Arc::new(AIManager::new());
 
-    // Create window state manager
-    let window_states = Arc::new(window_state::WindowStateManager::new());
-
     // Create app state
     let app_state = AppState {
-        window_states: window_states.clone(),
         ssh_test_rate_limiter: RateLimiter::new(5),
     };
 
@@ -163,12 +159,7 @@ fn main() {
             commands::create_trigger,
             commands::drop_trigger,
             commands::enable_disable_trigger,
-            // Window state / Connection tracking
-            commands::register_connection_window,
-            commands::unregister_connection_window,
-            commands::get_connection_status,
-            commands::get_all_connection_statuses,
-            commands::get_windows_for_connection,
+            // NOTE: Window tracking now uses BroadcastChannel API on frontend
         ])
         .build(context)
         .expect("error while building tauri application");

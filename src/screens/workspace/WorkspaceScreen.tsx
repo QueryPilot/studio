@@ -24,7 +24,7 @@ import { DebugKeybindings } from "@/components/DebugKeybindings";
 import { useCrudStore } from "@/stores/crudStore";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauri } from "@/utils/tauri";
-import { connectionWindowTracker } from "@/services/connectionWindowTracker";
+import { windowChannelTracker } from "@/services/windowChannelTracker";
 import { windowManager } from "@/services/windowManager";
 
 // Default sidebars state - using a constant to avoid creating new objects
@@ -100,13 +100,23 @@ export function WorkspaceScreen() {
       const urlDbname = searchParams.get("dbname");
       const urlSchema = searchParams.get("schema");
 
+      // Check if we have saved state for this connection
+      const savedState =
+        useWorkspaceSelectionStore.getState().getConnectionState(connectionId);
       const currentDatabase = useWorkspaceSelectionStore.getState().database;
 
-      // Priority: URL param > current store value > connection profile default
+      // Priority: URL param > saved per-connection state > connection profile default
       if (urlDbname) {
         if (currentDatabase !== urlDbname) {
           useWorkspaceSelectionStore.setState({ database: urlDbname });
+          setWorkspaceDatabase(urlDbname);
         }
+      } else if (savedState.database) {
+        // Restore saved state for this connection
+        useWorkspaceSelectionStore.setState({ database: savedState.database });
+        setWorkspaceDatabase(savedState.database);
+        // Set URL param to match
+        updateUrlParams(savedState.database, savedState.schema ?? undefined);
       } else if (!currentDatabase) {
         const stored = useConnectionStore
           .getState()
@@ -114,6 +124,7 @@ export function WorkspaceScreen() {
         const profile = stored?.profile;
         if (profile?.database) {
           useWorkspaceSelectionStore.setState({ database: profile.database });
+          setWorkspaceDatabase(profile.database);
           // Set URL param to match
           updateUrlParams(profile.database);
         }
@@ -124,7 +135,12 @@ export function WorkspaceScreen() {
         const currentSchema = useWorkspaceSelectionStore.getState().schema;
         if (currentSchema !== urlSchema) {
           useWorkspaceSelectionStore.setState({ schema: urlSchema });
+          setSelectedSchema(urlSchema);
         }
+      } else if (savedState.schema) {
+        // Restore saved schema for this connection
+        useWorkspaceSelectionStore.setState({ schema: savedState.schema });
+        setSelectedSchema(savedState.schema);
       }
     }
   }, [
@@ -134,6 +150,7 @@ export function WorkspaceScreen() {
     setActiveWorkspace,
     searchParams,
     updateUrlParams,
+    setSelectedSchema,
   ]);
 
   useEffect(() => {
@@ -143,8 +160,8 @@ export function WorkspaceScreen() {
       initWorkspace(connectionId);
       initializePanels(connectionId);
 
-      // Register this window with the connection tracker
-      void connectionWindowTracker.registerWindow(connectionId);
+      // Register this window with the connection tracker (BroadcastChannel)
+      void windowChannelTracker.registerWindow(connectionId);
 
       // Get database from URL or use default
       const urlDbname = searchParams.get("dbname");
@@ -171,10 +188,15 @@ export function WorkspaceScreen() {
 
     // Cleanup on unmount
     return () => {
-      // Unregister window from connection tracker
-      void connectionWindowTracker.unregisterWindow();
+      // Unregister window from connection tracker (BroadcastChannel)
+      windowChannelTracker.unregisterWindow();
 
+      // Disconnect this specific connection only
+      // Note: This won't affect other windows' connections
       if (connectionId && databaseService.isConnectionActive(connectionId)) {
+        console.log(
+          `[WorkspaceScreen] Unmounting - disconnecting connection ${connectionId}`,
+        );
         void databaseService.disconnect(connectionId);
       }
     };
