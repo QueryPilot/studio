@@ -4,6 +4,7 @@ import { ProviderService } from "../services/provider.service";
 import { tools } from "../tools";
 import type { ChatRequest } from "../types";
 import { validateConnectionContext } from "../utils/security";
+import { getChatSystemPrompt } from "../prompts/chat";
 import { MAX_TOOL_STEPS } from "../config/constants";
 
 export async function handleChatStream(request: Request): Promise<Response> {
@@ -54,21 +55,9 @@ export async function handleChatStream(request: Request): Promise<Response> {
     const modelMessages = convertToModelMessages(messages);
 
     // Build system prompt with connection context
-    const systemPrompt = connectionId
-      ? `You are an AI assistant helping users explore and query their database.
-
-Current Database Connection:
-- Connection ID: ${connectionId}
-- Database: ${database || "default"}
-- Schema: ${schema || "public"}
-
-IMPORTANT: When using database tools (list_tables, get_table_structure, etc.), you MUST use these exact values:
-- connectionId: "${connectionId}"
-- database: "${database || "default"}"
-- schema: "${schema || "public"}"
-
-Always use these values for tool parameters unless the user explicitly specifies different ones.`
-      : "You are an AI assistant helping users explore and query their database.";
+    const systemPrompt = getChatSystemPrompt(
+      connectionId ? { connectionId, database, schema } : undefined,
+    );
 
     // Stream response using AI SDK
     const result = streamText({
