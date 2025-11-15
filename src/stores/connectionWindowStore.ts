@@ -1,9 +1,8 @@
 import { create } from "zustand";
 import {
-  connectionWindowTracker,
+  windowChannelTracker,
   type ConnectionStatus,
-} from "@/services/connectionWindowTracker";
-import { safeListen } from "@/utils/tauri";
+} from "@/services/windowChannelTracker";
 
 interface ConnectionWindowStore {
   // Map of connectionId -> ConnectionStatus
@@ -14,8 +13,8 @@ interface ConnectionWindowStore {
   getConnectionStatus: (connectionId: string) => ConnectionStatus | undefined;
   hasOpenWindows: (connectionId: string) => boolean;
   getWindowCount: (connectionId: string) => number;
-  refreshAllStatuses: () => Promise<void>;
-  initialize: () => Promise<void>;
+  refreshAllStatuses: () => void;
+  initialize: () => void;
 }
 
 export const useConnectionWindowStore = create<ConnectionWindowStore>(
@@ -49,8 +48,8 @@ export const useConnectionWindowStore = create<ConnectionWindowStore>(
       return status?.window_count ?? 0;
     },
 
-    refreshAllStatuses: async () => {
-      const statuses = await connectionWindowTracker.getAllConnectionStatuses();
+    refreshAllStatuses: () => {
+      const statuses = windowChannelTracker.getAllConnectionStatuses();
       set(() => {
         const newStatuses = new Map<string, ConnectionStatus>();
         statuses.forEach((status) => {
@@ -60,39 +59,33 @@ export const useConnectionWindowStore = create<ConnectionWindowStore>(
       });
     },
 
-    initialize: async () => {
-      // Load initial statuses
-      await get().refreshAllStatuses();
+    initialize: () => {
+      // Subscribe to status changes from BroadcastChannel
+      const unsubscribe = windowChannelTracker.onStatusChange((statuses) => {
+        console.log(
+          "[ConnectionWindowStore] Status update received:",
+          statuses.length,
+          "connection(s)",
+        );
 
-      // Listen for window open events
-      await safeListen<ConnectionStatus>(
-        "connection-window-opened",
-        (event) => {
-          console.log(
-            "[ConnectionWindowStore] Window opened:",
-            event.payload.connection_id,
-            "windows:",
-            event.payload.window_count,
-          );
-          get().setConnectionStatus(event.payload);
-        },
+        set(() => {
+          const newStatuses = new Map<string, ConnectionStatus>();
+          statuses.forEach((status) => {
+            if (status.window_count > 0) {
+              newStatuses.set(status.connection_id, status);
+            }
+          });
+          return { connectionStatuses: newStatuses };
+        });
+      });
+
+      console.log(
+        "[ConnectionWindowStore] Initialized with BroadcastChannel tracking",
       );
 
-      // Listen for window close events
-      await safeListen<ConnectionStatus>(
-        "connection-window-closed",
-        (event) => {
-          console.log(
-            "[ConnectionWindowStore] Window closed:",
-            event.payload.connection_id,
-            "windows:",
-            event.payload.window_count,
-          );
-          get().setConnectionStatus(event.payload);
-        },
-      );
-
-      console.log("[ConnectionWindowStore] Initialized and listening to events");
+      // Store unsubscribe function for cleanup (if needed)
+      // Note: For now we don't clean up since this is a singleton store
+      return unsubscribe;
     },
   }),
 );

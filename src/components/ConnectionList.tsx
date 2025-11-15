@@ -9,8 +9,6 @@ import { windowManager } from "@/services/windowManager";
 import { toast } from "sonner";
 import {
   Database,
-  Server,
-  FileText,
   Layers3,
   Circle,
   GripVertical,
@@ -39,19 +37,20 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ConnectionDialog } from "@/components/ConnectionDialog";
-
-const databaseIcons: Record<string, typeof Database> = {
-  PostgreSQL: Database,
-  MySQL: Database,
-  SQLite: FileText,
-  SQLServer: Server,
-};
+import { getDatabaseLogo } from "@/utils/databaseLogos";
 
 const databaseColors: Record<string, string> = {
   PostgreSQL: "text-blue-600",
   MySQL: "text-orange-600",
   SQLite: "text-gray-600",
   SQLServer: "text-red-600",
+};
+
+const databaseBgColors: Record<string, string> = {
+  PostgreSQL: "rgba(37, 99, 235, 0.1)",
+  MySQL: "rgba(251, 146, 60, 0.1)",
+  SQLite: "rgba(107, 114, 128, 0.1)",
+  SQLServer: "rgba(239, 68, 68, 0.1)",
 };
 
 interface ConnectionListProps {
@@ -88,8 +87,8 @@ function ConnectionItem({
   onDuplicate: _onDuplicate,
 }: ConnectionItemProps) {
   const dbTypeStr = DbType[connection.profile.db_type];
-  const IconComponent = databaseIcons[dbTypeStr] || Database;
   const colorClass = databaseColors[dbTypeStr] || "text-gray-600";
+  const bgColorClass = databaseBgColors[dbTypeStr] || "rgba(107, 114, 128, 0.1)";
 
   // Get window count for this connection
   const windowCount = useConnectionWindowStore((state) =>
@@ -110,7 +109,11 @@ function ConnectionItem({
         </div>
 
         <div className="flex items-center space-x-2 min-w-0 flex-1">
-          <IconComponent className={`h-5 w-5 flex-shrink-0 ${colorClass}`} />
+          <img
+            src={getDatabaseLogo(connection.profile.db_type)}
+            alt={dbTypeStr}
+            className="h-5 w-5 flex-shrink-0"
+          />
           <div className="min-w-0 flex-1">
             <div className="flex items-center space-x-1">
               <span className="text-sm font-medium truncate">
@@ -169,15 +172,7 @@ function ConnectionItem({
                 variant="secondary"
                 className={`text-[10px] px-1.5 py-0 h-4 font-medium border-0 ${colorClass}`}
                 style={{
-                  backgroundColor: colorClass.includes("blue")
-                    ? "rgba(37, 99, 235, 0.1)"
-                    : colorClass.includes("orange")
-                    ? "rgba(251, 146, 60, 0.1)"
-                    : colorClass.includes("gray")
-                    ? "rgba(107, 114, 128, 0.1)"
-                    : colorClass.includes("red")
-                    ? "rgba(239, 68, 68, 0.1)"
-                    : "transparent",
+                  backgroundColor: bgColorClass,
                 }}
               >
                 {dbTypeStr.toUpperCase()}

@@ -37,6 +37,7 @@ import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useCrudStore } from "@/stores/crudStore";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
+import { DbType } from "@/types/connection";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
@@ -70,6 +71,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { GlobalChangesModal } from "@/components/GlobalChangesModal";
+import { getDatabaseLogo } from "@/utils/databaseLogos";
 
 interface WorkspaceTitleBarProps {
   connectionId: string;
@@ -79,6 +81,16 @@ interface WorkspaceTitleBarProps {
 interface DatabaseItem {
   name: string;
   hasProfile: boolean;
+  isCurrent: boolean;
+}
+
+interface SavedProfileItem {
+  id: string;
+  name: string;
+  database: string;
+  host: string;
+  port: number;
+  db_type: number;
 }
 
 // Fuse.js configuration for database fuzzy search
@@ -100,7 +112,6 @@ export function WorkspaceTitleBar({
 
   const connection = storedConnection?.profile;
   const navigate = useNavigate();
-  const [openWindows, setOpenWindows] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const selectedDatabase = useWorkspaceSelectionStore(
@@ -127,13 +138,20 @@ export function WorkspaceTitleBar({
     retry: 2,
   });
 
-  // Group databases by whether they have profiles
-  // Memoize connections length to prevent unnecessary recalculations
-  const connectionsLength = connections.length;
-
+  // Group databases into 3 sections:
+  // 1. Current database (highlighted)
+  // 2. Other databases on this server (same host/port)
+  // 3. All other saved profiles (different servers)
   const groupedDatabases = useMemo(() => {
-    if (!connection) return { savedProfiles: [], others: [] };
+    if (!connection) {
+      return {
+        current: null,
+        thisServer: [],
+        otherProfiles: [],
+      };
+    }
 
+    // Map databases on this server
     const databaseItems: DatabaseItem[] = databases.map((db) => {
       const hasProfile = connections.some(
         (conn) =>
@@ -142,23 +160,59 @@ export function WorkspaceTitleBar({
           conn.profile.database === db &&
           conn.profile.username === connection.username,
       );
-      return { name: db, hasProfile };
+      const isCurrent = db === selectedDatabase;
+      return { name: db, hasProfile, isCurrent };
     });
+
+    // Get all other saved profiles (different servers or different credentials)
+    const otherProfileItems: SavedProfileItem[] = connections
+      .filter((conn) => {
+        // Exclude profiles on the same server with same username
+        const isSameServer =
+          conn.profile.host === connection.host &&
+          conn.profile.port === connection.port &&
+          conn.profile.username === connection.username;
+        return !isSameServer;
+      })
+      .map((conn) => ({
+        id: conn.profile.id,
+        name: conn.profile.name,
+        database: conn.profile.database || "",
+        host: conn.profile.host,
+        port: conn.profile.port,
+        db_type: conn.profile.db_type,
+      }));
 
     // Apply fuzzy search if there's a query
     let filteredDatabases = databaseItems;
+    let filteredOtherProfiles = otherProfileItems;
+
     if (searchQuery.trim()) {
-      const fuse = new Fuse(databaseItems, DATABASE_FUSE_OPTIONS);
-      const results = fuse.search(searchQuery);
-      filteredDatabases = results.map((result) => result.item);
+      // Search in databases
+      const dbFuse = new Fuse(databaseItems, DATABASE_FUSE_OPTIONS);
+      const dbResults = dbFuse.search(searchQuery);
+      filteredDatabases = dbResults.map((result) => result.item);
+
+      // Search in other profiles (by name and database)
+      const profileFuse = new Fuse(otherProfileItems, {
+        keys: ["name", "database"],
+        threshold: 0.3,
+        includeScore: true,
+      });
+      const profileResults = profileFuse.search(searchQuery);
+      filteredOtherProfiles = profileResults.map((result) => result.item);
     }
 
-    // Split into groups
-    const savedProfiles = filteredDatabases.filter((db) => db.hasProfile);
-    const others = filteredDatabases.filter((db) => !db.hasProfile);
+    // Split databases into current and others
+    const current = filteredDatabases.find((db) => db.isCurrent) || null;
+    const thisServer = filteredDatabases.filter((db) => !db.isCurrent);
 
-    return { savedProfiles, others };
-  }, [databases, connectionsLength, connection, searchQuery]);
+    return {
+      current,
+      thisServer,
+      otherProfiles: filteredOtherProfiles,
+    };
+  }, [databases, connections, connection, selectedDatabase, searchQuery]);
   const { toggleSidebar: onToggleSidebar } = useWorkspaceScreenStore();
   const { openPreferences } = usePreferencesStore();
   const {
@@ -391,24 +445,6 @@ export function WorkspaceTitleBar({
       unsubscribe();
     };
   }, [connectionId]);
-
-  // Track open workspace windows using windowManager
-  useEffect(() => {
-    const checkOpenWindows = () => {
-      const activeWindows = windowManager.getActiveWindows();
-      const connectionIds = Array.from(activeWindows.values()).map(
-        (w) => w.connectionId,
-      );
-      setOpenWindows(connectionIds);
-    };
-
-    checkOpenWindows();
-    // Check periodically for window changes
-    const interval = setInterval(checkOpenWindows, 2000);
-    return () => {
-      clearInterval(interval);
-    };
-  }, []);
 
   const handleReconnect = async () => {
     setIsReconnecting(true);
@@ -791,50 +827,91 @@ export function WorkspaceTitleBar({
                     : "No databases found."}
                 </CommandEmpty>
 
-                {/* Saved Profiles Group */}
-                {groupedDatabases.savedProfiles.length > 0 && (
+                {/* Section 1: Current Database */}
+                {groupedDatabases.current && (
                   <CommandGroup
-                    heading="Saved Profiles"
+                    heading="Current"
                     className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5"
                   >
-                    {groupedDatabases.savedProfiles.map((dbItem) => {
-                      const dbConnection = connections.find(
-                        (conn) =>
-                          conn.profile.host === connection?.host &&
-                          conn.profile.port === connection.port &&
-                          conn.profile.database === dbItem.name &&
-                          conn.profile.username === connection.username,
-                      );
-                      const isOpen =
-                        dbConnection &&
-                        openWindows.includes(dbConnection.profile.id);
-                      const isCurrent = dbItem.name === selectedDatabase;
+                    <CommandItem
+                      key={groupedDatabases.current.name}
+                      value={groupedDatabases.current.name}
+                      onSelect={() => {
+                        setOpen(false);
+                      }}
+                      className="cursor-pointer py-1.5 px-2 bg-accent/50"
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <div className="flex items-center gap-2">
+                          {connection?.db_type ? (
+                            <img
+                              src={getDatabaseLogo(connection.db_type)}
+                              alt="database"
+                              className="h-3.5 w-3.5 shrink-0"
+                            />
+                          ) : (
+                            <Database className="h-3.5 w-3.5 shrink-0 text-green-500" />
+                          )}
+                          <span className="text-xs font-semibold truncate">
+                            {groupedDatabases.current.name}
+                          </span>
+                        </div>
+                        <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                      </div>
+                    </CommandItem>
+                  </CommandGroup>
+                )}
 
+                {/* Section 2: Other Databases on This Server */}
+                {groupedDatabases.thisServer.length > 0 && (
+                  <CommandGroup
+                    heading="Databases on This Server"
+                    className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5"
+                  >
+                    {groupedDatabases.thisServer.map((dbItem) => {
                       return (
                         <CommandItem
                           key={dbItem.name}
                           value={dbItem.name}
                           onSelect={() => {
-                            handleSelectDatabase(dbItem.name, true);
+                            void handleSelectDatabase(
+                              dbItem.name,
+                              dbItem.hasProfile,
+                            );
                             setSearchQuery("");
                           }}
                           className="cursor-pointer py-1.5 px-2"
                         >
                           <div className="flex items-center justify-between w-full">
                             <div className="flex items-center gap-2">
-                              <Database className="h-3.5 w-3.5 shrink-0" />
-                              <span className="text-xs font-medium truncate">
+                              {connection?.db_type ? (
+                                <img
+                                  src={getDatabaseLogo(connection.db_type)}
+                                  alt="database"
+                                  className="h-3.5 w-3.5 shrink-0"
+                                />
+                              ) : (
+                                <Database
+                                  className={cn(
+                                    "h-3.5 w-3.5 shrink-0",
+                                    dbItem.hasProfile
+                                      ? "text-blue-500"
+                                      : "text-muted-foreground",
+                                  )}
+                                />
+                              )}
+                              <span
+                                className={cn(
+                                  "text-xs truncate",
+                                  dbItem.hasProfile && "font-medium",
+                                )}
+                              >
                                 {dbItem.name}
                               </span>
                             </div>
-                            <div className="flex items-center gap-2 ml-auto shrink-0">
-                              {isCurrent && (
-                                <Check className="h-3.5 w-3.5 text-green-500" />
-                              )}
-                              {isOpen && !isCurrent && (
-                                <Circle className="h-2 w-2 fill-blue-500 text-blue-500" />
-                              )}
-                            </div>
+                            {dbItem.hasProfile && (
+                              <Circle className="h-2 w-2 fill-blue-500 text-blue-500 shrink-0" />
+                            )}
                           </div>
                         </CommandItem>
                       );
@@ -842,35 +919,46 @@ export function WorkspaceTitleBar({
                   </CommandGroup>
                 )}
 
-                {/* Other Databases Group */}
-                {groupedDatabases.others.length > 0 && (
+                {/* Section 3: Other Saved Profiles (Different Servers) */}
+                {groupedDatabases.otherProfiles.length > 0 && (
                   <CommandGroup
-                    heading="Other Databases"
+                    heading="Other Saved Profiles"
                     className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5"
                   >
-                    {groupedDatabases.others.map((dbItem) => {
-                      const isCurrent = dbItem.name === selectedDatabase;
-
+                    {groupedDatabases.otherProfiles.map((profile) => {
                       return (
                         <CommandItem
-                          key={dbItem.name}
-                          value={dbItem.name}
+                          key={profile.id}
+                          value={`${profile.name} ${profile.database}`}
                           onSelect={() => {
-                            handleSelectDatabase(dbItem.name, false);
+                            // Switch to a different server connection
+                            void windowManager.openWorkspace(
+                              profile.id,
+                              profile.name,
+                              profile.database
+                                ? { database: profile.database }
+                                : undefined,
+                            );
                             setSearchQuery("");
+                            setOpen(false);
                           }}
                           className="cursor-pointer py-1.5 px-2"
                         >
-                          <div className="flex items-center justify-between w-full">
+                          <div className="flex flex-col gap-0.5 w-full">
                             <div className="flex items-center gap-2">
-                              <Database className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                              <span className="text-xs truncate">
-                                {dbItem.name}
+                              <img
+                                src={getDatabaseLogo(profile.db_type as DbType)}
+                                alt="database"
+                                className="h-3.5 w-3.5 shrink-0"
+                              />
+                              <span className="text-xs font-medium truncate">
+                                {profile.name}
                               </span>
                             </div>
-                            {isCurrent && (
-                              <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                            )}
+                            <span className="text-[10px] text-muted-foreground pl-5 truncate">
+                              {profile.host}:{profile.port}
+                              {profile.database && ` / ${profile.database}`}
+                            </span>
                           </div>
                         </CommandItem>
                       );
@@ -954,7 +1042,7 @@ export function WorkspaceTitleBar({
             className="text-muted-foreground whitespace-nowrap"
             data-tauri-drag-region
           >
-            {connection ? connection.db_type : ""}
+            {connection?.db_type}
             {serverVersion && ` ${serverVersion}`}
           </span>
         </div>
