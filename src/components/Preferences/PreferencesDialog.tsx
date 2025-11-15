@@ -60,10 +60,13 @@ export function PreferencesDialog({
 
   return (
     <Dialog open={isDialogOpen} onOpenChange={handleOpenChange}>
-      <DialogContent className="!max-w-5xl h-[80vh] p-0 gap-0">
+      <DialogContent
+        className="!max-w-5xl h-[80vh] p-0 gap-0 overflow-hidden"
+        showCloseButton={false}
+      >
         <div className="flex h-full">
           <PreferencesSidebar />
-          <div className="flex-1 overflow-y-auto p-6">{renderPanel()}</div>
+          <div className="flex-1 overflow-y-auto p-4">{renderPanel()}</div>
         </div>
       </DialogContent>
     </Dialog>
