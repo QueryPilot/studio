@@ -107,7 +107,7 @@ class WindowManager {
       minimizable: true,
       closable: true,
       decorations: true,
-      transparent: true,
+      transparent: false,
       titleBarStyle: "overlay",
       hiddenTitle: true,
       skipTaskbar: false,

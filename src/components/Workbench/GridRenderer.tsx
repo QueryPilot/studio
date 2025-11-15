@@ -1,9 +1,4 @@
-import React, {
-  useCallback,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-} from "react";
+import React, { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { type GridNode } from "@/types/workbench";
 import { Panel } from "./PanelDnd";
 import useWorkbenchStore from "@/stores/workbenchStore";
@@ -39,7 +34,11 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
 
   const handlePanelResize = useCallback(
     (sizes: number[]) => {
-      if (node.type === "branch" && sizes.length === 2 && !isSyncingRef.current) {
+      if (
+        node.type === "branch" &&
+        sizes.length === 2 &&
+        !isSyncingRef.current
+      ) {
         // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         const newRatio = sizes[0]! / 100;
         resizePanelAction(path, newRatio);
@@ -67,7 +66,9 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
         const frame = window.requestAnimationFrame(() => {
           isSyncingRef.current = false;
         });
-        return () => window.cancelAnimationFrame(frame);
+        return () => {
+          window.cancelAnimationFrame(frame);
+        };
       }
       isSyncingRef.current = false;
     }
@@ -106,7 +107,8 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
           minSize={10}
           maxSize={90}
           className={cn("rounded-xl overflow-hidden bg-transparent", {
-            "border border-primary/20": totalPanels > 1 && node.id === focusedPanelId,
+            "border border-primary/20":
+              totalPanels > 1 && node.id === focusedPanelId,
           })}
         >
           {node.children[0] && (
@@ -119,7 +121,8 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
           minSize={10}
           maxSize={90}
           className={cn("rounded-xl overflow-hidden bg-transparent", {
-            "border border-primary/20": totalPanels > 1 && node.id === focusedPanelId,
+            "border border-primary/20":
+              totalPanels > 1 && node.id === focusedPanelId,
           })}
         >
           {node.children[1] && (
