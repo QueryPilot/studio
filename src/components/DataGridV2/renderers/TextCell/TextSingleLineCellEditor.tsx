@@ -49,14 +49,11 @@ export const TextSingleLineCellEditor: React.FC<
   const commitCurrentText = useCallback(() => {
     const text = inputRef.current?.value ?? "";
 
-    // Normalize current value for comparison
-    const currentValue = text.trim() || (value.data.nullable ? null : text);
+    // Update the ref with current value for proper change detection
+    const currentInputValue = text;
 
-    // Normalize original value for comparison
-    const originalValue = originalValueRef.current;
-
-    // Check if value actually changed
-    const hasChanged = currentValue !== originalValue;
+    // Check if value actually changed (compare raw text with initial)
+    const hasChanged = currentInputValue !== (value.data.value ?? "");
 
     // If no changes were made, cancel the edit
     if (!hasChanged) {
@@ -76,6 +73,9 @@ export const TextSingleLineCellEditor: React.FC<
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (finishedRef.current) return;
+
+    // Update the ref with current input value before processing keyboard events
+    originalValueRef.current = inputRef.current?.value ?? "";
 
     if (e.key === "Escape") {
       e.preventDefault();

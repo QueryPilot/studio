@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Trash2, Key } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { NumberCustomCell } from "./types";
-import { isMeaningful, isValidNumberText, normalizeValue } from "./utils";
+import { isValidNumberText, normalizeValue } from "./utils";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
 interface NumberCellEditorProps {
@@ -29,6 +29,7 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
   );
   const finishedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const initialValueRef = useRef(initialText);
 
   const nullable = Boolean(value.data.nullable);
   const precision = value.data.precision;
@@ -61,10 +62,8 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
   );
 
   const commitCurrentValue = useCallback(() => {
-    const text = inputRef.current?.value ?? "";
-
     // Check if value actually changed (compare raw text with initial)
-    const hasChanged = text !== initialText;
+    const hasChanged = initialValueRef.current !== initialText;
 
     // If no changes were made, cancel the edit
     if (!hasChanged) {
@@ -74,7 +73,7 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
     }
 
     // Commit the changed value
-    const normalized = normalizeValue(text);
+    const normalized = normalizeValue(initialValueRef.current);
     if (!normalized) {
       if (nullable) {
         commit(null);
@@ -89,6 +88,8 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (finishedRef.current) return;
+
+      initialValueRef.current = inputRef.current?.value ?? "";
 
       if (e.key === "Escape") {
         e.preventDefault();
@@ -108,7 +109,7 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
         finishedRef.current = true;
 
         // Commit the current text value before moving
-        const normalized = normalizeValue(text);
+        const normalized = normalizeValue(initialValueRef.current);
         const committedValue: string | null = !normalized
           ? nullable
             ? null

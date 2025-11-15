@@ -228,6 +228,10 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
 
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (finishedRef.current) return;
+
+    // Update the ref with current manual text value before processing keyboard events
+    // (manualText state is already being updated via onChange, but ensure we have latest)
+
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();

@@ -27,6 +27,7 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
 
   const finishedRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const originalValueRef = useRef(initial);
 
   const commit = useCallback(
     (nextRaw: string | null) => {
@@ -59,7 +60,7 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
     const text = textareaRef.current?.value ?? "";
 
     // Check if value actually changed
-    const hasChanged = text !== initial;
+    const hasChanged = text !== originalValueRef.current;
 
     // If no changes were made, cancel the edit
     if (!hasChanged) {
@@ -79,6 +80,9 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (finishedRef.current) return;
+
+    // Update the ref with current textarea value before processing keyboard events
+    originalValueRef.current = textareaRef.current?.value ?? "";
 
     if (e.key === "Escape") {
       e.preventDefault();
@@ -105,6 +109,7 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
       finishedRef.current = true;
 
       // Commit the current text value before moving
+      const text = textareaRef.current?.value ?? "";
       const trimmed = text.trim();
       const committedValue: string | null = !trimmed && nullable ? null : trimmed;
 
