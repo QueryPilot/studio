@@ -49,6 +49,7 @@ fn main() {
     apply_macos_traffic_light_position(context.config_mut());
 
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_window_state::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
@@ -167,8 +168,9 @@ fn main() {
     // Initialize AI sidecar
     let ai_manager = app.state::<Arc<ai::manager::AIManager>>();
     let ai_manager_clone = ai_manager.inner().clone();
+    let app_handle = app.handle().clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = ai_manager_clone.initialize_sidecar().await {
+        if let Err(e) = ai_manager_clone.initialize_sidecar(&app_handle).await {
             tracing::error!("Failed to initialize AI sidecar: {}", e);
         }
     });

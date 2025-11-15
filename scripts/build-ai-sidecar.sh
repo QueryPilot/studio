@@ -28,7 +28,6 @@ build_for_platform() {
         --target="bun-$target" \
         --outfile="../sidecars/ai-server-$triple"
 
-    # Make sure the binary is executable (Unix-like systems)
     if [[ "$target" != "windows"* ]]; then
         chmod +x "../sidecars/ai-server-$triple"
     fi

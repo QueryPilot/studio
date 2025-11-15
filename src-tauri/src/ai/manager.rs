@@ -32,8 +32,8 @@ impl AIManager {
     }
 
     /// Initialize the AI sidecar
-    pub async fn initialize_sidecar(&self) -> anyhow::Result<()> {
-        let port = self.sidecar_manager.start().await?;
+    pub async fn initialize_sidecar(&self, app_handle: &tauri::AppHandle) -> anyhow::Result<()> {
+        let port = self.sidecar_manager.start(app_handle).await?;
         tracing::info!("AI sidecar initialized on port {}", port);
 
         // Load and configure API keys
