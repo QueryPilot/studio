@@ -37,7 +37,7 @@ import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useCrudStore } from "@/stores/crudStore";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
-import { DbType } from "@/types/connection";
+import type { DbType } from "@/types/connection";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
@@ -90,7 +90,7 @@ interface SavedProfileItem {
   database: string;
   host: string;
   port: number;
-  db_type: number;
+  db_type: DbType;
 }
 
 // Fuse.js configuration for database fuzzy search
@@ -865,7 +865,7 @@ export function WorkspaceTitleBar({
                 {/* Section 2: Other Databases on This Server */}
                 {groupedDatabases.thisServer.length > 0 && (
                   <CommandGroup
-                    heading="Databases on This Server"
+                    heading="On this Server"
                     className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5"
                   >
                     {groupedDatabases.thisServer.map((dbItem) => {
@@ -910,7 +910,7 @@ export function WorkspaceTitleBar({
                               </span>
                             </div>
                             {dbItem.hasProfile && (
-                              <Circle className="h-2 w-2 fill-blue-500 text-blue-500 shrink-0" />
+                              <Circle className="!h-2 !w-2 fill-primary text-primary shrink-0" />
                             )}
                           </div>
                         </CommandItem>
@@ -922,7 +922,7 @@ export function WorkspaceTitleBar({
                 {/* Section 3: Other Saved Profiles (Different Servers) */}
                 {groupedDatabases.otherProfiles.length > 0 && (
                   <CommandGroup
-                    heading="Other Saved Profiles"
+                    heading="Saved profiles"
                     className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5"
                   >
                     {groupedDatabases.otherProfiles.map((profile) => {
@@ -947,7 +947,7 @@ export function WorkspaceTitleBar({
                           <div className="flex flex-col gap-0.5 w-full">
                             <div className="flex items-center gap-2">
                               <img
-                                src={getDatabaseLogo(profile.db_type as DbType)}
+                                src={getDatabaseLogo(profile.db_type)}
                                 alt="database"
                                 className="h-3.5 w-3.5 shrink-0"
                               />
