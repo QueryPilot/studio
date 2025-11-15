@@ -65,7 +65,7 @@ export const DataGridBase = forwardRef(function DataGridBase(
         headerHeight={28}
         getRowThemeOverride={rest.getRowThemeOverride}
         highlightRegions={rest.highlightRegions}
-        keybindings={rest.keybindings}
+        keybindings={rest.keybindings} // Undefined by default = Glide's native copy/paste enabled
         columnSelect="multi"
         rowSelect="multi"
         editOnType={false}

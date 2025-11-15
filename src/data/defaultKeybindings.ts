@@ -126,11 +126,6 @@ export const defaultKeybindings: Keybinding[] = [
   },
   // Data Grid keybindings
   {
-    command: 'dataGrid.action.copy',
-    key: 'cmd+c',
-    when: 'dataGridFocus && !editingCell && !selectionEmpty',
-  },
-  {
     command: 'dataGrid.action.copyAsJson',
     key: 'cmd+shift+c',
     when: 'dataGridFocus && !editingCell && !selectionEmpty',

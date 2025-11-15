@@ -73,7 +73,8 @@ export class KeyboardHandler {
     }
 
     const nextSequence = [...this.chordSequence, dispatch];
-    const { match, isChordPending } = this.keybindingService.resolve(nextSequence);
+    const activeScopes = this.contextService.getActiveScopes();
+    const { match, isChordPending } = this.keybindingService.resolve(nextSequence, activeScopes);
 
     // Debug logging for cmd+t and cmd+\
     if (dispatch.includes('KeyT') || dispatch.includes('Backslash')) {
