@@ -92,7 +92,7 @@ describe('connectionStoreNew', () => {
       vi.mocked(vaultStorage.listConnections).mockImplementation(
         () =>
           new Promise((resolve) => {
-            setTimeout(() => resolve(mockConnections), 100);
+            setTimeout(() => { resolve(mockConnections); }, 100);
           })
       );
 

@@ -280,7 +280,7 @@ describe('commandPaletteStore', () => {
       // Open command palette
       store.openCommandPalette();
 
-      let state = useCommandPaletteStore.getState();
+      const state = useCommandPaletteStore.getState();
       expect(state.isOpen).toBe(true);
       expect(state.mode).toBe('command');
       expect(state.query).toBe('>');

@@ -276,7 +276,7 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
         <ul className="space-y-0">
           {columns.map((column) => {
             const { type, constraints } = formatColumnType(
-              column as ColumnMeta,
+              column,
             );
             const showSourceHandles = columnHandles.source.has(column.name);
             const showTargetHandles = columnHandles.target.has(column.name);
@@ -301,7 +301,7 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
                       <Handle
                         type="target"
                         position={Position.Left}
-                        id={makeHandleId(column.name as string, "target", "left")}
+                        id={makeHandleId(column.name, "target", "left")}
                         className="absolute left-0 top-1/2 opacity-0 group-hover:opacity-100"
                         style={{
                           width: 8,
@@ -317,7 +317,7 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
                       <Handle
                         type="source"
                         position={Position.Left}
-                        id={makeHandleId(column.name as string, "source", "left")}
+                        id={makeHandleId(column.name, "source", "left")}
                         className="absolute left-0 top-1/2 opacity-0 group-hover:opacity-100"
                         style={{
                           width: 8,
@@ -334,7 +334,7 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
                         <span className="font-medium text-foreground truncate max-w-[160px]">
                           {column.name}
                         </span>
-                        {renderColumnIcons(column as ColumnMeta)}
+                        {renderColumnIcons(column)}
                       </div>
                       <div className="flex items-center gap-2 min-w-0 flex-shrink-0">
                         {constraints.length > 0 && (
@@ -353,7 +353,7 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
                         type="target"
                         position={Position.Right}
                         id={makeHandleId(
-                          column.name as string,
+                          column.name,
                           "target",
                           "right",
                         )}
@@ -373,7 +373,7 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
                         type="source"
                         position={Position.Right}
                         id={makeHandleId(
-                          column.name as string,
+                          column.name,
                           "source",
                           "right",
                         )}
@@ -880,7 +880,7 @@ export const ERDVisualizer = React.forwardRef<
       onHover: setHoveredNodeId,
       onClick: handleTableClick,
       onColumnHover: setHoveredColumn,
-      onColumnLeave: () => setHoveredColumn(null),
+      onColumnLeave: () => { setHoveredColumn(null); },
       onColumnDoubleClick,
     }), [toggleExpanded, handleTableClick, onColumnDoubleClick]);
 

@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle } from "lucide-react";
 import { databaseService, type TableIndex } from "@/services/databaseService";
 import { DataGridBase } from "@/components/DataGridV2/base/DataGridBase";
+import { useColumnSizing } from "@/components/DataGridV2/hooks/useColumnSizing";
 import { indexColumns } from "./columns";
 import { transformIndexesToRows } from "./utils";
 import IndexNameCellRenderer from "./IndexNameCellRenderer";
@@ -58,16 +59,21 @@ export const TableIndexes = memo(function TableIndexes({
   }, [loadIndexes]);
 
   // Transform indexes to grid rows
-  const gridRows = useMemo(
-    () => transformIndexesToRows(indexes),
-    [indexes],
-  );
+  const gridRows = useMemo(() => transformIndexesToRows(indexes), [indexes]);
+
+  // Enable column resizing
+  const { sizedColumns, handleColumnResize, handleColumnResizeEnd } =
+    useColumnSizing({
+      columns: indexColumns,
+      initialWidths: {},
+      onChange: () => {}, // No persistence needed for now
+    });
 
   // Cell content factory
   const getCellContent = useCallback(
     (cell: Item) => {
       const [colIndex, rowIndex] = cell;
-      const column = indexColumns[colIndex];
+      const column = sizedColumns[colIndex];
       const row = gridRows[rowIndex];
 
       if (!column || !row) {
@@ -80,7 +86,7 @@ export const TableIndexes = memo(function TableIndexes({
         } as const;
       }
 
-      const value = row[column.field as keyof IndexGridRow];
+      const fieldValue = row[column.field as keyof IndexGridRow];
 
       // Custom cell for index name with badges
       if (column.field === "name") {
@@ -102,8 +108,8 @@ export const TableIndexes = memo(function TableIndexes({
       if (column.field === "row_number") {
         return {
           kind: GridCellKind.Text,
-          data: String(value),
-          displayData: String(value),
+          data: String(fieldValue),
+          displayData: String(fieldValue),
           readonly: true,
           allowOverlay: false,
           contentAlign: "right" as const,
@@ -113,12 +119,33 @@ export const TableIndexes = memo(function TableIndexes({
         } as const;
       }
 
-      // Columns and condition (monospace font)
-      if (column.field === "columns" || column.field === "condition") {
+      // Unique column with colored background
+      if (column.field === "unique") {
+        const uniqueValue = String(fieldValue);
+        const isUnique = uniqueValue === "YES";
         return {
           kind: GridCellKind.Text,
-          data: String(value || ""),
-          displayData: String(value || ""),
+          data: uniqueValue,
+          displayData: uniqueValue,
+          readonly: true,
+          allowOverlay: false,
+          contentAlign: "center" as const,
+          themeOverride: isUnique
+            ? {
+                bgCell: "rgba(16, 185, 129, 0.15)", // emerald-500 with 15% opacity
+                textDark: "#059669", // emerald-600
+              }
+            : undefined,
+        } as const;
+      }
+
+      // Columns (monospace font)
+      if (column.field === "columns") {
+        const columnsValue = String(fieldValue ?? "");
+        return {
+          kind: GridCellKind.Text,
+          data: columnsValue,
+          displayData: columnsValue,
           readonly: true,
           allowOverlay: true,
           themeOverride: {
@@ -127,16 +154,33 @@ export const TableIndexes = memo(function TableIndexes({
         } as const;
       }
 
-      // Default text cell
+      // Condition/Definition (monospace font with blue color)
+      if (column.field === "condition") {
+        const conditionValue = String(fieldValue ?? "");
+        return {
+          kind: GridCellKind.Text,
+          data: conditionValue,
+          displayData: conditionValue,
+          readonly: true,
+          allowOverlay: true,
+          themeOverride: {
+            baseFontStyle: "400 11px monospace",
+            textDark: "#3b82f6", // blue-500
+          },
+        } as const;
+      }
+
+      // Default text cell (index_type)
+      const displayValue = String(fieldValue ?? "");
       return {
         kind: GridCellKind.Text,
-        data: String(value || ""),
-        displayData: String(value || ""),
+        data: displayValue,
+        displayData: displayValue,
         readonly: true,
         allowOverlay: false,
       } as const;
     },
-    [gridRows],
+    [gridRows, sizedColumns],
   );
 
   const hasIndexes = useMemo(() => indexes.length > 0, [indexes.length]);
@@ -174,12 +218,14 @@ export const TableIndexes = memo(function TableIndexes({
     <div className="h-full flex flex-col">
       <div className="flex-1">
         <DataGridBase
-          columns={indexColumns}
+          columns={sizedColumns}
           rowCount={gridRows.length}
           getCellContent={getCellContent}
           customRenderers={customRenderers}
           rowSelect="none"
           columnSelect="none"
+          onColumnResize={handleColumnResize}
+          onColumnResizeEnd={handleColumnResizeEnd}
         />
       </div>
       <div className="px-4 py-2 text-xs text-muted-foreground border-t">
