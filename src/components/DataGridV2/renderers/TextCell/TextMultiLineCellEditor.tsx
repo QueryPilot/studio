@@ -21,6 +21,7 @@ export const TextMultiLineCellEditor: React.FC<
   const finishedRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const initialValueRef = useRef(value.data.value);
 
   const [size, setSize] = useState({
     width: 400,
@@ -130,7 +131,7 @@ export const TextMultiLineCellEditor: React.FC<
     const text = textareaRef.current?.value ?? "";
 
     // Check if value actually changed (compare with original value)
-    const hasChanged = text !== initialValue;
+    const hasChanged = initialValueRef.current !== (initialValue || "");
 
     // If no changes were made, cancel the edit
     if (!hasChanged) {
@@ -146,10 +147,13 @@ export const TextMultiLineCellEditor: React.FC<
     } else {
       commit(text);
     }
-  }, [commit, value.data.nullable, initialValue, onFinishedEditing]);
+  }, [initialValue, value.data.nullable, onFinishedEditing, commit]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (finishedRef.current) return;
+
+    // Update the ref with current textarea value before processing keyboard events
+    initialValueRef.current = textareaRef.current?.value ?? "";
 
     if (e.key === "Escape") {
       e.preventDefault();
@@ -170,8 +174,7 @@ export const TextMultiLineCellEditor: React.FC<
       finishedRef.current = true;
 
       // Check if value actually changed
-      const text = textareaRef.current?.value ?? "";
-      const hasChanged = text !== initialValue;
+      const hasChanged = initialValueRef.current !== (initialValue || "");
 
       // If no changes, cancel and move
       if (!hasChanged) {
@@ -180,9 +183,9 @@ export const TextMultiLineCellEditor: React.FC<
       }
 
       // Commit the current text value before moving
-      const trimmed = text.trim();
+      const trimmed = initialValueRef.current.trim();
       const committedValue: string | null =
-        !trimmed && value.data.nullable ? null : text;
+        !trimmed && value.data.nullable ? null : initialValueRef.current;
 
       let formattedValue = committedValue;
       let displayValue = value.data.displayValue;
@@ -302,7 +305,6 @@ export const TextMultiLineCellEditor: React.FC<
           ref={textareaRef}
           defaultValue={initialValue}
           autoFocus
-          onFocus={(e) => e.target.select()}
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}

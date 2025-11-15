@@ -55,6 +55,7 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
   );
   const finishedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const originalValueRef = useRef(value.data.value);
 
   // Extract column metadata for header
   const { columnName, isPrimaryKey, dbType } = value.data;
@@ -125,7 +126,7 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
     const text = inputRef.current?.value ?? "";
 
     // Check if value actually changed
-    const hasChanged = text !== initialValue;
+    const hasChanged = text !== (originalValueRef.current || "");
 
     // If no changes were made, cancel the edit
     if (!hasChanged) {
@@ -146,6 +147,9 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (finishedRef.current) return;
 
+    // Update the ref with current input value before processing keyboard events
+    originalValueRef.current = inputRef.current?.value ?? "";
+
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
@@ -164,6 +168,7 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
       finishedRef.current = true;
 
       // Commit the current text value before moving
+      const text = inputRef.current?.value ?? "";
       const trimmed = text.trim();
       const committedValue: string | null =
         !trimmed && value.data.nullable ? null : isValid ? trimmed : null;
