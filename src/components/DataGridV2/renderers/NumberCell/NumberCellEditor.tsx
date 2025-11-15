@@ -175,12 +175,11 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
       </div>
 
       {/* Input field */}
-      <div className="flex items-center flex-1 relative px-2">
+      <div className="flex items-center flex-1 relative">
         <input
           ref={inputRef}
           className={cn(
-            "h-full w-full bg-transparent text-xs font-mono outline-none",
-            !isMeaningful(initialText) ? "italic text-muted-foreground" : "",
+            "h-full w-full bg-transparent text-xs font-mono outline-none py-1 px-2",
             !isValid
               ? "border-b border-destructive focus:border-destructive"
               : "",
@@ -188,7 +187,7 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
           spellCheck={false}
           defaultValue={initialText}
           autoFocus
-          onFocus={(e) => e.target.select()}
+          // onFocus={(e) => e.target.select()}
           onChange={(e) => {
             handleChange(e.target.value);
           }}

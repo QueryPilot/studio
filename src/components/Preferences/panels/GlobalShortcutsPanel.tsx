@@ -1,18 +1,24 @@
-import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { getGlobalShortcutManager } from '@/services/globalShortcuts';
-import { isTauri } from '@/utils/tauri';
-import { toast } from 'sonner';
-import { Keyboard, Info, AlertCircle } from 'lucide-react';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { getGlobalShortcutManager } from "@/services/globalShortcuts";
+import { isTauri } from "@/utils/tauri";
+import { toast } from "sonner";
+import { Keyboard, Info, AlertCircle } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 export function GlobalShortcutsPanel() {
   const [isEnabled, setIsEnabled] = useState(false);
-  const [defaultShortcut, setDefaultShortcut] = useState('');
-  const [customShortcut, setCustomShortcut] = useState('');
+  const [defaultShortcut, setDefaultShortcut] = useState("");
+  const [customShortcut, setCustomShortcut] = useState("");
   const [isRegistered, setIsRegistered] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
 
@@ -40,12 +46,14 @@ export function GlobalShortcutsPanel() {
 
   const handleRegisterShortcut = async () => {
     if (!customShortcut) {
-      toast.error('Please enter a shortcut');
+      toast.error("Please enter a shortcut");
       return;
     }
 
     if (!manager.validateShortcut(customShortcut)) {
-      toast.error('Invalid shortcut format. Must include at least one modifier key.');
+      toast.error(
+        "Invalid shortcut format. Must include at least one modifier key.",
+      );
       return;
     }
 
@@ -58,23 +66,29 @@ export function GlobalShortcutsPanel() {
       // Register new shortcut
       const success = await manager.register({
         shortcut: customShortcut,
-        description: 'Show/activate Query Pilot',
+        description: "Show/activate Query Pilot",
         handler: () => {
           // The handler is in Rust, this is just for tracking
-          console.log('Global shortcut triggered:', customShortcut);
-        }
+          console.log("Global shortcut triggered:", customShortcut);
+        },
       });
 
       if (success) {
         setIsRegistered(true);
         setDefaultShortcut(customShortcut);
-        toast.success(`Global shortcut registered: ${manager.formatShortcutForDisplay(customShortcut)}`);
+        toast.success(
+          `Global shortcut registered: ${manager.formatShortcutForDisplay(
+            customShortcut,
+          )}`,
+        );
       } else {
-        toast.error('Failed to register shortcut. It may already be in use by another application.');
+        toast.error(
+          "Failed to register shortcut. It may already be in use by another application.",
+        );
       }
     } catch (error) {
-      console.error('Failed to register global shortcut:', error);
-      toast.error('Failed to register shortcut');
+      console.error("Failed to register global shortcut:", error);
+      toast.error("Failed to register shortcut");
     }
   };
 
@@ -82,10 +96,10 @@ export function GlobalShortcutsPanel() {
     try {
       await manager.unregister(defaultShortcut);
       setIsRegistered(false);
-      toast.success('Global shortcut unregistered');
+      toast.success("Global shortcut unregistered");
     } catch (error) {
-      console.error('Failed to unregister global shortcut:', error);
-      toast.error('Failed to unregister shortcut');
+      console.error("Failed to unregister global shortcut:", error);
+      toast.error("Failed to unregister shortcut");
     }
   };
 
@@ -96,35 +110,35 @@ export function GlobalShortcutsPanel() {
 
   const startRecording = () => {
     setIsRecording(true);
-    toast.info('Press a key combination...');
+    toast.info("Press a key combination...");
 
     const handleKeyDown = (e: KeyboardEvent) => {
       e.preventDefault();
       e.stopPropagation();
 
       const modifiers: string[] = [];
-      if (e.metaKey || e.ctrlKey) modifiers.push('CommandOrControl');
-      if (e.shiftKey) modifiers.push('Shift');
-      if (e.altKey) modifiers.push('Alt');
+      if (e.metaKey || e.ctrlKey) modifiers.push("CommandOrControl");
+      if (e.shiftKey) modifiers.push("Shift");
+      if (e.altKey) modifiers.push("Alt");
 
       // Get the main key (not a modifier)
       const key = e.key;
-      if (!['Meta', 'Control', 'Shift', 'Alt'].includes(key)) {
-        const shortcut = [...modifiers, key.toUpperCase()].join('+');
+      if (!["Meta", "Control", "Shift", "Alt"].includes(key)) {
+        const shortcut = [...modifiers, key.toUpperCase()].join("+");
         setCustomShortcut(shortcut);
         setIsRecording(false);
-        window.removeEventListener('keydown', handleKeyDown, true);
+        window.removeEventListener("keydown", handleKeyDown, true);
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown, true);
+    window.addEventListener("keydown", handleKeyDown, true);
 
     // Auto-cancel after 5 seconds
     setTimeout(() => {
       if (isRecording) {
         setIsRecording(false);
-        window.removeEventListener('keydown', handleKeyDown, true);
-        toast.info('Recording cancelled');
+        window.removeEventListener("keydown", handleKeyDown, true);
+        toast.info("Recording cancelled");
       }
     }, 5000);
   };
@@ -145,11 +159,12 @@ export function GlobalShortcutsPanel() {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h3 className="text-lg font-medium">Global Shortcuts</h3>
-        <p className="text-sm text-muted-foreground">
-          Configure system-wide keyboard shortcuts that work even when the app is in the background.
+    <div className="max-w-3xl space-y-6 max-h-[calc(80vh-2rem)] overflow-y-scroll -mx-4 px-4">
+      <div className="sticky top-0 bg-background z-10 pb-2">
+        <h2 className="text-base font-semibold">Global Shortcuts</h2>
+        <p className="text-xs text-muted-foreground">
+          Configure system-wide keyboard shortcuts that work even when the app
+          is in the background.
         </p>
       </div>
 
@@ -157,8 +172,9 @@ export function GlobalShortcutsPanel() {
         <Info className="h-4 w-4" />
         <AlertTitle>How it works</AlertTitle>
         <AlertDescription>
-          Global shortcuts allow you to activate Query Pilot from any application.
-          Press the shortcut to show and focus the window, even when minimized.
+          Global shortcuts allow you to activate Query Pilot from any
+          application. Press the shortcut to show and focus the window, even
+          when minimized.
         </AlertDescription>
       </Alert>
 
@@ -179,7 +195,9 @@ export function GlobalShortcutsPanel() {
               <Input
                 id="global-shortcut"
                 value={customShortcut}
-                onChange={(e) => { setCustomShortcut(e.target.value); }}
+                onChange={(e) => {
+                  setCustomShortcut(e.target.value);
+                }}
                 placeholder="CommandOrControl+Shift+Space"
                 className="font-mono"
                 disabled={isRecording}
@@ -189,7 +207,7 @@ export function GlobalShortcutsPanel() {
                 onClick={startRecording}
                 disabled={isRecording}
               >
-                {isRecording ? 'Recording...' : 'Record'}
+                {isRecording ? "Recording..." : "Record"}
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
@@ -198,11 +216,8 @@ export function GlobalShortcutsPanel() {
           </div>
 
           <div className="flex gap-2">
-            <Button
-              onClick={handleRegisterShortcut}
-              disabled={isRecording}
-            >
-              {isRegistered ? 'Update Shortcut' : 'Register Shortcut'}
+            <Button onClick={handleRegisterShortcut} disabled={isRecording}>
+              {isRegistered ? "Update Shortcut" : "Register Shortcut"}
             </Button>
 
             {isRegistered && (
@@ -231,7 +246,8 @@ export function GlobalShortcutsPanel() {
                 Active
               </AlertTitle>
               <AlertDescription className="text-green-600 dark:text-green-400">
-                Global shortcut is registered and active: {manager.formatShortcutForDisplay(defaultShortcut)}
+                Global shortcut is registered and active:{" "}
+                {manager.formatShortcutForDisplay(defaultShortcut)}
               </AlertDescription>
             </Alert>
           )}
@@ -241,33 +257,62 @@ export function GlobalShortcutsPanel() {
       <Card>
         <CardHeader>
           <CardTitle>Shortcut Format</CardTitle>
-          <CardDescription>
-            How to write custom shortcuts
-          </CardDescription>
+          <CardDescription>How to write custom shortcuts</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
           <div className="text-sm space-y-1">
-            <p><strong>Modifiers:</strong></p>
+            <p>
+              <strong>Modifiers:</strong>
+            </p>
             <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-              <li><code className="bg-muted px-1 py-0.5 rounded">CommandOrControl</code> - Cmd on Mac, Ctrl on Windows/Linux</li>
-              <li><code className="bg-muted px-1 py-0.5 rounded">Shift</code> - Shift key</li>
-              <li><code className="bg-muted px-1 py-0.5 rounded">Alt</code> - Alt/Option key</li>
-              <li><code className="bg-muted px-1 py-0.5 rounded">Super</code> - Windows/Super key</li>
+              <li>
+                <code className="bg-muted px-1 py-0.5 rounded">
+                  CommandOrControl
+                </code>{" "}
+                - Cmd on Mac, Ctrl on Windows/Linux
+              </li>
+              <li>
+                <code className="bg-muted px-1 py-0.5 rounded">Shift</code> -
+                Shift key
+              </li>
+              <li>
+                <code className="bg-muted px-1 py-0.5 rounded">Alt</code> -
+                Alt/Option key
+              </li>
+              <li>
+                <code className="bg-muted px-1 py-0.5 rounded">Super</code> -
+                Windows/Super key
+              </li>
             </ul>
           </div>
 
           <div className="text-sm space-y-1 pt-2">
-            <p><strong>Examples:</strong></p>
+            <p>
+              <strong>Examples:</strong>
+            </p>
             <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-              <li><code className="bg-muted px-1 py-0.5 rounded">CommandOrControl+Shift+Space</code></li>
-              <li><code className="bg-muted px-1 py-0.5 rounded">CommandOrControl+Alt+D</code></li>
-              <li><code className="bg-muted px-1 py-0.5 rounded">Shift+Alt+Q</code></li>
+              <li>
+                <code className="bg-muted px-1 py-0.5 rounded">
+                  CommandOrControl+Shift+Space
+                </code>
+              </li>
+              <li>
+                <code className="bg-muted px-1 py-0.5 rounded">
+                  CommandOrControl+Alt+D
+                </code>
+              </li>
+              <li>
+                <code className="bg-muted px-1 py-0.5 rounded">
+                  Shift+Alt+Q
+                </code>
+              </li>
             </ul>
           </div>
 
           <div className="text-sm space-y-1 pt-2">
             <p className="text-yellow-600 dark:text-yellow-400">
-              <strong>⚠️ Important:</strong> Avoid shortcuts already used by your operating system or other applications.
+              <strong>⚠️ Important:</strong> Avoid shortcuts already used by
+              your operating system or other applications.
             </p>
           </div>
         </CardContent>

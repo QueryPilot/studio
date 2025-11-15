@@ -24,10 +24,10 @@ export default function EditorPanel() {
   };
 
   return (
-    <div className="max-w-3xl space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold">Editor Settings</h2>
-        <p className="text-sm text-muted-foreground mt-1">
+    <div className="max-w-3xl space-y-6 max-h-[calc(80vh-2rem)] overflow-y-scroll -mx-4 px-4">
+      <div className="sticky top-0 bg-background z-10 pb-2">
+        <h2 className="text-base font-semibold">Editor Settings</h2>
+        <p className="text-xs text-muted-foreground">
           Configure the code editor preferences
         </p>
       </div>

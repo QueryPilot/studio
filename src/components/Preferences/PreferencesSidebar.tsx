@@ -38,12 +38,12 @@ export function PreferencesSidebar() {
   const { activeCategory, setActiveCategory } = usePreferencesStore();
 
   return (
-    <div className="w-64 border-r bg-muted/30 flex flex-col">
+    <div className="w-64 border-r bg-muted/30 flex flex-col overflow-hidden max-h-[80vh]">
       <div className="p-4 border-b flex items-center gap-3">
         <img src={logo} alt="Query Pilot" className="h-8 w-8" />
         <h2 className="font-semibold text-base">Preferences</h2>
       </div>
-      <nav className="flex-1 p-3 space-y-1">
+      <nav className="flex-1 p-3 space-y-1 overflow-y-scroll max-h-[calc(80vh-65px)]">
         {categories.map((category) => {
           const Icon = category.icon;
           return (

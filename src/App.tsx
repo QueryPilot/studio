@@ -8,8 +8,6 @@ import { vaultStorage } from "./services/vaultStorage";
 import { toast } from "sonner";
 import { databaseService } from "./services/databaseService";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { invoke } from "@tauri-apps/api/core";
-import { useAIStore } from "./stores/aiStore";
 import { useConnectionWindowStore } from "./stores/connectionWindowStore";
 
 function VaultLoadingScreen() {
@@ -39,28 +37,8 @@ function AppContent() {
 
 function App() {
   const [vaultReady, setVaultReady] = useState(!isTauri());
-  const { setConfiguredProviders, setInitialized } = useAIStore();
   const { initialize: initializeConnectionWindowStore } =
     useConnectionWindowStore();
-
-  // Load configured AI providers on startup
-  useEffect(() => {
-    const loadConfiguredProviders = async () => {
-      if (!isTauri()) return;
-
-      try {
-        const providers: string[] = await invoke("get_configured_providers");
-        setConfiguredProviders(providers);
-        setInitialized(true);
-        console.log("✅ Loaded configured providers on startup:", providers);
-      } catch (error) {
-        console.error("Failed to load configured providers:", error);
-        setInitialized(true); // Mark as initialized even on error
-      }
-    };
-
-    void loadConfiguredProviders();
-  }, [setConfiguredProviders, setInitialized]);
 
   // Initialize connection window tracking
   // Note: BroadcastChannel works in both Tauri and browser

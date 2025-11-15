@@ -1,30 +1,16 @@
 use std::sync::Arc;
 
-use crate::ai::provider::{mock::MockProvider, AIProvider};
-use crate::ai::session::SessionManager;
 use crate::ai::sidecar::SidecarManager;
 
 pub struct AIManager {
-    provider: Arc<dyn AIProvider>,
-    session_manager: Arc<SessionManager>,
     sidecar_manager: Arc<SidecarManager>,
 }
 
 impl AIManager {
     pub fn new() -> Self {
         Self {
-            provider: Arc::new(MockProvider::default()),
-            session_manager: Arc::new(SessionManager::new()),
             sidecar_manager: Arc::new(SidecarManager::new()),
         }
-    }
-
-    pub fn provider(&self) -> Arc<dyn AIProvider> {
-        self.provider.clone()
-    }
-
-    pub fn session_manager(&self) -> Arc<SessionManager> {
-        self.session_manager.clone()
     }
 
     pub fn sidecar_manager(&self) -> Arc<SidecarManager> {
@@ -47,14 +33,12 @@ impl AIManager {
         use keyring::Entry;
         use std::collections::HashMap;
 
-        // IMPORTANT: Must match the service name in secure_storage.rs
         const KEYCHAIN_SERVICE: &str = "dev.querypilot.studio.ai";
         let providers = ["openai", "anthropic", "google"];
 
         let mut keys = HashMap::new();
 
         for provider in providers {
-            // Use same format as secure_storage.rs: "dev.querypilot.studio.ai.{provider}"
             let service_name = format!("{}.{}", KEYCHAIN_SERVICE, provider);
             if let Ok(entry) = Entry::new(&service_name, "api_key") {
                 if let Ok(key) = entry.get_password() {

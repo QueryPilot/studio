@@ -17,6 +17,8 @@
         "resizable": true,
         "fullscreen": false,
         "center": true,
+        "height": 600,
+        "width": 900,
         "minWidth": 900,
         "minHeight": 600,
         "decorations": true,
