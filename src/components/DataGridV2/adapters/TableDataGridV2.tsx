@@ -181,20 +181,38 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     resetOnUnmount: true,
   });
 
+  // Debug: Log when dataGridFocus context changes
+  useEffect(() => {
+    console.log(`[TableDataGridV2 ${gridId}] dataGridFocus context updated:`, isGridFocused, `(scope: ${scopeId})`);
+  }, [isGridFocused, gridId, scopeId]);
+
+  const handleContainerClick = useCallback(() => {
+    console.log(`[TableDataGridV2 ${gridId}] Container clicked, forcing grid focus`);
+    // Focus the Glide grid canvas directly, not the container
+    // This is required for Glide's native copy/paste to work
+    if (gridRef.current) {
+      gridRef.current.focus();
+      console.log(`[TableDataGridV2 ${gridId}] Grid focused, active element:`, document.activeElement);
+    }
+  }, [gridId]);
+
   const handleFocusCapture = useCallback(() => {
+    console.log(`[TableDataGridV2 ${gridId}] handleFocusCapture - setting dataGridFocus=true`);
     setIsGridFocused(true);
-  }, []);
+  }, [gridId]);
 
   const handleBlurCapture = useCallback((event: FocusEvent<HTMLDivElement>) => {
     const nextTarget = event.relatedTarget as Node | null;
     if (!containerRef.current) {
+      console.log(`[TableDataGridV2 ${gridId}] handleBlurCapture - no container, setting dataGridFocus=false`);
       setIsGridFocused(false);
       return;
     }
     if (!nextTarget || !containerRef.current.contains(nextTarget)) {
+      console.log(`[TableDataGridV2 ${gridId}] handleBlurCapture - focus left container, setting dataGridFocus=false`);
       setIsGridFocused(false);
     }
-  }, []);
+  }, [gridId]);
 
   const isTableMode = props.mode === "table";
   const isQueryMode = props.mode === "query";
@@ -903,6 +921,45 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     finalColumns,
   ]);
 
+  // Auto-select first cell when grid gains focus with no existing selection
+  useEffect(() => {
+    if (!isGridFocused || !gridRef.current) {
+      return;
+    }
+
+    // Only auto-select if there's no current selection
+    const currentHasSelection =
+      (gridSelection?.rows && gridSelection.rows.length > 0) ||
+      (gridSelection?.columns && gridSelection.columns.length > 0) ||
+      gridSelection?.current !== undefined;
+
+    if (currentHasSelection || displayRows.length === 0 || finalColumns.length === 0) {
+      return;
+    }
+
+    console.log(`[TableDataGridV2 ${gridId}] Auto-selecting first cell on focus`);
+
+    // Select the first cell (row 0, column 0)
+    const firstCellSelection: GridSelection = {
+      current: {
+        cell: [0, 0],
+        range: { x: 0, y: 0, width: 1, height: 1 },
+        rangeStack: [],
+      },
+      rows: CompactSelection.empty(),
+      columns: CompactSelection.empty(),
+    };
+
+    setGridSelection(firstCellSelection);
+
+    // Scroll to ensure first cell is visible
+    requestAnimationFrame(() => {
+      if (gridRef.current) {
+        gridRef.current.scrollTo(0, 0);
+      }
+    });
+  }, [isGridFocused, gridId]);
+
   // Defer grid rendering for large datasets to keep UI responsive
   // Grid updates in background without blocking interactions
   const deferredDisplayRows = useDeferredValue(
@@ -1531,22 +1588,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   // Removed useCommand hooks - now using event bus subscriptions below
 
-  // Register copy commands directly - bypassing event bus complexity
-  useCommand(
-    "dataGrid.action.copy",
-    async () => {
-      const selection = gridSelectionRef.current;
-      if (!selection) return;
-      console.log("🟢 Copy command executed");
-      await copySelection(selection, "text");
-    },
-    {
-      label: "Copy Selection",
-      category: "Data Grid",
-      when: "dataGridFocus && !selectionEmpty && !editingCell",
-    },
-  );
-
+  // Register copy as JSON command - standard Cmd+C handled by Glide natively
   useCommand(
     "dataGrid.action.copyAsJson",
     async () => {
@@ -1793,6 +1835,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         ref={containerRef}
         tabIndex={0}
         className="relative flex-1 outline-none"
+        onClick={handleContainerClick}
         onFocusCapture={handleFocusCapture}
         onBlurCapture={handleBlurCapture}
         onPointerDown={handleFocusCapture}

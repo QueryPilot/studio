@@ -567,6 +567,10 @@ export class ContextService {
     return undefined;
   }
 
+  getActiveScopes(): ScopeId[] {
+    return [...this.activeScopes];
+  }
+
   reset(key: string): void {
     const definition = this.definitions.get(key);
     const oldValue = this.globalValues.get(key);

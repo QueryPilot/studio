@@ -616,15 +616,6 @@ export const defaultCommands: Command[] = [
   },
   // Data Grid Commands (registered dynamically by component via useCommand)
   {
-    id: "dataGrid.action.copy",
-    label: "Copy Selection",
-    category: "Data Grid",
-    when: "dataGridFocus && !selectionEmpty && !editingCell",
-    handler: () => {
-      // Actual handler registered in TableDataGridV2 component
-    },
-  },
-  {
     id: "dataGrid.action.copyAsJson",
     label: "Copy Selection as JSON",
     category: "Data Grid",
