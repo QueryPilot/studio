@@ -1,8 +1,21 @@
-import { memo, useMemo, type ReactNode } from "react";
+import { memo, useMemo, useCallback } from "react";
+import {
+  GridCellKind,
+  type Item,
+  type CustomCell,
+  type CustomRenderer,
+} from "@glideapps/glide-data-grid";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { DataGridBase } from "@/components/DataGridV2/base/DataGridBase";
+import { useColumnSizing } from "@/components/DataGridV2/hooks/useColumnSizing";
+import { structureColumns } from "./columns";
+import { transformStructureToRows } from "./utils";
+import ColumnNameCellRenderer from "./ColumnNameCellRenderer";
+import type { StructureGridRow } from "./types";
+
+type AnyCell = CustomCell<Record<string, unknown>>;
 
 interface TableStructureProps {
   connectionId: string;
@@ -44,6 +57,142 @@ export const TableStructure = memo(function TableStructure({
     [structure?.constraints],
   );
 
+  // Transform to grid rows
+  const gridRows = useMemo(
+    () => transformStructureToRows(columns, foreignKeys, constraints),
+    [columns, foreignKeys, constraints],
+  );
+
+  // Enable column resizing
+  const { sizedColumns, handleColumnResize, handleColumnResizeEnd } =
+    useColumnSizing({
+      columns: structureColumns,
+      initialWidths: {},
+      onChange: () => {},
+    });
+
+  // Cell content factory
+  const getCellContent = useCallback(
+    (cell: Item) => {
+      const [colIndex, rowIndex] = cell;
+      const column = sizedColumns[colIndex];
+      const row = gridRows[rowIndex];
+
+      if (!column || !row) {
+        return {
+          kind: GridCellKind.Text,
+          data: "",
+          displayData: "",
+          readonly: true,
+          allowOverlay: false,
+        } as const;
+      }
+
+      const fieldValue = row[column.field as keyof StructureGridRow];
+
+      // Custom cell for column name with PK/FK indicators
+      if (column.field === "column_name") {
+        return {
+          kind: GridCellKind.Custom,
+          data: {
+            kind: "column-name-cell",
+            name: row.column_name,
+            isPrimaryKey: row.column_meta.is_pk,
+            isForeignKey: row.column_meta.is_fk,
+          },
+          copyData: row.column_name,
+          readonly: true,
+          allowOverlay: false,
+        } as const;
+      }
+
+      // Row number (right-aligned, muted)
+      if (column.field === "row_number") {
+        return {
+          kind: GridCellKind.Text,
+          data: String(fieldValue),
+          displayData: String(fieldValue),
+          readonly: true,
+          allowOverlay: false,
+          contentAlign: "right" as const,
+          themeOverride: {
+            textDark: "rgba(127, 127, 127, 0.7)",
+          },
+        } as const;
+      }
+
+      // Nullable column (center-aligned with color)
+      if (column.field === "nullable") {
+        const nullableValue = String(fieldValue);
+        const isNullable = nullableValue === "YES";
+        return {
+          kind: GridCellKind.Text,
+          data: nullableValue,
+          displayData: nullableValue,
+          readonly: true,
+          allowOverlay: false,
+          contentAlign: "center" as const,
+          themeOverride: isNullable
+            ? {
+                textDark: "#f59e0b", // amber-500
+              }
+            : undefined,
+        } as const;
+      }
+
+      // Type column (monospace)
+      if (column.field === "db_type") {
+        const typeValue = String(fieldValue ?? "");
+        return {
+          kind: GridCellKind.Text,
+          data: typeValue,
+          displayData: typeValue,
+          readonly: true,
+          allowOverlay: false,
+          themeOverride: {
+            baseFontStyle: "400 12px monospace",
+          },
+        } as const;
+      }
+
+      // Default, Foreign Key, Check, Comment (monospace, overlay allowed)
+      if (
+        column.field === "default" ||
+        column.field === "foreign_key" ||
+        column.field === "check_constraint" ||
+        column.field === "comment"
+      ) {
+        const value = String(fieldValue ?? "");
+        return {
+          kind: GridCellKind.Text,
+          data: value,
+          displayData: value,
+          readonly: true,
+          allowOverlay: true,
+          themeOverride: {
+            baseFontStyle: "400 11px monospace",
+          },
+        } as const;
+      }
+
+      // Default text cell
+      const displayValue = String(fieldValue ?? "");
+      return {
+        kind: GridCellKind.Text,
+        data: displayValue,
+        displayData: displayValue,
+        readonly: true,
+        allowOverlay: false,
+      } as const;
+    },
+    [gridRows, sizedColumns],
+  );
+
+  const customRenderers = useMemo<CustomRenderer<AnyCell>[]>(
+    () => [ColumnNameCellRenderer as unknown as CustomRenderer<AnyCell>],
+    [],
+  );
+
   if (isLoading) {
     return <TableStructureSkeleton />;
   }
@@ -69,80 +218,26 @@ export const TableStructure = memo(function TableStructure({
   }
 
   return (
-    <div className="h-full overflow-auto">
-      <table className="min-w-full border-separate border-spacing-0">
-        <thead className="sticky top-0 z-10 bg-muted border-b border-border">
-          <tr className="text-xs" style={{ height: "28px" }}>
-            <HeaderCell className="w-12">#</HeaderCell>
-            <HeaderCell className="w-48">Column</HeaderCell>
-            <HeaderCell className="w-48">Type</HeaderCell>
-            <HeaderCell className="w-28">Nullable</HeaderCell>
-            <HeaderCell className="w-40">Default</HeaderCell>
-            <HeaderCell className="w-48">Foreign Key</HeaderCell>
-            <HeaderCell className="w-48">Check</HeaderCell>
-            <HeaderCell className="">Comment</HeaderCell>
-          </tr>
-        </thead>
-        <tbody className="text-xs">
-          {columns.map((column, index) => {
-            const fkInfo = foreignKeys.find((fk) =>
-              fk.columns.includes(column.name),
-            );
-            const checkConstraint = constraints.find((c) => {
-              if ((c as any).columnName) {
-                return (c as any).columnName === column.name;
-              }
-              if (!c.definition) return false;
-              return new RegExp(`"?${column.name}"?`, "i").test(c.definition);
-            });
-
-            return (
-              <tr
-                key={column.name}
-                className={cn(
-                  "border-b border-border hover:bg-muted/40 transition-colors",
-                  (column.is_pk || column.is_fk) && "bg-muted/20",
-                )}
-              >
-                <Cell className="text-muted-foreground">{index + 1}</Cell>
-                <Cell className="font-medium">
-                  {column.name}
-                  {column.is_pk && (
-                    <span className="ml-2 text-[10px] uppercase tracking-wide text-yellow-600">
-                      PK
-                    </span>
-                  )}
-                  {column.is_fk && (
-                    <span className="ml-2 text-[10px] uppercase tracking-wide text-purple-600">
-                      FK
-                    </span>
-                  )}
-                </Cell>
-                <Cell className="font-mono text-xs text-foreground/80">
-                  {column.db_type}
-                </Cell>
-                <Cell>{column.nullable ? "YES" : "NO"}</Cell>
-                <Cell className="font-mono text-[11px]">
-                  {column.default ?? ""}
-                </Cell>
-                <Cell className="text-[11px]">
-                  {fkInfo
-                    ? `${fkInfo.foreignTable}.${fkInfo.foreignColumns[0]}`
-                    : ""}
-                </Cell>
-                <Cell className="text-[11px]">
-                  {checkConstraint?.definition ?? ""}
-                </Cell>
-                <Cell className="text-[11px]">
-                  {column.comment ?? ""}
-                </Cell>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div className="h-full flex flex-col">
+      <div className="flex-1">
+        <DataGridBase
+          columns={sizedColumns}
+          rowCount={gridRows.length}
+          getCellContent={getCellContent}
+          customRenderers={customRenderers}
+          rowSelect="none"
+          columnSelect="none"
+          onColumnResize={handleColumnResize}
+          onColumnResizeEnd={handleColumnResizeEnd}
+        />
+      </div>
       <div className="px-4 py-2 text-xs text-muted-foreground border-t">
-        Last refreshed: {(structure as any)?.fetchedAt ? new Date((structure as any).fetchedAt as string | number | Date).toLocaleString() : "n/a"}
+        Last refreshed:{" "}
+        {(structure as any)?.fetchedAt
+          ? new Date(
+              (structure as any).fetchedAt as string | number | Date,
+            ).toLocaleString()
+          : "n/a"}
         <button
           type="button"
           onClick={() => refresh().catch(() => undefined)}
@@ -154,21 +249,6 @@ export const TableStructure = memo(function TableStructure({
     </div>
   );
 });
-
-const HeaderCell = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <th
-    className={cn(
-      "text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80",
-      className,
-    )}
-  >
-    {children}
-  </th>
-);
-
-const Cell = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <td className={cn("px-2 py-1 border-b border-r border-border", className)}>{children}</td>
-);
 
 const TableStructureSkeleton = memo(function TableStructureSkeleton() {
   return (

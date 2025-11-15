@@ -169,7 +169,7 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
           ref={textareaRef}
           defaultValue={initial}
           autoFocus
-          onFocus={(e) => e.target.select()}
+          onFocus={(e) => { e.target.select(); }}
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}

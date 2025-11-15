@@ -108,7 +108,7 @@ export function DatabaseSidebar({
       const timer = setTimeout(() => {
         setIsRefreshing(false);
       }, 100);
-      return () => clearTimeout(timer);
+      return () => { clearTimeout(timer); };
     }
   }, [selectedDatabase, selectedSchema]);
 

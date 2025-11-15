@@ -229,7 +229,7 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
           type="text"
           defaultValue={initialValue}
           autoFocus
-          onFocus={(e) => e.target.select()}
+          onFocus={(e) => { e.target.select(); }}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           className={cn(

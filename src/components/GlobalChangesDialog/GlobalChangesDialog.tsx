@@ -67,9 +67,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
       if (isTableSpecific) {
         const specificTableKey = getTableKey({
           connectionId,
-          database: database!,
+          database: database,
           schema,
-          table: table!,
+          table: table,
         });
         return tableKey === specificTableKey;
       }
@@ -192,9 +192,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         // Table-specific commit
         const tableKey = getTableKey({
           connectionId,
-          database: database!,
+          database: database,
           schema,
-          table: table!,
+          table: table,
         });
         const result = await commitChanges(tableKey);
 
@@ -208,7 +208,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
 
         // Broadcast invalidation to all components displaying this table
         const { invalidateTable } = useDataInvalidationStore.getState();
-        invalidateTable(connectionId, database!, schema, table!);
+        invalidateTable(connectionId, database, schema, table);
         console.log(
           `[GlobalChangesDialog] Invalidated table after commit: ${database}.${schema ?? "public"}.${table}`,
         );
@@ -269,9 +269,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     if (isTableSpecific) {
       const tableKey = getTableKey({
         connectionId,
-        database: database!,
+        database: database,
         schema,
-        table: table!,
+        table: table,
       });
       discardChanges(tableKey);
       toast.success("Changes discarded");
@@ -376,7 +376,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
             <Button
               size="xs"
               variant="outline"
-              onClick={() => onOpenChange(false)}
+              onClick={() => { onOpenChange(false); }}
               disabled={isCommitting}
             >
               Cancel

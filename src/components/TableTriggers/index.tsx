@@ -1,8 +1,20 @@
-import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  GridCellKind,
+  type Item,
+  type CustomCell,
+  type CustomRenderer,
+} from "@glideapps/glide-data-grid";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle, Zap } from "lucide-react";
 import { databaseService, type TriggerMeta } from "@/services/databaseService";
-import { cn } from "@/lib/utils";
+import { DataGridBase } from "@/components/DataGridV2/base/DataGridBase";
+import { useColumnSizing } from "@/components/DataGridV2/hooks/useColumnSizing";
+import { triggerColumns } from "./columns";
+import { transformTriggersToRows } from "./utils";
+import type { TriggerGridRow } from "./types";
+
+type AnyCell = CustomCell<Record<string, unknown>>;
 
 interface TableTriggersProps {
   connectionId: string;
@@ -47,6 +59,120 @@ export const TableTriggers = memo(function TableTriggers({
 
   const hasTriggers = useMemo(() => triggers.length > 0, [triggers.length]);
 
+  // Transform to grid rows
+  const gridRows = useMemo(() => transformTriggersToRows(triggers), [triggers]);
+
+  // Enable column resizing
+  const { sizedColumns, handleColumnResize, handleColumnResizeEnd} =
+    useColumnSizing({
+      columns: triggerColumns,
+      initialWidths: {},
+      onChange: () => {},
+    });
+
+  // Cell content factory
+  const getCellContent = useCallback(
+    (cell: Item) => {
+      const [colIndex, rowIndex] = cell;
+      const column = sizedColumns[colIndex];
+      const row = gridRows[rowIndex];
+
+      if (!column || !row) {
+        return {
+          kind: GridCellKind.Text,
+          data: "",
+          displayData: "",
+          readonly: true,
+          allowOverlay: false,
+        } as const;
+      }
+
+      const fieldValue = row[column.field as keyof TriggerGridRow];
+
+      // Row number (right-aligned, muted)
+      if (column.field === "row_number") {
+        return {
+          kind: GridCellKind.Text,
+          data: String(fieldValue),
+          displayData: String(fieldValue),
+          readonly: true,
+          allowOverlay: false,
+          contentAlign: "right" as const,
+          themeOverride: {
+            textDark: "rgba(127, 127, 127, 0.7)",
+          },
+        } as const;
+      }
+
+      // Enabled column (center-aligned with color)
+      if (column.field === "enabled") {
+        const enabledValue = String(fieldValue);
+        const isEnabled = enabledValue === "YES";
+        return {
+          kind: GridCellKind.Text,
+          data: enabledValue,
+          displayData: enabledValue,
+          readonly: true,
+          allowOverlay: false,
+          contentAlign: "center" as const,
+          themeOverride: isEnabled
+            ? {
+                bgCell: "rgba(16, 185, 129, 0.15)", // emerald
+                textDark: "#059669",
+              }
+            : {
+                bgCell: "rgba(239, 68, 68, 0.15)", // red
+                textDark: "#dc2626",
+              },
+        } as const;
+      }
+
+      // Event and Function columns (monospace)
+      if (column.field === "event" || column.field === "function") {
+        const value = String(fieldValue ?? "");
+        return {
+          kind: GridCellKind.Text,
+          data: value,
+          displayData: value,
+          readonly: true,
+          allowOverlay: true,
+          themeOverride: {
+            baseFontStyle: "400 11px monospace",
+          },
+        } as const;
+      }
+
+      // Condition column (monospace with blue color)
+      if (column.field === "condition") {
+        const conditionValue = String(fieldValue ?? "");
+        return {
+          kind: GridCellKind.Text,
+          data: conditionValue,
+          displayData: conditionValue,
+          readonly: true,
+          allowOverlay: true,
+          themeOverride: {
+            baseFontStyle: "400 11px monospace",
+            textDark: "#3b82f6", // blue-500
+          },
+        } as const;
+      }
+
+      // Default text cell
+      const displayValue = String(fieldValue ?? "");
+      return {
+        kind: GridCellKind.Text,
+        data: displayValue,
+        displayData: displayValue,
+        readonly: true,
+        allowOverlay: false,
+      } as const;
+    },
+    [gridRows, sizedColumns],
+  );
+
+  const customRenderers = useMemo<CustomRenderer<AnyCell>[]>(() => [], []);
+
   if (isLoading) {
     return <TableTriggersSkeleton />;
   }
@@ -74,44 +200,17 @@ export const TableTriggers = memo(function TableTriggers({
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex-1 overflow-auto">
-        <table className="min-w-full border-separate border-spacing-0">
-          <thead className="sticky top-0 z-10 bg-muted border-b border-border">
-            <tr className="text-xs" style={{ height: "28px" }}>
-              <HeaderCell className="w-12">#</HeaderCell>
-              <HeaderCell className="w-48">Name</HeaderCell>
-              <HeaderCell className="w-40">Event</HeaderCell>
-              <HeaderCell className="w-32">Timing</HeaderCell>
-              <HeaderCell className="w-32">Level</HeaderCell>
-              <HeaderCell className="w-24">Enabled</HeaderCell>
-              <HeaderCell className="w-60">Function</HeaderCell>
-              <HeaderCell className="">Condition</HeaderCell>
-            </tr>
-          </thead>
-          <tbody className="text-xs">
-            {triggers.map((trigger, idx) => (
-              <tr
-                key={trigger.name}
-                className="border-b border-border hover:bg-muted/40 transition-colors"
-              >
-                <Cell className="text-muted-foreground">{idx + 1}</Cell>
-                <Cell className="font-medium">{trigger.name}</Cell>
-                <Cell className="font-mono text-[11px]">
-                  {trigger.event}
-                </Cell>
-                <Cell>{trigger.timing}</Cell>
-                <Cell>{trigger.level}</Cell>
-                <Cell>{trigger.enabled ? "YES" : "NO"}</Cell>
-                <Cell className="font-mono text-[11px]">
-                  {trigger.function}
-                </Cell>
-                <Cell className="font-mono text-[11px]">
-                  {trigger.condition ?? ""}
-                </Cell>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="flex-1">
+        <DataGridBase
+          columns={sizedColumns}
+          rowCount={gridRows.length}
+          getCellContent={getCellContent}
+          customRenderers={customRenderers}
+          rowSelect="none"
+          columnSelect="none"
+          onColumnResize={handleColumnResize}
+          onColumnResizeEnd={handleColumnResizeEnd}
+        />
       </div>
       <div className="px-4 py-2 text-xs text-muted-foreground border-t">
         Total triggers: {triggers.length}
@@ -126,21 +225,6 @@ export const TableTriggers = memo(function TableTriggers({
     </div>
   );
 });
-
-const HeaderCell = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <th
-    className={cn(
-      "text-left px-2 py-1 border-r border-b border-border font-semibold text-foreground/80",
-      className,
-    )}
-  >
-    {children}
-  </th>
-);
-
-const Cell = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <td className={cn("px-2 py-1 border-b border-r border-border", className)}>{children}</td>
-);
 
 const TableTriggersSkeleton = memo(function TableTriggersSkeleton() {
   return (

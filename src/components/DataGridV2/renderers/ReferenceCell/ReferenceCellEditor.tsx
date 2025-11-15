@@ -285,7 +285,7 @@ export const ReferenceCellEditor: React.FC<ReferenceCellEditorProps> = ({
             type="text"
             value={searchText}
             autoFocus
-            onFocus={(e) => e.target.select()}
+            onFocus={(e) => { e.target.select(); }}
             onChange={handleSearchChange}
             onKeyDown={handleKeyDown}
             className="w-full h-8 pl-7 pr-2 text-xs bg-background border border-border rounded outline-none"
