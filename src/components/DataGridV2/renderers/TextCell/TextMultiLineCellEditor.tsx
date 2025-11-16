@@ -128,7 +128,7 @@ export const TextMultiLineCellEditor: React.FC<
   );
 
   const commitCurrentText = useCallback(() => {
-    const text = textareaRef.current?.value ?? "";
+    const text = initialValueRef.current;
 
     // Check if value actually changed (compare with original value)
     const hasChanged = initialValueRef.current !== (initialValue || "");
@@ -141,89 +141,101 @@ export const TextMultiLineCellEditor: React.FC<
     }
 
     // Commit the changed value
-    const trimmed = text.trim();
-    if (!trimmed && value.data.nullable) {
-      commit(null);
+    const trimmed = text?.trim();
+    if (!trimmed || value.data.nullable) {
+      commit(trimmed ?? null);
     } else {
-      commit(text);
+      commit(trimmed);
     }
   }, [initialValue, value.data.nullable, onFinishedEditing, commit]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (finishedRef.current) return;
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (finishedRef.current) return;
 
-    // Update the ref with current textarea value before processing keyboard events
-    initialValueRef.current = textareaRef.current?.value ?? "";
+      // Update the ref with current textarea value before processing keyboard events
+      initialValueRef.current = textareaRef.current?.value ?? "";
 
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      finishedRef.current = true;
-      onFinishedEditing(undefined);
-    } else if (e.key === "Enter" && !e.shiftKey) {
-      // Enter or Cmd/Ctrl+Enter saves, Shift+Enter adds newline
-      e.preventDefault();
-      e.stopPropagation();
-      commitCurrentText();
-    } else if (e.key === "Tab") {
-      e.preventDefault();
-      e.stopPropagation();
-      const movement: readonly [-1 | 0 | 1, -1 | 0 | 1] = e.shiftKey
-        ? [-1, 0]
-        : [1, 0];
-      finishedRef.current = true;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        finishedRef.current = true;
+        onFinishedEditing(undefined);
+      } else if (e.key === "Enter" && !e.shiftKey) {
+        // Enter or Cmd/Ctrl+Enter saves, Shift+Enter adds newline
+        e.preventDefault();
+        e.stopPropagation();
+        commitCurrentText();
+      } else if (e.key === "Tab") {
+        e.preventDefault();
+        e.stopPropagation();
+        const movement: readonly [-1 | 0 | 1, -1 | 0 | 1] = e.shiftKey
+          ? [-1, 0]
+          : [1, 0];
+        finishedRef.current = true;
 
-      // Check if value actually changed
-      const hasChanged = initialValueRef.current !== (initialValue || "");
+        // Check if value actually changed
+        const hasChanged = initialValueRef.current !== (initialValue || "");
 
-      // If no changes, cancel and move
-      if (!hasChanged) {
-        onFinishedEditing(undefined, movement);
-        return;
+        // If no changes, cancel and move
+        if (!hasChanged) {
+          onFinishedEditing(undefined, movement);
+          return;
+        }
+
+        // Commit the current text value before moving
+        const trimmed = initialValueRef.current.trim();
+        const committedValue: string | null =
+          !trimmed && value.data.nullable ? null : initialValueRef.current;
+
+        let formattedValue = committedValue;
+        let displayValue = value.data.displayValue;
+
+        if (value.data.formatDisplayMode === "array-inline") {
+          const { pretty, inline } =
+            computeArrayStringsFromText(committedValue);
+          formattedValue = pretty;
+          displayValue = inline;
+        }
+
+        const copyPayload =
+          formattedValue == null || formattedValue.length === 0
+            ? "NULL"
+            : displayValue ?? formattedValue;
+
+        const newCell: TextMultiLineCustomCell = {
+          kind: value.kind,
+          data: {
+            ...value.data,
+            value: formattedValue,
+            displayValue,
+          },
+          copyData: copyPayload,
+          allowOverlay: value.allowOverlay,
+          readonly: value.readonly,
+        };
+
+        onFinishedEditing(newCell, movement);
       }
-
-      // Commit the current text value before moving
-      const trimmed = initialValueRef.current.trim();
-      const committedValue: string | null =
-        !trimmed && value.data.nullable ? null : initialValueRef.current;
-
-      let formattedValue = committedValue;
-      let displayValue = value.data.displayValue;
-
-      if (value.data.formatDisplayMode === "array-inline") {
-        const { pretty, inline } = computeArrayStringsFromText(committedValue);
-        formattedValue = pretty;
-        displayValue = inline;
-      }
-
-      const copyPayload =
-        formattedValue == null || formattedValue.length === 0
-          ? "NULL"
-          : displayValue ?? formattedValue;
-
-      const newCell: TextMultiLineCustomCell = {
-        kind: value.kind,
-        data: {
-          ...value.data,
-          value: formattedValue,
-          displayValue,
-        },
-        copyData: copyPayload,
-        allowOverlay: value.allowOverlay,
-        readonly: value.readonly,
-      };
-
-      onFinishedEditing(newCell, movement);
-    }
-  };
+    },
+    [
+      onFinishedEditing,
+      commitCurrentText,
+      initialValue,
+      value.data,
+      value.kind,
+      value.allowOverlay,
+      value.readonly,
+    ],
+  );
 
   useCommitOnUnmount(finishedRef, commitCurrentText);
 
-  const handleClear = () => {
+  const handleClear = useCallback(() => {
     if (value.data.nullable) {
       commit(null);
     }
-  };
+  }, [value.data.nullable, commit]);
 
   // Resize handling
   useEffect(() => {
@@ -309,6 +321,12 @@ export const TextMultiLineCellEditor: React.FC<
           autoCorrect="off"
           spellCheck={false}
           onKeyDown={handleKeyDown}
+          onFocus={(e) => {
+            e.target.select();
+          }}
+          onChange={(e) => {
+            initialValueRef.current = e.target.value;
+          }}
           className={cn(
             "w-full text-xs font-mono bg-transparent resize-none outline-none overflow-hidden",
           )}

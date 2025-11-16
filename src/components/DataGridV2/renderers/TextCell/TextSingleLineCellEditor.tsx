@@ -147,15 +147,13 @@ export const TextSingleLineCellEditor: React.FC<
           type="text"
           defaultValue={initialValue}
           autoFocus
-          onFocus={(e) => {
-            // Move cursor to end
-            const length = e.target.value.length;
-            e.target.setSelectionRange(length, length);
-          }}
           onKeyDown={handleKeyDown}
+          onChange={(e) => {
+            originalValueRef.current = e.target.value;
+          }}
           maxLength={value.data.maxLength}
           className={cn(
-            "h-full w-full bg-transparent py-1 px-2 text-xs outline-none",
+            "h-full w-full bg-transparent py-1.5 px-2 text-xs outline-none font-mono",
             !value.data.value ? "italic text-muted-foreground" : "",
             { "pr-8": value.data.nullable },
           )}

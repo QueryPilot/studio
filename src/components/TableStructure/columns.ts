@@ -71,4 +71,13 @@ export const structureColumns: GridColumnV2[] = [
     width: 240,
     minWidth: 140,
   } as GridColumnV2,
+  {
+    id: "actions",
+    field: "actions",
+    title: "",
+    name: "",
+    width: 60,
+    minWidth: 60,
+    maxWidth: 60,
+  } as GridColumnV2,
 ];

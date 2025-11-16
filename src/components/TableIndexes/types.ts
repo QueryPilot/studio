@@ -13,7 +13,9 @@ export interface IndexGridRow {
   index_type: string;
   unique: string;
   condition: string;
-  _original: TableIndex; // Keep reference to original data
+  _original?: TableIndex; // Keep reference to original data
+  _tempId?: string; // For pending index additions
+  _isPending?: boolean; // True for new indexes not yet committed
 }
 
 interface IndexNameCellData {

@@ -1,4 +1,10 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useDeferredValue,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Button } from "@/components/ui/button";
 import { Trash2, Key } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -27,6 +33,8 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
       value.data.dbType,
     ),
   );
+  const deferredIsValid = useDeferredValue(isValid);
+
   const finishedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const initialValueRef = useRef(initialText);
@@ -133,10 +141,6 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
     [commitCurrentValue, onFinishedEditing, value, nullable],
   );
 
-  const handleChange = (next: string) => {
-    setIsValid(isValidNumberText(next, precision, scale, value.data.dbType));
-  };
-
   useCommitOnUnmount(finishedRef, commitCurrentValue);
 
   const handleClear = () => {
@@ -180,8 +184,8 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
         <input
           ref={inputRef}
           className={cn(
-            "h-full w-full bg-transparent text-xs font-mono outline-none py-1 px-2",
-            !isValid
+            "h-full w-full bg-transparent text-xs font-mono outline-none py-1.5 px-2",
+            !deferredIsValid
               ? "border-b border-destructive focus:border-destructive"
               : "",
           )}
@@ -190,11 +194,19 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
           autoFocus
           // onFocus={(e) => e.target.select()}
           onChange={(e) => {
-            handleChange(e.target.value);
+            initialValueRef.current = e.target.value;
+            setIsValid(
+              isValidNumberText(
+                e.target.value,
+                precision,
+                scale,
+                value.data.dbType,
+              ),
+            );
           }}
           onKeyDown={handleKeyDown}
           placeholder={nullable ? "NULL" : undefined}
-          aria-invalid={!isValid}
+          aria-invalid={!deferredIsValid}
         />
         {nullable && (
           <Button
@@ -209,7 +221,7 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
       </div>
 
       {/* Validation hint */}
-      {!isValid && validationHint && (
+      {!deferredIsValid && validationHint && (
         <div className="px-2 pb-1 text-[10px] text-destructive leading-tight">
           {validationHint}
         </div>
