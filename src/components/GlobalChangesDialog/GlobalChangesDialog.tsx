@@ -169,6 +169,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     updates: 0,
     inserts: 0,
     deletes: 0,
+    ddl: 0,
     total: 0,
   };
 
@@ -181,6 +182,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     ).length;
     totalSummary.deletes += commands.filter(
       (c) => c.type === "data.delete",
+    ).length;
+    totalSummary.ddl += commands.filter(
+      (c) => c.type.startsWith("column.") || c.type.startsWith("index.") || c.type.startsWith("trigger."),
     ).length;
     totalSummary.total += commands.length;
   });
@@ -313,7 +317,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         </DialogHeader>
 
         {/* Summary Statistics */}
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-5 gap-3">
           <div className="flex items-center gap-2 rounded-xl border bg-card p-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
               <CheckCircle2 className="h-4 w-4 text-primary" />
@@ -351,6 +355,16 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
             <div>
               <p className="text-xs text-muted-foreground">Deletes</p>
               <p className="text-lg font-semibold">{totalSummary.deletes}</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 rounded-xl border bg-card p-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-purple-500/10">
+              <Pencil className="h-4 w-4 text-purple-500" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">DDL</p>
+              <p className="text-lg font-semibold">{totalSummary.ddl}</p>
             </div>
           </div>
         </div>
@@ -424,10 +438,15 @@ interface RowChangesCardProps {
 function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
   const { theme, resolvedTheme } = useTheme();
 
-  // Determine the operation type (insert, update, delete)
+  // Determine the operation type (insert, update, delete, DDL)
   const hasInsert = row.commands.some((cmd) => cmd.type === "data.insert");
   const hasDelete = row.commands.some((cmd) => cmd.type === "data.delete");
   const hasUpdate = row.commands.some((cmd) => cmd.type === "data.update");
+  const hasDDL = row.commands.some((cmd) =>
+    cmd.type.startsWith("column.") ||
+    cmd.type.startsWith("index.") ||
+    cmd.type.startsWith("trigger.")
+  );
 
   // Get primary key info
   let pkInfo = "";
@@ -447,6 +466,31 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
 
   // Build old and new row representations for diff
   const buildRowDiff = () => {
+    if (hasDDL) {
+      // Handle DDL commands
+      const ddlLines: string[] = [];
+      row.commands.forEach((cmd) => {
+        const desc = cmd.metadata?.description || cmd.type;
+        ddlLines.push(desc);
+
+        // Show payload details
+        const payload = cmd.payload as any;
+        if (payload.column) {
+          ddlLines.push(`  Column: ${JSON.stringify(payload.column, null, 2)}`);
+        } else if (payload.definition) {
+          ddlLines.push(`  Definition: ${JSON.stringify(payload.definition, null, 2)}`);
+        } else if (payload.columnName || payload.indexName || payload.triggerName) {
+          const name = payload.columnName || payload.indexName || payload.triggerName;
+          ddlLines.push(`  Name: ${name}`);
+          if (payload.newName) {
+            ddlLines.push(`  New Name: ${payload.newName}`);
+          }
+        }
+      });
+
+      return { old: "", new: ddlLines.join("\n") };
+    }
+
     if (hasInsert) {
       const insertCmd = row.commands.find((cmd) => cmd.type === "data.insert");
       if (!insertCmd) return { old: "", new: "" };
@@ -577,6 +621,18 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
             <span className="text-xs text-muted-foreground">
               ({row.commands.length}{" "}
               {row.commands.length === 1 ? "field" : "fields"})
+            </span>
+          </>
+        )}
+        {hasDDL && (
+          <>
+            <Pencil className="h-3.5 w-3.5 text-purple-500 ml-2" />
+            <span className="text-xs font-medium text-purple-600 dark:text-purple-400">
+              DDL
+            </span>
+            <span className="text-xs text-muted-foreground">
+              ({row.commands.length}{" "}
+              {row.commands.length === 1 ? "change" : "changes"})
             </span>
           </>
         )}

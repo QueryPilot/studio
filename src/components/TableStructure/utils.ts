@@ -1,13 +1,21 @@
 import type { ColumnMeta } from "@/types/database";
 import type { ForeignKeyInfo, Constraint } from "@/types/tableStructure";
 import type { StructureGridRow } from "./types";
+import type { CrudCommand, ColumnAddPayload } from "@/types/crud";
 
 export function transformStructureToRows(
   columns: ColumnMeta[],
   foreignKeys: ForeignKeyInfo[],
   constraints: Constraint[],
+  pendingCommands: CrudCommand[] = [],
 ): StructureGridRow[] {
-  return columns.map((column, idx) => {
+  // Extract pending column additions
+  const pendingAdds = pendingCommands.filter(
+    (cmd) => cmd.type === "column.add",
+  ) as CrudCommand<ColumnAddPayload>[];
+
+  // Transform actual columns first
+  const actualRows: StructureGridRow[] = columns.map((column, idx) => {
     const fkInfo = foreignKeys.find((fk) => fk.columns.includes(column.name));
 
     const checkConstraint = constraints.find((c) => {
@@ -36,4 +44,28 @@ export function transformStructureToRows(
       _original: column,
     };
   });
+
+  // Create virtual rows for pending additions (at bottom)
+  const virtualRows: StructureGridRow[] = pendingAdds.map((cmd, idx) => {
+    const col = cmd.payload.column;
+    return {
+      row_number: actualRows.length + idx + 1,
+      column_name: col.name || "(new column)",
+      column_meta: {
+        is_pk: col.isPrimaryKey ?? false,
+        is_fk: false,
+      },
+      db_type: col.dataType || "text",
+      nullable: col.nullable ? "YES" : "NO",
+      default: String(col.defaultValue ?? ""),
+      foreign_key: "",
+      check_constraint: col.checkExpression ?? "",
+      comment: col.comment ?? "",
+      _tempId: cmd.payload.tempId,
+      _isPending: true,
+    };
+  });
+
+  // Merge: actual columns first, then pending additions at bottom
+  return [...actualRows, ...virtualRows];
 }

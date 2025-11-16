@@ -16,7 +16,9 @@ export interface StructureGridRow {
   foreign_key: string;
   check_constraint: string;
   comment: string;
-  _original: ColumnMeta;
+  _original?: ColumnMeta;
+  _tempId?: string; // For pending column additions
+  _isPending?: boolean; // True for new columns not yet committed
 }
 
 interface ColumnNameCellData {

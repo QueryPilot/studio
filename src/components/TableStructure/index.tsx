@@ -1,19 +1,35 @@
-import { memo, useMemo, useCallback } from "react";
+import { memo, useMemo, useCallback, useState } from "react";
 import {
   GridCellKind,
   type Item,
   type CustomCell,
   type CustomRenderer,
+  type EditableGridCell,
 } from "@glideapps/glide-data-grid";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Trash2 } from "lucide-react";
 import { DataGridBase } from "@/components/DataGridV2/base/DataGridBase";
 import { useColumnSizing } from "@/components/DataGridV2/hooks/useColumnSizing";
+import { TextSingleLineCellRenderer } from "@/components/DataGridV2/renderers/TextCell";
+import { NullableCellRenderer } from "./NullableCellRenderer";
+import { DataTypeCellRenderer } from "./DataTypeCellRenderer";
 import { structureColumns } from "./columns";
 import { transformStructureToRows } from "./utils";
 import ColumnNameCellRenderer from "./ColumnNameCellRenderer";
 import type { StructureGridRow } from "./types";
+import { useCrudStore, buildCrudTableKey } from "@/stores/crudStore";
+import {
+  createColumnAddCommand,
+  createColumnModifyCommand,
+  createColumnDropCommand,
+  generateCommandId,
+} from "./commandFactory";
+import { TableActionsToolbar } from "@/components/shared/TableActionsToolbar";
+import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
+import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
+import { toast } from "sonner";
+import type { CrudCommandTarget, ColumnAddPayload } from "@/types/crud";
 
 type AnyCell = CustomCell<Record<string, unknown>>;
 
@@ -47,6 +63,14 @@ export const TableStructure = memo(function TableStructure({
     },
   });
 
+  const { stagedCommands, stageCommand, unstageCommand } = useCrudStore();
+
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<StructureGridRow | null>(
+    null,
+  );
+  const [globalChangesDialogOpen, setGlobalChangesDialogOpen] = useState(false);
+
   const columns = useMemo(() => structure?.columns ?? [], [structure?.columns]);
   const foreignKeys = useMemo(
     () => structure?.foreignKeys ?? [],
@@ -57,10 +81,37 @@ export const TableStructure = memo(function TableStructure({
     [structure?.constraints],
   );
 
-  // Transform to grid rows
+  // Get pending commands for this table - FIX: subscribe to stagedCommands directly
+  const tableKey = useMemo(
+    () => buildCrudTableKey({ connectionId, database, schema, table }),
+    [connectionId, database, schema, table],
+  );
+
+  const pendingCommands = useMemo(() => {
+    return stagedCommands.get(tableKey) ?? [];
+  }, [stagedCommands, tableKey]);
+
+  // Collect custom/enum types from existing columns
+  const customTypes = useMemo(() => {
+    const types = new Set<string>();
+    columns.forEach((col) => {
+      if (col.type_category === "enum" || col.enum_values) {
+        types.add(col.db_type);
+      }
+    });
+    return Array.from(types);
+  }, [columns]);
+
+  // Transform to grid rows (includes pending additions)
   const gridRows = useMemo(
-    () => transformStructureToRows(columns, foreignKeys, constraints),
-    [columns, foreignKeys, constraints],
+    () =>
+      transformStructureToRows(
+        columns,
+        foreignKeys,
+        constraints,
+        pendingCommands,
+      ),
+    [columns, foreignKeys, constraints, pendingCommands],
   );
 
   // Enable column resizing
@@ -70,6 +121,170 @@ export const TableStructure = memo(function TableStructure({
       initialWidths: {},
       onChange: () => {},
     });
+
+  // Handler: Add new column
+  const handleAddColumn = useCallback(() => {
+    const target: CrudCommandTarget = {
+      connectionId,
+      database,
+      schema,
+      table,
+    };
+
+    const tempId = generateCommandId();
+    const command = createColumnAddCommand(
+      target,
+      {
+        name: "",
+        dataType: "text",
+        nullable: true,
+      },
+      tempId,
+    );
+
+    stageCommand(command);
+    toast.success("New column added", {
+      description: "Fill in the column details and commit when ready",
+    });
+  }, [connectionId, database, schema, table, stageCommand]);
+
+  // Handler: Delete column
+  const handleDeleteColumn = useCallback(
+    (row: StructureGridRow) => {
+      if (row._isPending) {
+        // Remove pending add command
+        const command = pendingCommands.find(
+          (cmd) =>
+            cmd.type === "column.add" &&
+            (cmd.payload as ColumnAddPayload).tempId === row._tempId,
+        );
+        if (command) {
+          unstageCommand(command.id);
+          toast.success("Pending column removed");
+        }
+      } else {
+        // Stage drop command for existing column
+        const target: CrudCommandTarget = {
+          connectionId,
+          database,
+          schema,
+          table,
+        };
+        const command = createColumnDropCommand(target, row.column_name);
+        stageCommand(command);
+        toast.success("Column deletion staged", {
+          description: `${row.column_name} will be dropped when committed`,
+        });
+      }
+      setDeleteDialogOpen(false);
+      setDeleteTarget(null);
+    },
+    [
+      connectionId,
+      database,
+      schema,
+      table,
+      pendingCommands,
+      stageCommand,
+      unstageCommand,
+    ],
+  );
+
+  // Handler: Cell edited
+  const handleCellEdited = useCallback(
+    (cell: Item, newValue: EditableGridCell) => {
+      const [colIndex, rowIndex] = cell;
+      const column = sizedColumns[colIndex];
+      const row = gridRows[rowIndex];
+
+      if (!column || !row) return;
+
+      const target: CrudCommandTarget = {
+        connectionId,
+        database,
+        schema,
+        table,
+      };
+
+      // Extract value from cell
+      let extractedValue: string | boolean | null = null;
+      if ("data" in newValue) {
+        const data = newValue.data;
+        // Handle custom cell data structure
+        if (typeof data === "object" && data !== null && "value" in data) {
+          extractedValue = (data as any).value;
+        } else {
+          extractedValue = data as string | boolean | null;
+        }
+      }
+
+      if (row._isPending) {
+        // Update pending column.add command
+        const command = pendingCommands.find(
+          (cmd) =>
+            cmd.type === "column.add" &&
+            (cmd.payload as ColumnAddPayload).tempId === row._tempId,
+        );
+
+        if (command) {
+          const payload = command.payload as ColumnAddPayload;
+          const updatedColumn = { ...payload.column };
+
+          if (column.field === "column_name") {
+            updatedColumn.name = String(extractedValue ?? "");
+          } else if (column.field === "db_type") {
+            updatedColumn.dataType = String(extractedValue ?? "text");
+          } else if (column.field === "nullable") {
+            updatedColumn.nullable = extractedValue === "YES";
+          } else if (column.field === "default") {
+            updatedColumn.defaultValue = extractedValue;
+          } else if (column.field === "comment") {
+            updatedColumn.comment = String(extractedValue ?? "");
+          }
+
+          const updatedCmd = {
+            ...command,
+            payload: {
+              ...payload,
+              column: updatedColumn,
+            },
+          };
+
+          stageCommand(updatedCmd);
+        }
+      } else {
+        // Modify existing column
+        const newDefinition: Record<string, unknown> = {};
+
+        if (column.field === "nullable") {
+          newDefinition.nullable = extractedValue === "YES";
+        } else if (column.field === "default") {
+          newDefinition.defaultValue = extractedValue;
+        } else if (column.field === "comment") {
+          newDefinition.comment = extractedValue;
+        } else if (column.field === "db_type") {
+          newDefinition.dataType = extractedValue;
+        }
+
+        const modifyCmd = createColumnModifyCommand(
+          target,
+          row.column_name,
+          newDefinition,
+        );
+        stageCommand(modifyCmd);
+      }
+    },
+    [
+      sizedColumns,
+      gridRows,
+      connectionId,
+      database,
+      schema,
+      table,
+      pendingCommands,
+      stageCommand,
+    ],
+  );
 
   // Cell content factory
   const getCellContent = useCallback(
@@ -89,21 +304,58 @@ export const TableStructure = memo(function TableStructure({
       }
 
       const fieldValue = row[column.field as keyof StructureGridRow];
+      const isPending = row._isPending ?? false;
 
-      // Custom cell for column name with PK/FK indicators
-      if (column.field === "column_name") {
+      // Pending row background
+      const pendingTheme = isPending
+        ? { bgCell: "rgba(251, 191, 36, 0.15)" }
+        : undefined;
+
+      // Actions column - Delete button (text-based for now)
+      if (column.field === "actions") {
         return {
-          kind: GridCellKind.Custom,
-          data: {
-            kind: "column-name-cell",
-            name: row.column_name,
-            isPrimaryKey: row.column_meta.is_pk,
-            isForeignKey: row.column_meta.is_fk,
-          },
-          copyData: row.column_name,
+          kind: GridCellKind.Text,
+          data: "🗑️",
+          displayData: "🗑️",
           readonly: true,
           allowOverlay: false,
+          contentAlign: "center" as const,
+          themeOverride: pendingTheme,
         } as const;
+      }
+
+      // Column name - Use custom cell with editor for editable
+      if (column.field === "column_name") {
+        const isEditable = isPending;
+        if (isEditable) {
+          // Editable text cell for pending rows
+          return {
+            kind: GridCellKind.Custom,
+            data: {
+              kind: "text-single-cell",
+              value: row.column_name || null,
+            },
+            copyData: row.column_name,
+            readonly: false,
+            allowOverlay: true,
+            themeOverride: pendingTheme,
+          } as const;
+        } else {
+          // Custom renderer with PK/FK indicators for existing
+          return {
+            kind: GridCellKind.Custom,
+            data: {
+              kind: "column-name-cell",
+              name: row.column_name,
+              isPrimaryKey: row.column_meta.is_pk,
+              isForeignKey: row.column_meta.is_fk,
+            },
+            copyData: row.column_name,
+            readonly: true,
+            allowOverlay: false,
+            themeOverride: pendingTheme,
+          } as const;
+        }
       }
 
       // Row number (right-aligned, muted)
@@ -116,51 +368,71 @@ export const TableStructure = memo(function TableStructure({
           allowOverlay: false,
           contentAlign: "right" as const,
           themeOverride: {
+            ...pendingTheme,
             textDark: "rgba(127, 127, 127, 0.7)",
           },
         } as const;
       }
 
-      // Nullable column (center-aligned with color)
+      // Nullable - YES/NO dropdown
       if (column.field === "nullable") {
-        const nullableValue = String(fieldValue);
-        const isNullable = nullableValue === "YES";
+        const nullableValue = String(fieldValue) as "YES" | "NO";
         return {
-          kind: GridCellKind.Text,
-          data: nullableValue,
-          displayData: nullableValue,
-          readonly: true,
-          allowOverlay: false,
+          kind: GridCellKind.Custom,
+          data: {
+            kind: "nullable-cell",
+            value: nullableValue,
+            columnName: row.column_name,
+          },
+          copyData: nullableValue,
+          readonly: false,
+          allowOverlay: true,
           contentAlign: "center" as const,
-          themeOverride: isNullable
-            ? {
-                textDark: "#f59e0b", // amber-500
-              }
-            : undefined,
+          themeOverride: pendingTheme,
         } as const;
       }
 
-      // Type column (monospace)
+      // Type - data type dropdown
       if (column.field === "db_type") {
-        const typeValue = String(fieldValue ?? "");
+        const typeValue = String(fieldValue ?? "text");
         return {
-          kind: GridCellKind.Text,
-          data: typeValue,
-          displayData: typeValue,
-          readonly: true,
-          allowOverlay: false,
+          kind: GridCellKind.Custom,
+          data: {
+            kind: "datatype-cell",
+            value: typeValue,
+            customTypes: customTypes,
+            columnName: row.column_name,
+          },
+          copyData: typeValue,
+          readonly: !isPending,
+          allowOverlay: true,
+          themeOverride: pendingTheme,
+        } as const;
+      }
+
+      // Default, Comment - editable
+      if (column.field === "default" || column.field === "comment") {
+        const value = String(fieldValue ?? "");
+        return {
+          kind: GridCellKind.Custom,
+          data: {
+            kind: "text-single-cell",
+            value: value || null,
+          },
+          copyData: value,
+          readonly: false,
+          allowOverlay: true,
           themeOverride: {
-            baseFontStyle: "400 12px monospace",
+            ...pendingTheme,
+            baseFontStyle: "400 11px monospace",
           },
         } as const;
       }
 
-      // Default, Foreign Key, Check, Comment (monospace, overlay allowed)
+      // Foreign Key, Check - read-only
       if (
-        column.field === "default" ||
         column.field === "foreign_key" ||
-        column.field === "check_constraint" ||
-        column.field === "comment"
+        column.field === "check_constraint"
       ) {
         const value = String(fieldValue ?? "");
         return {
@@ -170,6 +442,7 @@ export const TableStructure = memo(function TableStructure({
           readonly: true,
           allowOverlay: true,
           themeOverride: {
+            ...pendingTheme,
             baseFontStyle: "400 11px monospace",
           },
         } as const;
@@ -183,14 +456,37 @@ export const TableStructure = memo(function TableStructure({
         displayData: displayValue,
         readonly: true,
         allowOverlay: false,
+        themeOverride: pendingTheme,
       } as const;
     },
-    [gridRows, sizedColumns],
+    [gridRows, sizedColumns, customTypes],
   );
 
   const customRenderers = useMemo<CustomRenderer<AnyCell>[]>(
-    () => [ColumnNameCellRenderer as unknown as CustomRenderer<AnyCell>],
+    () => [
+      TextSingleLineCellRenderer as unknown as CustomRenderer<AnyCell>,
+      ColumnNameCellRenderer as unknown as CustomRenderer<AnyCell>,
+      NullableCellRenderer as unknown as CustomRenderer<AnyCell>,
+      DataTypeCellRenderer as unknown as CustomRenderer<AnyCell>,
+    ],
     [],
+  );
+
+  const handleCellClick = useCallback(
+    (cell: Item) => {
+      const [colIndex, rowIndex] = cell;
+      const column = sizedColumns[colIndex];
+      const row = gridRows[rowIndex];
+
+      if (!column || !row) return;
+
+      // Handle delete action
+      if (column.field === "actions") {
+        setDeleteTarget(row);
+        setDeleteDialogOpen(true);
+      }
+    },
+    [sizedColumns, gridRows],
   );
 
   if (isLoading) {
@@ -209,7 +505,7 @@ export const TableStructure = memo(function TableStructure({
     );
   }
 
-  if (columns.length === 0) {
+  if (columns.length === 0 && pendingCommands.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
         <p className="text-sm">No columns available for this object.</p>
@@ -218,35 +514,70 @@ export const TableStructure = memo(function TableStructure({
   }
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex-1">
-        <DataGridBase
-          columns={sizedColumns}
-          rowCount={gridRows.length}
-          getCellContent={getCellContent}
-          customRenderers={customRenderers}
-          rowSelect="none"
-          columnSelect="none"
-          onColumnResize={handleColumnResize}
-          onColumnResizeEnd={handleColumnResizeEnd}
+    <>
+      <div className="h-full flex flex-col">
+        <TableActionsToolbar
+          addButtonLabel="Add Column"
+          onAdd={handleAddColumn}
+          onReviewChanges={() => setGlobalChangesDialogOpen(true)}
+          pendingChangesCount={pendingCommands.length}
         />
+        <div className="flex-1">
+          <DataGridBase
+            columns={sizedColumns}
+            rowCount={gridRows.length}
+            getCellContent={getCellContent}
+            customRenderers={customRenderers}
+            rowSelect="none"
+            columnSelect="none"
+            onColumnResize={handleColumnResize}
+            onColumnResizeEnd={handleColumnResizeEnd}
+            onCellEdited={handleCellEdited}
+            onCellClicked={handleCellClick}
+          />
+        </div>
+        <div className="px-4 py-2 text-xs text-muted-foreground border-t">
+          Last refreshed:{" "}
+          {(structure as any)?.fetchedAt
+            ? new Date(
+                (structure as any).fetchedAt as string | number | Date,
+              ).toLocaleString()
+            : "n/a"}
+          <button
+            type="button"
+            onClick={() => refresh().catch(() => undefined)}
+            className="ml-4 text-primary hover:underline"
+          >
+            Refresh
+          </button>
+        </div>
       </div>
-      <div className="px-4 py-2 text-xs text-muted-foreground border-t">
-        Last refreshed:{" "}
-        {(structure as any)?.fetchedAt
-          ? new Date(
-              (structure as any).fetchedAt as string | number | Date,
-            ).toLocaleString()
-          : "n/a"}
-        <button
-          type="button"
-          onClick={() => refresh().catch(() => undefined)}
-          className="ml-4 text-primary hover:underline"
-        >
-          Refresh
-        </button>
-      </div>
-    </div>
+
+      <ConfirmDeleteDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete Column"
+        description="Are you sure you want to delete this column? This action cannot be undone and all data in this column will be permanently lost."
+        entityName={deleteTarget?.column_name}
+        onConfirm={() => {
+          if (deleteTarget) {
+            handleDeleteColumn(deleteTarget);
+          }
+        }}
+      />
+
+      <GlobalChangesDialog
+        open={globalChangesDialogOpen}
+        onOpenChange={setGlobalChangesDialogOpen}
+        connectionId={connectionId}
+        database={database}
+        schema={schema}
+        table={table}
+        onCommitSuccess={() => {
+          refresh().catch(() => undefined);
+        }}
+      />
+    </>
   );
 });
 
@@ -274,4 +605,3 @@ const TableStructureSkeleton = memo(function TableStructureSkeleton() {
 });
 
 export default TableStructure;
-
