@@ -56,22 +56,28 @@ export function usePasteHandler(
 
   const handleDataEditorPaste = useCallback(
     (target: Item, values: readonly (readonly string[])[]) => {
+      console.log('[usePasteHandler] handleDataEditorPaste called:', { target, values, hasOnPaste: !!onPaste, allowGridFallback });
       if (!onPaste) {
+        console.log('[usePasteHandler] No onPaste handler, returning allowGridFallback:', allowGridFallback);
         return allowGridFallback;
       }
 
       const normalized = normalizeMatrix(values, coerceValue);
       const event = { target, values: normalized } satisfies GridPasteEvent;
+      console.log('[usePasteHandler] Calling onPaste with normalized event:', event);
       const result = onPaste(event);
+      console.log('[usePasteHandler] onPaste returned:', result);
       afterPaste?.(event, result);
 
       if (typeof result === "boolean") {
+        console.log('[usePasteHandler] Returning boolean result:', result);
         return result;
       }
 
+      console.log('[usePasteHandler] Returning allowGridFallback:', allowGridFallback);
       return allowGridFallback;
     },
-    [allowGridFallback, coerceValue, onPaste],
+    [allowGridFallback, coerceValue, onPaste, afterPaste],
   );
 
   const parseTextMatrix = useCallback<UsePasteHandlerResult["parseTextMatrix"]>(

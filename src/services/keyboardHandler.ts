@@ -76,14 +76,15 @@ export class KeyboardHandler {
     const activeScopes = this.contextService.getActiveScopes();
     const { match, isChordPending } = this.keybindingService.resolve(nextSequence, activeScopes);
 
-    // Debug logging for cmd+t and cmd+\
-    if (dispatch.includes('KeyT') || dispatch.includes('Backslash')) {
+    // Debug logging for cmd+t, cmd+\, cmd+c, and cmd+v
+    if (dispatch.includes('KeyT') || dispatch.includes('Backslash') || dispatch.includes('KeyC') || dispatch.includes('KeyV')) {
       const snapshot = this.contextService.snapshot();
       console.log('[KeyboardHandler] Key pressed:', {
         dispatch,
         nextSequence,
         match: match ? match.command : 'NO MATCH',
         isChordPending,
+        willPreventDefault: this.preventDefault && (isChordPending || !!match),
         contextSnapshot: {
           activeEditor: snapshot.get('activeEditor'),
           editorCount: snapshot.get('editorCount'),

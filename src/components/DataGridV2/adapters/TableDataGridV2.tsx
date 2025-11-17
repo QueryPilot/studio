@@ -1878,7 +1878,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
                 }
               : undefined
           }
-          onPaste={undefined}
           showDetailsSheet={showDetailsSheet}
           onShowDetailsSheetChange={setShowDetailsSheet}
         >
@@ -1893,7 +1892,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             onCellEditCancel={handleCellEditCancel}
             onRowAppend={handleRowAppend}
             onRowDelete={handleRowDelete}
-            onPaste={undefined}
             onColumnResize={(col, size) => {
               handleColumnResize(col, size);
             }}
