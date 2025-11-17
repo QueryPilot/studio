@@ -82,7 +82,7 @@ export class ErrorBoundary extends Component<Props, State> {
                   <h1 className="text-2xl font-semibold text-foreground">
                     Something went wrong
                   </h1>
-                  <p className="text-sm text-muted-foreground mt-1">
+                  <p className="text-xs text-muted-foreground mt-1">
                     An unexpected error occurred. You can try to recover or
                     reload the application.
                   </p>
@@ -90,7 +90,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
                 {this.state.error && (
                   <div className="bg-destructive/10 border border-destructive/20 rounded-xl p-4 select-text">
-                    <p className="text-sm font-semibold text-destructive mb-2">
+                    <p className="text-xs font-semibold text-destructive mb-2">
                       Error Details:
                     </p>
                     <div className="max-h-32 overflow-y-auto overflow-x-hidden">

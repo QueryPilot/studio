@@ -324,14 +324,14 @@ function ConnectionGroup({
                   <ContextMenuContent className="w-48 min-w-0">
                     <ContextMenuItem
                       onClick={handleEdit}
-                      className="py-1 px-2 text-sm"
+                      className="py-1 px-2 text-xs"
                     >
                       <Edit2 className="mr-1.5 h-3 w-3" />
                       Edit
                     </ContextMenuItem>
                     <ContextMenuItem
                       onClick={handleDuplicate}
-                      className="py-1 px-2 text-sm"
+                      className="py-1 px-2 text-xs"
                     >
                       <Copy className="mr-1.5 h-3 w-3" />
                       Duplicate
@@ -339,7 +339,7 @@ function ConnectionGroup({
                     <ContextMenuSeparator />
                     <ContextMenuItem
                       onClick={handleDelete}
-                      className="text-destructive focus:text-destructive py-1 px-2 text-sm"
+                      className="text-destructive focus:text-destructive py-1 px-2 text-xs"
                     >
                       <Trash2 className="mr-1.5 h-3 w-3" />
                       Delete
@@ -349,7 +349,7 @@ function ConnectionGroup({
                         <ContextMenuSeparator />
                         <ContextMenuItem
                           onClick={onAddConnection}
-                          className="py-1 px-2 text-sm"
+                          className="py-1 px-2 text-xs"
                         >
                           <Plus className="mr-1.5 h-3 w-3" />
                           Add Connection
@@ -456,7 +456,7 @@ export function ConnectionList({
         <div className="text-center text-muted-foreground">
           <Database className="mx-auto h-12 w-12 mb-4 opacity-50" />
           <h3 className="text-lg font-medium mb-2">No connections yet</h3>
-          <p className="text-sm">
+          <p className="text-xs">
             Click "Load PostgreSQL Dev" to add development connections,
             <br />
             or create a new connection to get started.
@@ -472,7 +472,7 @@ export function ConnectionList({
         <div className="text-center text-muted-foreground">
           <Database className="mx-auto h-12 w-12 mb-4 opacity-50" />
           <h3 className="text-lg font-medium mb-2">No matches found</h3>
-          <p className="text-sm">
+          <p className="text-xs">
             Try adjusting your search terms or clear the filter.
           </p>
         </div>
@@ -674,7 +674,7 @@ export function ConnectionList({
             {onAddConnection && (
               <ContextMenuItem
                 onClick={onAddConnection}
-                className="py-1 px-2 text-sm"
+                className="py-1 px-2 text-xs"
               >
                 <Plus className="mr-1.5 h-3 w-3" />
                 Add Connection

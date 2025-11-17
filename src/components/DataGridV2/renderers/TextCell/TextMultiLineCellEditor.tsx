@@ -22,6 +22,7 @@ export const TextMultiLineCellEditor: React.FC<
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const initialValueRef = useRef(value.data.value);
+  const [isManuallyResized, setIsManuallyResized] = useState(false);
 
   const [size, setSize] = useState({
     width: 400,
@@ -33,6 +34,7 @@ export const TextMultiLineCellEditor: React.FC<
 
   // Auto-resize based on content
   useEffect(() => {
+    if (isManuallyResized) return; // Skip auto-resize if user manually resized
     const textarea = textareaRef.current;
     if (!textarea) return;
 
@@ -41,7 +43,7 @@ export const TextMultiLineCellEditor: React.FC<
       // Reset height to auto to get the correct scrollHeight
       textarea.style.height = "auto";
       const scrollHeight = textarea.scrollHeight;
-      const newHeight = Math.max(100, Math.min(600, scrollHeight + 40)); // 40px for padding and footer
+      const newHeight = Math.max(100, Math.min(600, scrollHeight + 60)); // 60px for header (28px) + footer (32px)
 
       setSize((prev) => {
         // Only update if height actually changed significantly
@@ -68,10 +70,11 @@ export const TextMultiLineCellEditor: React.FC<
       clearTimeout(timeoutId);
       textarea.removeEventListener("input", handleInput);
     };
-  }, []);
+  }, [isManuallyResized]);
 
   // Handle container resize (for manual resizing)
   useEffect(() => {
+    if (isManuallyResized) return; // Skip if user manually resized
     const container = containerRef.current;
     const textarea = textareaRef.current;
     if (!container || !textarea) return;
@@ -89,7 +92,7 @@ export const TextMultiLineCellEditor: React.FC<
     return () => {
       resizeObserver.disconnect();
     };
-  }, []);
+  }, [isManuallyResized]);
 
   const commit = useCallback(
     (nextValue: string | null) => {
@@ -252,6 +255,7 @@ export const TextMultiLineCellEditor: React.FC<
       const target = e.target as HTMLElement;
       if (target.classList.contains("resize-handle")) {
         isResizing = true;
+        setIsManuallyResized(true); // Mark as manually resized
         startX = e.clientX;
         startY = e.clientY;
         startWidth = container.offsetWidth;

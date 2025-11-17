@@ -192,7 +192,7 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
           spellCheck={false}
           defaultValue={initialText}
           autoFocus
-          // onFocus={(e) => e.target.select()}
+          onFocus={(e) => e.target.select()}
           onChange={(e) => {
             initialValueRef.current = e.target.value;
             setIsValid(
