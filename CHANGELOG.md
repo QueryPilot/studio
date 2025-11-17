@@ -13,6 +13,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.3.0] - 2025-11-17
+
+### Added
+- End-to-end SSH tunneling and AWS SSM bastion support, including rate limiting, new tests, and companion guides for secure remote database access.
+- Real-time data invalidation bus with default table sorting so grids auto-refetch after commits, SQL mutations, or Cmd+S shortcuts.
+- Revamped AI assistant with a dedicated chat hook, sidecar health checks, richer Radix-based components, and improved prompt routing.
+- Workspace quality-of-life features: drag-and-drop connection reordering, connection window tracking, duplicate/validation flows in the dialog, and macOS code signing/notarization assets.
+- Modernized onboarding UI with a branded loading screen, theme management, and refreshed database logos.
+- Table structure/index utilities (command factories, custom cell renderers, shared toolbar actions) plus confirmation toasts and pending-change indicators across CRUD flows.
+
+### Changed
+- BREAKING: Workspaces now always open in dedicated windows, with new close-handling rules and keyboard shortcuts—automations that assumed in-window navigation must be updated.
+- Data grid editors commit before navigation, keep refs for original values, auto-select on focus, and expose JSON copy commands for more reliable editing.
+- Query panel caching, auto-refresh, and cache manager APIs now maintain tab state and invalidate queries after mutations.
+- Vault loading, window destruction, and panel focus handling were overhauled for faster startup and more predictable shortcuts.
+- Release workflows and Tauri configs now target the latest CLI/build versions with notarized macOS artifacts and shell plugin initialization.
+
+### Fixed
+- Cmd+S commit flow and unsaved-change detection now fire reliably, preventing silent failures when broadcasting grid invalidations.
+- Sidecar shutdown, HTTP server lifecycle, and connection auto-reconnect logging now handle edge cases without crashes or stale notifications.
+
+### Removed
+- Legacy AI sidebar components (auto-resize textareas, mention autocomplete, old model selectors, mock providers, and unused Rust sessions) were retired in favor of the new chat stack.
+
 ## [0.2.0] - 2025-11-10
 
 ### Added
