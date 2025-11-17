@@ -8,19 +8,19 @@ ARCH="$(uname -m)"
 
 case "${OS}-${ARCH}" in
   darwin-arm64)
-    AI_BINARY="ai-server-aarch64-apple-darwin"
+    AI_BINARY="qp-ai-aarch64-apple-darwin"
     SSM_BINARY="session-manager-plugin-aarch64-apple-darwin"
     ;;
   darwin-x86_64)
-    AI_BINARY="ai-server-x86_64-apple-darwin"
+    AI_BINARY="qp-ai-x86_64-apple-darwin"
     SSM_BINARY="session-manager-plugin-x86_64-apple-darwin"
     ;;
   linux-x86_64)
-    AI_BINARY="ai-server-x86_64-unknown-linux-gnu"
+    AI_BINARY="qp-ai-x86_64-unknown-linux-gnu"
     SSM_BINARY="session-manager-plugin-x86_64-unknown-linux-gnu"
     ;;
   mingw*|msys*|cygwin*)
-    AI_BINARY="ai-server-x86_64-pc-windows-msvc.exe"
+    AI_BINARY="qp-ai-x86_64-pc-windows-msvc.exe"
     SSM_BINARY="session-manager-plugin-x86_64-pc-windows-msvc.exe"
     ;;
   *)

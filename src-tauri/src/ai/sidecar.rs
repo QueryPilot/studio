@@ -31,7 +31,7 @@ impl SidecarManager {
 
         let (mut rx, child) = app_handle
             .shell()
-            .sidecar("ai-server")
+            .sidecar("qp-ai")
             .map_err(|e| anyhow!("Failed to create sidecar command: {}", e))?
             .spawn()
             .map_err(|e| anyhow!("Failed to spawn sidecar: {}", e))?;

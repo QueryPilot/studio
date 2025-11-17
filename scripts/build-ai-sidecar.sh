@@ -26,13 +26,13 @@ build_for_platform() {
         --minify \
         --sourcemap \
         --target="bun-$target" \
-        --outfile="../sidecars/ai-server-$triple"
+        --outfile="../sidecars/qp-ai-$triple"
 
     if [[ "$target" != "windows"* ]]; then
-        chmod +x "../sidecars/ai-server-$triple"
+        chmod +x "../sidecars/qp-ai-$triple"
     fi
 
-    echo "✅ Built ai-server-$triple"
+    echo "✅ Built qp-ai-$triple"
 }
 
 # Build for current platform first
