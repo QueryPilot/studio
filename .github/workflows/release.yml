@@ -1,15 +1,15 @@
 name: Release Build
 
 on:
-  workflow_dispatch: # Manual triggering only (disabled auto-trigger)
-    inputs:
-      tag:
-        description: "Release tag (e.g., v1.0.0)"
-        required: true
-        type: string
-  # push:
-  #   tags:
-  #     - "v*.*.*" # Disabled: Trigger on version tags like v1.0.0
+  # workflow_dispatch: # Manual triggering only (disabled auto-trigger)
+  #   inputs:
+  #     tag:
+  #       description: "Release tag (e.g., v1.0.0)"
+  #       required: true
+  #       type: string
+  push:
+    tags:
+      - "v*.*.*"
 
 permissions:
   contents: write # Required for creating releases
@@ -61,13 +61,13 @@ jobs:
 
           ### 📦 Installation
 
-          **Linux**
-          - Download \`Query-Pilot_amd64.AppImage\`
-          - Make executable: \`chmod +x Query-Pilot_amd64.AppImage\`
-          - Run: \`./Query-Pilot_amd64.AppImage\`
+          **macOS**
+          - Apple Silicon: Download \`Query-Pilot_aarch64.dmg\`
+          - Open DMG and drag Query Pilot to Applications
+          - Note: Intel build temporarily unavailable
 
           ### ⚠️ Code Signing
-          - **Linux**: No signature required (unsigned build)
+          - **macOS**: Signed and notarized with Apple Developer ID
 
           ### 📝 Full Changelog
           See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md)"
@@ -81,10 +81,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            platform: linux
-            target: x86_64-unknown-linux-gnu
-            arch: amd64
+          - os: macos-latest
+            platform: macos
+            target: aarch64-apple-darwin
+            arch: aarch64
+          # Temporarily disabled - uncomment to build Intel version
+          # - os: macos-latest
+          #   platform: macos
+          #   target: x86_64-apple-darwin
+          #   arch: x86_64
 
     steps:
       - name: Checkout code
@@ -95,24 +100,8 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install Linux dependencies
-        if: matrix.platform == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            pkg-config \
-            libwebkit2gtk-4.1-dev \
-            build-essential \
-            curl \
-            wget \
-            file \
-            libxdo-dev \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libglib2.0-dev \
-            libgtk-3-dev \
-            libfuse2
+      - name: Install macOS Rust target
+        run: rustup target add ${{ matrix.target }}
 
       - name: Cache Rust dependencies
         uses: actions/cache@v4
@@ -162,13 +151,7 @@ jobs:
           echo "Checking for built sidecar..."
           ls -la src-tauri/sidecars/ || echo "Sidecars directory not found!"
 
-          # Show what Tauri is looking for
-          if [ "${{ matrix.platform }}" = "windows" ]; then
-            EXPECTED_FILE="src-tauri/sidecars/ai-server-${{ matrix.target }}.exe"
-          else
-            EXPECTED_FILE="src-tauri/sidecars/ai-server-${{ matrix.target }}"
-          fi
-
+          EXPECTED_FILE="src-tauri/sidecars/ai-server-${{ matrix.target }}"
           echo "Tauri expects: $EXPECTED_FILE"
 
           if [ ! -f "$EXPECTED_FILE" ]; then
@@ -180,45 +163,78 @@ jobs:
         shell: bash
 
       # ============================================
-      # Build Tauri App (Linux - No Signing)
+      # macOS Code Signing & Notarization Setup
       # ============================================
 
-      - name: Build Tauri app
+      - name: Import Apple certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: temporary_build_keychain_password
+        run: |
+          # Create temporary keychain with password
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+
+          # Decode and import certificate
+          echo $APPLE_CERTIFICATE | base64 --decode > certificate.p12
+          security import certificate.p12 -k build.keychain -P $APPLE_CERTIFICATE_PASSWORD -T /usr/bin/codesign
+
+          # Allow codesigning to access keychain
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+
+          # Verify certificate was imported
+          security find-identity -v -p codesigning build.keychain
+
+          # Clean up
+          rm certificate.p12
+
+      # ============================================
+      # Build Tauri App
+      # ============================================
+
+      - name: Build Tauri app (macOS with signing)
         env:
           NODE_OPTIONS: --max-old-space-size=4096
-          APPIMAGE_EXTRACT_AND_RUN: 1
+          APPLE_ID: ${{ secrets.APPLE_DEVELOPER_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.APPLE_CERTIFICATE }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         shell: bash
         run: |
-          # Ensure linuxdeploy tools have execute permissions
-          find /tmp -name "linuxdeploy*" -type f -exec chmod +x {} \; 2>/dev/null || true
-          find /tmp -name "AppRun*" -type f -exec chmod +x {} \; 2>/dev/null || true
-          pnpm tauri:build
+          pnpm tauri build --target ${{ matrix.target }}
+
+      - name: Cleanup macOS keychain
+        if: always()
+        run: security delete-keychain build.keychain || true
 
       # ============================================
       # Upload Artifacts to Release
       # ============================================
 
-      - name: Find and upload Linux AppImage
+      - name: Find and upload macOS DMG
         run: |
-          echo "🔍 Searching for AppImage files..."
-          find src-tauri/target/${{ matrix.target }}/release/bundle -type f -name "*.AppImage" || echo "No AppImage files found"
+          echo "🔍 Searching for DMG files..."
+          find src-tauri/target/${{ matrix.target }}/release/bundle -type f -name "*.dmg" || echo "No DMG files found"
 
-          APPIMAGE_PATH=$(find src-tauri/target/${{ matrix.target }}/release/bundle/appimage -name "*.AppImage" | head -n 1)
-          if [ -n "$APPIMAGE_PATH" ]; then
-            APPIMAGE_NAME="Query-Pilot_${{ matrix.arch }}.AppImage"
-            echo "📦 Found AppImage: $APPIMAGE_PATH"
-            echo "📤 Renaming to: $APPIMAGE_NAME"
-            mv "$APPIMAGE_PATH" "$APPIMAGE_NAME"
-            chmod +x "$APPIMAGE_NAME"
+          DMG_PATH=$(find src-tauri/target/${{ matrix.target }}/release/bundle/dmg -name "*.dmg" | head -n 1)
+          if [ -n "$DMG_PATH" ]; then
+            DMG_NAME="Query-Pilot_${{ matrix.arch }}.dmg"
+            echo "📦 Found DMG: $DMG_PATH"
+            echo "📤 Renaming to: $DMG_NAME"
+            mv "$DMG_PATH" "$DMG_NAME"
 
             echo "🚀 Uploading to release: ${{ needs.create-release.outputs.version }}"
             gh release upload ${{ needs.create-release.outputs.version }} \
-              "$APPIMAGE_NAME" \
+              "$DMG_NAME" \
               --clobber
 
-            echo "✅ Uploaded: $APPIMAGE_NAME"
+            echo "✅ Uploaded: $DMG_NAME"
           else
-            echo "❌ ERROR: No AppImage file found!"
+            echo "❌ ERROR: No DMG file found!"
             exit 1
           fi
         env:
