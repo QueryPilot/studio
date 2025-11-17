@@ -1,15 +1,15 @@
 name: Release Build
 
 on:
-  push:
-    tags:
-      - "v*.*.*" # Trigger on version tags like v1.0.0
-  workflow_dispatch: # Allow manual triggering
+  workflow_dispatch: # Manual triggering only (disabled auto-trigger)
     inputs:
       tag:
         description: "Release tag (e.g., v1.0.0)"
         required: true
         type: string
+  # push:
+  #   tags:
+  #     - "v*.*.*" # Disabled: Trigger on version tags like v1.0.0
 
 permissions:
   contents: write # Required for creating releases

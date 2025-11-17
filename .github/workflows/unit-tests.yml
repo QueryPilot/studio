@@ -1,22 +1,23 @@
 name: Unit Tests
 
 on:
-  push:
-    branches: [main, master, develop]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'LICENSE'
-      - '.gitignore'
-      - '.vscode/**'
-  pull_request:
-    branches: [main, master, develop]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'LICENSE'
-      - '.gitignore'
-      - '.vscode/**'
+  workflow_dispatch: # Manual triggering only (all auto-triggers disabled)
+  # push:
+  #   branches: [main, master, develop]
+  #   paths-ignore:
+  #     - '**.md'
+  #     - 'docs/**'
+  #     - 'LICENSE'
+  #     - '.gitignore'
+  #     - '.vscode/**'
+  # pull_request:
+  #   branches: [main, master, develop]
+  #   paths-ignore:
+  #     - '**.md'
+  #     - 'docs/**'
+  #     - 'LICENSE'
+  #     - '.gitignore'
+  #     - '.vscode/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
