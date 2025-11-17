@@ -70,8 +70,11 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
   );
 
   const commitCurrentValue = useCallback(() => {
-    // Check if value actually changed (compare raw text with initial)
-    const hasChanged = initialValueRef.current !== initialText;
+    // Use initialValueRef to avoid reading null during unmount
+    const currentValue = initialValueRef.current ?? "";
+
+    // Check if value actually changed (compare with original value)
+    const hasChanged = currentValue !== initialText;
 
     // If no changes were made, cancel the edit
     if (!hasChanged) {
@@ -81,7 +84,7 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
     }
 
     // Commit the changed value
-    const normalized = normalizeValue(initialValueRef.current);
+    const normalized = normalizeValue(currentValue);
     if (!normalized) {
       if (nullable) {
         commit(null);
