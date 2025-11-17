@@ -31,7 +31,7 @@ export function FeatureErrorBoundary({
               <h3 className="text-lg font-semibold text-foreground">
                 {featureName} Error
               </h3>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 This feature encountered an error. Other parts of the
                 application should still work.
               </p>

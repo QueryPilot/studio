@@ -147,6 +147,7 @@ export const TextSingleLineCellEditor: React.FC<
           type="text"
           defaultValue={initialValue}
           autoFocus
+          onFocus={(e) => e.target.select()}
           onKeyDown={handleKeyDown}
           onChange={(e) => {
             originalValueRef.current = e.target.value;

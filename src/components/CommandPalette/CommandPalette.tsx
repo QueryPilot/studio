@@ -12,7 +12,7 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command";
-import { useKeyboardServices } from "@/components/KeyboardProvider";
+import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
 import { contextService } from "@/services/contextService";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
@@ -62,7 +62,7 @@ const QUICK_OPEN_FUSE_OPTIONS: IFuseOptions<QuickOpenItem> = {
 
 export function CommandPalette(): React.ReactElement {
   const queryClient = useQueryClient();
-  const { commandService, keybindingService } = useKeyboardServices();
+  const services = useKeyboardServicesOptional();
 
   const isOpen = useCommandPaletteStore((state) => state.isOpen);
   const mode = useCommandPaletteStore((state) => state.mode);
@@ -88,6 +88,13 @@ export function CommandPalette(): React.ReactElement {
 
   // Invalidate cache when commands or keybindings change
   useEffect(() => {
+    // Don't set up listeners if services aren't ready (happens during HMR)
+    if (!services) {
+      return;
+    }
+
+    const { commandService, keybindingService } = services;
+
     const disposers = [
       commandService.onDidRegister(() => {
         void queryClient.invalidateQueries({ queryKey: ["commands", "list"] });
@@ -120,7 +127,7 @@ export function CommandPalette(): React.ReactElement {
         dispose();
       });
     };
-  }, [commandService, keybindingService, queryClient]);
+  }, [services, queryClient]);
 
   useEffect(() => {
     contextService.setValue("inQuickOpen", isOpen);
@@ -267,8 +274,9 @@ export function CommandPalette(): React.ReactElement {
   const handleSelect = useCallback(
     async (value: string) => {
       if (mode === "command") {
+        if (!services) return;
         try {
-          await commandService.execute(value);
+          await services.commandService.execute(value);
         } finally {
           closePalette();
         }
@@ -306,7 +314,7 @@ export function CommandPalette(): React.ReactElement {
     [
       activeConnectionId,
       closePalette,
-      commandService,
+      services,
       mode,
       quickItemsById,
       selectedDatabase,
@@ -336,6 +344,11 @@ export function CommandPalette(): React.ReactElement {
           ? "No database objects match your search."
           : "No database objects available in this schema.")
       : "";
+
+  // Don't render if services aren't ready yet (happens during HMR)
+  if (!services) {
+    return <></>;
+  }
 
   return (
     <CommandDialog open={isOpen} onOpenChange={handleOpenChange}>
