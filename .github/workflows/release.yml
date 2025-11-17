@@ -163,30 +163,7 @@ jobs:
         shell: bash
 
       - name: Download AWS Session Manager Plugin
-        run: |
-          echo "Downloading AWS Session Manager Plugin for ${{ matrix.target }}..."
-
-          # Download for macOS
-          if [ "${{ matrix.target }}" == "aarch64-apple-darwin" ]; then
-            curl -L "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/mac_arm64/session-manager-plugin.pkg" -o session-manager-plugin.pkg
-          else
-            curl -L "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/mac/session-manager-plugin.pkg" -o session-manager-plugin.pkg
-          fi
-
-          # Extract binary
-          pkgutil --expand session-manager-plugin.pkg expanded
-          cd expanded/session-manager-plugin.pkg
-          cat Payload | gunzip -dc | cpio -i
-
-          # Copy to sidecars directory
-          mkdir -p ../../src-tauri/sidecars
-          cp usr/local/sessionmanagerplugin/bin/session-manager-plugin ../../src-tauri/sidecars/session-manager-plugin-${{ matrix.target }}
-          chmod +x ../../src-tauri/sidecars/session-manager-plugin-${{ matrix.target }}
-
-          cd ../..
-          rm -rf session-manager-plugin.pkg expanded
-
-          echo "✅ Session Manager Plugin downloaded"
+        run: bash scripts/download-ssm-plugin.sh
 
       # ============================================
       # macOS Code Signing & Notarization Setup
