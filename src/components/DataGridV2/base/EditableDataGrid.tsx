@@ -217,12 +217,15 @@ export const EditableDataGrid = forwardRef<
 
   const handleCellEdited = useCallback(
     (cell: Item, newValue: GridCell) => {
+      console.log('[EditableDataGrid] handleCellEdited called:', { cell, newValue });
       if (!onCellEditCommit) {
+        console.log('[EditableDataGrid] No onCellEditCommit handler, skipping');
         editingCellRef.current = null;
         return;
       }
       const coords = getCoordinates(cell);
       if (!coords) {
+        console.log('[EditableDataGrid] Could not get coordinates, skipping');
         editingCellRef.current = null;
         return;
       }
@@ -234,6 +237,7 @@ export const EditableDataGrid = forwardRef<
         newValue,
         previousValue: previous ?? null,
       };
+      console.log('[EditableDataGrid] Calling onCellEditCommit with event:', event);
       const action = onCellEditCommit(event);
       processResult(action);
       editingCellRef.current = null;
@@ -383,14 +387,57 @@ export const EditableDataGrid = forwardRef<
 
   const { handleDataEditorPaste } = usePasteHandler({
     coerceValue: coerceValue,
-    allowGridFallback: false,
+    allowGridFallback: false, // We handle paste ourselves
     onPaste: (event) => {
+      console.log('[EditableDataGrid] Paste event received:', event);
+
+      // Let custom handler override
       const result = onPaste?.(event);
       const bool = processResult(result);
       if (typeof bool === "boolean") {
+        console.log('[EditableDataGrid] Returning custom result:', bool);
         return bool;
       }
-      return false;
+
+      // Apply paste by calling handleCellEdited for each cell
+      console.log('[EditableDataGrid] Applying paste to cells...');
+      const [colStart, rowStart] = event.target;
+
+      for (let rowOffset = 0; rowOffset < event.values.length; rowOffset++) {
+        const rowIndex = rowStart + rowOffset;
+        if (rowIndex >= rows.length) break; // Don't paste beyond existing rows
+
+        const rowValues = event.values[rowOffset];
+        if (!rowValues) continue;
+
+        for (let colOffset = 0; colOffset < rowValues.length; colOffset++) {
+          const colIndex = colStart + colOffset;
+          if (colIndex >= columns.length) break; // Don't paste beyond existing columns
+
+          const value = rowValues[colOffset];
+          const column = columns[colIndex];
+          if (!column) continue;
+
+          const cell: Item = [colIndex, rowIndex];
+
+          // Get the current cell content to preserve cell type
+          const currentCell = getCellContent(cell);
+
+          // Create new cell with pasted value (preserve the cell kind/type)
+          const newCell = {
+            ...currentCell,
+            data: {
+              ...(currentCell.data as Record<string, unknown>),
+              value: value,
+            },
+          };
+
+          console.log('[EditableDataGrid] Pasting to cell:', { cell, value, currentCell, newCell });
+          handleCellEdited(cell, newCell);
+        }
+      }
+
+      return false; // Prevent default - we handled it
     },
     afterPaste: (event, result) => {
       if (typeof result !== "boolean") {
@@ -466,7 +513,7 @@ export const EditableDataGrid = forwardRef<
       getRowThemeOverride={getRowThemeOverride}
       drawFocusRing
       rangeSelect="rect"
-      columnSelect="single"
+      columnSelect="multi"
       rowSelect="multi"
       scaleToRem={false}
     />

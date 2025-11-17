@@ -72,8 +72,7 @@ export const DataGridBase = forwardRef(function DataGridBase(
         fixedShadowX={false}
         fixedShadowY={false}
         fillHandle
-        onPaste
-        getCellsForSelection
+        getCellsForSelection={true} // Enable copy functionality
         {...editorProps}
       />
     </div>
