@@ -105,7 +105,7 @@ clean:
 	@rm -rf src-tauri/target
 	@rm -rf node_modules
 	@rm -rf src-tauri/sidecar-ai/node_modules
-	@rm -f src-tauri/sidecars/ai-server-*
+	@rm -f src-tauri/sidecars/qp-ai-*
 	@rm -f src-tauri/sidecars/session-manager-plugin-*
 	@echo "Clean complete!"
 

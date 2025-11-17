@@ -151,7 +151,7 @@ jobs:
           echo "Checking for built sidecar..."
           ls -la src-tauri/sidecars/ || echo "Sidecars directory not found!"
 
-          EXPECTED_FILE="src-tauri/sidecars/ai-server-${{ matrix.target }}"
+          EXPECTED_FILE="src-tauri/sidecars/qp-ai-${{ matrix.target }}"
           echo "Tauri expects: $EXPECTED_FILE"
 
           if [ ! -f "$EXPECTED_FILE" ]; then
