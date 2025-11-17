@@ -145,10 +145,10 @@ export const TextMultiLineCellEditor: React.FC<
 
     // Commit the changed value
     const trimmed = text?.trim();
-    if (!trimmed || value.data.nullable) {
-      commit(trimmed ?? null);
+    if (!trimmed && value.data.nullable) {
+      commit(null);
     } else {
-      commit(trimmed);
+      commit(trimmed ?? text ?? null);
     }
   }, [initialValue, value.data.nullable, onFinishedEditing, commit]);
 

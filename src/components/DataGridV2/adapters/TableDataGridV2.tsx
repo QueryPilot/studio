@@ -187,6 +187,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   }, [isGridFocused, gridId, scopeId]);
 
   const handleContainerClick = useCallback(() => {
+    // Don't steal focus if a cell is being edited
+    if (isEditingCell) {
+      console.log(`[TableDataGridV2 ${gridId}] Cell is being edited, skipping grid focus`);
+      return;
+    }
+
     console.log(`[TableDataGridV2 ${gridId}] Container clicked, forcing grid focus`);
     // Focus the Glide grid canvas directly, not the container
     // This is required for Glide's native copy/paste to work
@@ -194,7 +200,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       gridRef.current.focus();
       console.log(`[TableDataGridV2 ${gridId}] Grid focused, active element:`, document.activeElement);
     }
-  }, [gridId]);
+  }, [gridId, isEditingCell]);
 
   const handleFocusCapture = useCallback(() => {
     console.log(`[TableDataGridV2 ${gridId}] handleFocusCapture - setting dataGridFocus=true`);

@@ -47,13 +47,11 @@ export const TextSingleLineCellEditor: React.FC<
   );
 
   const commitCurrentText = useCallback(() => {
-    const text = inputRef.current?.value ?? "";
+    // Use originalValueRef instead of inputRef to avoid reading null during unmount
+    const text = originalValueRef.current ?? "";
 
-    // Update the ref with current value for proper change detection
-    const currentInputValue = text;
-
-    // Check if value actually changed (compare raw text with initial)
-    const hasChanged = currentInputValue !== (value.data.value ?? "");
+    // Check if value actually changed (compare with original value)
+    const hasChanged = text !== (value.data.value ?? "");
 
     // If no changes were made, cancel the edit
     if (!hasChanged) {
@@ -69,7 +67,7 @@ export const TextSingleLineCellEditor: React.FC<
     } else {
       commit(trimmed || text);
     }
-  }, [commit, value.data.nullable, onFinishedEditing]);
+  }, [commit, value.data.nullable, onFinishedEditing, value.data.value]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (finishedRef.current) return;
