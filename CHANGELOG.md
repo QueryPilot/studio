@@ -13,6 +13,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.4.0] - 2025-11-17
+
+### Added
+- End-to-end SSH tunneling and AWS SSM bastion support with rate limiting, tests, and user guides so remote databases can be reached securely from DevDB Studio.
+- Real-time data invalidation bus plus table-level default sorting, ensuring grids auto-refetch after commits, SQL mutations, or Cmd+S shortcuts without stale data.
+- Revamped AI assistant stack featuring a dedicated chat hook, new Radix-based conversation components, richer prompts, sidecar health checks, and a rebuilt panel focus manager.
+- Workspace quality-of-life enhancements: drag-and-drop connection reordering, connection window tracking, duplicate/validation flows in the dialog, themed loading screen, and macOS traffic-light positioning for Tauri windows.
+- Comprehensive table structure/index utilities, including command factories, custom cell renderers, confirmation toasts for unsaved changes, undo flows in Global Changes, and pending-change indicators across CRUD experiences.
+- New UI primitives (button/input groups, hover cards, progress indicators, table toolbars, shared dialogs) that back modernized onboarding, window management shortcuts, and connection logos for every supported engine.
+
+### Changed
+- **BREAKING:** Workspaces now always open in dedicated windows with new close-handling, shortcut scopes, and cache-clearing rules—any automations relying on in-window navigation or shared vault lifecycles must be updated.
+- Release, signing, and notarization workflows were upgraded for macOS DMG distribution, AWS Session Manager sidecars, and shell plugin initialization, aligning desktop builds with the latest Tauri toolchain.
+- Data grid editors commit values before navigation, auto-select first cells on focus, and expose JSON copy commands while cache manager and tab-state logic preserve query results across auto-refresh cycles.
+- Vault loading, window destruction, and connection auto-reconnect flows were overhauled for faster startup, URL-aware schema switching, and reliable background fetches.
+
+### Fixed
+- Cmd+S commit flow, unsaved-change detection, and invalidation broadcasts now fire consistently, preventing silent failures and ensuring optimistic updates clear once refetches complete.
+- Sidecar shutdown, HTTP server lifecycle, and connection auto-reconnect logging handle edge cases without crashes or stale notifications, improving desktop stability.
+
+### Removed
+- Legacy AI sidebar components, mock providers, and unused Rust AI sessions were retired in favor of the new chat stack, and obsolete sidecar manifests were deleted to streamline packaging.
+
 ## [0.3.0] - 2025-11-17
 
 ### Added
