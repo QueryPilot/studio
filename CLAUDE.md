@@ -4,428 +4,333 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Query Pilot** (internally: DevDB Studio) is a modern database IDE built with Tauri 2 and React 19. It provides a native desktop application for managing PostgreSQL databases with an intelligent AI assistant powered by multiple LLM providers.
-
-## Tech Stack
-
-### Frontend
-- **Framework**: React 19 with TypeScript
-- **Build Tool**: Vite
-- **UI Components**: shadcn/ui (Radix UI primitives) + Tailwind CSS
-- **State Management**: Zustand for global state
-- **Data Grid**: Glide Data Grid for high-performance read-only views (editing disabled pending redesign)
-- **Code Editor**: CodeMirror 6 for SQL and DBML editing
-- **Visualization**: ReactFlow + ELK.js for ERD diagrams
-- **AI SDK**: Vercel AI SDK (@ai-sdk/react) for multi-provider LLM integration
-
-### Backend (Rust)
-- **Framework**: Tauri 2
-- **Async Runtime**: Tokio
-- **Database**: PostgreSQL via tokio-postgres with connection pooling (deadpool-postgres)
-- **Serialization**: MessagePack (rmp-serde) for binary data transfer
-- **Security**: OS-level keychain integration via `keyring` crate
-
-### AI Sidecar
-- **Runtime**: Bun HTTP server compiled as platform-specific executable
-- **Architecture**: Standalone process managed by Tauri backend
-- **Providers**: OpenAI, Anthropic, Google Gemini, Ollama
+Query Pilot is a local-first desktop database IDE built with Tauri 2 + React 19. It provides multi-window workspace management, AI-powered features via a sidecar process, and high-performance query streaming using MessagePack serialization over Tauri IPC channels.
 
 ## Development Commands
 
-### Initial Setup
 ```bash
-# Install all dependencies
-make install
-# or
-pnpm install && cd src-tauri/sidecar-ai && bun install
+# Development
+pnpm tauri:dev           # Run app in dev mode
+make dev                 # Same as above
+make dev-sidecar         # Run AI sidecar in dev mode (Bun on port 3001)
 
-# Start database containers and seed data
-make setup
-```
+# Building
+pnpm build               # Build frontend only
+pnpm tauri:build         # Build full app (includes AI sidecar)
+make build               # Build with all sidecars + SSM plugin
+make build-ai            # Build AI sidecar for current platform
+make build-ai-all        # Build AI sidecar for all platforms
 
-### Daily Development
-```bash
-# Run in development mode (launches Tauri + React dev server)
-make dev
-# or
-make d
-# or
-pnpm tauri:dev
+# Testing
+pnpm test:unit           # Run frontend tests once
+pnpm test:watch          # Run frontend tests in watch mode
+pnpm test:coverage       # Run tests with coverage
+make test                # Run all unit tests (Rust + Frontend)
+make test-backend        # Run Rust tests only
+make test-frontend       # Run Frontend tests only
+cargo test --lib         # Run specific Rust unit tests (in src-tauri/)
 
-# Run AI sidecar standalone (for debugging)
-make dev-sidecar
-# or
-make ds
-```
+# Linting & Type Checking
+pnpm lint                # ESLint
+pnpm typecheck           # TypeScript type check
+cargo clippy             # Rust linting (in src-tauri/)
 
-### Building
-```bash
-# Build AI sidecar for current platform
-make build-ai
-# or
-pnpm build:ai-sidecar
+# Database Setup (Docker)
+make setup               # Start containers + seed all databases
+make docker-up           # Start all database containers
+make docker-down         # Stop containers
+make docker-reset        # Reset containers and volumes
+make seed-all            # Seed all databases
+make seed-postgres       # Seed PostgreSQL only
+make seed-mysql          # Seed MySQL only
 
-# Build AI sidecar for all platforms (macOS, Linux, Windows)
-make build-ai-all
-
-# Full production build (includes AI sidecar + Tauri bundle)
-make build
-# or
-pnpm tauri:build
-```
-
-### Testing
-```bash
-# Run all Rust unit tests
-make test
-# or
-make t
-
-# Run tests in release mode (faster)
-make test-release
-
-# Run comprehensive integration tests
-make test-all
-
-# Quick database connection check
-make test-quick
-```
-
-### Database Management
-```bash
-# Start all database containers (PostgreSQL, MySQL, SQLite, SQL Server, Oracle)
-make docker-up
-
-# Stop containers
-make docker-down
-
-# Reset containers (removes volumes)
-make docker-reset
-
-# Seed specific databases
-make seed-postgres
-make seed-mysql
-make seed-sqlite
-make seed-sqlserver
-make seed-oracle
-
-# Seed all databases
-make seed-all
-
-# Reseed (drops existing data)
-make reseed-all
-```
-
-### Code Quality
-```bash
-# Lint frontend code
-pnpm lint
-
-# Type check
-pnpm typecheck
-
-# Clean build artifacts
-make clean
+# Releases
+make release             # AI-powered release (auto version + changelog)
+make release-manual VERSION=1.2.3  # Manual release
 ```
 
 ## Architecture
 
-### Tauri Backend (`src-tauri/src/`)
+### Tauri + React Hybrid
 
-**Core Module Structure:**
-- `main.rs` - Application entry point, command registration, AI sidecar initialization
-- `commands.rs` - Tauri command handlers for database operations
-- `core/` - Core abstractions and connection management
-  - `adapter.rs` - DbAdapter trait defining database operations interface
-  - `manager.rs` - ConnectionManager for pooling and lifecycle management
-  - `cell_value.rs` - Universal type system for database values (CellValue enum)
-- `adapters/` - Database-specific implementations
-  - `postgres/` - PostgreSQL adapter with fast binary protocol support
-    - `adapter.rs` - Main adapter implementation
-    - `pool.rs` - Connection pooling
-    - `fast_converter.rs` - High-performance row-to-CellValue conversion with rayon parallelization
-    - `query_fast.rs` - Binary protocol query execution
-    - `introspection.rs` - Schema metadata retrieval
-    - `types.rs` - PostgreSQL type mapping
-- `ai/` - AI assistant subsystem
-  - `manager.rs` - Orchestrates sidecar lifecycle and API key management
-  - `sidecar.rs` - Process management for Bun HTTP server
-  - `secure_storage.rs` - OS keychain integration for API keys
-  - `commands.rs` - Tauri commands for AI operations
-- `http_server.rs` - Local HTTP server exposing database tools to AI sidecar
-- `keychain.rs` - Vault password storage in OS keychain
-- `vault.rs` - Encrypted storage for connection credentials
-- `storage/` - Local data persistence
+**Frontend (React 19 + TypeScript)**
+- `src/` - React frontend with vertical slice architecture
+- `src/screens/` - Page-level components (MainScreen, WorkspaceScreen)
+- `src/components/` - Reusable UI (shadcn/ui components, panels, grids)
+- `src/stores/` - Zustand state management (multi-store pattern)
+- `src/services/` - Backend communication & domain logic
+- `src/hooks/` - Custom React hooks
+- `src/types/` - TypeScript interfaces
+- `src/utils/` - Helpers and utilities
 
-**Key Patterns:**
-- **Adapter Pattern**: All database operations go through the `DbAdapter` trait, allowing future database support (MySQL, SQLite, etc.)
-- **Connection Pooling**: Each connection profile gets a dedicated connection pool managed by `ConnectionManager`
-- **Binary Protocol**: PostgreSQL queries use binary wire protocol for performance (see `query_fast.rs`)
-- **MessagePack Serialization**: Frontend ↔ Backend communication uses MessagePack for smaller payloads than JSON
-- **Parallel Row Conversion**: Large result sets are converted in parallel using rayon (see `fast_converter.rs`)
+**Backend (Rust + Tauri 2)**
+- `src-tauri/src/` - Rust backend
+- `src-tauri/src/commands.rs` - ~50+ Tauri IPC commands
+- `src-tauri/src/core/manager.rs` - Connection pool with DashMap
+- `src-tauri/src/adapters/` - Database adapter trait implementations
+- `src-tauri/src/ai/` - AI sidecar manager
+- `src-tauri/src/ssh/` - SSH tunnel management
+- `src-tauri/src/vault.rs` - Encrypted storage for connection profiles
 
-### Frontend (`src/`)
+### Multi-Window Architecture
 
-**Directory Structure:**
-- `components/` - React components organized by feature
-  - `DataGridV2/` - High-performance read-only data grid (CUD removed Oct 2025)
-  - `Workbench/` - VS Code-style panel layout system
-  - `AIAssistant/` - Chat interface with streaming responses
-  - `TableStructure/`, `TableIndexes/`, `TableTriggers/` - Schema/index/trigger panels (currently read-only)
-  - `Erd/` - ERD visualization with DBML support
-  - `QueryPanel/` - SQL query editor and results
-  - `ui/` - shadcn/ui base components
-- `stores/` - Zustand state management
-  - `connectionStore.ts` - Connection profiles and active connections
-  - `tableEditStore.ts` - (removed Oct 2025; pending redesign of table editing)
-  - `workbenchStore.ts` - Panel layout persistence
-  - `aiStore.ts` - AI provider configuration and chat state
-  - `preferencesStore.ts` - User preferences
-- `screens/` - Top-level views
-  - `main/` - Connection list screen
-  - `workspace/` - Main workspace with sidebar + workbench
-- `services/` - Business logic and API communication
-  - `databaseService.ts` - Wraps Tauri commands for database operations
-  - `vaultStorage.ts` - Encrypted local storage using Dexie (IndexedDB)
-- `utils/` - Shared utilities
-  - `tauri.ts` - Tauri API helpers
-  - `workbench/` - Panel layout utilities
+- **Main window** (`label="main"`): Connection browser and management UI
+- **Workspace windows** (`label="workspace-{connectionId}"`): Spawned per database connection
+- Window lifecycle tracked via `BroadcastChannel` API (not native Tauri events)
+- Each workspace manages its own connection cleanup on close
+- Prevents one closed window from disconnecting others
 
-**Key Frontend Patterns:**
-- **Zustand Stores**: All global state uses Zustand with immer for immutability
-- **MessagePack Decoding**: All database results are MessagePack-encoded; decode using `@msgpack/msgpack`
-- **Read-Only Grid**: Table editing flows are disabled pending redesign; grid now emits display-only events
-- **Streaming Queries**: Large query results stream via Tauri events
-- **Vault Storage**: Sensitive data (connections, queries) stored encrypted in IndexedDB via Dexie
+### State Management (Zustand)
 
-### AI Sidecar (`src-tauri/sidecar-ai/`)
+Multiple stores with specific concerns:
+- `connectionStoreNew` - Active connections, favorites, recent list
+- `workbenchStore` - Layout tree (grid panels), tab metadata, drag-drop
+- `workspaceScreenStore` - Schema/table navigation, filtering
+- `crudStore` - Transaction state, pending CRUD operations
+- `aiChatStore` - AI provider/model selection (persisted)
+- `dataInvalidationStore` - Event-driven cache invalidation with table-level listeners
+- `panelStore` - Panel visibility and state
+- `tabStateStore` - Active tab tracking
+- `erdStore` - Entity relationship diagram data
+
+### AI Sidecar Process
 
 **Architecture:**
-- Bun HTTP server compiled to standalone executable
-- Started by Tauri backend on random available port
-- API keys loaded from OS keychain and stored in-memory
-- Streams responses via Server-Sent Events (SSE)
-- Communicates with Tauri backend via HTTP for database tool execution
+- Separate TypeScript/Bun executable (`ai-server-{platform}`)
+- Compiled via `bun build --compile` (see `scripts/build-ai-sidecar.sh`)
+- Runs on hardcoded port 47856
+- Started by Tauri's sidecar API with stdout/stderr monitoring
 
-**Endpoints:**
+**Flow:**
+1. Rust `AIManager` spawns sidecar on app startup
+2. Loads API keys from OS keychain (keyring crate) for OpenAI/Anthropic/Google
+3. HTTP POST to sidecar `/config` endpoint to inject keys
+4. Frontend communicates directly with sidecar via HTTP (not through Rust)
+
+**Sidecar Routes:**
 - `GET /health` - Health check
-- `POST /config` - Configure API keys (called on startup)
-- `POST /chat` - Stream AI responses
-- `GET /providers` - List available providers
-- `GET /status` - Sidecar status
+- `GET /status` - Configured providers list
+- `GET /providers` - Available models per provider
+- `POST /config` - Set API keys
+- `POST /chat` - LLM inference (Vercel AI SDK)
 
-**Build Process:**
-The sidecar is compiled using Bun's built-in compiler:
-```bash
-bun build index.ts --compile --target=bun-darwin-arm64 --outfile=ai-server-aarch64-apple-darwin
+**Frontend Integration:**
+- `src/services/aiService.ts` handles HTTP calls to sidecar
+- `useAIChatStore` manages provider/model selection with persistence
+- AI responses streamed via `useChat` hook from `@ai-sdk/react`
+
+### Query Streaming & Performance
+
+**High-Performance Path:**
+- `stream_query` command streams rows in MessagePack-encoded batches
+- `QueryStreamClient` uses Tauri IPC channels (via `transformCallback`) instead of `window.emit`
+- **Critical optimization**: Skips 300-350ms `window.emit` overhead for large result sets
+- Batch fetching with configurable batch size, cursor setup
+
+**Data Invalidation:**
+- `dataInvalidationStore` tracks last-modified timestamp per table (`connection:db:schema:table`)
+- CRUD operations trigger `invalidateTable()` which notifies all registered listeners
+- Subscribers (query hooks) refetch when their table's timestamp changes
+- Proper cleanup prevents listener leaks
+
+### Database Connection Management
+
+**Rust ConnectionManager (`src-tauri/src/core/manager.rs`):**
+- DashMap-based concurrent connection pool with 30-minute idle timeout
+- Dual-layer tunnel support: SSH tunnels (with health checks) or AWS Session Manager
+- Deduplicates concurrent connection attempts via inflight promises
+- Reaper process removes idle connections automatically
+- Per-connection adapter pattern for multi-DB support (PostgreSQL, MySQL, SQLite, SQL Server)
+
+**Frontend Connection Lifecycle:**
+- `vaultStorage` service handles encrypted vault storage (Tauri `vault_write`/`vault_read`)
+- Database-specific connection cloning via `switch_database` command
+- Health monitoring with configurable ping intervals
+- Connection metadata cached locally with debounced flush (250ms)
+
+### Security & Storage
+
+**Vault Storage:**
+- Connections stored in encrypted vault (Tauri vault API)
+- In-memory cache with dirty-flag tracking
+- Debounced writes (250ms) to prevent thrashing
+
+**Keychain Integration:**
+- API keys stored in native OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service)
+- Never transmitted over IPC in plaintext
+- Sidecar loads keys on startup, frontend never has direct access
+
+### Build Process
+
+**AI Sidecar Build:**
+- `scripts/build-ai-sidecar.sh` detects OS/arch and builds Bun binary for current platform
+- `BUILD_ALL=true` mode builds all platform variants for distribution
+- Output: `src-tauri/sidecars/ai-server-{triple}` binaries
+- Referenced in `tauri.conf.json` as `externalBin`
+
+**AWS Session Manager Plugin:**
+- Downloaded via `scripts/download-ssm-plugin.sh` (Unix) or `.ps1` (Windows)
+- Bundled as `sidecars/session-manager-plugin-{triple}`
+- Used for AWS RDS tunneling via Session Manager
+
+**macOS Code Signing:**
+- Configured in `tauri.conf.json` with Developer ID
+- Hardened runtime + entitlements in `entitlements.plist`
+- See `MACOS_SIGNING_GUIDE.md` for details
+
+## Project Structure Notes
+
+### Frontend
+
 ```
-Tauri automatically bundles the correct platform executable.
-
-## Critical Implementation Details
-
-### Database Query Flow
-1. Frontend calls `databaseService.streamQuery()`
-2. Rust command `stream_query()` invoked via Tauri
-3. PostgreSQL adapter executes query using binary protocol
-4. Rows converted to `CellValue` in parallel
-5. MessagePack-encoded batches emitted via Tauri events
-6. Frontend decodes MessagePack and updates UI
-
-### Table Editing Flow (Deprecated Oct 2025)
-Table editing is temporarily disabled. The previous `tableEditStore`-driven workflow, pending edits drawer, and apply/preview services were removed and will be replaced by a future redesign.
-
-### AI Assistant Flow
-1. User enters message in AIAssistantSidebar
-2. Frontend calls sidecar `/chat` endpoint with streaming
-3. Sidecar uses Vercel AI SDK to call provider (OpenAI/Anthropic/Google/Ollama)
-4. AI response streams back via SSE
-5. Tool calls (if any) proxied to Tauri backend via HTTP
-6. Results returned to AI for formatting
-7. Final response displayed in chat UI
-
-### API Key Security
-1. User enters API key in Preferences → AI Runtime
-2. Frontend invokes `set_ai_api_key(provider, key)`
-3. Rust saves to OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service)
-4. On app startup: keys loaded from keychain
-5. Keys sent to sidecar via POST `/config`
-6. Sidecar stores in-memory (never persisted to disk)
-
-## Database Adapter Implementation
-
-When adding support for a new database:
-
-1. Create `src-tauri/src/adapters/{database}/` directory
-2. Implement `DbAdapter` trait from `core/adapter.rs`
-3. Key methods to implement:
-   - `connect()` - Establish connection/pool
-   - `query()` / `execute()` - Execute SQL
-   - `get_databases()`, `get_schemas()`, `get_tables()` - Introspection
-   - `get_table_columns()`, `get_constraints()`, `get_indexes()` - Table metadata
-   - `create_index()`, `alter_table_*()` - DDL operations
-4. Map database types to `CellValue` enum
-5. Add adapter to `ConnectionManager` in `core/manager.rs`
-6. Update `ConnectionProfile` type in `src-tauri/src/types.rs`
-
-See `adapters/postgres/` for reference implementation.
-
-## State Management Patterns
-
-### Zustand Store Structure
-All stores follow this pattern:
-```typescript
-interface State {
-  // Data
-  items: Item[];
-
-  // Derived state (avoid duplicating data)
-  getItemById: (id: string) => Item | undefined;
-
-  // Actions
-  addItem: (item: Item) => void;
-  updateItem: (id: string, updates: Partial<Item>) => void;
-}
-
-export const useStore = create<State>()(
-  immer((set, get) => ({
-    items: [],
-    getItemById: (id) => get().items.find(i => i.id === id),
-    addItem: (item) => set((state) => { state.items.push(item); }),
-    updateItem: (id, updates) => set((state) => {
-      const item = state.items.find(i => i.id === id);
-      if (item) Object.assign(item, updates);
-    }),
-  }))
-);
+src/
+├── screens/          # MainScreen, WorkspaceScreen
+├── components/       # Reusable UI (shadcn/ui + custom)
+├── stores/           # Zustand state management
+├── services/         # Backend communication & domain logic
+│   ├── databaseService.ts      # Connection pooling, health monitoring
+│   ├── vaultStorage.ts         # Encrypted connection profiles
+│   ├── queryStreamClient.ts   # Optimized batch fetching
+│   └── aiService.ts            # AI sidecar HTTP client
+├── hooks/            # Custom React hooks
+├── types/            # TypeScript interfaces
+└── utils/            # Helpers (tauri detection, formatting)
 ```
 
-### Async Actions
-For async operations, use this pattern:
-```typescript
-fetchItems: async () => {
-  const items = await invoke("get_items");
-  set({ items });
-}
+### Backend
+
+```
+src-tauri/src/
+├── commands.rs       # ~50+ Tauri IPC command handlers
+├── core/             # Connection manager, pool, adapters
+├── adapters/         # Database adapter implementations
+├── ai/               # AI sidecar manager
+├── ssh/              # SSH tunnel management
+├── aws/              # AWS Session Manager integration
+├── crud/             # CRUD transaction handling
+├── vault.rs          # Encrypted storage
+├── keychain.rs       # OS keychain integration
+├── http_server.rs    # HTTP server for sidecar proxy
+└── types.rs          # Shared Rust types
 ```
 
-## Working with MessagePack
+## Key Patterns
 
-All Tauri commands that return large data use MessagePack:
-
-```typescript
-import { decode } from "@msgpack/msgpack";
-
-// In Tauri command response
-const response = await invoke("stream_query", { sql: "SELECT * FROM users" });
-const decoded = decode(new Uint8Array(response.data));
-```
-
-Rust side (in commands):
-```rust
-use rmp_serde::encode::to_vec;
-use tauri::ipc::Response;
-
-#[tauri::command]
-async fn stream_query(sql: &str) -> Result<Response, String> {
-    let result = execute_query(sql).await?;
-    let msgpack = to_vec(&result).map_err(|e| e.to_string())?;
-    Ok(Response::new(msgpack))
-}
-```
-
-## Common Gotchas
-
-### Frontend Build Issues
-- **Symptom**: TypeScript errors about missing types
-- **Fix**: Run `pnpm typecheck` to see real errors; ESLint can be noisy
-
-### Tauri Commands Not Found
-- **Symptom**: `command {name} not found`
-- **Fix**: Ensure command is registered in `main.rs` via `tauri::generate_handler![]`
-
-### MessagePack Decode Errors
-- **Symptom**: Cannot decode response from backend
-- **Fix**: Ensure backend uses `Response::new(msgpack_bytes)` not `Response::json()`
-
-### AI Sidecar Connection Refused
-- **Symptom**: Frontend can't reach sidecar
-- **Fix**: Check sidecar is running via `debug_sidecar_status()` command; verify CORS headers
-
-### Connection Pool Exhaustion
-- **Symptom**: Queries hang after many operations
-- **Fix**: Ensure `disconnect()` is called when closing connections; check pool size in `pool.rs`
-
-### Vault Unlock Prompt Loop
-- **Symptom**: Password prompt keeps appearing
-- **Fix**: Check vault password in keychain; delete via Preferences if corrupted
-
-## Performance Considerations
-
-- **Large Result Sets**: Queries stream in batches (see `stream_query` command)
-- **Parallel Row Conversion**: Result rows are converted to CellValue in parallel using rayon
-- **Connection Pooling**: Each connection profile maintains a pool (default: 10 connections)
-- **Schema Caching**: Table metadata cached in frontend stores; invalidate on DDL changes
-- **Binary Protocol**: PostgreSQL adapter uses binary wire format for ~30% faster queries
-- **Prepared Statement Cache**: LRU cache (moka) stores prepared statements per connection
+1. **MessagePack Serialization**: Used for large data transfers (row batches) to eliminate JSON overhead
+2. **IPC Channel Streaming**: Direct IPC channels for query results (bypasses `window.emit` for sub-100ms latency)
+3. **Service Locator**: `ConnectionManager` and `AIManager` managed globally via Tauri state
+4. **Adapter Pattern**: `DbAdapter` trait for multi-database support
+5. **Event-Driven Invalidation**: Table-level listeners in `dataInvalidationStore` for reactive updates
+6. **Debounced Writes**: Vault storage with 250ms debounce to batch edits
+7. **BroadcastChannel for Multi-Window**: Cross-window coordination without Tauri events
 
 ## Testing Strategy
 
-### Rust Tests
-- Unit tests in `src-tauri/src/` files: `cargo test`
-- Integration tests: `cargo run --example run_tests`
-- Database tests require Docker containers running
+**Frontend Tests:**
+- Vitest + React Testing Library
+- Test files: `src/**/*.{test,spec}.{ts,tsx}`
+- Setup: `src/test-utils/setup.ts`
+- Run: `pnpm test:unit` or `pnpm test:watch`
 
-### Frontend Tests
-- Component tests: `pnpm test` (Vitest configured but minimal coverage)
-- Manual testing via dev mode: `make dev`
+**Rust Tests:**
+- Unit tests: `cargo test --lib --bins` (in `src-tauri/`)
+- Integration tests: `src-tauri/tests/`
+- SSH tunnel tests: `make test-ssh-full` (requires Docker)
 
-### AI Sidecar Tests
-- Manual: Run `make dev-sidecar` and test endpoints with curl
-- Health check: `curl http://localhost:3001/health`
+**Database Testing:**
+- Docker Compose provides PostgreSQL, MySQL, SQLite, SQL Server, Oracle
+- Seed scripts in `seeds/` directory
+- `make setup` starts containers and seeds all databases
 
-## Documentation
+## Dependencies
 
-All major features are documented in `docs/`:
-- `api.spec.md` - Complete Tauri command reference
-- `ai-assistant.spec.md` - AI architecture and provider setup
-- `data-grid-v2.spec.md` - Data grid implementation details
-- `central-table-editing-store.spec.md` - Table editing architecture
-- `erd-panel.spec.md` - ERD visualization
-- `workbench.spec.md` - Panel layout system
+**Frontend:**
+- React 19 + TypeScript
+- Vite (build tool)
+- Tailwind CSS + shadcn/ui (UI components)
+- Zustand (state management)
+- Tauri API (`@tauri-apps/api`)
+- Vercel AI SDK (`@ai-sdk/react`, `ai`)
+- CodeMirror (query editor)
+- XYFlow (ERD diagrams)
+- Glide Data Grid (table display)
 
-See `docs/README.md` for full documentation index.
+**Backend:**
+- Tauri 2
+- tokio-postgres (PostgreSQL adapter)
+- mysql_async (MySQL adapter)
+- keyring (OS keychain integration)
+- dashmap (concurrent connection pool)
+- rmp-serde (MessagePack serialization)
 
-## Environment-Specific Notes
+## Common Workflows
 
-### macOS
-- Uses native keychain for secure storage
-- Build target: `aarch64-apple-darwin` (Apple Silicon) or `x86_64-apple-darwin` (Intel)
-- Global shortcut: `Cmd+Shift+Space`
+### Adding a New Database Command
 
-### Windows
-- Uses Credential Manager for secure storage
-- Build target: `x86_64-pc-windows-msvc`
-- AI sidecar executable has `.exe` extension
+1. Define Rust command in `src-tauri/src/commands.rs` or relevant module
+2. Add `#[tauri::command]` attribute
+3. Register command in `src-tauri/src/lib.rs` `.invoke_handler()`
+4. Call from frontend via `invoke('command_name', { args })`
 
-### Linux
-- Uses Secret Service API (requires libsecret)
-- Build target: `x86_64-unknown-linux-gnu`
+### Adding a New Zustand Store
 
-## Code Style
+1. Create store in `src/stores/` with `create()` from `zustand`
+2. Define state interface and actions
+3. Use `persist()` middleware if persistence needed
+4. Import and use in components via `useStoreName()`
 
-### TypeScript
-- Use functional components with hooks
-- Prefer `const` over `let`
-- Use Tailwind CSS classes (avoid inline styles)
-- Import shadcn/ui components from `@/components/ui`
+### Adding AI Sidecar Routes
 
-### Rust
-- Follow Rust 2021 edition conventions
-- Use `async/await` for all I/O operations
-- Prefer `Result<T>` over panicking
-- Use `tracing::info!` for logging
+1. Add route in `src-tauri/sidecar-ai/index.ts`
+2. Update `src/services/aiService.ts` with HTTP client method
+3. Rebuild sidecar: `make build-ai`
 
-### File Naming
-- React components: PascalCase (e.g., `TableStructure.tsx`)
-- Utilities: camelCase (e.g., `formatDate.ts`)
-- Rust modules: snake_case (e.g., `connection_manager.rs`)
+### Modifying Database Adapters
+
+1. Update trait in `src-tauri/src/adapters/mod.rs` if needed
+2. Implement changes in specific adapter (e.g., `postgres.rs`)
+3. Add tests in `src-tauri/tests/` or inline `#[cfg(test)]` modules
+
+## Path Aliases
+
+Frontend uses path aliases configured in `vite.config.ts`:
+- `@/` → `src/`
+- `@components/` → `src/components/`
+- `@lib/` → `src/lib/`
+- `@hooks/` → `src/hooks/`
+- `@types/` → `src/types/`
+- `@utils/` → `src/utils/`
+
+## Platform-Specific Notes
+
+**macOS:**
+- Code signing required for distribution (see `MACOS_SIGNING_GUIDE.md`)
+- Hardened runtime + entitlements
+- Notarization for Gatekeeper
+
+**Windows:**
+- PowerShell script for SSM plugin download
+- Code signing recommended for SmartScreen
+
+**Linux:**
+- AppImage distribution
+- libssl dependency for keychain
+
+## Important Files
+
+- `tauri.conf.json` - Tauri configuration (window settings, bundle config)
+- `Makefile` - Development and build tasks
+- `package.json` - Frontend dependencies and scripts
+- `Cargo.toml` - Rust dependencies (in `src-tauri/`)
+- `vitest.config.ts` - Frontend test configuration
+- `.env` - Environment variables (not committed)
+- `.env.development` - Development environment variables
+
+## Connection Configuration
+
+Development database credentials (via `make setup`):
+- **PostgreSQL**: `localhost:15432` (user: devuser, pass: devpass123, db: todoapp)
+- **MySQL**: `localhost:13306` (user: devuser, pass: devpass123, db: todoapp)
+- **SQLite**: `seeds/sqlite/todoapp.db`
+- **SQL Server**: `localhost:11434` (user: sa, pass: DevPass123, db: todoapp)
+- **Oracle**: `localhost:11521` (user: todoapp, pass: DevPass123, service: XE)
