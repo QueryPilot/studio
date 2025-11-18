@@ -8,8 +8,10 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle, Zap } from "lucide-react";
 import { databaseService, type TriggerMeta } from "@/services/databaseService";
-import { DataGridBase } from "@/components/DataGridV2/base/DataGridBase";
+import { EditableDataGrid } from "@/components/DataGridV2/base/EditableDataGrid";
+import type { GridEditCommitEvent } from "@/components/DataGridV2/types";
 import { useColumnSizing } from "@/components/DataGridV2/hooks/useColumnSizing";
+import { TextSingleLineCellRenderer } from "@/components/DataGridV2/renderers/TextCell";
 import { triggerColumns } from "./columns";
 import { transformTriggersToRows } from "./utils";
 import type { TriggerGridRow } from "./types";
@@ -127,14 +129,17 @@ export const TableTriggers = memo(function TableTriggers({
         } as const;
       }
 
-      // Event and Function columns (monospace)
+      // Event and Function columns (monospace) - editable for viewing
       if (column.field === "event" || column.field === "function") {
         const value = String(fieldValue ?? "");
         return {
-          kind: GridCellKind.Text,
-          data: value,
-          displayData: value,
-          readonly: true,
+          kind: GridCellKind.Custom,
+          data: {
+            kind: "text-single-cell",
+            value: value || null,
+          },
+          copyData: value,
+          readonly: true, // Read-only but allows overlay to view full content
           allowOverlay: true,
           themeOverride: {
             baseFontStyle: "400 11px monospace",
@@ -142,14 +147,17 @@ export const TableTriggers = memo(function TableTriggers({
         } as const;
       }
 
-      // Condition column (monospace with blue color)
+      // Condition column (monospace with blue color) - editable for viewing
       if (column.field === "condition") {
         const conditionValue = String(fieldValue ?? "");
         return {
-          kind: GridCellKind.Text,
-          data: conditionValue,
-          displayData: conditionValue,
-          readonly: true,
+          kind: GridCellKind.Custom,
+          data: {
+            kind: "text-single-cell",
+            value: conditionValue || null,
+          },
+          copyData: conditionValue,
+          readonly: true, // Read-only but allows overlay to view full content
           allowOverlay: true,
           themeOverride: {
             baseFontStyle: "400 11px monospace",
@@ -171,7 +179,19 @@ export const TableTriggers = memo(function TableTriggers({
     [gridRows, sizedColumns],
   );
 
-  const customRenderers = useMemo<CustomRenderer<AnyCell>[]>(() => [], []);
+  const customRenderers = useMemo<CustomRenderer<AnyCell>[]>(
+    () => [TextSingleLineCellRenderer as unknown as CustomRenderer<AnyCell>],
+    [],
+  );
+
+  // Handle cell edit commit (for read-only overlays, just cancel)
+  const handleCellEditCommit = useCallback(
+    (_event: GridEditCommitEvent) => {
+      // Read-only - don't actually save edits
+      return undefined;
+    },
+    [],
+  );
 
   if (isLoading) {
     return <TableTriggersSkeleton />;
@@ -201,13 +221,12 @@ export const TableTriggers = memo(function TableTriggers({
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1">
-        <DataGridBase
+        <EditableDataGrid
+          rows={gridRows}
           columns={sizedColumns}
-          rowCount={gridRows.length}
           getCellContent={getCellContent}
           customRenderers={customRenderers}
-          rowSelect="none"
-          columnSelect="none"
+          onCellEditCommit={handleCellEditCommit}
           onColumnResize={handleColumnResize}
           onColumnResizeEnd={handleColumnResizeEnd}
         />

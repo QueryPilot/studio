@@ -8,8 +8,10 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle } from "lucide-react";
 import { databaseService, type TableIndex } from "@/services/databaseService";
-import { DataGridBase } from "@/components/DataGridV2/base/DataGridBase";
+import { EditableDataGrid } from "@/components/DataGridV2/base/EditableDataGrid";
+import type { GridEditCommitEvent } from "@/components/DataGridV2/types";
 import { useColumnSizing } from "@/components/DataGridV2/hooks/useColumnSizing";
+import { TextSingleLineCellRenderer } from "@/components/DataGridV2/renderers/TextCell";
 import { indexColumns } from "./columns";
 import { transformIndexesToRows } from "./utils";
 import IndexNameCellRenderer from "./IndexNameCellRenderer";
@@ -139,14 +141,17 @@ export const TableIndexes = memo(function TableIndexes({
         } as const;
       }
 
-      // Columns (monospace font)
+      // Columns (monospace font) - editable for viewing
       if (column.field === "columns") {
         const columnsValue = String(fieldValue ?? "");
         return {
-          kind: GridCellKind.Text,
-          data: columnsValue,
-          displayData: columnsValue,
-          readonly: true,
+          kind: GridCellKind.Custom,
+          data: {
+            kind: "text-single-cell",
+            value: columnsValue || null,
+          },
+          copyData: columnsValue,
+          readonly: true, // Read-only but allows overlay to view full content
           allowOverlay: true,
           themeOverride: {
             baseFontStyle: "400 11px monospace",
@@ -154,14 +159,17 @@ export const TableIndexes = memo(function TableIndexes({
         } as const;
       }
 
-      // Condition/Definition (monospace font with blue color)
+      // Condition/Definition (monospace font with blue color) - editable for viewing
       if (column.field === "condition") {
         const conditionValue = String(fieldValue ?? "");
         return {
-          kind: GridCellKind.Text,
-          data: conditionValue,
-          displayData: conditionValue,
-          readonly: true,
+          kind: GridCellKind.Custom,
+          data: {
+            kind: "text-single-cell",
+            value: conditionValue || null,
+          },
+          copyData: conditionValue,
+          readonly: true, // Read-only but allows overlay to view full content
           allowOverlay: true,
           themeOverride: {
             baseFontStyle: "400 11px monospace",
@@ -186,7 +194,19 @@ export const TableIndexes = memo(function TableIndexes({
   const hasIndexes = useMemo(() => indexes.length > 0, [indexes.length]);
 
   const customRenderers = useMemo<CustomRenderer<AnyCell>[]>(
-    () => [IndexNameCellRenderer as unknown as CustomRenderer<AnyCell>],
+    () => [
+      IndexNameCellRenderer as unknown as CustomRenderer<AnyCell>,
+      TextSingleLineCellRenderer as unknown as CustomRenderer<AnyCell>,
+    ],
+    [],
+  );
+
+  // Handle cell edit commit (for read-only overlays, just cancel)
+  const handleCellEditCommit = useCallback(
+    (_event: GridEditCommitEvent) => {
+      // Read-only - don't actually save edits
+      return undefined;
+    },
     [],
   );
 
@@ -217,13 +237,12 @@ export const TableIndexes = memo(function TableIndexes({
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1">
-        <DataGridBase
+        <EditableDataGrid
+          rows={gridRows}
           columns={sizedColumns}
-          rowCount={gridRows.length}
           getCellContent={getCellContent}
           customRenderers={customRenderers}
-          rowSelect="none"
-          columnSelect="none"
+          onCellEditCommit={handleCellEditCommit}
           onColumnResize={handleColumnResize}
           onColumnResizeEnd={handleColumnResizeEnd}
         />
