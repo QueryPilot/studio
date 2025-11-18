@@ -50,13 +50,17 @@ interface SidebarItemProps {
   icon: ReactNode;
   name: string;
   isActive: boolean;
-  onClick: () => void;
+  onClick: (e: React.MouseEvent) => void;
   rowCount?: number | null;
   actions?: ReactNode;
   className?: string;
   isStarred?: boolean;
   onToggleStar?: (e: React.MouseEvent) => void;
   hasPendingChanges?: boolean;
+  isSelected?: boolean;
+  onMouseDown?: (e: React.MouseEvent) => void;
+  onMouseEnter?: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
 }
 
 export function SidebarItem({
@@ -70,6 +74,10 @@ export function SidebarItem({
   isStarred = false,
   onToggleStar,
   hasPendingChanges = false,
+  isSelected = false,
+  onMouseDown,
+  onMouseEnter,
+  onContextMenu,
 }: SidebarItemProps) {
   return (
     <div
@@ -77,10 +85,15 @@ export function SidebarItem({
         "group flex items-center gap-1.5 p-1 hover:bg-muted/50 cursor-pointer overflow-hidden border-l-2",
         isActive
           ? "bg-primary/10 border-l-primary rounded-r"
+          : isSelected
+          ? "bg-primary/20 border-l-primary/70 rounded-r"
           : "rounded border-l-transparent",
         className,
       )}
       onClick={onClick}
+      onMouseDown={onMouseDown}
+      onMouseEnter={onMouseEnter}
+      onContextMenu={onContextMenu}
     >
       {hasPendingChanges ? (
         <span className="relative flex h-2 w-2 flex-shrink-0 ml-1">

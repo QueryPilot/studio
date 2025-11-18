@@ -8,6 +8,7 @@ interface TextSingleLineCellData {
   // Column metadata for editor header display
   columnName?: string;
   isPrimaryKey?: boolean;
+  isForeignKey?: boolean;
   dbType?: string;
 }
 

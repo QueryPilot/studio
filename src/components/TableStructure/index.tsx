@@ -254,24 +254,41 @@ export const TableStructure = memo(function TableStructure({
         }
       } else {
         // Modify existing column
-        const newDefinition: Record<string, unknown> = {};
+        if (column.field === "column_name") {
+          // Column rename - use rename command
+          const newName = String(extractedValue ?? "");
+          if (newName && newName !== row.column_name) {
+            const renameCmd = createColumnRenameCommand(
+              target,
+              row.column_name,
+              newName,
+            );
+            stageCommand(renameCmd);
+          }
+        } else {
+          // Other field changes - use modify command
+          const newDefinition: Record<string, unknown> = {};
 
-        if (column.field === "nullable") {
-          newDefinition.nullable = extractedValue === "YES";
-        } else if (column.field === "default") {
-          newDefinition.defaultValue = extractedValue;
-        } else if (column.field === "comment") {
-          newDefinition.comment = extractedValue;
-        } else if (column.field === "db_type") {
-          newDefinition.dataType = extractedValue;
+          if (column.field === "nullable") {
+            newDefinition.nullable = extractedValue === "YES";
+            console.log('[TableStructure] Nullable change:', { extractedValue, nullable: newDefinition.nullable });
+          } else if (column.field === "default") {
+            newDefinition.defaultValue = extractedValue;
+          } else if (column.field === "comment") {
+            newDefinition.comment = extractedValue;
+          } else if (column.field === "db_type") {
+            newDefinition.dataType = extractedValue;
+          }
+
+          console.log('[TableStructure] Creating modify command:', { columnName: row.column_name, newDefinition });
+          const modifyCmd = createColumnModifyCommand(
+            target,
+            row.column_name,
+            newDefinition,
+          );
+          console.log('[TableStructure] Modify command created:', modifyCmd);
+          stageCommand(modifyCmd);
         }
-
-        const modifyCmd = createColumnModifyCommand(
-          target,
-          row.column_name,
-          newDefinition,
-        );
-        stageCommand(modifyCmd);
       }
     },
     [
@@ -307,11 +324,21 @@ export const TableStructure = memo(function TableStructure({
       const isPending = row._isPending ?? false;
       const isModified = row._isModified ?? false;
 
-      // Row background - yellow for pending (new), blue for modified
+      // Row background - match TableDataGridV2 colors
       const rowTheme = isPending
-        ? { bgCell: "rgba(251, 191, 36, 0.15)" } // amber/yellow for new
+        ? {
+            bgCell: "rgba(34, 197, 94, 0.06)", // green-500 for new columns
+            bgCellMedium: "rgba(34, 197, 94, 0.08)",
+            accentColor: "rgba(34, 197, 94, 0.4)",
+            accentLight: "rgba(34, 197, 94, 0.15)",
+          }
         : isModified
-          ? { bgCell: "rgba(59, 130, 246, 0.15)" } // blue for modified
+          ? {
+              bgCell: "rgba(252, 163, 17, 0.04)", // brand orange for modified columns
+              bgCellMedium: "rgba(252, 163, 17, 0.06)",
+              accentColor: "#FCA311",
+              accentLight: "rgba(252, 163, 17, 0.12)",
+            }
           : undefined;
 
       // Actions column - Delete button (text-based for now)
@@ -327,38 +354,21 @@ export const TableStructure = memo(function TableStructure({
         } as const;
       }
 
-      // Column name - Use custom cell with editor for editable
+      // Column name - editable for all rows (pending and existing)
       if (column.field === "column_name") {
-        const isEditable = isPending;
-        if (isEditable) {
-          // Editable text cell for pending rows
-          return {
-            kind: GridCellKind.Custom,
-            data: {
-              kind: "text-single-cell",
-              value: row.column_name || null,
-            },
-            copyData: row.column_name,
-            readonly: false,
-            allowOverlay: true,
-            themeOverride: rowTheme,
-          } as const;
-        } else {
-          // Custom renderer with PK/FK indicators for existing
-          return {
-            kind: GridCellKind.Custom,
-            data: {
-              kind: "column-name-cell",
-              name: row.column_name,
-              isPrimaryKey: row.column_meta.is_pk,
-              isForeignKey: row.column_meta.is_fk,
-            },
-            copyData: row.column_name,
-            readonly: true,
-            allowOverlay: false,
-            themeOverride: rowTheme,
-          } as const;
-        }
+        return {
+          kind: GridCellKind.Custom,
+          data: {
+            kind: "text-single-cell",
+            value: row.column_name || null,
+            isPrimaryKey: row.column_meta.is_pk,
+            isForeignKey: row.column_meta.is_fk,
+          },
+          copyData: row.column_name,
+          readonly: false, // Allow editing for all rows
+          allowOverlay: true,
+          themeOverride: rowTheme,
+        } as const;
       }
 
       // Row number (right-aligned, muted)
@@ -415,14 +425,15 @@ export const TableStructure = memo(function TableStructure({
 
       // Default, Comment - editable
       if (column.field === "default" || column.field === "comment") {
-        const value = String(fieldValue ?? "");
+        // Keep null/undefined as-is - don't convert to empty string
+        const value = fieldValue ?? null;
         return {
           kind: GridCellKind.Custom,
           data: {
             kind: "text-single-cell",
-            value: value || null,
+            value: value,
           },
-          copyData: value,
+          copyData: value === null ? "" : String(value),
           readonly: false,
           allowOverlay: true,
           themeOverride: {

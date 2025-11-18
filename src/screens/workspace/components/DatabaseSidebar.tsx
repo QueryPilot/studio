@@ -23,6 +23,7 @@ import {
   SidebarItem,
   ActionButton,
 } from "./DatabaseSidebarItem";
+import { DatabaseSidebarContextMenu } from "./DatabaseSidebarContextMenu";
 import { useSchemaData } from "@/hooks/useSchemaData";
 import { openFunctionObject, openTableObject } from "@/utils/workbench/openers";
 import {
@@ -47,6 +48,15 @@ export function DatabaseSidebar({
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [lastSelectedItem, setLastSelectedItem] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStartItem, setDragStartItem] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    visible: boolean;
+  } | null>(null);
 
   // Use shared schema data hook
   const {
@@ -110,6 +120,7 @@ export function DatabaseSidebar({
       }, 100);
       return () => { clearTimeout(timer); };
     }
+    return undefined;
   }, [selectedDatabase, selectedSchema]);
 
   const toggleNode = (nodeId: string) => {
@@ -120,6 +131,231 @@ export function DatabaseSidebar({
       newExpanded.add(nodeId);
     }
     setExpandedNodes(newExpanded);
+  };
+
+  // Generate unique key for an item
+  const getItemKey = (type: 'table' | 'view' | 'function', name: string, schema: string) => {
+    return `${type}:${schema}.${name}`;
+  };
+
+  // Get all items across all sections in display order
+  const getAllItemsInOrder = () => {
+    const allItems: string[] = [];
+
+    // Add starred items if expanded
+    if (expandedNodes.has('starred')) {
+      starredItems.forEach(item => {
+        allItems.push(getItemKey(item.type, item.name, item.schema));
+      });
+    }
+
+    // Add tables if expanded
+    if (expandedNodes.has('tables')) {
+      filterItems(tables).forEach(table => {
+        allItems.push(getItemKey('table', table.name, table.schema));
+      });
+    }
+
+    // Add views if expanded
+    if (expandedNodes.has('views')) {
+      filterItems(views).forEach(view => {
+        allItems.push(getItemKey('view', view.name, view.schema));
+      });
+    }
+
+    // Add functions if expanded
+    if (expandedNodes.has('functions')) {
+      filterItems(functions).forEach(func => {
+        allItems.push(getItemKey('function', func.name, func.schema));
+      });
+    }
+
+    return allItems;
+  };
+
+  // Handle item selection with modifier keys
+  const handleItemSelection = (
+    itemKey: string,
+    event: React.MouseEvent,
+    onClick: () => void
+  ) => {
+    const isCmdOrCtrl = event.metaKey || event.ctrlKey;
+    const isShift = event.shiftKey;
+
+    if (isCmdOrCtrl) {
+      // Toggle selection
+      const newSelected = new Set(selectedItems);
+      if (newSelected.has(itemKey)) {
+        newSelected.delete(itemKey);
+      } else {
+        newSelected.add(itemKey);
+      }
+      setSelectedItems(newSelected);
+      setLastSelectedItem(itemKey);
+    } else if (isShift && lastSelectedItem) {
+      // Range selection across all visible items
+      const allItems = getAllItemsInOrder();
+      const lastIndex = allItems.indexOf(lastSelectedItem);
+      const currentIndex = allItems.indexOf(itemKey);
+
+      if (lastIndex !== -1 && currentIndex !== -1) {
+        const start = Math.min(lastIndex, currentIndex);
+        const end = Math.max(lastIndex, currentIndex);
+        const rangeItems = allItems.slice(start, end + 1);
+
+        const newSelected = new Set(selectedItems);
+        rangeItems.forEach(item => newSelected.add(item));
+        setSelectedItems(newSelected);
+      }
+    } else {
+      // Normal click - clear selection and open item
+      if (selectedItems.size > 0) {
+        setSelectedItems(new Set());
+      }
+      setLastSelectedItem(itemKey);
+      onClick();
+    }
+  };
+
+  // Handle mouse down for drag selection
+  const handleItemMouseDown = (itemKey: string, event: React.MouseEvent) => {
+    if (event.button !== 0) return; // Only left mouse button
+    if (event.metaKey || event.ctrlKey || event.shiftKey) return; // Skip if modifier keys
+
+    setIsDragging(true);
+    setDragStartItem(itemKey);
+    setSelectedItems(new Set([itemKey]));
+    setLastSelectedItem(itemKey);
+  };
+
+  // Handle mouse enter during drag
+  const handleItemMouseEnter = (itemKey: string) => {
+    if (!isDragging || !dragStartItem) return;
+
+    const allItems = getAllItemsInOrder();
+    const startIndex = allItems.indexOf(dragStartItem);
+    const currentIndex = allItems.indexOf(itemKey);
+
+    if (startIndex !== -1 && currentIndex !== -1) {
+      const start = Math.min(startIndex, currentIndex);
+      const end = Math.max(startIndex, currentIndex);
+      const rangeItems = allItems.slice(start, end + 1);
+
+      setSelectedItems(new Set(rangeItems));
+    }
+  };
+
+  // Handle mouse up to end drag selection
+  useEffect(() => {
+    const handleMouseUp = () => {
+      if (isDragging) {
+        setIsDragging(false);
+        setDragStartItem(null);
+      }
+    };
+
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => window.removeEventListener('mouseup', handleMouseUp);
+  }, [isDragging]);
+
+  // Handle right-click to show context menu
+  const handleContextMenu = (itemKey: string, event: React.MouseEvent) => {
+    event.preventDefault();
+
+    // If the item is not selected, select only this item
+    if (!selectedItems.has(itemKey)) {
+      setSelectedItems(new Set([itemKey]));
+      setLastSelectedItem(itemKey);
+    }
+
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      visible: true,
+    });
+  };
+
+  // Get selected types breakdown
+  const getSelectedTypesBreakdown = () => {
+    const breakdown = { tables: 0, views: 0, functions: 0 };
+    selectedItems.forEach(itemKey => {
+      const [type] = itemKey.split(':');
+      if (type === 'table') breakdown.tables++;
+      else if (type === 'view') breakdown.views++;
+      else if (type === 'function') breakdown.functions++;
+    });
+    return breakdown;
+  };
+
+  // Context menu action handlers
+  const handleExport = () => {
+    console.log('Export selected items:', Array.from(selectedItems));
+    // TODO: Implement export functionality
+  };
+
+  const handleImport = () => {
+    console.log('Import to selected items:', Array.from(selectedItems));
+    // TODO: Implement import functionality
+  };
+
+  const handleCopyName = () => {
+    const names = Array.from(selectedItems).map(itemKey => {
+      const [, rest] = itemKey.split(':');
+      if (!rest) return '';
+      const parts = rest.split('.');
+      return parts[parts.length - 1] || '';
+    }).filter(Boolean);
+    navigator.clipboard.writeText(names.join('\n'));
+  };
+
+  const handleDeleteSelected = () => {
+    console.log('Delete selected items:', Array.from(selectedItems));
+    // TODO: Implement delete functionality with confirmation dialog
+  };
+
+  const handleViewData = () => {
+    // Open data view for all selected tables/views
+    selectedItems.forEach(itemKey => {
+      const [type, rest] = itemKey.split(':');
+      if (!rest || (type !== 'table' && type !== 'view')) return;
+
+      const [schema, name] = rest.split('.');
+      if (!schema || !name) return;
+
+      const item = tables.find(t => t.name === name && t.schema === schema) ||
+                   views.find(v => v.name === name && v.schema === schema);
+      if (item) {
+        handleTableClick(item, 'data');
+      }
+    });
+  };
+
+  const handleViewStructure = () => {
+    // Open structure view for all selected tables/views
+    selectedItems.forEach(itemKey => {
+      const [type, rest] = itemKey.split(':');
+      if (!rest || (type !== 'table' && type !== 'view')) return;
+
+      const [schema, name] = rest.split('.');
+      if (!schema || !name) return;
+
+      const item = tables.find(t => t.name === name && t.schema === schema) ||
+                   views.find(v => v.name === name && v.schema === schema);
+      if (item) {
+        handleTableClick(item, 'structure');
+      }
+    });
+  };
+
+  const handleHideSelected = () => {
+    console.log('Hide selected items:', Array.from(selectedItems));
+    // TODO: Implement hide functionality
+    setSelectedItems(new Set());
+  };
+
+  const handleDuplicate = () => {
+    console.log('Duplicate item:', Array.from(selectedItems)[0]);
+    // TODO: Implement duplicate functionality
   };
 
   const handleTableClick = (
@@ -349,6 +585,7 @@ export function DatabaseSidebar({
           className={cn(
             "pb-2 min-w-0 transition-opacity duration-150",
             isRefreshing && tables.length > 0 && "opacity-50 pointer-events-none",
+            isDragging && "select-none",
           )}
         >
           {/* Starred Section */}
@@ -371,6 +608,8 @@ export function DatabaseSidebar({
                     : tables.find((t) => t.name === item.name);
 
                 if (!itemData) return null;
+
+                const itemKey = getItemKey(item.type, item.name, item.schema);
 
                 const icon =
                   item.type === "function" ? (
@@ -408,7 +647,13 @@ export function DatabaseSidebar({
                     icon={icon}
                     name={item.name}
                     isActive={isActive}
-                    onClick={onClick}
+                    onClick={(e) => {
+                      handleItemSelection(itemKey, e, onClick);
+                    }}
+                    onMouseDown={(e) => handleItemMouseDown(itemKey, e)}
+                    onMouseEnter={() => handleItemMouseEnter(itemKey)}
+                    onContextMenu={(e) => handleContextMenu(itemKey, e)}
+                    isSelected={selectedItems.has(itemKey)}
                     rowCount={
                       "row_estimate" in itemData
                         ? itemData.row_estimate
@@ -474,60 +719,69 @@ export function DatabaseSidebar({
               }}
               stickyClass="sticky top-0 bg-background z-30"
             >
-              {filterItems(tables).map((table) => (
-                <SidebarItem
-                  key={`${table.schema}.${table.name}`}
-                  icon={
-                    <Table className="h-3.5 w-4 min-w-4 text-primary flex-shrink-0" />
-                  }
-                  name={table.name}
-                  isActive={isTableActive(table.name, table.schema)}
-                  onClick={() => {
-                    handleTableClick(table, "data");
-                  }}
-                  rowCount={table.row_estimate}
-                  isStarred={isStarred(
-                    connectionId,
-                    selectedDatabase,
-                    table.schema,
-                    "table",
-                    table.name,
-                  )}
-                  onToggleStar={handleToggleStar(
-                    "table",
-                    table.name,
-                    table.schema,
-                  )}
-                  hasPendingChanges={hasTablePendingChanges(
-                    table.name,
-                    table.schema,
-                  )}
-                  actions={
-                    <>
-                      <ActionButton
-                        icon={
-                          <Bolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
-                        }
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleTableClick(table, "structure");
-                        }}
-                        title="View Structure"
-                      />
-                      <ActionButton
-                        icon={
-                          <BookMarked className="h-3 w-3 text-muted-foreground hover:text-foreground" />
-                        }
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleTableClick(table, "indexes");
-                        }}
-                        title="View Indexes"
-                      />
-                    </>
-                  }
-                />
-              ))}
+              {filterItems(tables).map((table) => {
+                const itemKey = getItemKey('table', table.name, table.schema);
+                return (
+                  <SidebarItem
+                    key={`${table.schema}.${table.name}`}
+                    icon={
+                      <Table className="h-3.5 w-4 min-w-4 text-primary flex-shrink-0" />
+                    }
+                    name={table.name}
+                    isActive={isTableActive(table.name, table.schema)}
+                    onClick={(e) => {
+                      handleItemSelection(itemKey, e, () => {
+                        handleTableClick(table, "data");
+                      });
+                    }}
+                    onMouseDown={(e) => handleItemMouseDown(itemKey, e)}
+                    onMouseEnter={() => handleItemMouseEnter(itemKey)}
+                    onContextMenu={(e) => handleContextMenu(itemKey, e)}
+                    isSelected={selectedItems.has(itemKey)}
+                    rowCount={table.row_estimate}
+                    isStarred={isStarred(
+                      connectionId,
+                      selectedDatabase,
+                      table.schema,
+                      "table",
+                      table.name,
+                    )}
+                    onToggleStar={handleToggleStar(
+                      "table",
+                      table.name,
+                      table.schema,
+                    )}
+                    hasPendingChanges={hasTablePendingChanges(
+                      table.name,
+                      table.schema,
+                    )}
+                    actions={
+                      <>
+                        <ActionButton
+                          icon={
+                            <Bolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTableClick(table, "structure");
+                          }}
+                          title="View Structure"
+                        />
+                        <ActionButton
+                          icon={
+                            <BookMarked className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTableClick(table, "indexes");
+                          }}
+                          title="View Indexes"
+                        />
+                      </>
+                    }
+                  />
+                );
+              })}
             </SidebarSection>
           )}
 
@@ -541,67 +795,76 @@ export function DatabaseSidebar({
                 toggleNode("views");
               }}
             >
-              {filterItems(views).map((view) => (
-                <SidebarItem
-                  key={`${view.schema}.${view.name}`}
-                  icon={
-                    <Eye
-                      className={cn(
-                        "h-4 min-h-4 w-4 min-w-4 flex-shrink-0",
-                        view.kind === "MaterializedView"
-                          ? "text-blue-500"
-                          : "text-green-500",
-                      )}
-                    />
-                  }
-                  name={view.name}
-                  isActive={isTableActive(view.name, view.schema)}
-                  onClick={() => {
-                    handleTableClick(view, "data");
-                  }}
-                  className="border-l-2 border-l-transparent"
-                  isStarred={isStarred(
-                    connectionId,
-                    selectedDatabase,
-                    view.schema,
-                    "view",
-                    view.name,
-                  )}
-                  onToggleStar={handleToggleStar(
-                    "view",
-                    view.name,
-                    view.schema,
-                  )}
-                  hasPendingChanges={hasTablePendingChanges(
-                    view.name,
-                    view.schema,
-                  )}
-                  actions={
-                    <>
-                      <ActionButton
-                        icon={
-                          <Bolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
-                        }
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleTableClick(view, "structure");
-                        }}
-                        title="View Structure"
+              {filterItems(views).map((view) => {
+                const itemKey = getItemKey('view', view.name, view.schema);
+                return (
+                  <SidebarItem
+                    key={`${view.schema}.${view.name}`}
+                    icon={
+                      <Eye
+                        className={cn(
+                          "h-4 min-h-4 w-4 min-w-4 flex-shrink-0",
+                          view.kind === "MaterializedView"
+                            ? "text-blue-500"
+                            : "text-green-500",
+                        )}
                       />
-                      <ActionButton
-                        icon={
-                          <BookMarked className="h-3 w-3 text-muted-foreground hover:text-foreground" />
-                        }
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleTableClick(view, "indexes");
-                        }}
-                        title="View Indexes"
-                      />
-                    </>
-                  }
-                />
-              ))}
+                    }
+                    name={view.name}
+                    isActive={isTableActive(view.name, view.schema)}
+                    onClick={(e) => {
+                      handleItemSelection(itemKey, e, () => {
+                        handleTableClick(view, "data");
+                      });
+                    }}
+                    onMouseDown={(e) => handleItemMouseDown(itemKey, e)}
+                    onMouseEnter={() => handleItemMouseEnter(itemKey)}
+                    onContextMenu={(e) => handleContextMenu(itemKey, e)}
+                    isSelected={selectedItems.has(itemKey)}
+                    className="border-l-2 border-l-transparent"
+                    isStarred={isStarred(
+                      connectionId,
+                      selectedDatabase,
+                      view.schema,
+                      "view",
+                      view.name,
+                    )}
+                    onToggleStar={handleToggleStar(
+                      "view",
+                      view.name,
+                      view.schema,
+                    )}
+                    hasPendingChanges={hasTablePendingChanges(
+                      view.name,
+                      view.schema,
+                    )}
+                    actions={
+                      <>
+                        <ActionButton
+                          icon={
+                            <Bolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTableClick(view, "structure");
+                          }}
+                          title="View Structure"
+                        />
+                        <ActionButton
+                          icon={
+                            <BookMarked className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTableClick(view, "indexes");
+                          }}
+                          title="View Indexes"
+                        />
+                      </>
+                    }
+                  />
+                );
+              })}
             </SidebarSection>
           )}
 
@@ -616,31 +879,40 @@ export function DatabaseSidebar({
               }}
               stickyClass="sticky top-0 bg-background z-10"
             >
-              {filterItems(functions).map((func) => (
-                <SidebarItem
-                  key={`${func.schema}.${func.name}`}
-                  icon={
-                    <FunctionSquare className="h-3.5 w-4 min-w-4 text-purple-500 flex-shrink-0" />
-                  }
-                  name={func.name}
-                  isActive={isFunctionActive(func.name, func.schema)}
-                  onClick={() => {
-                    handleFunctionClick(func);
-                  }}
-                  isStarred={isStarred(
-                    connectionId,
-                    selectedDatabase,
-                    func.schema,
-                    "function",
-                    func.name,
-                  )}
-                  onToggleStar={handleToggleStar(
-                    "function",
-                    func.name,
-                    func.schema,
-                  )}
-                />
-              ))}
+              {filterItems(functions).map((func) => {
+                const itemKey = getItemKey('function', func.name, func.schema);
+                return (
+                  <SidebarItem
+                    key={`${func.schema}.${func.name}`}
+                    icon={
+                      <FunctionSquare className="h-3.5 w-4 min-w-4 text-purple-500 flex-shrink-0" />
+                    }
+                    name={func.name}
+                    isActive={isFunctionActive(func.name, func.schema)}
+                    onClick={(e) => {
+                      handleItemSelection(itemKey, e, () => {
+                        handleFunctionClick(func);
+                      });
+                    }}
+                    onMouseDown={(e) => handleItemMouseDown(itemKey, e)}
+                    onMouseEnter={() => handleItemMouseEnter(itemKey)}
+                    onContextMenu={(e) => handleContextMenu(itemKey, e)}
+                    isSelected={selectedItems.has(itemKey)}
+                    isStarred={isStarred(
+                      connectionId,
+                      selectedDatabase,
+                      func.schema,
+                      "function",
+                      func.name,
+                    )}
+                    onToggleStar={handleToggleStar(
+                      "function",
+                      func.name,
+                      func.schema,
+                    )}
+                  />
+                );
+              })}
             </SidebarSection>
           )}
 
@@ -657,6 +929,25 @@ export function DatabaseSidebar({
             )}
         </div>
       </div>
+
+      {/* Context Menu */}
+      {contextMenu?.visible && selectedItems.size > 0 && (
+        <DatabaseSidebarContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          selectedCount={selectedItems.size}
+          selectedTypes={getSelectedTypesBreakdown()}
+          onClose={() => setContextMenu(null)}
+          onExport={handleExport}
+          onImport={handleImport}
+          onCopyName={handleCopyName}
+          onDelete={handleDeleteSelected}
+          onViewData={handleViewData}
+          onViewStructure={handleViewStructure}
+          onHide={handleHideSelected}
+          onDuplicate={handleDuplicate}
+        />
+      )}
     </div>
   );
 }

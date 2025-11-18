@@ -37,7 +37,7 @@ export function transformStructureToRows(
 
     let dbType = column.db_type ?? "";
     let nullable = column.nullable ? "YES" : "NO";
-    let defaultValue = column.default ?? "";
+    let defaultValue = column.default; // Keep null/undefined as-is
     let comment = column.comment ?? "";
 
     // Apply pending modifications
@@ -50,7 +50,7 @@ export function transformStructureToRows(
         nullable = newDef.nullable ? "YES" : "NO";
       }
       if (newDef.defaultValue !== undefined) {
-        defaultValue = String(newDef.defaultValue ?? "");
+        defaultValue = newDef.defaultValue; // Keep null as-is
       }
       if (newDef.comment !== undefined) {
         comment = String(newDef.comment ?? "");
@@ -89,7 +89,7 @@ export function transformStructureToRows(
       },
       db_type: col.dataType || "text",
       nullable: col.nullable ? "YES" : "NO",
-      default: String(col.defaultValue ?? ""),
+      default: col.defaultValue, // Keep null/undefined as-is
       foreign_key: "",
       check_constraint: col.checkExpression ?? "",
       comment: col.comment ?? "",
