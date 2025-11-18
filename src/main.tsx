@@ -39,6 +39,21 @@ if (process.env.NODE_ENV === "development") {
   });
 }
 
+// Disable native context menu in production
+if (process.env.NODE_ENV === "production") {
+  window.addEventListener("contextmenu", (e) => {
+    // Block native menu on context menu content itself to prevent double menus
+    const target = e.target as HTMLElement;
+    const isOnContextMenu = target.closest('[data-slot="context-menu-content"]') ||
+                           target.closest('[data-radix-context-menu-content]');
+
+    if (isOnContextMenu) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  });
+}
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <StrictMode>
     <ErrorBoundary>

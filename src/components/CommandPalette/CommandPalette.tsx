@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo } from "react";
 import { Eye, FunctionSquare, Loader2, Table } from "lucide-react";
 import Fuse, { type IFuseOptions } from "fuse.js";
 import { useQueryClient } from "@tanstack/react-query";
@@ -10,8 +10,8 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-  CommandShortcut,
 } from "@/components/ui/command";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
 import { contextService } from "@/services/contextService";
@@ -63,6 +63,7 @@ const QUICK_OPEN_FUSE_OPTIONS: IFuseOptions<QuickOpenItem> = {
 export function CommandPalette(): React.ReactElement {
   const queryClient = useQueryClient();
   const services = useKeyboardServicesOptional();
+  const listRef = React.useRef<HTMLDivElement>(null);
 
   const isOpen = useCommandPaletteStore((state) => state.isOpen);
   const mode = useCommandPaletteStore((state) => state.mode);
@@ -232,6 +233,11 @@ export function CommandPalette(): React.ReactElement {
     return groupCommands(filteredCommands);
   }, [filteredCommands, isLoadingCommands]);
 
+  // Scroll to top when results change
+  React.useEffect(() => {
+    listRef.current?.scrollTo({ top: 0 });
+  }, [commandGroups, quickGroups]);
+
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
       if (!nextOpen) {
@@ -357,7 +363,7 @@ export function CommandPalette(): React.ReactElement {
         value={query}
         onValueChange={handleValueChange}
       />
-      <CommandList>
+      <CommandList ref={listRef}>
         <CommandEmpty>
           {mode === "command" ? commandEmptyMessage : quickEmptyMessage}
         </CommandEmpty>
@@ -386,9 +392,11 @@ export function CommandPalette(): React.ReactElement {
                       ) : null}
                     </div>
                     {command.keybinding ? (
-                      <CommandShortcut>
-                        {command.keybinding.resolvedLabel}
-                      </CommandShortcut>
+                      <KbdGroup className="ml-auto">
+                        {command.keybinding.resolvedLabel.split('+').map((key, index) => (
+                          <Kbd key={index}>{key.trim()}</Kbd>
+                        ))}
+                      </KbdGroup>
                     ) : null}
                   </CommandItem>
                 ))}

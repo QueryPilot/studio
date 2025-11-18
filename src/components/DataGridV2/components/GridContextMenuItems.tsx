@@ -5,8 +5,8 @@ import {
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
-  ContextMenuShortcut,
 } from "@/components/ui/context-menu";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import {
   Copy,
   Download,
@@ -78,24 +78,37 @@ export function GridContextMenuItems({
 }: GridContextMenuItemsProps) {
   const hasSelection = selectedRows.length > 0;
 
-  const formatShortcut = useCallback((binding: string): string => {
+  const renderShortcut = useCallback((binding: string) => {
     const chords = normalizeKeybindingLabel(binding);
     if (chords.length === 0) {
-      return "";
+      return null;
     }
-    return chords.join(" ");
+    return (
+      <KbdGroup className="ml-auto">
+        {chords.flatMap((chord, chordIndex) => {
+          const parts = chord.split("+");
+          const kbds = parts.map((part, partIndex) => (
+            <Kbd key={`${chordIndex}-${partIndex}`}>{part}</Kbd>
+          ));
+          if (chordIndex < chords.length - 1) {
+            return [...kbds, <span key={`then-${chordIndex}`} className="text-muted-foreground text-xs mx-1">then</span>];
+          }
+          return kbds;
+        })}
+      </KbdGroup>
+    );
   }, []);
 
   const shortcuts = useMemo(
     () => ({
-      copy: formatShortcut("cmd+c"),
-      copyJson: formatShortcut("cmd+shift+c"),
-      paste: formatShortcut("cmd+v"),
-      insertAbove: formatShortcut("cmd+shift+enter"),
-      insertBelow: formatShortcut("cmd+enter"),
-      deleteRows: formatShortcut("cmd+backspace"),
+      copy: renderShortcut("cmd+c"),
+      copyJson: renderShortcut("cmd+shift+c"),
+      paste: renderShortcut("cmd+v"),
+      insertAbove: renderShortcut("cmd+shift+enter"),
+      insertBelow: renderShortcut("cmd+enter"),
+      deleteRows: renderShortcut("cmd+backspace"),
     }),
-    [formatShortcut],
+    [renderShortcut],
   );
 
   // Copy handlers
@@ -290,18 +303,14 @@ export function GridContextMenuItems({
             className="text-xs py-1 px-2 outline-none"
           >
             <span className="flex-1">Copy cells</span>
-            {shortcuts.copy ? (
-              <ContextMenuShortcut>{shortcuts.copy}</ContextMenuShortcut>
-            ) : null}
+            {shortcuts.copy}
           </ContextMenuItem>
           <ContextMenuItem
             onClick={handleCopyJSON}
             className="text-xs py-1 px-2 outline-none"
           >
             <span className="flex-1">Copy cells as JSON</span>
-            {shortcuts.copyJson ? (
-              <ContextMenuShortcut>{shortcuts.copyJson}</ContextMenuShortcut>
-            ) : null}
+            {shortcuts.copyJson}
           </ContextMenuItem>
           <ContextMenuItem
             onClick={handleCopyCSV}
@@ -377,9 +386,7 @@ export function GridContextMenuItems({
           >
             <ClipboardPaste className="mr-1.5 h-3 w-3 text-foreground" />
             <span className="flex-1">Paste</span>
-            {shortcuts.paste ? (
-              <ContextMenuShortcut>{shortcuts.paste}</ContextMenuShortcut>
-            ) : null}
+            {shortcuts.paste}
           </ContextMenuItem>
         </>
       )}
@@ -391,9 +398,7 @@ export function GridContextMenuItems({
         >
           <Plus className="mr-1.5 h-3 w-3 text-foreground" />
           <span className="flex-1">Add Row</span>
-          {shortcuts.insertBelow ? (
-            <ContextMenuShortcut>{shortcuts.insertBelow}</ContextMenuShortcut>
-          ) : null}
+          {shortcuts.insertBelow}
         </ContextMenuItem>
       )}
 
@@ -445,9 +450,7 @@ export function GridContextMenuItems({
       >
         <Trash2 className="mr-1.5 h-3 w-3 text-destructive" />
         <span className="flex-1">Delete</span>
-        {shortcuts.deleteRows ? (
-          <ContextMenuShortcut>{shortcuts.deleteRows}</ContextMenuShortcut>
-        ) : null}
+        {shortcuts.deleteRows}
       </ContextMenuItem>
     </>
   );

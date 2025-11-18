@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { CommandShortcut } from "@/components/ui/command";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { useKeyboardServices } from "@/components/KeyboardProvider";
@@ -171,9 +171,15 @@ export function KeyboardShortcutsHelp(): React.JSX.Element {
                             </span>
                           ) : null}
                         </div>
-                        <CommandShortcut className="text-xs font-medium">
-                          {row.keybinding?.resolvedLabel ?? "Unassigned"}
-                        </CommandShortcut>
+                        {row.keybinding?.resolvedLabel ? (
+                          <KbdGroup>
+                            {row.keybinding.resolvedLabel.split('+').map((key, index) => (
+                              <Kbd key={index}>{key.trim()}</Kbd>
+                            ))}
+                          </KbdGroup>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Unassigned</span>
+                        )}
                       </div>
                     ))}
                   </div>
