@@ -4,6 +4,7 @@ import { PreferencesSidebar } from "./PreferencesSidebar";
 import GeneralPanel from "./panels/GeneralPanel";
 import EditorPanel from "./panels/EditorPanel";
 import AIPanel from "./panels/AIPanel";
+import TelemetryPanel from "./panels/TelemetryPanel";
 import { GlobalShortcutsPanel } from "./panels/GlobalShortcutsPanel";
 import { Suspense, lazy } from "react";
 import { Loader2 } from "lucide-react";
@@ -53,6 +54,8 @@ export function PreferencesDialog({
         );
       case "globalShortcuts":
         return <GlobalShortcutsPanel />;
+      case "telemetry":
+        return <TelemetryPanel />;
       default:
         return <GeneralPanel />;
     }

@@ -3,21 +3,11 @@
     windows_subsystem = "windows"
 )]
 
-mod adapters;
-mod ai;
-mod aws;
-mod commands;
-mod core;
-mod crud;
-mod error;
 mod http_server;
-mod keychain;
-mod ssh;
-mod state;
-mod storage;
-mod types;
-mod vault;
 // NOTE: window_state module removed - tracking now uses BroadcastChannel API on frontend
+
+// Use library modules
+use query_pilot::*;
 
 use ai::manager::AIManager;
 use ssh::rate_limiter::RateLimiter;
@@ -33,6 +23,12 @@ fn main() {
                 .add_directive(tracing::Level::INFO.into()),
         )
         .init();
+
+    // Initialize Sentry (opt-in via user preferences)
+    // Note: Sentry is initialized with enabled=false by default
+    // User must opt-in via Preferences UI, which calls configure_telemetry command
+    // The frontend will call configure_telemetry on startup to set the actual preference
+    let _sentry_guard = sentry_integration::initialize_sentry(false, env!("CARGO_PKG_VERSION"));
 
     // Create connection manager
     let manager = Arc::new(core::manager::ConnectionManager::new());
@@ -131,6 +127,7 @@ fn main() {
             ai::commands::get_ai_sidecar_url,
             ai::commands::reload_ai_api_keys,
             ai::commands::get_sidecar_status,
+            ai::commands::configure_telemetry,
             ai::secure_storage::get_ai_api_key,
             ai::secure_storage::set_ai_api_key,
             ai::secure_storage::delete_ai_api_key,

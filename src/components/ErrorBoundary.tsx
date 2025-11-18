@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 import { AlertCircle, RefreshCw, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { captureException } from "@/utils/sentry";
 
 interface Props {
   children: ReactNode;
@@ -34,6 +35,12 @@ export class ErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("[ErrorBoundary] Uncaught error:", error, errorInfo);
+
+    // Send error to Sentry if enabled
+    captureException(error, {
+      operation: "react-error-boundary",
+      componentStack: errorInfo.componentStack,
+    });
 
     this.setState({
       error,
@@ -90,25 +97,54 @@ export class ErrorBoundary extends Component<Props, State> {
 
                 {this.state.error && (
                   <div className="bg-destructive/10 border border-destructive/20 rounded-xl p-4 select-text">
-                    <p className="text-xs font-semibold text-destructive mb-2">
-                      Error Details:
-                    </p>
-                    <div className="max-h-32 overflow-y-auto overflow-x-hidden">
-                      <pre className="text-xs text-destructive/90 font-mono whitespace-pre-wrap break-words">
-                        {this.state.error.message}
-                      </pre>
-                    </div>
-                    {process.env.NODE_ENV === "development" &&
-                      this.state.errorInfo && (
-                        <details className="mt-3">
-                          <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
-                            Stack trace (development only)
-                          </summary>
-                          <pre className="text-xs text-muted-foreground font-mono mt-2 overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap break-words">
-                            {this.state.errorInfo.componentStack}
+                    {process.env.NODE_ENV === "production" ? (
+                      // Production: Show minimal user-friendly message
+                      <>
+                        <p className="text-xs font-semibold text-destructive mb-2">
+                          Error:
+                        </p>
+                        <p className="text-xs text-destructive/90">
+                          The application encountered an unexpected error. Please try
+                          reloading the app.
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-3">
+                          If error tracking is enabled in Preferences, this error has been
+                          automatically reported to help us fix the issue.
+                        </p>
+                      </>
+                    ) : (
+                      // Development: Show detailed error information
+                      <>
+                        <p className="text-xs font-semibold text-destructive mb-2">
+                          Error Details:
+                        </p>
+                        <div className="max-h-32 overflow-y-auto overflow-x-hidden">
+                          <pre className="text-xs text-destructive/90 font-mono whitespace-pre-wrap break-words">
+                            {this.state.error.message}
                           </pre>
-                        </details>
-                      )}
+                        </div>
+                        {this.state.error.stack && (
+                          <details className="mt-3">
+                            <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+                              Error stack trace
+                            </summary>
+                            <pre className="text-xs text-muted-foreground font-mono mt-2 overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap break-words">
+                              {this.state.error.stack}
+                            </pre>
+                          </details>
+                        )}
+                        {this.state.errorInfo && (
+                          <details className="mt-3">
+                            <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+                              Component stack trace
+                            </summary>
+                            <pre className="text-xs text-muted-foreground font-mono mt-2 overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap break-words">
+                              {this.state.errorInfo.componentStack}
+                            </pre>
+                          </details>
+                        )}
+                      </>
+                    )}
                   </div>
                 )}
 
@@ -117,27 +153,31 @@ export class ErrorBoundary extends Component<Props, State> {
                     <RefreshCw className="h-4 w-4 mr-2" />
                     Reload App
                   </Button>
-                  <Button onClick={this.handleCopyError} variant="outline">
-                    {this.state.copied ? (
-                      <Check className="h-4 w-4 mr-2" />
-                    ) : (
-                      <Copy className="h-4 w-4 mr-2" />
-                    )}
-                    {this.state.copied ? "Copied!" : "Copy Error"}
-                  </Button>
+                  {process.env.NODE_ENV === "development" && (
+                    <Button onClick={this.handleCopyError} variant="outline">
+                      {this.state.copied ? (
+                        <Check className="h-4 w-4 mr-2" />
+                      ) : (
+                        <Copy className="h-4 w-4 mr-2" />
+                      )}
+                      {this.state.copied ? "Copied!" : "Copy Error"}
+                    </Button>
+                  )}
                 </div>
 
-                <p className="text-xs text-muted-foreground pt-2">
-                  If this problem persists, please report it at{" "}
-                  <a
-                    href="https://github.com/query-pilot/query-pilot-releases/issues"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline"
-                  >
-                    GitHub Issues
-                  </a>
-                </p>
+                {process.env.NODE_ENV === "production" && (
+                  <p className="text-xs text-muted-foreground pt-2">
+                    If this problem persists, please report it at{" "}
+                    <a
+                      href="https://github.com/QueryPilot/app/issues"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline"
+                    >
+                      GitHub Issues
+                    </a>
+                  </p>
+                )}
               </div>
             </div>
           </div>

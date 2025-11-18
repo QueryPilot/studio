@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath, URL } from "node:url";
 import { createRequire } from "node:module";
+import { sentryVitePlugin } from "@sentry/vite-plugin";
 
 const host = process.env.TAURI_DEV_HOST;
 
@@ -21,8 +22,30 @@ const antlr4BrowserEntry = (() => {
 })();
 
 // https://vite.dev/config/
-export default defineConfig(() => ({
-  plugins: [react()],
+export default defineConfig(({ mode }) => ({
+  plugins: [
+    react(),
+    // Only upload source maps in production builds when SENTRY_AUTH_TOKEN is set
+    ...(mode === "production" && process.env.SENTRY_AUTH_TOKEN
+      ? [
+          sentryVitePlugin({
+            org: process.env.SENTRY_ORG || "query-pilot",
+            project: process.env.SENTRY_PROJECT_FRONTEND || "query-pilot-frontend",
+            authToken: process.env.SENTRY_AUTH_TOKEN,
+            telemetry: false, // Disable Sentry CLI telemetry
+            sourcemaps: {
+              assets: ["./dist/**"],
+              filesToDeleteAfterUpload: ["./dist/**/*.map"], // Clean up source maps after upload
+            },
+          }),
+        ]
+      : []),
+  ],
+
+  build: {
+    // Generate source maps for production (uploaded to Sentry, then deleted)
+    sourcemap: mode === "production",
+  },
 
   resolve: {
     conditions: ["import", "default"],

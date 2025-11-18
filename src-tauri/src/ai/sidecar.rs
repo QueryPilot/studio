@@ -101,31 +101,51 @@ impl SidecarManager {
             .map(|port| format!("http://localhost:{}", port))
     }
 
-    /// Configure API keys for the sidecar
+    /// Configure API keys and telemetry for the sidecar
     pub async fn configure_api_keys(
         &self,
         keys: std::collections::HashMap<String, String>,
+        sentry_enabled: bool,
+        sentry_dsn: Option<String>,
     ) -> Result<()> {
         let url = self
             .get_url()
             .await
             .ok_or_else(|| anyhow!("Sidecar not running"))?;
 
+        // Build config payload with API keys + Sentry config
+        let mut config = serde_json::Map::new();
+
+        // Add API keys
+        for (key, value) in keys {
+            config.insert(key, serde_json::Value::String(value));
+        }
+
+        // Add Sentry configuration
+        config.insert(
+            "sentryEnabled".to_string(),
+            serde_json::Value::Bool(sentry_enabled),
+        );
+
+        if let Some(dsn) = sentry_dsn {
+            config.insert("sentryDsn".to_string(), serde_json::Value::String(dsn));
+        }
+
         let client = reqwest::Client::new();
         let response = client
             .post(format!("{}/config", url))
-            .json(&keys)
+            .json(&config)
             .send()
             .await?;
 
         if !response.status().is_success() {
             return Err(anyhow!(
-                "Failed to configure API keys: {}",
+                "Failed to configure sidecar: {}",
                 response.status()
             ));
         }
 
-        tracing::info!("✅ API keys configured for sidecar");
+        tracing::info!("✅ Sidecar configured (API keys + Sentry: {})", sentry_enabled);
         Ok(())
     }
 

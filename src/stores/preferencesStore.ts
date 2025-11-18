@@ -6,11 +6,22 @@ export type PreferenceCategory =
   | "editor"
   | "ai"
   | "shortcuts"
-  | "globalShortcuts";
+  | "globalShortcuts"
+  | "telemetry";
+
+export interface TelemetryPreferences {
+  sentryEnabled: boolean; // Enable crash reporting to Sentry
+  performanceMonitoring: boolean; // Track performance metrics
+  sessionReplay: boolean; // Record session replays on errors (privacy-sensitive)
+}
 
 interface PreferencesState {
   smartQueryLimit: number | null; // null = no auto-limit, number = apply limit
   setSmartQueryLimit: (limit: number | null) => void;
+
+  // Telemetry preferences
+  telemetry: TelemetryPreferences;
+  setTelemetry: (telemetry: Partial<TelemetryPreferences>) => void;
 
   // Preferences dialog state
   isOpen: boolean;
@@ -30,6 +41,18 @@ export const usePreferencesStore = create<PreferencesState>()(
       smartQueryLimit: 10000, // Default: 10000 rows
       setSmartQueryLimit: (limit) => {
         set({ smartQueryLimit: limit });
+      },
+
+      // Telemetry defaults (all disabled by default for privacy)
+      telemetry: {
+        sentryEnabled: false,
+        performanceMonitoring: false,
+        sessionReplay: false,
+      },
+      setTelemetry: (telemetry) => {
+        set((state) => ({
+          telemetry: { ...state.telemetry, ...telemetry },
+        }));
       },
 
       // Dialog state (not persisted)
@@ -55,6 +78,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       name: "query-pilot-preferences",
       partialize: (state) => ({
         smartQueryLimit: state.smartQueryLimit,
+        telemetry: state.telemetry,
       }),
     },
   ),

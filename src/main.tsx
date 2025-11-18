@@ -14,11 +14,17 @@ import customParseFormat from "dayjs/plugin/customParseFormat";
 import { KeyboardProvider } from "./components/KeyboardProvider";
 import { CommandPalette } from "./components/CommandPalette/CommandPalette";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { initializeSentry } from "./utils/sentry";
+import { usePreferencesStore } from "./stores/preferencesStore";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
 dayjs.extend(customParseFormat);
 enableMapSet();
+
+// Initialize Sentry for error tracking (only in production, opt-in via preferences)
+const telemetryPrefs = usePreferencesStore.getState().telemetry;
+initializeSentry(telemetryPrefs, "0.4.0");
 
 // Suppress external script errors in development
 if (process.env.NODE_ENV === "development") {
