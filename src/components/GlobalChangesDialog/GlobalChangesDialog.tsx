@@ -475,16 +475,37 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
 
         // Show payload details
         const payload = cmd.payload as any;
+        console.log('[GlobalChangesDialog] DDL command:', { type: cmd.type, payload });
         if (payload.column) {
+          // column.add - show full column definition
           ddlLines.push(`  Column: ${JSON.stringify(payload.column, null, 2)}`);
         } else if (payload.definition) {
+          // index/trigger - show definition
           ddlLines.push(`  Definition: ${JSON.stringify(payload.definition, null, 2)}`);
+        } else if (payload.columnName && payload.newDefinition) {
+          // column.modify - show what changed
+          const name = payload.columnName;
+          ddlLines.push(`  Column: ${name}`);
+          const newDef = payload.newDefinition;
+          if (newDef.dataType !== undefined) {
+            ddlLines.push(`  Type: ${newDef.dataType}`);
+          }
+          if (newDef.nullable !== undefined) {
+            ddlLines.push(`  Nullable: ${newDef.nullable ? 'YES' : 'NO'}`);
+          }
+          if (newDef.defaultValue !== undefined) {
+            ddlLines.push(`  Default: ${newDef.defaultValue ?? 'NULL'}`);
+          }
+          if (newDef.comment !== undefined) {
+            ddlLines.push(`  Comment: ${newDef.comment}`);
+          }
+        } else if (payload.newName && payload.columnName) {
+          // column.rename - show old → new
+          ddlLines.push(`  ${payload.columnName} → ${payload.newName}`);
         } else if (payload.columnName || payload.indexName || payload.triggerName) {
+          // Other DDL operations (drop, etc.)
           const name = payload.columnName || payload.indexName || payload.triggerName;
           ddlLines.push(`  Name: ${name}`);
-          if (payload.newName) {
-            ddlLines.push(`  New Name: ${payload.newName}`);
-          }
         }
       });
 

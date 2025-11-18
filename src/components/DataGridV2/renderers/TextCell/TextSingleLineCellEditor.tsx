@@ -1,7 +1,7 @@
 import React, { useRef, useCallback } from "react";
 import type { TextSingleLineCustomCell } from "./types";
 import { Button } from "@/components/ui/button";
-import { Trash2, Key } from "lucide-react";
+import { Trash2, Key, Link2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
@@ -23,7 +23,7 @@ export const TextSingleLineCellEditor: React.FC<
   const originalValueRef = useRef(value.data.value);
 
   // Extract column metadata for header
-  const { columnName, isPrimaryKey, dbType } = value.data;
+  const { columnName, isPrimaryKey, isForeignKey, dbType } = value.data;
 
   const commit = useCallback(
     (nextValue: string | null) => {
@@ -127,6 +127,9 @@ export const TextSingleLineCellEditor: React.FC<
       <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
         {isPrimaryKey && (
           <Key className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
+        )}
+        {isForeignKey && (
+          <Link2 className="h-3 w-3 text-blue-600 dark:text-blue-400" />
         )}
         <span className="text-[10px] font-medium text-foreground/80">
           {columnName}

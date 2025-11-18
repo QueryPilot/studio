@@ -52,22 +52,41 @@ export function createColumnModifyCommand(
   newDefinition: Partial<ColumnDefinitionInput>,
   description?: string,
 ): CrudCommand<ColumnModifyPayload> {
+  // Build clean definition - only include fields that are actually provided
+  const cleanDefinition: Partial<ColumnDefinitionInput> = {};
+
+  if (newDefinition.name !== undefined) {
+    cleanDefinition.name = newDefinition.name;
+  }
+  if (newDefinition.dataType !== undefined) {
+    cleanDefinition.dataType = newDefinition.dataType;
+  }
+  if (newDefinition.nullable !== undefined) {
+    cleanDefinition.nullable = newDefinition.nullable;
+  }
+  if (newDefinition.defaultValue !== undefined) {
+    cleanDefinition.defaultValue = newDefinition.defaultValue;
+  }
+  if (newDefinition.comment !== undefined) {
+    cleanDefinition.comment = newDefinition.comment;
+  }
+  if (newDefinition.length !== undefined) {
+    cleanDefinition.length = newDefinition.length;
+  }
+  if (newDefinition.precision !== undefined) {
+    cleanDefinition.precision = newDefinition.precision;
+  }
+  if (newDefinition.scale !== undefined) {
+    cleanDefinition.scale = newDefinition.scale;
+  }
+
   return {
     id: generateCommandId(),
     type: "column.modify",
     target,
     payload: {
       columnName,
-      newDefinition: {
-        name: newDefinition.name || columnName,
-        dataType: newDefinition.dataType || "text",
-        nullable: newDefinition.nullable ?? true,
-        defaultValue: newDefinition.defaultValue,
-        comment: newDefinition.comment,
-        length: newDefinition.length,
-        precision: newDefinition.precision,
-        scale: newDefinition.scale,
-      },
+      newDefinition: cleanDefinition,
     },
     metadata: {
       timestamp: new Date().toISOString(),
