@@ -72,8 +72,51 @@ function App() {
           try {
             await vaultStorage.initialize();
             await vaultStorage.preloadAll();
+
+            // Check if keychain access failed
+            if (!vaultStorage.isKeychainAccessible()) {
+              toast.error("Keychain Access Required", {
+                description: "Click 'Request Access' to trigger keychain prompt, or grant access in System Settings.",
+                duration: Infinity,
+                action: {
+                  label: "Request Access",
+                  onClick: async () => {
+                    const toastId = toast.loading("Requesting keychain access...");
+                    const success = await vaultStorage.retryKeychainAccess();
+                    toast.dismiss(toastId);
+                    if (success) {
+                      toast.success("Keychain access granted");
+                      window.location.reload();
+                    } else {
+                      toast.error("Access denied. Check System Settings > Privacy & Security > QueryPilot.");
+                    }
+                  },
+                },
+              });
+            }
           } catch (error) {
-            console.error("Preload failed", error);
+            console.error("Vault initialization failed", error);
+            // Show error toast when keychain access throws
+            if (error instanceof Error && error.message.includes("Keychain access required")) {
+              toast.error("Keychain Access Required", {
+                description: "Click 'Request Access' to trigger keychain prompt, or grant access in System Settings.",
+                duration: Infinity,
+                action: {
+                  label: "Request Access",
+                  onClick: async () => {
+                    const toastId = toast.loading("Requesting keychain access...");
+                    const success = await vaultStorage.retryKeychainAccess();
+                    toast.dismiss(toastId);
+                    if (success) {
+                      toast.success("Keychain access granted");
+                      window.location.reload();
+                    } else {
+                      toast.error("Access denied. Check System Settings > Privacy & Security > QueryPilot.");
+                    }
+                  },
+                },
+              });
+            }
           } finally {
             // Mark vault as ready to show main UI
             setVaultReady(true);
