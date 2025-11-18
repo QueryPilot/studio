@@ -200,7 +200,7 @@ fn macos_traffic_light_position() -> Option<tauri::utils::config::LogicalPositio
     let major_version = extract_leading_number(&version_string)?;
 
     let (x, y) = if major_version >= 26 {
-        (10.0, 19.0)
+        (10.0, 21.0)
     } else {
         (10.0, 14.0)
     };
