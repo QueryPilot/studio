@@ -3,7 +3,7 @@ import {
   usePreferencesStore,
   type PreferenceCategory,
 } from "@/stores/preferencesStore";
-import { Settings, Code, Bot, Keyboard, Globe } from "lucide-react";
+import { Settings, Code, Bot, Keyboard, Globe, Activity } from "lucide-react";
 import logo from "@/assets/logo.png";
 
 const categories = [
@@ -31,6 +31,11 @@ const categories = [
     id: "globalShortcuts" as PreferenceCategory,
     label: "Global Shortcuts",
     icon: Globe,
+  },
+  {
+    id: "telemetry" as PreferenceCategory,
+    label: "Telemetry & Reporting",
+    icon: Activity,
   },
 ];
 

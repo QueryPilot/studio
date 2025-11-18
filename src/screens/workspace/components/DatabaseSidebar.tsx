@@ -293,11 +293,6 @@ export function DatabaseSidebar({
     // TODO: Implement export functionality
   };
 
-  const handleImport = () => {
-    console.log('Import to selected items:', Array.from(selectedItems));
-    // TODO: Implement import functionality
-  };
-
   const handleCopyName = () => {
     const names = Array.from(selectedItems).map(itemKey => {
       const [, rest] = itemKey.split(':');
@@ -308,9 +303,40 @@ export function DatabaseSidebar({
     navigator.clipboard.writeText(names.join('\n'));
   };
 
+  const handleCopyDefinition = () => {
+    console.log('Copy definition for selected items:', Array.from(selectedItems));
+    // TODO: Implement copy definition functionality
+    // This would generate CREATE TABLE/VIEW/FUNCTION statements and copy to clipboard
+  };
+
+  const handlePin = () => {
+    // Toggle pin/star for all selected items
+    selectedItems.forEach(itemKey => {
+      const [type, rest] = itemKey.split(':');
+      if (!rest) return;
+      const [schema, name] = rest.split('.');
+      if (!schema || !name) return;
+
+      toggleStarred({
+        connectionId,
+        database: selectedDatabase,
+        schema,
+        type: type as StarredItemType,
+        name,
+      });
+    });
+  };
+
+  const handleTruncate = () => {
+    console.log('Truncate selected tables:', Array.from(selectedItems));
+    // TODO: Show confirmation dialog with warning
+    // Options: Restart identity, Cascade
+  };
+
   const handleDeleteSelected = () => {
     console.log('Delete selected items:', Array.from(selectedItems));
-    // TODO: Implement delete functionality with confirmation dialog
+    // TODO: Show confirmation dialog with warning
+    // Options: Ignore foreign key checks, Cascade
   };
 
   const handleViewData = () => {
@@ -345,12 +371,6 @@ export function DatabaseSidebar({
         handleTableClick(item, 'structure');
       }
     });
-  };
-
-  const handleHideSelected = () => {
-    console.log('Hide selected items:', Array.from(selectedItems));
-    // TODO: Implement hide functionality
-    setSelectedItems(new Set());
   };
 
   const handleDuplicate = () => {
@@ -939,12 +959,13 @@ export function DatabaseSidebar({
           selectedTypes={getSelectedTypesBreakdown()}
           onClose={() => setContextMenu(null)}
           onExport={handleExport}
-          onImport={handleImport}
           onCopyName={handleCopyName}
+          onCopyDefinition={handleCopyDefinition}
+          onPin={handlePin}
+          onTruncate={handleTruncate}
           onDelete={handleDeleteSelected}
           onViewData={handleViewData}
           onViewStructure={handleViewStructure}
-          onHide={handleHideSelected}
           onDuplicate={handleDuplicate}
         />
       )}

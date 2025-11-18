@@ -1,12 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -20,6 +14,8 @@ import { windowManager } from "@/services/windowManager";
 
 import { ConnectionDialog } from "@/components/ConnectionDialog";
 import { ConnectionList } from "@/components/ConnectionList";
+import { PreferencesDialog } from "@/components/Preferences/PreferencesDialog";
+import { usePreferencesStore } from "@/stores/preferencesStore";
 
 export function MainScreen() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -27,6 +23,7 @@ export function MainScreen() {
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const { fetchConnections } = useConnectionStore();
+  const { openPreferences } = usePreferencesStore();
 
   // Enable cross-window sync
   useConnectionSync();
@@ -112,23 +109,17 @@ export function MainScreen() {
           {/* Bottom Actions */}
           <div className="p-4 space-y-1">
             <div className="flex items-center justify-between">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    className="flex-1 justify-start"
-                    size="sm"
-                  >
-                    <Settings className="mr-2 h-4 w-4" />
-                    Preferences
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-56">
-                  <DropdownMenuItem onClick={() => {}}>
-                    Preferences coming soon...
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <Button
+                variant="ghost"
+                className="flex-1 justify-start"
+                size="sm"
+                onClick={() => {
+                  openPreferences();
+                }}
+              >
+                <Settings className="mr-2 h-4 w-4" />
+                Preferences
+              </Button>
               <ThemeToggle />
             </div>
           </div>
@@ -174,6 +165,9 @@ export function MainScreen() {
           onConnect={handleConnectToDatabase}
         />
       )}
+
+      {/* Preferences Dialog */}
+      <PreferencesDialog />
     </div>
   );
 }

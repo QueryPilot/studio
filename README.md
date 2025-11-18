@@ -106,6 +106,24 @@ The application configuration is managed through:
 - `tailwind.config.js` - Tailwind CSS configuration
 - `vite.config.ts` - Vite build configuration
 
+## Telemetry & Privacy
+
+Query Pilot includes **optional** error tracking and performance monitoring via Sentry:
+
+- ✅ **Disabled by default** - Requires explicit opt-in
+- ✅ **User controlled** - Enable/disable in Preferences → Telemetry & Error Reporting
+- ✅ **Privacy-first** - No SQL queries, credentials, or user data sent
+- ✅ **Transparent** - Clear disclosure of what data is collected
+
+**For Users:**
+- Open Preferences → Telemetry & Error Reporting to control data collection
+- See what we collect vs. what we never collect
+
+**For Developers:**
+- See [SENTRY.md](./SENTRY.md) for comprehensive integration documentation
+- Quick setup: [.github/SENTRY_QUICKSTART.md](./.github/SENTRY_QUICKSTART.md)
+- Detailed guide: [.github/SENTRY_SETUP.md](./.github/SENTRY_SETUP.md)
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.

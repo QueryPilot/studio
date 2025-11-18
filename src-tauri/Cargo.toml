@@ -85,9 +85,14 @@ chacha20poly1305 = { version = "0.10", features = ["std"] }
 rand_core = "0.6"
 tauri-plugin-os = "2.3"
 
+# Telemetry (optional, enabled via telemetry feature flag)
+sentry = { version = "0.34", optional = true, default-features = false, features = ["backtrace", "contexts", "panic", "rustls"] }
+sentry-tracing = { version = "0.34", optional = true }
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+telemetry = ["sentry", "sentry-tracing"]
 
 [dev-dependencies]
 pretty_assertions = "1.4"

@@ -5,6 +5,7 @@ import {
   validateSecurityHeaders,
 } from "./middleware/cors";
 import { routes } from "./routes";
+import { captureException as sentryCaptureException } from "./utils/sentry";
 
 // Route configuration with methods
 const routeConfig: Record<
@@ -89,10 +90,14 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 // Handle uncaught errors
 process.on("uncaughtException", (error) => {
   console.error("💥 Uncaught exception:", error);
+  sentryCaptureException(error, { operation: "uncaughtException" });
   gracefulShutdown("uncaughtException");
 });
 
 process.on("unhandledRejection", (reason, promise) => {
   console.error("💥 Unhandled rejection at:", promise, "reason:", reason);
+  if (reason instanceof Error) {
+    sentryCaptureException(reason, { operation: "unhandledRejection" });
+  }
   gracefulShutdown("unhandledRejection");
 });

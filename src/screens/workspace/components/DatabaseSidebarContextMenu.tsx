@@ -2,14 +2,14 @@ import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import {
   Download,
-  Upload,
   Copy,
   FileText,
   Trash2,
   Eye,
-  EyeOff,
   Layers,
   ChevronRight,
+  Star,
+  Eraser,
 } from "lucide-react";
 
 interface ContextMenuProps {
@@ -23,12 +23,13 @@ interface ContextMenuProps {
   };
   onClose: () => void;
   onExport: () => void;
-  onImport: () => void;
   onCopyName: () => void;
+  onCopyDefinition: () => void;
+  onPin: () => void;
+  onTruncate: () => void;
   onDelete: () => void;
   onViewData: () => void;
   onViewStructure: () => void;
-  onHide: () => void;
   onDuplicate?: () => void;
 }
 
@@ -39,12 +40,13 @@ export function DatabaseSidebarContextMenu({
   selectedTypes,
   onClose,
   onExport,
-  onImport,
   onCopyName,
+  onCopyDefinition,
+  onPin,
+  onTruncate,
   onDelete,
   onViewData,
   onViewStructure,
-  onHide,
   onDuplicate,
 }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -108,7 +110,7 @@ export function DatabaseSidebarContextMenu({
       {hasTablesOrViews && (
         <>
           <MenuItem
-            icon={<Eye className="h-4 w-4" />}
+            icon={<Eye className="h-3.5 w-3.5" />}
             label={selectedCount === 1 ? "View Data" : `View Data (${selectedCount})`}
             onClick={() => {
               onViewData();
@@ -116,7 +118,7 @@ export function DatabaseSidebarContextMenu({
             }}
           />
           <MenuItem
-            icon={<Layers className="h-4 w-4" />}
+            icon={<Layers className="h-3.5 w-3.5" />}
             label={selectedCount === 1 ? "View Structure" : `View Structure (${selectedCount})`}
             onClick={() => {
               onViewStructure();
@@ -127,43 +129,42 @@ export function DatabaseSidebarContextMenu({
         </>
       )}
 
-      {/* Export/Import */}
+      {/* Export */}
       <MenuItem
-        icon={<Download className="h-4 w-4" />}
+        icon={<Download className="h-3.5 w-3.5" />}
         label="Export To File"
-        hasSubmenu
         onClick={() => {
           onExport();
-          onClose();
-        }}
-      />
-      <MenuItem
-        icon={<Upload className="h-4 w-4" />}
-        label="Import from File"
-        onClick={() => {
-          onImport();
           onClose();
         }}
       />
 
       <MenuSeparator />
 
-      {/* Copy name */}
+      {/* Copy options */}
       <MenuItem
-        icon={<Copy className="h-4 w-4" />}
+        icon={<Copy className="h-3.5 w-3.5" />}
         label={selectedCount === 1 ? "Copy Name" : `Copy Names (${selectedCount})`}
         onClick={() => {
           onCopyName();
           onClose();
         }}
       />
-
-      {/* Hide */}
       <MenuItem
-        icon={<EyeOff className="h-4 w-4" />}
-        label={selectedCount === 1 ? "Hide" : `Hide (${selectedCount})`}
+        icon={<FileText className="h-3.5 w-3.5" />}
+        label={selectedCount === 1 ? "Copy Definition" : `Copy Definitions (${selectedCount})`}
         onClick={() => {
-          onHide();
+          onCopyDefinition();
+          onClose();
+        }}
+      />
+
+      {/* Pin/Star */}
+      <MenuItem
+        icon={<Star className="h-3.5 w-3.5" />}
+        label={selectedCount === 1 ? "Pin to Top" : `Pin (${selectedCount})`}
+        onClick={() => {
+          onPin();
           onClose();
         }}
       />
@@ -174,12 +175,12 @@ export function DatabaseSidebarContextMenu({
       {hasOnlyTables && selectedCount === 1 && (
         <>
           <MenuItem
-            icon={<FileText className="h-4 w-4" />}
+            icon={<FileText className="h-3.5 w-3.5" />}
             label="SQL: Create"
             hasSubmenu
           />
           <MenuItem
-            icon={<Copy className="h-4 w-4" />}
+            icon={<Copy className="h-3.5 w-3.5" />}
             label="Duplicate"
             onClick={() => {
               onDuplicate?.();
@@ -190,9 +191,21 @@ export function DatabaseSidebarContextMenu({
         </>
       )}
 
-      {/* Delete */}
+      {/* Dangerous operations */}
+      {hasOnlyTables && (
+        <MenuItem
+          icon={<Eraser className="h-3.5 w-3.5" />}
+          label={selectedCount === 1 ? "Truncate..." : `Truncate (${selectedCount})...`}
+          onClick={() => {
+            onTruncate();
+            onClose();
+          }}
+          destructive
+        />
+      )}
+
       <MenuItem
-        icon={<Trash2 className="h-4 w-4" />}
+        icon={<Trash2 className="h-3.5 w-3.5" />}
         label={selectedCount === 1 ? "Delete..." : `Delete (${selectedCount})...`}
         onClick={() => {
           onDelete();
@@ -224,7 +237,7 @@ function MenuItem({
   return (
     <button
       className={cn(
-        "w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-accent cursor-pointer transition-colors",
+        "w-full flex items-center gap-2 px-2.5 py-1 text-xs hover:bg-accent cursor-pointer transition-colors",
         destructive && "text-red-600 dark:text-red-400",
         disabled && "opacity-50 cursor-not-allowed",
       )}
@@ -233,7 +246,7 @@ function MenuItem({
     >
       {icon}
       <span className="flex-1 text-left">{label}</span>
-      {hasSubmenu && <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+      {hasSubmenu && <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
     </button>
   );
 }

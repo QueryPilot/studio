@@ -37,9 +37,12 @@ pub async fn reload_ai_api_keys(manager: State<'_, Arc<AIManager>>) -> Result<()
         tracing::warn!("⚠️ No API keys found during reload");
     }
 
+    // Get Sentry DSN from environment
+    let sentry_dsn = std::env::var("SENTRY_DSN").ok();
+
     manager
         .sidecar_manager()
-        .configure_api_keys(keys)
+        .configure_api_keys(keys, false, sentry_dsn)
         .await
         .map_err(|e| {
             tracing::error!("❌ Failed to configure API keys: {}", e);
@@ -75,4 +78,28 @@ pub async fn get_sidecar_status(
     } else {
         Err("Sidecar not initialized".to_string())
     }
+}
+
+/// Configure telemetry (Sentry) for backend and sidecar
+/// Called by frontend when user changes telemetry preferences
+#[tauri::command]
+pub async fn configure_telemetry(
+    manager: State<'_, Arc<AIManager>>,
+    sentry_enabled: bool,
+) -> Result<(), String> {
+    manager
+        .configure_telemetry(sentry_enabled)
+        .await
+        .map_err(|e| {
+            tracing::error!("❌ Failed to configure telemetry: {}", e);
+            e.to_string()
+        })?;
+
+    // Also initialize/reinitialize backend Sentry
+    #[cfg(feature = "telemetry")]
+    {
+        crate::sentry_integration::initialize_sentry(sentry_enabled, env!("CARGO_PKG_VERSION"));
+    }
+
+    Ok(())
 }

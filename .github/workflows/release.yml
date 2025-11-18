@@ -206,9 +206,31 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.APPLE_CERTIFICATE }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # Sentry Configuration (optional - only used if secrets are set)
+          # Single DSN for all components (Frontend, Backend, Sidecar)
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          VITE_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG || 'query-pilot' }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT || 'query-pilot' }}
         shell: bash
         run: |
-          pnpm tauri build --target ${{ matrix.target }}
+          # Build frontend with Sentry source maps (if SENTRY_AUTH_TOKEN is set)
+          if [ -n "$SENTRY_AUTH_TOKEN" ]; then
+            echo "🔍 Sentry configured - source maps will be uploaded"
+          else
+            echo "⚠️  Sentry not configured - telemetry disabled"
+          fi
+
+          # Build Tauri with telemetry feature if Sentry DSN is configured
+          if [ -n "$SENTRY_DSN" ]; then
+            echo "🚀 Building with telemetry feature enabled"
+            cd src-tauri && cargo build --release --target ${{ matrix.target }} --features telemetry && cd ..
+            pnpm build
+          else
+            echo "🚀 Building without telemetry"
+            pnpm tauri build --target ${{ matrix.target }}
+          fi
 
       - name: Cleanup macOS keychain
         if: always()

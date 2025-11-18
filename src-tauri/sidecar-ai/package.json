@@ -6,6 +6,7 @@
     "@ai-sdk/anthropic": "^2.0.39",
     "@ai-sdk/google": "^2.0.25",
     "@ai-sdk/openai": "^2.0.58",
+    "@sentry/node": "^10.25.0",
     "ai": "^5.0.82",
     "ollama-ai-provider": "^1.2.0",
     "zod": "^4.1.12"

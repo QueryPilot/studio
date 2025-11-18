@@ -1658,7 +1658,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
                 );
 
                 // Force refetch to get latest data from database
-                const result = await tableDataQuery.refetch();
+                const result = await tableDataQueryRef.current.refetch();
 
                 console.log(
                   `[TableDataGridV2] onCommitSuccess refetch completed, got ${
@@ -1680,7 +1680,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     database,
     schema,
     table,
-    tableDataQuery,
     handleAddRow,
     handleInsertRowBelow,
     selectedRowsSet,

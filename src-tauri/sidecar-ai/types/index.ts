@@ -19,7 +19,10 @@ export interface StatusResponse {
 }
 
 export interface ConfigRequest {
-  [provider: string]: string;
+  [provider: string]: string | boolean | undefined;
+  // Sentry configuration (optional)
+  sentryEnabled?: boolean;
+  sentryDsn?: string;
 }
 
 export interface ConfigResponse {
