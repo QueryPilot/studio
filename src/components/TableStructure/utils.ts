@@ -9,10 +9,14 @@ export function transformStructureToRows(
   constraints: Constraint[],
   pendingCommands: CrudCommand[] = [],
 ): StructureGridRow[] {
-  // Extract pending column additions
+  // Extract pending column additions and modifications
   const pendingAdds = pendingCommands.filter(
     (cmd) => cmd.type === "column.add",
   ) as CrudCommand<ColumnAddPayload>[];
+
+  const pendingModifies = pendingCommands.filter(
+    (cmd) => cmd.type === "column.modify",
+  );
 
   // Transform actual columns first
   const actualRows: StructureGridRow[] = columns.map((column, idx) => {
@@ -26,6 +30,33 @@ export function transformStructureToRows(
       return new RegExp(`"?${column.name}"?`, "i").test(c.definition);
     });
 
+    // Check if there's a pending modify command for this column
+    const modifyCmd = pendingModifies.find(
+      (cmd) => (cmd.payload as any).columnName === column.name,
+    );
+
+    let dbType = column.db_type ?? "";
+    let nullable = column.nullable ? "YES" : "NO";
+    let defaultValue = column.default ?? "";
+    let comment = column.comment ?? "";
+
+    // Apply pending modifications
+    if (modifyCmd) {
+      const newDef = (modifyCmd.payload as any).newDefinition;
+      if (newDef.dataType !== undefined) {
+        dbType = newDef.dataType;
+      }
+      if (newDef.nullable !== undefined) {
+        nullable = newDef.nullable ? "YES" : "NO";
+      }
+      if (newDef.defaultValue !== undefined) {
+        defaultValue = String(newDef.defaultValue ?? "");
+      }
+      if (newDef.comment !== undefined) {
+        comment = String(newDef.comment ?? "");
+      }
+    }
+
     return {
       row_number: idx + 1,
       column_name: column.name,
@@ -33,15 +64,16 @@ export function transformStructureToRows(
         is_pk: column.is_pk ?? false,
         is_fk: column.is_fk ?? false,
       },
-      db_type: column.db_type ?? "",
-      nullable: column.nullable ? "YES" : "NO",
-      default: column.default ?? "",
+      db_type: dbType,
+      nullable: nullable,
+      default: defaultValue,
       foreign_key: fkInfo
         ? `${fkInfo.foreignTable}.${fkInfo.foreignColumns[0]}`
         : "",
       check_constraint: checkConstraint?.definition ?? "",
-      comment: column.comment ?? "",
+      comment: comment,
       _original: column,
+      _isModified: !!modifyCmd, // Mark row as modified
     };
   });
 

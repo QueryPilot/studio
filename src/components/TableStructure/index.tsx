@@ -305,11 +305,14 @@ export const TableStructure = memo(function TableStructure({
 
       const fieldValue = row[column.field as keyof StructureGridRow];
       const isPending = row._isPending ?? false;
+      const isModified = row._isModified ?? false;
 
-      // Pending row background
-      const pendingTheme = isPending
-        ? { bgCell: "rgba(251, 191, 36, 0.15)" }
-        : undefined;
+      // Row background - yellow for pending (new), blue for modified
+      const rowTheme = isPending
+        ? { bgCell: "rgba(251, 191, 36, 0.15)" } // amber/yellow for new
+        : isModified
+          ? { bgCell: "rgba(59, 130, 246, 0.15)" } // blue for modified
+          : undefined;
 
       // Actions column - Delete button (text-based for now)
       if (column.field === "actions") {
@@ -320,7 +323,7 @@ export const TableStructure = memo(function TableStructure({
           readonly: true,
           allowOverlay: false,
           contentAlign: "center" as const,
-          themeOverride: pendingTheme,
+          themeOverride: rowTheme,
         } as const;
       }
 
@@ -338,7 +341,7 @@ export const TableStructure = memo(function TableStructure({
             copyData: row.column_name,
             readonly: false,
             allowOverlay: true,
-            themeOverride: pendingTheme,
+            themeOverride: rowTheme,
           } as const;
         } else {
           // Custom renderer with PK/FK indicators for existing
@@ -353,7 +356,7 @@ export const TableStructure = memo(function TableStructure({
             copyData: row.column_name,
             readonly: true,
             allowOverlay: false,
-            themeOverride: pendingTheme,
+            themeOverride: rowTheme,
           } as const;
         }
       }
@@ -368,7 +371,7 @@ export const TableStructure = memo(function TableStructure({
           allowOverlay: false,
           contentAlign: "right" as const,
           themeOverride: {
-            ...pendingTheme,
+            ...rowTheme,
             textDark: "rgba(127, 127, 127, 0.7)",
           },
         } as const;
@@ -388,11 +391,11 @@ export const TableStructure = memo(function TableStructure({
           readonly: false,
           allowOverlay: true,
           contentAlign: "center" as const,
-          themeOverride: pendingTheme,
+          themeOverride: rowTheme,
         } as const;
       }
 
-      // Type - data type dropdown
+      // Type - data type dropdown - editable for all rows
       if (column.field === "db_type") {
         const typeValue = String(fieldValue ?? "text");
         return {
@@ -404,9 +407,9 @@ export const TableStructure = memo(function TableStructure({
             columnName: row.column_name,
           },
           copyData: typeValue,
-          readonly: !isPending,
+          readonly: false, // Allow editing for all rows
           allowOverlay: true,
-          themeOverride: pendingTheme,
+          themeOverride: rowTheme,
         } as const;
       }
 
@@ -423,7 +426,7 @@ export const TableStructure = memo(function TableStructure({
           readonly: false,
           allowOverlay: true,
           themeOverride: {
-            ...pendingTheme,
+            ...rowTheme,
             baseFontStyle: "400 11px monospace",
           },
         } as const;
@@ -442,7 +445,7 @@ export const TableStructure = memo(function TableStructure({
           readonly: true,
           allowOverlay: true,
           themeOverride: {
-            ...pendingTheme,
+            ...rowTheme,
             baseFontStyle: "400 11px monospace",
           },
         } as const;
@@ -456,7 +459,7 @@ export const TableStructure = memo(function TableStructure({
         displayData: displayValue,
         readonly: true,
         allowOverlay: false,
-        themeOverride: pendingTheme,
+        themeOverride: rowTheme,
       } as const;
     },
     [gridRows, sizedColumns, customTypes],
