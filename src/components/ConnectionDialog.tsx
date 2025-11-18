@@ -307,6 +307,37 @@ export function ConnectionDialog({
     }
   }, [useSSHAgent]);
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    if (!open) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd+Enter = Save & Connect
+      if (e.metaKey && e.key === "Enter") {
+        e.preventDefault();
+        if (!isSaving && !isConnecting && !isTesting) {
+          void handleConnect();
+        }
+      }
+      // Enter = Save (only if not in textarea/input with modifier)
+      else if (e.key === "Enter" && !e.metaKey && !e.shiftKey) {
+        const target = e.target as HTMLElement;
+        // Allow Enter in textareas
+        if (target.tagName === "TEXTAREA") return;
+        // Allow Enter in inputs (for form navigation)
+        if (target.tagName === "INPUT") return;
+
+        e.preventDefault();
+        if (!isSaving && !isConnecting && !isTesting) {
+          void handleSave();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, isSaving, isConnecting, isTesting]);
+
   useEffect(() => {
     if (!useSSHKey) {
       setSshKeyPassphrase("");

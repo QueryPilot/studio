@@ -18,7 +18,7 @@ import {
   Copy,
   ExternalLink,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -73,11 +73,13 @@ const databaseBgColors: Record<string, string> = {
 interface ConnectionListProps {
   searchQuery: string;
   onAddConnection?: () => void;
+  searchInputRef?: React.RefObject<HTMLInputElement>;
 }
 
 interface ConnectionItemProps {
   connection: StoredConnection;
   isActive: boolean;
+  isSelected?: boolean;
   onClick: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -88,6 +90,7 @@ interface ConnectionGroupProps {
   title: string;
   connections: StoredConnection[];
   activeConnectionId: string | null;
+  selectedConnectionId: string | null;
   onConnectionClick: (connection: StoredConnection) => void;
   onEdit: (connection: StoredConnection) => void;
   onDelete: (connection: StoredConnection) => void;
@@ -98,6 +101,7 @@ interface ConnectionGroupProps {
 function ConnectionItem({
   connection,
   isActive,
+  isSelected = false,
   onClick,
   onEdit,
   onDelete,
@@ -135,7 +139,7 @@ function ConnectionItem({
       style={style}
       className={`relative group flex items-center justify-between px-2 py-1.5 rounded-lg bg-muted/40 hover:bg-muted/60 cursor-pointer overflow-hidden ${
         isActive ? "bg-muted/60 ring-1 ring-primary/50" : ""
-      } ${isDragging ? "opacity-50" : ""}`}
+      } ${isSelected ? "ring-2 ring-primary" : ""} ${isDragging ? "opacity-50" : ""}`}
       onClick={onClick}
     >
       <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -252,6 +256,7 @@ function ConnectionGroup({
   title,
   connections,
   activeConnectionId,
+  selectedConnectionId,
   onConnectionClick,
   onEdit,
   onDelete,
@@ -294,6 +299,7 @@ function ConnectionGroup({
           <div className="space-y-0.5">
             {connections.map((connection) => {
               const isActive = activeConnectionId === connection.profile.id;
+              const isSelected = selectedConnectionId === connection.profile.id;
 
               const handleEdit = () => {
                 onEdit(connection);
@@ -312,6 +318,7 @@ function ConnectionGroup({
                       <ConnectionItem
                         connection={connection}
                         isActive={isActive}
+                        isSelected={isSelected}
                         onClick={() => {
                           onConnectionClick(connection);
                         }}
@@ -370,6 +377,7 @@ function ConnectionGroup({
 export function ConnectionList({
   searchQuery,
   onAddConnection,
+  searchInputRef,
 }: ConnectionListProps) {
   const {
     connections,
@@ -391,6 +399,8 @@ export function ConnectionList({
     null,
   );
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState<number>(-1);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -438,6 +448,104 @@ export function ConnectionList({
 
     return { groups, ungroupedConnections };
   }, [filteredConnections]);
+
+  // Flat list of all connections for keyboard navigation
+  const flatConnections = useMemo(() => {
+    return filteredConnections;
+  }, [filteredConnections]);
+
+  // Reset selection when filtered connections change
+  useEffect(() => {
+    setSelectedIndex(-1);
+  }, [flatConnections]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd+F or / to focus search
+      if ((e.metaKey && e.key === "f") || e.key === "/") {
+        e.preventDefault();
+        searchInputRef?.current?.focus();
+        searchInputRef?.current?.select();
+        return;
+      }
+
+      // Cmd+N for new connection
+      if (e.metaKey && e.key === "n") {
+        e.preventDefault();
+        onAddConnection?.();
+        return;
+      }
+
+      // Don't handle other shortcuts if search is focused
+      if (document.activeElement === searchInputRef?.current) {
+        // Arrow down from search - move to first connection
+        if (e.key === "ArrowDown" && flatConnections.length > 0) {
+          e.preventDefault();
+          setSelectedIndex(0);
+          searchInputRef?.current?.blur();
+        }
+        return;
+      }
+
+      // Arrow navigation
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedIndex((prev) => {
+          const next = prev + 1;
+          return next >= flatConnections.length ? flatConnections.length - 1 : next;
+        });
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedIndex((prev) => {
+          const next = prev - 1;
+          return next < 0 ? 0 : next;
+        });
+      }
+
+      // Enter to open
+      else if (e.key === "Enter" && selectedIndex >= 0) {
+        e.preventDefault();
+        const connection = flatConnections[selectedIndex];
+        if (connection) {
+          void handleConnectionClick(connection);
+        }
+      }
+
+      // Cmd+Delete to delete
+      else if (e.metaKey && e.key === "Backspace" && selectedIndex >= 0) {
+        e.preventDefault();
+        const connection = flatConnections[selectedIndex];
+        if (connection) {
+          setDeletingConnection(connection);
+          setIsDeleteDialogOpen(true);
+        }
+      }
+
+      // Cmd+Enter to edit
+      else if (e.metaKey && e.key === "Enter" && selectedIndex >= 0) {
+        e.preventDefault();
+        const connection = flatConnections[selectedIndex];
+        if (connection) {
+          setEditingConnection(connection);
+          setIsEditDialogOpen(true);
+        }
+      }
+
+      // Cmd+D to duplicate
+      else if (e.metaKey && e.key === "d" && selectedIndex >= 0) {
+        e.preventDefault();
+        const connection = flatConnections[selectedIndex];
+        if (connection) {
+          setDuplicatingConnection(connection);
+          setIsDuplicateDialogOpen(true);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedIndex, flatConnections, searchInputRef, onAddConnection]);
 
   if (isLoading) {
     return (
@@ -616,6 +724,11 @@ export function ConnectionList({
     ? connections.find((c) => c.profile.id === activeId)
     : null;
 
+  // Get selected connection ID from index
+  const selectedConnectionId = selectedIndex >= 0 && flatConnections[selectedIndex]
+    ? flatConnections[selectedIndex].profile.id
+    : null;
+
   return (
     <DndContext
       sensors={sensors}
@@ -626,7 +739,7 @@ export function ConnectionList({
       <>
         <ContextMenu>
           <ContextMenuTrigger asChild>
-            <div className="flex-1 overflow-auto p-3">
+            <div ref={listRef} className="flex-1 overflow-auto p-3">
               <div className="h-full">
                 {/* Render grouped connections */}
                 {Object.entries(groupedConnections.groups).map(
@@ -636,6 +749,7 @@ export function ConnectionList({
                       title={groupName}
                       connections={connections}
                       activeConnectionId={activeConnectionId}
+                      selectedConnectionId={selectedConnectionId}
                       onConnectionClick={handleConnectionClick}
                       onEdit={handleEdit}
                       onDelete={handleDelete}
@@ -651,6 +765,7 @@ export function ConnectionList({
                     title="Connections"
                     connections={groupedConnections.ungroupedConnections}
                     activeConnectionId={activeConnectionId}
+                    selectedConnectionId={selectedConnectionId}
                     onConnectionClick={handleConnectionClick}
                     onEdit={handleEdit}
                     onDelete={handleDelete}

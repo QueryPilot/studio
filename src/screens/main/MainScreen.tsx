@@ -157,6 +157,7 @@ export function MainScreen() {
             {/* Connection List */}
             <ConnectionList
               searchQuery={searchQuery}
+              searchInputRef={searchInputRef}
               onAddConnection={() => {
                 setConnectionDialogOpen(true);
               }}

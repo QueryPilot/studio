@@ -20,6 +20,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuShortcut,
 } from "@/components/ui/dropdown-menu";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { PanelContentRenderer } from "./PanelContentRenderer";
 import { useDroppable } from "@dnd-kit/core";
 import { DraggableTab } from "./DraggableTab";
@@ -50,68 +51,18 @@ function ShortcutKeys({
       {chords.map((chord, chordIndex) => {
         const parts = chord.split("+");
         return (
-          <div
-            key={`${binding}-${chordIndex}`}
-            className="flex items-center gap-1"
-          >
-            {parts.map((part, partIndex) => (
-              <React.Fragment
-                key={`${binding}-${chordIndex}-${part}-${partIndex}`}
-              >
-                <kbd
-                  className={cn(
-                    "rounded-md border bg-muted p-0.5 h-7 w-7 flex items-center justify-center",
-                    "text-foreground text-center",
-                    [
-                      "Enter",
-                      "Escape",
-                      "Space",
-                      "Tab",
-                      "Backspace",
-                      "Delete",
-                      "Del",
-                      "Home",
-                      "End",
-                      "PageUp",
-                      "PageDown",
-                      "ArrowUp",
-                      "ArrowDown",
-                      "ArrowLeft",
-                      "ArrowRight",
-                      "Up",
-                      "Down",
-                      "Left",
-                      "Right",
-                      "Minus",
-                      "Plus",
-                      "=",
-                      "-",
-                      "`",
-                      "~",
-                      ";",
-                      "'",
-                      ",",
-                      ".",
-                      "/",
-                      "⌘",
-                      "⌥",
-                      "⌃",
-                      "⇧",
-                    ].includes(part)
-                      ? "text-xl"
-                      : "text-sm",
-                  )}
-                >
-                  {part}
-                </kbd>
-              </React.Fragment>
-            ))}
+          <React.Fragment key={`${binding}-${chordIndex}`}>
+            <KbdGroup>
+              {parts.map((part, partIndex) => (
+                <Kbd key={partIndex}>{part}</Kbd>
+              ))}
+            </KbdGroup>
             {chordIndex < chords.length - 1 ? (
               <span className="text-muted-foreground text-sm font-medium">
                 then
               </span>
             ) : null}
-          </div>
+          </React.Fragment>
         );
       })}
     </div>
