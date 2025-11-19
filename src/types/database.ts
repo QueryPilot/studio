@@ -104,6 +104,9 @@ export interface QueryResult {
   rows: any[][];
   rowCount: number;
   executionTime: number;
+  affectedRows?: number; // For UPDATE, DELETE, INSERT queries
+  message?: string; // For informational messages (e.g., "Query OK", DDL results)
+  error?: string; // Error message if query failed
 }
 
 export interface TableInfo {

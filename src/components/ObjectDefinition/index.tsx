@@ -5,6 +5,7 @@ import { CodeEditor } from "@/components/CodeEditor";
 import type { SqlDialect } from "@/components/CodeEditor";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { DbType } from "@/types/connection";
+import { detectDialectForObject } from "@/utils/dialectDetector";
 
 interface ObjectDefinitionProps {
   connectionId: string;
@@ -31,26 +32,12 @@ export const ObjectDefinition: React.FC<ObjectDefinitionProps> = React.memo(
     const [error, setError] = useState<string | null>(null);
     const connections = useConnectionStore((state) => state.connections);
 
-    // Determine database dialect from connection
+    // Determine database dialect from connection using smart detection
     const dialect = useMemo<SqlDialect>(() => {
       const profile = connections.find((c) => c.profile.id === connectionId)?.profile;
       if (!profile) return "plsql";
 
-      switch (profile.db_type) {
-        case DbType.PostgreSQL:
-          if (objectType === "function" || objectType === "procedure") {
-            return "plsql";
-          }
-          return "postgresql";
-        case DbType.MySQL:
-          return "mysql";
-        case DbType.SQLite:
-          return "sqlite";
-        case DbType.SQLServer:
-          return "mssql";
-        default:
-          return "postgresql";
-      }
+      return detectDialectForObject(profile.db_type, objectType);
     }, [connectionId, connections, objectType]);
 
     useEffect(() => {

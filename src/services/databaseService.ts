@@ -1259,14 +1259,106 @@ class DatabaseService {
       },
     );
 
+    // Detect different query types
+    const sqlUpper = sql.trim().toUpperCase();
+
+    // Check for RETURNING clause (these return data AND affect rows)
+    const hasReturning = sqlUpper.includes(" RETURNING ");
+
+    // Detect mutation queries (UPDATE, DELETE, INSERT, TRUNCATE)
+    const isMutation =
+      sqlUpper.startsWith("UPDATE ") ||
+      sqlUpper.startsWith("DELETE ") ||
+      sqlUpper.startsWith("INSERT ") ||
+      sqlUpper.startsWith("TRUNCATE ");
+
+    // Detect DDL queries (CREATE, ALTER, DROP)
+    const isDDL =
+      sqlUpper.startsWith("CREATE ") ||
+      sqlUpper.startsWith("ALTER ") ||
+      sqlUpper.startsWith("DROP ");
+
+    // Detect transaction control
+    const isTransaction =
+      sqlUpper === "BEGIN" ||
+      sqlUpper === "BEGIN;" ||
+      sqlUpper.startsWith("BEGIN ") ||
+      sqlUpper === "COMMIT" ||
+      sqlUpper === "COMMIT;" ||
+      sqlUpper === "ROLLBACK" ||
+      sqlUpper === "ROLLBACK;" ||
+      sqlUpper.startsWith("ROLLBACK TO ") ||
+      sqlUpper.startsWith("SAVEPOINT ") ||
+      sqlUpper.startsWith("RELEASE SAVEPOINT ") ||
+      sqlUpper === "START TRANSACTION" ||
+      sqlUpper === "START TRANSACTION;";
+
+    // Detect configuration commands
+    const isConfig =
+      sqlUpper.startsWith("SET ") ||
+      sqlUpper.startsWith("RESET ");
+
+    // Detect maintenance commands
+    const isMaintenance =
+      sqlUpper.startsWith("VACUUM") ||
+      sqlUpper.startsWith("ANALYZE") ||
+      sqlUpper.startsWith("REINDEX");
+
     // Convert to QueryResult format
-    return {
+    const queryResult: QueryResult = {
       columns: result.columns.map((c) => c.name),
       columnMeta: result.columns,
       rows: result.rows,
       rowCount: result.totalRows ?? result.rows.length,
       executionTime: result.executionTimeMs ?? 0,
     };
+
+    // For mutation queries with RETURNING, show both data and affected rows
+    if (isMutation && hasReturning && result.rows.length > 0) {
+      queryResult.affectedRows = result.totalRows ?? result.rows.length;
+      queryResult.message = `${queryResult.affectedRows} row(s) affected`;
+      // Data will be shown in table view
+    }
+    // For mutation queries without RETURNING, just show affected rows
+    else if (isMutation && !hasReturning) {
+      queryResult.affectedRows = result.totalRows ?? 0;
+    }
+    // For DDL queries, add success message if no rows returned
+    else if (isDDL && result.rows.length === 0) {
+      queryResult.message = "Query executed successfully";
+    }
+    // For transaction control commands
+    else if (isTransaction) {
+      if (sqlUpper.startsWith("BEGIN") || sqlUpper.startsWith("START TRANSACTION")) {
+        queryResult.message = "Transaction started";
+      } else if (sqlUpper.startsWith("COMMIT")) {
+        queryResult.message = "Transaction committed";
+      } else if (sqlUpper.startsWith("ROLLBACK")) {
+        queryResult.message = "Transaction rolled back";
+      } else if (sqlUpper.startsWith("SAVEPOINT")) {
+        queryResult.message = "Savepoint created";
+      } else if (sqlUpper.startsWith("RELEASE SAVEPOINT")) {
+        queryResult.message = "Savepoint released";
+      }
+    }
+    // For configuration commands
+    else if (isConfig) {
+      if (result.rows.length === 0) {
+        queryResult.message = sqlUpper.startsWith("SET ")
+          ? "Configuration parameter set"
+          : "Configuration parameter reset";
+      }
+      // If SHOW returns rows, display them in table
+    }
+    // For maintenance commands
+    else if (isMaintenance) {
+      if (result.rows.length === 0) {
+        queryResult.message = "Maintenance command completed successfully";
+      }
+      // If maintenance returns rows (like VACUUM VERBOSE), display them
+    }
+
+    return queryResult;
   }
 
   /**
