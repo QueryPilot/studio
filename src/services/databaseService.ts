@@ -273,9 +273,6 @@ class DatabaseService {
 
       this.activeConnections.delete(connectionId);
 
-      // Clear pre-warm cache for this connection
-      const { clearPrewarmCache } = await import("@/hooks/useSchemaData");
-      clearPrewarmCache(connectionId);
     } catch (error) {
       console.error("Failed to disconnect from database:", error);
       throw error;
@@ -312,10 +309,6 @@ class DatabaseService {
         };
         this.activeConnections.set(connectionId, response);
       }
-
-      // Clear pre-warm cache for this connection since database changed
-      const { clearPrewarmCache } = await import("@/hooks/useSchemaData");
-      clearPrewarmCache(connectionId);
 
       console.log(`[DatabaseService] Successfully switched to database: ${database}`);
     } catch (error) {
@@ -367,6 +360,7 @@ class DatabaseService {
       await client.streamWithCallbacks(
         {
           connId: connectionId,
+          tabId: "system", // System operation, not tied to a specific tab
           sql,
           batchSize: 1,
         },
@@ -1216,6 +1210,7 @@ class DatabaseService {
 
   /**
    * Execute a SQL query with streaming support
+   * @deprecated This method is not actively used. QueryPanel uses tableStreamingService directly.
    */
   async executeQuery(
     connectionId: string,
@@ -1233,8 +1228,10 @@ class DatabaseService {
     },
   ): Promise<QueryResult> {
     // Use streaming service for query execution
+    // Using a default tabId since this method doesn't have tab context
     const result = await tableStreamingService.streamQuery(
       connectionId,
+      "legacy", // Default tabId for backward compatibility
       sql,
       options?.pageSize,
       (progress) => {

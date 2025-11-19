@@ -10,6 +10,7 @@ import { isTauri } from "../utils/tauri";
 
 export interface QueryStreamParams {
   connId: string;
+  tabId: string;
   sql: string;
   batchSize?: number;
   userLimitPreference?: number;
@@ -182,7 +183,7 @@ export class QueryStreamClient {
       return Promise.reject(error);
     }
 
-    const { connId, sql, batchSize = 1000, userLimitPreference } = params;
+    const { connId, tabId, sql, batchSize = 1000, userLimitPreference } = params;
 
     return new Promise((resolve, reject) => {
       this.columns = undefined;
@@ -339,6 +340,7 @@ export class QueryStreamClient {
       try {
         invoke("stream_query", {
           connId,
+          tabId,
           sql,
           batchSize,
           userLimitPreference,

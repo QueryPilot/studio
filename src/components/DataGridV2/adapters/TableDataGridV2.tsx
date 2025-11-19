@@ -1776,12 +1776,15 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       let finalCell = gridCell;
 
-      // Apply truncation if needed
+      // Apply truncation if needed (but not for query plan columns)
+      const isQueryPlanColumn = column.title?.toLowerCase() === "query plan" ||
+                                 column.title?.toLowerCase() === "explain";
       const widthCap =
         typeof (column as { width?: number }).width === "number"
           ? (column as { width?: number }).width
           : undefined;
       if (
+        !isQueryPlanColumn && // Skip truncation for query plans
         gridCell.kind === GridCellKind.Text &&
         typeof widthCap === "number" &&
         gridCell.displayData

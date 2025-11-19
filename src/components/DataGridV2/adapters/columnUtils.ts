@@ -6,13 +6,27 @@ export const computeBaseWidth = (
   dbType: string | null | undefined,
 ): number => {
   const type = dbType?.toLowerCase() ?? "";
+  const nameLower = name.toLowerCase();
+
+  // Special handling for query plans and explain output - no practical limit
+  if (nameLower === "query plan" || nameLower === "explain") {
+    return 5000; // Very wide to show full query plans without truncation
+  }
+
   if (shouldUseFullWidth(type)) {
     if (type.includes("timestamp")) return 180;
     if (type.includes("date")) return 120;
     if (type.includes("time")) return 120;
     return Math.max(100, name.length * 8 + 56);
   }
-  return Math.max(96, Math.min(240, name.length * 8 + 48));
+
+  // For text columns, default to wider width (600px) for better readability
+  if (type.includes("text") || type.includes("varchar") || type.includes("char")) {
+    return 600;
+  }
+
+  // Increased max width to 1000 for better display of long text
+  return Math.max(96, Math.min(1000, name.length * 8 + 48));
 };
 
 export const reorderColumns = (
