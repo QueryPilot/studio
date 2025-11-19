@@ -21,6 +21,7 @@ import {
   MySQL,
   SQLite,
   MSSQL,
+  StandardSQL,
 } from "@codemirror/lang-sql";
 import { json as jsonLang } from "@codemirror/lang-json";
 import {
@@ -42,6 +43,7 @@ import type { SqlDialect, CodeEditorLanguage } from "./types";
 import { acceptCompletion } from "@codemirror/autocomplete";
 import { dbmlMixed } from "./languages/dbml/dbml-mixed";
 import { createSqlLinter } from "./languages/sql/sql-linter";
+import { createSqlCompletionSource } from "./languages/sql/completion";
 
 // Enhanced SQL folding service using syntax tree for better nested support
 const sqlFoldService = foldService.of((state, from) => {
@@ -238,13 +240,34 @@ const getDialect = (dialect?: SqlDialect) => {
 export const getLanguageExtension = (
   language: CodeEditorLanguage = "sql",
   dialect?: SqlDialect,
+  connectionId?: string,
+  database?: string,
+  schema?: string,
 ): Extension => {
   switch (language) {
-    case "sql":
-      return sql({
-        dialect: getDialect(dialect),
-        upperCaseKeywords: false, // Let syntax highlighting handle the styling
-      });
+    case "sql": {
+      const extensions: Extension[] = [
+        sql({
+          dialect: getDialect(dialect),
+          upperCaseKeywords: true,
+        }),
+      ];
+
+      // Add context-aware completion if connection info is available
+      if (connectionId && database) {
+        extensions.push(
+          StandardSQL.language.data.of({
+            autocomplete: createSqlCompletionSource({
+              connectionId,
+              database,
+              schema,
+            }),
+          }),
+        );
+      }
+
+      return extensions;
+    }
     case "json":
       return jsonLang();
     case "dbml":
@@ -304,6 +327,7 @@ const findSemicolonsNotInStrings = (text: string): number[] => {
       if (char === "*" && nextChar === "/") {
         inBlockComment = false;
         i++; // skip the /
+        continue;
       }
       continue;
     }
@@ -489,7 +513,7 @@ export const createEnterKeymap = (onEnter?: () => boolean): Extension => {
       },
       {
         key: "Ctrl-Enter",
-        run: () => {
+        run: (view) => {
           return onEnter();
         },
       },
@@ -559,7 +583,7 @@ export const getEditorExtensions = (
     // EditorView.lineWrapping, // Commented out to prevent wrapping
 
     // Language support
-    getLanguageExtension(language, dialect),
+    getLanguageExtension(language, dialect, connectionId, database, schema),
 
     // Search and replace support
     search({

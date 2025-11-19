@@ -390,16 +390,73 @@ export const QueryPanel = memo(function QueryPanel({
         // Use backend's actual database execution time, not frontend timer
         executionTime = final.executionTimeMs ?? 0;
 
-        // Handle mutations
+        // Detect query type for proper result display
+        const sqlUpper = sql.trim().toUpperCase();
+        const hasReturning = sqlUpper.includes(" RETURNING ");
         const wasMutation = isMutationQuery(sql);
+        const isTransaction =
+          sqlUpper === "BEGIN" ||
+          sqlUpper === "COMMIT" ||
+          sqlUpper === "ROLLBACK" ||
+          sqlUpper.startsWith("ROLLBACK TO ") ||
+          sqlUpper.startsWith("SAVEPOINT ") ||
+          sqlUpper.startsWith("RELEASE SAVEPOINT ") ||
+          sqlUpper === "START TRANSACTION";
+        const isConfig =
+          sqlUpper.startsWith("SET ") ||
+          sqlUpper.startsWith("RESET ");
+        const isDDL =
+          sqlUpper.startsWith("CREATE ") ||
+          sqlUpper.startsWith("ALTER ") ||
+          sqlUpper.startsWith("DROP ");
+        const isMaintenance =
+          sqlUpper.startsWith("VACUUM") ||
+          sqlUpper.startsWith("ANALYZE") ||
+          sqlUpper.startsWith("REINDEX");
+
         let affectedRows: number | undefined;
-        
-        if (wasMutation) {
-           // If it's a mutation, totalRows usually indicates affected rows
-           // But we should check if rows are empty to be sure it's not a RETURNING clause
-           if (accumulatedRows.length === 0) {
-             affectedRows = final.totalRows ?? 0;
-           }
+        let message: string | undefined;
+
+        // For mutation queries with RETURNING, show both data and affected rows
+        if (wasMutation && hasReturning && accumulatedRows.length > 0) {
+          affectedRows = final.totalRows ?? accumulatedRows.length;
+          message = `${affectedRows} row(s) affected`;
+        }
+        // For mutation queries without RETURNING, just show affected rows
+        else if (wasMutation && !hasReturning) {
+          affectedRows = final.totalRows ?? 0;
+        }
+        // For DDL queries, add success message if no rows returned
+        else if (isDDL && accumulatedRows.length === 0) {
+          message = "Query executed successfully";
+        }
+        // For transaction control commands
+        else if (isTransaction) {
+          if (sqlUpper.startsWith("BEGIN") || sqlUpper.startsWith("START TRANSACTION")) {
+            message = "⚠️ WARNING: Multi-statement transactions are not currently supported!\n\nEach query uses a different connection from the pool, so BEGIN/COMMIT/ROLLBACK don't work as expected.\n\nTo execute transactional operations:\n• Use a single multi-line query with a transaction block\n• Or wait for proper transaction support in a future update";
+            toast.error("Transaction commands don't work yet!", {
+              description: "Each query uses a different connection. Use a single query with transaction block instead.",
+              duration: 8000,
+            });
+          } else if (sqlUpper.startsWith("COMMIT")) {
+            message = "Transaction committed (WARNING: May not work as expected - see BEGIN warning)";
+          } else if (sqlUpper.startsWith("ROLLBACK")) {
+            message = "Transaction rolled back (WARNING: May not work as expected - see BEGIN warning)";
+          } else if (sqlUpper.startsWith("SAVEPOINT")) {
+            message = "Savepoint created (WARNING: May not work as expected - see BEGIN warning)";
+          } else if (sqlUpper.startsWith("RELEASE SAVEPOINT")) {
+            message = "Savepoint released (WARNING: May not work as expected - see BEGIN warning)";
+          }
+        }
+        // For configuration commands
+        else if (isConfig && accumulatedRows.length === 0) {
+          message = sqlUpper.startsWith("SET ")
+            ? "Configuration parameter set"
+            : "Configuration parameter reset";
+        }
+        // For maintenance commands
+        else if (isMaintenance && accumulatedRows.length === 0) {
+          message = "Maintenance command completed successfully";
         }
 
         // CRITICAL: Direct state update (bypass RAF) to ensure ALL rows are immediately visible
@@ -411,6 +468,7 @@ export const QueryPanel = memo(function QueryPanel({
           rows: [...accumulatedRows], // New array reference forces React to detect change
           rowCount: final.totalRows ?? accumulatedRows.length,
           affectedRows,
+          message,
           executionTime,
           cursorSetupMs: final.cursorSetupMs,
           totalStreamingMs: final.totalStreamingMs,

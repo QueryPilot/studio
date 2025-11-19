@@ -12,6 +12,35 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 use tokio_postgres::Row;
 
+/// Extract clean error message from PostgreSQL error
+fn extract_db_error_message(e: &tokio_postgres::Error) -> String {
+    // Try to get the DbError with the message
+    if let Some(db_err) = e.as_db_error() {
+        // Return just the message, optionally with detail/hint
+        let mut msg = db_err.message().to_string();
+
+        if let Some(detail) = db_err.detail() {
+            msg.push_str(&format!("\nDetail: {}", detail));
+        }
+
+        if let Some(hint) = db_err.hint() {
+            msg.push_str(&format!("\nHint: {}", hint));
+        }
+
+        // Add helpful hint for multiple commands error
+        if msg.contains("cannot insert multiple commands into a prepared statement") {
+            msg.push_str("\n\nTip: To execute multiple statements:");
+            msg.push_str("\n  • Place your cursor on one statement and press Cmd/Ctrl+Enter");
+            msg.push_str("\n  • Or execute them one at a time");
+        }
+
+        return msg;
+    }
+
+    // Fallback to Display format for non-DB errors
+    e.to_string()
+}
+
 #[derive(Serialize)]
 pub struct SshTestResult {
     pub success: bool,
@@ -691,8 +720,8 @@ async fn execute_single_fetch_stream(
         .map_err(|e| {
             // Log the full error details for debugging
             tracing::error!("❌ PREPARE failed: {:?}", e);
-            // Return detailed error message
-            format!("Failed to prepare statement: {:?}", e)
+            // Return clean error message
+            extract_db_error_message(&e)
         })?;
     let prepare_elapsed = prepare_start.elapsed().as_millis();
     tracing::info!("  ⏱ PREPARE statement: {}ms ⚠️", prepare_elapsed);
@@ -704,7 +733,7 @@ async fn execute_single_fetch_stream(
         .await
         .map_err(|e| {
             tracing::error!("❌ query_raw failed: {:?}", e);
-            format!("Failed to execute query: {:?}", e)
+            extract_db_error_message(&e)
         })?;
     let exec_elapsed = query_start.elapsed().as_millis();
     tracing::info!("  ⏱ Started query_raw: {}ms", exec_elapsed);

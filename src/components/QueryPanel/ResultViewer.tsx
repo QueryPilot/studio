@@ -153,8 +153,9 @@ export const ResultViewer = memo(function ResultViewer({
     );
   }
 
-  // Handle mutation results (UPDATE, DELETE, INSERT)
-  if (result.affectedRows !== undefined) {
+  // Handle mutation results (UPDATE, DELETE, INSERT, TRUNCATE)
+  // Special case: RETURNING clause queries have both affectedRows AND data to show
+  if (result.affectedRows !== undefined && result.rows.length === 0) {
     return (
       <div
         className={cn(
@@ -187,8 +188,51 @@ export const ResultViewer = memo(function ResultViewer({
     );
   }
 
+  // Handle DDL and other queries with success messages but no rows (CREATE, ALTER, DROP)
+  if (result.message && result.rows.length === 0) {
+    return (
+      <div
+        className={cn(
+          "flex items-center justify-center bg-muted/10 h-full",
+          className,
+        )}
+      >
+        <div className="flex flex-col items-center space-y-3">
+          <div className="h-12 w-12 rounded-full bg-green-500/10 flex items-center justify-center">
+            <CheckCircle className="h-6 w-6 text-green-600 dark:text-green-500" />
+          </div>
+          <div className="text-center space-y-1">
+            <p className="text-sm font-medium text-foreground">
+              {result.message}
+            </p>
+          </div>
+          {result.executionTime !== undefined && (
+            <div className="pt-2 border-t border-border/50 w-full flex justify-center">
+              <p className="text-xs text-muted-foreground font-mono">
+                {result.executionTime}ms
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // For RETURNING clause queries: show banner with affected rows count above the data
+  const hasReturningData = result.affectedRows !== undefined && result.rows.length > 0;
+
   return (
     <div className={cn("overflow-hidden h-full flex flex-col", className)}>
+      {/* Banner for RETURNING clause queries */}
+      {hasReturningData && (
+        <div className="px-2 py-1.5 bg-green-500/10 border-b border-green-500/20 flex items-center gap-2">
+          <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-500 flex-shrink-0" />
+          <span className="text-sm font-medium text-green-700 dark:text-green-400">
+            {result.message || `${result.affectedRows} row(s) affected`}
+          </span>
+        </div>
+      )}
+
       {viewMode === "table" ? (
         <div className="h-full px-1 pt-1">
           <TableDataGridV2
