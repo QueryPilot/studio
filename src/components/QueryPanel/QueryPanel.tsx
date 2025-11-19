@@ -390,6 +390,18 @@ export const QueryPanel = memo(function QueryPanel({
         // Use backend's actual database execution time, not frontend timer
         executionTime = final.executionTimeMs ?? 0;
 
+        // Handle mutations
+        const wasMutation = isMutationQuery(sql);
+        let affectedRows: number | undefined;
+        
+        if (wasMutation) {
+           // If it's a mutation, totalRows usually indicates affected rows
+           // But we should check if rows are empty to be sure it's not a RETURNING clause
+           if (accumulatedRows.length === 0) {
+             affectedRows = final.totalRows ?? 0;
+           }
+        }
+
         // CRITICAL: Direct state update (bypass RAF) to ensure ALL rows are immediately visible
         // This fixes the issue where RAF throttling could cause the last batch to not render
         // Create new array reference to force React re-render
@@ -398,6 +410,7 @@ export const QueryPanel = memo(function QueryPanel({
           columnMeta: currentColumnMeta,
           rows: [...accumulatedRows], // New array reference forces React to detect change
           rowCount: final.totalRows ?? accumulatedRows.length,
+          affectedRows,
           executionTime,
           cursorSetupMs: final.cursorSetupMs,
           totalStreamingMs: final.totalStreamingMs,
@@ -412,7 +425,6 @@ export const QueryPanel = memo(function QueryPanel({
 
         // Handle mutations and auto-refresh
         if (effectiveConnectionId) {
-          const wasMutation = isMutationQuery(sql);
           if (wasMutation) {
             // Clear cache
             handleMutationCache(sql, effectiveConnectionId);
@@ -467,6 +479,7 @@ export const QueryPanel = memo(function QueryPanel({
           columnMeta: final.columns as unknown as ColumnMeta[],
           rows: [], // Don't store rows again - already in state
           rowCount: final.totalRows ?? rowCount,
+          affectedRows,
           executionTime,
         };
       } catch (error) {

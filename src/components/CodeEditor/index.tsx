@@ -13,7 +13,6 @@ import { useTheme } from "@/components/theme-provider";
 import { getThemeExtensions } from "./themes";
 import { getEditorExtensions } from "./extensions";
 import type { CodeEditorProps } from "./types";
-import "./autocomplete.css";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import { useScopedKeybindings, useContextKey } from "@/hooks/useContextKey";
 
