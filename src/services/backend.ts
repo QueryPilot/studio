@@ -305,6 +305,7 @@ export class BackendAPI {
   }
 
   // Streaming query
+  // @deprecated This method is not actively used. Use QueryStreamClient instead.
   static async streamQuery(
     connId: string,
     sql: string,
@@ -313,6 +314,7 @@ export class BackendAPI {
   ): Promise<string> {
     const streamId = await invoke<string>("stream_query", {
       connId,
+      tabId: "legacy-backend-api", // Default tabId for backward compatibility
       sql,
       pageSize,
     });

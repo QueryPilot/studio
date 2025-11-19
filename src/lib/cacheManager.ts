@@ -62,8 +62,20 @@ export function clearTabCache(tabId: string, connectionId?: string): void {
   // Clear Zustand state for this tab
   useTabStateStore.getState().clearQueryState(tabId);
 
-  // If connectionId provided, also invalidate related React Query caches
+  // Disconnect tab-specific database connection for transaction isolation
   if (connectionId) {
+    // Use composite key to disconnect the tab's dedicated connection
+    const compositeKey = `${connectionId}:${tabId}`;
+    import("@tauri-apps/api/core")
+      .then((tauri) => tauri.invoke("disconnect", { connId: compositeKey }))
+      .catch((err) => {
+        console.warn(
+          `Failed to disconnect tab connection ${compositeKey}:`,
+          err,
+        );
+      });
+
+    // Also invalidate related React Query caches
     clearConnectionCache(connectionId);
   }
 }

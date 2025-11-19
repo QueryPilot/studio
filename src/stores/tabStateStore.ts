@@ -28,6 +28,7 @@ interface QueryState {
   hasUnsavedChanges: boolean;
   lastExecutedQuery: string;
   lastSelectQuery: string | null; // Store last SELECT query for auto-refresh after mutations
+  inTransaction: boolean; // Track if this tab has an active transaction
 }
 
 interface TabStateStore {
@@ -70,6 +71,7 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
         hasUnsavedChanges: false,
         lastExecutedQuery: "",
         lastSelectQuery: null,
+        inTransaction: false,
       };
       newStates.set(tabId, { ...existing, ...state });
       return { queryStates: newStates };

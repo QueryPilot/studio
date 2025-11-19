@@ -340,10 +340,13 @@ impl ConnectionManager {
                     max_retries
                 );
 
+                // Extract base connection ID from composite key (format: {base_id}:{tab_id})
+                let base_conn_id = conn_id.split(':').next().unwrap_or(conn_id);
+
                 // Get stored profile (stored separately from connection for reconnection)
-                let profile = self
+                let mut profile = self
                     .profiles
-                    .get(conn_id)
+                    .get(base_conn_id)
                     .map(|p| p.clone())
                     .ok_or_else(|| {
                         AppError::internal(format!(
@@ -351,6 +354,9 @@ impl ConnectionManager {
                             conn_id
                         ))
                     })?;
+
+                // Use composite key as the connection ID for tab-specific connections
+                profile.id = conn_id.to_string();
 
                 // Try to reconnect
                 match self.get_or_create_connection(&profile).await {

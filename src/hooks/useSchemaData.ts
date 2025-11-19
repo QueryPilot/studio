@@ -17,23 +17,6 @@ interface SchemaData {
   refresh: () => Promise<QueryObserverResult<SchemaData>>;
 }
 
-// Track which schemas have been pre-warmed to avoid duplicate work
-const prewarmedSchemas = new Set<string>();
-
-// Export function to clear pre-warmed cache for a connection (useful on disconnect)
-export function clearPrewarmCache(connectionId?: string) {
-  if (connectionId) {
-    // Clear only entries for specific connection
-    const keysToDelete = Array.from(prewarmedSchemas).filter((key) =>
-      key.startsWith(`${connectionId}:`),
-    );
-    keysToDelete.forEach((key) => prewarmedSchemas.delete(key));
-  } else {
-    // Clear all entries
-    prewarmedSchemas.clear();
-  }
-}
-
 const loadSchemaData = async (
   connectionId: string,
   database?: string,
@@ -137,28 +120,6 @@ const loadSchemaData = async (
       },
       [],
     );
-
-    // Smart pre-warming: Only do it once per schema to avoid duplicate work
-    const schemaKey = `${connectionId}:${schema}`;
-    if (tableList.length > 0 && !prewarmedSchemas.has(schemaKey)) {
-      console.log(
-        `[useSchemaData] Triggering pre-warming for schema "${schema}" (${tableList.length} tables)`,
-      );
-      prewarmedSchemas.add(schemaKey);
-      Backend.prewarmSchemaTables(
-        connectionId,
-        schema,
-        tableList.map((t) => t.name),
-      ).catch((err: unknown) => {
-        // Log errors for debugging but don't fail schema load
-        console.warn(
-          `[useSchemaData] Pre-warming failed for schema "${schema}":`,
-          err,
-        );
-        // Remove from cache if it failed so it can be retried
-        prewarmedSchemas.delete(schemaKey);
-      });
-    }
 
     return {
       tables: tableList,

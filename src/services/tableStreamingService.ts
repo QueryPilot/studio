@@ -36,6 +36,7 @@ export interface StreamEntityPageParams {
   estimatedTotalHint?: number;
   onProgress?: (progress: StreamProgress) => void;
   onBatch?: (batch: TableDataRow[], rowOffset: number) => void;
+  tabId?: string; // Optional: for query tabs. If not provided, uses table-specific ID
 }
 
 export interface StreamEntityPageResult {
@@ -118,7 +119,11 @@ export async function streamEntityPage(
     onBatch,
     columnsHint,
     estimatedTotalHint,
+    tabId,
   } = params;
+
+  // Use provided tabId or generate table-specific ID for data browsing
+  const effectiveTabId = tabId ?? `table-view:${schema}.${entityName}`;
 
   const basePageSize = limit ?? pageSize;
   const effectivePageSize = Math.max(1, basePageSize);
@@ -186,6 +191,7 @@ export async function streamEntityPage(
     void queryStreamClient.streamWithCallbacks(
       {
         connId: connectionId,
+        tabId: effectiveTabId,
         sql,
         batchSize: fetchLimit,
       },
@@ -379,6 +385,7 @@ class TableStreamingService {
 
   async streamQuery(
     connectionId: string,
+    tabId: string,
     sql: string,
     pageSize?: number,
     onProgress?: (progress: StreamingProgress) => void,
@@ -408,6 +415,7 @@ class TableStreamingService {
         void queryStreamClient.streamWithCallbacks(
           {
             connId: connectionId,
+            tabId,
             sql,
             batchSize: pageSize,
             userLimitPreference,

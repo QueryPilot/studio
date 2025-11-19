@@ -673,6 +673,33 @@ fn is_select_query(sql: &str) -> bool {
 }
 
 /// Execute query with TRUE streaming (rows arrive as they're fetched from PostgreSQL)
+/// Check if SQL contains multiple statements (simple heuristic)
+fn is_multi_statement_query(sql: &str) -> bool {
+    // Count semicolons that are likely statement terminators
+    // This is a simple check - ignore semicolons in strings/comments for now
+    let trimmed = sql.trim();
+
+    // Check for transaction control keywords followed by semicolon
+    let sql_upper = trimmed.to_uppercase();
+    if sql_upper.contains("BEGIN;") || sql_upper.contains("COMMIT;") || sql_upper.contains("ROLLBACK;") {
+        return true;
+    }
+
+    // Count semicolons (simple check - may have false positives but that's okay)
+    let semicolon_count = trimmed.matches(';').count();
+
+    // If there's more than one semicolon, or one semicolon not at the end, it's multi-statement
+    if semicolon_count > 1 {
+        return true;
+    }
+
+    if semicolon_count == 1 && !trimmed.trim_end().ends_with(';') {
+        return true;
+    }
+
+    false
+}
+
 async fn execute_single_fetch_stream(
     sql: &str,
     metadata_channel: &tauri::ipc::Channel<StreamMessage>,
@@ -711,6 +738,43 @@ async fn execute_single_fetch_stream(
         "  🔍 Query running on PostgreSQL backend PID: {}",
         backend_pid
     );
+
+    // Check if this is a multi-statement query (transactions, multiple commands)
+    if is_multi_statement_query(sql) {
+        tracing::info!("  🔀 Detected multi-statement query, using simple_query protocol");
+
+        // Use simple_query for multi-statement support (no prepared statements)
+        let simple_start = std::time::Instant::now();
+        pool_conn
+            .batch_execute(sql)
+            .await
+            .map_err(|e| {
+                tracing::error!("❌ batch_execute failed: {:?}", e);
+                extract_db_error_message(&e)
+            })?;
+        let exec_elapsed = simple_start.elapsed().as_millis();
+        tracing::info!("  ⏱ Executed multi-statement batch: {}ms", exec_elapsed);
+
+        // For batch execution, we don't have row results to stream
+        // Send empty column set and success message
+        let _ = metadata_channel.send(StreamMessage::Started {
+            columns: vec![],
+            estimated_rows: Some(0),
+        });
+
+        let _ = metadata_channel.send(StreamMessage::Success {
+            total_rows: 0,
+            execution_time_ms: exec_elapsed as u64,
+            cursor_setup_ms: None,
+            total_streaming_ms: Some(exec_elapsed as u64),
+            fetch_count: None,
+            network_ms: Some(0),
+            conversion_ms: Some(0),
+            ipc_send_ms: Some(0),
+        });
+
+        return Ok(());
+    }
 
     // PREPARE statement - this is where the slowness happens on remote connections!
     let prepare_start = std::time::Instant::now();
@@ -1048,6 +1112,7 @@ async fn execute_single_fetch_stream(
 #[tauri::command]
 pub async fn stream_query(
     conn_id: String,
+    tab_id: String,
     sql: String,
     _batch_size: Option<usize>,
     user_limit_preference: Option<usize>,
@@ -1055,8 +1120,11 @@ pub async fn stream_query(
     data_channel: tauri::ipc::Channel<tauri::ipc::Response>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<(), String> {
+    // Use composite key for tab-specific connection (transaction isolation)
+    let connection_key = format!("{}:{}", conn_id, tab_id);
+
     let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
+        .get_connection_with_retry(&connection_key, 3)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -1092,7 +1160,9 @@ pub async fn stream_query(
     }
 
     tracing::info!("==========================================");
-    tracing::info!("FAST PATH (query_raw streaming): sql={}", final_sql);
+    tracing::info!("FAST PATH (query_raw streaming)");
+    tracing::info!("  connection_key: {}", connection_key);
+    tracing::info!("  sql: {}", final_sql);
     if let Some(limit) = applied_limit {
         tracing::info!("Auto-applied LIMIT {} (SELECT query)", limit);
     } else if !is_select {

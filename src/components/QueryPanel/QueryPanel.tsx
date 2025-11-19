@@ -88,6 +88,9 @@ export const QueryPanel = memo(function QueryPanel({
     globalState?.viewMode || "table",
   );
 
+  // Get transaction state from persisted store
+  const inTransaction = globalState?.inTransaction || false;
+
   // Editor ref for focusing
   const editorRef = useRef<CodeEditorRef>(null);
 
@@ -347,6 +350,7 @@ export const QueryPanel = memo(function QueryPanel({
 
         const streamPromise = tableStreamingService.streamQuery(
           effectiveConnectionId,
+          tabId,
           sql,
           pageSize,
           (progress) => {
@@ -433,19 +437,22 @@ export const QueryPanel = memo(function QueryPanel({
         // For transaction control commands
         else if (isTransaction) {
           if (sqlUpper.startsWith("BEGIN") || sqlUpper.startsWith("START TRANSACTION")) {
-            message = "⚠️ WARNING: Multi-statement transactions are not currently supported!\n\nEach query uses a different connection from the pool, so BEGIN/COMMIT/ROLLBACK don't work as expected.\n\nTo execute transactional operations:\n• Use a single multi-line query with a transaction block\n• Or wait for proper transaction support in a future update";
-            toast.error("Transaction commands don't work yet!", {
-              description: "Each query uses a different connection. Use a single query with transaction block instead.",
-              duration: 8000,
+            message = "Transaction started";
+            setQueryState(tabId, { inTransaction: true });
+            toast.success("Transaction started", {
+              description: "This tab now has an active transaction. All queries in this tab will be part of this transaction until you COMMIT or ROLLBACK.",
+              duration: 5000,
             });
           } else if (sqlUpper.startsWith("COMMIT")) {
-            message = "Transaction committed (WARNING: May not work as expected - see BEGIN warning)";
+            message = "Transaction committed successfully";
+            setQueryState(tabId, { inTransaction: false });
           } else if (sqlUpper.startsWith("ROLLBACK")) {
-            message = "Transaction rolled back (WARNING: May not work as expected - see BEGIN warning)";
+            message = "Transaction rolled back successfully";
+            setQueryState(tabId, { inTransaction: false });
           } else if (sqlUpper.startsWith("SAVEPOINT")) {
-            message = "Savepoint created (WARNING: May not work as expected - see BEGIN warning)";
+            message = "Savepoint created";
           } else if (sqlUpper.startsWith("RELEASE SAVEPOINT")) {
-            message = "Savepoint released (WARNING: May not work as expected - see BEGIN warning)";
+            message = "Savepoint released";
           }
         }
         // For configuration commands
@@ -745,7 +752,26 @@ export const QueryPanel = memo(function QueryPanel({
                 minSize={20}
                 className="border-none"
               >
-                <div className="flex flex-col h-full">
+                <div className="flex flex-col h-full relative">
+                  {/* Transaction indicator badge */}
+                  {inTransaction && (
+                    <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5 px-2 py-1 bg-yellow-500/90 dark:bg-yellow-600/90 text-yellow-950 dark:text-yellow-50 text-xs font-medium rounded-md shadow-md backdrop-blur-sm border border-yellow-600/20">
+                      <svg
+                        className="w-3 h-3"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                        />
+                      </svg>
+                      IN TRANSACTION
+                    </div>
+                  )}
                   <QueryEditor
                     ref={editorRef}
                     connectionId={effectiveConnectionId}
