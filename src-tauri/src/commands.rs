@@ -688,7 +688,12 @@ async fn execute_single_fetch_stream(
     let stmt = pool_conn
         .prepare(&sql)
         .await
-        .map_err(|e| format!("Failed to prepare statement: {}", e))?;
+        .map_err(|e| {
+            // Log the full error details for debugging
+            tracing::error!("❌ PREPARE failed: {:?}", e);
+            // Return detailed error message
+            format!("Failed to prepare statement: {:?}", e)
+        })?;
     let prepare_elapsed = prepare_start.elapsed().as_millis();
     tracing::info!("  ⏱ PREPARE statement: {}ms ⚠️", prepare_elapsed);
 
@@ -697,7 +702,10 @@ async fn execute_single_fetch_stream(
     let row_stream = pool_conn
         .query_raw(&stmt, std::iter::empty::<i32>())
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            tracing::error!("❌ query_raw failed: {:?}", e);
+            format!("Failed to execute query: {:?}", e)
+        })?;
     let exec_elapsed = query_start.elapsed().as_millis();
     tracing::info!("  ⏱ Started query_raw: {}ms", exec_elapsed);
 

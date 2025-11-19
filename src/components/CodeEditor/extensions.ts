@@ -39,12 +39,9 @@ import {
   search,
 } from "@codemirror/search";
 import type { SqlDialect, CodeEditorLanguage } from "./types";
-import { createSqlAutocomplete } from "./autocomplete";
 import { acceptCompletion } from "@codemirror/autocomplete";
 import { dbmlMixed } from "./languages/dbml/dbml-mixed";
 import { createSqlLinter } from "./languages/sql/sql-linter";
-import { parameterHints } from "./autocomplete/parameterHints";
-import { createSqlHoverTooltip } from "./autocomplete/hoverTooltip";
 
 // Enhanced SQL folding service using syntax tree for better nested support
 const sqlFoldService = foldService.of((state, from) => {
@@ -727,39 +724,6 @@ export const getEditorExtensions = (
   if (language === "sql") {
     // Pass dialect to linter for dialect-aware validation
     extensions.push(createSqlLinter(dialect), lintGutter());
-
-    if (!connectionId) {
-      console.warn(
-        "CodeEditor: skipping SQL autocomplete because no connectionId was provided.",
-      );
-    } else {
-      // Map dialect to dbType for hover tooltip
-      const dbTypeMap: Record<string, string> = {
-        postgresql: "PostgreSQL",
-        mysql: "MySQL",
-        sqlite: "SQLite",
-        plsql: "PostgreSQL",
-        mssql: "MSSQL",
-      };
-      const dbType = dbTypeMap[dialect || "postgresql"] || "PostgreSQL";
-
-      extensions.push(
-        createSqlAutocomplete({
-          connectionId,
-          dialect: dialect || "postgresql",
-          database,
-          schema,
-        }),
-        // Add function parameter hints
-        parameterHints(),
-        // Add hover documentation
-        createSqlHoverTooltip({
-          connectionId,
-          schema,
-          dbType,
-        }),
-      );
-    }
   }
 
   // Add tab handling: prioritize autocomplete acceptance over indentation

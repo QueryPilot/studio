@@ -7,6 +7,7 @@ export interface QueryResult {
   columnMeta?: ColumnMeta[];
   rows: unknown[][];
   rowCount: number;
+  affectedRows?: number; // For mutation queries (UPDATE, DELETE, etc.)
   executionTime?: number;
   cursorSetupMs?: number;
   totalStreamingMs?: number;

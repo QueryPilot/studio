@@ -1,6 +1,6 @@
 import { memo, useMemo } from "react";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, XCircle, Clipboard } from "lucide-react";
+import { AlertCircle, XCircle, Clipboard, CheckCircle } from "lucide-react";
 import { TableDataGridV2 } from "@/components/DataGridV2";
 import { DataGridSkeleton } from "@/components/DataGridV2/components/DataGridSkeleton";
 import { toast } from "sonner";
@@ -15,6 +15,7 @@ interface QueryResult {
   columnMeta?: ColumnMeta[];
   rows: unknown[][];
   rowCount: number;
+  affectedRows?: number;
   executionTime?: number;
   error?: string;
 }
@@ -129,7 +130,7 @@ export const ResultViewer = memo(function ResultViewer({
           <XCircle className="h-10 w-10 text-destructive" />
           <p className="text-sm font-semibold text-destructive">Query Error</p>
           <div className="relative w-full">
-            <div className="bg-destructive/10 border border-destructive/20 rounded-md p-4 pr-12">
+            <div className="bg-destructive/10 border border-destructive/20 rounded-md p-4 pr-12 overflow-auto max-h-[400px]">
               <pre className="text-xs text-destructive/90 whitespace-pre-wrap break-words font-mono select-text">
                 {result.error}
               </pre>
@@ -147,6 +148,40 @@ export const ResultViewer = memo(function ResultViewer({
           <p className="text-xs text-muted-foreground mt-2">
             Check your SQL syntax and connection status
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Handle mutation results (UPDATE, DELETE, INSERT)
+  if (result.affectedRows !== undefined) {
+    return (
+      <div
+        className={cn(
+          "flex items-center justify-center bg-muted/10 h-full",
+          className,
+        )}
+      >
+        <div className="flex flex-col items-center space-y-3">
+          <div className="h-12 w-12 rounded-full bg-green-500/10 flex items-center justify-center">
+            <CheckCircle className="h-6 w-6 text-green-600 dark:text-green-500" />
+          </div>
+          <div className="text-center space-y-1">
+            <p className="text-sm font-medium text-foreground">
+              Query executed successfully
+            </p>
+            <p className="text-2xl font-bold text-foreground">
+              {result.affectedRows.toLocaleString()}
+            </p>
+            <p className="text-xs text-muted-foreground">rows affected</p>
+          </div>
+          {result.executionTime !== undefined && (
+            <div className="pt-2 border-t border-border/50 w-full flex justify-center">
+              <p className="text-xs text-muted-foreground font-mono">
+                {result.executionTime}ms
+              </p>
+            </div>
+          )}
         </div>
       </div>
     );
