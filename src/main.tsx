@@ -16,6 +16,7 @@ import { CommandPalette } from "./components/CommandPalette/CommandPalette";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { initializeSentry } from "./utils/sentry";
 import { usePreferencesStore } from "./stores/preferencesStore";
+import { UpdateChecker } from "./components/UpdateChecker";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -50,8 +51,9 @@ if (process.env.NODE_ENV === "production") {
   window.addEventListener("contextmenu", (e) => {
     // Block native menu on context menu content itself to prevent double menus
     const target = e.target as HTMLElement;
-    const isOnContextMenu = target.closest('[data-slot="context-menu-content"]') ||
-                           target.closest('[data-radix-context-menu-content]');
+    const isOnContextMenu =
+      target.closest('[data-slot="context-menu-content"]') ||
+      target.closest("[data-radix-context-menu-content]");
 
     if (isOnContextMenu) {
       e.preventDefault();
@@ -74,6 +76,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
             <App />
             <Toaster richColors closeButton />
             <CommandPalette />
+            <UpdateChecker checkOnMount={true} />
           </ThemeProvider>
         </QueryClientProvider>
       </KeyboardProvider>

@@ -1,4 +1,4 @@
-.PHONY: help d dev build build-ai build-ai-all verify-sidecars dev-sidecar ds package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup version release test-ssh-setup test-ssh test-ssh-clean test-ssh-full setup-ssm-plugin
+.PHONY: help d dev build build-ai build-ai-all verify-sidecars dev-sidecar ds package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup version release release-publish release-manual generate-keys test-ssh-setup test-ssh test-ssh-clean test-ssh-full setup-ssm-plugin
 
 SSH_KEYGEN ?= ssh-keygen
 
@@ -49,9 +49,11 @@ help:
 	@echo "  make reseed-all     - Drop and reseed all databases (DELETES existing data)"
 	@echo ""
 	@echo "Release Management:"
-	@echo "  make release                - AI-powered release (auto version + changelog)"
+	@echo "  make release                - AI-powered release with cross-repo publishing"
+	@echo "  make release-publish V=0.5.0 - Publish built release to studio-app repo"
 	@echo "  make release-manual VERSION=1.2.3  - Manual release with specific version"
 	@echo "  make version VERSION=1.2.3  - Bump version only (no commit)"
+	@echo "  make generate-keys          - Generate Tauri updater signing keys"
 	@echo ""
 	@echo "Quick Start:"
 	@echo "  make setup          - Start containers and seed all databases"
@@ -294,9 +296,22 @@ setup: docker-up
 
 # Release Management
 
-# Smart AI-powered release (no version input needed!)
+# Generate Tauri updater signing keys (interactive)
+generate-keys:
+	@bash scripts/generate-updater-keys.sh
+
+# Smart AI-powered release with cross-repo publishing
 release:
-	@bash scripts/smart-release.sh
+	@bash scripts/smart-release-v2.sh
+
+# Publish built release to studio-app (after GitHub Actions completes)
+release-publish:
+	@if [ -z "$(V)" ]; then \
+		echo "❌ Error: Version not specified"; \
+		echo "Usage: make release-publish V=0.5.0"; \
+		exit 1; \
+	fi
+	@bash scripts/publish-to-app-repo.sh v$(V)
 
 # Manual release with specific version
 release-manual:
