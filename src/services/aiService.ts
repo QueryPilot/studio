@@ -100,3 +100,55 @@ export async function isProviderConfigured(
   return status.configuredProviders.includes(providerName);
 }
 
+export interface TextToSQLRequest {
+  prompt: string;
+  columns: Array<{
+    name: string;
+    dataType: string;
+    nullable: boolean;
+    enumValues?: string[];
+  }>;
+  tableName: string;
+  dialect: "postgresql" | "mysql" | "sqlite" | "mssql";
+  provider: string;
+  model: string;
+}
+
+export interface TextToSQLResponse {
+  whereClause?: string;
+  explanation?: string;
+  error?: string;
+}
+
+/**
+ * Convert natural language to SQL WHERE clause using AI
+ */
+export async function textToSQL(
+  params: TextToSQLRequest,
+): Promise<TextToSQLResponse> {
+  try {
+    const response = await fetch(`${AI_SIDECAR_URL}/text-to-sql`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+      signal: AbortSignal.timeout(30000), // 30 second timeout for AI
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return { error: data.error || "Failed to generate SQL" };
+    }
+
+    return {
+      whereClause: data.whereClause,
+      explanation: data.explanation,
+    };
+  } catch (error) {
+    console.error("[AIService] Text-to-SQL error:", error);
+    return {
+      error: error instanceof Error ? error.message : "Failed to generate SQL",
+    };
+  }
+}
+

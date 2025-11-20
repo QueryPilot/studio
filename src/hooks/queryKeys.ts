@@ -34,8 +34,9 @@ export const tableDataQueryKey = (params: {
     params.schema ?? null,
     params.entityType,
     params.entityName,
-    params.filters ?? null,
-    params.sorts ?? null,
+    // Serialize objects to ensure stable query keys
+    params.filters ? JSON.stringify(params.filters) : null,
+    params.sorts ? JSON.stringify(params.sorts) : null,
     params.limit ?? null,
     params.pageSize ?? null,
   ] as const;

@@ -532,31 +532,35 @@ export function AIAssistantSidebar() {
                     <ModelSelectorList>
                       <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
 
-                      {availableProviders.map((provider) => (
-                        <ModelSelectorGroup
-                          key={provider.name}
-                          heading={provider.name}
-                        >
-                          {provider.models.map((model) => (
-                            <ModelSelectorItem
-                              key={model}
-                              value={model}
-                              onSelect={() => {
-                                setProvider(provider.name);
-                                setModel(model);
-                                setModelSelectorOpen(false);
-                              }}
-                            >
-                              <ModelSelectorLogo provider={provider.name} />
-                              <ModelSelectorName>{model}</ModelSelectorName>
-                              {selectedProvider === provider.name &&
-                                selectedModel === model && (
-                                  <CheckIcon className="ml-auto size-4" />
-                                )}
-                            </ModelSelectorItem>
-                          ))}
-                        </ModelSelectorGroup>
-                      ))}
+                      {availableProviders
+                        .filter((provider) =>
+                          configuredProviders.includes(provider.name)
+                        )
+                        .map((provider) => (
+                          <ModelSelectorGroup
+                            key={provider.name}
+                            heading={provider.name}
+                          >
+                            {provider.models.map((model) => (
+                              <ModelSelectorItem
+                                key={model}
+                                value={model}
+                                onSelect={() => {
+                                  setProvider(provider.name);
+                                  setModel(model);
+                                  setModelSelectorOpen(false);
+                                }}
+                              >
+                                <ModelSelectorLogo provider={provider.name} />
+                                <ModelSelectorName>{model}</ModelSelectorName>
+                                {selectedProvider === provider.name &&
+                                  selectedModel === model && (
+                                    <CheckIcon className="ml-auto size-4" />
+                                  )}
+                              </ModelSelectorItem>
+                            ))}
+                          </ModelSelectorGroup>
+                        ))}
                     </ModelSelectorList>
                   </ModelSelectorContent>
                 </ModelSelector>

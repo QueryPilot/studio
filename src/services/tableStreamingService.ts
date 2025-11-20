@@ -89,18 +89,89 @@ function buildOrderBy(sorts?: SortConfig[]): string {
   return ` ORDER BY ${clauses.join(", ")}`;
 }
 
+function buildWhereClause(filters?: FilterConfig): string {
+  if (!filters || !filters.root || filters.root.conditions.length === 0) {
+    return "";
+  }
+
+  const buildCondition = (
+    condition: FilterConfig["root"]["conditions"][number],
+  ): string => {
+    if ("type" in condition && condition.type === "group") {
+      // Nested group
+      const subConditions = condition.conditions
+        .map(buildCondition)
+        .filter(Boolean);
+      if (subConditions.length === 0) return "";
+      return `(${subConditions.join(` ${condition.logical} `)})`;
+    }
+
+    // Simple condition
+    const col = quoteIdentifier(condition.column);
+    const op = condition.operator.toUpperCase();
+    const val = condition.value;
+
+    // Handle special operators
+    if (op === "IS NULL" || op === "IS NOT NULL") {
+      return `${col} ${op}`;
+    }
+
+    if (op === "IN" && Array.isArray(val)) {
+      const values = val
+        .map((v) =>
+          typeof v === "string" ? `'${v.replace(/'/g, "''")}'` : String(v),
+        )
+        .join(", ");
+      return `${col} IN (${values})`;
+    }
+
+    if (op === "BETWEEN" && Array.isArray(val) && val.length === 2) {
+      const [low, high] = val;
+      const lowStr =
+        typeof low === "string" ? `'${low.replace(/'/g, "''")}'` : String(low);
+      const highStr =
+        typeof high === "string"
+          ? `'${high.replace(/'/g, "''")}'`
+          : String(high);
+      return `${col} BETWEEN ${lowStr} AND ${highStr}`;
+    }
+
+    // Standard comparison
+    let valStr: string;
+    if (val === null || val === undefined) {
+      valStr = "NULL";
+    } else if (typeof val === "string") {
+      valStr = `'${val.replace(/'/g, "''")}'`;
+    } else if (typeof val === "boolean") {
+      valStr = val ? "TRUE" : "FALSE";
+    } else {
+      valStr = String(val);
+    }
+
+    return `${col} ${op} ${valStr}`;
+  };
+
+  const conditions = filters.root.conditions.map(buildCondition).filter(Boolean);
+  if (conditions.length === 0) {
+    return "";
+  }
+
+  return ` WHERE ${conditions.join(` ${filters.root.logical} `)}`;
+}
+
 function buildTableSql(
   params: StreamEntityPageParams,
   limit: number,
   offset: number,
 ): string {
-  const { schema, entityName, select, sorts } = params;
+  const { schema, entityName, select, filters, sorts } = params;
   const base = buildQualifiedName(schema, entityName);
+  const whereClause = buildWhereClause(filters);
   const orderClause = buildOrderBy(sorts);
 
   return `SELECT ${buildSelectClause(
     select,
-  )} FROM ${base}${orderClause} LIMIT ${limit} OFFSET ${offset}`;
+  )} FROM ${base}${whereClause}${orderClause} LIMIT ${limit} OFFSET ${offset}`;
 }
 
 export async function streamEntityPage(

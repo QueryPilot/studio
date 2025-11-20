@@ -3,6 +3,7 @@ import { handleStatus } from "./status";
 import { handleConfig } from "./config";
 import { handleProviders } from "./providers";
 import { handleChatStream } from "./chat";
+import { handleTextToSQL } from "./text-to-sql";
 
 export const routes = {
   "/health": handleHealth,
@@ -10,4 +11,5 @@ export const routes = {
   "/config": handleConfig,
   "/providers": handleProviders,
   "/chat": handleChatStream,
+  "/text-to-sql": handleTextToSQL,
 };

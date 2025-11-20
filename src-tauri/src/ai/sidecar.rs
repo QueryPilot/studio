@@ -61,12 +61,19 @@ impl SidecarManager {
         // Store the child process
         *self.process_handle.write().await = Some(child);
 
-        // Wait a bit for the server to start
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-        // Verify the server is running
-        if !self.check_health(port).await {
-            return Err(anyhow!("AI sidecar failed to start"));
+        // Wait for the server to start with retries
+        let mut attempts = 0;
+        let max_attempts = 10;
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+            if self.check_health(port).await {
+                break;
+            }
+            attempts += 1;
+            if attempts >= max_attempts {
+                return Err(anyhow!("AI sidecar failed to start after {} attempts", max_attempts));
+            }
+            tracing::debug!("Waiting for AI sidecar to start (attempt {}/{})", attempts, max_attempts);
         }
 
         *self.port.write().await = Some(port);
