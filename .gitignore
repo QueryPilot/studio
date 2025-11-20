@@ -33,6 +33,10 @@ src-tauri/sidecars/qp-ai-*
 !src-tauri/sidecars/.gitkeep
 !src-tauri/sidecars/manifest.json
 
+# Tauri updater signing keys (NEVER commit these!)
+.tauri/
+*.key
+
 # Environment variables
 .env
 .env.local
