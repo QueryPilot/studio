@@ -26,6 +26,17 @@ import {
 import { DataGridSkeleton } from "../components/DataGridSkeleton";
 import { DataGridStatusBar } from "../components/DataGridStatusBar";
 import { StagingActionsToolbar } from "../components/StagingActionsToolbar";
+import { QuickFilter, type QuickFilterRef } from "../components/QuickFilter";
+import { useAIFilter } from "../hooks/useAIFilter";
+import {
+  parseSimpleSearch,
+  parseWhereClause,
+  sanitizeInput,
+  detectFilterMode,
+  type FilterMode,
+  type ColumnMeta as FilterColumnMeta,
+} from "@/utils/filterParser";
+import type { FilterConfig } from "@/types/filter";
 import {
   usePersistentViewState,
   useClipboardBridge,
@@ -171,10 +182,17 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const { gridId, className } = props;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const gridRef = useRef<EditableDataGridRef>(null);
+  const quickFilterRef = useRef<QuickFilterRef>(null);
   const [isGridFocused, setIsGridFocused] = useState(false);
   const [isEditingCell, setIsEditingCell] = useState(false);
   const scopeId = useScopedKeybindings(gridId);
   const [showDetailsSheet, setShowDetailsSheet] = useState(false);
+
+  // Quick filter state
+  const [quickFilterValue, setQuickFilterValue] = useState("");
+  const [quickFilterMode, setQuickFilterMode] = useState<FilterMode>("search");
+  const [quickFilterError, setQuickFilterError] = useState<string | null>(null);
+  const [activeFilter, setActiveFilter] = useState<FilterConfig | undefined>(undefined);
 
   useContextKey("dataGridFocus", isGridFocused, {
     scopeId,
@@ -326,7 +344,99 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     enabled: isTableMode,
     pageSize: 300,
     sorts: defaultSorts,
+    filters: activeFilter,
   });
+
+  // Convert column metadata for filter parser
+  const filterColumns = useMemo<FilterColumnMeta[]>(() => {
+    return tableDataQuery.columns.map((col) => ({
+      name: col.name,
+      dataType: col.db_type,
+      nullable: col.nullable ?? true,
+      enumValues: col.enum_values,
+    }));
+  }, [tableDataQuery.columns]);
+
+  // AI Filter hook - detect dialect from connection (default to postgresql)
+  const { generateFilter: generateAIFilter, isLoading: isAIFilterLoading } =
+    useAIFilter(filterColumns, table, "postgresql");
+
+  // Handle filter submission
+  const handleFilterSubmit = useCallback(async () => {
+    setQuickFilterError(null);
+
+    const sanitized = sanitizeInput(quickFilterValue, quickFilterMode);
+    if (!sanitized) {
+      setActiveFilter(undefined);
+      return;
+    }
+
+    switch (quickFilterMode) {
+      case "search": {
+        const filter = parseSimpleSearch(sanitized, filterColumns);
+        setActiveFilter(filter.root.conditions.length > 0 ? filter : undefined);
+        break;
+      }
+      case "where": {
+        const result = parseWhereClause(sanitized, filterColumns);
+        if (result.success) {
+          setActiveFilter(result.filter);
+        } else {
+          setQuickFilterError(result.error || "Invalid WHERE clause");
+        }
+        break;
+      }
+      case "ai": {
+        const result = await generateAIFilter(sanitized);
+        if ("error" in result) {
+          setQuickFilterError(result.error);
+        } else {
+          // Parse the generated clause
+          const parseResult = parseWhereClause(result.clause, filterColumns);
+          if (parseResult.success) {
+            setActiveFilter(parseResult.filter);
+            // Update the input to show the generated clause with ? prefix for WHERE mode
+            setQuickFilterValue(`?${result.clause}`);
+            setQuickFilterMode("where");
+          } else {
+            setQuickFilterError(parseResult.error || "Failed to parse AI result");
+          }
+        }
+        break;
+      }
+    }
+  }, [quickFilterValue, quickFilterMode, filterColumns, generateAIFilter]);
+
+  // Keyboard shortcuts for focusing quick filter (Cmd+F or /)
+  useEffect(() => {
+    if (!isTableMode) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd+F or Ctrl+F
+      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+        e.preventDefault();
+        quickFilterRef.current?.focus();
+        return;
+      }
+      // / key (when not in input)
+      if (
+        e.key === "/" &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        document.activeElement?.tagName !== "INPUT" &&
+        document.activeElement?.tagName !== "TEXTAREA"
+      ) {
+        e.preventDefault();
+        quickFilterRef.current?.focus();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isTableMode]);
 
   useEffect(() => {
     if (!isTableMode) {
@@ -1857,6 +1967,55 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   }
 
   if (!isLoading && rowsRef.current.length === 0) {
+    // Show different message when filter is active
+    if (isTableMode && activeFilter) {
+      return (
+        <div className="flex h-full flex-col">
+          {/* Keep the filter toolbar visible */}
+          {filterColumns.length > 0 && (
+            <div className="flex-none border-b px-2 py-1.5 bg-background">
+              <QuickFilter
+                ref={quickFilterRef}
+                columns={filterColumns}
+                value={quickFilterValue}
+                mode={quickFilterMode}
+                onValueChange={(value) => {
+                  setQuickFilterValue(value);
+                  setQuickFilterError(null);
+                  const detectedMode = detectFilterMode(value);
+                  if (detectedMode !== quickFilterMode) {
+                    setQuickFilterMode(detectedMode);
+                  }
+                  if (!value.trim()) {
+                    setActiveFilter(undefined);
+                  }
+                }}
+                onModeChange={setQuickFilterMode}
+                onSubmit={handleFilterSubmit}
+                isLoading={isAIFilterLoading}
+                error={quickFilterError}
+              />
+            </div>
+          )}
+          <div className="flex flex-col items-center justify-center flex-1 gap-4">
+            <p className="text-muted-foreground">
+              No results match your filter
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setQuickFilterValue("");
+                setActiveFilter(undefined);
+                setQuickFilterError(null);
+              }}
+            >
+              Clear Filter
+            </Button>
+          </div>
+        </div>
+      );
+    }
     return <DataGridEmptyState />;
   }
 
@@ -1866,6 +2025,35 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   return (
     <div className="flex h-full flex-col">
+      {/* Quick Filter toolbar - only in table mode */}
+      {isTableMode && filterColumns.length > 0 && (
+        <div className="flex-none border-b px-2 py-1.5 bg-background">
+          <QuickFilter
+            ref={quickFilterRef}
+            columns={filterColumns}
+            value={quickFilterValue}
+            mode={quickFilterMode}
+            onValueChange={(value) => {
+              setQuickFilterValue(value);
+              setQuickFilterError(null);
+              // Auto-detect mode from prefix
+              const detectedMode = detectFilterMode(value);
+              if (detectedMode !== quickFilterMode) {
+                setQuickFilterMode(detectedMode);
+              }
+              // Clear filter if input is empty
+              if (!value.trim()) {
+                setActiveFilter(undefined);
+              }
+            }}
+            onModeChange={setQuickFilterMode}
+            onSubmit={handleFilterSubmit}
+            isLoading={isAIFilterLoading}
+            error={quickFilterError}
+          />
+        </div>
+      )}
+
       <div
         ref={containerRef}
         tabIndex={0}

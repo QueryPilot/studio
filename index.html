@@ -7,7 +7,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Query Pilot</title>
   <script>
-    (function() {
+    (function () {
       const storageKey = 'query-pilot-theme';
       const savedTheme = localStorage.getItem(storageKey);
       const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -26,6 +26,7 @@
       --loader-primary: 37 97% 53%;
       --loader-muted: 240 3.8% 46.1%;
     }
+
     .dark {
       --loader-bg: 240 10% 3.9%;
       --loader-fg: 0 0% 90%;
@@ -33,6 +34,7 @@
       --loader-primary: 37 97% 53%;
       --loader-muted: 240 5% 60%;
     }
+
     #root-loader {
       display: flex;
       flex-direction: column;
@@ -43,12 +45,14 @@
       background: hsl(var(--loader-bg));
       color: hsl(var(--loader-fg));
     }
+
     #root-loader img {
       width: 80px;
       height: 80px;
       border-radius: 16px;
       margin-bottom: 24px;
     }
+
     #root-loader .spinner {
       width: 32px;
       height: 32px;
@@ -58,15 +62,24 @@
       animation: spin 1s linear infinite;
       margin-bottom: 12px;
     }
+
     #root-loader .text {
       color: hsl(var(--loader-muted));
-      font-size: 14px;
-      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 12px;
+      font-family: Noto Sans, system-ui, -apple-system, sans-serif;
+      font-weight: 500;
     }
+
     @keyframes spin {
-      to { transform: rotate(360deg); }
+      to {
+        transform: rotate(360deg);
+      }
     }
-    body { margin: 0; padding: 0; }
+
+    body {
+      margin: 0;
+      padding: 0;
+    }
   </style>
 </head>
 
