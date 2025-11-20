@@ -288,7 +288,7 @@ export function PromptInputAttachment({
       <HoverCardTrigger asChild>
         <div
           className={cn(
-            "group relative flex h-8 cursor-default select-none items-center gap-1.5 rounded-md border border-border px-1.5 font-medium text-sm transition-all hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
+            "group relative flex h-8 cursor-default select-none items-center gap-1.5 rounded-lg border border-border px-1.5 font-medium text-xs transition-all hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
             className,
           )}
           key={data.id}
@@ -299,7 +299,7 @@ export function PromptInputAttachment({
               {isImage ? (
                 <img
                   alt={filename || "attachment"}
-                  className="size-5 object-cover"
+                  className="size-5 min-w-5 min-h-5 object-cover"
                   height={20}
                   src={data.url}
                   width={20}
@@ -343,7 +343,7 @@ export function PromptInputAttachment({
           )}
           <div className="flex items-center gap-2.5">
             <div className="min-w-0 flex-1 space-y-1 px-0.5">
-              <h4 className="truncate font-semibold text-sm leading-none">
+              <h4 className="truncate font-semibold text-xs leading-none">
                 {filename || (isImage ? "Image" : "Attachment")}
               </h4>
               {data.mediaType && (
@@ -379,7 +379,7 @@ export function PromptInputAttachments({
 
   return (
     <div
-      className={cn("flex flex-wrap items-center gap-2 p-3", className)}
+      className={cn("flex flex-wrap items-center gap-1.5 p-1.5", className)}
       {...props}
     >
       {attachments.files.map((file) => (
@@ -545,46 +545,62 @@ export const PromptInput = ({
     [matchesAccept, maxFiles, maxFileSize, onError],
   );
 
-  const add = usingProvider
-    ? (files: File[] | FileList) => {
-        controller.attachments.add(files);
-      }
-    : addLocal;
-
-  const remove = usingProvider
-    ? (id: string) => {
-        controller.attachments.remove(id);
-      }
-    : (id: string) => {
-        setItems((prev) => {
-          const found = prev.find((file) => file.id === id);
-          if (found?.url) {
-            URL.revokeObjectURL(found.url);
+  const add = useMemo(
+    () =>
+      usingProvider
+        ? (files: File[] | FileList) => {
+            controller.attachments.add(files);
           }
-          return prev.filter((file) => file.id !== id);
-        });
-      };
+        : addLocal,
+    [usingProvider, controller, addLocal],
+  );
 
-  const clear = usingProvider
-    ? () => {
-        controller.attachments.clear();
-      }
-    : () => {
-        setItems((prev) => {
-          for (const file of prev) {
-            if (file.url) {
-              URL.revokeObjectURL(file.url);
-            }
+  const remove = useMemo(
+    () =>
+      usingProvider
+        ? (id: string) => {
+            controller.attachments.remove(id);
           }
-          return [];
-        });
-      };
+        : (id: string) => {
+            setItems((prev) => {
+              const found = prev.find((file) => file.id === id);
+              if (found?.url) {
+                URL.revokeObjectURL(found.url);
+              }
+              return prev.filter((file) => file.id !== id);
+            });
+          },
+    [usingProvider, controller, setItems],
+  );
 
-  const openFileDialog = usingProvider
-    ? () => {
-        controller.attachments.openFileDialog();
-      }
-    : openFileDialogLocal;
+  const clear = useMemo(
+    () =>
+      usingProvider
+        ? () => {
+            controller.attachments.clear();
+          }
+        : () => {
+            setItems((prev) => {
+              for (const file of prev) {
+                if (file.url) {
+                  URL.revokeObjectURL(file.url);
+                }
+              }
+              return [];
+            });
+          },
+    [usingProvider, controller, setItems],
+  );
+
+  const openFileDialog = useMemo(
+    () =>
+      usingProvider
+        ? () => {
+            controller.attachments.openFileDialog();
+          }
+        : openFileDialogLocal,
+    [usingProvider, controller, openFileDialogLocal],
+  );
 
   // Let provider know about our hidden file input so external menus can call openFileDialog()
   useEffect(() => {
@@ -606,12 +622,12 @@ export const PromptInput = ({
     if (!form) return;
 
     const onDragOver = (e: DragEvent) => {
-      if (e.dataTransfer?.types?.includes("Files")) {
+      if (e.dataTransfer?.types.includes("Files")) {
         e.preventDefault();
       }
     };
     const onDrop = (e: DragEvent) => {
-      if (e.dataTransfer?.types?.includes("Files")) {
+      if (e.dataTransfer?.types.includes("Files")) {
         e.preventDefault();
       }
       if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
@@ -630,12 +646,12 @@ export const PromptInput = ({
     if (!globalDrop) return;
 
     const onDragOver = (e: DragEvent) => {
-      if (e.dataTransfer?.types?.includes("Files")) {
+      if (e.dataTransfer?.types.includes("Files")) {
         e.preventDefault();
       }
     };
     const onDrop = (e: DragEvent) => {
-      if (e.dataTransfer?.types?.includes("Files")) {
+      if (e.dataTransfer?.types.includes("Files")) {
         e.preventDefault();
       }
       if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
@@ -710,9 +726,9 @@ export const PromptInput = ({
     }
 
     // Convert blob URLs to data URLs asynchronously
-    Promise.all(
-      files.map(async ({ id, ...item }) => {
-        if (item.url?.startsWith("blob:")) {
+    void Promise.all(
+      files.map(async ({ id: _, ...item }) => {
+        if (item.url.startsWith("blob:")) {
           return {
             ...item,
             url: await convertBlobUrlToDataUrl(item.url),
@@ -733,8 +749,9 @@ export const PromptInput = ({
                 controller.textInput.clear();
               }
             })
-            .catch(() => {
+            .catch((err: unknown) => {
               // Don't clear on error - user may want to retry
+              console.error(err);
             });
         } else {
           // Sync function completed without throwing, clear attachments
@@ -744,7 +761,7 @@ export const PromptInput = ({
           }
         }
       } catch (error) {
-        // Don't clear on error - user may want to retry
+        console.error(error);
       }
     });
   };

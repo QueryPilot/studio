@@ -365,14 +365,24 @@ export const get_table_statistics = tool({
   parameters: z.object({
     connectionId: connectionIdSchema.describe("The database connection ID"),
     schema: schemaNameSchema.describe("The schema name"),
-    table: tableSchema.describe("The table name"),
+    table: tableSchema.optional().describe("The table name"),
+    table_name: z.string().optional().describe("Alias for table name"),
   }),
-  execute: async ({ connectionId, schema, table }) => {
+  execute: async ({ connectionId, schema, table, table_name }) => {
+    const tableName = table || table_name;
+    if (!tableName) {
+      return {
+        success: false,
+        error: "Table name is required (use 'table' parameter)",
+        errorCode: "MISSING_TABLE",
+      };
+    }
+
     try {
       const count = await callTauri("get_table_count", {
         conn_id: connectionId,
         schema,
-        table,
+        table: tableName,
       });
 
       return {
@@ -380,7 +390,7 @@ export const get_table_statistics = tool({
         statistics: {
           rowCount: count,
           schema,
-          table,
+          table: tableName,
         },
       };
     } catch (error) {
