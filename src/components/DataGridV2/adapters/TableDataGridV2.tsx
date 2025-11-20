@@ -183,42 +183,62 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   // Debug: Log when dataGridFocus context changes
   useEffect(() => {
-    console.log(`[TableDataGridV2 ${gridId}] dataGridFocus context updated:`, isGridFocused, `(scope: ${scopeId})`);
+    console.log(
+      `[TableDataGridV2 ${gridId}] dataGridFocus context updated:`,
+      isGridFocused,
+      `(scope: ${scopeId})`,
+    );
   }, [isGridFocused, gridId, scopeId]);
 
   const handleContainerClick = useCallback(() => {
     // Don't steal focus if a cell is being edited
     if (isEditingCell) {
-      console.log(`[TableDataGridV2 ${gridId}] Cell is being edited, skipping grid focus`);
+      console.log(
+        `[TableDataGridV2 ${gridId}] Cell is being edited, skipping grid focus`,
+      );
       return;
     }
 
-    console.log(`[TableDataGridV2 ${gridId}] Container clicked, forcing grid focus`);
+    console.log(
+      `[TableDataGridV2 ${gridId}] Container clicked, forcing grid focus`,
+    );
     // Focus the Glide grid canvas directly, not the container
     // This is required for Glide's native copy/paste to work
     if (gridRef.current) {
       gridRef.current.focus();
-      console.log(`[TableDataGridV2 ${gridId}] Grid focused, active element:`, document.activeElement);
+      console.log(
+        `[TableDataGridV2 ${gridId}] Grid focused, active element:`,
+        document.activeElement,
+      );
     }
   }, [gridId, isEditingCell]);
 
   const handleFocusCapture = useCallback(() => {
-    console.log(`[TableDataGridV2 ${gridId}] handleFocusCapture - setting dataGridFocus=true`);
+    console.log(
+      `[TableDataGridV2 ${gridId}] handleFocusCapture - setting dataGridFocus=true`,
+    );
     setIsGridFocused(true);
   }, [gridId]);
 
-  const handleBlurCapture = useCallback((event: FocusEvent<HTMLDivElement>) => {
-    const nextTarget = event.relatedTarget as Node | null;
-    if (!containerRef.current) {
-      console.log(`[TableDataGridV2 ${gridId}] handleBlurCapture - no container, setting dataGridFocus=false`);
-      setIsGridFocused(false);
-      return;
-    }
-    if (!nextTarget || !containerRef.current.contains(nextTarget)) {
-      console.log(`[TableDataGridV2 ${gridId}] handleBlurCapture - focus left container, setting dataGridFocus=false`);
-      setIsGridFocused(false);
-    }
-  }, [gridId]);
+  const handleBlurCapture = useCallback(
+    (event: FocusEvent<HTMLDivElement>) => {
+      const nextTarget = event.relatedTarget as Node | null;
+      if (!containerRef.current) {
+        console.log(
+          `[TableDataGridV2 ${gridId}] handleBlurCapture - no container, setting dataGridFocus=false`,
+        );
+        setIsGridFocused(false);
+        return;
+      }
+      if (!nextTarget || !containerRef.current.contains(nextTarget)) {
+        console.log(
+          `[TableDataGridV2 ${gridId}] handleBlurCapture - focus left container, setting dataGridFocus=false`,
+        );
+        setIsGridFocused(false);
+      }
+    },
+    [gridId],
+  );
 
   const isTableMode = props.mode === "table";
   const isQueryMode = props.mode === "query";
@@ -939,11 +959,17 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       (gridSelection?.columns && gridSelection.columns.length > 0) ||
       gridSelection?.current !== undefined;
 
-    if (currentHasSelection || displayRows.length === 0 || finalColumns.length === 0) {
+    if (
+      currentHasSelection ||
+      displayRows.length === 0 ||
+      finalColumns.length === 0
+    ) {
       return;
     }
 
-    console.log(`[TableDataGridV2 ${gridId}] Auto-selecting first cell on focus`);
+    console.log(
+      `[TableDataGridV2 ${gridId}] Auto-selecting first cell on focus`,
+    );
 
     // Select the first cell (row 0, column 0)
     const firstCellSelection: GridSelection = {
@@ -1777,8 +1803,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       let finalCell = gridCell;
 
       // Apply truncation if needed (but not for query plan columns)
-      const isQueryPlanColumn = column.title?.toLowerCase() === "query plan" ||
-                                 column.title?.toLowerCase() === "explain";
+      const isQueryPlanColumn =
+        column.title.toLowerCase() === "query plan" ||
+        column.title.toLowerCase() === "explain";
       const widthCap =
         typeof (column as { width?: number }).width === "number"
           ? (column as { width?: number }).width
@@ -1894,6 +1921,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             onCellEditCancel={handleCellEditCancel}
             onRowAppend={handleRowAppend}
             onRowDelete={handleRowDelete}
+            overscrollX={0}
+            overscrollY={100}
+            maxColumnWidth={2000}
             onColumnResize={(col, size) => {
               handleColumnResize(col, size);
             }}

@@ -173,8 +173,36 @@ fn main() {
         }
     });
 
-    // Run the app
-    app.run(|_app_handle, _event| {});
+    // Run the app with proper cleanup
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { .. } = event {
+            tracing::info!("🛑 Application exit requested, cleaning up resources...");
+
+            // Stop AI sidecar
+            if let Some(ai_manager) = app_handle.try_state::<Arc<AIManager>>() {
+                let ai_manager = ai_manager.inner().clone();
+                tauri::async_runtime::block_on(async move {
+                    if let Err(e) = ai_manager.sidecar_manager().stop().await {
+                        tracing::error!("Failed to stop AI sidecar: {}", e);
+                    }
+                });
+            }
+
+            // Disconnect all database connections and close tunnels
+            if let Some(manager) = app_handle.try_state::<Arc<core::manager::ConnectionManager>>() {
+                let manager = manager.inner().clone();
+                tauri::async_runtime::block_on(async move {
+                    if let Err(e) = manager.disconnect_all().await {
+                        tracing::error!("Failed to disconnect all connections: {}", e);
+                    } else {
+                        tracing::info!("✅ All database connections closed");
+                    }
+                });
+            }
+
+            tracing::info!("✅ Cleanup completed, exiting...");
+        }
+    });
 }
 
 #[cfg(target_os = "macos")]

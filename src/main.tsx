@@ -76,7 +76,6 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
             <App />
             <Toaster richColors closeButton />
             <CommandPalette />
-            <UpdateChecker checkOnMount={true} />
           </ThemeProvider>
         </QueryClientProvider>
       </KeyboardProvider>

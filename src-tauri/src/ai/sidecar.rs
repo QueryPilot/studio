@@ -1,10 +1,9 @@
 use anyhow::{anyhow, Result};
-use std::sync::Arc;
 use tokio::sync::RwLock;
 
 pub struct SidecarManager {
     port: RwLock<Option<u16>>,
-    process_handle: RwLock<Option<Arc<tauri_plugin_shell::process::CommandChild>>>,
+    process_handle: RwLock<Option<tauri_plugin_shell::process::CommandChild>>,
 }
 
 impl SidecarManager {
@@ -60,7 +59,7 @@ impl SidecarManager {
         });
 
         // Store the child process
-        *self.process_handle.write().await = Some(Arc::new(child));
+        *self.process_handle.write().await = Some(child);
 
         // Wait a bit for the server to start
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
@@ -79,9 +78,15 @@ impl SidecarManager {
     /// Stop the AI sidecar process
     pub async fn stop(&self) -> Result<()> {
         let mut handle = self.process_handle.write().await;
-        if let Some(_child) = handle.take() {
-            // The process will be killed when the Arc is dropped
-            tracing::info!("Stopping AI sidecar");
+        if let Some(child) = handle.take() {
+            tracing::info!("Stopping AI sidecar process");
+
+            // Kill the process explicitly
+            if let Err(e) = child.kill() {
+                tracing::warn!("Failed to kill AI sidecar process: {}", e);
+            } else {
+                tracing::info!("AI sidecar process killed successfully");
+            }
         }
 
         *self.port.write().await = None;
