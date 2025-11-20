@@ -339,9 +339,9 @@ export function AIAssistantSidebar() {
       </div>
 
       {/* Main chat area */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <Conversation className="flex-1">
-          <ConversationContent className="gap-2 p-2">
+      <div className="relative flex size-full flex-col overflow-hidden">
+        <Conversation className="overflow-hidden">
+          <ConversationContent className="gap-2 p-2 overflow-hidden">
             {messages.length === 0 && (
               <div className="flex items-center justify-center h-full p-8">
                 <div className="text-center text-muted-foreground space-y-2 max-w-sm">
@@ -364,35 +364,31 @@ export function AIAssistantSidebar() {
                   {message.parts.map((part, i) => {
                     const isLastMessage = messageIndex === messages.length - 1;
 
-                    // Handle tool invocation parts
+                    // Handle tool invocation parts (type is "tool-{toolName}")
                     if (part.type.startsWith("tool-")) {
-                      const toolPart = part as any; // Tool invocation part
+                      const toolPart = part as any;
+                      const toolName = part.type.replace("tool-", "");
                       return (
-                        <Tool key={`${message.id}-${i}`} defaultOpen>
+                        <Tool key={`${message.id}-${i}`}>
                           <ToolHeader
                             state={toolPart.state}
-                            title={toolPart.toolName}
+                            title={toolName}
                             type={part.type as `tool-${string}`}
                           />
                           <ToolContent>
-                            <ToolInput input={toolPart.args} />
-                            {(toolPart.state === "result" ||
-                              toolPart.state === "output-available") &&
-                              toolPart.result && (
+                            <ToolInput input={toolPart.input} />
+                            {toolPart.state === "output-available" &&
+                              toolPart.output && (
                                 <ToolOutput
-                                  output={
-                                    typeof toolPart.result === "string"
-                                      ? toolPart.result
-                                      : JSON.stringify(toolPart.result, null, 2)
-                                  }
+                                  output={toolPart.output}
                                   errorText={undefined}
                                 />
                               )}
-                            {toolPart.state === "error" && (
+                            {toolPart.state === "output-error" && (
                               <ToolOutput
                                 output={undefined}
                                 errorText={
-                                  toolPart.error || "Tool execution failed"
+                                  toolPart.errorText || "Tool execution failed"
                                 }
                               />
                             )}
@@ -405,7 +401,7 @@ export function AIAssistantSidebar() {
                       case "text":
                         return (
                           <Fragment key={`${message.id}-${i}`}>
-                            <MessageResponse className="text-xs">
+                            <MessageResponse className="!text-xs">
                               {part.text}
                             </MessageResponse>
 
@@ -453,14 +449,19 @@ export function AIAssistantSidebar() {
                 </MessageContent>
               </Message>
             ))}
-            {chatStatus === "submitted" && <Loader />}
+            {chatStatus === "submitted" && (
+              <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+                <Loader className="size-3 animate-spin" />
+                <span>Thinking...</span>
+              </div>
+            )}
           </ConversationContent>
           <ConversationScrollButton />
         </Conversation>
 
         {/* Suggestions */}
         {messages.length === 0 && (
-          <div className="px-4 pb-2">
+          <div className="px-2">
             <Suggestions>
               {suggestions.slice(0, 4).map((suggestion) => (
                 <Suggestion
@@ -476,9 +477,13 @@ export function AIAssistantSidebar() {
         )}
 
         {/* Input area */}
-        <div className="p-4 border-t">
-          <PromptInput multiple onSubmit={handlePromptSubmit}>
-            <PromptInputHeader>
+        <div className="p-2">
+          <PromptInput
+            multiple
+            onSubmit={handlePromptSubmit}
+            className="rounded-lg"
+          >
+            <PromptInputHeader className="p-0">
               <PromptInputAttachments>
                 {(attachment) => <PromptInputAttachment data={attachment} />}
               </PromptInputAttachments>

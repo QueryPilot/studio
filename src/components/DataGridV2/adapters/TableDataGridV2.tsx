@@ -1923,7 +1923,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             onRowDelete={handleRowDelete}
             overscrollX={0}
             overscrollY={100}
-            maxColumnWidth={2000}
+            maxColumnWidth={1000}
             onColumnResize={(col, size) => {
               handleColumnResize(col, size);
             }}

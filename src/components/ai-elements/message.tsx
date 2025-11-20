@@ -304,9 +304,16 @@ export const MessageResponse = memo(
   ({ className, ...props }: MessageResponseProps) => (
     <Streamdown
       className={cn(
-        "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 select-text",
+        "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 select-text [&>code]:text-xs",
         className,
       )}
+      components={{
+        code: ({ children, ...props }) => (
+          <code className="text-xs" {...props}>
+            {children}
+          </code>
+        ),
+      }}
       {...props}
     />
   ),
