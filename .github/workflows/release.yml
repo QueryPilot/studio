@@ -1,15 +1,16 @@
-name: Release Build
+name: Release Build (Enhanced with Updater)
 
 on:
-  # workflow_dispatch: # Manual triggering only (disabled auto-trigger)
-  #   inputs:
-  #     tag:
-  #       description: "Release tag (e.g., v1.0.0)"
-  #       required: true
-  #       type: string
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      publish_to_app_repo:
+        description: "Publish to QueryPilot/studio-app?"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write # Required for creating releases
@@ -213,6 +214,9 @@ jobs:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG || 'query-pilot' }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT || 'query-pilot' }}
+          # GitHub token for update checker (read-only, compiled into Rust binary)
+          # Use separate token from RELEASE_PAT which needs write access for publishing
+          GITHUB_RELEASE_TOKEN: ${{ secrets.UPDATE_CHECKER_PAT }}
         shell: bash
         run: |
           # Build frontend with Sentry source maps (if SENTRY_AUTH_TOKEN is set)
@@ -273,10 +277,231 @@ jobs:
             src-tauri/target/${{ matrix.target }}/release/bundle/
           retention-days: 3
 
-  finalize-release:
-    name: Finalize Release
+  generate-updater-manifest:
+    name: Generate Updater Manifest
     needs: [create-release, build-release]
     runs-on: ubuntu-latest
+    if: success()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download release assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          echo "📥 Downloading release assets..."
+          gh release download "$VERSION" --pattern "*.dmg"
+          ls -lh *.dmg
+
+      - name: Generate update manifest
+        env:
+          VERSION: ${{ needs.create-release.outputs.version }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+        run: |
+          echo "📄 Generating update manifest..."
+
+          VERSION_NUMBER="${VERSION#v}"
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Extract release notes from CHANGELOG.md
+          NOTES=$(awk "/^## \[$VERSION_NUMBER\]/,/^## \[[0-9]/" CHANGELOG.md | head -n 10 | sed 's/"/\\"/g' | tr '\n' ' ' || echo "See CHANGELOG.md for details")
+
+          # Start building manifest
+          cat > latest.json << EOF
+          {
+            "version": "$VERSION_NUMBER",
+            "notes": "$NOTES",
+            "pub_date": "$PUB_DATE",
+            "platforms": {
+          EOF
+
+          # Sign DMG files if key is available
+          if [ -n "$TAURI_PRIVATE_KEY" ]; then
+            echo "🔐 Signing release assets..."
+
+            # Save private key to temp file
+            echo "$TAURI_PRIVATE_KEY" > /tmp/tauri-key
+            chmod 600 /tmp/tauri-key
+
+            # Find and sign ARM64 DMG
+            AARCH64_DMG=$(ls *aarch64.dmg 2>/dev/null | head -1)
+            if [ -n "$AARCH64_DMG" ]; then
+              echo "  Signing $AARCH64_DMG..."
+              SIGNATURE=$(pnpm tauri signer sign "$AARCH64_DMG" --private-key /tmp/tauri-key --password "$TAURI_KEY_PASSWORD" 2>/dev/null || echo "")
+
+              if [ -n "$SIGNATURE" ]; then
+                cat >> latest.json << EOF
+              "darwin-aarch64": {
+                "signature": "$SIGNATURE",
+                "url": "https://github.com/QueryPilot/studio-app/releases/download/$VERSION/$AARCH64_DMG"
+              }
+          EOF
+                echo "    ✓ Signed darwin-aarch64"
+              fi
+            fi
+
+            # Clean up key
+            rm -f /tmp/tauri-key
+          else
+            echo "⚠️  TAURI_PRIVATE_KEY not set, generating unsigned manifest"
+
+            AARCH64_DMG=$(ls *aarch64.dmg 2>/dev/null | head -1)
+            if [ -n "$AARCH64_DMG" ]; then
+              cat >> latest.json << EOF
+              "darwin-aarch64": {
+                "url": "https://github.com/QueryPilot/studio-app/releases/download/$VERSION/$AARCH64_DMG"
+              }
+          EOF
+            fi
+          fi
+
+          # Close JSON
+          cat >> latest.json << EOF
+            }
+          }
+          EOF
+
+          echo "✓ Update manifest generated"
+          cat latest.json
+
+      - name: Upload manifest to source release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          echo "📤 Uploading update manifest to source release..."
+          gh release upload "$VERSION" latest.json --clobber
+          echo "✓ Uploaded to QueryPilot/studio release"
+
+      - name: Upload manifest as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-manifest
+          path: latest.json
+          retention-days: 90
+
+  publish-to-app-repo:
+    name: Publish to QueryPilot/studio-app
+    needs: [create-release, build-release, generate-updater-manifest]
+    runs-on: ubuntu-latest
+    if: |
+      success() &&
+      (github.event.inputs.publish_to_app_repo == 'true' ||
+       github.event_name == 'push')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download release assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          echo "📥 Downloading release assets from studio..."
+          gh release download "$VERSION" --pattern "*.dmg"
+          gh release download "$VERSION" --pattern "latest.json"
+          ls -lh
+
+      - name: Extract release notes
+        env:
+          VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          VERSION_NUMBER="${VERSION#v}"
+
+          # Extract from CHANGELOG.md
+          awk "/^## \[$VERSION_NUMBER\]/,/^## \[[0-9]/" CHANGELOG.md | head -n -1 > RELEASE_NOTES.md
+
+          # Add footer
+          cat >> RELEASE_NOTES.md << 'EOF'
+
+          ---
+
+          ## Installation
+
+          **macOS:**
+          - Download `Query-Pilot_aarch64.dmg` for Apple Silicon
+          - Open DMG and drag Query Pilot to Applications folder
+          - On first launch, right-click the app and select "Open" if you see a security warning
+
+          **Windows & Linux:** Coming soon
+
+          ## Full Changelog
+
+          See [CHANGELOG.md](https://github.com/QueryPilot/studio-app/blob/main/CHANGELOG.md) for complete version history.
+          EOF
+
+          echo "📝 Release notes prepared:"
+          cat RELEASE_NOTES.md
+
+      - name: Publish to studio-app repository
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
+          VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          echo "🚀 Publishing to QueryPilot/studio-app..."
+
+          # Check if release exists
+          if gh release view "$VERSION" --repo QueryPilot/studio-app &> /dev/null; then
+            echo "⚠️  Release already exists, deleting..."
+            gh release delete "$VERSION" --repo QueryPilot/studio-app --yes
+          fi
+
+          # Determine if prerelease
+          PRERELEASE=""
+          if [[ "$VERSION" == *"alpha"* ]] || [[ "$VERSION" == *"beta"* ]] || [[ "$VERSION" == *"rc"* ]]; then
+            PRERELEASE="--prerelease"
+          fi
+
+          # Create release
+          gh release create "$VERSION" \
+            --repo QueryPilot/studio-app \
+            --title "Query Pilot $VERSION" \
+            --notes-file RELEASE_NOTES.md \
+            $PRERELEASE \
+            *.dmg \
+            latest.json \
+            CHANGELOG.md
+
+          echo "✅ Published to QueryPilot/studio-app"
+          echo "🔗 https://github.com/QueryPilot/studio-app/releases/tag/$VERSION"
+
+      - name: Verify update manifest
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: |
+          echo "🔍 Verifying update manifest is accessible..."
+          sleep 10  # Wait for GitHub to process
+
+          # Use gh api for private repo
+          if gh api repos/QueryPilot/studio-app/releases/latest --jq '.assets[].name' | grep -q "latest.json"; then
+            echo "✅ Update manifest is live!"
+            echo "🔗 https://github.com/QueryPilot/studio-app/releases/latest"
+          else
+            echo "⚠️  Manifest not yet accessible (may take a few moments)"
+          fi
+
+  finalize-release:
+    name: Finalize Release
+    needs: [create-release, build-release, generate-updater-manifest]
+    runs-on: ubuntu-latest
+    if: success()
 
     steps:
       - name: Update release status
@@ -284,5 +509,11 @@ jobs:
           echo "🎉 All builds completed successfully!"
           echo ""
           echo "Release: ${{ needs.create-release.outputs.version }}"
-          echo "Draft release created - review and publish at:"
-          echo "https://github.com/${{ github.repository }}/releases"
+          echo ""
+          echo "📦 Source Release (QueryPilot/studio):"
+          echo "   https://github.com/${{ github.repository }}/releases"
+          echo ""
+          echo "🚀 Public Release (QueryPilot/studio-app):"
+          echo "   https://github.com/QueryPilot/studio-app/releases"
+          echo ""
+          echo "Draft release created - review and publish!"
