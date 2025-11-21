@@ -36,7 +36,7 @@ import {
   type FilterMode,
   type ColumnMeta as FilterColumnMeta,
 } from "@/utils/filterParser";
-import type { FilterConfig } from "@/types/filter";
+import type { FilterConfig, SortConfig } from "@/types/filter";
 import {
   usePersistentViewState,
   useClipboardBridge,
@@ -56,7 +56,9 @@ import {
   useColumnSizing,
   useColumnVisibility,
   useRowPinning,
+  useColumnSorting,
 } from "../hooks";
+import { createDrawHeader } from "../utils/headerUtils";
 import {
   applyPinnedOrdering,
   computeBaseWidth,
@@ -180,6 +182,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   props: TableDataGridV2Props,
 ) {
   const { gridId, className } = props;
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const gridRef = useRef<EditableDataGridRef>(null);
   const quickFilterRef = useRef<QuickFilterRef>(null);
@@ -302,6 +305,20 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     enabled: isTableMode,
   });
 
+  // Get user-defined sort columns from store
+  const userSortColumns = useGridPreferencesStore(
+    (state) => state.preferences[gridId]?.sortColumns
+  );
+
+  // Convert user sort columns to SortConfig format for backend query
+  const userSorts = useMemo<SortConfig[] | undefined>(() => {
+    if (!userSortColumns || userSortColumns.length === 0) return undefined;
+    return userSortColumns.map((sc) => ({
+      column: sc.columnId,
+      direction: sc.direction,
+    }));
+  }, [userSortColumns]);
+
   // Determine default sort order: primary key (ASC) > created_at (DESC) > first column (ASC)
   const defaultSorts = useMemo(() => {
     if (
@@ -343,7 +360,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     entityType,
     enabled: isTableMode,
     pageSize: 300,
-    sorts: defaultSorts,
+    sorts: userSorts ?? defaultSorts,
     filters: activeFilter,
   });
 
@@ -412,6 +429,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     if (!isTableMode) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Only handle if this panel has focus (activeElement is within wrapperRef)
+      const hasFocus =
+        wrapperRef.current?.contains(document.activeElement) ||
+        document.activeElement === wrapperRef.current;
+      if (!hasFocus) return;
+
       // Cmd+F or Ctrl+F
       if ((e.metaKey || e.ctrlKey) && e.key === "f") {
         e.preventDefault();
@@ -681,8 +704,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const [rows, setRows] = useState<GridRowModel[]>([]);
 
   useEffect(() => {
-    setRows(dataRows);
-  }, [dataRows]);
+    // Only update rows when we have data to prevent flashing during refetch
+    if (dataRows.length > 0 || !isLoading) {
+      setRows(dataRows);
+    }
+  }, [dataRows, isLoading]);
 
   const preferences = useGridPreferences(gridId);
   const hydrated = useGridPreferencesHydrated();
@@ -888,6 +914,41 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     );
     return applyPinnedOrdering(filtered, columnState.pinned);
   }, [columnState.pinned, columnState.visibility, visibleColumns]);
+
+  // Column sorting
+  const {
+    sortColumns,
+    toggleSort,
+    getSortIndex,
+    getSortDirection,
+  } = useColumnSorting({
+    gridId,
+    columns: finalColumns,
+  });
+
+  // Header click handler for sorting
+  const handleHeaderClicked = useCallback(
+    (colIndex: number, event: { shiftKey: boolean }) => {
+      const column = finalColumns[colIndex];
+      if (!column) return;
+      toggleSort(column.id, event.shiftKey);
+    },
+    [finalColumns, toggleSort]
+  );
+
+  // Custom header draw function for sort indicators (only when columns are sorted)
+  const drawHeader = useMemo(
+    () =>
+      sortColumns.length > 0
+        ? createDrawHeader({
+            getSortDirection,
+            getSortIndex,
+            columns: finalColumns,
+            sortedColumnCount: sortColumns.length,
+          })
+        : undefined,
+    [getSortDirection, getSortIndex, finalColumns, sortColumns.length]
+  );
 
   // Apply optimistic updates from staged commands to display rows
   const displayRowsWithOptimisticUpdates = useMemo(() => {
@@ -1962,6 +2023,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     return null;
   }
 
+  // Prevent grid crash when columns are empty during transitions
+  if (finalColumns.length === 0) {
+    return <DataGridSkeleton />;
+  }
+
   if (errorMessage) {
     return <DataGridErrorState error={errorMessage} />;
   }
@@ -1970,7 +2036,16 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     // Show different message when filter is active
     if (isTableMode && activeFilter) {
       return (
-        <div className="flex h-full flex-col">
+        <div
+          ref={wrapperRef}
+          tabIndex={-1}
+          className="flex h-full flex-col outline-none"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              wrapperRef.current?.focus();
+            }
+          }}
+        >
           {/* Keep the filter toolbar visible */}
           {filterColumns.length > 0 && (
             <div className="flex-none border-b px-2 py-1.5 bg-background">
@@ -2024,7 +2099,17 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div
+      ref={wrapperRef}
+      tabIndex={-1}
+      className="flex h-full flex-col outline-none"
+      onClick={(e) => {
+        // Focus wrapper when clicking on panel background (not on interactive elements)
+        if (e.target === e.currentTarget) {
+          wrapperRef.current?.focus();
+        }
+      }}
+    >
       {/* Quick Filter toolbar - only in table mode */}
       {isTableMode && filterColumns.length > 0 && (
         <div className="flex-none border-b px-2 py-1.5 bg-background">
@@ -2140,6 +2225,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             freezeColumns={freezeColumns}
             getRowThemeOverride={getRowThemeOverride}
             highlightRegions={cellHighlightRegions}
+            onHeaderClicked={handleHeaderClicked}
+            drawHeader={drawHeader}
           />
         </GridContextMenu>
       </div>

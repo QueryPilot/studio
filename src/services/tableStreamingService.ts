@@ -361,11 +361,14 @@ export async function streamEntityPage(
                 const limitReached =
                   (rowLimit != null && offset + rows.length >= rowLimit) ||
                   limitReachedByRowCap === true;
+                // If we got fewer rows than requested, we've definitely reached the end
+                // This is critical when filters are applied since estimatedTotal is unfiltered count
+                const fetchedFullPage = rows.length === fetchLimit;
                 const hasMoreFromEstimate =
                   estimatedTotal != null
                     ? offset + rows.length < estimatedTotal
-                    : rows.length === fetchLimit;
-                const hasMore = !limitReached && hasMoreFromEstimate;
+                    : true;
+                const hasMore = !limitReached && fetchedFullPage && hasMoreFromEstimate;
 
                 resolve({
                   columns: resolvedColumns,

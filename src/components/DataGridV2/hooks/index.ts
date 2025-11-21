@@ -64,3 +64,5 @@ export {
   isRowPendingDeletion,
   isRowPendingInsertion,
 } from "./useStagedChangesIndicator";
+
+export { useColumnSorting } from "./useColumnSorting";

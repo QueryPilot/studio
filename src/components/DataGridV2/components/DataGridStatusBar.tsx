@@ -65,7 +65,9 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   className,
 }: DataGridStatusBarProps) {
   const getRowCountDisplay = () => {
-    if (estimatedTotal && estimatedTotal > loadedRows) {
+    // Only show estimated total if there's actually more to load
+    // When filtered, estimatedTotal may be wrong (unfiltered count), so check hasMore
+    if (estimatedTotal && estimatedTotal > loadedRows && hasMore) {
       return `${loadedRows.toLocaleString()} / ${estimatedTotal.toLocaleString()} rows`;
     }
 

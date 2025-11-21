@@ -23,6 +23,10 @@ export interface DataGridBaseProps
   highlightRegions?: DataEditorProps["highlightRegions"];
   /** Optional keybindings override */
   keybindings?: DataEditorProps["keybindings"];
+  /** Optional header click handler for sorting */
+  onHeaderClicked?: DataEditorProps["onHeaderClicked"];
+  /** Optional custom header draw function */
+  drawHeader?: DataEditorProps["drawHeader"];
 }
 
 export const DataGridBase = forwardRef(function DataGridBase(

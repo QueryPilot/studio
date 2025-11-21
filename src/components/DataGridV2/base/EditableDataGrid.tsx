@@ -120,6 +120,8 @@ export interface EditableDataGridProps
   onSelectionChange?: (selection: GridSelection) => void;
   onActiveCellChange?: (cell: Item | null) => void;
   getRowThemeOverride?: DataEditorProps["getRowThemeOverride"];
+  onHeaderClicked?: DataEditorProps["onHeaderClicked"];
+  drawHeader?: DataEditorProps["drawHeader"];
 }
 
 export interface EditableDataGridRef extends DataEditorRef {
@@ -150,6 +152,8 @@ export const EditableDataGrid = forwardRef<
     onGridSelectionChange,
     gridSelection,
     getRowThemeOverride,
+    onHeaderClicked,
+    drawHeader,
     containerClassName,
     className,
     ...rest
@@ -511,6 +515,8 @@ export const EditableDataGrid = forwardRef<
       gridSelection={gridSelection}
       onGridSelectionChange={handleSelectionChange}
       getRowThemeOverride={getRowThemeOverride}
+      onHeaderClicked={onHeaderClicked}
+      drawHeader={drawHeader}
       drawFocusRing
       rangeSelect="rect"
       columnSelect="multi"

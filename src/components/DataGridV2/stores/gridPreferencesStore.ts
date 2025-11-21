@@ -7,6 +7,7 @@ import type {
   GridHistoryEntry,
   GridRowModel,
   GridViewState,
+  SortColumn,
 } from "../types";
 import { createIndexedDbStorage } from "./indexedDbStorage";
 
@@ -14,6 +15,7 @@ export interface GridPreferences {
   columns: GridColumnsState;
   view: GridViewState;
   pinnedRows: string[];
+  sortColumns: SortColumn[];
   historySnapshot?: {
     undoStack: GridHistoryEntry[];
     redoStack: GridHistoryEntry[];
@@ -32,6 +34,8 @@ export interface GridPreferencesState {
     gridId: string,
     updater: (draft: string[]) => string[] | undefined,
   ) => void;
+  toggleColumnSort: (gridId: string, columnId: string, multiSort?: boolean) => void;
+  clearSort: (gridId: string) => void;
   setHistorySnapshot: (
     gridId: string,
     snapshot: GridPreferences["historySnapshot"],
@@ -64,6 +68,7 @@ const createDefaultPreferences = (): GridPreferences => ({
   columns: createDefaultColumnsState(),
   view: createDefaultViewState(),
   pinnedRows: [],
+  sortColumns: [],
   draftRows: {},
   createdAt: Date.now(),
   updatedAt: Date.now(),
@@ -121,6 +126,54 @@ export const useGridPreferencesStore = create<GridPreferencesState>()(
             prefs.pinnedRows = Array.isArray(result) ? result : workingCopy;
             prefs.updatedAt = Date.now();
           }, false, `gridPreferences/updatePinnedRows:${gridId}`);
+        },
+        toggleColumnSort: (gridId, columnId, multiSort = false) => {
+          set((state) => {
+            const prefs =
+              state.preferences[gridId] ?? createDefaultPreferences();
+            if (!state.preferences[gridId]) {
+              state.preferences[gridId] = prefs as any;
+            }
+            if (!prefs.sortColumns) {
+              prefs.sortColumns = [];
+            }
+
+            const existingIndex = prefs.sortColumns.findIndex(
+              (s) => s.columnId === columnId
+            );
+
+            if (existingIndex === -1) {
+              // Column not sorted - add as asc
+              if (multiSort) {
+                prefs.sortColumns.push({ columnId, direction: 'asc' });
+              } else {
+                prefs.sortColumns = [{ columnId, direction: 'asc' }];
+              }
+            } else {
+              const existing = prefs.sortColumns[existingIndex];
+              if (!existing) return;
+              if (existing.direction === 'asc') {
+                // asc -> desc
+                existing.direction = 'desc';
+              } else {
+                // desc -> remove
+                prefs.sortColumns.splice(existingIndex, 1);
+              }
+            }
+
+            prefs.updatedAt = Date.now();
+          }, false, `gridPreferences/toggleColumnSort:${gridId}`);
+        },
+        clearSort: (gridId) => {
+          set((state) => {
+            const prefs =
+              state.preferences[gridId] ?? createDefaultPreferences();
+            if (!state.preferences[gridId]) {
+              state.preferences[gridId] = prefs as any;
+            }
+            prefs.sortColumns = [];
+            prefs.updatedAt = Date.now();
+          }, false, `gridPreferences/clearSort:${gridId}`);
         },
         setHistorySnapshot: (gridId, snapshot) => {
           set((state) => {
