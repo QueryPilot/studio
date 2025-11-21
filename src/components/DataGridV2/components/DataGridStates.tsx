@@ -1,21 +1,29 @@
 import { memo } from "react";
 import { AlertCircle, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import logo from "@/assets/logo.png";
 
 interface DataGridErrorStateProps {
   error: string;
+  onRetry?: () => void;
 }
 
 export const DataGridErrorState = memo(function DataGridErrorState({
   error,
+  onRetry,
 }: DataGridErrorStateProps) {
   return (
     <div className="flex flex-col items-center justify-center h-full p-8 select-text">
       <AlertCircle className="h-12 w-12 text-destructive mb-4" />
       <h3 className="text-lg font-semibold mb-2">Failed to load table data</h3>
-      <p className="text-sm text-muted-foreground max-w-md text-center select-text">
+      <p className="text-sm text-muted-foreground max-w-md text-center select-text mb-4">
         {error}
       </p>
+      {onRetry && (
+        <Button variant="outline" size="sm" onClick={onRetry}>
+          Clear Filter
+        </Button>
+      )}
     </div>
   );
 });

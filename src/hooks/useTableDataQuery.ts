@@ -356,6 +356,8 @@ export function useTableDataQuery(
       const nextOffset = lastPage.offset + lastPage.rows.length;
       return { offset: nextOffset };
     },
+    // Keep previous data visible while refetching (e.g., during sort change)
+    placeholderData: (previousData) => previousData,
   });
 
   const cancelStream = useCallback(() => {
