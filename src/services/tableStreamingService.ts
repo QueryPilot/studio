@@ -90,7 +90,16 @@ function buildOrderBy(sorts?: SortConfig[]): string {
 }
 
 function buildWhereClause(filters?: FilterConfig): string {
-  if (!filters || !filters.root || filters.root.conditions.length === 0) {
+  if (!filters) {
+    return "";
+  }
+
+  // Use raw WHERE clause if provided (for AI-generated filters)
+  if (filters.rawWhereClause) {
+    return ` WHERE ${filters.rawWhereClause}`;
+  }
+
+  if (!filters.root || filters.root.conditions.length === 0) {
     return "";
   }
 
@@ -107,7 +116,9 @@ function buildWhereClause(filters?: FilterConfig): string {
     }
 
     // Simple condition
-    const col = quoteIdentifier(condition.column);
+    const rawCol = quoteIdentifier(condition.column);
+    // Cast to text if needed (for searching non-text columns)
+    const col = condition.castToText ? `${rawCol}::text` : rawCol;
     const op = condition.operator.toUpperCase();
     const val = condition.value;
 

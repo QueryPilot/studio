@@ -195,7 +195,10 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const [quickFilterValue, setQuickFilterValue] = useState("");
   const [quickFilterMode, setQuickFilterMode] = useState<FilterMode>("search");
   const [quickFilterError, setQuickFilterError] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<FilterConfig | undefined>(undefined);
+  const [aiExplanation, setAiExplanation] = useState<string | null>(null);
+  const [activeFilter, setActiveFilter] = useState<FilterConfig | undefined>(
+    undefined,
+  );
 
   useContextKey("dataGridFocus", isGridFocused, {
     scopeId,
@@ -307,7 +310,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   // Get user-defined sort columns from store
   const userSortColumns = useGridPreferencesStore(
-    (state) => state.preferences[gridId]?.sortColumns
+    (state) => state.preferences[gridId]?.sortColumns,
   );
 
   // Convert user sort columns to SortConfig format for backend query
@@ -381,6 +384,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   // Handle filter submission
   const handleFilterSubmit = useCallback(async () => {
     setQuickFilterError(null);
+    setAiExplanation(null);
 
     const sanitized = sanitizeInput(quickFilterValue, quickFilterMode);
     if (!sanitized) {
@@ -408,16 +412,24 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         if ("error" in result) {
           setQuickFilterError(result.error);
         } else {
-          // Parse the generated clause
-          const parseResult = parseWhereClause(result.clause, filterColumns);
-          if (parseResult.success) {
-            setActiveFilter(parseResult.filter);
-            // Update the input to show the generated clause with ? prefix for WHERE mode
-            setQuickFilterValue(`?${result.clause}`);
-            setQuickFilterMode("where");
-          } else {
-            setQuickFilterError(parseResult.error || "Failed to parse AI result");
+          // Use raw WHERE clause directly - don't parse complex AI-generated SQL
+          const filter: FilterConfig = {
+            root: {
+              id: "root",
+              type: "group",
+              logical: "AND",
+              conditions: [],
+            },
+            rawWhereClause: result.clause,
+          };
+          setActiveFilter(filter);
+          // Show AI explanation
+          if (result.explanation) {
+            setAiExplanation(result.explanation);
           }
+          // Update the input to show the generated clause with ? prefix for WHERE mode
+          setQuickFilterValue(`?${result.clause}`);
+          setQuickFilterMode("where");
         }
         break;
       }
@@ -907,7 +919,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     onChange: handlePinnedColumnsChange,
   });
 
-  const { columns: finalColumns, freezeColumns } = useMemo(() => {
+  const { columns: computedColumns, freezeColumns } = useMemo(() => {
     const filtered = filterVisibleColumns(
       visibleColumns,
       columnState.visibility,
@@ -915,16 +927,20 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     return applyPinnedOrdering(filtered, columnState.pinned);
   }, [columnState.pinned, columnState.visibility, visibleColumns]);
 
+  // Keep stable columns during transitions to prevent flashing
+  const columnsRef = useRef(computedColumns);
+  if (computedColumns.length > 0) {
+    columnsRef.current = computedColumns;
+  }
+  const finalColumns =
+    computedColumns.length > 0 ? computedColumns : columnsRef.current;
+
   // Column sorting
-  const {
-    sortColumns,
-    toggleSort,
-    getSortIndex,
-    getSortDirection,
-  } = useColumnSorting({
-    gridId,
-    columns: finalColumns,
-  });
+  const { sortColumns, toggleSort, getSortIndex, getSortDirection } =
+    useColumnSorting({
+      gridId,
+      columns: finalColumns,
+    });
 
   // Header click handler for sorting
   const handleHeaderClicked = useCallback(
@@ -933,7 +949,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       if (!column) return;
       toggleSort(column.id, event.shiftKey);
     },
-    [finalColumns, toggleSort]
+    [finalColumns, toggleSort],
   );
 
   // Custom header draw function for sort indicators (only when columns are sorted)
@@ -947,7 +963,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             sortedColumnCount: sortColumns.length,
           })
         : undefined,
-    [getSortDirection, getSortIndex, finalColumns, sortColumns.length]
+    [getSortDirection, getSortIndex, finalColumns, sortColumns.length],
   );
 
   // Apply optimistic updates from staged commands to display rows
@@ -1119,49 +1135,63 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   ]);
 
   // Auto-select first cell when grid gains focus with no existing selection
+  // Use a small delay to let click-based selections settle first
   useEffect(() => {
     if (!isGridFocused || !gridRef.current) {
       return;
     }
 
-    // Only auto-select if there's no current selection
-    const currentHasSelection =
-      (gridSelection?.rows && gridSelection.rows.length > 0) ||
-      (gridSelection?.columns && gridSelection.columns.length > 0) ||
-      gridSelection?.current !== undefined;
+    // Delay check to allow click-based selection to be set first
+    const timeoutId = setTimeout(() => {
+      // Only auto-select if there's no current selection
+      const currentHasSelection =
+        (gridSelection?.rows && gridSelection.rows.length > 0) ||
+        (gridSelection?.columns && gridSelection.columns.length > 0) ||
+        gridSelection?.current !== undefined;
 
-    if (
-      currentHasSelection ||
-      displayRows.length === 0 ||
-      finalColumns.length === 0
-    ) {
-      return;
-    }
-
-    console.log(
-      `[TableDataGridV2 ${gridId}] Auto-selecting first cell on focus`,
-    );
-
-    // Select the first cell (row 0, column 0)
-    const firstCellSelection: GridSelection = {
-      current: {
-        cell: [0, 0],
-        range: { x: 0, y: 0, width: 1, height: 1 },
-        rangeStack: [],
-      },
-      rows: CompactSelection.empty(),
-      columns: CompactSelection.empty(),
-    };
-
-    setGridSelection(firstCellSelection);
-
-    // Scroll to ensure first cell is visible
-    requestAnimationFrame(() => {
-      if (gridRef.current) {
-        gridRef.current.scrollTo(0, 0);
+      if (
+        currentHasSelection ||
+        displayRows.length === 0 ||
+        finalColumns.length === 0
+      ) {
+        return;
       }
-    });
-  }, [isGridFocused, gridId]);
+
+      console.log(
+        `[TableDataGridV2 ${gridId}] Auto-selecting first cell on focus`,
+      );
+
+      // Select the first cell (row 0, column 0)
+      const firstCellSelection: GridSelection = {
+        current: {
+          cell: [0, 0],
+          range: { x: 0, y: 0, width: 1, height: 1 },
+          rangeStack: [],
+        },
+        rows: CompactSelection.empty(),
+        columns: CompactSelection.empty(),
+      };
+
+      setGridSelection(firstCellSelection);
+
+      // Scroll to ensure first cell is visible
+      requestAnimationFrame(() => {
+        if (gridRef.current) {
+          gridRef.current.scrollTo(0, 0);
+        }
+      });
+    }, 50); // Small delay to let click selection settle
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [
+    isGridFocused,
+    gridId,
+    gridSelection,
+    displayRows.length,
+    finalColumns.length,
+  ]);
 
   // Defer grid rendering for large datasets to keep UI responsive
   // Grid updates in background without blocking interactions
@@ -2023,13 +2053,60 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     return null;
   }
 
-  // Prevent grid crash when columns are empty during transitions
-  if (finalColumns.length === 0) {
-    return <DataGridSkeleton />;
-  }
-
   if (errorMessage) {
-    return <DataGridErrorState error={errorMessage} />;
+    return (
+      <div
+        ref={wrapperRef}
+        tabIndex={-1}
+        className="flex h-full flex-col outline-none"
+      >
+        {/* Keep the filter toolbar visible on error */}
+        {isTableMode && filterColumns.length > 0 && (
+          <div className="flex-none pb-1.5 pt-1 bg-background">
+            <QuickFilter
+              ref={quickFilterRef}
+              columns={filterColumns}
+              value={quickFilterValue}
+              mode={quickFilterMode}
+              onValueChange={(value) => {
+                setQuickFilterValue(value);
+                setQuickFilterError(null);
+                setAiExplanation(null);
+                const detectedMode = detectFilterMode(value);
+                if (detectedMode !== quickFilterMode) {
+                  setQuickFilterMode(detectedMode);
+                }
+              }}
+              onModeChange={setQuickFilterMode}
+              onSubmit={handleFilterSubmit}
+              isLoading={isAIFilterLoading}
+              error={quickFilterError}
+            />
+            {aiExplanation && (
+              <p className="text-xs text-muted-foreground px-1 mt-1 truncate" title={aiExplanation}>
+                {aiExplanation}
+              </p>
+            )}
+          </div>
+        )}
+        <div className="flex-1">
+          <DataGridErrorState
+            error={errorMessage}
+            onRetry={
+              activeFilter
+                ? () => {
+                    // Clear filter and retry
+                    setActiveFilter(undefined);
+                    setQuickFilterValue("");
+                    setQuickFilterMode("search");
+                    setQuickFilterError(null);
+                  }
+                : undefined
+            }
+          />
+        </div>
+      </div>
+    );
   }
 
   if (!isLoading && rowsRef.current.length === 0) {
@@ -2048,7 +2125,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         >
           {/* Keep the filter toolbar visible */}
           {filterColumns.length > 0 && (
-            <div className="flex-none border-b px-2 py-1.5 bg-background">
+            <div className="flex-none pb-1.5 pt-1 bg-background">
               <QuickFilter
                 ref={quickFilterRef}
                 columns={filterColumns}
@@ -2057,6 +2134,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
                 onValueChange={(value) => {
                   setQuickFilterValue(value);
                   setQuickFilterError(null);
+                  setAiExplanation(null);
                   const detectedMode = detectFilterMode(value);
                   if (detectedMode !== quickFilterMode) {
                     setQuickFilterMode(detectedMode);
@@ -2070,6 +2148,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
                 isLoading={isAIFilterLoading}
                 error={quickFilterError}
               />
+              {aiExplanation && (
+                <p className="text-xs text-muted-foreground px-1 mt-1 truncate" title={aiExplanation}>
+                  {aiExplanation}
+                </p>
+              )}
             </div>
           )}
           <div className="flex flex-col items-center justify-center flex-1 gap-4">
@@ -2112,7 +2195,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     >
       {/* Quick Filter toolbar - only in table mode */}
       {isTableMode && filterColumns.length > 0 && (
-        <div className="flex-none border-b px-2 py-1.5 bg-background">
+        <div className="flex-none pb-1.5 pt-1 bg-background">
           <QuickFilter
             ref={quickFilterRef}
             columns={filterColumns}
@@ -2121,6 +2204,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             onValueChange={(value) => {
               setQuickFilterValue(value);
               setQuickFilterError(null);
+              setAiExplanation(null);
               // Auto-detect mode from prefix
               const detectedMode = detectFilterMode(value);
               if (detectedMode !== quickFilterMode) {
@@ -2136,6 +2220,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             isLoading={isAIFilterLoading}
             error={quickFilterError}
           />
+          {aiExplanation && (
+            <p className="text-xs text-muted-foreground px-1 mt-1 truncate" title={aiExplanation}>
+              {aiExplanation}
+            </p>
+          )}
         </div>
       )}
 

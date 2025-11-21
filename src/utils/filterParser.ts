@@ -39,27 +39,61 @@ function isTextType(dataType: string): boolean {
   return textTypes.some((t) => dataType.toLowerCase().includes(t));
 }
 
+// For simple search, we want to search across most column types
+// Exclude only binary/blob types that can't be meaningfully searched
+function isSearchableType(dataType: string): boolean {
+  const lower = dataType.toLowerCase();
+  const unsearchable = [
+    "bytea",
+    "blob",
+    "binary",
+    "varbinary",
+    "image",
+    "geometry",
+    "geography",
+  ];
+  return !unsearchable.some((t) => lower.includes(t));
+}
+
 export function parseSimpleSearch(
   text: string,
   columns: ColumnMeta[]
 ): FilterConfig {
-  const searchValue = text.trim();
+  let searchValue = text.trim();
   if (!searchValue) {
     return createEmptyFilter();
   }
 
-  const searchableColumns = columns.filter((c) => isTextType(c.dataType));
+  // Check for case-sensitive prefix (!)
+  const caseSensitive = searchValue.startsWith("!");
+  if (caseSensitive) {
+    searchValue = searchValue.slice(1).trim();
+    if (!searchValue) {
+      return createEmptyFilter();
+    }
+  }
+
+  // Search across all searchable columns (exclude binary/blob types)
+  const searchableColumns = columns.filter((c) => isSearchableType(c.dataType));
 
   if (searchableColumns.length === 0) {
     return createEmptyFilter();
   }
 
-  const conditions: FilterCondition[] = searchableColumns.map((col) => ({
-    id: generateId(),
-    column: col.name,
-    operator: "ILIKE",
-    value: `%${searchValue}%`,
-  }));
+  const conditions: FilterCondition[] = searchableColumns.map((col) => {
+    // For text types, use ILIKE/LIKE directly
+    // For non-text types, we need to cast to text first
+    const needsCast = !isTextType(col.dataType);
+
+    return {
+      id: generateId(),
+      column: col.name,
+      operator: caseSensitive ? "LIKE" : "ILIKE",
+      value: `%${searchValue}%`,
+      // Mark that this column needs casting for non-text types
+      castToText: needsCast,
+    };
+  });
 
   return {
     root: {
@@ -96,6 +130,19 @@ export function parseWhereClause(
   }
 }
 
+// Common SQL functions that should not be treated as column names
+const SQL_FUNCTIONS = new Set([
+  "now", "current_date", "current_time", "current_timestamp",
+  "date", "time", "datetime", "timestamp",
+  "year", "month", "day", "hour", "minute", "second",
+  "upper", "lower", "trim", "ltrim", "rtrim", "length", "substr", "substring",
+  "concat", "coalesce", "nullif", "cast",
+  "count", "sum", "avg", "min", "max",
+  "abs", "ceil", "floor", "round", "mod",
+  "extract", "date_part", "date_trunc", "age", "interval",
+  "to_char", "to_date", "to_timestamp", "to_number",
+]);
+
 export function validateWhereClause(
   clause: string,
   columns: ColumnMeta[]
@@ -106,8 +153,24 @@ export function validateWhereClause(
   const tokens = tokenize(clause);
   const identifiers = tokens.filter((t) => t.type === "identifier");
 
-  for (const token of identifiers) {
+  for (let i = 0; i < identifiers.length; i++) {
+    const token = identifiers[i];
+    if (!token) continue;
     const name = token.value.toLowerCase();
+
+    // Skip if it's a known SQL function
+    if (SQL_FUNCTIONS.has(name)) {
+      continue;
+    }
+
+    // Check if followed by parenthesis (function call pattern)
+    const tokenIndex = tokens.indexOf(token);
+    const nextToken = tokens[tokenIndex + 1];
+    if (nextToken?.type === "paren" && nextToken.value === "(") {
+      // It's a function call, skip validation
+      continue;
+    }
+
     if (!columnNames.has(name)) {
       return `Unknown column: ${token.value}`;
     }
@@ -128,6 +191,13 @@ export function validateWhereClause(
 export function sanitizeInput(input: string, mode: FilterMode): string {
   let sanitized = input.trim();
 
+  // Handle escape sequences first: \? \# \! become literal characters
+  if (sanitized.startsWith("\\")) {
+    // Remove the backslash, keep the escaped character
+    sanitized = sanitized.slice(1);
+    return sanitized;
+  }
+
   switch (mode) {
     case "where":
       if (sanitized.startsWith("?")) {
@@ -137,6 +207,12 @@ export function sanitizeInput(input: string, mode: FilterMode): string {
     case "ai":
       if (sanitized.startsWith("#")) {
         sanitized = sanitized.slice(1).trim();
+      }
+      break;
+    case "search":
+      // Remove case-sensitive prefix if present
+      if (sanitized.startsWith("!")) {
+        // Keep the ! - it's handled in parseSimpleSearch
       }
       break;
   }
@@ -424,6 +500,18 @@ function parseCondition(tokens: Token[], _columns: ColumnMeta[]): FilterConditio
         break;
       }
     }
+    // Handle shorthand NOT NULL (without IS)
+    if (token.type === "keyword" && token.value === "NOT" && tokens[i + 1]?.value === "NULL") {
+      operator = "IS NOT NULL";
+      operatorIndex = i;
+      break;
+    }
+    // Handle shorthand NULL (without IS) - be careful, only if it's the last token
+    if (token.type === "keyword" && token.value === "NULL" && i === tokens.length - 1) {
+      operator = "IS NULL";
+      operatorIndex = i;
+      break;
+    }
   }
 
   if (!operator) {
@@ -503,6 +591,8 @@ function extractValue(tokens: Token[]): unknown {
 
 export function detectFilterMode(input: string): FilterMode {
   const trimmed = input.trim();
+  // Support escape sequences: \? \# \! to search literal characters
+  if (trimmed.startsWith("\\")) return "search";
   if (trimmed.startsWith("#")) return "ai";
   if (trimmed.startsWith("?")) return "where";
   return "search";

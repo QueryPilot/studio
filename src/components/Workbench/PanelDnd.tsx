@@ -162,13 +162,13 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
     if (isFocused && panelRef.current) {
       // Use requestAnimationFrame to ensure DOM is updated
       requestAnimationFrame(() => {
-        // Look for the data grid content area specifically (not toolbar buttons)
-        // The DataGrid container has tabindex="0" and is inside .relative.flex-1.outline-none
-        const gridContainer = panelRef.current?.querySelector<HTMLElement>(
-          '.relative.flex-1.outline-none[tabindex="0"]',
+        // Look for the focusable content wrapper (tabIndex=-1 means programmatically focusable)
+        // TableDataGridV2 wrapper has: tabIndex={-1} className="flex h-full flex-col outline-none"
+        const focusableWrapper = panelRef.current?.querySelector<HTMLElement>(
+          '.panel-body [tabindex="-1"]',
         );
-        if (gridContainer) {
-          gridContainer.focus({ preventScroll: true });
+        if (focusableWrapper) {
+          focusableWrapper.focus({ preventScroll: true });
         } else {
           // Fallback: focus the panel itself
           panelRef.current?.focus({ preventScroll: true });
@@ -278,8 +278,8 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
             {content.tabIds.map((tabId, index) => {
               const metadata = content.metadata?.[tabId];
               const displayName =
-                metadata?.title ||
                 metadata?.table ||
+                metadata?.title ||
                 tabId.split("-").pop() ||
                 tabId;
 

@@ -134,7 +134,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
             <Icon className={getIconClass()} />
           )}
         </div>
-        <span className="max-w-[120px] truncate">{displayName}</span>
+        <span className="whitespace-nowrap">{displayName}</span>
       </div>
 
       <div

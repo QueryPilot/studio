@@ -5,6 +5,8 @@ export interface FilterCondition {
   column: string;
   operator: string;
   value?: unknown;
+  /** If true, cast column to text before comparison (for searching non-text columns) */
+  castToText?: boolean;
 }
 
 export interface FilterGroup {
@@ -16,6 +18,8 @@ export interface FilterGroup {
 
 export interface FilterConfig {
   root: FilterGroup;
+  /** Raw SQL WHERE clause - used for AI-generated filters that can't be parsed into conditions */
+  rawWhereClause?: string;
 }
 
 export interface SortConfig {
