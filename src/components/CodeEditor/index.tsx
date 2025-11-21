@@ -9,6 +9,7 @@ import {
 } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { EditorView } from "@codemirror/view";
+import { syntaxTree } from "@codemirror/language";
 import { useTheme } from "@/components/theme-provider";
 import { getThemeExtensions } from "./themes";
 import { getEditorExtensions } from "./extensions";
@@ -138,8 +139,6 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
           category: "Editor",
           when: "editorTextFocus && queryEditor",
           handler: (args) => {
-            console.log('[executeQuery command] Handler called with args:', args);
-
             // If args provided, use them
             const queryArg =
               typeof args === "string"
@@ -150,17 +149,9 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
 
             // If we have an editor view, extract query at cursor
             if (!queryArg && editorRef.current) {
-              console.log('[executeQuery command] No args, extracting query at cursor from EditorView');
               const view = editorRef.current;
               const state = view.state;
-              const doc = state.doc.toString();
               const selection = state.selection.main;
-
-              console.log('[executeQuery command] Editor state:', {
-                docLength: doc.length,
-                cursorPos: selection.from,
-                hasSelection: selection.from !== selection.to,
-              });
 
               // If there's a selection, use it
               if (selection.from !== selection.to) {
@@ -168,130 +159,47 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
                   .sliceDoc(selection.from, selection.to)
                   .trim()
                   .replace(/;\s*$/, "");
-                console.log('[executeQuery command] Using selected text:', selectedQuery);
                 handleExecute(selectedQuery);
                 return;
               }
 
-              // Otherwise extract query at cursor (same logic as getQueryAtCursor)
-              const findSemicolonsNotInStrings = (text: string): number[] => {
-                const positions: number[] = [];
-                let inSingleQuote = false;
-                let inDoubleQuote = false;
-                let inBacktick = false;
-                let inDollarQuote = false;
-                let dollarQuoteTag = "";
-                let inLineComment = false;
-                let inBlockComment = false;
-
-                for (let i = 0; i < text.length; i++) {
-                  const char = text[i];
-                  const nextChar = i < text.length - 1 ? text[i + 1] : "";
-                  const prevChar = i > 0 ? text[i - 1] : "";
-
-                  if (!inBlockComment && !inSingleQuote && !inDoubleQuote && !inBacktick && !inDollarQuote) {
-                    if (char === "-" && nextChar === "-") {
-                      inLineComment = true;
-                      i++;
-                      continue;
-                    }
-                  }
-
-                  if (inLineComment) {
-                    if (char === "\n") inLineComment = false;
-                    continue;
-                  }
-
-                  if (!inLineComment && !inSingleQuote && !inDoubleQuote && !inBacktick && !inDollarQuote) {
-                    if (char === "/" && nextChar === "*") {
-                      inBlockComment = true;
-                      i++;
-                      continue;
-                    }
-                  }
-
-                  if (inBlockComment) {
-                    if (char === "*" && nextChar === "/") {
-                      inBlockComment = false;
-                      i++;
-                    }
-                    continue;
-                  }
-
-                  if (char === "$" && !inSingleQuote && !inDoubleQuote && !inBacktick && !inLineComment && !inBlockComment) {
-                    const dollarMatch = text.slice(i).match(/^(\$\w*\$)/);
-                    if (dollarMatch && dollarMatch[1]) {
-                      const tag = dollarMatch[1];
-                      if (inDollarQuote && tag === dollarQuoteTag) {
-                        inDollarQuote = false;
-                        dollarQuoteTag = "";
-                        i += tag.length - 1;
-                        continue;
-                      } else if (!inDollarQuote) {
-                        inDollarQuote = true;
-                        dollarQuoteTag = tag;
-                        i += tag.length - 1;
-                        continue;
-                      }
-                    }
-                  }
-
-                  if (!inDollarQuote && !inLineComment && !inBlockComment) {
-                    if (char === "'" && prevChar !== "\\") {
-                      inSingleQuote = !inSingleQuote;
-                    } else if (char === '"' && prevChar !== "\\") {
-                      inDoubleQuote = !inDoubleQuote;
-                    } else if (char === "`" && prevChar !== "\\") {
-                      inBacktick = !inBacktick;
-                    }
-                  }
-
-                  if (
-                    char === ";" &&
-                    !inSingleQuote &&
-                    !inDoubleQuote &&
-                    !inBacktick &&
-                    !inDollarQuote &&
-                    !inLineComment &&
-                    !inBlockComment
-                  ) {
-                    positions.push(i);
-                  }
-                }
-
-                return positions;
-              };
-
+              // Use AST to find the statement containing the cursor
               const cursorPos = selection.from;
-              const semicolons = findSemicolonsNotInStrings(doc);
+              const tree = syntaxTree(state);
 
-              let queryStart = 0;
-              let queryEnd = doc.length;
+              // Find the node at cursor and walk up to find enclosing Statement
+              let node = tree.resolveInner(cursorPos, -1);
 
-              for (const pos of semicolons) {
-                if (pos < cursorPos) {
-                  queryStart = pos + 1;
-                } else {
-                  queryEnd = pos;
+              // Walk up to find Statement or Script node
+              while (node && node.parent) {
+                const name = node.type.name;
+                if (name === "Statement" ||
+                    name === "SelectStatement" ||
+                    name === "InsertStatement" ||
+                    name === "UpdateStatement" ||
+                    name === "DeleteStatement" ||
+                    name === "CreateStatement" ||
+                    name === "AlterStatement" ||
+                    name === "DropStatement" ||
+                    name === "Script") {
                   break;
                 }
+                node = node.parent;
               }
 
-              const query = doc.slice(queryStart, queryEnd).trim();
-              const cleanedQuery = query.replace(/;\s*$/, "");
+              // Extract query from statement node
+              let extractedQuery = "";
+              if (node && node.type.name !== "Script") {
+                extractedQuery = state.sliceDoc(node.from, node.to).trim().replace(/;\s*$/, "");
+              } else {
+                // Fallback: return entire document
+                extractedQuery = state.doc.toString().trim().replace(/;\s*$/, "");
+              }
 
-              console.log('[executeQuery command] Extracted query at cursor:', {
-                queryStart,
-                queryEnd,
-                semicolonCount: semicolons.length,
-                query: cleanedQuery,
-              });
-
-              handleExecute(cleanedQuery);
+              handleExecute(extractedQuery);
               return;
             }
 
-            console.log('[executeQuery command] Using queryArg:', queryArg);
             handleExecute(queryArg);
           },
         },
