@@ -22,3 +22,66 @@ export interface CodeEditorProps {
   minHeight?: string;
   maxHeight?: string;
 }
+
+// --- Generic Smart Editor Interfaces ---
+// These enable polyglot support (SQL, MongoDB, Redis, etc.)
+
+export interface EntityMeta {
+  name: string;
+  type: "table" | "view" | "collection" | "index" | "materialized_view";
+  schema?: string;
+  description?: string;
+}
+
+export interface FieldMeta {
+  name: string;
+  dataType: string;
+  parentEntity?: string;
+  description?: string;
+  nullable?: boolean;
+  isPrimaryKey?: boolean;
+}
+
+/**
+ * Generic metadata provider interface for database introspection.
+ * Implemented by SQL, MongoDB, Redis, etc. adapters.
+ */
+export interface MetadataProvider {
+  /** List all entities (tables, collections, etc.) in a schema/namespace */
+  listEntities(schema?: string): Promise<EntityMeta[]>;
+
+  /** List all fields (columns, document fields, etc.) for an entity */
+  listFields(entityName: string, schema?: string): Promise<FieldMeta[]>;
+}
+
+/**
+ * Context analysis result from the editor "Brain".
+ * Language-agnostic representation of what the user is trying to complete.
+ */
+export interface EditorContextAnalysis {
+  /** What is the user trying to complete? */
+  intent: "entity" | "field" | "value" | "keyword" | "unknown";
+
+  /** The specific entity being referenced (e.g., alias "u" -> table "users") */
+  focusedEntity?: {
+    name: string;
+    schema?: string;
+    alias?: string;
+    isCTE?: boolean;
+    cteColumns?: string[];
+    cteSourceTable?: string;
+  };
+
+  /** All entities visible in the current scope */
+  availableEntities: Array<{
+    name: string;
+    schema?: string;
+    alias?: string;
+    isCTE?: boolean;
+    cteColumns?: string[];
+    cteSourceTable?: string;
+  }>;
+
+  /** Text range to replace with completion */
+  range: { from: number; to: number };
+}
