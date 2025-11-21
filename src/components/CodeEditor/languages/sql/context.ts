@@ -20,6 +20,11 @@ export interface SqlContextAnalysis {
   activeStatementTables: TableRef[];
   qualifier?: string;
   range: { from: number; to: number };
+  // Mutation context
+  isInsertContext?: boolean;
+  insertTargetTable?: string;
+  isUpdateContext?: boolean;
+  updateTargetTable?: string;
 }
 
 // SQL keywords that introduce table references
@@ -33,6 +38,37 @@ const TABLE_CLAUSE_TYPES = [
 
 // Keywords that precede table names
 const TABLE_KEYWORDS = ["from", "join", "update", "into", "table"];
+
+/**
+ * Detect if we're in an INSERT or UPDATE context and extract target table
+ */
+function detectMutationContext(sql: string): {
+  isInsert: boolean;
+  isUpdate: boolean;
+  targetTable?: string;
+} {
+  // INSERT INTO table_name (columns) VALUES ...
+  const insertMatch = sql.match(/\bINSERT\s+INTO\s+([a-zA-Z0-9_."]+)/i);
+  if (insertMatch && insertMatch[1]) {
+    return {
+      isInsert: true,
+      isUpdate: false,
+      targetTable: insertMatch[1].replace(/["`[\]]/g, ''),
+    };
+  }
+
+  // UPDATE table_name SET ...
+  const updateMatch = sql.match(/\bUPDATE\s+([a-zA-Z0-9_."]+)/i);
+  if (updateMatch && updateMatch[1]) {
+    return {
+      isInsert: false,
+      isUpdate: true,
+      targetTable: updateMatch[1].replace(/["`[\]]/g, ''),
+    };
+  }
+
+  return { isInsert: false, isUpdate: false };
+}
 
 /**
  * Parse CTEs from SQL text and extract their column information
@@ -293,6 +329,7 @@ export function analyzeSqlContext(
   _defaultSchema?: string
 ): SqlContextAnalysis {
   const { state, pos } = context;
+  const sql = state.doc.toString();
 
   // Get the word being typed
   const word = context.matchBefore(/[\w$]*$/);
@@ -316,11 +353,30 @@ export function analyzeSqlContext(
 
   const activeStatementTables = getScopeTables(state, pos);
 
+  // Detect mutation context (INSERT/UPDATE)
+  const mutationContext = detectMutationContext(sql);
+
+  // For INSERT, check if we're in the column list (between parentheses after table name)
+  let isInsertColumnContext = false;
+  if (mutationContext.isInsert) {
+    // Check if cursor is inside INSERT INTO table (|column, ...)
+    const beforeCursor = sql.slice(0, pos);
+    const insertColMatch = beforeCursor.match(/\bINSERT\s+INTO\s+[a-zA-Z0-9_."]+\s*\([^)]*$/i);
+    if (insertColMatch) {
+      isInsertColumnContext = true;
+      intent = "column";
+    }
+  }
+
   return {
     intent,
     identifier,
     activeStatementTables,
     qualifier,
     range,
+    isInsertContext: mutationContext.isInsert && isInsertColumnContext,
+    insertTargetTable: mutationContext.isInsert ? mutationContext.targetTable : undefined,
+    isUpdateContext: mutationContext.isUpdate,
+    updateTargetTable: mutationContext.isUpdate ? mutationContext.targetTable : undefined,
   };
 }

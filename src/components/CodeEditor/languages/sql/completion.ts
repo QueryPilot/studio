@@ -27,9 +27,20 @@ export const createSqlCompletionSource = (
 
     // Use AST-based context analysis
     const analysis = analyzeSqlContext(context, defaultSchema);
-    const { intent, activeStatementTables, qualifier, range } = analysis;
+    const { intent, activeStatementTables, qualifier, range, isInsertContext, insertTargetTable } = analysis;
 
     try {
+      // SPECIAL CASE: INSERT column list - only show target table's columns
+      if (isInsertContext && insertTargetTable) {
+        const fields = await provider.listFields(insertTargetTable);
+        if (fields.length > 0) {
+          return {
+            from: range.from,
+            options: mapFieldsToCompletions(fields),
+            validFor: /^[\w_]*$/,
+          };
+        }
+      }
       // SCENARIO A: Qualified field access (e.g., "u.id" or "users.id")
       if (intent === "column" && qualifier) {
         const matchedTable = activeStatementTables.find(
