@@ -17,6 +17,17 @@ import type { CellValue } from "@/types/cellValue";
 export type GridRowModel = TableDataRow;
 export type { Item };
 
+export type SortDirection = 'asc' | 'desc';
+
+export interface SortColumn {
+  columnId: string;
+  direction: SortDirection;
+}
+
+export interface GridSortState {
+  sortColumns: SortColumn[];
+}
+
 export interface GridColumnV2 extends Omit<GridColumn, 'title'> {
   /** Stable identifier for persistence */
   id: string;

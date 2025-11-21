@@ -20,13 +20,14 @@ export const computeBaseWidth = (
     return Math.max(100, name.length * 8 + 56);
   }
 
-  // For text columns, default to wider width (600px) for better readability
+  // For text columns, use a reasonable default based on column name length
+  // with a max of 250px to prevent overly wide columns
   if (type.includes("text") || type.includes("varchar") || type.includes("char")) {
-    return 600;
+    return Math.max(120, Math.min(250, name.length * 8 + 48));
   }
 
-  // Increased max width to 1000 for better display of long text
-  return Math.max(96, Math.min(1000, name.length * 8 + 48));
+  // Default width based on column name length, capped at 200px
+  return Math.max(96, Math.min(200, name.length * 8 + 48));
 };
 
 export const reorderColumns = (
