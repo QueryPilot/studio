@@ -26,6 +26,12 @@ export {
   clearSemanticLinterCache,
 } from "./sql-linter";
 
+// High-performance worker-based linter
+export {
+  createWorkerLinter,
+  terminateLinterWorker,
+} from "./linter-worker-manager";
+
 // Metadata provider
 export {
   SqlMetadataProvider,

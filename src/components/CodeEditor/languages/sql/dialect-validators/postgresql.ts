@@ -105,47 +105,73 @@ export class PostgreSQLValidator extends AbstractDialectValidator {
     ];
   }
 
+  // Cache for document content to avoid repeated toString() calls
+  private cachedDoc: { content: string; version: number } | null = null;
+
+  private getDocContent(state: EditorState): string {
+    // Only rebuild if document changed
+    const version = (state as any).doc?.length || 0;
+    if (this.cachedDoc && this.cachedDoc.version === version) {
+      return this.cachedDoc.content;
+    }
+
+    // For large documents, skip expensive validation
+    if (state.doc.length > 100000) {
+      this.cachedDoc = { content: "", version };
+      return "";
+    }
+
+    const content = state.doc.toString();
+    this.cachedDoc = { content, version };
+    return content;
+  }
+
   validateDialectSyntax(state: EditorState): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
-    const doc = state.doc.toString();
+    const doc = this.getDocContent(state);
+
+    // Skip if document is too large
+    if (!doc) return diagnostics;
 
     // Check for unmatched dollar quotes
     const dollarQuoteRegex = /\$(\w*)\$/g;
-    const quotes: Array<{ tag: string; pos: number }> = [];
+    const quotes: Array<{ tag: string; pos: number; length: number }> = [];
     let match;
 
     while ((match = dollarQuoteRegex.exec(doc)) !== null) {
-      quotes.push({ tag: match[1] || "", pos: match.index });
+      quotes.push({
+        tag: match[1] || "",
+        pos: match.index,
+        length: match[0].length
+      });
     }
 
-    // Check for matching pairs
-    const unmatchedTags = new Set<string>();
+    // Check for matching pairs using Map for O(1) lookup
     const tagCounts = new Map<string, number>();
 
     for (const quote of quotes) {
-      const count = tagCounts.get(quote.tag) || 0;
-      tagCounts.set(quote.tag, count + 1);
+      tagCounts.set(quote.tag, (tagCounts.get(quote.tag) || 0) + 1);
     }
 
-    // Each tag should appear an even number of times
+    // Find unmatched tags (odd count)
+    const unmatchedTags = new Set<string>();
     for (const [tag, count] of tagCounts.entries()) {
       if (count % 2 !== 0) {
         unmatchedTags.add(tag);
       }
     }
 
-    // Report unmatched quotes
+    // Report unmatched quotes (only first occurrence)
     if (unmatchedTags.size > 0) {
       for (const quote of quotes) {
         if (unmatchedTags.has(quote.tag)) {
           const tagStr = quote.tag ? `$${quote.tag}$` : "$$";
           diagnostics.push({
             from: quote.pos,
-            to: quote.pos + tagStr.length,
+            to: quote.pos + quote.length,
             severity: "error",
             message: `Unmatched dollar quote ${tagStr}`,
           });
-          // Only report once per tag
           unmatchedTags.delete(quote.tag);
           if (unmatchedTags.size === 0) break;
         }
@@ -157,24 +183,29 @@ export class PostgreSQLValidator extends AbstractDialectValidator {
 
   validateBestPractices(state: EditorState): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
-    const doc = state.doc.toString();
+    const doc = this.getDocContent(state);
 
-    // Suggest using parameterized queries (basic check for string concatenation in SQL)
+    // Skip if document is too large or empty
+    if (!doc || doc.length > 50000) return diagnostics;
+
+    // Optimized pattern - limit scope and use non-greedy
     const concatenationPattern =
-      /(?:SELECT|INSERT|UPDATE|DELETE|FROM|WHERE)[\s\S]*?\|\|[\s\S]*?(?:SELECT|FROM|WHERE)/gi;
+      /(?:SELECT|INSERT|UPDATE|DELETE|FROM|WHERE)[^;]{0,200}?\|\|[^;]{0,200}?(?:SELECT|FROM|WHERE)/gi;
     let match;
 
     while ((match = concatenationPattern.exec(doc)) !== null) {
       const matchText = match[0];
-      // Check if it looks like building SQL strings
-      if (/['"].*?SELECT.*?['"]|\|\|.*?['"].*?FROM/i.test(matchText)) {
-        diagnostics.push({
-          from: match.index,
-          to: match.index + matchText.length,
-          severity: "warning",
-          message:
-            "Avoid string concatenation in SQL queries. Consider using parameterized queries to prevent SQL injection.",
-        });
+      // Quick check before expensive regex
+      if (matchText.includes("'") || matchText.includes('"')) {
+        if (/['"].*?SELECT.*?['"]|\|\|.*?['"].*?FROM/i.test(matchText)) {
+          diagnostics.push({
+            from: match.index,
+            to: match.index + matchText.length,
+            severity: "warning",
+            message:
+              "Avoid string concatenation in SQL queries. Consider using parameterized queries to prevent SQL injection.",
+          });
+        }
       }
     }
 

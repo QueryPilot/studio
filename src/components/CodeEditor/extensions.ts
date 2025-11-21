@@ -42,6 +42,7 @@ import type { SqlDialect, CodeEditorLanguage } from "./types";
 import { acceptCompletion, autocompletion } from "@codemirror/autocomplete";
 import { dbmlMixed } from "./languages/dbml/dbml-mixed";
 import { createSqlLinter, createSemanticLinter } from "./languages/sql/sql-linter";
+import { createWorkerLinter } from "./languages/sql/linter-worker-manager";
 import { createSqlCompletionSource } from "./languages/sql/completion";
 import { createSqlHoverExtension } from "./languages/sql/hover";
 import { createSqlMetadataProvider } from "./languages/sql/metadataProvider";
@@ -742,8 +743,13 @@ export const getEditorExtensions = (
   );
 
   if (language === "sql") {
-    // Pass dialect to linter for dialect-aware validation
-    extensions.push(createSqlLinter(dialect), lintGutter());
+    // Use worker-based linter for best performance (runs off main thread)
+    // Falls back to main thread linter for dialect-specific validation
+    extensions.push(
+      createWorkerLinter(dialect),
+      createSqlLinter(dialect),
+      lintGutter()
+    );
   }
 
   // Add tab handling: prioritize autocomplete acceptance over indentation
