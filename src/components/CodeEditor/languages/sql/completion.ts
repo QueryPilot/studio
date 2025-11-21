@@ -167,12 +167,31 @@ function mapFieldsToCompletions(fields: Array<{ name: string; dataType: string; 
 }
 
 function mapEntitiesToCompletions(entities: Array<{ name: string; type: string; schema?: string }>): Completion[] {
-  return entities.map((e) => ({
-    label: e.name,
-    type: e.type === "table" ? "class" : "constant",
-    detail: e.type,
-    boost: 0,
-  }));
+  return entities.map((e) => {
+    // Generate smart alias: user_accounts -> ua, orders -> o
+    const alias = generateSmartAlias(e.name);
+    return {
+      label: e.name,
+      type: e.type === "table" ? "class" : "constant",
+      detail: alias ? `→ ${alias}` : e.type,
+      // Apply with alias for tables
+      apply: e.type === "table" && alias ? `${e.name} ${alias}` : e.name,
+      boost: 0,
+    };
+  });
+}
+
+function generateSmartAlias(tableName: string): string {
+  // user_accounts -> ua, order_items -> oi
+  if (tableName.includes('_')) {
+    return tableName
+      .split('_')
+      .map(part => part[0] || '')
+      .join('')
+      .toLowerCase();
+  }
+  // Single word: users -> u, orders -> o
+  return tableName[0]?.toLowerCase() || '';
 }
 
 function deduplicateFields<T extends { name: string }>(fields: T[]): T[] {

@@ -43,6 +43,18 @@ export interface FieldMeta {
 }
 
 /**
+ * Detailed information about an entity for hover tooltips
+ */
+export interface EntityDetails {
+  name: string;
+  type: string;
+  schema?: string;
+  description?: string;
+  rowCount?: number;
+  fields?: FieldMeta[];
+}
+
+/**
  * Generic metadata provider interface for database introspection.
  * Implemented by SQL, MongoDB, Redis, etc. adapters.
  */
@@ -52,6 +64,9 @@ export interface MetadataProvider {
 
   /** List all fields (columns, document fields, etc.) for an entity */
   listFields(entityName: string, schema?: string): Promise<FieldMeta[]>;
+
+  /** Get detailed info about an entity (for hover tooltips) */
+  getEntityDetails?(entityName: string, schema?: string): Promise<EntityDetails | null>;
 }
 
 /**

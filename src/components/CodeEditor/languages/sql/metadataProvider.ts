@@ -1,5 +1,5 @@
 import { schemaCache } from "@/services/schemaCache";
-import type { MetadataProvider, EntityMeta, FieldMeta } from "../../types";
+import type { MetadataProvider, EntityMeta, FieldMeta, EntityDetails } from "../../types";
 
 /**
  * SQL implementation of MetadataProvider.
@@ -53,6 +53,46 @@ export class SqlMetadataProvider implements MetadataProvider {
     } catch (err) {
       console.error(`[SqlMetadataProvider] Failed to list fields for "${targetSchema}.${entityName}":`, err);
       return [];
+    }
+  }
+
+  async getEntityDetails(entityName: string, schema?: string): Promise<EntityDetails | null> {
+    const targetSchema = schema || this.defaultSchema;
+
+    try {
+      // Get table info
+      const tables = await schemaCache.getTables(this.connectionId, targetSchema);
+      const table = tables.find(t => t.name.toLowerCase() === entityName.toLowerCase());
+
+      if (!table) return null;
+
+      // Get columns for the table
+      const columns = await schemaCache.getTableColumns(
+        this.connectionId,
+        targetSchema,
+        entityName
+      );
+
+      const fields: FieldMeta[] = columns.map((col) => ({
+        name: col.name,
+        dataType: col.db_type,
+        parentEntity: entityName,
+        description: col.comment || undefined,
+        nullable: col.nullable,
+        isPrimaryKey: col.is_pk,
+      }));
+
+      return {
+        name: table.name,
+        type: table.kind,
+        schema: targetSchema,
+        description: undefined, // Could add table comment if available
+        rowCount: table.row_estimate,
+        fields,
+      };
+    } catch (err) {
+      console.error(`[SqlMetadataProvider] Failed to get details for "${entityName}":`, err);
+      return null;
     }
   }
 
