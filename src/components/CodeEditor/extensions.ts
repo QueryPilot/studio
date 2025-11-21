@@ -21,7 +21,6 @@ import {
   MySQL,
   SQLite,
   MSSQL,
-  StandardSQL,
 } from "@codemirror/lang-sql";
 import { json as jsonLang } from "@codemirror/lang-json";
 import {
@@ -44,6 +43,8 @@ import { acceptCompletion, autocompletion } from "@codemirror/autocomplete";
 import { dbmlMixed } from "./languages/dbml/dbml-mixed";
 import { createSqlLinter } from "./languages/sql/sql-linter";
 import { createSqlCompletionSource } from "./languages/sql/completion";
+import { createSqlHoverExtension } from "./languages/sql/hover";
+import { createSqlMetadataProvider } from "./languages/sql/metadataProvider";
 
 // Enhanced SQL folding service using syntax tree for better nested support
 const sqlFoldService = foldService.of((state, from) => {
@@ -259,8 +260,11 @@ export const getLanguageExtension = (
         }),
       ];
 
-      // Add context-aware completion if connection info is available
+      // Add context-aware completion and hover if connection info is available
       if (connectionId && database) {
+        const defaultSchema = schema || "public";
+        const provider = createSqlMetadataProvider(connectionId, defaultSchema);
+
         extensions.push(
           dialectLang.language.data.of({
             autocomplete: createSqlCompletionSource({
@@ -269,6 +273,8 @@ export const getLanguageExtension = (
               schema,
             }),
           }),
+          // Add hover tooltips for table/column info
+          createSqlHoverExtension(provider, defaultSchema),
         );
       }
 
@@ -519,7 +525,7 @@ export const createEnterKeymap = (onEnter?: () => boolean): Extension => {
       },
       {
         key: "Ctrl-Enter",
-        run: (view) => {
+        run: () => {
           return onEnter();
         },
       },

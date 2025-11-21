@@ -189,3 +189,190 @@
     user-select: none;
   }
 }
+
+/* SQL Editor Hover Tooltip Styles */
+.cm-sql-hover-tooltip {
+  background: hsl(var(--popover));
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  max-width: 320px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.cm-sql-hover-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.cm-sql-hover-type {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.cm-sql-hover-name {
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+.cm-sql-hover-body {
+  color: hsl(var(--muted-foreground));
+}
+
+.cm-sql-hover-row-count,
+.cm-sql-hover-col-count {
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.cm-sql-hover-columns {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid hsl(var(--border));
+}
+
+.cm-sql-hover-column {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+  font-size: 11px;
+}
+
+.cm-sql-hover-col-name {
+  color: hsl(var(--foreground));
+  font-weight: 500;
+}
+
+.cm-sql-hover-col-type {
+  color: hsl(var(--muted-foreground));
+  font-family: monospace;
+  font-size: 10px;
+}
+
+.cm-sql-hover-more {
+  font-size: 10px;
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+  margin-top: 4px;
+}
+
+.cm-sql-hover-description {
+  margin-top: 8px;
+  font-style: italic;
+  font-size: 11px;
+}
+
+/* SQL Editor Autocomplete Styles - matches QuickFilter style */
+.cm-tooltip.cm-tooltip-autocomplete {
+  background: hsl(var(--popover)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  border-radius: 6px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+  padding: 4px !important;
+  max-height: 192px !important; /* max-h-48 */
+  overflow-y: auto !important;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul {
+  font-family: inherit !important;
+  max-height: none !important;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul > li {
+  padding: 4px 8px !important;
+  font-size: 12px !important;
+  border-radius: 4px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul > li:hover {
+  background: hsl(var(--accent)) !important;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected="true"] {
+  background: hsl(var(--accent)) !important;
+  color: hsl(var(--accent-foreground)) !important;
+}
+
+/* Completion label (column/table name) */
+.cm-completionLabel {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace !important;
+  font-weight: 500 !important;
+}
+
+/* Completion detail (data type) */
+.cm-completionDetail {
+  font-size: 10px !important;
+  color: hsl(var(--muted-foreground)) !important;
+  margin-left: auto !important;
+  font-style: normal !important;
+  opacity: 1 !important;
+}
+
+/* Completion icon */
+.cm-completionIcon {
+  width: 16px !important;
+  height: 16px !important;
+  padding: 0 !important;
+  margin-right: 4px !important;
+  opacity: 0.7 !important;
+}
+
+/* Property icon (columns) */
+.cm-completionIcon-property::after {
+  content: "⊡" !important;
+  font-size: 10px !important;
+  color: hsl(var(--primary)) !important;
+}
+
+/* Class icon (tables) */
+.cm-completionIcon-class::after {
+  content: "▦" !important;
+  font-size: 10px !important;
+  color: hsl(var(--chart-1)) !important;
+}
+
+/* Constant icon (views) */
+.cm-completionIcon-constant::after {
+  content: "◫" !important;
+  font-size: 10px !important;
+  color: hsl(var(--chart-2)) !important;
+}
+
+/* Function icon */
+.cm-completionIcon-function::after {
+  content: "ƒ" !important;
+  font-size: 11px !important;
+  color: hsl(var(--chart-3)) !important;
+}
+
+/* Hide the default match highlighting, we'll use our own */
+.cm-completionMatchedText {
+  text-decoration: none !important;
+  font-weight: 600 !important;
+  color: hsl(var(--primary)) !important;
+}
+
+/* Info tooltip (for additional details) */
+.cm-completionInfo {
+  background: hsl(var(--popover)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  border-radius: 6px !important;
+  padding: 8px 12px !important;
+  font-size: 11px !important;
+  color: hsl(var(--muted-foreground)) !important;
+  max-width: 300px !important;
+}
