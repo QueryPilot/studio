@@ -130,8 +130,9 @@ export function parseWhereClause(
   }
 }
 
-// Common SQL functions that should not be treated as column names
-const SQL_FUNCTIONS = new Set([
+// Common SQL functions and keywords that should not be treated as column names
+const SQL_KEYWORDS = new Set([
+  // Functions
   "now", "current_date", "current_time", "current_timestamp",
   "date", "time", "datetime", "timestamp",
   "year", "month", "day", "hour", "minute", "second",
@@ -141,6 +142,10 @@ const SQL_FUNCTIONS = new Set([
   "abs", "ceil", "floor", "round", "mod",
   "extract", "date_part", "date_trunc", "age", "interval",
   "to_char", "to_date", "to_timestamp", "to_number",
+  // SQL keywords
+  "select", "from", "where", "order", "by", "asc", "desc", "limit", "offset",
+  "group", "having", "distinct", "as", "join", "inner", "left", "right", "outer",
+  "on", "using", "union", "all", "exists", "any", "some",
 ]);
 
 export function validateWhereClause(
@@ -148,30 +153,48 @@ export function validateWhereClause(
   columns: ColumnMeta[]
 ): string | null {
   const columnNames = new Set(columns.map((c) => c.name.toLowerCase()));
-
-  // Extract potential column references
   const tokens = tokenize(clause);
-  const identifiers = tokens.filter((t) => t.type === "identifier");
 
-  for (let i = 0; i < identifiers.length; i++) {
-    const token = identifiers[i];
+  // Keywords that introduce table names (not columns)
+  const tableKeywords = new Set(["FROM", "JOIN", "UPDATE", "INTO"]);
+
+  let parenDepth = 0;
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
     if (!token) continue;
+
+    // Track parenthesis depth
+    if (token.type === "paren") {
+      parenDepth += token.value === "(" ? 1 : -1;
+      continue;
+    }
+
+    // Skip validation inside parentheses (handles subqueries, function args)
+    if (parenDepth > 0) continue;
+
+    // Only check identifiers
+    if (token.type !== "identifier") continue;
+
     const name = token.value.toLowerCase();
 
-    // Skip if it's a known SQL function
-    if (SQL_FUNCTIONS.has(name)) {
-      continue;
-    }
+    // Skip SQL keywords/functions
+    if (SQL_KEYWORDS.has(name)) continue;
 
-    // Check if followed by parenthesis (function call pattern)
-    const tokenIndex = tokens.indexOf(token);
-    const nextToken = tokens[tokenIndex + 1];
-    if (nextToken?.type === "paren" && nextToken.value === "(") {
-      // It's a function call, skip validation
-      continue;
-    }
+    // Skip if followed by '(' (function call)
+    const nextToken = tokens[i + 1];
+    if (nextToken?.type === "paren" && nextToken.value === "(") continue;
 
-    if (!columnNames.has(name)) {
+    // Skip if preceded by table-introducing keyword
+    const prevToken = tokens[i - 1];
+    if (prevToken?.type === "keyword" && tableKeywords.has(prevToken.value)) continue;
+
+    // Only validate if this looks like a column reference
+    // (before an operator or keyword operator)
+    const isBeforeOperator = nextToken?.type === "operator" ||
+      (nextToken?.type === "keyword" && ["LIKE", "ILIKE", "IN", "IS", "BETWEEN", "NOT"].includes(nextToken.value));
+
+    if (isBeforeOperator && !columnNames.has(name)) {
       return `Unknown column: ${token.value}`;
     }
   }

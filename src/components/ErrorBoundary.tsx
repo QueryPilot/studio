@@ -104,12 +104,13 @@ export class ErrorBoundary extends Component<Props, State> {
                           Error:
                         </p>
                         <p className="text-xs text-destructive/90">
-                          The application encountered an unexpected error. Please try
-                          reloading the app.
+                          The application encountered an unexpected error.
+                          Please try reloading the app.
                         </p>
                         <p className="text-xs text-muted-foreground mt-3">
-                          If error tracking is enabled in Preferences, this error has been
-                          automatically reported to help us fix the issue.
+                          If error tracking is enabled in Preferences, this
+                          error has been automatically reported to help us fix
+                          the issue.
                         </p>
                       </>
                     ) : (
@@ -149,12 +150,20 @@ export class ErrorBoundary extends Component<Props, State> {
                 )}
 
                 <div className="flex items-center gap-3 pt-2">
-                  <Button onClick={this.handleReload} variant="default">
+                  <Button
+                    onClick={this.handleReload}
+                    variant="default"
+                    size="xs"
+                  >
                     <RefreshCw className="h-4 w-4 mr-2" />
                     Reload App
                   </Button>
                   {process.env.NODE_ENV === "development" && (
-                    <Button onClick={this.handleCopyError} variant="outline">
+                    <Button
+                      onClick={this.handleCopyError}
+                      variant="outline"
+                      size="xs"
+                    >
                       {this.state.copied ? (
                         <Check className="h-4 w-4 mr-2" />
                       ) : (

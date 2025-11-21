@@ -60,6 +60,10 @@ import {
 } from "../hooks";
 import { createDrawHeader } from "../utils/headerUtils";
 import {
+  ColumnHeaderContextMenu,
+  useColumnHeaderContextMenu,
+} from "../components/ColumnHeaderContextMenu";
+import {
   applyPinnedOrdering,
   computeBaseWidth,
   filterVisibleColumns,
@@ -966,6 +970,54 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     [getSortDirection, getSortIndex, finalColumns, sortColumns.length],
   );
 
+  // Column header context menu
+  const { handleHeaderContextMenu, menuState, closeMenu, getMenuProps } =
+    useColumnHeaderContextMenu({
+      columns: finalColumns,
+      pinnedColumns: columnState.pinned,
+      getSortDirection,
+      onSort: (columnId, direction) => {
+        // Clear existing sort and set new one
+        const store = useGridPreferencesStore.getState();
+        store.upsert(gridId, (draft) => {
+          draft.sortColumns = [{ columnId, direction }];
+        });
+      },
+      onClearSort: (columnId) => {
+        const store = useGridPreferencesStore.getState();
+        store.upsert(gridId, (draft) => {
+          draft.sortColumns = draft.sortColumns.filter(
+            (s) => s.columnId !== columnId,
+          );
+        });
+      },
+      onHide: (columnId) => {
+        upsertGridColumnsState(gridId, (draft) => {
+          draft.visibility[columnId] = false;
+        });
+      },
+      onPin: (columnId) => {
+        upsertGridColumnsState(gridId, (draft) => {
+          if (!draft.pinned.includes(columnId)) {
+            draft.pinned.push(columnId);
+          }
+        });
+      },
+      onUnpin: (columnId) => {
+        upsertGridColumnsState(gridId, (draft) => {
+          draft.pinned = draft.pinned.filter((id) => id !== columnId);
+        });
+      },
+      onFilterByColumn: isTableMode
+        ? (columnId) => {
+            setQuickFilterValue(`${columnId}:`);
+            quickFilterRef.current?.focus();
+          }
+        : undefined,
+    });
+
+  const contextMenuProps = getMenuProps();
+
   // Apply optimistic updates from staged commands to display rows
   const displayRowsWithOptimisticUpdates = useMemo(() => {
     if (!isTableMode) {
@@ -1141,57 +1193,64 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       return;
     }
 
-    // Delay check to allow click-based selection to be set first
+    // Check current selection state before setting timeout
+    // This prevents infinite loops when gridSelection updates
+    const hasExistingSelection =
+      (gridSelection?.rows && gridSelection.rows.length > 0) ||
+      (gridSelection?.columns && gridSelection.columns.length > 0) ||
+      gridSelection?.current !== undefined;
+
+    if (
+      hasExistingSelection ||
+      displayRows.length === 0 ||
+      finalColumns.length === 0
+    ) {
+      return;
+    }
+
+    // Delay to allow click-based selection to be set first
     const timeoutId = setTimeout(() => {
-      // Only auto-select if there's no current selection
-      const currentHasSelection =
-        (gridSelection?.rows && gridSelection.rows.length > 0) ||
-        (gridSelection?.columns && gridSelection.columns.length > 0) ||
-        gridSelection?.current !== undefined;
+      // Use functional setState to get current selection state
+      // This avoids stale closure issues
+      setGridSelection((currentSelection) => {
+        // Double-check there's still no selection
+        const stillNoSelection =
+          !currentSelection?.current &&
+          (!currentSelection?.rows || currentSelection.rows.length === 0) &&
+          (!currentSelection?.columns || currentSelection.columns.length === 0);
 
-      if (
-        currentHasSelection ||
-        displayRows.length === 0 ||
-        finalColumns.length === 0
-      ) {
-        return;
-      }
-
-      console.log(
-        `[TableDataGridV2 ${gridId}] Auto-selecting first cell on focus`,
-      );
-
-      // Select the first cell (row 0, column 0)
-      const firstCellSelection: GridSelection = {
-        current: {
-          cell: [0, 0],
-          range: { x: 0, y: 0, width: 1, height: 1 },
-          rangeStack: [],
-        },
-        rows: CompactSelection.empty(),
-        columns: CompactSelection.empty(),
-      };
-
-      setGridSelection(firstCellSelection);
-
-      // Scroll to ensure first cell is visible
-      requestAnimationFrame(() => {
-        if (gridRef.current) {
-          gridRef.current.scrollTo(0, 0);
+        if (!stillNoSelection) {
+          return currentSelection;
         }
+
+        console.log(
+          `[TableDataGridV2 ${gridId}] Auto-selecting first cell on focus`,
+        );
+
+        // Scroll to ensure first cell is visible
+        requestAnimationFrame(() => {
+          if (gridRef.current) {
+            gridRef.current.scrollTo(0, 0);
+          }
+        });
+
+        // Select the first cell (row 0, column 0)
+        return {
+          current: {
+            cell: [0, 0],
+            range: { x: 0, y: 0, width: 1, height: 1 },
+            rangeStack: [],
+          },
+          rows: CompactSelection.empty(),
+          columns: CompactSelection.empty(),
+        };
       });
     }, 50); // Small delay to let click selection settle
 
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [
-    isGridFocused,
-    gridId,
-    gridSelection,
-    displayRows.length,
-    finalColumns.length,
-  ]);
+  }, [isGridFocused, gridId, displayRows.length, finalColumns.length]);
 
   // Defer grid rendering for large datasets to keep UI responsive
   // Grid updates in background without blocking interactions
@@ -1859,7 +1918,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             }
           }}
         >
-          <Plus className="h-3 w-3 mr-1" />
+          <Plus className="h-3 w-3" />
           Add Row
         </Button>
 
@@ -2081,12 +2140,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
               onSubmit={handleFilterSubmit}
               isLoading={isAIFilterLoading}
               error={quickFilterError}
+              explanation={aiExplanation}
             />
-            {aiExplanation && (
-              <p className="text-xs text-muted-foreground px-1 mt-1 truncate" title={aiExplanation}>
-                {aiExplanation}
-              </p>
-            )}
           </div>
         )}
         <div className="flex-1">
@@ -2103,6 +2158,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
                   }
                 : undefined
             }
+            onReload={() => tableDataQuery.refetch()}
           />
         </div>
       </div>
@@ -2147,12 +2203,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
                 onSubmit={handleFilterSubmit}
                 isLoading={isAIFilterLoading}
                 error={quickFilterError}
+                explanation={aiExplanation}
               />
-              {aiExplanation && (
-                <p className="text-xs text-muted-foreground px-1 mt-1 truncate" title={aiExplanation}>
-                  {aiExplanation}
-                </p>
-              )}
             </div>
           )}
           <div className="flex flex-col items-center justify-center flex-1 gap-4">
@@ -2219,12 +2271,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             onSubmit={handleFilterSubmit}
             isLoading={isAIFilterLoading}
             error={quickFilterError}
+            explanation={aiExplanation}
           />
-          {aiExplanation && (
-            <p className="text-xs text-muted-foreground px-1 mt-1 truncate" title={aiExplanation}>
-              {aiExplanation}
-            </p>
-          )}
         </div>
       )}
 
@@ -2316,6 +2364,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             highlightRegions={cellHighlightRegions}
             onHeaderClicked={handleHeaderClicked}
             drawHeader={drawHeader}
+            onHeaderContextMenu={handleHeaderContextMenu}
           />
         </GridContextMenu>
       </div>
@@ -2365,6 +2414,18 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             : undefined
         }
       />
+
+      {/* Column header context menu */}
+      {contextMenuProps && (
+        <ColumnHeaderContextMenu
+          open={menuState.isOpen}
+          onOpenChange={(open) => {
+            if (!open) closeMenu();
+          }}
+          position={menuState.position}
+          {...contextMenuProps}
+        />
+      )}
     </div>
   );
 });

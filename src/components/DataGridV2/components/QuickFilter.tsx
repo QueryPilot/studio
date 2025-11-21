@@ -25,6 +25,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { FilterMode, ColumnMeta } from "@/utils/filterParser";
 import { useAIChatStore } from "@/stores/aiChatStore";
+import { Shimmer } from "@/components/ai-elements/shimmer";
 
 interface QuickFilterProps {
   columns: ColumnMeta[];
@@ -35,6 +36,7 @@ interface QuickFilterProps {
   onSubmit: () => void;
   isLoading?: boolean;
   error?: string | null;
+  explanation?: string | null;
 }
 
 export interface QuickFilterRef {
@@ -81,6 +83,7 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
       onSubmit,
       isLoading = false,
       error = null,
+      explanation = null,
     },
     ref,
   ) {
@@ -533,20 +536,41 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
                       }
                     }}
                   />
+                  {/* Shimmer overlay when loading */}
+                  {isLoading && value && (
+                    <div className="absolute inset-0 flex items-center pl-8 pr-7 pointer-events-none bg-background rounded-md">
+                      <Shimmer
+                        as="span"
+                        className="text-xs truncate"
+                        duration={1.5}
+                        spread={1}
+                      >
+                        {(() => {
+                          const displayValue =
+                            (value.startsWith("?") && mode === "where") ||
+                            (value.startsWith("#") && mode === "ai") ||
+                            (value.startsWith("!") && mode === "search")
+                              ? value.slice(1)
+                              : value;
+                          return displayValue || "Generating...";
+                        })()}
+                      </Shimmer>
+                    </div>
+                  )}
                   {/* Clear/Loading indicator - inside the wrapper */}
-                  <div className="absolute right-1.5 top-1.5">
+                  <div className="absolute right-1 top-1/2 -translate-y-1/2">
                     {isLoading ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
                     ) : value ? (
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-5 w-5 p-0"
+                        className="h-6 w-6 p-0 mt-0.5"
                         onClick={() => {
                           onValueChange("");
                         }}
                       >
-                        <X className="h-3 w-3" />
+                        <X className="h-3.5 w-3.5" />
                       </Button>
                     ) : null}
                   </div>
@@ -606,6 +630,13 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
         {error && (
           <p className="text-xs text-destructive px-1 truncate" title={error}>
             {error}
+          </p>
+        )}
+
+        {/* AI explanation */}
+        {explanation && !error && (
+          <p className="text-xs text-muted-foreground px-1 truncate" title={explanation}>
+            {explanation}
           </p>
         )}
       </div>

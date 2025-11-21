@@ -6,11 +6,13 @@ import logo from "@/assets/logo.png";
 interface DataGridErrorStateProps {
   error: string;
   onRetry?: () => void;
+  onReload?: () => void;
 }
 
 export const DataGridErrorState = memo(function DataGridErrorState({
   error,
   onRetry,
+  onReload,
 }: DataGridErrorStateProps) {
   return (
     <div className="flex flex-col items-center justify-center h-full p-8 select-text">
@@ -19,11 +21,18 @@ export const DataGridErrorState = memo(function DataGridErrorState({
       <p className="text-sm text-muted-foreground max-w-md text-center select-text mb-4">
         {error}
       </p>
-      {onRetry && (
-        <Button variant="outline" size="sm" onClick={onRetry}>
-          Clear Filter
-        </Button>
-      )}
+      <div className="flex gap-2">
+        {onRetry && (
+          <Button variant="outline" size="sm" onClick={onRetry}>
+            Clear Filter
+          </Button>
+        )}
+        {onReload && (
+          <Button variant="outline" size="sm" onClick={onReload}>
+            Retry
+          </Button>
+        )}
+      </div>
     </div>
   );
 });

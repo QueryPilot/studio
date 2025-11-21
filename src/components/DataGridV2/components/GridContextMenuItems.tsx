@@ -16,7 +16,6 @@ import {
   Plus,
   Trash2,
   ClipboardPaste,
-  Database,
 } from "lucide-react";
 import type { GridColumnV2, GridRowModel } from "../types";
 import type { DatabaseType } from "@/types/database";
@@ -91,7 +90,15 @@ export function GridContextMenuItems({
             <Kbd key={`${chordIndex}-${partIndex}`}>{part}</Kbd>
           ));
           if (chordIndex < chords.length - 1) {
-            return [...kbds, <span key={`then-${chordIndex}`} className="text-muted-foreground text-xs mx-1">then</span>];
+            return [
+              ...kbds,
+              <span
+                key={`then-${chordIndex}`}
+                className="text-muted-foreground text-xs mx-1"
+              >
+                then
+              </span>,
+            ];
           }
           return kbds;
         })}
@@ -363,7 +370,7 @@ export function GridContextMenuItems({
           <Pin className="mr-1.5 h-3 w-3 text-foreground" />
           <span className="flex-1">Pin Rows</span>
           {!canPinMore && (
-            <span className="text-[10px] text-muted-foreground ml-1">Max</span>
+            <span className="text-xs text-muted-foreground ml-1">Max</span>
           )}
         </ContextMenuItem>
       )}
