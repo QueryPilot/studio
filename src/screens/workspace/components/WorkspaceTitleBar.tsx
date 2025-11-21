@@ -1032,14 +1032,14 @@ export function WorkspaceTitleBar({
       </div>
 
       {/* Center Section - Absolute positioning for true center */}
-      <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-3 text-xs max-w-[40%] min-w-0 select-none">
+      <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-2 text-xs max-w-[50%] min-w-0 select-none">
         {/* Database Name with Type */}
-        <div className="flex items-center gap-2 min-w-0" data-tauri-drag-region>
+        <div className="flex items-center gap-1.5 min-w-0 flex-shrink" data-tauri-drag-region>
           <span className="font-medium text-xs truncate" data-tauri-drag-region>
             {selectedDatabase || connection?.database || "Loading..."}
           </span>
           <span
-            className="text-muted-foreground whitespace-nowrap"
+            className="text-muted-foreground whitespace-nowrap hidden sm:inline"
             data-tauri-drag-region
           >
             {connection?.db_type}
@@ -1047,12 +1047,12 @@ export function WorkspaceTitleBar({
           </span>
         </div>
 
-        {/* Connection Details */}
+        {/* Connection Details - Hidden on small screens */}
         {connection?.host && (
           <>
-            <div className="h-3 w-px bg-border flex-shrink-0" />
+            <div className="h-3 w-px bg-border flex-shrink-0 hidden md:block" />
             <span
-              className="text-muted-foreground truncate min-w-0"
+              className="text-muted-foreground truncate min-w-0 hidden md:inline"
               data-tauri-drag-region
             >
               {connection.host}:{connection.port}
@@ -1067,7 +1067,7 @@ export function WorkspaceTitleBar({
         />
         <div
           className={cn(
-            "flex items-center gap-1.5 px-2 py-0.5 rounded-full transition-all whitespace-nowrap",
+            "flex items-center gap-1 px-1.5 py-0.5 rounded-full transition-all whitespace-nowrap flex-shrink-0",
             connectionHealth?.status === "ready" && "bg-green-500/10",
             connectionHealth?.status === "degraded" && "bg-yellow-500/10",
             connectionHealth?.status === "error" &&
@@ -1079,7 +1079,7 @@ export function WorkspaceTitleBar({
         >
           {getStatusIcon()}
           <span
-            className={cn("font-medium", getStatusColor())}
+            className={cn("font-medium hidden sm:inline", getStatusColor())}
             data-tauri-drag-region
           >
             {getStatusText()}
@@ -1093,10 +1093,10 @@ export function WorkspaceTitleBar({
               variant="ghost"
               size="sm"
               onClick={handleReconnect}
-              className="h-5 px-2 text-xs gap-1 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/20"
+              className="h-5 px-1.5 text-xs gap-1 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/20 flex-shrink-0"
             >
               <RotateCcw className="h-2.5 w-2.5" />
-              Reconnect
+              <span className="hidden sm:inline">Reconnect</span>
             </Button>
           )}
       </div>

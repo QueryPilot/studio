@@ -18,7 +18,7 @@ function VaultLoadingScreen() {
         alt="Query Pilot"
         className="h-20 w-20 rounded-2xl mb-6"
       />
-      <div className="w-8 h-8 border-[3px] border-border border-t-primary rounded-full animate-spin mb-3" />
+      <div className="w-8 h-8 min-w-8 min-h-8 border-[3px] border-border border-t-primary rounded-full animate-spin mb-3" />
       <div className="text-muted-foreground text-sm">Initializing vault…</div>
     </div>
   );
@@ -76,19 +76,24 @@ function App() {
             // Check if keychain access failed
             if (!vaultStorage.isKeychainAccessible()) {
               toast.error("Keychain Access Required", {
-                description: "Click 'Request Access' to trigger keychain prompt, or grant access in System Settings.",
+                description:
+                  "Click 'Request Access' to trigger keychain prompt, or grant access in System Settings.",
                 duration: Infinity,
                 action: {
                   label: "Request Access",
                   onClick: async () => {
-                    const toastId = toast.loading("Requesting keychain access...");
+                    const toastId = toast.loading(
+                      "Requesting keychain access...",
+                    );
                     const success = await vaultStorage.retryKeychainAccess();
                     toast.dismiss(toastId);
                     if (success) {
                       toast.success("Keychain access granted");
                       window.location.reload();
                     } else {
-                      toast.error("Access denied. Check System Settings > Privacy & Security > QueryPilot.");
+                      toast.error(
+                        "Access denied. Check System Settings > Privacy & Security > QueryPilot.",
+                      );
                     }
                   },
                 },
@@ -97,21 +102,29 @@ function App() {
           } catch (error) {
             console.error("Vault initialization failed", error);
             // Show error toast when keychain access throws
-            if (error instanceof Error && error.message.includes("Keychain access required")) {
+            if (
+              error instanceof Error &&
+              error.message.includes("Keychain access required")
+            ) {
               toast.error("Keychain Access Required", {
-                description: "Click 'Request Access' to trigger keychain prompt, or grant access in System Settings.",
+                description:
+                  "Click 'Request Access' to trigger keychain prompt, or grant access in System Settings.",
                 duration: Infinity,
                 action: {
                   label: "Request Access",
                   onClick: async () => {
-                    const toastId = toast.loading("Requesting keychain access...");
+                    const toastId = toast.loading(
+                      "Requesting keychain access...",
+                    );
                     const success = await vaultStorage.retryKeychainAccess();
                     toast.dismiss(toastId);
                     if (success) {
                       toast.success("Keychain access granted");
                       window.location.reload();
                     } else {
-                      toast.error("Access denied. Check System Settings > Privacy & Security > QueryPilot.");
+                      toast.error(
+                        "Access denied. Check System Settings > Privacy & Security > QueryPilot.",
+                      );
                     }
                   },
                 },
@@ -127,15 +140,24 @@ function App() {
           // connection info from URL params
           setVaultReady(true);
           // Initialize vault in background for metadata operations
-          void vaultStorage.initialize().then(() => vaultStorage.preloadAll()).catch((error) => {
-            console.error("Background vault load for workspace window failed", error);
-          });
+          void vaultStorage
+            .initialize()
+            .then(() => vaultStorage.preloadAll())
+            .catch((error: unknown) => {
+              console.error(
+                "Background vault load for workspace window failed",
+                error,
+              );
+            });
         } else {
           // Secondary main windows (main-<timestamp>) - minimal background init
           setVaultReady(true);
-          void vaultStorage.initialize().then(() => vaultStorage.preloadAll()).catch((error) => {
-            console.error("Background preload failed", error);
-          });
+          void vaultStorage
+            .initialize()
+            .then(() => vaultStorage.preloadAll())
+            .catch((error: unknown) => {
+              console.error("Background preload failed", error);
+            });
         }
 
         if (!isMainWindow) {

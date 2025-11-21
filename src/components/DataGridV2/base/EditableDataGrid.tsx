@@ -122,6 +122,7 @@ export interface EditableDataGridProps
   getRowThemeOverride?: DataEditorProps["getRowThemeOverride"];
   onHeaderClicked?: DataEditorProps["onHeaderClicked"];
   drawHeader?: DataEditorProps["drawHeader"];
+  onHeaderContextMenu?: DataEditorProps["onHeaderContextMenu"];
 }
 
 export interface EditableDataGridRef extends DataEditorRef {
@@ -154,6 +155,7 @@ export const EditableDataGrid = forwardRef<
     getRowThemeOverride,
     onHeaderClicked,
     drawHeader,
+    onHeaderContextMenu,
     containerClassName,
     className,
     ...rest
@@ -517,6 +519,7 @@ export const EditableDataGrid = forwardRef<
       getRowThemeOverride={getRowThemeOverride}
       onHeaderClicked={onHeaderClicked}
       drawHeader={drawHeader}
+      onHeaderContextMenu={onHeaderContextMenu}
       drawFocusRing
       rangeSelect="rect"
       columnSelect="multi"

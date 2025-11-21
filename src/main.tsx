@@ -16,7 +16,6 @@ import { CommandPalette } from "./components/CommandPalette/CommandPalette";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { initializeSentry } from "./utils/sentry";
 import { usePreferencesStore } from "./stores/preferencesStore";
-import { UpdateChecker } from "./components/UpdateChecker";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);

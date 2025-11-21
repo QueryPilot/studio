@@ -27,6 +27,8 @@ export interface DataGridBaseProps
   onHeaderClicked?: DataEditorProps["onHeaderClicked"];
   /** Optional custom header draw function */
   drawHeader?: DataEditorProps["drawHeader"];
+  /** Optional header context menu handler */
+  onHeaderContextMenu?: DataEditorProps["onHeaderContextMenu"];
 }
 
 export const DataGridBase = forwardRef(function DataGridBase(

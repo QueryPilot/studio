@@ -5,7 +5,7 @@ import { toast } from "sonner";
 
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Database, Settings, Search } from "lucide-react";
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, type RefObject } from "react";
 import logo from "@/assets/logo.png";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useConnectionSync } from "@/hooks/useConnectionSync";
@@ -148,7 +148,7 @@ export function MainScreen() {
             {/* Connection List */}
             <ConnectionList
               searchQuery={searchQuery}
-              searchInputRef={searchInputRef}
+              searchInputRef={searchInputRef as RefObject<HTMLInputElement>}
               onAddConnection={() => {
                 setConnectionDialogOpen(true);
               }}

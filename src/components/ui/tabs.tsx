@@ -49,7 +49,7 @@ const Tabs = React.forwardRef<
     if (!enableShortcuts) {
       // If shortcuts are disabled, render without TabGroupProvider
       return (
-        <TabsPrimitive.Root ref={ref} {...props}>
+        <TabsPrimitive.Root ref={ref} activationMode="manual" {...props}>
           {children}
         </TabsPrimitive.Root>
       );
@@ -65,7 +65,7 @@ const Tabs = React.forwardRef<
         focused={focused}
         enableGlobalShortcuts={enableGlobalShortcuts}
       >
-        <TabsPrimitive.Root ref={ref} {...props}>
+        <TabsPrimitive.Root ref={ref} activationMode="manual" {...props}>
           {children}
         </TabsPrimitive.Root>
       </TabGroupProvider>

@@ -128,7 +128,8 @@ export async function handleTextToSQL(request: Request): Promise<Response> {
     const body: TextToSQLRequest = await request.json();
     const { prompt, columns, tableName, dialect, provider, model } = body;
 
-    console.log(`🔤 Text-to-SQL: "${prompt}" for ${tableName} (${dialect})`);
+    const startTime = Date.now();
+    console.log(`🔤 Text-to-SQL: "${prompt}" for ${tableName} (${dialect}) [${provider}/${model}]`);
 
     if (!prompt?.trim()) {
       return new Response(JSON.stringify({ error: "Prompt is required" }), {
@@ -156,12 +157,26 @@ export async function handleTextToSQL(request: Request): Promise<Response> {
     const aiProvider = ProviderService.createProvider(provider);
     const aiModel = aiProvider(model);
 
-    const result = await generateObject({
-      model: aiModel,
-      system: buildSystemPrompt(columns, tableName, dialect),
-      prompt: `Generate the WHERE clause for: ${prompt}`,
-      schema: responseSchema,
+    console.log(`⏳ Calling ${provider}/${model}...`);
+    const llmStartTime = Date.now();
+
+    // Add timeout for LLM call
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error("LLM request timeout (20s)")), 20000);
     });
+
+    const result = await Promise.race([
+      generateObject({
+        model: aiModel,
+        system: buildSystemPrompt(columns, tableName, dialect),
+        prompt: `Generate the WHERE clause for: ${prompt}`,
+        schema: responseSchema,
+      }),
+      timeoutPromise,
+    ]);
+
+    const llmTime = Date.now() - llmStartTime;
+    console.log(`⏱️ LLM response in ${llmTime}ms`);
 
     // Validate that referenced columns exist
     const validationError = validateGeneratedClause(
@@ -179,7 +194,8 @@ export async function handleTextToSQL(request: Request): Promise<Response> {
       });
     }
 
-    console.log(`✅ Generated WHERE: ${result.object.whereClause}`);
+    const totalTime = Date.now() - startTime;
+    console.log(`✅ Generated WHERE: ${result.object.whereClause} (total: ${totalTime}ms)`);
 
     return new Response(
       JSON.stringify({
