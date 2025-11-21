@@ -3,31 +3,8 @@ import {
   CompletionContext,
   CompletionSource,
 } from "@codemirror/autocomplete";
-import { syntaxTree } from "@codemirror/language";
-import { databaseService } from "@/services/databaseService";
-
-// Cache for table columns to avoid redundant fetches
-// Key: connectionId:database:schema:table
-const columnCache = new Map<string, Completion[]>();
-
-// Cache for table lists
-// Key: connectionId:database:schema
-const tableCache = new Map<string, Completion[]>();
-
-// Helper to clear cache (can be exported if needed)
-export const clearCompletionCache = (connectionId?: string) => {
-  if (connectionId) {
-    for (const key of columnCache.keys()) {
-      if (key.startsWith(`${connectionId}:`)) columnCache.delete(key);
-    }
-    for (const key of tableCache.keys()) {
-      if (key.startsWith(`${connectionId}:`)) tableCache.delete(key);
-    }
-  } else {
-    columnCache.clear();
-    tableCache.clear();
-  }
-};
+import { createSqlMetadataProvider } from "./metadataProvider";
+import { analyzeSqlContext } from "./context";
 
 interface CompletionOptions {
   connectionId?: string;
@@ -41,129 +18,174 @@ export const createSqlCompletionSource = (
   return async (context: CompletionContext) => {
     const { connectionId, database, schema } = options;
 
-    // If no connection context, we can't provide intelligent suggestions
     if (!connectionId || !database) {
       return null;
     }
 
-    const word = context.matchBefore(/[\w_]*$/);
-    const from = word ? word.from : context.pos;
-    const to = context.pos;
+    const defaultSchema = schema || "public";
+    const provider = createSqlMetadataProvider(connectionId, defaultSchema);
 
-    // Check if we are after a dot (column completion)
-    const dotBefore = context.matchBefore(/([a-zA-Z0-9_]+)\.\s*[\w_]*$/);
+    // Use AST-based context analysis
+    const analysis = analyzeSqlContext(context, defaultSchema);
+    const { intent, activeStatementTables, qualifier, range } = analysis;
 
-    if (dotBefore) {
-      // We are likely completing a column
-      // Extract table name (and possibly schema)
-      // Logic: match ends with "TableName.PartialColumn" or "Schema.Table.PartialColumn"
-      const textBefore = context.state.sliceDoc(dotBefore.from, context.pos);
-      const parts = textBefore.split(".");
-      
-      let tableName = "";
-      let schemaName = schema || "public"; // Default schema
-      let partialColumn = "";
-
-      if (parts.length === 2) {
-        // Format: Table.Column
-        tableName = parts[0].trim();
-        partialColumn = parts[1].trim();
-      } else if (parts.length === 3) {
-        // Format: Schema.Table.Column
-        schemaName = parts[0].trim();
-        tableName = parts[1].trim();
-        partialColumn = parts[2].trim();
-      } else {
-        return null; // Too complex or invalid
-      }
-
-      // Check cache for columns
-      const cacheKey = `${connectionId}:${database}:${schemaName}:${tableName}`;
-      
-      if (columnCache.has(cacheKey)) {
-        return {
-          from,
-          options: columnCache.get(cacheKey)!,
-          validFor: /^[\w_]*$/,
-        };
-      }
-
-      // Fetch columns
-      try {
-        const columns = await databaseService.getTableColumns(
-          connectionId,
-          database,
-          schemaName,
-          tableName
+    try {
+      // SCENARIO A: Qualified field access (e.g., "u.id" or "users.id")
+      if (intent === "column" && qualifier) {
+        const matchedTable = activeStatementTables.find(
+          (t) =>
+            t.alias?.toLowerCase() === qualifier.toLowerCase() ||
+            t.name.toLowerCase() === qualifier.toLowerCase()
         );
 
-        const completions: Completion[] = columns.map((col) => ({
-          label: col.name,
-          type: "property",
-          detail: col.db_type,
-          info: col.comment || undefined,
-          boost: 1, // Boost columns over keywords
-        }));
+        if (matchedTable) {
+          // CTE with explicit columns
+          if (matchedTable.isCTE && matchedTable.cteColumns && matchedTable.cteColumns.length > 0) {
+            return {
+              from: range.from,
+              options: matchedTable.cteColumns.map((colName) => ({
+                label: colName,
+                type: "property",
+                detail: "CTE column",
+                boost: 1,
+              })),
+              validFor: /^[\w_]*$/,
+            };
+          }
 
-        // Add "Magic" columns if requested (simple implementation)
-        // completions.push({ label: `${col.name}__format__`, ... })
+          // CTE with SELECT * - fetch from source table
+          if (matchedTable.isCTE && matchedTable.cteSourceTable && !matchedTable.cteColumns) {
+            const fields = await provider.listFields(matchedTable.cteSourceTable);
+            if (fields.length > 0) {
+              return {
+                from: range.from,
+                options: mapFieldsToCompletions(fields),
+                validFor: /^[\w_]*$/,
+              };
+            }
+          }
 
-        columnCache.set(cacheKey, completions);
+          // Regular table - fetch columns
+          const fields = await provider.listFields(matchedTable.name, matchedTable.schema);
+          if (fields.length > 0) {
+            return {
+              from: range.from,
+              options: mapFieldsToCompletions(fields),
+              validFor: /^[\w_]*$/,
+            };
+          }
 
-        return {
-          from,
-          options: completions,
-          validFor: /^[\w_]*$/,
-        };
-      } catch (err) {
-        console.error("Failed to fetch columns for completion", err);
+          // Fallback: fetch from other tables in scope
+          const otherTables = activeStatementTables.filter(
+            (t) => t.name !== matchedTable.name && !t.isCTE
+          );
+          if (otherTables.length > 0) {
+            const fieldPromises = otherTables.map((t) =>
+              provider.listFields(t.name, t.schema).catch(() => [])
+            );
+            const results = await Promise.all(fieldPromises);
+            const allFields = deduplicateFields(results.flat());
+
+            if (allFields.length > 0) {
+              return {
+                from: range.from,
+                options: mapFieldsToCompletions(allFields),
+                validFor: /^[\w_]*$/,
+              };
+            }
+          }
+        }
+
+        // Qualifier might be a schema name
+        const entities = await provider.listEntities(qualifier);
+        if (entities.length > 0) {
+          return {
+            from: range.from,
+            options: mapEntitiesToCompletions(entities),
+            validFor: /^[\w_]*$/,
+          };
+        }
+
         return null;
       }
-    }
 
-    // If not after a dot, check if we should suggest Tables
-    // Simple heuristic: Start of line, or after keywords like FROM, JOIN, UPDATE, INTO
-    // Or just always suggest tables mixed with keywords?
-    // CodeMirror's default SQL completion provides keywords.
-    // We want to ADD tables.
+      // SCENARIO B: Unqualified field (suggest from all scoped tables)
+      if (intent === "column" && !qualifier) {
+        const completions: Completion[] = [];
 
-    // Check cache for tables
-    const tableCacheKey = `${connectionId}:${database}:${schema || "public"}`;
-    
-    if (tableCache.has(tableCacheKey)) {
-      return {
-        from,
-        options: tableCache.get(tableCacheKey)!,
-        validFor: /^[\w_]*$/,
-      };
-    }
+        // Fetch columns from all real tables in scope
+        const realTables = activeStatementTables.filter((t) => !t.isCTE);
+        if (realTables.length > 0) {
+          const fieldPromises = realTables.map((t) =>
+            provider.listFields(t.name, t.schema).catch(() => [])
+          );
+          const results = await Promise.all(fieldPromises);
+          const allFields = deduplicateFields(results.flat());
+          completions.push(...mapFieldsToCompletions(allFields));
+        }
 
-    // Fetch tables
-    try {
-      const tables = await databaseService.listTables(
-        connectionId,
-        database,
-        schema || "public"
-      );
+        // Also include table names
+        const entities = await provider.listEntities();
+        completions.push(...mapEntitiesToCompletions(entities));
 
-      const tableCompletions: Completion[] = tables.map((t) => ({
-        label: t.name,
-        type: t.kind === "Table" ? "class" : "constant", // visual distinction
-        detail: t.kind,
-        boost: 0, // Let keywords take precedence if matched, or equal
-      }));
+        if (completions.length > 0) {
+          return {
+            from: range.from,
+            options: completions,
+            validFor: /^[\w_]*$/,
+          };
+        }
+      }
 
-      tableCache.set(tableCacheKey, tableCompletions);
-
-      return {
-        from,
-        options: tableCompletions,
-        validFor: /^[\w_]*$/,
-      };
+      // SCENARIO C: Entity name expected (after FROM/JOIN)
+      if (intent === "table") {
+        const entities = await provider.listEntities();
+        return {
+          from: range.from,
+          options: mapEntitiesToCompletions(entities),
+          validFor: /^[\w_]*$/,
+        };
+      }
     } catch (err) {
-      // console.warn("Failed to fetch tables for completion", err); // Silent fail
-      return null;
+      console.error("SQL completion error:", err);
     }
+
+    return null;
   };
 };
 
+// Helper functions
+
+function mapFieldsToCompletions(fields: Array<{ name: string; dataType: string; description?: string }>): Completion[] {
+  return fields.map((f) => ({
+    label: f.name,
+    type: "property",
+    detail: f.dataType,
+    info: f.description,
+    boost: 1,
+  }));
+}
+
+function mapEntitiesToCompletions(entities: Array<{ name: string; type: string; schema?: string }>): Completion[] {
+  return entities.map((e) => ({
+    label: e.name,
+    type: e.type === "table" ? "class" : "constant",
+    detail: e.type,
+    boost: 0,
+  }));
+}
+
+function deduplicateFields<T extends { name: string }>(fields: T[]): T[] {
+  const seen = new Set<string>();
+  return fields.filter((f) => {
+    const key = f.name.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+// Legacy export for backwards compatibility
+export const clearCompletionCache = (_connectionId?: string) => {
+  // No-op: schemaCache manages its own cache lifecycle
+};

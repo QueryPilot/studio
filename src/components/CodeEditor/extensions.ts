@@ -40,7 +40,7 @@ import {
   search,
 } from "@codemirror/search";
 import type { SqlDialect, CodeEditorLanguage } from "./types";
-import { acceptCompletion } from "@codemirror/autocomplete";
+import { acceptCompletion, autocompletion } from "@codemirror/autocomplete";
 import { dbmlMixed } from "./languages/dbml/dbml-mixed";
 import { createSqlLinter } from "./languages/sql/sql-linter";
 import { createSqlCompletionSource } from "./languages/sql/completion";
@@ -246,17 +246,23 @@ export const getLanguageExtension = (
 ): Extension => {
   switch (language) {
     case "sql": {
+      const dialectLang = getDialect(dialect);
       const extensions: Extension[] = [
         sql({
-          dialect: getDialect(dialect),
+          dialect: dialectLang,
           upperCaseKeywords: true,
+        }),
+        // Enable autocompletion UI
+        autocompletion({
+          activateOnTyping: true,
+          maxRenderedOptions: 50,
         }),
       ];
 
       // Add context-aware completion if connection info is available
       if (connectionId && database) {
         extensions.push(
-          StandardSQL.language.data.of({
+          dialectLang.language.data.of({
             autocomplete: createSqlCompletionSource({
               connectionId,
               database,
