@@ -150,6 +150,10 @@ fn main() {
             commands::create_trigger,
             commands::drop_trigger,
             commands::enable_disable_trigger,
+            // Updater commands (for private repo releases)
+            updater::check_for_updates,
+            updater::download_update,
+            updater::install_update,
             // NOTE: Window tracking now uses BroadcastChannel API on frontend
         ])
         .build(context)

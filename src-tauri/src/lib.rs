@@ -11,6 +11,7 @@ pub mod ssh;
 pub mod state;
 pub mod storage;
 pub mod types;
+pub mod updater;
 pub mod vault;
 // NOTE: window_state module removed - tracking now uses BroadcastChannel API on frontend
 
