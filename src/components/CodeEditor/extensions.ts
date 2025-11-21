@@ -41,10 +41,11 @@ import {
 import type { SqlDialect, CodeEditorLanguage } from "./types";
 import { acceptCompletion, autocompletion } from "@codemirror/autocomplete";
 import { dbmlMixed } from "./languages/dbml/dbml-mixed";
-import { createSqlLinter } from "./languages/sql/sql-linter";
+import { createSqlLinter, createSemanticLinter } from "./languages/sql/sql-linter";
 import { createSqlCompletionSource } from "./languages/sql/completion";
 import { createSqlHoverExtension } from "./languages/sql/hover";
 import { createSqlMetadataProvider } from "./languages/sql/metadataProvider";
+import { syntaxTree } from "@codemirror/language";
 
 // Enhanced SQL folding service using syntax tree for better nested support
 const sqlFoldService = foldService.of((state, from) => {
@@ -275,6 +276,8 @@ export const getLanguageExtension = (
           }),
           // Add hover tooltips for table/column info
           createSqlHoverExtension(provider, defaultSchema),
+          // Add semantic linting for table/column validation
+          createSemanticLinter(provider, defaultSchema),
         );
       }
 
@@ -290,111 +293,43 @@ export const getLanguageExtension = (
   }
 };
 
-// Helper to find semicolons that are not inside strings, comments, or dollar quotes
-const findSemicolonsNotInStrings = (text: string): number[] => {
-  const positions: number[] = [];
-  let inSingleQuote = false;
-  let inDoubleQuote = false;
-  let inBacktick = false;
-  let inDollarQuote = false;
-  let dollarQuoteTag = "";
-  let inLineComment = false;
-  let inBlockComment = false;
+// Check if a query is a potentially destructive mutation without WHERE clause
+const isDestructiveQuery = (query: string): { isDestructive: boolean; type: string } => {
+  const upperQuery = query.toUpperCase().trim();
 
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-    const nextChar = i < text.length - 1 ? text[i + 1] : "";
-    const prevChar = i > 0 ? text[i - 1] : "";
-
-    // Handle line comments (--)
-    if (
-      !inBlockComment &&
-      !inSingleQuote &&
-      !inDoubleQuote &&
-      !inBacktick &&
-      !inDollarQuote
-    ) {
-      if (char === "-" && nextChar === "-") {
-        inLineComment = true;
-        i++; // skip the second dash
-        continue;
-      }
-    }
-
-    if (inLineComment) {
-      if (char === "\n") inLineComment = false;
-      continue;
-    }
-
-    // Handle block comments (/* */)
-    if (!inSingleQuote && !inDoubleQuote && !inBacktick && !inDollarQuote) {
-      if (char === "/" && nextChar === "*") {
-        inBlockComment = true;
-        i++; // skip the *
-        continue;
-      }
-    }
-
-    if (inBlockComment) {
-      if (char === "*" && nextChar === "/") {
-        inBlockComment = false;
-        i++; // skip the /
-        continue;
-      }
-      continue;
-    }
-
-    // Handle dollar quotes (PostgreSQL: $$ or $tag$)
-    if (char === "$" && !inSingleQuote && !inDoubleQuote && !inBacktick) {
-      const dollarMatch = text.slice(i).match(/^(\$\w*\$)/);
-      if (dollarMatch && dollarMatch[1]) {
-        const tag = dollarMatch[1];
-        if (inDollarQuote && tag === dollarQuoteTag) {
-          // Closing dollar quote
-          inDollarQuote = false;
-          dollarQuoteTag = "";
-          i += tag.length - 1;
-          continue;
-        } else if (!inDollarQuote) {
-          // Opening dollar quote
-          inDollarQuote = true;
-          dollarQuoteTag = tag;
-          i += tag.length - 1;
-          continue;
-        }
-      }
-    }
-
-    // Handle regular quotes
-    if (!inDollarQuote) {
-      if (char === "'" && prevChar !== "\\") {
-        inSingleQuote = !inSingleQuote;
-      } else if (char === '"' && prevChar !== "\\") {
-        inDoubleQuote = !inDoubleQuote;
-      } else if (char === "`" && prevChar !== "\\") {
-        inBacktick = !inBacktick;
-      }
-    }
-
-    // Find semicolons outside of all string/comment contexts
-    if (
-      char === ";" &&
-      !inSingleQuote &&
-      !inDoubleQuote &&
-      !inBacktick &&
-      !inDollarQuote
-    ) {
-      positions.push(i);
+  // Check for DELETE without WHERE
+  if (upperQuery.startsWith("DELETE")) {
+    const hasWhere = /\bWHERE\b/i.test(query);
+    if (!hasWhere) {
+      return { isDestructive: true, type: "DELETE" };
     }
   }
 
-  return positions;
+  // Check for UPDATE without WHERE
+  if (upperQuery.startsWith("UPDATE")) {
+    const hasWhere = /\bWHERE\b/i.test(query);
+    if (!hasWhere) {
+      return { isDestructive: true, type: "UPDATE" };
+    }
+  }
+
+  // Check for TRUNCATE (always destructive)
+  if (upperQuery.startsWith("TRUNCATE")) {
+    return { isDestructive: true, type: "TRUNCATE" };
+  }
+
+  // Check for DROP (always destructive)
+  if (upperQuery.startsWith("DROP")) {
+    return { isDestructive: true, type: "DROP" };
+  }
+
+  return { isDestructive: false, type: "" };
 };
 
-// Helper to get query at cursor position
+// AST-based helper to get query at cursor position
+// Uses syntax tree for reliable statement boundary detection
 const getQueryAtCursor = (view: EditorView): string => {
   const state = view.state;
-  const doc = state.doc.toString();
   const selection = state.selection.main;
 
   // If there's a selection, return the selected text
@@ -405,44 +340,103 @@ const getQueryAtCursor = (view: EditorView): string => {
       .replace(/;\s*$/, "");
   }
 
-  // Otherwise, find the query at cursor position
+  // Use AST to find the statement containing the cursor
   const cursorPos = selection.from;
+  const tree = syntaxTree(state);
 
-  // Find all semicolons that are not inside strings or comments
-  const semicolons = findSemicolonsNotInStrings(doc);
+  // Find the node at cursor and walk up to find enclosing Statement
+  let node = tree.resolveInner(cursorPos, -1);
 
-  // Find query boundaries based on semicolons
-  let queryStart = 0;
-  let queryEnd = doc.length;
+  // Walk up to find Statement or Script node
+  while (node && node.parent) {
+    const name = node.type.name;
+    // Statement types in SQL grammar
+    if (name === "Statement" ||
+        name === "SelectStatement" ||
+        name === "InsertStatement" ||
+        name === "UpdateStatement" ||
+        name === "DeleteStatement" ||
+        name === "CreateStatement" ||
+        name === "AlterStatement" ||
+        name === "DropStatement" ||
+        name === "Script") {
+      break;
+    }
+    node = node.parent;
+  }
 
-  for (const pos of semicolons) {
-    if (pos < cursorPos) {
-      // This semicolon is before the cursor, so query starts after it
-      queryStart = pos + 1;
-    } else {
-      // This semicolon is at or after the cursor, so query ends before it
-      queryEnd = pos;
+  // If we found a statement node, extract its content
+  if (node && node.type.name !== "Script") {
+    const query = state.sliceDoc(node.from, node.to).trim().replace(/;\s*$/, "");
+    return query;
+  }
+
+  // Fallback: If AST parsing fails (e.g., incomplete syntax),
+  // find statement boundaries using sibling traversal
+  const cursor = tree.cursor();
+  cursor.moveTo(cursorPos);
+
+  // Try to find Statement siblings at the top level
+  while (cursor.parent()) {
+    const typeName = cursor.type.name;
+    if (typeName === "Script") {
+      // We're at the script level, now find the statement containing cursor
+      if (cursor.firstChild()) {
+        let statementStart = 0;
+        let statementEnd = state.doc.length;
+
+        do {
+          const childTypeName = cursor.type.name;
+          if (childTypeName === "Statement" ||
+              childTypeName.includes("Statement")) {
+            if (cursor.to <= cursorPos) {
+              // This statement is before cursor
+              statementStart = cursor.to;
+            } else if (cursor.from <= cursorPos && cursor.to >= cursorPos) {
+              // Cursor is inside this statement
+              const query = state.sliceDoc(cursor.from, cursor.to).trim().replace(/;\s*$/, "");
+              return query;
+            } else {
+              // This statement is after cursor
+              statementEnd = cursor.from;
+              break;
+            }
+          }
+        } while (cursor.nextSibling());
+
+        // Extract content between statements
+        const query = state.sliceDoc(statementStart, statementEnd).trim().replace(/;\s*$/, "");
+        return query;
+      }
       break;
     }
   }
 
-  // Extract and clean the query
-  const query = doc.slice(queryStart, queryEnd).trim();
+  // Ultimate fallback: return entire document
+  return state.doc.toString().trim().replace(/;\s*$/, "");
+};
 
-  // Remove trailing semicolon if present (shouldn't happen, but just in case)
-  const cleanedQuery = query.replace(/;\s*$/, "");
+// Execute query with destructive action protection
+const executeWithSafetyCheck = (
+  query: string,
+  onExecute: (query?: string) => void
+): void => {
+  const check = isDestructiveQuery(query);
 
-  // Debug logging
-  console.log("[getQueryAtCursor] Extracted query:", {
-    queryStart,
-    queryEnd,
-    docLength: doc.length,
-    cursorPos,
-    semicolonCount: semicolons.length,
-    query: cleanedQuery,
-  });
+  if (check.isDestructive) {
+    const message =
+      check.type === "TRUNCATE"
+        ? `⚠️ Warning: You are running a TRUNCATE command. This will delete ALL rows in the table. Proceed?`
+        : check.type === "DROP"
+        ? `⚠️ Warning: You are running a DROP command. This will permanently delete the database object. Proceed?`
+        : `⚠️ Warning: You are running a ${check.type} without a WHERE clause. This will affect ALL rows. Proceed?`;
 
-  return cleanedQuery;
+    if (!window.confirm(message)) {
+      return;
+    }
+  }
+
+  onExecute(query);
 };
 
 // Create execute command keymap with highest precedence
@@ -459,7 +453,7 @@ export const createExecuteKeymap = (
         run: (view) => {
           const query = getQueryAtCursor(view);
           if (query) {
-            onExecute(query);
+            executeWithSafetyCheck(query, onExecute);
           } else {
             onExecute();
           }
@@ -471,7 +465,7 @@ export const createExecuteKeymap = (
         run: (view) => {
           const query = getQueryAtCursor(view);
           if (query) {
-            onExecute(query);
+            executeWithSafetyCheck(query, onExecute);
           } else {
             onExecute();
           }
@@ -481,20 +475,10 @@ export const createExecuteKeymap = (
       {
         key: "Mod-Enter",
         run: (view) => {
-          console.log("[Mod-Enter] KEY PRESSED - Starting query extraction");
           const query = getQueryAtCursor(view);
-          console.log("[Mod-Enter] Calling onExecute with query:", {
-            query,
-            queryLength: query.length || 0,
-            isEmpty: !query,
-          });
           if (query) {
-            console.log("[Mod-Enter] Calling onExecute WITH extracted query");
-            onExecute(query);
+            executeWithSafetyCheck(query, onExecute);
           } else {
-            console.log(
-              "[Mod-Enter] Calling onExecute WITHOUT query (will use editor state)",
-            );
             onExecute();
           }
           return true;
