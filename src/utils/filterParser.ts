@@ -1,8 +1,4 @@
-import type {
-  FilterConfig,
-  FilterCondition,
-  LogicalOperator,
-} from "@/types/filter";
+import type { FilterConfig } from "@/types/filter";
 
 export type FilterMode = "search" | "where" | "ai";
 
@@ -107,109 +103,76 @@ export function parseSimpleSearch(
 
 export function parseWhereClause(
   whereExpr: string,
-  columns: ColumnMeta[]
+  _columns: ColumnMeta[]
 ): ParseResult {
-  const expr = whereExpr.trim();
+  let expr = whereExpr.trim();
+
+  // Safety: always strip mode prefixes if present
+  if (expr.startsWith("?") || expr.startsWith("#") || expr.startsWith("!")) {
+    expr = expr.slice(1).trim();
+  }
+
   if (!expr) {
     return { success: true, filter: undefined };
   }
 
-  try {
-    const validationError = validateWhereClause(expr, columns);
-    if (validationError) {
-      return { success: false, error: validationError };
-    }
-
-    const filter = parseExpression(expr, columns);
-    return { success: true, filter };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Parse error",
-    };
+  // Basic syntax validation only - let database handle complex validation
+  const syntaxError = validateBasicSyntax(expr);
+  if (syntaxError) {
+    return { success: false, error: syntaxError };
   }
+
+  // Return raw clause - database will validate column names and SQL syntax
+  return {
+    success: true,
+    filter: {
+      root: {
+        id: "root",
+        type: "group",
+        logical: "AND",
+        conditions: [],
+      },
+      rawWhereClause: expr,
+    },
+  };
 }
 
-// Common SQL functions and keywords that should not be treated as column names
-const SQL_KEYWORDS = new Set([
-  // Functions
-  "now", "current_date", "current_time", "current_timestamp",
-  "date", "time", "datetime", "timestamp",
-  "year", "month", "day", "hour", "minute", "second",
-  "upper", "lower", "trim", "ltrim", "rtrim", "length", "substr", "substring",
-  "concat", "coalesce", "nullif", "cast",
-  "count", "sum", "avg", "min", "max",
-  "abs", "ceil", "floor", "round", "mod",
-  "extract", "date_part", "date_trunc", "age", "interval",
-  "to_char", "to_date", "to_timestamp", "to_number",
-  // SQL keywords
-  "select", "from", "where", "order", "by", "asc", "desc", "limit", "offset",
-  "group", "having", "distinct", "as", "join", "inner", "left", "right", "outer",
-  "on", "using", "union", "all", "exists", "any", "some",
-]);
+// Basic syntax validation - just catch obvious errors
+function validateBasicSyntax(clause: string): string | null {
+  // Check balanced parentheses
+  let depth = 0;
+  for (const char of clause) {
+    if (char === "(") depth++;
+    if (char === ")") depth--;
+    if (depth < 0) return "Unbalanced parentheses";
+  }
+  if (depth !== 0) return "Unbalanced parentheses";
 
-export function validateWhereClause(
-  clause: string,
-  columns: ColumnMeta[]
-): string | null {
-  const columnNames = new Set(columns.map((c) => c.name.toLowerCase()));
-  const tokens = tokenize(clause);
+  // Check balanced quotes
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  for (let i = 0; i < clause.length; i++) {
+    const char = clause[i];
+    const prevChar = i > 0 ? clause[i - 1] : "";
 
-  // Keywords that introduce table names (not columns)
-  const tableKeywords = new Set(["FROM", "JOIN", "UPDATE", "INTO"]);
-
-  let parenDepth = 0;
-
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i];
-    if (!token) continue;
-
-    // Track parenthesis depth
-    if (token.type === "paren") {
-      parenDepth += token.value === "(" ? 1 : -1;
-      continue;
-    }
-
-    // Skip validation inside parentheses (handles subqueries, function args)
-    if (parenDepth > 0) continue;
-
-    // Only check identifiers
-    if (token.type !== "identifier") continue;
-
-    const name = token.value.toLowerCase();
-
-    // Skip SQL keywords/functions
-    if (SQL_KEYWORDS.has(name)) continue;
-
-    // Skip if followed by '(' (function call)
-    const nextToken = tokens[i + 1];
-    if (nextToken?.type === "paren" && nextToken.value === "(") continue;
-
-    // Skip if preceded by table-introducing keyword
-    const prevToken = tokens[i - 1];
-    if (prevToken?.type === "keyword" && tableKeywords.has(prevToken.value)) continue;
-
-    // Only validate if this looks like a column reference
-    // (before an operator or keyword operator)
-    const isBeforeOperator = nextToken?.type === "operator" ||
-      (nextToken?.type === "keyword" && ["LIKE", "ILIKE", "IN", "IS", "BETWEEN", "NOT"].includes(nextToken.value));
-
-    if (isBeforeOperator && !columnNames.has(name)) {
-      return `Unknown column: ${token.value}`;
+    if (char === "'" && prevChar !== "\\" && !inDoubleQuote) {
+      inSingleQuote = !inSingleQuote;
+    } else if (char === '"' && prevChar !== "\\" && !inSingleQuote) {
+      inDoubleQuote = !inDoubleQuote;
     }
   }
+  if (inSingleQuote) return "Unclosed single quote";
+  if (inDoubleQuote) return "Unclosed double quote";
 
-  // Basic syntax validation
-  const operators = ["=", "!=", "<>", ">", "<", ">=", "<="];
-  const hasOperator = operators.some((op) => clause.includes(op));
-  const hasKeywordOp = /\b(LIKE|ILIKE|IN|IS|BETWEEN)\b/i.test(clause);
-
-  if (!hasOperator && !hasKeywordOp) {
+  // Check has comparison operator
+  const hasOperator = /[=<>!]|(?:LIKE|ILIKE|IN|IS|BETWEEN)\b/i.test(clause);
+  if (!hasOperator) {
     return "Missing comparison operator";
   }
 
   return null;
 }
+
 
 export function sanitizeInput(input: string, mode: FilterMode): string {
   let sanitized = input.trim();
@@ -221,6 +184,7 @@ export function sanitizeInput(input: string, mode: FilterMode): string {
     return sanitized;
   }
 
+  // Always strip mode prefixes based on current mode
   switch (mode) {
     case "where":
       if (sanitized.startsWith("?")) {
@@ -233,11 +197,15 @@ export function sanitizeInput(input: string, mode: FilterMode): string {
       }
       break;
     case "search":
-      // Remove case-sensitive prefix if present
       if (sanitized.startsWith("!")) {
-        // Keep the ! - it's handled in parseSimpleSearch
+        sanitized = sanitized.slice(1).trim();
       }
       break;
+  }
+
+  // Safety: strip any remaining mode prefixes
+  if (sanitized.startsWith("?") || sanitized.startsWith("#") || sanitized.startsWith("!")) {
+    sanitized = sanitized.slice(1).trim();
   }
 
   return sanitized;
@@ -252,364 +220,6 @@ function createEmptyFilter(): FilterConfig {
       conditions: [],
     },
   };
-}
-
-interface Token {
-  type:
-    | "identifier"
-    | "operator"
-    | "value"
-    | "string"
-    | "number"
-    | "keyword"
-    | "paren";
-  value: string;
-}
-
-function tokenize(expr: string): Token[] {
-  const tokens: Token[] = [];
-  const keywords = [
-    "AND",
-    "OR",
-    "NOT",
-    "IN",
-    "IS",
-    "NULL",
-    "LIKE",
-    "ILIKE",
-    "BETWEEN",
-    "TRUE",
-    "FALSE",
-  ];
-  const operators = ["=", "!=", "<>", ">=", "<=", ">", "<"];
-
-  let i = 0;
-  while (i < expr.length) {
-    const char = expr[i];
-    if (!char) break;
-
-    // Skip whitespace
-    if (/\s/.test(char)) {
-      i++;
-      continue;
-    }
-
-    // String literals
-    if (char === "'" || char === '"') {
-      const quote = char;
-      let value = "";
-      i++;
-      while (i < expr.length) {
-        const c = expr[i];
-        if (!c || c === quote) break;
-        if (c === "\\" && i + 1 < expr.length) {
-          const next = expr[++i];
-          if (next) value += next;
-        } else {
-          value += c;
-        }
-        i++;
-      }
-      i++; // Skip closing quote
-      tokens.push({ type: "string", value });
-      continue;
-    }
-
-    // Numbers
-    const nextChar = expr[i + 1];
-    if (/\d/.test(char) || (char === "-" && nextChar && /\d/.test(nextChar))) {
-      let value = "";
-      if (char === "-") {
-        value += char;
-        i++;
-      }
-      while (i < expr.length) {
-        const c = expr[i];
-        if (!c || !/[\d.]/.test(c)) break;
-        value += c;
-        i++;
-      }
-      tokens.push({ type: "number", value });
-      continue;
-    }
-
-    // Parentheses
-    if (char === "(" || char === ")") {
-      tokens.push({ type: "paren", value: char });
-      i++;
-      continue;
-    }
-
-    // Multi-char operators
-    const twoChar = expr.slice(i, i + 2);
-    if (operators.includes(twoChar)) {
-      tokens.push({ type: "operator", value: twoChar });
-      i += 2;
-      continue;
-    }
-
-    // Single-char operators
-    if (operators.includes(char)) {
-      tokens.push({ type: "operator", value: char });
-      i++;
-      continue;
-    }
-
-    // Identifiers and keywords
-    if (/[a-zA-Z_]/.test(char)) {
-      let value = "";
-      while (i < expr.length) {
-        const c = expr[i];
-        if (!c || !/[a-zA-Z0-9_]/.test(c)) break;
-        value += c;
-        i++;
-      }
-      const upper = value.toUpperCase();
-      if (keywords.includes(upper)) {
-        tokens.push({ type: "keyword", value: upper });
-      } else {
-        tokens.push({ type: "identifier", value });
-      }
-      continue;
-    }
-
-    // Skip unknown characters
-    i++;
-  }
-
-  return tokens;
-}
-
-function parseExpression(expr: string, columns: ColumnMeta[]): FilterConfig {
-  const tokens = tokenize(expr);
-
-  // Find top-level AND/OR to determine grouping
-  const topLevelLogical = findTopLevelLogical(tokens);
-
-  if (!topLevelLogical) {
-    // Single condition
-    const condition = parseCondition(tokens, columns);
-    return {
-      root: {
-        id: "root",
-        type: "group",
-        logical: "AND",
-        conditions: [condition],
-      },
-    };
-  }
-
-  // Split by logical operator
-  const parts = splitByLogical(tokens, topLevelLogical);
-  const conditions: FilterCondition[] = parts.map((part) =>
-    parseCondition(part, columns)
-  );
-
-  return {
-    root: {
-      id: "root",
-      type: "group",
-      logical: topLevelLogical as LogicalOperator,
-      conditions,
-    },
-  };
-}
-
-function findTopLevelLogical(tokens: Token[]): string | null {
-  let parenDepth = 0;
-  let foundAnd = false;
-  let foundOr = false;
-
-  for (const token of tokens) {
-    if (token.type === "paren") {
-      parenDepth += token.value === "(" ? 1 : -1;
-      continue;
-    }
-
-    if (parenDepth === 0 && token.type === "keyword") {
-      if (token.value === "AND") foundAnd = true;
-      if (token.value === "OR") foundOr = true;
-    }
-  }
-
-  // OR has lower precedence, so check it first
-  if (foundOr) return "OR";
-  if (foundAnd) return "AND";
-  return null;
-}
-
-function splitByLogical(tokens: Token[], logical: string): Token[][] {
-  const parts: Token[][] = [];
-  let current: Token[] = [];
-  let parenDepth = 0;
-
-  for (const token of tokens) {
-    if (token.type === "paren") {
-      parenDepth += token.value === "(" ? 1 : -1;
-      current.push(token);
-      continue;
-    }
-
-    if (
-      parenDepth === 0 &&
-      token.type === "keyword" &&
-      token.value === logical
-    ) {
-      if (current.length > 0) {
-        parts.push(current);
-        current = [];
-      }
-      continue;
-    }
-
-    current.push(token);
-  }
-
-  if (current.length > 0) {
-    parts.push(current);
-  }
-
-  return parts;
-}
-
-function parseCondition(tokens: Token[], _columns: ColumnMeta[]): FilterCondition {
-  // Remove outer parentheses if present
-  const firstToken = tokens[0];
-  const lastToken = tokens[tokens.length - 1];
-  if (
-    firstToken?.type === "paren" &&
-    firstToken.value === "(" &&
-    lastToken?.type === "paren" &&
-    lastToken.value === ")"
-  ) {
-    tokens = tokens.slice(1, -1);
-  }
-
-  // Find the column (first identifier)
-  const columnToken = tokens.find((t) => t.type === "identifier");
-  if (!columnToken) {
-    throw new Error("Missing column name in condition");
-  }
-
-  // Find the operator
-  let operator = "";
-  let operatorIndex = -1;
-  const keywordOps = ["LIKE", "ILIKE", "IN", "BETWEEN"];
-
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i];
-    if (!token) continue;
-
-    if (token.type === "operator") {
-      operator = token.value;
-      operatorIndex = i;
-      break;
-    }
-    if (token.type === "keyword" && keywordOps.includes(token.value)) {
-      operator = token.value;
-      operatorIndex = i;
-      break;
-    }
-    // Handle IS NULL / IS NOT NULL
-    if (token.type === "keyword" && token.value === "IS") {
-      if (tokens[i + 1]?.value === "NOT" && tokens[i + 2]?.value === "NULL") {
-        operator = "IS NOT NULL";
-        operatorIndex = i;
-        break;
-      }
-      if (tokens[i + 1]?.value === "NULL") {
-        operator = "IS NULL";
-        operatorIndex = i;
-        break;
-      }
-    }
-    // Handle shorthand NOT NULL (without IS)
-    if (token.type === "keyword" && token.value === "NOT" && tokens[i + 1]?.value === "NULL") {
-      operator = "IS NOT NULL";
-      operatorIndex = i;
-      break;
-    }
-    // Handle shorthand NULL (without IS) - be careful, only if it's the last token
-    if (token.type === "keyword" && token.value === "NULL" && i === tokens.length - 1) {
-      operator = "IS NULL";
-      operatorIndex = i;
-      break;
-    }
-  }
-
-  if (!operator) {
-    throw new Error(`Missing operator in condition: ${tokens.map((t) => t.value).join(" ")}`);
-  }
-
-  // Extract value
-  let value: unknown;
-  if (operator === "IS NULL" || operator === "IS NOT NULL") {
-    value = undefined;
-  } else {
-    const valueTokens = tokens.slice(operatorIndex + 1);
-    value = extractValue(valueTokens);
-  }
-
-  // Normalize operator
-  if (operator === "<>") operator = "!=";
-
-  return {
-    id: generateId(),
-    column: columnToken.value,
-    operator,
-    value,
-  };
-}
-
-function extractValue(tokens: Token[]): unknown {
-  if (tokens.length === 0) {
-    throw new Error("Missing value");
-  }
-
-  const first = tokens[0];
-  if (!first) {
-    throw new Error("Missing value");
-  }
-
-  if (first.type === "string") {
-    return first.value;
-  }
-
-  if (first.type === "number") {
-    return first.value.includes(".")
-      ? parseFloat(first.value)
-      : parseInt(first.value, 10);
-  }
-
-  if (first.type === "keyword") {
-    if (first.value === "TRUE") return true;
-    if (first.value === "FALSE") return false;
-    if (first.value === "NULL") return null;
-  }
-
-  // Handle IN (value1, value2, ...)
-  if (first.type === "paren" && first.value === "(") {
-    const values: unknown[] = [];
-    for (const token of tokens) {
-      if (token.type === "string" || token.type === "number") {
-        const val =
-          token.type === "number"
-            ? token.value.includes(".")
-              ? parseFloat(token.value)
-              : parseInt(token.value, 10)
-            : token.value;
-        values.push(val);
-      }
-    }
-    return values;
-  }
-
-  // Identifier as value (e.g., column reference - treat as string for now)
-  if (first.type === "identifier") {
-    return first.value;
-  }
-
-  throw new Error(`Unexpected value: ${first.value}`);
 }
 
 export function detectFilterMode(input: string): FilterMode {
