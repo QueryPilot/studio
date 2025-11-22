@@ -8,13 +8,14 @@ import {
   useMemo,
 } from "react";
 import { Search, Code, Sparkles, X, Loader2, CopyIcon } from "lucide-react";
-import { Textarea } from "@/components/ui/textarea";
 import CodeMirror, { EditorView } from "@uiw/react-codemirror";
 import { sql, PostgreSQL } from "@codemirror/lang-sql";
 import { keymap } from "@codemirror/view";
 import { Prec } from "@codemirror/state";
 import { getThemeExtensions } from "@/components/CodeEditor/themes";
 import { useTheme } from "@/components/theme-provider";
+import { linter, type Diagnostic } from "@codemirror/lint";
+import { PgParser } from "@supabase/pg-parser";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -94,7 +95,6 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
     },
     ref,
   ) {
-    const inputRef = useRef<HTMLTextAreaElement>(null);
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [suggestions, setSuggestions] = useState<ColumnMeta[]>([]);
     const [enumSuggestions, setEnumSuggestions] = useState<string[]>([]);
@@ -103,21 +103,34 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
     );
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [cursorPosition, setCursorPosition] = useState(0);
+    const [hasLintError, setHasLintError] = useState(false);
+    const pgParserRef = useRef<PgParser | null>(null);
+
+    // Theme for CodeMirror
+    const { resolvedTheme } = useTheme();
+    const editorViewRef = useRef<EditorView | null>(null);
+
+    // Initialize pg-parser
+    useEffect(() => {
+      const initParser = async () => {
+        if (!pgParserRef.current) {
+          const parser = new PgParser();
+          await parser.ready;
+          pgParserRef.current = parser;
+        }
+      };
+      initParser().catch(console.error);
+    }, []);
 
     // Expose focus method to parent
     useImperativeHandle(ref, () => ({
       focus: () => {
-        inputRef.current?.focus();
-        inputRef.current?.select();
+        editorViewRef.current?.focus();
       },
     }));
 
     const config = modeConfig[mode];
     const ModeIcon = config.icon;
-
-    // Theme for CodeMirror
-    const { resolvedTheme } = useTheme();
-    const editorViewRef = useRef<EditorView | null>(null);
 
     // CodeMirror extensions for SQL highlighting
     const sqlExtensions = useMemo(() => {
@@ -138,7 +151,8 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
             },
             ".cm-scroller": {
               overflow: "hidden",
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+              fontFamily:
+                "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
             },
             ".cm-content": {
               padding: "6px 0",
@@ -168,6 +182,50 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
           { dark: actualTheme === "dark" },
         ),
         EditorView.lineWrapping,
+        // SQL linter for WHERE clause validation
+        linter(
+          async (view: EditorView): Promise<Diagnostic[]> => {
+            const content = view.state.doc.toString().trim();
+            if (!content || !pgParserRef.current) {
+              setHasLintError(false);
+              return [];
+            }
+
+            try {
+              // Wrap WHERE clause in SELECT to make it valid SQL
+              const testSql = `SELECT * FROM t WHERE ${content}`;
+              const result = await pgParserRef.current.parse(testSql);
+
+              if (result.error) {
+                setHasLintError(true);
+                // Adjust position to account for "SELECT * FROM t WHERE " prefix (23 chars)
+                const prefixLen = 23;
+                let from = 0;
+                let to = content.length;
+
+                const errorWithPosition = result.error as unknown as { position?: number };
+                if (errorWithPosition.position !== undefined && errorWithPosition.position > prefixLen) {
+                  from = errorWithPosition.position - prefixLen - 1;
+                  to = Math.min(from + 20, content.length);
+                }
+
+                return [{
+                  from: Math.max(0, from),
+                  to: Math.min(to, content.length),
+                  severity: "error",
+                  message: result.error.message || "Syntax error",
+                }];
+              }
+
+              setHasLintError(false);
+              return [];
+            } catch (error) {
+              setHasLintError(false);
+              return [];
+            }
+          },
+          { delay: 200 }
+        ),
       ];
     }, [resolvedTheme]);
 
@@ -290,83 +348,20 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
         onValueChange(newValue);
         setShowSuggestions(false);
 
-        // Focus back to input
+        // Focus back to editor and set cursor position
         setTimeout(() => {
-          inputRef.current?.focus();
-          const newPos = wordStart + insertText.length;
-          inputRef.current?.setSelectionRange(newPos, newPos);
+          const view = editorViewRef.current;
+          if (view) {
+            view.focus();
+            const newPos = wordStart + insertText.length;
+            view.dispatch({
+              selection: { anchor: newPos, head: newPos },
+            });
+          }
         }, 0);
       },
       [value, cursorPosition, onValueChange],
     );
-
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      // Handle suggestions navigation
-      const currentSuggestions =
-        suggestionType === "enum" ? enumSuggestions : suggestions;
-      if (showSuggestions && currentSuggestions.length > 0) {
-        if (e.key === "ArrowDown") {
-          e.preventDefault();
-          setSelectedIndex((i) =>
-            Math.min(i + 1, currentSuggestions.length - 1),
-          );
-          return;
-        }
-        if (e.key === "ArrowUp") {
-          e.preventDefault();
-          setSelectedIndex((i) => Math.max(i - 1, 0));
-          return;
-        }
-        if (e.key === "Enter" || e.key === "Tab") {
-          e.preventDefault();
-          e.stopPropagation();
-          if (suggestionType === "enum") {
-            const enumValue = enumSuggestions[selectedIndex];
-            if (enumValue) {
-              insertSuggestion(enumValue, true);
-            }
-          } else {
-            const suggestion = suggestions[selectedIndex];
-            if (suggestion) {
-              insertSuggestion(suggestion.name, false);
-            }
-          }
-          return;
-        }
-        if (e.key === "Escape") {
-          e.preventDefault();
-          setShowSuggestions(false);
-          return;
-        }
-      }
-
-      // Submit on Enter (when no suggestions), Shift+Enter for newline
-      if (e.key === "Enter" && !showSuggestions) {
-        if (e.shiftKey) {
-          // Allow newline with Shift+Enter
-          return;
-        }
-        e.preventDefault();
-        onSubmit();
-        return;
-      }
-
-      // Show all columns on Cmd+.
-      if ((e.metaKey || e.ctrlKey) && e.key === ".") {
-        e.preventDefault();
-        setSuggestions(columns);
-        setShowSuggestions(columns.length > 0);
-        setSelectedIndex(0);
-        return;
-      }
-
-      // Clear on Escape
-      if (e.key === "Escape" && value) {
-        e.preventDefault();
-        onValueChange("");
-        return;
-      }
-    };
 
     // Get icon for current mode/prefix
     const getModeIcon = () => {
@@ -392,7 +387,7 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
                       <button
                         type="button"
                         className={cn(
-                          "absolute left-1 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center",
+                          "absolute left-1 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center focus:outline-none",
                           "!h-6 !w-6 rounded text-xs font-mono text-muted-foreground hover:text-foreground hover:bg-accent",
                           isLoading && "pointer-events-none opacity-50",
                         )}
@@ -510,268 +505,255 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
-                  {mode === "where" ? (
-                    <div
-                      className={cn(
-                        "min-h-7 h-7 max-h-20 w-full rounded-md border border-input bg-background pl-8 pr-7 text-xs",
-                        "focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]",
-                        error &&
-                          "border-destructive focus-within:ring-destructive/50",
-                        value && !error && "border-primary/50",
-                      )}
-                    >
-                      <CodeMirror
-                        value={
-                          value.startsWith("?") ? value.slice(1) : value
-                        }
-                        onChange={(newValue) => {
-                          // Always add ? prefix in WHERE mode
-                          onValueChange("?" + newValue);
-                        }}
-                        extensions={[
-                          ...sqlExtensions,
-                          Prec.highest(
-                            keymap.of([
-                              {
-                                key: "Enter",
-                                run: () => {
-                                  if (showSuggestions) {
-                                    const currentSuggestions =
-                                      suggestionType === "enum"
-                                        ? enumSuggestions
-                                        : suggestions;
-                                    if (currentSuggestions.length > 0) {
-                                      if (suggestionType === "enum") {
-                                        const enumValue =
-                                          enumSuggestions[selectedIndex];
-                                        if (enumValue) {
-                                          insertSuggestion(enumValue, true);
-                                        }
-                                      } else {
-                                        const suggestion =
-                                          suggestions[selectedIndex];
-                                        if (suggestion) {
-                                          insertSuggestion(
-                                            suggestion.name,
-                                            false,
-                                          );
-                                        }
+                  <div
+                    className={cn(
+                      "min-h-7 max-h-20 w-full rounded-md border border-input bg-background pl-8 pr-7 text-xs",
+                      "focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]",
+                      error &&
+                        "border-destructive focus-within:ring-destructive/50",
+                      value && !error && "border-primary/50",
+                    )}
+                  >
+                    <CodeMirror
+                      value={
+                        // Always strip mode prefixes from display
+                        value.startsWith("?") || value.startsWith("#") || value.startsWith("!")
+                          ? value.slice(1)
+                          : value
+                      }
+                      onChange={(newValue) => {
+                        // Always add prefix based on current mode
+                        const prefix =
+                          mode === "where"
+                            ? "?"
+                            : mode === "ai"
+                            ? "#"
+                            : "";
+                        onValueChange(prefix + newValue);
+                      }}
+                      extensions={[
+                        // Only use SQL highlighting for where mode
+                        ...(mode === "where"
+                          ? sqlExtensions
+                          : [
+                              // Basic extensions for non-SQL modes
+                              ...getThemeExtensions(
+                                resolvedTheme === "dark" ? "dark" : "light",
+                              ),
+                              EditorView.theme(
+                                {
+                                  "&.cm-editor": {
+                                    fontSize: "12px",
+                                    backgroundColor: "transparent !important",
+                                  },
+                                  ".cm-scroller": {
+                                    overflow: "hidden",
+                                    fontFamily:
+                                      "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                                  },
+                                  ".cm-content": {
+                                    padding: "6px 0",
+                                    minHeight: "auto",
+                                  },
+                                  ".cm-line": {
+                                    padding: "0",
+                                  },
+                                  ".cm-gutters": {
+                                    display: "none !important",
+                                  },
+                                  ".cm-activeLineGutter": {
+                                    backgroundColor: "transparent !important",
+                                  },
+                                  ".cm-activeLine": {
+                                    backgroundColor: "transparent !important",
+                                  },
+                                  "&.cm-focused": {
+                                    outline: "none",
+                                  },
+                                  ".cm-placeholder": {
+                                    color: "hsl(var(--muted-foreground))",
+                                    fontStyle: "normal",
+                                  },
+                                },
+                                { dark: resolvedTheme === "dark" },
+                              ),
+                              EditorView.lineWrapping,
+                            ]),
+                        Prec.highest(
+                          keymap.of([
+                            {
+                              key: "Enter",
+                              run: () => {
+                                if (showSuggestions) {
+                                  const currentSuggestions =
+                                    suggestionType === "enum"
+                                      ? enumSuggestions
+                                      : suggestions;
+                                  if (currentSuggestions.length > 0) {
+                                    if (suggestionType === "enum") {
+                                      const enumValue =
+                                        enumSuggestions[selectedIndex];
+                                      if (enumValue) {
+                                        insertSuggestion(enumValue, true);
                                       }
-                                      return true;
+                                    } else {
+                                      const suggestion =
+                                        suggestions[selectedIndex];
+                                      if (suggestion) {
+                                        insertSuggestion(
+                                          suggestion.name,
+                                          false,
+                                        );
+                                      }
                                     }
+                                    return true;
                                   }
-                                  onSubmit();
+                                }
+                                // Block submission if there's a lint error in WHERE mode
+                                if (mode === "where" && hasLintError) {
                                   return true;
-                                },
+                                }
+                                onSubmit();
+                                return true;
                               },
-                              {
-                                key: "Escape",
-                                run: () => {
-                                  if (showSuggestions) {
-                                    setShowSuggestions(false);
-                                    return true;
-                                  }
-                                  if (value) {
-                                    onValueChange("");
-                                    return true;
-                                  }
-                                  return false;
-                                },
+                            },
+                            {
+                              key: "Escape",
+                              run: () => {
+                                if (showSuggestions) {
+                                  setShowSuggestions(false);
+                                  return true;
+                                }
+                                if (value) {
+                                  onValueChange("");
+                                  return true;
+                                }
+                                return false;
                               },
-                              {
-                                key: "ArrowDown",
-                                run: () => {
-                                  if (showSuggestions) {
-                                    const currentSuggestions =
-                                      suggestionType === "enum"
-                                        ? enumSuggestions
-                                        : suggestions;
-                                    setSelectedIndex((i) =>
-                                      Math.min(
-                                        i + 1,
-                                        currentSuggestions.length - 1,
-                                      ),
-                                    );
-                                    return true;
-                                  }
-                                  return false;
-                                },
+                            },
+                            {
+                              key: "ArrowDown",
+                              run: () => {
+                                if (showSuggestions) {
+                                  const currentSuggestions =
+                                    suggestionType === "enum"
+                                      ? enumSuggestions
+                                      : suggestions;
+                                  setSelectedIndex((i) =>
+                                    Math.min(
+                                      i + 1,
+                                      currentSuggestions.length - 1,
+                                    ),
+                                  );
+                                  return true;
+                                }
+                                return false;
                               },
-                              {
-                                key: "ArrowUp",
-                                run: () => {
-                                  if (showSuggestions) {
-                                    setSelectedIndex((i) =>
-                                      Math.max(i - 1, 0),
-                                    );
-                                    return true;
-                                  }
-                                  return false;
-                                },
+                            },
+                            {
+                              key: "ArrowUp",
+                              run: () => {
+                                if (showSuggestions) {
+                                  setSelectedIndex((i) => Math.max(i - 1, 0));
+                                  return true;
+                                }
+                                return false;
                               },
-                              {
-                                key: "Tab",
-                                run: () => {
-                                  if (showSuggestions) {
-                                    const currentSuggestions =
-                                      suggestionType === "enum"
-                                        ? enumSuggestions
-                                        : suggestions;
-                                    if (currentSuggestions.length > 0) {
-                                      if (suggestionType === "enum") {
-                                        const enumValue =
-                                          enumSuggestions[selectedIndex];
-                                        if (enumValue) {
-                                          insertSuggestion(enumValue, true);
-                                        }
-                                      } else {
-                                        const suggestion =
-                                          suggestions[selectedIndex];
-                                        if (suggestion) {
-                                          insertSuggestion(
-                                            suggestion.name,
-                                            false,
-                                          );
-                                        }
+                            },
+                            {
+                              key: "Tab",
+                              run: () => {
+                                if (showSuggestions) {
+                                  const currentSuggestions =
+                                    suggestionType === "enum"
+                                      ? enumSuggestions
+                                      : suggestions;
+                                  if (currentSuggestions.length > 0) {
+                                    if (suggestionType === "enum") {
+                                      const enumValue =
+                                        enumSuggestions[selectedIndex];
+                                      if (enumValue) {
+                                        insertSuggestion(enumValue, true);
                                       }
-                                      return true;
+                                    } else {
+                                      const suggestion =
+                                        suggestions[selectedIndex];
+                                      if (suggestion) {
+                                        insertSuggestion(
+                                          suggestion.name,
+                                          false,
+                                        );
+                                      }
                                     }
+                                    return true;
                                   }
-                                  return false;
-                                },
+                                }
+                                return false;
                               },
-                              {
-                                key: "Backspace",
-                                run: () => {
-                                  const displayValue = value.startsWith("?")
+                            },
+                            {
+                              key: "Backspace",
+                              run: () => {
+                                // Get display value (without prefix)
+                                const displayValue =
+                                  (value.startsWith("?") && mode === "where") ||
+                                  (value.startsWith("#") && mode === "ai") ||
+                                  (value.startsWith("!") && mode === "search")
                                     ? value.slice(1)
                                     : value;
+
+                                if (displayValue === "") {
+                                  // Remove prefix and go back to search mode
                                   if (
-                                    displayValue === "" &&
-                                    value.startsWith("?")
+                                    value.startsWith("?") ||
+                                    value.startsWith("#") ||
+                                    value.startsWith("!")
                                   ) {
                                     onValueChange("");
                                     onModeChange("search");
                                     return true;
                                   }
-                                  return false;
-                                },
+                                }
+                                return false;
                               },
-                              {
-                                key: "Mod-.",
-                                run: () => {
-                                  setSuggestions(columns);
-                                  setSuggestionType("column");
-                                  setShowSuggestions(columns.length > 0);
-                                  setSelectedIndex(0);
-                                  return true;
-                                },
+                            },
+                            {
+                              key: "Mod-.",
+                              run: () => {
+                                setSuggestions(columns);
+                                setSuggestionType("column");
+                                setShowSuggestions(columns.length > 0);
+                                setSelectedIndex(0);
+                                return true;
                               },
-                            ]),
-                          ),
-                        ]}
-                        placeholder={config.placeholder}
-                        editable={!isLoading}
-                        basicSetup={false}
-                        height="28px"
-                        minHeight="28px"
-                        maxHeight="80px"
-                        onCreateEditor={(view) => {
-                          editorViewRef.current = view;
-                        }}
-                        onUpdate={(update) => {
-                          if (update.selectionSet) {
-                            const pos = update.state.selection.main.head;
-                            const prefix = value.startsWith("?") ? 1 : 0;
-                            setCursorPosition(pos + prefix);
-                          }
-                        }}
-                      />
-                    </div>
-                  ) : (
-                    <Textarea
-                      ref={inputRef as React.RefObject<HTMLTextAreaElement>}
-                      autoCorrect="off"
-                      autoCapitalize="off"
-                      spellCheck={false}
-                      value={
-                        // Hide prefix when badge is shown
-                        (value.startsWith("#") && mode === "ai") ||
-                        (value.startsWith("!") && mode === "search")
-                          ? value.slice(1)
-                          : value
-                      }
-                      onChange={(e) => {
-                        // Restore prefix when editing
-                        const newValue = e.target.value;
-                        const prefix =
-                          mode === "ai" && value.startsWith("#")
-                            ? "#"
-                            : mode === "search" && value.startsWith("!")
-                            ? "!"
-                            : "";
-                        onValueChange(prefix + newValue);
-                        setCursorPosition(
-                          (e.target.selectionStart || 0) + prefix.length,
-                        );
-                      }}
-                      onKeyDown={(e) => {
-                        // Handle backspace on empty content to remove mode prefix
-                        const displayValue =
-                          (value.startsWith("#") && mode === "ai") ||
-                          (value.startsWith("!") && mode === "search")
-                            ? value.slice(1)
-                            : value;
-
-                        if (e.key === "Backspace" && displayValue === "") {
-                          // Remove prefix and go back to search mode
-                          if (
-                            value.startsWith("#") ||
-                            value.startsWith("!")
-                          ) {
-                            e.preventDefault();
-                            onValueChange("");
-                            onModeChange("search");
-                            return;
-                          }
-                        }
-
-                        handleKeyDown(e);
-                      }}
-                      onSelect={() => {
-                        const prefix =
-                          mode === "ai" && value.startsWith("#")
-                            ? 1
-                            : mode === "search" && value.startsWith("!")
-                            ? 1
-                            : 0;
-                        setCursorPosition(
-                          (inputRef.current?.selectionStart || 0) + prefix,
-                        );
-                      }}
+                            },
+                          ]),
+                        ),
+                      ]}
                       placeholder={config.placeholder}
-                      disabled={isLoading}
-                      rows={1}
-                      className={cn(
-                        "min-h-7 h-7 max-h-20 !text-xs !py-1.5 !pl-8 !pr-7 resize-none overflow-y-auto",
-                        "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
-                        error &&
-                          "border-destructive focus-visible:ring-destructive/50",
-                        value && !error && "border-primary/50",
-                      )}
-                      onInput={(e) => {
-                        // Auto-resize textarea only when content exceeds single line
-                        const target = e.target as HTMLTextAreaElement;
-                        target.style.height = "28px"; // min-h-7 = 28px
-                        if (target.scrollHeight > 28) {
-                          target.style.height = `${Math.min(
-                            target.scrollHeight,
-                            80,
-                          )}px`;
+                      editable={!isLoading}
+                      basicSetup={false}
+                      height="auto"
+                      minHeight="28px"
+                      maxHeight="80px"
+                      onCreateEditor={(view) => {
+                        editorViewRef.current = view;
+                      }}
+                      onUpdate={(update) => {
+                        if (update.selectionSet) {
+                          const pos = update.state.selection.main.head;
+                          // Calculate prefix length
+                          const prefixLen =
+                            (value.startsWith("?") && mode === "where") ||
+                            (value.startsWith("#") && mode === "ai") ||
+                            (value.startsWith("!") && mode === "search")
+                              ? 1
+                              : 0;
+                          setCursorPosition(pos + prefixLen);
                         }
                       }}
                     />
-                  )}
+                  </div>
                   {/* Shimmer overlay when loading */}
                   {isLoading && value && (
                     <div className="absolute inset-0 flex items-center pl-8 pr-7 pointer-events-none bg-background rounded-md">

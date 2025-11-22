@@ -403,23 +403,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         break;
       }
       case "where": {
-        // First validate the clause
         const result = parseWhereClause(sanitized, filterColumns);
-        if (!result.success) {
+        if (result.success) {
+          setActiveFilter(result.filter);
+        } else {
           setQuickFilterError(result.error || "Invalid WHERE clause");
-          break;
         }
-        // Use raw WHERE clause directly to support complex expressions (functions, etc.)
-        const filter: FilterConfig = {
-          root: {
-            id: "root",
-            type: "group",
-            logical: "AND",
-            conditions: [],
-          },
-          rawWhereClause: sanitized,
-        };
-        setActiveFilter(filter);
         break;
       }
       case "ai": {
@@ -2123,60 +2112,60 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     return null;
   }
 
-  if (errorMessage) {
-    return (
-      <div
-        ref={wrapperRef}
-        tabIndex={-1}
-        className="flex h-full flex-col outline-none"
-      >
-        {/* Keep the filter toolbar visible on error */}
-        {isTableMode && filterColumns.length > 0 && (
-          <div className="flex-none pb-1.5 pt-1 bg-background">
-            <QuickFilter
-              ref={quickFilterRef}
-              columns={filterColumns}
-              value={quickFilterValue}
-              mode={quickFilterMode}
-              onValueChange={(value) => {
-                setQuickFilterValue(value);
-                setQuickFilterError(null);
-                setAiExplanation(null);
-                const detectedMode = detectFilterMode(value);
-                if (detectedMode !== quickFilterMode) {
-                  setQuickFilterMode(detectedMode);
-                }
-              }}
-              onModeChange={setQuickFilterMode}
-              onSubmit={handleFilterSubmit}
-              isLoading={isAIFilterLoading}
-              error={quickFilterError}
-              explanation={aiExplanation}
-            />
-          </div>
-        )}
-        <div className="flex-1">
-          <DataGridErrorState
-            error={errorMessage}
-            onRetry={
-              activeFilter
-                ? () => {
-                    // Clear filter and retry
-                    setActiveFilter(undefined);
-                    setQuickFilterValue("");
-                    setQuickFilterMode("search");
-                    setQuickFilterError(null);
-                  }
-                : undefined
-            }
-            onReload={() => tableDataQuery.refetch()}
-          />
-        </div>
-      </div>
-    );
-  }
+  // if (errorMessage) {
+  //   return (
+  //     <div
+  //       ref={wrapperRef}
+  //       tabIndex={-1}
+  //       className="flex h-full flex-col outline-none"
+  //     >
+  //       {/* Keep the filter toolbar visible on error */}
+  //       {isTableMode && filterColumns.length > 0 && (
+  //         <div className="flex-none pb-1.5 pt-1 bg-background">
+  //           <QuickFilter
+  //             ref={quickFilterRef}
+  //             columns={filterColumns}
+  //             value={quickFilterValue}
+  //             mode={quickFilterMode}
+  //             onValueChange={(value) => {
+  //               setQuickFilterValue(value);
+  //               setQuickFilterError(null);
+  //               setAiExplanation(null);
+  //               const detectedMode = detectFilterMode(value);
+  //               if (detectedMode !== quickFilterMode) {
+  //                 setQuickFilterMode(detectedMode);
+  //               }
+  //             }}
+  //             onModeChange={setQuickFilterMode}
+  //             onSubmit={handleFilterSubmit}
+  //             isLoading={isAIFilterLoading}
+  //             error={quickFilterError}
+  //             explanation={aiExplanation}
+  //           />
+  //         </div>
+  //       )}
+  //       <div className="flex-1">
+  //         <DataGridErrorState
+  //           error={errorMessage}
+  //           onRetry={
+  //             activeFilter
+  //               ? () => {
+  //                   // Clear filter and retry
+  //                   setActiveFilter(undefined);
+  //                   setQuickFilterValue("");
+  //                   setQuickFilterMode("search");
+  //                   setQuickFilterError(null);
+  //                 }
+  //               : undefined
+  //           }
+  //           onReload={() => tableDataQuery.refetch()}
+  //         />
+  //       </div>
+  //     </div>
+  //   );
+  // }
 
-  if (!isLoading && !isLoadingMore && dataRows.length === 0) {
+  if (!isLoading && !isLoadingMore && !errorMessage && dataRows.length === 0) {
     // Show different message when filter is active
     if (isTableMode && activeFilter) {
       return (
@@ -2257,7 +2246,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       }}
     >
       {/* Quick Filter toolbar - only in table mode */}
-      {isTableMode && filterColumns.length > 0 && (
+      {isTableMode && (
         <div className="flex-none pb-1.5 pt-0.5 bg-background">
           <QuickFilter
             ref={quickFilterRef}
@@ -2296,88 +2285,95 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         onBlurCapture={handleBlurCapture}
         onPointerDown={handleFocusCapture}
       >
-        <GridContextMenu
-          selectedRows={selectedRows}
-          selectedRowKeys={selectedRowKeys}
-          allRows={rowsRef.current}
-          columns={finalColumns}
-          pinnedRowKeys={pinnedRowIds}
-          maxPinnedRows={5}
-          tableName={isTableMode ? table : "query"}
-          schema={isTableMode ? schema : undefined}
-          databaseType={"postgresql"}
-          onPinRows={handlePinRowsFromMenu}
-          onUnpinRows={handleUnpinRowsFromMenu}
-          onAddRow={undefined}
-          onInsertRowAbove={undefined}
-          onInsertRowBelow={isTableMode ? handleInsertRowBelow : undefined}
-          onDeleteRows={
-            isTableMode
-              ? () => {
-                  // Delete selected rows via context menu
-                  handleRowDelete({
-                    selection:
-                      gridSelection ??
-                      ({
-                        columns: CompactSelection.empty(),
-                        rows: CompactSelection.empty(),
-                      } as GridSelection),
-                    rowIndexes: Array.from(selectedRowsSet),
-                    rows: selectedRows,
-                  });
-                }
-              : undefined
-          }
-          showDetailsSheet={showDetailsSheet}
-          onShowDetailsSheetChange={setShowDetailsSheet}
-        >
-          <EditableDataGrid
-            ref={gridRef}
-            containerClassName={cn("h-full", className)}
-            rows={rowsRef.current}
-            columns={finalColumns}
-            getCellContent={getCellContent}
-            onCellEditStart={handleCellEditStart}
-            onCellEditCommit={handleCellEditCommit}
-            onCellEditCancel={handleCellEditCancel}
-            onRowAppend={handleRowAppend}
-            onRowDelete={handleRowDelete}
-            overscrollX={0}
-            overscrollY={100}
-            maxColumnWidth={1000}
-            onColumnResize={(col, size) => {
-              handleColumnResize(col, size);
-            }}
-            onColumnResizeEnd={(column, size) => {
-              handleColumnResizeEnd(column, size);
-              flushWidths();
-            }}
-            onColumnMoved={(start, end) => {
-              if (start === end) return;
-              setTimeout(() => {
-                upsertGridColumnsState(gridId, (draft) => {
-                  const order = draft.order.length
-                    ? [...draft.order]
-                    : finalColumns.map((column) => column.id);
-                  const [moved] = order.splice(start, 1);
-                  if (!moved) return;
-                  order.splice(end, 0, moved);
-                  draft.order = order;
-                });
-              }, 0);
-            }}
-            onActiveCellChange={persistActiveCell}
-            onVisibleRegionChanged={handleVisibleRegionChanged}
-            gridSelection={gridSelection}
-            onSelectionChange={handleSelectionChange}
-            freezeColumns={freezeColumns}
-            getRowThemeOverride={getRowThemeOverride}
-            highlightRegions={cellHighlightRegions}
-            onHeaderClicked={handleHeaderClicked}
-            drawHeader={drawHeader}
-            onHeaderContextMenu={handleHeaderContextMenu}
+        {errorMessage ? (
+          <DataGridErrorState
+            error={errorMessage}
+            onReload={() => tableDataQuery.refetch()}
           />
-        </GridContextMenu>
+        ) : (
+          <GridContextMenu
+            selectedRows={selectedRows}
+            selectedRowKeys={selectedRowKeys}
+            allRows={rowsRef.current}
+            columns={finalColumns}
+            pinnedRowKeys={pinnedRowIds}
+            maxPinnedRows={5}
+            tableName={isTableMode ? table : "query"}
+            schema={isTableMode ? schema : undefined}
+            databaseType={"postgresql"}
+            onPinRows={handlePinRowsFromMenu}
+            onUnpinRows={handleUnpinRowsFromMenu}
+            onAddRow={undefined}
+            onInsertRowAbove={undefined}
+            onInsertRowBelow={isTableMode ? handleInsertRowBelow : undefined}
+            onDeleteRows={
+              isTableMode
+                ? () => {
+                    // Delete selected rows via context menu
+                    handleRowDelete({
+                      selection:
+                        gridSelection ??
+                        ({
+                          columns: CompactSelection.empty(),
+                          rows: CompactSelection.empty(),
+                        } as GridSelection),
+                      rowIndexes: Array.from(selectedRowsSet),
+                      rows: selectedRows,
+                    });
+                  }
+                : undefined
+            }
+            showDetailsSheet={showDetailsSheet}
+            onShowDetailsSheetChange={setShowDetailsSheet}
+          >
+            <EditableDataGrid
+              ref={gridRef}
+              containerClassName={cn("h-full", className)}
+              rows={rowsRef.current}
+              columns={finalColumns}
+              getCellContent={getCellContent}
+              onCellEditStart={handleCellEditStart}
+              onCellEditCommit={handleCellEditCommit}
+              onCellEditCancel={handleCellEditCancel}
+              onRowAppend={handleRowAppend}
+              onRowDelete={handleRowDelete}
+              overscrollX={0}
+              overscrollY={100}
+              maxColumnWidth={1000}
+              onColumnResize={(col, size) => {
+                handleColumnResize(col, size);
+              }}
+              onColumnResizeEnd={(column, size) => {
+                handleColumnResizeEnd(column, size);
+                flushWidths();
+              }}
+              onColumnMoved={(start, end) => {
+                if (start === end) return;
+                setTimeout(() => {
+                  upsertGridColumnsState(gridId, (draft) => {
+                    const order = draft.order.length
+                      ? [...draft.order]
+                      : finalColumns.map((column) => column.id);
+                    const [moved] = order.splice(start, 1);
+                    if (!moved) return;
+                    order.splice(end, 0, moved);
+                    draft.order = order;
+                  });
+                }, 0);
+              }}
+              onActiveCellChange={persistActiveCell}
+              onVisibleRegionChanged={handleVisibleRegionChanged}
+              gridSelection={gridSelection}
+              onSelectionChange={handleSelectionChange}
+              freezeColumns={freezeColumns}
+              getRowThemeOverride={getRowThemeOverride}
+              highlightRegions={cellHighlightRegions}
+              onHeaderClicked={handleHeaderClicked}
+              drawHeader={drawHeader}
+              onHeaderContextMenu={handleHeaderContextMenu}
+            />
+          </GridContextMenu>
+        )}
       </div>
 
       <DataGridStatusBar
