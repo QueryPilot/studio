@@ -403,12 +403,23 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         break;
       }
       case "where": {
+        // First validate the clause
         const result = parseWhereClause(sanitized, filterColumns);
-        if (result.success) {
-          setActiveFilter(result.filter);
-        } else {
+        if (!result.success) {
           setQuickFilterError(result.error || "Invalid WHERE clause");
+          break;
         }
+        // Use raw WHERE clause directly to support complex expressions (functions, etc.)
+        const filter: FilterConfig = {
+          root: {
+            id: "root",
+            type: "group",
+            logical: "AND",
+            conditions: [],
+          },
+          rawWhereClause: sanitized,
+        };
+        setActiveFilter(filter);
         break;
       }
       case "ai": {
