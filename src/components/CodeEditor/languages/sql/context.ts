@@ -30,108 +30,85 @@ export interface SqlContextAnalysis {
   outerScopeTables?: TableRef[]; // Tables from outer scopes (for correlated subqueries)
 }
 
+// Scope boundary node types in Lezer SQL grammar
+const SCOPE_NODES = new Set([
+  "SelectStatement",
+  "InsertStatement",
+  "UpdateStatement",
+  "DeleteStatement",
+  "Subquery",
+  "ParenthesizedExpression",
+]);
+
 /**
- * Find subquery boundaries in SQL text.
- * Returns array of {from, to, depth} for each subquery.
+ * Find all scope boundaries (queries/subqueries) containing a position using the syntax tree.
+ * Returns scopes from innermost to outermost.
  */
-function findSubqueryBoundaries(sql: string): Array<{ from: number; to: number; depth: number }> {
-  const subqueries: Array<{ from: number; to: number; depth: number }> = [];
-  const stack: Array<{ from: number; depth: number }> = [];
+function findScopesAtPosition(
+  state: EditorState,
+  pos: number
+): Array<{ node: SyntaxNode; depth: number }> {
+  const tree = syntaxTree(state);
+  const scopes: Array<{ node: SyntaxNode; depth: number }> = [];
+
+  let currentNode: SyntaxNode | null = tree.resolveInner(pos, -1);
   let depth = 0;
-  let inString = false;
-  let stringChar = '';
-  let inLineComment = false;
-  let inBlockComment = false;
 
-  for (let i = 0; i < sql.length; i++) {
-    const char = sql[i];
-    const nextChar = sql[i + 1];
+  // Walk up the tree to find all enclosing scopes
+  while (currentNode) {
+    // Check if this is a SELECT/INSERT/UPDATE/DELETE statement
+    if (SCOPE_NODES.has(currentNode.name)) {
+      // For ParenthesizedExpression, check if it contains a SELECT (making it a subquery)
+      if (currentNode.name === "ParenthesizedExpression") {
+        let hasSelect = false;
+        const cursor = currentNode.cursor();
+        cursor.firstChild();
+        do {
+          if (cursor.name === "SelectStatement" || cursor.name === "Keyword") {
+            const text = state.sliceDoc(cursor.from, cursor.to).toUpperCase();
+            if (text === "SELECT") {
+              hasSelect = true;
+              break;
+            }
+          }
+        } while (cursor.nextSibling());
 
-    // Handle comments
-    if (!inString && !inBlockComment && char === '-' && nextChar === '-') {
-      inLineComment = true;
-      continue;
-    }
-    if (inLineComment && char === '\n') {
-      inLineComment = false;
-      continue;
-    }
-    if (inLineComment) continue;
-
-    if (!inString && !inLineComment && char === '/' && nextChar === '*') {
-      inBlockComment = true;
-      i++;
-      continue;
-    }
-    if (inBlockComment && char === '*' && nextChar === '/') {
-      inBlockComment = false;
-      i++;
-      continue;
-    }
-    if (inBlockComment) continue;
-
-    // Handle strings
-    if (!inString && (char === "'" || char === '"')) {
-      inString = true;
-      stringChar = char;
-      continue;
-    }
-    if (inString && char === stringChar) {
-      if (nextChar === stringChar) {
-        i++; // Skip escaped quote
-      } else {
-        inString = false;
+        if (!hasSelect) {
+          currentNode = currentNode.parent;
+          continue;
+        }
       }
-      continue;
-    }
-    if (inString) continue;
 
-    // Track parentheses
-    if (char === '(') {
-      // Check if this starts a subquery by looking at preceding text
-      const before = sql.slice(Math.max(0, i - 50), i).toUpperCase();
-      const isSubquery = /\b(IN|EXISTS|ANY|ALL|NOT)\s*$/.test(before) ||
-                         /\bFROM\s*$/.test(before) ||
-                         /^\s*$/.test(before) && depth > 0;
-
-      if (isSubquery || depth > 0) {
-        depth++;
-        stack.push({ from: i, depth });
-      }
-    } else if (char === ')' && stack.length > 0) {
-      const start = stack.pop();
-      if (start) {
-        subqueries.push({ from: start.from, to: i, depth: start.depth });
-        depth--;
-      }
+      scopes.push({ node: currentNode, depth });
+      depth++;
     }
+    currentNode = currentNode.parent;
   }
 
-  return subqueries;
+  return scopes;
 }
 
 /**
- * Get the subquery scope at a given position.
- * Returns the innermost subquery containing the position, or null if not in a subquery.
+ * Get the subquery scope at a given position using the syntax tree.
+ * Returns the innermost SELECT statement containing the position, or null if at top level.
  */
 function getSubqueryScopeAtPosition(
-  sql: string,
+  state: EditorState,
   pos: number
 ): { from: number; to: number; depth: number } | null {
-  const subqueries = findSubqueryBoundaries(sql);
+  const scopes = findScopesAtPosition(state, pos);
 
-  // Find the innermost subquery containing the position
-  let innermost: { from: number; to: number; depth: number } | null = null;
-
-  for (const sq of subqueries) {
-    if (pos > sq.from && pos < sq.to) {
-      if (!innermost || sq.depth > innermost.depth) {
-        innermost = sq;
-      }
-    }
+  // scopes[0] is the innermost scope
+  // If we have more than one scope, we're in a subquery
+  if (scopes.length > 1 && scopes[0]) {
+    return {
+      from: scopes[0].node.from,
+      to: scopes[0].node.to,
+      depth: scopes.length - 1,
+    };
   }
 
-  return innermost;
+  return null;
 }
 
 // SQL keywords that introduce table references
@@ -368,8 +345,8 @@ function getScopeTables(
   const statementFrom = node.from;
   const statementTo = node.to;
 
-  // Check if we're in a subquery
-  const subqueryScope = getSubqueryScopeAtPosition(sql, pos);
+  // Check if we're in a subquery using the syntax tree
+  const subqueryScope = getSubqueryScopeAtPosition(state, pos);
   const seen = new Set<string>(ctes.map(c => c.name.toLowerCase()));
 
   if (subqueryScope) {

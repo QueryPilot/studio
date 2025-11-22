@@ -4,7 +4,7 @@
  * Provides code actions like "Expand Star" for SQL queries.
  */
 
-import { StateField, StateEffect, type Extension } from "@codemirror/state";
+import { StateField, type Extension } from "@codemirror/state";
 import {
   type EditorView,
   Decoration,
@@ -13,7 +13,6 @@ import {
   type ViewUpdate,
   WidgetType,
 } from "@codemirror/view";
-import { syntaxTree } from "@codemirror/language";
 import type { SqlMetadataProvider } from "./metadataProvider";
 
 interface StarExpansionTarget {
@@ -90,15 +89,18 @@ function extractTablesFromFrom(
     if (!cleaned) continue;
 
     // Parse: [schema.]table [AS] [alias]
+    // Handle quoted identifiers: "table", `table`, [table]
     const tableMatch = cleaned.match(
-      /^(?:(\w+)\.)?(\w+)(?:\s+(?:AS\s+)?(\w+))?$/i,
+      /^(?:(["\w`[\]]+)\.)?(["\w`[\]]+)(?:\s+(?:AS\s+)?(["\w`[\]]+))?$/i,
     );
 
     if (tableMatch) {
+      // Remove quotes from captured groups
+      const stripQuotes = (s?: string) => s?.replace(/["`[\]]/g, "");
       tables.push({
-        schema: tableMatch[1],
-        name: tableMatch[2] || "",
-        alias: tableMatch[3],
+        schema: stripQuotes(tableMatch[1]),
+        name: stripQuotes(tableMatch[2]) || "",
+        alias: stripQuotes(tableMatch[3]),
       });
     }
   }
@@ -106,24 +108,17 @@ function extractTablesFromFrom(
   return tables;
 }
 
-// Effect to trigger star expansion
-const expandStarEffect = StateEffect.define<{
-  from: number;
-  to: number;
-  columns: string[];
-}>();
-
 /**
  * Quote identifier based on SQL dialect
  */
 function quoteIdentifier(name: string, dialect: string): string {
   switch (dialect) {
-    case 'mysql':
+    case "mysql":
       return `\`${name}\``;
-    case 'mssql':
+    case "mssql":
       return `[${name}]`;
-    case 'postgresql':
-    case 'sqlite':
+    case "postgresql":
+    case "sqlite":
     default:
       return `"${name}"`;
   }
@@ -135,7 +130,7 @@ function quoteIdentifier(name: string, dialect: string): string {
 export function createExpandStarExtension(
   provider: SqlMetadataProvider,
   defaultSchema: string,
-  dialect: string = 'postgresql',
+  dialect: string = "postgresql",
 ): Extension {
   // Widget decoration for the expand button
   const expandWidget = (target: StarExpansionTarget) => {
@@ -147,7 +142,7 @@ export function createExpandStarExtension(
 
   // Create decorations for star patterns
   const decorationField = StateField.define<DecorationSet>({
-    create(state) {
+    create() {
       return Decoration.none;
     },
     update(decorations, tr) {
@@ -214,7 +209,7 @@ class ExpandStarWidget extends WidgetType {
     private target: StarExpansionTarget,
     private provider: SqlMetadataProvider,
     private defaultSchema: string,
-    private dialect: string = 'postgresql',
+    private dialect: string = "postgresql",
   ) {
     super();
   }
@@ -235,22 +230,26 @@ class ExpandStarWidget extends WidgetType {
       font-size: 12px;
       padding: 0 3px;
       margin-left: 2px;
-      background: #f5f5f5;
-      border: 1px solid #ddd;
-      border-radius: 3px;
+      background: var(--cm-expand-star-bg, hsl(var(--muted)));
+      border: 1px solid var(--cm-expand-star-border, hsl(var(--border)));
+      border-radius: calc(var(--radius) - 4px);
       cursor: pointer;
-      color: #888;
+      color: var(--cm-expand-star-color, hsl(var(--muted-foreground)));
       line-height: 1.2;
       vertical-align: baseline;
+      transition: background 0.2s, color 0.2s;
     `;
 
     button.onmouseenter = () => {
-      button.style.background = "#e0e0e0";
-      button.style.color = "#333";
+      button.style.background =
+        "var(--cm-expand-star-hover-bg, hsl(var(--accent)))";
+      button.style.color =
+        "var(--cm-expand-star-hover-color, hsl(var(--accent-foreground)))";
     };
     button.onmouseleave = () => {
-      button.style.background = "#f5f5f5";
-      button.style.color = "#888";
+      button.style.background = "var(--cm-expand-star-bg, hsl(var(--muted)))";
+      button.style.color =
+        "var(--cm-expand-star-color, hsl(var(--muted-foreground)))";
     };
 
     button.onclick = async (e) => {
@@ -325,7 +324,7 @@ export async function expandStarAtPosition(
   view: EditorView,
   provider: SqlMetadataProvider,
   defaultSchema: string,
-  dialect: string = 'postgresql',
+  dialect: string = "postgresql",
 ): Promise<boolean> {
   const targets = findStarPatterns(view);
   const pos = view.state.selection.main.from;

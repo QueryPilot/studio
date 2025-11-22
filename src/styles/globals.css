@@ -279,13 +279,12 @@
   border-radius: 6px !important;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
   padding: 4px !important;
-  max-height: 192px !important; /* max-h-48 */
-  overflow-y: auto !important;
 }
 
 .cm-tooltip.cm-tooltip-autocomplete > ul {
   font-family: inherit !important;
-  max-height: none !important;
+  max-height: 192px !important; /* max-h-48 */
+  overflow-y: auto !important;
 }
 
 .cm-tooltip.cm-tooltip-autocomplete > ul > li {
@@ -309,7 +308,8 @@
 
 /* Completion label (column/table name) */
 .cm-completionLabel {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace !important;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas,
+    monospace !important;
   font-weight: 500 !important;
 }
 
@@ -375,4 +375,42 @@
   font-size: 11px !important;
   color: hsl(var(--muted-foreground)) !important;
   max-width: 300px !important;
+}
+
+/* Lint gutter marker - flat single color */
+.cm-lint-marker-error {
+  content: none !important;
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 50% !important;
+  background: #ef4444 !important;
+  display: inline-block !important;
+  vertical-align: middle !important;
+  margin-top: -2px !important;
+}
+
+.cm-lint-marker-warning {
+  content: none !important;
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 50% !important;
+  background: #f59e0b !important;
+  display: inline-block !important;
+  vertical-align: middle !important;
+  margin-top: -2px !important;
+}
+
+.cm-lint-marker-info {
+  content: none !important;
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 50% !important;
+  background: #3b82f6 !important;
+  display: inline-block !important;
+  vertical-align: middle !important;
+  margin-top: -2px !important;
+}
+
+.ͼ1 .cm-gutter-lint .cm-gutterElement {
+  padding: 0 0 0 0.2em;
 }

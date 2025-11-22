@@ -24,6 +24,8 @@ async function initPgParser(): Promise<PgParser> {
   initPromise = (async () => {
     try {
       parser = new PgParser(); // Defaults to latest PostgreSQL version
+      // Wait for WASM to be ready
+      await parser.ready;
       console.log("[PgParser] Initialized successfully");
       return parser;
     } catch (error) {
@@ -33,6 +35,15 @@ async function initPgParser(): Promise<PgParser> {
   })();
 
   return initPromise;
+}
+
+/**
+ * Pre-initialize the parser to avoid delay on first lint
+ */
+export function preInitPgParser(): void {
+  initPgParser().catch(() => {
+    // Silently ignore - will retry on first use
+  });
 }
 
 /**

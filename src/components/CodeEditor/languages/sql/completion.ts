@@ -17,7 +17,12 @@ interface CompletionOptions {
 /**
  * Quote identifier based on SQL dialect
  */
-function quoteIdentifier(name: string, dialect: string): string {
+function quoteIdentifier(name: string, dialect: string, alreadyQuoted: boolean = false): string {
+  // Don't add quotes if already inside quotes
+  if (alreadyQuoted) {
+    return name;
+  }
+
   switch (dialect) {
     case 'mysql':
       return `\`${name}\``;
@@ -30,6 +35,78 @@ function quoteIdentifier(name: string, dialect: string): string {
   }
 }
 
+/**
+ * Quote context info
+ */
+interface QuoteContext {
+  isInside: boolean;       // Are we inside an unclosed quote?
+  quoteChar: string | null; // The opening quote character (", `, [)
+  needsClose: boolean;      // Does the quote need to be closed?
+}
+
+/**
+ * Check if cursor is inside a quoted identifier and what quote type
+ */
+function getQuoteContext(context: CompletionContext): QuoteContext {
+  const { state, pos } = context;
+  const line = state.doc.lineAt(pos);
+  const lineText = line.text;
+  const posInLine = pos - line.from;
+
+  // Check for opening quote before cursor position
+  const beforeCursor = lineText.slice(0, posInLine);
+  const afterCursor = lineText.slice(posInLine);
+
+  // Count quotes to determine if we're inside
+  let inDoubleQuote = false;
+  let inBacktick = false;
+  let inBracket = false;
+
+  for (let i = 0; i < beforeCursor.length; i++) {
+    const char = beforeCursor[i];
+    const prevChar = i > 0 ? beforeCursor[i - 1] : '';
+
+    // Skip escaped quotes
+    if (prevChar === '\\') continue;
+
+    if (char === '"' && !inBacktick && !inBracket) {
+      inDoubleQuote = !inDoubleQuote;
+    } else if (char === '`' && !inDoubleQuote && !inBracket) {
+      inBacktick = !inBacktick;
+    } else if (char === '[' && !inDoubleQuote && !inBacktick) {
+      inBracket = true;
+    } else if (char === ']' && inBracket) {
+      inBracket = false;
+    }
+  }
+
+  const isInside = inDoubleQuote || inBacktick || inBracket;
+  let quoteChar: string | null = null;
+  let needsClose = false;
+
+  if (inDoubleQuote) {
+    quoteChar = '"';
+    // Check if there's a closing quote after cursor
+    needsClose = !afterCursor.includes('"');
+  } else if (inBacktick) {
+    quoteChar = '`';
+    needsClose = !afterCursor.includes('`');
+  } else if (inBracket) {
+    quoteChar = '[';
+    needsClose = !afterCursor.includes(']');
+  }
+
+  return { isInside, quoteChar, needsClose };
+}
+
+/**
+ * Get the closing quote character
+ */
+function getClosingQuote(openQuote: string | null): string {
+  if (openQuote === '[') return ']';
+  return openQuote || '';
+}
+
 export const createSqlCompletionSource = (
   options: CompletionOptions
 ): CompletionSource => {
@@ -40,12 +117,29 @@ export const createSqlCompletionSource = (
       return null;
     }
 
+    // Early return if not explicitly triggered and nothing useful to complete
+    // But allow completion after '.' for qualified access (e.g., "table.column")
+    const word = context.matchBefore(/[\w_]+/);
+    const afterDot = context.matchBefore(/\.\s*[\w_]*$/);
+    if (!context.explicit && !afterDot && (!word || word.text.length < 1)) {
+      return null;
+    }
+
     const defaultSchema = schema || "public";
     const provider = createSqlMetadataProvider(connectionId, defaultSchema);
 
     // Use AST-based context analysis
     const analysis = analyzeSqlContext(context, defaultSchema);
     const { intent, activeStatementTables, qualifier, range, isInsertContext, insertTargetTable, outerScopeTables } = analysis;
+
+    // Lazy quote context - only compute when needed
+    let quoteCtx: QuoteContext | null = null;
+    const getQuoteCtx = () => {
+      if (!quoteCtx) {
+        quoteCtx = getQuoteContext(context);
+      }
+      return quoteCtx;
+    };
 
     try {
       // SPECIAL CASE: INSERT column list - only show target table's columns
@@ -54,7 +148,7 @@ export const createSqlCompletionSource = (
         if (fields.length > 0) {
           return {
             from: range.from,
-            options: mapFieldsToCompletions(fields, 1, undefined, dialect),
+            options: mapFieldsToCompletions(fields, 1, undefined, dialect, getQuoteCtx()),
             validFor: /^[\w_]*$/,
           };
         }
@@ -80,15 +174,24 @@ export const createSqlCompletionSource = (
         if (matchedTable) {
           // CTE with explicit columns
           if (matchedTable.isCTE && matchedTable.cteColumns && matchedTable.cteColumns.length > 0) {
+            const qCtx = getQuoteCtx();
             return {
               from: range.from,
-              options: matchedTable.cteColumns.map((colName) => ({
-                label: colName,
-                type: "property",
-                detail: "CTE column",
-                boost: 1,
-                apply: quoteIdentifier(colName, dialect),
-              })),
+              options: matchedTable.cteColumns.map((colName) => {
+                let apply: string;
+                if (qCtx.isInside) {
+                  apply = qCtx.needsClose ? colName + getClosingQuote(qCtx.quoteChar) : colName;
+                } else {
+                  apply = quoteIdentifier(colName, dialect);
+                }
+                return {
+                  label: colName,
+                  type: "property",
+                  detail: "CTE column",
+                  boost: 1,
+                  apply,
+                };
+              }),
               validFor: /^[\w_]*$/,
             };
           }
@@ -99,7 +202,7 @@ export const createSqlCompletionSource = (
             if (fields.length > 0) {
               return {
                 from: range.from,
-                options: mapFieldsToCompletions(fields, 1, undefined, dialect),
+                options: mapFieldsToCompletions(fields, 10, undefined, dialect, getQuoteCtx()),
                 validFor: /^[\w_]*$/,
               };
             }
@@ -110,7 +213,7 @@ export const createSqlCompletionSource = (
           if (fields.length > 0) {
             return {
               from: range.from,
-              options: mapFieldsToCompletions(fields, 1, undefined, dialect),
+              options: mapFieldsToCompletions(fields, 10, undefined, dialect, getQuoteCtx()),
               validFor: /^[\w_]*$/,
             };
           }
@@ -129,7 +232,7 @@ export const createSqlCompletionSource = (
             if (allFields.length > 0) {
               return {
                 from: range.from,
-                options: mapFieldsToCompletions(allFields, 1, undefined, dialect),
+                options: mapFieldsToCompletions(allFields, 1, undefined, dialect, getQuoteCtx()),
                 validFor: /^[\w_]*$/,
               };
             }
@@ -141,7 +244,7 @@ export const createSqlCompletionSource = (
         if (entities.length > 0) {
           return {
             from: range.from,
-            options: mapEntitiesToCompletions(entities, dialect),
+            options: mapEntitiesToCompletions(entities, dialect, getQuoteCtx()),
             validFor: /^[\w_]*$/,
           };
         }
@@ -161,7 +264,7 @@ export const createSqlCompletionSource = (
           );
           const results = await Promise.all(fieldPromises);
           const allFields = deduplicateFields(results.flat());
-          completions.push(...mapFieldsToCompletions(allFields, 1, undefined, dialect));
+          completions.push(...mapFieldsToCompletions(allFields, 1, undefined, dialect, getQuoteCtx()));
         }
 
         // Also include outer scope tables for correlated subqueries (lower boost)
@@ -174,7 +277,7 @@ export const createSqlCompletionSource = (
             const outerResults = await Promise.all(outerFieldPromises);
             const outerFields = deduplicateFields(outerResults.flat());
             // Add with lower boost to prioritize current scope
-            completions.push(...mapFieldsToCompletions(outerFields, -1, "(outer)", dialect));
+            completions.push(...mapFieldsToCompletions(outerFields, -1, "(outer)", dialect, getQuoteCtx()));
           }
         }
 
@@ -187,7 +290,7 @@ export const createSqlCompletionSource = (
 
         // Also include table names
         const entities = await provider.listEntities();
-        completions.push(...mapEntitiesToCompletions(entities, dialect));
+        completions.push(...mapEntitiesToCompletions(entities, dialect, getQuoteCtx()));
 
         if (completions.length > 0) {
           return {
@@ -203,7 +306,7 @@ export const createSqlCompletionSource = (
         const entities = await provider.listEntities();
         return {
           from: range.from,
-          options: mapEntitiesToCompletions(entities, dialect),
+          options: mapEntitiesToCompletions(entities, dialect, getQuoteCtx()),
           validFor: /^[\w_]*$/,
         };
       }
@@ -221,32 +324,56 @@ function mapFieldsToCompletions(
   fields: Array<{ name: string; dataType: string; description?: string }>,
   boost: number = 1,
   suffix?: string,
-  dialect: string = 'postgresql'
+  dialect: string = 'postgresql',
+  quoteCtx?: QuoteContext
 ): Completion[] {
-  return fields.map((f) => ({
-    label: f.name,
-    type: "property",
-    detail: suffix ? `${f.dataType} ${suffix}` : f.dataType,
-    info: f.description,
-    boost,
-    apply: quoteIdentifier(f.name, dialect),
-  }));
+  return fields.map((f) => {
+    let apply: string;
+    if (quoteCtx && quoteCtx.isInside) {
+      // Inside quotes - just insert the name, add closing quote if needed
+      apply = quoteCtx.needsClose ? f.name + getClosingQuote(quoteCtx.quoteChar) : f.name;
+    } else {
+      // Not inside quotes - add full quoting
+      apply = quoteIdentifier(f.name, dialect);
+    }
+
+    return {
+      label: f.name,
+      type: "property",
+      detail: suffix ? `${f.dataType} ${suffix}` : f.dataType,
+      info: f.description,
+      boost,
+      apply,
+    };
+  });
 }
 
 function mapEntitiesToCompletions(
   entities: Array<{ name: string; type: string; schema?: string }>,
-  dialect: string = 'postgresql'
+  dialect: string = 'postgresql',
+  quoteCtx?: QuoteContext
 ): Completion[] {
   return entities.map((e) => {
     // Generate smart alias: user_accounts -> ua, orders -> o
     const alias = generateSmartAlias(e.name);
-    const quotedName = quoteIdentifier(e.name, dialect);
+
+    let apply: string;
+    if (quoteCtx && quoteCtx.isInside) {
+      // Inside quotes - just insert the name, add closing quote if needed
+      const name = quoteCtx.needsClose ? e.name + getClosingQuote(quoteCtx.quoteChar) : e.name;
+      // Don't add alias when inside quotes
+      apply = name;
+    } else {
+      // Not inside quotes - add full quoting and alias
+      const quotedName = quoteIdentifier(e.name, dialect);
+      apply = e.type === "table" && alias ? `${quotedName} ${alias}` : quotedName;
+    }
+
     return {
       label: e.name,
       type: e.type === "table" ? "class" : "constant",
       detail: alias ? `→ ${alias}` : e.type,
-      // Apply with alias for tables
-      apply: e.type === "table" && alias ? `${quotedName} ${alias}` : quotedName,
+      apply,
       boost: 0,
     };
   });
