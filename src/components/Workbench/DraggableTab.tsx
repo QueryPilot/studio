@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import { cn } from "@/lib/utils";
 import { X, Table2, Eye, FunctionSquare, Code } from "lucide-react";
 import { useDraggable } from "@dnd-kit/core";
@@ -33,7 +33,6 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
   onActivate,
   onClose,
 }) => {
-  const [isHovered, setIsHovered] = useState(false);
   const draggableId = `tab-${panelId}-${tabId}`;
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
@@ -97,14 +96,14 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
         {...listeners}
         {...attributes}
         className={cn(
-          "px-2 py-1 text-xs h-8 transition-colors flex items-center gap-1.5 cursor-move relative group",
+          "group px-2 py-1 text-xs h-8 transition-colors flex items-center gap-1.5 cursor-move relative group",
           {
-            "bg-secondary text-foreground font-medium z-10 sticky left-0 right-0":
+            "bg-background rounded-t-xl text-foreground font-medium z-10 sticky left-0 right-0":
               isActive && isFocused,
-            "bg-secondary/60 z-10 sticky left-0 right-0":
+            "bg-background/60 rounded-t-xl z-10 sticky left-0 right-0":
               isActive && !isFocused,
-            "bg-secondary/60": !isActive,
-            "hover:bg-secondary/80": !isActive && !isFocused,
+            "bg-muted": !isActive,
+            "hover:bg-background/80": !isActive && !isFocused,
             "opacity-50": isDragging,
           },
         )}
@@ -112,29 +111,26 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
           e.stopPropagation();
           onActivate();
         }}
-        onMouseEnter={() => {
-          setIsHovered(true);
-        }}
-        onMouseLeave={() => {
-          setIsHovered(false);
-        }}
       >
-        <div className="h-4 w-4 flex items-center justify-center flex-shrink-0">
-          {isHovered ? (
-            <button
-              className="hover:bg-destructive/20 rounded p-0.5 transition-colors h-4 w-4 flex items-center justify-center"
-              onClick={(e) => {
-                e.stopPropagation();
-                onClose();
-              }}
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          ) : (
-            <Icon className={getIconClass()} />
-          )}
+        <div className="h-5 w-5 flex items-center justify-center flex-shrink-0">
+          <button
+            className="hidden group-hover:flex group-focus-within:flex items-center justify-center hover:bg-destructive/10 rounded transition-colors h-5 w-5"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+
+          <Icon
+            className={cn(
+              getIconClass(),
+              "block group-hover:hidden group-focus-within:hidden",
+            )}
+          />
         </div>
-        <span className="whitespace-nowrap">{displayName}</span>
+        <span className="whitespace-nowrap pr-1">{displayName}</span>
       </div>
 
       <div

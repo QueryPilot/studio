@@ -1,5 +1,33 @@
 import { isTauri } from "@/utils/tauri";
 import { windowChannelTracker } from "./windowChannelTracker";
+import { platform, version } from "@tauri-apps/plugin-os";
+
+// Get macOS traffic light position based on OS version
+function getMacOSTrafficLightPosition(): {
+  x: number;
+  y: number;
+} | null {
+  if (!isTauri()) return null;
+
+  try {
+    const os = platform();
+
+    if (os !== "macos") return null;
+
+    const versionStr = version();
+    const majorVersion = parseInt(versionStr.split(".")[0] || "0", 10);
+
+    // Match Rust logic: macOS 26+ uses different position
+    if (majorVersion >= 26) {
+      return { x: 10, y: 21 };
+    } else {
+      return { x: 10, y: 15 };
+    }
+  } catch {
+    // Fallback position
+    return { x: 10, y: 15 };
+  }
+}
 
 interface WindowInfo {
   label: string;
@@ -112,6 +140,12 @@ class WindowManager {
       hiddenTitle: true,
       skipTaskbar: false,
     };
+
+    // Add macOS traffic light position based on OS version
+    const trafficLightPosition = getMacOSTrafficLightPosition();
+    if (trafficLightPosition) {
+      windowOptions.trafficLightPosition = trafficLightPosition;
+    }
 
     const webview = new WebviewWindow(
       label,
@@ -381,9 +415,11 @@ class WindowManager {
       url: "/",
       title: "Query Pilot",
       width: 900,
-      height: 650,
+      height: 600,
       minWidth: 900,
-      minHeight: 650,
+      minHeight: 600,
+      maxWidth: 900,
+      maxHeight: 600,
       center: true,
       resizable: true,
       maximizable: true,
@@ -395,6 +431,12 @@ class WindowManager {
       hiddenTitle: true,
       skipTaskbar: false,
     };
+
+    // Add macOS traffic light position based on OS version
+    const trafficLightPosition = getMacOSTrafficLightPosition();
+    if (trafficLightPosition) {
+      windowOptions.trafficLightPosition = trafficLightPosition;
+    }
 
     new WebviewWindow(
       label,

@@ -14,7 +14,6 @@
       {
         "label": "main",
         "title": "Query Pilot",
-        "resizable": false,
         "fullscreen": false,
         "center": true,
         "height": 600,

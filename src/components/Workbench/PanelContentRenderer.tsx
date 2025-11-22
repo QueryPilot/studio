@@ -180,7 +180,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       return (
         <div className="flex flex-col h-full">
           {/* Table Toolbar */}
-          <div className="flex-none py-1 bg-background">
+          <div className="flex-none pb-1 pt-1.5 bg-background">
             <div className="flex items-center justify-between px-1 h-full">
               <Tabs
                 value={activeView}
@@ -192,7 +192,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                 <TabsList className="p-0.5">
                   <TabsTrigger
                     value="data"
-                    className="!flex items-center gap-1 text-xs px-2"
+                    className="flex items-center gap-1 text-xs px-2"
                     tabIndex={0}
                   >
                     <Table className="h-3 w-3" />

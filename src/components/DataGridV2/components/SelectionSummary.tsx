@@ -241,7 +241,7 @@ export const SelectionSummary = memo(function SelectionSummary({
       <PopoverTrigger asChild>
         <button
           className={cn(
-            "flex items-center gap-2 px-3 py-1 rounded-md",
+            "flex items-center gap-2 px-3 h-6 rounded-md",
             statistics.isNumeric
               ? "bg-green-500/10 hover:bg-green-500/20 text-green-700 dark:text-green-400 border-green-500/20"
               : "bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 dark:text-blue-400 border-blue-500/20",

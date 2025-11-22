@@ -93,20 +93,23 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   return (
     <div
       className={cn(
-        "flex items-center justify-between h-8 -mb-0.5 border-t bg-background text-xs text-muted-foreground",
+        "flex items-center justify-between h-8 border-t bg-background text-xs text-muted-foreground pr-2",
         className,
       )}
     >
       <div className="flex items-center gap-3">
         {readOnlyReason && (
-          <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-500/10 text-amber-700 dark:text-amber-400 rounded border border-amber-500/20">
-            <Eye className="h-3 w-3" />
+          <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-500/10 text-amber-700 dark:text-amber-400 rounded-lg border border-amber-500/20">
             <span className="font-medium">{readOnlyReason}</span>
           </div>
         )}
 
         {selectedRows > 0 && (
-          <div className="flex items-center gap-3">
+          <div
+            className={cn("flex items-center gap-3", {
+              "pl-2": !readOnlyReason,
+            })}
+          >
             <div className="flex items-center gap-1.5">
               <span className="text-primary font-medium">
                 {selectedRows.toLocaleString()}{" "}

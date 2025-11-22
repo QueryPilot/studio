@@ -542,18 +542,10 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
                       <Shimmer
                         as="span"
                         className="text-xs truncate"
-                        duration={1.5}
+                        duration={30}
                         spread={1}
                       >
-                        {(() => {
-                          const displayValue =
-                            (value.startsWith("?") && mode === "where") ||
-                            (value.startsWith("#") && mode === "ai") ||
-                            (value.startsWith("!") && mode === "search")
-                              ? value.slice(1)
-                              : value;
-                          return displayValue || "Generating...";
-                        })()}
+                        {value || "Generating..."}
                       </Shimmer>
                     </div>
                   )}
@@ -635,7 +627,10 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
 
         {/* AI explanation */}
         {explanation && !error && (
-          <p className="text-xs text-muted-foreground px-1 truncate" title={explanation}>
+          <p
+            className="text-xs text-muted-foreground px-1 truncate"
+            title={explanation}
+          >
             {explanation}
           </p>
         )}

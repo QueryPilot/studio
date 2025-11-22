@@ -376,7 +376,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     return tableDataQuery.columns.map((col) => ({
       name: col.name,
       dataType: col.db_type,
-      nullable: col.nullable ?? true,
+      nullable: col.nullable,
       enumValues: col.enum_values,
     }));
   }, [tableDataQuery.columns]);
@@ -2247,7 +2247,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     >
       {/* Quick Filter toolbar - only in table mode */}
       {isTableMode && filterColumns.length > 0 && (
-        <div className="flex-none pb-1.5 pt-1 bg-background">
+        <div className="flex-none pb-1.5 pt-0.5 bg-background">
           <QuickFilter
             ref={quickFilterRef}
             columns={filterColumns}
