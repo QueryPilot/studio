@@ -42,6 +42,14 @@ export default defineConfig(({ mode }) => ({
       : []),
   ],
 
+  // Optimize dependencies for WASM support
+  optimizeDeps: {
+    exclude: ["@supabase/pg-parser"],
+  },
+
+  // Configure asset handling for WASM files
+  assetsInclude: ["**/*.wasm"],
+
   build: {
     // Generate source maps for production (uploaded to Sentry, then deleted)
     sourcemap: mode === "production",

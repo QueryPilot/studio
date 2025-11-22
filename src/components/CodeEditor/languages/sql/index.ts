@@ -37,6 +37,7 @@ export {
   createPgParserLinter,
   parsePgSQL,
   isInitialized as isPgParserReady,
+  preInitPgParser,
 } from "./pg-parser-linter";
 
 // Metadata provider
@@ -55,3 +56,13 @@ export type { SqlFunction } from "./functions";
 
 // Code actions
 export { createExpandStarExtension, expandStarAtPosition } from "./code-actions";
+
+// Symbol table
+export {
+  buildSymbolTable,
+  resolveSymbol,
+  getSymbolsInScope,
+  getTablesInScope,
+  resolveQualifier,
+} from "./symbol-table";
+export type { Symbol, SymbolTable, SymbolType } from "./symbol-table";

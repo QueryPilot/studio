@@ -1,6 +1,7 @@
 import { syntaxTree } from "@codemirror/language";
 import { type Diagnostic, linter } from "@codemirror/lint";
 import type { Extension, EditorState } from "@codemirror/state";
+import type { SyntaxNode } from "@lezer/common";
 import type { SqlDialect, MetadataProvider } from "@/components/CodeEditor/types";
 import { getDialectValidator, type SyntaxError } from "./dialect-validators";
 import { analyzeSqlContext, type TableRef } from "./context";
@@ -231,7 +232,7 @@ const collectDiagnostics = (
  */
 export const createSqlLinter = (dialect?: SqlDialect): Extension =>
   linter((view) => collectDiagnostics(view.state, dialect), {
-    delay: 400,
+    delay: 200,
     needsRefresh: (update) => update.docChanged,
   });
 
@@ -260,26 +261,6 @@ function getTypeCategory(dataType: string): 'numeric' | 'text' | 'boolean' | 'da
   return 'unknown';
 }
 
-/**
- * Get the literal type from a SQL value
- */
-function getLiteralType(value: string): 'numeric' | 'text' | 'boolean' | 'null' | 'unknown' {
-  const trimmed = value.trim();
-
-  // Null literal
-  if (trimmed.toUpperCase() === 'NULL') return 'null';
-
-  // String literal (single quotes)
-  if (trimmed.startsWith("'") && trimmed.endsWith("'")) return 'text';
-
-  // Boolean literal
-  if (['TRUE', 'FALSE'].includes(trimmed.toUpperCase())) return 'boolean';
-
-  // Numeric literal
-  if (/^-?\d+(\.\d+)?$/.test(trimmed)) return 'numeric';
-
-  return 'unknown';
-}
 
 /**
  * Check if column type and literal type are compatible
@@ -358,7 +339,82 @@ const getColumnType = async (
 };
 
 /**
- * Find comparisons in WHERE clauses and validate types
+ * Extract column reference info from an AST node
+ */
+interface ColumnRef {
+  from: number;
+  to: number;
+  qualifier?: string;
+  name: string;
+}
+
+/**
+ * Parse a column reference from a syntax node
+ */
+function parseColumnRef(state: EditorState, node: SyntaxNode): ColumnRef | null {
+  const text = state.sliceDoc(node.from, node.to).replace(/["`[\]]/g, "");
+
+  // Check if qualified (has dot before)
+  const prevSibling = node.prevSibling;
+  if (prevSibling?.name === "." && prevSibling.prevSibling) {
+    const qualifier = state.sliceDoc(
+      prevSibling.prevSibling.from,
+      prevSibling.prevSibling.to
+    ).replace(/["`[\]]/g, "");
+    return { from: node.from, to: node.to, qualifier, name: text };
+  }
+
+  return { from: node.from, to: node.to, name: text };
+}
+
+/**
+ * Determine the type of an expression node
+ */
+function getExpressionType(state: EditorState, node: SyntaxNode): 'numeric' | 'text' | 'boolean' | 'null' | 'column' | 'function' | 'unknown' {
+  const text = state.sliceDoc(node.from, node.to).trim();
+  const upper = text.toUpperCase();
+
+  // Literal types
+  if (node.name === "Number") return 'numeric';
+  if (node.name === "String") return 'text';
+  if (upper === "NULL") return 'null';
+  if (upper === "TRUE" || upper === "FALSE") return 'boolean';
+
+  // Function call
+  if (node.name === "Application" || node.name === "CallExpression") return 'function';
+
+  // Column reference
+  if (node.name === "Identifier" || node.name === "QuotedIdentifier") {
+    // Check if it's a function call by looking for parentheses after
+    const next = node.nextSibling;
+    if (next?.name === "ArgumentList" || next?.name === "(") return 'function';
+    return 'column';
+  }
+
+  // Subquery
+  if (node.name === "ParenthesizedExpression" || node.name === "Subquery") return 'unknown';
+
+  // Cast expression - check the target type
+  if (node.name === "CastExpression") {
+    // Look for the type in cast
+    const cursor = node.cursor();
+    cursor.firstChild();
+    do {
+      if (cursor.name === "Type" || cursor.name === "Identifier") {
+        const typeText = state.sliceDoc(cursor.from, cursor.to).toLowerCase();
+        if (NUMERIC_TYPES.some(t => typeText.includes(t))) return 'numeric';
+        if (TEXT_TYPES.some(t => typeText.includes(t))) return 'text';
+        if (BOOLEAN_TYPES.some(t => typeText.includes(t))) return 'boolean';
+        if (DATE_TYPES.some(t => typeText.includes(t))) return 'unknown'; // Date comparisons are complex
+      }
+    } while (cursor.nextSibling());
+  }
+
+  return 'unknown';
+}
+
+/**
+ * Find comparisons in WHERE clauses and validate types using the syntax tree
  */
 const findTypeViolations = async (
   state: EditorState,
@@ -367,61 +423,110 @@ const findTypeViolations = async (
   defaultSchema?: string
 ): Promise<Diagnostic[]> => {
   const diagnostics: Diagnostic[] = [];
-  const content = state.doc.toString();
+  const tree = syntaxTree(state);
 
-  // Find WHERE clauses with comparisons: column = value, column > value, etc.
-  const comparisonPattern = /(\w+(?:\.\w+)?)\s*(=|<>|!=|>=|<=|>|<)\s*('[^']*'|\d+(?:\.\d+)?|TRUE|FALSE|NULL)/gi;
-  let match;
+  // Find all comparison expressions in the tree
+  const comparisons: Array<{
+    left: SyntaxNode;
+    right: SyntaxNode;
+    operator: string;
+  }> = [];
 
-  while ((match = comparisonPattern.exec(content)) !== null) {
-    const columnRef = match[1];
-    const value = match[3];
-    if (!columnRef || !value) continue;
+  tree.iterate({
+    enter: (node) => {
+      // Look for comparison operators
+      if (node.name === "CompareOp" || node.name === "BinaryExpression") {
+        const cursor = node.node.cursor();
+        let left: SyntaxNode | null = null;
+        let right: SyntaxNode | null = null;
+        let operator = "";
 
-    const valueFrom = match.index + match[0].indexOf(value);
-    const valueTo = valueFrom + value.length;
+        // For BinaryExpression, find left operand, operator, right operand
+        cursor.firstChild();
+        do {
+          if (!left && (cursor.name === "Identifier" || cursor.name === "QuotedIdentifier" ||
+              cursor.name === "Number" || cursor.name === "String" || cursor.name === "Application")) {
+            left = cursor.node;
+          } else if (cursor.name === "CompareOp" || cursor.name === "ArithOp" ||
+                     ["=", "<>", "!=", ">=", "<=", ">", "<"].includes(cursor.name)) {
+            operator = state.sliceDoc(cursor.from, cursor.to);
+          } else if (left && operator && !right) {
+            right = cursor.node;
+          }
+        } while (cursor.nextSibling());
 
-    // Parse column reference
-    let tableName: string | undefined;
-    let columnName: string;
-
-    if (columnRef.includes('.')) {
-      const parts = columnRef.split('.');
-      const qualifier = parts[0];
-      columnName = parts[1] || '';
-
-      // Find table from qualifier (alias or table name)
-      const tableMatch = tables.find(
-        (t) =>
-          t.alias?.toLowerCase() === qualifier?.toLowerCase() ||
-          t.name.toLowerCase() === qualifier?.toLowerCase()
-      );
-      if (tableMatch) {
-        tableName = tableMatch.name;
+        if (left && right && operator) {
+          comparisons.push({ left, right, operator });
+        }
       }
-    } else {
-      columnName = columnRef;
-      // Use first table if only one in scope
-      if (tables.length === 1) {
-        tableName = tables[0]?.name;
+
+      // Also check for IN expressions
+      if (node.name === "InExpression") {
+        // TODO: Handle IN expressions for type checking
+        // For now, we'll skip this
       }
     }
+  });
 
-    if (!tableName || !columnName) continue;
+  // Check each comparison
+  for (const { left, right } of comparisons) {
+    const leftType = getExpressionType(state, left);
+    const rightType = getExpressionType(state, right);
 
-    // Get column type
-    const columnType = await getColumnType(provider, tableName, columnName, defaultSchema);
+    // Skip if both are non-columns (e.g., 1 = 1)
+    if (leftType !== 'column' && rightType !== 'column') continue;
+
+    // Get column info
+    let columnNode: SyntaxNode;
+    let valueNode: SyntaxNode;
+    let valueType: string;
+
+    if (leftType === 'column') {
+      columnNode = left;
+      valueNode = right;
+      valueType = rightType;
+    } else {
+      columnNode = right;
+      valueNode = left;
+      valueType = leftType;
+    }
+
+    // Skip if comparing with another column or function
+    if (valueType === 'column' || valueType === 'function' || valueType === 'unknown') continue;
+
+    // Parse column reference
+    const colRef = parseColumnRef(state, columnNode);
+    if (!colRef) continue;
+
+    // Resolve table name
+    let tableName: string | undefined;
+
+    if (colRef.qualifier) {
+      const tableMatch = tables.find(
+        (t) =>
+          t.alias?.toLowerCase() === colRef.qualifier!.toLowerCase() ||
+          t.name.toLowerCase() === colRef.qualifier!.toLowerCase()
+      );
+      if (tableMatch) tableName = tableMatch.name;
+    } else if (tables.length === 1) {
+      tableName = tables[0]?.name;
+    }
+
+    if (!tableName) continue;
+
+    // Get column type from metadata
+    const columnType = await getColumnType(provider, tableName, colRef.name, defaultSchema);
     if (!columnType) continue;
 
     const columnCategory = getTypeCategory(columnType);
-    const literalType = getLiteralType(value);
 
-    if (!areTypesCompatible(columnCategory, literalType)) {
+    // Check compatibility
+    if (!areTypesCompatible(columnCategory, valueType)) {
       diagnostics.push({
-        from: valueFrom,
-        to: valueTo,
+        from: valueNode.from,
+        to: valueNode.to,
         severity: "warning",
-        message: `Type mismatch: column '${columnName}' is ${columnType} but compared with ${literalType} value`,
+        message: `Type mismatch: column '${colRef.name}' is ${columnType} but compared with ${valueType} value`,
       });
     }
   }
@@ -575,7 +680,7 @@ export const createSemanticLinter = (
       return collectSemanticDiagnostics(view.state, provider, defaultSchema);
     },
     {
-      delay: 800, // Longer delay for async operations
+      delay: 500, // Async operations need slightly longer delay
       needsRefresh: (update) => update.docChanged,
     }
   );

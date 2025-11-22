@@ -43,7 +43,10 @@ import { acceptCompletion, autocompletion } from "@codemirror/autocomplete";
 import { dbmlMixed } from "./languages/dbml/dbml-mixed";
 import { createSqlLinter, createSemanticLinter } from "./languages/sql/sql-linter";
 import { createWorkerLinter } from "./languages/sql/linter-worker-manager";
-import { createPgParserLinter } from "./languages/sql/pg-parser-linter";
+import { createPgParserLinter, preInitPgParser } from "./languages/sql/pg-parser-linter";
+
+// Pre-initialize pg-parser WASM to avoid delay on first lint
+preInitPgParser();
 import { createSqlCompletionSource } from "./languages/sql/completion";
 import { createSqlHoverExtension } from "./languages/sql/hover";
 import { createSqlMetadataProvider } from "./languages/sql/metadataProvider";
@@ -256,11 +259,14 @@ export const getLanguageExtension = (
         sql({
           dialect: dialectLang,
           upperCaseKeywords: true,
+          // Disable default schema completions when we have custom completions
+          schema: connectionId && database ? {} : undefined,
         }),
         // Enable autocompletion UI
         autocompletion({
           activateOnTyping: true,
           maxRenderedOptions: 50,
+          defaultKeymap: true,
         }),
       ];
 
@@ -748,19 +754,19 @@ export const getEditorExtensions = (
   );
 
   if (language === "sql") {
-    // Multi-layer linting for best accuracy and performance:
-    // 1. Tree-sitter: Most accurate incremental parsing (WASM-based)
-    // 2. Worker linter: Off-main-thread keyword typo detection
-    // 3. Lezer linter: Dialect-specific validation
-    extensions.push(
-      createWorkerLinter(dialect),
-      createSqlLinter(dialect),
-      lintGutter()
-    );
+    // Add lint gutter for all dialects
+    extensions.push(lintGutter());
 
-    // Add pg-parser linter for PostgreSQL (supports full PL/pgSQL)
     if (dialect === "postgresql") {
+      // For PostgreSQL, use pg-parser (most accurate, supports PL/pgSQL)
+      // Skip other linters to reduce lag
       extensions.push(createPgParserLinter());
+    } else {
+      // For other dialects, use worker + Lezer linters
+      extensions.push(
+        createWorkerLinter(dialect),
+        createSqlLinter(dialect)
+      );
     }
   }
 

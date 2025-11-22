@@ -182,7 +182,7 @@ export const createWorkerLinter = (dialect?: string): Extension => {
       }
     },
     {
-      delay: 500,
+      delay: 250,
       needsRefresh: (update) => update.docChanged || update.viewportChanged
     }
   );
