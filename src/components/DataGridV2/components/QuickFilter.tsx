@@ -5,9 +5,16 @@ import {
   useCallback,
   forwardRef,
   useImperativeHandle,
+  useMemo,
 } from "react";
-import { Search, Code, Sparkles, X, Loader2 } from "lucide-react";
+import { Search, Code, Sparkles, X, Loader2, CopyIcon } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
+import CodeMirror, { EditorView } from "@uiw/react-codemirror";
+import { sql, PostgreSQL } from "@codemirror/lang-sql";
+import { keymap } from "@codemirror/view";
+import { Prec } from "@codemirror/state";
+import { getThemeExtensions } from "@/components/CodeEditor/themes";
+import { useTheme } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -107,6 +114,62 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
 
     const config = modeConfig[mode];
     const ModeIcon = config.icon;
+
+    // Theme for CodeMirror
+    const { resolvedTheme } = useTheme();
+    const editorViewRef = useRef<EditorView | null>(null);
+
+    // CodeMirror extensions for SQL highlighting
+    const sqlExtensions = useMemo(() => {
+      const actualTheme = resolvedTheme === "dark" ? "dark" : "light";
+
+      // Get syntax highlighting styles only (we'll override backgrounds)
+      const themeExts = getThemeExtensions(actualTheme);
+
+      return [
+        sql({ dialect: PostgreSQL }),
+        ...themeExts,
+        // Override theme backgrounds - must come after theme extensions
+        EditorView.theme(
+          {
+            "&.cm-editor": {
+              fontSize: "12px",
+              backgroundColor: "transparent !important",
+            },
+            ".cm-scroller": {
+              overflow: "hidden",
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+            },
+            ".cm-content": {
+              padding: "6px 0",
+              minHeight: "auto",
+              caretColor: actualTheme === "dark" ? "#FCA311" : "#EA9A0F",
+            },
+            ".cm-line": {
+              padding: "0",
+            },
+            ".cm-gutters": {
+              display: "none !important",
+            },
+            ".cm-activeLineGutter": {
+              backgroundColor: "transparent !important",
+            },
+            ".cm-activeLine": {
+              backgroundColor: "transparent !important",
+            },
+            "&.cm-focused": {
+              outline: "none",
+            },
+            ".cm-placeholder": {
+              color: "hsl(var(--muted-foreground))",
+              fontStyle: "normal",
+            },
+          },
+          { dark: actualTheme === "dark" },
+        ),
+        EditorView.lineWrapping,
+      ];
+    }, [resolvedTheme]);
 
     // AI model selection
     const {
@@ -447,95 +510,268 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
-                  <Textarea
-                    ref={inputRef as React.RefObject<HTMLTextAreaElement>}
-                    autoCorrect="off"
-                    autoCapitalize="off"
-                    spellCheck={false}
-                    value={
-                      // Hide prefix when badge is shown
-                      (value.startsWith("?") && mode === "where") ||
-                      (value.startsWith("#") && mode === "ai") ||
-                      (value.startsWith("!") && mode === "search")
-                        ? value.slice(1)
-                        : value
-                    }
-                    onChange={(e) => {
-                      // Restore prefix when editing
-                      const newValue = e.target.value;
-                      const prefix =
-                        mode === "where" && value.startsWith("?")
-                          ? "?"
-                          : mode === "ai" && value.startsWith("#")
-                          ? "#"
-                          : mode === "search" && value.startsWith("!")
-                          ? "!"
-                          : "";
-                      onValueChange(prefix + newValue);
-                      setCursorPosition(
-                        (e.target.selectionStart || 0) + prefix.length,
-                      );
-                    }}
-                    onKeyDown={(e) => {
-                      // Handle backspace on empty content to remove mode prefix
-                      const displayValue =
-                        (value.startsWith("?") && mode === "where") ||
+                  {mode === "where" ? (
+                    <div
+                      className={cn(
+                        "min-h-7 h-7 max-h-20 w-full rounded-md border border-input bg-background pl-8 pr-7 text-xs",
+                        "focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]",
+                        error &&
+                          "border-destructive focus-within:ring-destructive/50",
+                        value && !error && "border-primary/50",
+                      )}
+                    >
+                      <CodeMirror
+                        value={
+                          value.startsWith("?") ? value.slice(1) : value
+                        }
+                        onChange={(newValue) => {
+                          // Always add ? prefix in WHERE mode
+                          onValueChange("?" + newValue);
+                        }}
+                        extensions={[
+                          ...sqlExtensions,
+                          Prec.highest(
+                            keymap.of([
+                              {
+                                key: "Enter",
+                                run: () => {
+                                  if (showSuggestions) {
+                                    const currentSuggestions =
+                                      suggestionType === "enum"
+                                        ? enumSuggestions
+                                        : suggestions;
+                                    if (currentSuggestions.length > 0) {
+                                      if (suggestionType === "enum") {
+                                        const enumValue =
+                                          enumSuggestions[selectedIndex];
+                                        if (enumValue) {
+                                          insertSuggestion(enumValue, true);
+                                        }
+                                      } else {
+                                        const suggestion =
+                                          suggestions[selectedIndex];
+                                        if (suggestion) {
+                                          insertSuggestion(
+                                            suggestion.name,
+                                            false,
+                                          );
+                                        }
+                                      }
+                                      return true;
+                                    }
+                                  }
+                                  onSubmit();
+                                  return true;
+                                },
+                              },
+                              {
+                                key: "Escape",
+                                run: () => {
+                                  if (showSuggestions) {
+                                    setShowSuggestions(false);
+                                    return true;
+                                  }
+                                  if (value) {
+                                    onValueChange("");
+                                    return true;
+                                  }
+                                  return false;
+                                },
+                              },
+                              {
+                                key: "ArrowDown",
+                                run: () => {
+                                  if (showSuggestions) {
+                                    const currentSuggestions =
+                                      suggestionType === "enum"
+                                        ? enumSuggestions
+                                        : suggestions;
+                                    setSelectedIndex((i) =>
+                                      Math.min(
+                                        i + 1,
+                                        currentSuggestions.length - 1,
+                                      ),
+                                    );
+                                    return true;
+                                  }
+                                  return false;
+                                },
+                              },
+                              {
+                                key: "ArrowUp",
+                                run: () => {
+                                  if (showSuggestions) {
+                                    setSelectedIndex((i) =>
+                                      Math.max(i - 1, 0),
+                                    );
+                                    return true;
+                                  }
+                                  return false;
+                                },
+                              },
+                              {
+                                key: "Tab",
+                                run: () => {
+                                  if (showSuggestions) {
+                                    const currentSuggestions =
+                                      suggestionType === "enum"
+                                        ? enumSuggestions
+                                        : suggestions;
+                                    if (currentSuggestions.length > 0) {
+                                      if (suggestionType === "enum") {
+                                        const enumValue =
+                                          enumSuggestions[selectedIndex];
+                                        if (enumValue) {
+                                          insertSuggestion(enumValue, true);
+                                        }
+                                      } else {
+                                        const suggestion =
+                                          suggestions[selectedIndex];
+                                        if (suggestion) {
+                                          insertSuggestion(
+                                            suggestion.name,
+                                            false,
+                                          );
+                                        }
+                                      }
+                                      return true;
+                                    }
+                                  }
+                                  return false;
+                                },
+                              },
+                              {
+                                key: "Backspace",
+                                run: () => {
+                                  const displayValue = value.startsWith("?")
+                                    ? value.slice(1)
+                                    : value;
+                                  if (
+                                    displayValue === "" &&
+                                    value.startsWith("?")
+                                  ) {
+                                    onValueChange("");
+                                    onModeChange("search");
+                                    return true;
+                                  }
+                                  return false;
+                                },
+                              },
+                              {
+                                key: "Mod-.",
+                                run: () => {
+                                  setSuggestions(columns);
+                                  setSuggestionType("column");
+                                  setShowSuggestions(columns.length > 0);
+                                  setSelectedIndex(0);
+                                  return true;
+                                },
+                              },
+                            ]),
+                          ),
+                        ]}
+                        placeholder={config.placeholder}
+                        editable={!isLoading}
+                        basicSetup={false}
+                        height="28px"
+                        minHeight="28px"
+                        maxHeight="80px"
+                        onCreateEditor={(view) => {
+                          editorViewRef.current = view;
+                        }}
+                        onUpdate={(update) => {
+                          if (update.selectionSet) {
+                            const pos = update.state.selection.main.head;
+                            const prefix = value.startsWith("?") ? 1 : 0;
+                            setCursorPosition(pos + prefix);
+                          }
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <Textarea
+                      ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
+                      value={
+                        // Hide prefix when badge is shown
                         (value.startsWith("#") && mode === "ai") ||
                         (value.startsWith("!") && mode === "search")
                           ? value.slice(1)
-                          : value;
+                          : value
+                      }
+                      onChange={(e) => {
+                        // Restore prefix when editing
+                        const newValue = e.target.value;
+                        const prefix =
+                          mode === "ai" && value.startsWith("#")
+                            ? "#"
+                            : mode === "search" && value.startsWith("!")
+                            ? "!"
+                            : "";
+                        onValueChange(prefix + newValue);
+                        setCursorPosition(
+                          (e.target.selectionStart || 0) + prefix.length,
+                        );
+                      }}
+                      onKeyDown={(e) => {
+                        // Handle backspace on empty content to remove mode prefix
+                        const displayValue =
+                          (value.startsWith("#") && mode === "ai") ||
+                          (value.startsWith("!") && mode === "search")
+                            ? value.slice(1)
+                            : value;
 
-                      if (e.key === "Backspace" && displayValue === "") {
-                        // Remove prefix and go back to search mode
-                        if (
-                          value.startsWith("?") ||
-                          value.startsWith("#") ||
-                          value.startsWith("!")
-                        ) {
-                          e.preventDefault();
-                          onValueChange("");
-                          onModeChange("search");
-                          return;
+                        if (e.key === "Backspace" && displayValue === "") {
+                          // Remove prefix and go back to search mode
+                          if (
+                            value.startsWith("#") ||
+                            value.startsWith("!")
+                          ) {
+                            e.preventDefault();
+                            onValueChange("");
+                            onModeChange("search");
+                            return;
+                          }
                         }
-                      }
 
-                      handleKeyDown(e);
-                    }}
-                    onSelect={() => {
-                      const prefix =
-                        mode === "where" && value.startsWith("?")
-                          ? 1
-                          : mode === "ai" && value.startsWith("#")
-                          ? 1
-                          : mode === "search" && value.startsWith("!")
-                          ? 1
-                          : 0;
-                      setCursorPosition(
-                        (inputRef.current?.selectionStart || 0) + prefix,
-                      );
-                    }}
-                    placeholder={config.placeholder}
-                    disabled={isLoading}
-                    rows={1}
-                    className={cn(
-                      "min-h-7 h-7 max-h-20 !text-xs !py-1.5 !pl-8 !pr-7 resize-none overflow-y-auto",
-                      "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
-                      error &&
-                        "border-destructive focus-visible:ring-destructive/50",
-                      value && !error && "border-primary/50",
-                    )}
-                    onInput={(e) => {
-                      // Auto-resize textarea only when content exceeds single line
-                      const target = e.target as HTMLTextAreaElement;
-                      target.style.height = "28px"; // min-h-7 = 28px
-                      if (target.scrollHeight > 28) {
-                        target.style.height = `${Math.min(
-                          target.scrollHeight,
-                          80,
-                        )}px`;
-                      }
-                    }}
-                  />
+                        handleKeyDown(e);
+                      }}
+                      onSelect={() => {
+                        const prefix =
+                          mode === "ai" && value.startsWith("#")
+                            ? 1
+                            : mode === "search" && value.startsWith("!")
+                            ? 1
+                            : 0;
+                        setCursorPosition(
+                          (inputRef.current?.selectionStart || 0) + prefix,
+                        );
+                      }}
+                      placeholder={config.placeholder}
+                      disabled={isLoading}
+                      rows={1}
+                      className={cn(
+                        "min-h-7 h-7 max-h-20 !text-xs !py-1.5 !pl-8 !pr-7 resize-none overflow-y-auto",
+                        "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
+                        error &&
+                          "border-destructive focus-visible:ring-destructive/50",
+                        value && !error && "border-primary/50",
+                      )}
+                      onInput={(e) => {
+                        // Auto-resize textarea only when content exceeds single line
+                        const target = e.target as HTMLTextAreaElement;
+                        target.style.height = "28px"; // min-h-7 = 28px
+                        if (target.scrollHeight > 28) {
+                          target.style.height = `${Math.min(
+                            target.scrollHeight,
+                            80,
+                          )}px`;
+                        }
+                      }}
+                    />
+                  )}
                   {/* Shimmer overlay when loading */}
                   {isLoading && value && (
                     <div className="absolute inset-0 flex items-center pl-8 pr-7 pointer-events-none bg-background rounded-md">
@@ -627,12 +863,15 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
 
         {/* AI explanation */}
         {explanation && !error && (
-          <p
-            className="text-xs text-muted-foreground px-1 truncate"
-            title={explanation}
-          >
-            {explanation}
-          </p>
+          <div className="flex items-center gap-1 ml-2">
+            <CopyIcon className="h-3 w-3 text-muted-foreground" />
+            <p
+              className="text-xs text-muted-foreground px-1 truncate select-text"
+              title={explanation}
+            >
+              {explanation}
+            </p>
+          </div>
         )}
       </div>
     );
