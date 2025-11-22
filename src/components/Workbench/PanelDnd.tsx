@@ -269,11 +269,11 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
         focusPanel(content.id);
       }}
     >
-      <div className="panel-header flex items-center justify-between bg-background">
-        <div className="flex-1 overflow-x-auto relative scrollbar-none pt-1 px-1">
+      <div className="panel-header flex items-center justify-between bg-secondary rounded-t-xl">
+        <div className="overflow-x-auto relative scrollbar-none px-0.5 pt-0.5">
           <div
             ref={tabsContainerRef}
-            className="flex items-center relative rounded-tl-xl overflow-hidden overflow-x-scroll scrollbar-none"
+            className="flex items-center relative overflow-hidden overflow-x-scroll scrollbar-none"
           >
             {content.tabIds.map((tabId, index) => {
               const metadata = content.metadata?.[tabId];
