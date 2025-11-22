@@ -43,9 +43,11 @@ import { acceptCompletion, autocompletion } from "@codemirror/autocomplete";
 import { dbmlMixed } from "./languages/dbml/dbml-mixed";
 import { createSqlLinter, createSemanticLinter } from "./languages/sql/sql-linter";
 import { createWorkerLinter } from "./languages/sql/linter-worker-manager";
+import { createPgParserLinter } from "./languages/sql/pg-parser-linter";
 import { createSqlCompletionSource } from "./languages/sql/completion";
 import { createSqlHoverExtension } from "./languages/sql/hover";
 import { createSqlMetadataProvider } from "./languages/sql/metadataProvider";
+import { createExpandStarExtension } from "./languages/sql/code-actions";
 import { syntaxTree } from "@codemirror/language";
 
 // Enhanced SQL folding service using syntax tree for better nested support
@@ -273,12 +275,15 @@ export const getLanguageExtension = (
               connectionId,
               database,
               schema,
+              dialect,
             }),
           }),
           // Add hover tooltips for table/column info
           createSqlHoverExtension(provider, defaultSchema),
           // Add semantic linting for table/column validation
           createSemanticLinter(provider, defaultSchema),
+          // Add Expand Star code action
+          createExpandStarExtension(provider, defaultSchema, dialect),
         );
       }
 
@@ -743,13 +748,20 @@ export const getEditorExtensions = (
   );
 
   if (language === "sql") {
-    // Use worker-based linter for best performance (runs off main thread)
-    // Falls back to main thread linter for dialect-specific validation
+    // Multi-layer linting for best accuracy and performance:
+    // 1. Tree-sitter: Most accurate incremental parsing (WASM-based)
+    // 2. Worker linter: Off-main-thread keyword typo detection
+    // 3. Lezer linter: Dialect-specific validation
     extensions.push(
       createWorkerLinter(dialect),
       createSqlLinter(dialect),
       lintGutter()
     );
+
+    // Add pg-parser linter for PostgreSQL (supports full PL/pgSQL)
+    if (dialect === "postgresql") {
+      extensions.push(createPgParserLinter());
+    }
   }
 
   // Add tab handling: prioritize autocomplete acceptance over indentation

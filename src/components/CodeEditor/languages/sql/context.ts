@@ -25,6 +25,113 @@ export interface SqlContextAnalysis {
   insertTargetTable?: string;
   isUpdateContext?: boolean;
   updateTargetTable?: string;
+  // Subquery context
+  subqueryDepth?: number;
+  outerScopeTables?: TableRef[]; // Tables from outer scopes (for correlated subqueries)
+}
+
+/**
+ * Find subquery boundaries in SQL text.
+ * Returns array of {from, to, depth} for each subquery.
+ */
+function findSubqueryBoundaries(sql: string): Array<{ from: number; to: number; depth: number }> {
+  const subqueries: Array<{ from: number; to: number; depth: number }> = [];
+  const stack: Array<{ from: number; depth: number }> = [];
+  let depth = 0;
+  let inString = false;
+  let stringChar = '';
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  for (let i = 0; i < sql.length; i++) {
+    const char = sql[i];
+    const nextChar = sql[i + 1];
+
+    // Handle comments
+    if (!inString && !inBlockComment && char === '-' && nextChar === '-') {
+      inLineComment = true;
+      continue;
+    }
+    if (inLineComment && char === '\n') {
+      inLineComment = false;
+      continue;
+    }
+    if (inLineComment) continue;
+
+    if (!inString && !inLineComment && char === '/' && nextChar === '*') {
+      inBlockComment = true;
+      i++;
+      continue;
+    }
+    if (inBlockComment && char === '*' && nextChar === '/') {
+      inBlockComment = false;
+      i++;
+      continue;
+    }
+    if (inBlockComment) continue;
+
+    // Handle strings
+    if (!inString && (char === "'" || char === '"')) {
+      inString = true;
+      stringChar = char;
+      continue;
+    }
+    if (inString && char === stringChar) {
+      if (nextChar === stringChar) {
+        i++; // Skip escaped quote
+      } else {
+        inString = false;
+      }
+      continue;
+    }
+    if (inString) continue;
+
+    // Track parentheses
+    if (char === '(') {
+      // Check if this starts a subquery by looking at preceding text
+      const before = sql.slice(Math.max(0, i - 50), i).toUpperCase();
+      const isSubquery = /\b(IN|EXISTS|ANY|ALL|NOT)\s*$/.test(before) ||
+                         /\bFROM\s*$/.test(before) ||
+                         /^\s*$/.test(before) && depth > 0;
+
+      if (isSubquery || depth > 0) {
+        depth++;
+        stack.push({ from: i, depth });
+      }
+    } else if (char === ')' && stack.length > 0) {
+      const start = stack.pop();
+      if (start) {
+        subqueries.push({ from: start.from, to: i, depth: start.depth });
+        depth--;
+      }
+    }
+  }
+
+  return subqueries;
+}
+
+/**
+ * Get the subquery scope at a given position.
+ * Returns the innermost subquery containing the position, or null if not in a subquery.
+ */
+function getSubqueryScopeAtPosition(
+  sql: string,
+  pos: number
+): { from: number; to: number; depth: number } | null {
+  const subqueries = findSubqueryBoundaries(sql);
+
+  // Find the innermost subquery containing the position
+  let innermost: { from: number; to: number; depth: number } | null = null;
+
+  for (const sq of subqueries) {
+    if (pos > sq.from && pos < sq.to) {
+      if (!innermost || sq.depth > innermost.depth) {
+        innermost = sq;
+      }
+    }
+  }
+
+  return innermost;
 }
 
 // SQL keywords that introduce table references
@@ -149,38 +256,27 @@ function parseCTEs(sql: string): TableRef[] {
 }
 
 /**
- * Extract table references from the current statement scope.
- * Walks the AST to find all table definitions with their aliases.
+ * Extract table references from a specific SQL range.
+ * Used for both full statement and subquery scope parsing.
  */
-function getScopeTables(state: EditorState, pos: number): TableRef[] {
-  const tree = syntaxTree(state);
+function extractTablesFromRange(
+  state: EditorState,
+  from: number,
+  to: number,
+  seen: Set<string>
+): TableRef[] {
   const tables: TableRef[] = [];
-  const sql = state.doc.toString();
+  const tree = syntaxTree(state);
 
-  // Parse CTEs first
-  const ctes = parseCTEs(sql);
-  for (const cte of ctes) {
-    tables.push(cte);
-  }
+  // Walk the tree within the range
+  const cursor = tree.cursor();
 
-  // Find enclosing statement
-  let node: SyntaxNode | null = tree.resolveInner(pos, -1);
-  while (node?.parent && !["Statement", "Script"].includes(node.type.name)) {
-    node = node.parent;
-  }
-  if (!node) return tables;
+  while (cursor.next()) {
+    // Skip nodes outside our range
+    if (cursor.to < from || cursor.from > to) continue;
 
-  // Track seen tables to avoid duplicates
-  const seen = new Set<string>();
-
-  // Walk the statement looking for table references
-  const cursor = node.cursor();
-  do {
     // Look for Identifier nodes that could be table names
-    if (
-      cursor.name === "Identifier" ||
-      cursor.name === "QuotedIdentifier"
-    ) {
+    if (cursor.name === "Identifier" || cursor.name === "QuotedIdentifier") {
       const parent = cursor.node.parent;
       const prevSibling = cursor.node.prevSibling;
 
@@ -201,11 +297,10 @@ function getScopeTables(state: EditorState, pos: number): TableRef[] {
         // Skip if already seen
         if (seen.has(tableName.toLowerCase())) continue;
 
-        // Check for alias (next sibling might be AS keyword or another identifier)
+        // Check for alias
         let alias: string | undefined;
         let nextNode = cursor.node.nextSibling;
 
-        // Skip "AS" keyword if present
         if (nextNode?.type.name === "Keyword") {
           const keyword = state
             .sliceDoc(nextNode.from, nextNode.to)
@@ -215,7 +310,6 @@ function getScopeTables(state: EditorState, pos: number): TableRef[] {
           }
         }
 
-        // Next identifier is the alias
         if (
           nextNode &&
           (nextNode.type.name === "Identifier" ||
@@ -230,10 +324,7 @@ function getScopeTables(state: EditorState, pos: number): TableRef[] {
         let schema: string | undefined;
         if (prevSibling?.type.name === "." && prevSibling.prevSibling) {
           schema = state
-            .sliceDoc(
-              prevSibling.prevSibling.from,
-              prevSibling.prevSibling.to
-            )
+            .sliceDoc(prevSibling.prevSibling.from, prevSibling.prevSibling.to)
             .replace(/["`[\]]/g, "");
         }
 
@@ -242,8 +333,140 @@ function getScopeTables(state: EditorState, pos: number): TableRef[] {
         if (alias) seen.add(alias.toLowerCase());
       }
     }
+  }
 
-    // Also check for CTEs (WITH clause)
+  return tables;
+}
+
+/**
+ * Extract table references from the current statement scope.
+ * Respects subquery boundaries - only returns tables in the same scope.
+ * Also returns outer scope tables separately for correlated subquery support.
+ */
+function getScopeTables(
+  state: EditorState,
+  pos: number
+): { tables: TableRef[]; outerTables: TableRef[]; subqueryDepth: number } {
+  const tree = syntaxTree(state);
+  const tables: TableRef[] = [];
+  const outerTables: TableRef[] = [];
+  const sql = state.doc.toString();
+
+  // Parse CTEs first (available at all scope levels)
+  const ctes = parseCTEs(sql);
+  for (const cte of ctes) {
+    tables.push(cte);
+  }
+
+  // Find enclosing statement
+  let node: SyntaxNode | null = tree.resolveInner(pos, -1);
+  while (node?.parent && !["Statement", "Script"].includes(node.type.name)) {
+    node = node.parent;
+  }
+  if (!node) return { tables, outerTables, subqueryDepth: 0 };
+
+  const statementFrom = node.from;
+  const statementTo = node.to;
+
+  // Check if we're in a subquery
+  const subqueryScope = getSubqueryScopeAtPosition(sql, pos);
+  const seen = new Set<string>(ctes.map(c => c.name.toLowerCase()));
+
+  if (subqueryScope) {
+    // We're in a subquery - extract tables only from this subquery's scope
+    const subqueryTables = extractTablesFromRange(
+      state,
+      subqueryScope.from,
+      subqueryScope.to,
+      seen
+    );
+    tables.push(...subqueryTables);
+
+    // Also extract outer scope tables (for correlated subquery support)
+    // Tables from the outer query that can be referenced in the subquery
+    const outerSeen = new Set<string>();
+
+    // Get tables from the full statement, excluding the current subquery
+    const cursor = node.cursor();
+    do {
+      // Skip nodes inside the current subquery
+      if (cursor.from >= subqueryScope.from && cursor.to <= subqueryScope.to) {
+        continue;
+      }
+
+      if (cursor.name === "Identifier" || cursor.name === "QuotedIdentifier") {
+        const parent = cursor.node.parent;
+        const prevSibling = cursor.node.prevSibling;
+
+        const isInTableClause =
+          parent && TABLE_CLAUSE_TYPES.includes(parent.type.name);
+        const followsTableKeyword =
+          prevSibling?.type.name === "Keyword" &&
+          TABLE_KEYWORDS.includes(
+            state.sliceDoc(prevSibling.from, prevSibling.to).toLowerCase()
+          );
+
+        if (isInTableClause || followsTableKeyword) {
+          const tableName = state
+            .sliceDoc(cursor.from, cursor.to)
+            .replace(/["`[\]]/g, "");
+
+          if (!outerSeen.has(tableName.toLowerCase())) {
+            let alias: string | undefined;
+            let nextNode = cursor.node.nextSibling;
+
+            if (nextNode?.type.name === "Keyword") {
+              const keyword = state
+                .sliceDoc(nextNode.from, nextNode.to)
+                .toLowerCase();
+              if (keyword === "as") {
+                nextNode = nextNode.nextSibling;
+              }
+            }
+
+            if (
+              nextNode &&
+              (nextNode.type.name === "Identifier" ||
+                nextNode.type.name === "QuotedIdentifier")
+            ) {
+              alias = state
+                .sliceDoc(nextNode.from, nextNode.to)
+                .replace(/["`[\]]/g, "");
+            }
+
+            let schema: string | undefined;
+            if (prevSibling?.type.name === "." && prevSibling.prevSibling) {
+              schema = state
+                .sliceDoc(
+                  prevSibling.prevSibling.from,
+                  prevSibling.prevSibling.to
+                )
+                .replace(/["`[\]]/g, "");
+            }
+
+            outerTables.push({ schema, name: tableName, alias });
+            outerSeen.add(tableName.toLowerCase());
+            if (alias) outerSeen.add(alias.toLowerCase());
+          }
+        }
+      }
+    } while (cursor.next());
+
+    return { tables, outerTables, subqueryDepth: subqueryScope.depth };
+  }
+
+  // Not in a subquery - extract all tables from the statement
+  const statementTables = extractTablesFromRange(
+    state,
+    statementFrom,
+    statementTo,
+    seen
+  );
+  tables.push(...statementTables);
+
+  // Also check for CTEs in the AST
+  const cursor = node.cursor();
+  do {
     if (cursor.name === "CommonTableExpression") {
       const firstChild = cursor.node.firstChild;
       if (firstChild) {
@@ -258,7 +481,7 @@ function getScopeTables(state: EditorState, pos: number): TableRef[] {
     }
   } while (cursor.next());
 
-  return tables;
+  return { tables, outerTables, subqueryDepth: 0 };
 }
 
 /**
@@ -351,7 +574,8 @@ export function analyzeSqlContext(
     intent = detectIntent(state, pos);
   }
 
-  const activeStatementTables = getScopeTables(state, pos);
+  // Get tables with subquery scope isolation
+  const { tables, outerTables, subqueryDepth } = getScopeTables(state, pos);
 
   // Detect mutation context (INSERT/UPDATE)
   const mutationContext = detectMutationContext(sql);
@@ -371,12 +595,14 @@ export function analyzeSqlContext(
   return {
     intent,
     identifier,
-    activeStatementTables,
+    activeStatementTables: tables,
     qualifier,
     range,
     isInsertContext: mutationContext.isInsert && isInsertColumnContext,
     insertTargetTable: mutationContext.isInsert ? mutationContext.targetTable : undefined,
     isUpdateContext: mutationContext.isUpdate,
     updateTargetTable: mutationContext.isUpdate ? mutationContext.targetTable : undefined,
+    subqueryDepth,
+    outerScopeTables: outerTables.length > 0 ? outerTables : undefined,
   };
 }

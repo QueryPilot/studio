@@ -13,6 +13,29 @@ import { AbstractDialectValidator, type SuppressionPattern } from "./base";
 export class MySQLValidator extends AbstractDialectValidator {
   readonly dialect = "mysql" as const;
 
+  // Cache for document content to avoid repeated toString()
+  private cachedDoc: { content: string; version: number } | null = null;
+
+  /**
+   * Get cached document content
+   */
+  private getDocContent(state: EditorState): string {
+    const version = state.doc.length;
+    if (this.cachedDoc && this.cachedDoc.version === version) {
+      return this.cachedDoc.content;
+    }
+
+    // Skip very large documents
+    if (state.doc.length > 100000) {
+      this.cachedDoc = { content: "", version };
+      return "";
+    }
+
+    const content = state.doc.toString();
+    this.cachedDoc = { content, version };
+    return content;
+  }
+
   getSuppressionPatterns(): SuppressionPattern[] {
     return [
       {
@@ -100,12 +123,16 @@ export class MySQLValidator extends AbstractDialectValidator {
 
   validateDialectSyntax(state: EditorState): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
-    const doc = state.doc.toString();
+    const doc = this.getDocContent(state);
+    if (!doc) return diagnostics;
 
-    // Check for unmatched backticks
-    const backtickCount = (doc.match(/`/g) || []).length;
+    // Check for unmatched backticks - optimized counting
+    let backtickCount = 0;
+    for (let i = 0; i < doc.length; i++) {
+      if (doc[i] === '`') backtickCount++;
+    }
+
     if (backtickCount % 2 !== 0) {
-      // Find the last backtick
       const lastBacktick = doc.lastIndexOf("`");
       if (lastBacktick !== -1) {
         diagnostics.push({
@@ -117,11 +144,12 @@ export class MySQLValidator extends AbstractDialectValidator {
       }
     }
 
-    // Check for deprecated syntax
+    // Check for deprecated syntax (limit to 5 matches)
     const typePattern = /\bTINYINT\(1\)/gi;
     let match;
+    let count = 0;
 
-    while ((match = typePattern.exec(doc)) !== null) {
+    while ((match = typePattern.exec(doc)) !== null && count < 5) {
       diagnostics.push({
         from: match.index,
         to: match.index + match[0].length,
@@ -129,6 +157,7 @@ export class MySQLValidator extends AbstractDialectValidator {
         message:
           "TINYINT(1) is commonly used for booleans but consider using the BOOLEAN type for clarity",
       });
+      count++;
     }
 
     return diagnostics;
@@ -136,13 +165,15 @@ export class MySQLValidator extends AbstractDialectValidator {
 
   validateBestPractices(state: EditorState): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
-    const doc = state.doc.toString();
+    const doc = this.getDocContent(state);
+    if (!doc) return diagnostics;
 
-    // Check for SELECT * usage
+    // Check for SELECT * usage (limit to 3 matches)
     const selectStarPattern = /\bSELECT\s+\*\s+FROM\b/gi;
     let match;
+    let count = 0;
 
-    while ((match = selectStarPattern.exec(doc)) !== null) {
+    while ((match = selectStarPattern.exec(doc)) !== null && count < 3) {
       diagnostics.push({
         from: match.index,
         to: match.index + match[0].length,
@@ -150,6 +181,7 @@ export class MySQLValidator extends AbstractDialectValidator {
         message:
           "Consider specifying column names instead of SELECT * for better performance and maintainability",
       });
+      count++;
     }
 
     return diagnostics;

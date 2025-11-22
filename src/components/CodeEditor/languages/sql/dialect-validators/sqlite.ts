@@ -12,6 +12,25 @@ import { AbstractDialectValidator, type SuppressionPattern } from "./base";
 export class SQLiteValidator extends AbstractDialectValidator {
   readonly dialect = "sqlite" as const;
 
+  // Cache for document content
+  private cachedDoc: { content: string; version: number } | null = null;
+
+  private getDocContent(state: EditorState): string {
+    const version = state.doc.length;
+    if (this.cachedDoc && this.cachedDoc.version === version) {
+      return this.cachedDoc.content;
+    }
+
+    if (state.doc.length > 100000) {
+      this.cachedDoc = { content: "", version };
+      return "";
+    }
+
+    const content = state.doc.toString();
+    this.cachedDoc = { content, version };
+    return content;
+  }
+
   getSuppressionPatterns(): SuppressionPattern[] {
     return [
       {
@@ -83,13 +102,15 @@ export class SQLiteValidator extends AbstractDialectValidator {
 
   validateDialectSyntax(state: EditorState): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
-    const doc = state.doc.toString();
+    const doc = this.getDocContent(state);
+    if (!doc) return diagnostics;
 
-    // Check for MySQL-style AUTO_INCREMENT (common mistake)
+    // Check for MySQL-style AUTO_INCREMENT (common mistake) - limit to 5
     const autoIncrementPattern = /\bAUTO_INCREMENT\b/gi;
     let match;
+    let count = 0;
 
-    while ((match = autoIncrementPattern.exec(doc)) !== null) {
+    while ((match = autoIncrementPattern.exec(doc)) !== null && count < 5) {
       diagnostics.push({
         from: match.index,
         to: match.index + match[0].length,
@@ -107,17 +128,20 @@ export class SQLiteValidator extends AbstractDialectValidator {
           },
         ],
       });
+      count++;
     }
 
-    // Check for unsupported features
+    // Check for unsupported features - limit to 3
     const alterTableRename = /\bALTER\s+TABLE\s+\w+\s+RENAME\s+COLUMN\b/gi;
-    while ((match = alterTableRename.exec(doc)) !== null) {
+    count = 0;
+    while ((match = alterTableRename.exec(doc)) !== null && count < 3) {
       diagnostics.push({
         from: match.index,
         to: match.index + match[0].length,
         severity: "warning",
         message: "RENAME COLUMN is only supported in SQLite 3.25.0 and later",
       });
+      count++;
     }
 
     return diagnostics;
@@ -125,7 +149,8 @@ export class SQLiteValidator extends AbstractDialectValidator {
 
   validateBestPractices(state: EditorState): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
-    const doc = state.doc.toString();
+    const doc = this.getDocContent(state);
+    if (!doc) return diagnostics;
 
     // Suggest STRICT tables for better type safety (SQLite 3.37.0+)
     const createTablePattern =

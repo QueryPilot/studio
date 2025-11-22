@@ -232,6 +232,11 @@ function App() {
     };
 
     const checkForUpdates = async () => {
+      // Only check for updates from the main window
+      if (getCurrentWindow().label !== "main") {
+        return;
+      }
+
       try {
         const { check } = await import("@tauri-apps/plugin-updater");
         const update = await check();
