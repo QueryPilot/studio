@@ -303,6 +303,8 @@ export const QueryPanel = memo(function QueryPanel({
 
         // Throttle updates using requestAnimationFrame
         const renderedCountRef = { current: 0 };
+        const hasRenderedOnce = { current: false };
+
         const scheduleUpdate = (force = false) => {
           if (!force && rafId !== undefined) return; // Already scheduled
 
@@ -313,19 +315,31 @@ export const QueryPanel = memo(function QueryPanel({
 
           rafId = requestAnimationFrame(() => {
             rafId = undefined;
+
+            // Don't render until we have rows - keeps skeleton visible
+            if (accumulatedRows.length === 0) {
+              return;
+            }
+
+            // First render is synchronous to avoid flash, subsequent use startTransition
+            if (!hasRenderedOnce.current) {
+              hasRenderedOnce.current = true;
+              renderedCountRef.current = accumulatedRows.length;
+              setResult({
+                columns: currentColumns,
+                columnMeta: currentColumnMeta,
+                rows: accumulatedRows.slice(0),
+                rowCount: accumulatedRows.length,
+                executionTime: 0,
+              });
+              return;
+            }
+
             // Use startTransition for streaming updates to keep UI responsive
-            // Users can still type SQL, click buttons while results stream in
             startTransition(() => {
               setResult((prev) => {
                 if (!prev) {
-                  renderedCountRef.current = accumulatedRows.length;
-                  return {
-                    columns: currentColumns,
-                    columnMeta: currentColumnMeta,
-                    rows: accumulatedRows.slice(0),
-                    rowCount: accumulatedRows.length,
-                    executionTime: 0,
-                  };
+                  return null;
                 }
                 const already = renderedCountRef.current;
                 const total = accumulatedRows.length;

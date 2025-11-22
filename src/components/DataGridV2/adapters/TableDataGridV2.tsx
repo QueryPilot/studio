@@ -2165,7 +2165,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     );
   }
 
-  if (!isLoading && rowsRef.current.length === 0) {
+  if (!isLoading && !isLoadingMore && dataRows.length === 0) {
     // Show different message when filter is active
     if (isTableMode && activeFilter) {
       return (
@@ -2229,7 +2229,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     return <DataGridEmptyState />;
   }
 
-  if (isLoading && rowsRef.current.length === 0) {
+  if ((isLoading || isLoadingMore) && dataRows.length === 0) {
     return <DataGridSkeleton />;
   }
 

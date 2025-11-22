@@ -13,6 +13,25 @@ import { AbstractDialectValidator, type SuppressionPattern } from "./base";
 export class MSSQLValidator extends AbstractDialectValidator {
   readonly dialect = "mssql" as const;
 
+  // Cache for document content
+  private cachedDoc: { content: string; version: number } | null = null;
+
+  private getDocContent(state: EditorState): string {
+    const version = state.doc.length;
+    if (this.cachedDoc && this.cachedDoc.version === version) {
+      return this.cachedDoc.content;
+    }
+
+    if (state.doc.length > 100000) {
+      this.cachedDoc = { content: "", version };
+      return "";
+    }
+
+    const content = state.doc.toString();
+    this.cachedDoc = { content, version };
+    return content;
+  }
+
   getSuppressionPatterns(): SuppressionPattern[] {
     return [
       {
@@ -160,17 +179,26 @@ export class MSSQLValidator extends AbstractDialectValidator {
 
   validateDialectSyntax(state: EditorState): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
-    const doc = state.doc.toString();
+    const doc = this.getDocContent(state);
+    if (!doc) return diagnostics;
 
-    // Check for unmatched brackets
-    const openBrackets = (doc.match(/\[/g) || []).length;
-    const closeBrackets = (doc.match(/\]/g) || []).length;
+    // Check for unmatched brackets - optimized counting
+    let openBrackets = 0;
+    let closeBrackets = 0;
+    let lastOpen = -1;
+    let lastClose = -1;
+
+    for (let i = 0; i < doc.length; i++) {
+      if (doc[i] === '[') {
+        openBrackets++;
+        lastOpen = i;
+      } else if (doc[i] === ']') {
+        closeBrackets++;
+        lastClose = i;
+      }
+    }
 
     if (openBrackets !== closeBrackets) {
-      // Find the last unmatched bracket
-      const lastOpen = doc.lastIndexOf("[");
-      const lastClose = doc.lastIndexOf("]");
-
       if (openBrackets > closeBrackets && lastOpen !== -1) {
         diagnostics.push({
           from: lastOpen,
@@ -193,13 +221,15 @@ export class MSSQLValidator extends AbstractDialectValidator {
 
   validateBestPractices(state: EditorState): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
-    const doc = state.doc.toString();
+    const doc = this.getDocContent(state);
+    if (!doc) return diagnostics;
 
-    // Warn about NOLOCK hints
+    // Warn about NOLOCK hints - limit to 5
     const nolockPattern = /\bWITH\s*\([^)]*NOLOCK[^)]*\)/gi;
     let match;
+    let count = 0;
 
-    while ((match = nolockPattern.exec(doc)) !== null) {
+    while ((match = nolockPattern.exec(doc)) !== null && count < 5) {
       diagnostics.push({
         from: match.index,
         to: match.index + match[0].length,
@@ -207,6 +237,7 @@ export class MSSQLValidator extends AbstractDialectValidator {
         message:
           "NOLOCK can lead to dirty reads. Consider using appropriate isolation levels instead.",
       });
+      count++;
     }
 
     return diagnostics;

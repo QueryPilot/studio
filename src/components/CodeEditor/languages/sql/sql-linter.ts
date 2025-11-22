@@ -237,7 +237,69 @@ export const createSqlLinter = (dialect?: SqlDialect): Extension =>
 
 // Cache for entity existence checks to avoid repeated async calls
 const entityExistsCache = new Map<string, { exists: boolean; timestamp: number }>();
+const columnTypeCache = new Map<string, { type: string; timestamp: number }>();
 const CACHE_TTL = 30000; // 30 seconds
+
+// Type compatibility groups
+const NUMERIC_TYPES = ['integer', 'int', 'int4', 'int8', 'bigint', 'smallint', 'decimal', 'numeric', 'real', 'float', 'double', 'money'];
+const TEXT_TYPES = ['text', 'varchar', 'char', 'character', 'string', 'citext', 'name'];
+const BOOLEAN_TYPES = ['boolean', 'bool'];
+const DATE_TYPES = ['date', 'timestamp', 'timestamptz', 'time', 'timetz', 'interval'];
+const JSON_TYPES = ['json', 'jsonb'];
+
+/**
+ * Get the base type category for a column type
+ */
+function getTypeCategory(dataType: string): 'numeric' | 'text' | 'boolean' | 'date' | 'json' | 'unknown' {
+  const lower = dataType.toLowerCase();
+  if (NUMERIC_TYPES.some(t => lower.includes(t))) return 'numeric';
+  if (TEXT_TYPES.some(t => lower.includes(t))) return 'text';
+  if (BOOLEAN_TYPES.some(t => lower.includes(t))) return 'boolean';
+  if (DATE_TYPES.some(t => lower.includes(t))) return 'date';
+  if (JSON_TYPES.some(t => lower.includes(t))) return 'json';
+  return 'unknown';
+}
+
+/**
+ * Get the literal type from a SQL value
+ */
+function getLiteralType(value: string): 'numeric' | 'text' | 'boolean' | 'null' | 'unknown' {
+  const trimmed = value.trim();
+
+  // Null literal
+  if (trimmed.toUpperCase() === 'NULL') return 'null';
+
+  // String literal (single quotes)
+  if (trimmed.startsWith("'") && trimmed.endsWith("'")) return 'text';
+
+  // Boolean literal
+  if (['TRUE', 'FALSE'].includes(trimmed.toUpperCase())) return 'boolean';
+
+  // Numeric literal
+  if (/^-?\d+(\.\d+)?$/.test(trimmed)) return 'numeric';
+
+  return 'unknown';
+}
+
+/**
+ * Check if column type and literal type are compatible
+ */
+function areTypesCompatible(columnCategory: string, literalType: string): boolean {
+  // Null is compatible with everything
+  if (literalType === 'null') return true;
+
+  // Unknown types are assumed compatible
+  if (columnCategory === 'unknown' || literalType === 'unknown') return true;
+
+  // Same category is compatible
+  if (columnCategory === literalType) return true;
+
+  // Text can hold anything when cast explicitly
+  // But comparing numeric column with text literal is suspicious
+  if (columnCategory === 'text' && literalType === 'numeric') return true; // Numbers can be in text
+
+  return false;
+}
 
 const checkEntityExists = async (
   provider: MetadataProvider,
@@ -265,8 +327,111 @@ const checkEntityExists = async (
 };
 
 /**
+ * Get column type with caching
+ */
+const getColumnType = async (
+  provider: MetadataProvider,
+  tableName: string,
+  columnName: string,
+  schema?: string
+): Promise<string | null> => {
+  const cacheKey = `${schema || "default"}:${tableName.toLowerCase()}:${columnName.toLowerCase()}`;
+  const cached = columnTypeCache.get(cacheKey);
+
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.type;
+  }
+
+  try {
+    const fields = await provider.listFields(tableName, schema);
+    const field = fields.find(
+      (f) => f.name.toLowerCase() === columnName.toLowerCase()
+    );
+    if (field) {
+      columnTypeCache.set(cacheKey, { type: field.dataType, timestamp: Date.now() });
+      return field.dataType;
+    }
+  } catch {
+    // Ignore errors
+  }
+  return null;
+};
+
+/**
+ * Find comparisons in WHERE clauses and validate types
+ */
+const findTypeViolations = async (
+  state: EditorState,
+  provider: MetadataProvider,
+  tables: TableRef[],
+  defaultSchema?: string
+): Promise<Diagnostic[]> => {
+  const diagnostics: Diagnostic[] = [];
+  const content = state.doc.toString();
+
+  // Find WHERE clauses with comparisons: column = value, column > value, etc.
+  const comparisonPattern = /(\w+(?:\.\w+)?)\s*(=|<>|!=|>=|<=|>|<)\s*('[^']*'|\d+(?:\.\d+)?|TRUE|FALSE|NULL)/gi;
+  let match;
+
+  while ((match = comparisonPattern.exec(content)) !== null) {
+    const columnRef = match[1];
+    const value = match[3];
+    if (!columnRef || !value) continue;
+
+    const valueFrom = match.index + match[0].indexOf(value);
+    const valueTo = valueFrom + value.length;
+
+    // Parse column reference
+    let tableName: string | undefined;
+    let columnName: string;
+
+    if (columnRef.includes('.')) {
+      const parts = columnRef.split('.');
+      const qualifier = parts[0];
+      columnName = parts[1] || '';
+
+      // Find table from qualifier (alias or table name)
+      const tableMatch = tables.find(
+        (t) =>
+          t.alias?.toLowerCase() === qualifier?.toLowerCase() ||
+          t.name.toLowerCase() === qualifier?.toLowerCase()
+      );
+      if (tableMatch) {
+        tableName = tableMatch.name;
+      }
+    } else {
+      columnName = columnRef;
+      // Use first table if only one in scope
+      if (tables.length === 1) {
+        tableName = tables[0]?.name;
+      }
+    }
+
+    if (!tableName || !columnName) continue;
+
+    // Get column type
+    const columnType = await getColumnType(provider, tableName, columnName, defaultSchema);
+    if (!columnType) continue;
+
+    const columnCategory = getTypeCategory(columnType);
+    const literalType = getLiteralType(value);
+
+    if (!areTypesCompatible(columnCategory, literalType)) {
+      diagnostics.push({
+        from: valueFrom,
+        to: valueTo,
+        severity: "warning",
+        message: `Type mismatch: column '${columnName}' is ${columnType} but compared with ${literalType} value`,
+      });
+    }
+  }
+
+  return diagnostics;
+};
+
+/**
  * Collect semantic diagnostics for SQL
- * Validates table/column existence and alias references
+ * Validates table/column existence, alias references, and type compatibility
  */
 const collectSemanticDiagnostics = async (
   state: EditorState,
@@ -374,6 +539,19 @@ const collectSemanticDiagnostics = async (
           });
         }
       }
+
+      // Collect tables for type validation
+      if (analysis.activeStatementTables.length > 0) {
+        // Add type violation checks for this statement
+        const typeViolations = await findTypeViolations(
+          state,
+          provider,
+          analysis.activeStatementTables,
+          defaultSchema
+        );
+        diagnostics.push(...typeViolations);
+        break; // Only need to check once per statement
+      }
     } catch {
       // Skip this identifier if context analysis fails
     }
@@ -403,9 +581,10 @@ export const createSemanticLinter = (
   );
 
 /**
- * Clear the entity existence cache
+ * Clear the entity existence and column type caches
  * Call this when schema metadata is refreshed
  */
 export const clearSemanticLinterCache = (): void => {
   entityExistsCache.clear();
+  columnTypeCache.clear();
 };

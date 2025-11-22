@@ -79,8 +79,8 @@ export const ResultViewer = memo(function ResultViewer({
     }
   }, [result, viewMode]);
 
-  // Show skeleton when loading and no result yet
-  if (isLoading && !result) {
+  // Show skeleton when loading/streaming and no result yet
+  if ((isLoading || isStreaming) && !result) {
     return (
       <div className={cn("h-full", className)}>
         <DataGridSkeleton />

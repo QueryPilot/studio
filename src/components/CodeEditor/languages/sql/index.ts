@@ -32,6 +32,13 @@ export {
   terminateLinterWorker,
 } from "./linter-worker-manager";
 
+// PostgreSQL parser (uses libpg_query for 100% PostgreSQL compatibility)
+export {
+  createPgParserLinter,
+  parsePgSQL,
+  isInitialized as isPgParserReady,
+} from "./pg-parser-linter";
+
 // Metadata provider
 export {
   SqlMetadataProvider,
@@ -41,3 +48,10 @@ export {
 // Dialect validators
 export { getDialectValidator } from "./dialect-validators";
 export type { SyntaxError } from "./dialect-validators";
+
+// SQL Functions database
+export { SQL_FUNCTIONS, getFunction, searchFunctions, getFunctionsByCategory } from "./functions";
+export type { SqlFunction } from "./functions";
+
+// Code actions
+export { createExpandStarExtension, expandStarAtPosition } from "./code-actions";

@@ -202,14 +202,22 @@ export function WorkspaceScreen() {
     };
   }, [connectionId, initWorkspace, initializePanels, searchParams]);
 
-  // Handle Cmd+Shift+N to open new main window
+  // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Cmd+Shift+N (macOS) or Ctrl+Shift+N (Windows/Linux)
-      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === 'N') {
-        event.preventDefault();
-        console.log('[WorkspaceScreen] Opening new main window (Cmd+Shift+N)');
-        void windowManager.openNewMainWindow();
+      // Only handle Cmd/Ctrl + N combinations
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
+        if (event.shiftKey) {
+          // Cmd+Shift+N: Open new main window
+          event.preventDefault();
+          console.log('[WorkspaceScreen] Opening new main window (Cmd+Shift+N)');
+          void windowManager.openNewMainWindow();
+        } else {
+          // Cmd+N: Open new table UI
+          event.preventDefault();
+          console.log('[WorkspaceScreen] Opening new table UI (Cmd+N)');
+          // TODO: Implement new table UI action
+        }
       }
     };
 

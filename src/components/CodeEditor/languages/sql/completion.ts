@@ -5,18 +5,36 @@ import {
 } from "@codemirror/autocomplete";
 import { createSqlMetadataProvider } from "./metadataProvider";
 import { analyzeSqlContext } from "./context";
+import { searchFunctions, type SqlFunction } from "./functions";
 
 interface CompletionOptions {
   connectionId?: string;
   database?: string;
   schema?: string;
+  dialect?: string;
+}
+
+/**
+ * Quote identifier based on SQL dialect
+ */
+function quoteIdentifier(name: string, dialect: string): string {
+  switch (dialect) {
+    case 'mysql':
+      return `\`${name}\``;
+    case 'mssql':
+      return `[${name}]`;
+    case 'postgresql':
+    case 'sqlite':
+    default:
+      return `"${name}"`;
+  }
 }
 
 export const createSqlCompletionSource = (
   options: CompletionOptions
 ): CompletionSource => {
   return async (context: CompletionContext) => {
-    const { connectionId, database, schema } = options;
+    const { connectionId, database, schema, dialect = 'postgresql' } = options;
 
     if (!connectionId || !database) {
       return null;
@@ -27,7 +45,7 @@ export const createSqlCompletionSource = (
 
     // Use AST-based context analysis
     const analysis = analyzeSqlContext(context, defaultSchema);
-    const { intent, activeStatementTables, qualifier, range, isInsertContext, insertTargetTable } = analysis;
+    const { intent, activeStatementTables, qualifier, range, isInsertContext, insertTargetTable, outerScopeTables } = analysis;
 
     try {
       // SPECIAL CASE: INSERT column list - only show target table's columns
@@ -36,18 +54,28 @@ export const createSqlCompletionSource = (
         if (fields.length > 0) {
           return {
             from: range.from,
-            options: mapFieldsToCompletions(fields),
+            options: mapFieldsToCompletions(fields, 1, undefined, dialect),
             validFor: /^[\w_]*$/,
           };
         }
       }
       // SCENARIO A: Qualified field access (e.g., "u.id" or "users.id")
       if (intent === "column" && qualifier) {
-        const matchedTable = activeStatementTables.find(
+        // First check current scope tables
+        let matchedTable = activeStatementTables.find(
           (t) =>
             t.alias?.toLowerCase() === qualifier.toLowerCase() ||
             t.name.toLowerCase() === qualifier.toLowerCase()
         );
+
+        // If not found in current scope, check outer scope (for correlated subqueries)
+        if (!matchedTable && outerScopeTables) {
+          matchedTable = outerScopeTables.find(
+            (t) =>
+              t.alias?.toLowerCase() === qualifier.toLowerCase() ||
+              t.name.toLowerCase() === qualifier.toLowerCase()
+          );
+        }
 
         if (matchedTable) {
           // CTE with explicit columns
@@ -59,6 +87,7 @@ export const createSqlCompletionSource = (
                 type: "property",
                 detail: "CTE column",
                 boost: 1,
+                apply: quoteIdentifier(colName, dialect),
               })),
               validFor: /^[\w_]*$/,
             };
@@ -70,7 +99,7 @@ export const createSqlCompletionSource = (
             if (fields.length > 0) {
               return {
                 from: range.from,
-                options: mapFieldsToCompletions(fields),
+                options: mapFieldsToCompletions(fields, 1, undefined, dialect),
                 validFor: /^[\w_]*$/,
               };
             }
@@ -81,7 +110,7 @@ export const createSqlCompletionSource = (
           if (fields.length > 0) {
             return {
               from: range.from,
-              options: mapFieldsToCompletions(fields),
+              options: mapFieldsToCompletions(fields, 1, undefined, dialect),
               validFor: /^[\w_]*$/,
             };
           }
@@ -100,7 +129,7 @@ export const createSqlCompletionSource = (
             if (allFields.length > 0) {
               return {
                 from: range.from,
-                options: mapFieldsToCompletions(allFields),
+                options: mapFieldsToCompletions(allFields, 1, undefined, dialect),
                 validFor: /^[\w_]*$/,
               };
             }
@@ -112,7 +141,7 @@ export const createSqlCompletionSource = (
         if (entities.length > 0) {
           return {
             from: range.from,
-            options: mapEntitiesToCompletions(entities),
+            options: mapEntitiesToCompletions(entities, dialect),
             validFor: /^[\w_]*$/,
           };
         }
@@ -124,7 +153,7 @@ export const createSqlCompletionSource = (
       if (intent === "column" && !qualifier) {
         const completions: Completion[] = [];
 
-        // Fetch columns from all real tables in scope
+        // Fetch columns from all real tables in current scope (high boost)
         const realTables = activeStatementTables.filter((t) => !t.isCTE);
         if (realTables.length > 0) {
           const fieldPromises = realTables.map((t) =>
@@ -132,12 +161,33 @@ export const createSqlCompletionSource = (
           );
           const results = await Promise.all(fieldPromises);
           const allFields = deduplicateFields(results.flat());
-          completions.push(...mapFieldsToCompletions(allFields));
+          completions.push(...mapFieldsToCompletions(allFields, 1, undefined, dialect));
+        }
+
+        // Also include outer scope tables for correlated subqueries (lower boost)
+        if (outerScopeTables && outerScopeTables.length > 0) {
+          const outerRealTables = outerScopeTables.filter((t) => !t.isCTE);
+          if (outerRealTables.length > 0) {
+            const outerFieldPromises = outerRealTables.map((t) =>
+              provider.listFields(t.name, t.schema).catch(() => [])
+            );
+            const outerResults = await Promise.all(outerFieldPromises);
+            const outerFields = deduplicateFields(outerResults.flat());
+            // Add with lower boost to prioritize current scope
+            completions.push(...mapFieldsToCompletions(outerFields, -1, "(outer)", dialect));
+          }
+        }
+
+        // Include SQL functions with signatures
+        const { identifier } = analysis;
+        if (identifier.length >= 2) {
+          const matchingFunctions = searchFunctions(identifier);
+          completions.push(...mapFunctionsToCompletions(matchingFunctions, 0.5));
         }
 
         // Also include table names
         const entities = await provider.listEntities();
-        completions.push(...mapEntitiesToCompletions(entities));
+        completions.push(...mapEntitiesToCompletions(entities, dialect));
 
         if (completions.length > 0) {
           return {
@@ -153,7 +203,7 @@ export const createSqlCompletionSource = (
         const entities = await provider.listEntities();
         return {
           from: range.from,
-          options: mapEntitiesToCompletions(entities),
+          options: mapEntitiesToCompletions(entities, dialect),
           validFor: /^[\w_]*$/,
         };
       }
@@ -167,26 +217,36 @@ export const createSqlCompletionSource = (
 
 // Helper functions
 
-function mapFieldsToCompletions(fields: Array<{ name: string; dataType: string; description?: string }>): Completion[] {
+function mapFieldsToCompletions(
+  fields: Array<{ name: string; dataType: string; description?: string }>,
+  boost: number = 1,
+  suffix?: string,
+  dialect: string = 'postgresql'
+): Completion[] {
   return fields.map((f) => ({
     label: f.name,
     type: "property",
-    detail: f.dataType,
+    detail: suffix ? `${f.dataType} ${suffix}` : f.dataType,
     info: f.description,
-    boost: 1,
+    boost,
+    apply: quoteIdentifier(f.name, dialect),
   }));
 }
 
-function mapEntitiesToCompletions(entities: Array<{ name: string; type: string; schema?: string }>): Completion[] {
+function mapEntitiesToCompletions(
+  entities: Array<{ name: string; type: string; schema?: string }>,
+  dialect: string = 'postgresql'
+): Completion[] {
   return entities.map((e) => {
     // Generate smart alias: user_accounts -> ua, orders -> o
     const alias = generateSmartAlias(e.name);
+    const quotedName = quoteIdentifier(e.name, dialect);
     return {
       label: e.name,
       type: e.type === "table" ? "class" : "constant",
       detail: alias ? `→ ${alias}` : e.type,
       // Apply with alias for tables
-      apply: e.type === "table" && alias ? `${e.name} ${alias}` : e.name,
+      apply: e.type === "table" && alias ? `${quotedName} ${alias}` : quotedName,
       boost: 0,
     };
   });
@@ -213,6 +273,20 @@ function deduplicateFields<T extends { name: string }>(fields: T[]): T[] {
     seen.add(key);
     return true;
   });
+}
+
+/**
+ * Map SQL functions to completions with signatures
+ */
+function mapFunctionsToCompletions(functions: SqlFunction[], boost: number = 0.5): Completion[] {
+  return functions.map((fn) => ({
+    label: fn.name,
+    type: "function",
+    detail: fn.signature,
+    info: `${fn.description}\n\nReturns: ${fn.returnType}`,
+    apply: fn.parameters.length === 0 ? `${fn.name}()` : `${fn.name}(`,
+    boost,
+  }));
 }
 
 // Legacy export for backwards compatibility
