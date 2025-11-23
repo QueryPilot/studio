@@ -3,7 +3,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -26,21 +25,7 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
-import {
-  Database,
-  Loader2,
-  CheckCircle2,
-  ChevronDown,
-  Shield,
-  Server,
-  Plus,
-  X,
-  Check,
-  ClipboardPaste,
-  ClipboardCheck,
-  Edit2,
-  ArrowLeft,
-} from 'lucide-react';
+import { IconDatabase, IconLoader2, IconCircleCheckFilled, IconChevronDown, IconShield, IconServer, IconPlus, IconCheck, IconClipboardText, IconClipboardCheck, IconArrowLeft } from '@tabler/icons-react';
 import { cn } from '@/lib/utils';
 import { useConnectionStore } from '@/stores/connectionStoreNew';
 import { useHomeScreenStore } from '../../store/homeScreenStore';
@@ -590,66 +575,61 @@ export function ConnectionForm() {
     }
   };
 
+  const dbTypeOptions = [
+    { value: 'postgresql', label: 'PostgreSQL', logo: getDatabaseLogo(DbType.PostgreSQL) },
+    { value: 'mysql', label: 'MySQL', logo: getDatabaseLogo(DbType.MySQL) },
+    { value: 'sqlite', label: 'SQLite', logo: getDatabaseLogo(DbType.SQLite) },
+    { value: 'mssql', label: 'SQL Server', logo: getDatabaseLogo(DbType.SQLServer) },
+  ];
+
+  const currentDbType = dbTypeOptions.find(opt => opt.value === dbType);
+
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-border">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 w-7 p-0"
-          onClick={closeForm}
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <Database className="h-4 w-4" />
-        <span className="text-xs font-semibold">
-          {isEditMode ? 'Edit Connection' : formMode === 'import' ? 'Import Connection' : 'New Connection'}
-        </span>
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0"
+            onClick={closeForm}
+          >
+            <IconArrowLeft className="h-4 w-4" />
+          </Button>
+
+          <span className="text-sm font-semibold">
+            {isEditMode ? 'Edit Connection' : formMode === 'import' ? 'Import Connection' : 'New Connection'}
+          </span>
+        </div>
+
+        <Select value={dbType} onValueChange={(v) => setDbType(v as DatabaseType)}>
+          <SelectTrigger className="w-auto h-7 gap-2 text-xs border-none shadow-none px-2">
+            <div className="flex items-center gap-2">
+              <img
+                src={currentDbType?.logo}
+                alt={currentDbType?.label}
+                className="h-4 w-4"
+              />
+              <span>{currentDbType?.label}</span>
+            </div>
+          </SelectTrigger>
+          <SelectContent>
+            {dbTypeOptions.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                <div className="flex items-center gap-2">
+                  <img src={opt.logo} alt={opt.label} className="h-3.5 w-3.5" />
+                  {opt.label}
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Form Body */}
       <div className="flex-1 overflow-y-auto px-6 py-4">
-        <Tabs
-          value={dbType}
-          onValueChange={(v) => setDbType(v as DatabaseType)}
-        >
-          <TabsList className="grid w-full grid-cols-4 mb-4">
-            <TabsTrigger value="postgresql" className="gap-1.5 text-xs">
-              <img
-                src={getDatabaseLogo(DbType.PostgreSQL)}
-                alt="PostgreSQL"
-                className="h-3.5 w-3.5"
-              />
-              PostgreSQL
-            </TabsTrigger>
-            <TabsTrigger value="mysql" className="gap-1.5 text-xs">
-              <img
-                src={getDatabaseLogo(DbType.MySQL)}
-                alt="MySQL"
-                className="h-3.5 w-3.5"
-              />
-              MySQL
-            </TabsTrigger>
-            <TabsTrigger value="sqlite" className="gap-1.5 text-xs">
-              <img
-                src={getDatabaseLogo(DbType.SQLite)}
-                alt="SQLite"
-                className="h-3.5 w-3.5"
-              />
-              SQLite
-            </TabsTrigger>
-            <TabsTrigger value="mssql" className="gap-1.5 text-xs">
-              <img
-                src={getDatabaseLogo(DbType.SQLServer)}
-                alt="SQL Server"
-                className="h-3.5 w-3.5"
-              />
-              SQL Server
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value={dbType} className="space-y-4 mt-0">
+        <div className="space-y-4">
             {/* Name and Tags */}
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -701,7 +681,7 @@ export function ConnectionForm() {
                           </span>
                         )}
                       </div>
-                      <ChevronDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+                      <IconChevronDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-[300px] p-0">
@@ -725,7 +705,7 @@ export function ConnectionForm() {
                                 onClick={() => handleCreateGroup(groupSearchValue)}
                                 className="gap-1.5 h-6 px-2 text-xs"
                               >
-                                <Plus className="h-3 w-3" />
+                                <IconPlus className="h-3 w-3" />
                                 Create "{groupSearchValue}"
                               </Button>
                             )}
@@ -745,7 +725,7 @@ export function ConnectionForm() {
                                 <span>{t.name}</span>
                               </div>
                               {selectedTags.includes(t.name) && (
-                                <Check className="h-3 w-3" />
+                                <IconCheck className="h-3 w-3" />
                               )}
                             </CommandItem>
                           ))}
@@ -765,7 +745,7 @@ export function ConnectionForm() {
                                   <span>{t.name}</span>
                                 </div>
                                 {selectedTags.includes(t.name) && (
-                                  <Check className="h-3 w-3" />
+                                  <IconCheck className="h-3 w-3" />
                                 )}
                               </CommandItem>
                             ))}
@@ -784,7 +764,7 @@ export function ConnectionForm() {
                                 onSelect={() => handleCreateGroup(groupSearchValue)}
                                 className="text-xs"
                               >
-                                <Plus className="h-3 w-3 mr-2" />
+                                <IconPlus className="h-3 w-3 mr-2" />
                                 Create "{groupSearchValue}"
                               </CommandItem>
                             </CommandGroup>
@@ -860,7 +840,7 @@ export function ConnectionForm() {
 
                 <div>
                   <Label htmlFor="database" className="text-xs">
-                    Database
+                    IconDatabase
                   </Label>
                   <Input
                     id="database"
@@ -875,7 +855,7 @@ export function ConnectionForm() {
             ) : (
               <div>
                 <Label htmlFor="database" className="text-xs">
-                  Database File
+                  IconDatabase File
                 </Label>
                 <Input
                   id="database"
@@ -892,7 +872,7 @@ export function ConnectionForm() {
             {dbType !== 'sqlite' && (
               <div>
                 <Label className="flex items-center gap-1.5 text-xs">
-                  <Shield className="h-3 w-3 text-muted-foreground" />
+                  <IconShield className="h-3 w-3 text-muted-foreground" />
                   SSL Mode
                 </Label>
                 <Popover open={sslModeOpen} onOpenChange={setSslModeOpen}>
@@ -902,7 +882,7 @@ export function ConnectionForm() {
                       className="w-full justify-between mt-1 h-8 text-xs"
                     >
                       <span className="capitalize">{sslMode}</span>
-                      <ChevronDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+                      <IconChevronDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-1">
@@ -936,7 +916,7 @@ export function ConnectionForm() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <Label className="flex items-center gap-1.5 text-xs">
-                    <Server className="h-3 w-3 text-muted-foreground" />
+                    <IconServer className="h-3 w-3 text-muted-foreground" />
                     SSH Tunnel
                   </Label>
                   <Switch checked={useSSH} onCheckedChange={setUseSSH} />
@@ -947,7 +927,7 @@ export function ConnectionForm() {
                     <div className="grid grid-cols-12 gap-3">
                       <div className="col-span-8">
                         <Label htmlFor="ssh-host" className="text-xs">
-                          SSH Server
+                          SSH IconServer
                         </Label>
                         <Input
                           id="ssh-host"
@@ -1026,7 +1006,7 @@ export function ConnectionForm() {
                             useSSHAgent && 'text-muted-foreground'
                           )}
                         >
-                          Use SSH Key
+                          Use SSH IconKey
                         </Label>
                       </div>
 
@@ -1034,7 +1014,7 @@ export function ConnectionForm() {
                         <>
                           <div>
                             <Label htmlFor="ssh-key" className="text-xs">
-                              Private Key
+                              Private IconKey
                             </Label>
                             <Input
                               id="ssh-key"
@@ -1046,7 +1026,7 @@ export function ConnectionForm() {
                           </div>
                           <div>
                             <Label htmlFor="ssh-key-passphrase" className="text-xs">
-                              Key Passphrase
+                              IconKey Passphrase
                             </Label>
                             <Input
                               id="ssh-key-passphrase"
@@ -1069,7 +1049,7 @@ export function ConnectionForm() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label className="flex items-center gap-1.5 text-xs">
-                  <Server className="h-3 w-3 text-muted-foreground" />
+                  <IconServer className="h-3 w-3 text-muted-foreground" />
                   AWS SSM Bastion
                   <Badge variant="secondary" className="text-[10px] px-1 py-0">
                     Beta
@@ -1228,8 +1208,7 @@ export function ConnectionForm() {
                 </>
               )}
             </div>
-          </TabsContent>
-        </Tabs>
+        </div>
       </div>
 
       {/* Footer */}
@@ -1251,12 +1230,12 @@ export function ConnectionForm() {
         >
           {uriParsed ? (
             <>
-              <ClipboardCheck className="h-3 w-3" />
+              <IconClipboardCheck className="h-3 w-3" />
               Parsed
             </>
           ) : (
             <>
-              <ClipboardPaste className="h-3 w-3" />
+              <IconClipboardText className="h-3 w-3" />
               Paste Config
             </>
           )}
@@ -1272,12 +1251,12 @@ export function ConnectionForm() {
           >
             {isTesting ? (
               <>
-                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                <IconLoader2 className="mr-1.5 h-3 w-3 animate-spin" />
                 Testing...
               </>
             ) : testSuccess ? (
               <>
-                <CheckCircle2 className="mr-1.5 h-3 w-3" />
+                <IconCircleCheckFilled className="mr-1.5 h-3 w-3" />
                 Tested
               </>
             ) : (
@@ -1293,7 +1272,7 @@ export function ConnectionForm() {
           >
             {isSaving ? (
               <>
-                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                <IconLoader2 className="mr-1.5 h-3 w-3 animate-spin" />
                 Saving...
               </>
             ) : (
@@ -1308,7 +1287,7 @@ export function ConnectionForm() {
           >
             {isConnecting ? (
               <>
-                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                <IconLoader2 className="mr-1.5 h-3 w-3 animate-spin" />
                 Connecting...
               </>
             ) : (

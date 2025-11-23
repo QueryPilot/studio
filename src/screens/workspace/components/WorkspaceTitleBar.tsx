@@ -1,25 +1,5 @@
 import { Button } from "@/components/ui/button";
-import {
-  Home,
-  RefreshCw,
-  Lock,
-  Settings,
-  PanelLeft,
-  Check,
-  Database,
-  Circle,
-  Waypoints,
-  Sun,
-  Moon,
-  Monitor,
-  AlertCircle,
-  Loader2,
-  RotateCcw,
-  Bot,
-  Undo2,
-  Redo2,
-  GitCommit,
-} from "lucide-react";
+import { IconHome, IconRefresh, IconLock, IconSettings, IconLayoutSidebar, IconCheck, IconDatabase, IconCircle, IconSchema, IconSun, IconMoon, IconDeviceDesktop, IconAlertCircle, IconLoader2, IconRotate, IconRobot, IconArrowBackUp, IconArrowForwardUp, IconGitCommit } from '@tabler/icons-react';
 import {
   Popover,
   PopoverContent,
@@ -188,12 +168,12 @@ export function WorkspaceTitleBar({
     let filteredOtherProfiles = otherProfileItems;
 
     if (searchQuery.trim()) {
-      // Search in databases
+      // IconSearch in databases
       const dbFuse = new Fuse(databaseItems, DATABASE_FUSE_OPTIONS);
       const dbResults = dbFuse.search(searchQuery);
       filteredDatabases = dbResults.map((result) => result.item);
 
-      // Search in other profiles (by name and database)
+      // IconSearch in other profiles (by name and database)
       const profileFuse = new Fuse(otherProfileItems, {
         keys: ["name", "database"],
         threshold: 0.3,
@@ -245,7 +225,7 @@ export function WorkspaceTitleBar({
 
   const [showGlobalChanges, setShowGlobalChanges] = useState(false);
 
-  // Keyboard shortcuts
+  // IconKeyboard shortcuts
   useCommand(
     "workspace.commitAll",
     async () => {
@@ -489,7 +469,7 @@ export function WorkspaceTitleBar({
   const getStatusColor = () => {
     if (isConnecting) return "text-yellow-500";
 
-    // Check if connection is active before showing gray
+    // IconCheck if connection is active before showing gray
     if (!connectionHealth) {
       return databaseService.isConnectionActive(connectionId)
         ? "text-yellow-500" // Still connecting (waiting for health check)
@@ -511,7 +491,7 @@ export function WorkspaceTitleBar({
   const getStatusText = () => {
     if (isConnecting) return "Connecting";
 
-    // Check if connection is actually active before showing "Disconnected"
+    // IconCheck if connection is actually active before showing "Disconnected"
     if (!connectionHealth) {
       return databaseService.isConnectionActive(connectionId)
         ? "Connecting"
@@ -536,20 +516,20 @@ export function WorkspaceTitleBar({
 
   const getStatusIcon = () => {
     if (isConnecting) {
-      return <Loader2 className="h-2 w-2 animate-spin" />;
+      return <IconLoader2 className="h-2 w-2 animate-spin" />;
     }
 
     // Show spinner if connection is active but health check hasn't fired yet
     if (!connectionHealth && databaseService.isConnectionActive(connectionId)) {
-      return <Loader2 className="h-2 w-2 animate-spin" />;
+      return <IconLoader2 className="h-2 w-2 animate-spin" />;
     }
 
     if (connectionHealth?.status === "error") {
-      return <AlertCircle className="h-3 w-3" />;
+      return <IconAlertCircle className="h-3 w-3" />;
     }
 
     return (
-      <Circle
+      <IconCircle
         className={cn(
           "h-2 w-2 fill-current",
           getStatusColor(),
@@ -568,7 +548,7 @@ export function WorkspaceTitleBar({
         await databaseService.disconnect(connectionId);
       }
 
-      // Check if we're in a separate window or the main window
+      // IconCheck if we're in a separate window or the main window
       const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
       const currentWindow = WebviewWindow.getCurrent();
       const windowLabel = currentWindow.label;
@@ -656,7 +636,7 @@ export function WorkspaceTitleBar({
           `[WorkspaceTitleBar] Creating new profile for database ${dbName} from source ${connectionId}`,
         );
 
-        // CRITICAL: Check if we're already creating a profile for this database
+        // CRITICAL: IconCheck if we're already creating a profile for this database
         // This prevents infinite loops where opening a window triggers another profile creation
         const existingBeforeCreate = connectionStore.findConnectionByDatabase(
           connection.host,
@@ -692,7 +672,7 @@ export function WorkspaceTitleBar({
         )}`,
       );
 
-      // Check if we need to open a new window or if one already exists
+      // IconCheck if we need to open a new window or if one already exists
       if (windowManager.isWorkspaceOpen(targetConnectionId)) {
         // Window exists, focus it
         console.log(
@@ -769,7 +749,7 @@ export function WorkspaceTitleBar({
           onClick={handleGoHome}
           title="Go to home"
         >
-          <Home className="h-3.5 w-3.5" />
+          <IconHome className="h-3.5 w-3.5" />
         </Button>
 
         <Button
@@ -779,7 +759,7 @@ export function WorkspaceTitleBar({
           onClick={handleReload}
           title="Reload workspace"
         >
-          <RefreshCw className="h-3.5 w-3.5" />
+          <IconRefresh className="h-3.5 w-3.5" />
         </Button>
 
         <Button
@@ -788,7 +768,7 @@ export function WorkspaceTitleBar({
           className="h-7 w-7 p-0"
           title="Connection security"
         >
-          <Lock className="h-3.5 w-3.5" />
+          <IconLock className="h-3.5 w-3.5" />
         </Button>
 
         <Popover
@@ -806,7 +786,7 @@ export function WorkspaceTitleBar({
               title="Select database"
               disabled={isLoadingDatabases}
             >
-              <Database className="h-3.5 w-3.5" />
+              <IconDatabase className="h-3.5 w-3.5" />
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-80 p-0" align="start">
@@ -827,7 +807,7 @@ export function WorkspaceTitleBar({
                     : "No databases found."}
                 </CommandEmpty>
 
-                {/* Section 1: Current Database */}
+                {/* Section 1: Current IconDatabase */}
                 {groupedDatabases.current && (
                   <CommandGroup
                     heading="Current"
@@ -850,19 +830,19 @@ export function WorkspaceTitleBar({
                               className="h-3.5 w-3.5 shrink-0"
                             />
                           ) : (
-                            <Database className="h-3.5 w-3.5 shrink-0 text-green-500" />
+                            <IconDatabase className="h-3.5 w-3.5 shrink-0 text-green-500" />
                           )}
                           <span className="text-xs font-semibold truncate">
                             {groupedDatabases.current.name}
                           </span>
                         </div>
-                        <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                        <IconCheck className="h-3.5 w-3.5 text-green-500 shrink-0" />
                       </div>
                     </CommandItem>
                   </CommandGroup>
                 )}
 
-                {/* Section 2: Other Databases on This Server */}
+                {/* Section 2: Other Databases on This IconServer */}
                 {groupedDatabases.thisServer.length > 0 && (
                   <CommandGroup
                     heading="On this Server"
@@ -891,7 +871,7 @@ export function WorkspaceTitleBar({
                                   className="h-3.5 w-3.5 shrink-0"
                                 />
                               ) : (
-                                <Database
+                                <IconDatabase
                                   className={cn(
                                     "h-3.5 w-3.5 shrink-0",
                                     dbItem.hasProfile
@@ -910,7 +890,7 @@ export function WorkspaceTitleBar({
                               </span>
                             </div>
                             {dbItem.hasProfile && (
-                              <Circle className="!h-2 !w-2 fill-primary text-primary shrink-0" />
+                              <IconCircle className="!h-2 !w-2 fill-primary text-primary shrink-0" />
                             )}
                           </div>
                         </CommandItem>
@@ -988,7 +968,7 @@ export function WorkspaceTitleBar({
                   disabled={!canUndo}
                   title="Undo"
                 >
-                  <Undo2 className="h-3 w-3" />
+                  <IconArrowBackUp className="h-3 w-3" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
@@ -1006,7 +986,7 @@ export function WorkspaceTitleBar({
                   disabled={!canRedo}
                   title="Redo"
                 >
-                  <Redo2 className="h-3 w-3" />
+                  <IconArrowForwardUp className="h-3 w-3" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
@@ -1022,7 +1002,7 @@ export function WorkspaceTitleBar({
               className="h-5 px-2 text-xs gap-1.5 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/20 rounded-full"
               title="Click to review and commit changes"
             >
-              <GitCommit className="h-2.5 w-2.5 text-orange-600 dark:text-orange-400" />
+              <IconGitCommit className="h-2.5 w-2.5 text-orange-600 dark:text-orange-400" />
               <span className="font-medium text-orange-600 dark:text-orange-400">
                 {totalChanges} {totalChanges === 1 ? "change" : "changes"}
               </span>
@@ -1033,7 +1013,7 @@ export function WorkspaceTitleBar({
 
       {/* Center Section - Absolute positioning for true center */}
       <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-2 text-xs max-w-[50%] min-w-0 select-none">
-        {/* Database Name with Type */}
+        {/* IconDatabase Name with Type */}
         <div
           className="flex items-center gap-1.5 min-w-0 flex-shrink"
           data-tauri-drag-region
@@ -1098,7 +1078,7 @@ export function WorkspaceTitleBar({
               onClick={handleReconnect}
               className="h-5 px-1.5 text-xs gap-1 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/20 flex-shrink-0"
             >
-              <RotateCcw className="h-2.5 w-2.5" />
+              <IconRotate className="h-2.5 w-2.5" />
               <span className="hidden sm:inline">Reconnect</span>
             </Button>
           )}
@@ -1113,7 +1093,7 @@ export function WorkspaceTitleBar({
           onClick={handleOpenErd}
           title="Open ERD"
         >
-          <Waypoints className="h-3.5 w-3.5" />
+          <IconSchema className="h-3.5 w-3.5" />
         </Button>
 
         <Button
@@ -1125,7 +1105,7 @@ export function WorkspaceTitleBar({
           }}
           title="Toggle left sidebar"
         >
-          <PanelLeft className={cn("h-3.5 w-3.5")} />
+          <IconLayoutSidebar className={cn("h-3.5 w-3.5")} />
         </Button>
 
         <Button
@@ -1137,10 +1117,10 @@ export function WorkspaceTitleBar({
           }}
           title="Toggle right sidebar"
         >
-          <Bot className="h-3.5 w-3.5" />
+          <IconRobot className="h-3.5 w-3.5" />
         </Button>
 
-        {/* Settings Dropdown - Now at the far right */}
+        {/* IconSettings Dropdown - Now at the far right */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -1149,13 +1129,13 @@ export function WorkspaceTitleBar({
               className="h-7 w-7 p-0"
               title="Settings"
             >
-              <Settings className="h-3.5 w-3.5" />
+              <IconSettings className="h-3.5 w-3.5" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
-                <Monitor className="mr-2 h-4 w-4" />
+                <IconDeviceDesktop className="mr-2 h-4 w-4" />
                 <span>Theme</span>
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
@@ -1164,27 +1144,27 @@ export function WorkspaceTitleBar({
                     setTheme("light");
                   }}
                 >
-                  <Sun className="mr-2 h-4 w-4" />
+                  <IconSun className="mr-2 h-4 w-4" />
                   <span>Light</span>
-                  {theme === "light" && <Check className="ml-auto h-4 w-4" />}
+                  {theme === "light" && <IconCheck className="ml-auto h-4 w-4" />}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => {
                     setTheme("dark");
                   }}
                 >
-                  <Moon className="mr-2 h-4 w-4" />
+                  <IconMoon className="mr-2 h-4 w-4" />
                   <span>Dark</span>
-                  {theme === "dark" && <Check className="ml-auto h-4 w-4" />}
+                  {theme === "dark" && <IconCheck className="ml-auto h-4 w-4" />}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => {
                     setTheme("system");
                   }}
                 >
-                  <Monitor className="mr-2 h-4 w-4" />
+                  <IconDeviceDesktop className="mr-2 h-4 w-4" />
                   <span>System</span>
-                  {theme === "system" && <Check className="ml-auto h-4 w-4" />}
+                  {theme === "system" && <IconCheck className="ml-auto h-4 w-4" />}
                 </DropdownMenuItem>
               </DropdownMenuSubContent>
             </DropdownMenuSub>
@@ -1194,7 +1174,7 @@ export function WorkspaceTitleBar({
                 openPreferences("general");
               }}
             >
-              <Settings className="mr-2 h-4 w-4" />
+              <IconSettings className="mr-2 h-4 w-4" />
               <span>Preferences</span>
             </DropdownMenuItem>
           </DropdownMenuContent>

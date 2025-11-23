@@ -9,15 +9,7 @@ import React, {
 } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  Bolt,
-  BookMarked,
-  Zap,
-  Code,
-  Copy,
-  ClipboardCheck,
-} from "lucide-react";
+import { IconTable, IconBolt, IconBookmark, IconCode, IconCopy, IconClipboardCheck } from '@tabler/icons-react';
 import { TableDataGridV2 } from "@/components/DataGridV2";
 import { TableStructure } from "@/components/TableStructure";
 import { TableIndexes } from "@/components/TableIndexes";
@@ -195,7 +187,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       const isRegularView = isView && !isMaterializedView;
       return (
         <div className="flex flex-col h-full">
-          {/* Table Toolbar */}
+          {/* IconTable Toolbar */}
           <div className="flex-none pb-1 pt-1.5 bg-background">
             <div className="flex items-center justify-between px-1 h-full">
               <Tabs
@@ -211,7 +203,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                     className="flex items-center gap-1 text-xs px-2"
                     tabIndex={0}
                   >
-                    <Table className="h-3 w-3" />
+                    <IconTable className="h-3 w-3" />
                     <span>Data</span>
                   </TabsTrigger>
                   <TabsTrigger
@@ -219,7 +211,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                     className="flex items-center gap-1 text-xs px-2"
                     tabIndex={1}
                   >
-                    <Bolt className="h-3 w-3" />
+                    <IconBolt className="h-3 w-3" />
                     <span>Structure</span>
                   </TabsTrigger>
 
@@ -230,7 +222,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                       className="flex items-center gap-1 text-xs px-2"
                       tabIndex={2}
                     >
-                      <Code className="h-3 w-3" />
+                      <IconCode className="h-3 w-3" />
                       <span>Definition</span>
                     </TabsTrigger>
                   )}
@@ -243,7 +235,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                         className="flex items-center gap-1 text-xs px-2"
                         tabIndex={2}
                       >
-                        <BookMarked className="h-3 w-3" />
+                        <IconBookmark className="h-3 w-3" />
                         <span>Indexes</span>
                       </TabsTrigger>
                       <TabsTrigger
@@ -251,7 +243,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                         className="flex items-center gap-1 text-xs px-2"
                         tabIndex={3}
                       >
-                        <Zap className="h-3 w-3" />
+                        <IconBolt className="h-3 w-3" />
                         <span>Triggers</span>
                       </TabsTrigger>
                       <TabsTrigger
@@ -259,7 +251,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                         className="flex items-center gap-1 text-xs px-2"
                         tabIndex={4}
                       >
-                        <Code className="h-3 w-3" />
+                        <IconCode className="h-3 w-3" />
                         <span>Definition</span>
                       </TabsTrigger>
                     </>
@@ -272,7 +264,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                       className="flex items-center gap-1 text-xs px-2"
                       tabIndex={2}
                     >
-                      <BookMarked className="h-3 w-3" />
+                      <IconBookmark className="h-3 w-3" />
                       <span>Indexes</span>
                     </TabsTrigger>
                   )}
@@ -284,7 +276,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                       className="flex items-center gap-1 text-xs px-2"
                       tabIndex={3}
                     >
-                      <Code className="h-3 w-3" />
+                      <IconCode className="h-3 w-3" />
                       Definition
                     </TabsTrigger>
                   )}
@@ -302,11 +294,11 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                     onClick={handleCopy}
                   >
                     {copied ? (
-                      <ClipboardCheck className="h-3 w-3 mr-1" />
+                      <IconClipboardCheck className="h-3 w-3 mr-1" />
                     ) : (
-                      <Copy className="h-3 w-3 mr-1" />
+                      <IconCopy className="h-3 w-3 mr-1" />
                     )}
-                    Copy
+                    IconCopy
                   </Button>
                 )}
               </div>

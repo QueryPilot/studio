@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import type { TextMultiLineCustomCell } from "./types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
-import { Trash2, Key } from "lucide-react";
+import { IconTrash, IconKey } from '@tabler/icons-react';
 import { computeArrayStringsFromText } from "../../utils/arrayFormat";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
@@ -133,7 +133,7 @@ export const TextMultiLineCellEditor: React.FC<
   const commitCurrentText = useCallback(() => {
     const text = initialValueRef.current;
 
-    // Check if value actually changed (compare with original value)
+    // IconCheck if value actually changed (compare with original value)
     const hasChanged = initialValueRef.current !== (initialValue || "");
 
     // If no changes were made, cancel the edit
@@ -177,7 +177,7 @@ export const TextMultiLineCellEditor: React.FC<
           : [1, 0];
         finishedRef.current = true;
 
-        // Check if value actually changed
+        // IconCheck if value actually changed
         const hasChanged = initialValueRef.current !== (initialValue || "");
 
         // If no changes, cancel and move
@@ -304,7 +304,7 @@ export const TextMultiLineCellEditor: React.FC<
       {/* Header with column info */}
       <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50">
         {isPrimaryKey && (
-          <Key className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
+          <IconKey className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
         )}
         <span className="text-[10px] font-medium text-foreground/80">
           {columnName}
@@ -354,7 +354,7 @@ export const TextMultiLineCellEditor: React.FC<
             onClick={handleClear}
             title="Clear (NULL)"
           >
-            <Trash2 className="h-3 w-3 mr-1" />
+            <IconTrash className="h-3 w-3 mr-1" />
             Clear
           </Button>
         )}

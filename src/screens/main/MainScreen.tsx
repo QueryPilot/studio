@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 
 import { ThemeToggle } from "@/components/theme-toggle";
-import { Database, Settings, Search } from "lucide-react";
+import { IconDatabase, IconSettings, IconSearch } from '@tabler/icons-react';
 import { useRef, useState, useEffect, type RefObject } from "react";
 import logo from "@/assets/logo.png";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
@@ -100,7 +100,7 @@ export function MainScreen() {
                   setConnectionDialogOpen(true);
                 }}
               >
-                <Database className="mr-2 h-4 w-4" />
+                <IconDatabase className="mr-2 h-4 w-4" />
                 New Connection
               </Button>
             </div>
@@ -117,7 +117,7 @@ export function MainScreen() {
                   openPreferences();
                 }}
               >
-                <Settings className="mr-2 h-4 w-4" />
+                <IconSettings className="mr-2 h-4 w-4" />
                 Preferences
               </Button>
               <ThemeToggle />
@@ -131,7 +131,7 @@ export function MainScreen() {
           <div className="bg-background rounded-xl h-full">
             <div className="px-4 py-3 sticky top-0 z-10">
               <div className="relative w-full">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <IconSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                 <Input
                   ref={searchInputRef}
                   type="text"

@@ -3,39 +3,39 @@ import {
   usePreferencesStore,
   type PreferenceCategory,
 } from "@/stores/preferencesStore";
-import { Settings, Code, Bot, Keyboard, Globe, Activity } from "lucide-react";
+import { IconSettings, IconCode, IconRobot, IconKeyboard, IconWorld, IconActivity } from '@tabler/icons-react';
 import logo from "@/assets/logo.png";
 
 const categories = [
   {
     id: "general" as PreferenceCategory,
     label: "General",
-    icon: Settings,
+    icon: IconSettings,
   },
   {
     id: "editor" as PreferenceCategory,
     label: "Editor",
-    icon: Code,
+    icon: IconCode,
   },
   {
     id: "ai" as PreferenceCategory,
     label: "AI Runtime",
-    icon: Bot,
+    icon: IconRobot,
   },
   {
     id: "shortcuts" as PreferenceCategory,
     label: "Keyboard Shortcuts",
-    icon: Keyboard,
+    icon: IconKeyboard,
   },
   {
     id: "globalShortcuts" as PreferenceCategory,
     label: "Global Shortcuts",
-    icon: Globe,
+    icon: IconWorld,
   },
   {
     id: "telemetry" as PreferenceCategory,
     label: "Telemetry & Reporting",
-    icon: Activity,
+    icon: IconActivity,
   },
 ];
 

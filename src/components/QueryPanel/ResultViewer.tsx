@@ -1,6 +1,6 @@
 import { memo, useMemo } from "react";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, XCircle, Clipboard, CheckCircle } from "lucide-react";
+import { IconAlertCircle, IconCircleX, IconClipboard, IconCircleCheck } from '@tabler/icons-react';
 import { TableDataGridV2 } from "@/components/DataGridV2";
 import { DataGridSkeleton } from "@/components/DataGridV2/components/DataGridSkeleton";
 import { toast } from "sonner";
@@ -99,7 +99,7 @@ export const ResultViewer = memo(function ResultViewer({
         )}
       >
         <div className="flex flex-col items-center space-y-2 text-muted-foreground">
-          <AlertCircle className="h-8 w-8" />
+          <IconAlertCircle className="h-8 w-8" />
           <p className="text-sm">No results to display</p>
           <p className="text-xs">Execute a query to see results here</p>
         </div>
@@ -127,7 +127,7 @@ export const ResultViewer = memo(function ResultViewer({
         )}
       >
         <div className="flex flex-col items-center space-y-3 p-6 max-w-2xl w-full">
-          <XCircle className="h-10 w-10 text-destructive" />
+          <IconCircleX className="h-10 w-10 text-destructive" />
           <p className="text-sm font-semibold text-destructive">Query Error</p>
           <div className="relative w-full">
             <div className="bg-destructive/10 border border-destructive/20 rounded-md p-4 pr-12 overflow-auto max-h-[400px]">
@@ -142,11 +142,11 @@ export const ResultViewer = memo(function ResultViewer({
               onClick={handleCopyError}
               title="Copy error message"
             >
-              <Clipboard className="h-4 w-4 text-destructive/70" />
+              <IconClipboard className="h-4 w-4 text-destructive/70" />
             </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            Check your SQL syntax and connection status
+            IconCheck your SQL syntax and connection status
           </p>
         </div>
       </div>
@@ -165,7 +165,7 @@ export const ResultViewer = memo(function ResultViewer({
       >
         <div className="flex flex-col items-center space-y-3">
           <div className="h-12 w-12 rounded-full bg-green-500/10 flex items-center justify-center">
-            <CheckCircle className="h-6 w-6 text-green-600 dark:text-green-500" />
+            <IconCircleCheck className="h-6 w-6 text-green-600 dark:text-green-500" />
           </div>
           <div className="text-center space-y-1">
             <p className="text-sm font-medium text-foreground">
@@ -199,7 +199,7 @@ export const ResultViewer = memo(function ResultViewer({
       >
         <div className="flex flex-col items-center space-y-3">
           <div className="h-12 w-12 rounded-full bg-green-500/10 flex items-center justify-center">
-            <CheckCircle className="h-6 w-6 text-green-600 dark:text-green-500" />
+            <IconCircleCheck className="h-6 w-6 text-green-600 dark:text-green-500" />
           </div>
           <div className="text-center space-y-1">
             <p className="text-sm font-medium text-foreground">
@@ -226,7 +226,7 @@ export const ResultViewer = memo(function ResultViewer({
       {/* Banner for RETURNING clause queries */}
       {hasReturningData && (
         <div className="px-2 py-1.5 bg-green-500/10 border-b border-green-500/20 flex items-center gap-2">
-          <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-500 flex-shrink-0" />
+          <IconCircleCheck className="h-4 w-4 text-green-600 dark:text-green-500 flex-shrink-0" />
           <span className="text-sm font-medium text-green-700 dark:text-green-400">
             {result.message || `${result.affectedRows} row(s) affected`}
           </span>

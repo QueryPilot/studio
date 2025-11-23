@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Eye, EyeOff, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { IconEye, IconEyeOff, IconLoader2, IconCircleCheckFilled, IconCircleX } from '@tabler/icons-react';
 import { Badge } from "@/components/ui/badge";
 import { AI_SIDECAR_URL } from "@/config/constants";
 
@@ -94,7 +94,7 @@ export default function AIPanel() {
         console.error("Failed to reload API keys in sidecar:", reloadError);
       }
 
-      toast.success("API Key saved securely.");
+      toast.success("API IconKey saved securely.");
     } catch (error) {
       console.error("Failed to save API key:", error);
       toast.error("Failed to save API key.");
@@ -125,19 +125,19 @@ export default function AIPanel() {
           <div className="flex items-center gap-2">
             {sidecarStatus === "checking" && (
               <Badge variant="secondary" className="gap-1.5">
-                <Loader2 className="h-3 w-3 animate-spin" />
+                <IconLoader2 className="h-3 w-3 animate-spin" />
                 Checking...
               </Badge>
             )}
             {sidecarStatus === "online" && (
               <Badge variant="default" className="gap-1.5 bg-green-600">
-                <CheckCircle2 className="h-3 w-3" />
+                <IconCircleCheckFilled className="h-3 w-3" />
                 Online
               </Badge>
             )}
             {sidecarStatus === "offline" && (
               <Badge variant="destructive" className="gap-1.5">
-                <XCircle className="h-3 w-3" />
+                <IconCircleX className="h-3 w-3" />
                 Offline
               </Badge>
             )}
@@ -177,7 +177,7 @@ export default function AIPanel() {
         {currentProviderConfig && currentProviderConfig.requiresApiKey && (
           <div className="space-y-2">
             <Label htmlFor="api-key">
-              {currentProviderConfig.label} API Key
+              {currentProviderConfig.label} API IconKey
             </Label>
             <div className="flex gap-2">
               <div className="relative flex-1">
@@ -197,9 +197,9 @@ export default function AIPanel() {
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 >
                   {showApiKey ? (
-                    <EyeOff className="h-4 w-4" />
+                    <IconEyeOff className="h-4 w-4" />
                   ) : (
-                    <Eye className="h-4 w-4" />
+                    <IconEye className="h-4 w-4" />
                   )}
                 </button>
               </div>
@@ -207,8 +207,8 @@ export default function AIPanel() {
                 onClick={handleSaveApiKey}
                 disabled={isSaving || !currentApiKey.trim()}
               >
-                {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Save
+                {isSaving && <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />}
+                IconDeviceFloppy
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">

@@ -13,7 +13,6 @@ import {
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Calendar } from "@/components/ui/calendar";
 import {
   Select,
   SelectContent,
@@ -26,14 +25,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import {
-  Calendar as CalendarIcon,
-  Trash2,
-  Clock,
-  ChevronDown,
-  Save,
-  Key,
-} from "lucide-react";
+import { IconCalendar as CalendarIcon, IconTrash, IconClock, IconChevronDown, IconDeviceFloppy, IconKey } from '@tabler/icons-react';
+import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { cn } from "@/lib/cn";
 
 import { type DateTimeCustomCell } from "./types";
@@ -176,7 +169,7 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
     const trimmed = manualText.trim();
     const currentValue = !trimmed && nullable ? null : trimmed;
 
-    // Check if value actually changed
+    // IconCheck if value actually changed
     const hasChanged = currentValue !== originalValueRef.current;
 
     // If no changes were made, cancel the edit
@@ -249,7 +242,7 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
       finishedRef.current = true;
       setOpen(false);
 
-      // Check if value actually changed
+      // IconCheck if value actually changed
       const trimmed = manualText.trim();
       const committedValue: string | null = !trimmed && nullable ? null : trimmed;
       const hasChanged = committedValue !== originalValueRef.current;
@@ -331,7 +324,7 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
       {/* Header with column info */}
       <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50 click-outside-ignore">
         {isPrimaryKey && (
-          <Key className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
+          <IconKey className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
         )}
         <span className="text-[10px] font-medium text-foreground/80">
           {columnName}
@@ -395,7 +388,7 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
                 commit(null);
               }}
             >
-              <Trash2 className="h-3 w-3" />
+              <IconTrash className="h-3 w-3" />
             </Button>
           )}
           <Popover open={open} onOpenChange={setOpen}>
@@ -406,7 +399,7 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
                 title={kind === "time-cell" ? "Pick time" : "Pick date/time"}
               >
                 {kind === "time-cell" ? (
-                  <Clock className="h-3 w-3" />
+                  <IconClock className="h-3 w-3" />
                 ) : (
                   <CalendarIcon className="h-3 w-3" />
                 )}
@@ -455,7 +448,7 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
                       className="h-7 text-xs flex-1"
                       onClick={handleSetNow}
                     >
-                      <Clock className="h-3 w-3 mr-1" />
+                      <IconClock className="h-3 w-3 mr-1" />
                       Now
                     </Button>
                   )}
@@ -467,14 +460,14 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
                       onClick={handleSave}
                       className="h-7 py-0 text-xs"
                     >
-                      <Save className="h-3 w-3" />
+                      <IconDeviceFloppy className="h-3 w-3" />
                     </Button>
                   </div>
                 </div>
 
                 {/* Calendar for date/datetime */}
                 {kind !== "time-cell" && (
-                  <Calendar
+                  <CalendarPicker
                     mode="single"
                     selected={selectedDate ?? undefined}
                     onSelect={handleDateSelect}
@@ -500,12 +493,12 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
                         className="w-full justify-between h-8 px-2"
                       >
                         <div className="flex items-center gap-2">
-                          <Clock className="h-3.5 w-3.5" />
+                          <IconClock className="h-3.5 w-3.5" />
                           <span className="text-xs font-medium">
                             Time & Timezone
                           </span>
                         </div>
-                        <ChevronDown
+                        <IconChevronDown
                           className={cn(
                             "h-4 w-4 transition-transform",
                             !timeCollapsed && "rotate-0",

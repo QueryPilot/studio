@@ -12,6 +12,7 @@ export const useHomeScreenStore = create<HomeScreenState>()(
       activeEnvFilters: ['all'],
       searchQuery: '',
       actionBarExpanded: false,
+      sidebarWidth: 200,
       collapsedGroups: [],
 
       setContentMode: (mode: ContentMode) => set({ contentMode: mode }),
@@ -61,6 +62,11 @@ export const useHomeScreenStore = create<HomeScreenState>()(
           actionBarExpanded: !state.actionBarExpanded,
         })),
 
+      setActionBarExpanded: (expanded: boolean) =>
+        set({ actionBarExpanded: expanded }),
+
+      setSidebarWidth: (width: number) => set({ sidebarWidth: width }),
+
       toggleGroup: (group: string) =>
         set((state) => ({
           collapsedGroups: state.collapsedGroups.includes(group)
@@ -72,6 +78,7 @@ export const useHomeScreenStore = create<HomeScreenState>()(
       name: 'home-screen-state',
       partialize: (state) => ({
         actionBarExpanded: state.actionBarExpanded,
+        sidebarWidth: state.sidebarWidth,
         collapsedGroups: state.collapsedGroups,
         activeEnvFilters: state.activeEnvFilters,
       }),

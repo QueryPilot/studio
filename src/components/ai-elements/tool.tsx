@@ -8,15 +8,7 @@ import {
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/cn";
 import type { ToolUIPart } from "ai";
-import {
-  CheckCircleIcon,
-  ChevronDownIcon,
-  CircleIcon,
-  ClockIcon,
-  CopyIcon,
-  WrenchIcon,
-  XCircleIcon,
-} from "lucide-react";
+import { IconCircleCheck, IconChevronDown, IconCircle, IconClock, IconCopy, IconTool, IconCircleX } from '@tabler/icons-react';
 import type { ComponentProps, ReactNode } from "react";
 import { isValidElement, useState } from "react";
 import { CodeBlock } from "./code-block";
@@ -47,10 +39,10 @@ const getStatusBadge = (status: ToolUIPart["state"]) => {
   };
 
   const icons: Record<ToolUIPart["state"], ReactNode> = {
-    "input-streaming": <CircleIcon className="size-3" />,
-    "input-available": <ClockIcon className="size-3 animate-pulse" />,
-    "output-available": <CheckCircleIcon className="size-3 text-green-600" />,
-    "output-error": <XCircleIcon className="size-3 text-red-600" />,
+    "input-streaming": <IconCircle className="size-3" />,
+    "input-available": <IconClock className="size-3 animate-pulse" />,
+    "output-available": <IconCircleCheck className="size-3 text-green-600" />,
+    "output-error": <IconCircleX className="size-3 text-red-600" />,
   };
 
   return (
@@ -79,13 +71,13 @@ export const ToolHeader = ({
     {...props}
   >
     <div className="flex items-center gap-1.5">
-      <WrenchIcon className="size-3 text-muted-foreground" />
+      <IconTool className="size-3 text-muted-foreground" />
       <span className="font-medium text-xs">
         {title ?? type.split("-").slice(1).join("-")}
       </span>
       {getStatusBadge(state)}
     </div>
-    <ChevronDownIcon className="size-3 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+    <IconChevronDown className="size-3 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
   </CollapsibleTrigger>
 );
 
@@ -171,9 +163,9 @@ export const ToolOutput = ({
           onClick={handleCopy}
         >
           {copied ? (
-            <CheckCircleIcon className="size-3 text-green-600" />
+            <IconCircleCheck className="size-3 text-green-600" />
           ) : (
-            <CopyIcon className="size-3 text-muted-foreground" />
+            <IconCopy className="size-3 text-muted-foreground" />
           )}
         </Button>
       </div>

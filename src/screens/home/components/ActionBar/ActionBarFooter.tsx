@@ -1,17 +1,8 @@
-import { Settings, Moon, Sun, PanelLeftClose, PanelLeft } from 'lucide-react';
+import { IconSettings, IconMoon, IconSun } from '@tabler/icons-react';
 import { Button } from '@/components/ui/button';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
-import { cn } from '@/lib/utils';
-import { useHomeScreenStore } from '../../store/homeScreenStore';
 import { useTheme } from '@/components/theme-provider';
 
 export function ActionBarFooter() {
-  const actionBarExpanded = useHomeScreenStore((s) => s.actionBarExpanded);
-  const toggleActionBar = useHomeScreenStore((s) => s.toggleActionBar);
   const { theme, setTheme } = useTheme();
 
   const handleToggleTheme = () => {
@@ -25,83 +16,31 @@ export function ActionBarFooter() {
 
   return (
     <div className="flex flex-col gap-1 p-2">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn(
-              'justify-start gap-2 h-8',
-              !actionBarExpanded && 'px-2'
-            )}
-            onClick={handleOpenSettings}
-          >
-            <Settings className="h-3.5 w-3.5" />
-            {actionBarExpanded && <span className="text-xs">Settings</span>}
-          </Button>
-        </TooltipTrigger>
-        {!actionBarExpanded && (
-          <TooltipContent side="right" className="text-xs">
-            Settings
-          </TooltipContent>
-        )}
-      </Tooltip>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="justify-start gap-2 h-8"
+        onClick={handleOpenSettings}
+      >
+        <IconSettings className="h-3.5 w-3.5" />
+        <span className="text-xs">Settings</span>
+      </Button>
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn(
-              'justify-start gap-2 h-8',
-              !actionBarExpanded && 'px-2'
-            )}
-            onClick={handleToggleTheme}
-          >
-            {theme === 'dark' ? (
-              <Sun className="h-3.5 w-3.5" />
-            ) : (
-              <Moon className="h-3.5 w-3.5" />
-            )}
-            {actionBarExpanded && (
-              <span className="text-xs">
-                {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
-              </span>
-            )}
-          </Button>
-        </TooltipTrigger>
-        {!actionBarExpanded && (
-          <TooltipContent side="right" className="text-xs">
-            {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
-          </TooltipContent>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="justify-start gap-2 h-8"
+        onClick={handleToggleTheme}
+      >
+        {theme === 'dark' ? (
+          <IconSun className="h-3.5 w-3.5" />
+        ) : (
+          <IconMoon className="h-3.5 w-3.5" />
         )}
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn(
-              'justify-start gap-2 h-8',
-              !actionBarExpanded && 'px-2'
-            )}
-            onClick={toggleActionBar}
-          >
-            {actionBarExpanded ? (
-              <PanelLeftClose className="h-3.5 w-3.5" />
-            ) : (
-              <PanelLeft className="h-3.5 w-3.5" />
-            )}
-            {actionBarExpanded && <span className="text-xs">Collapse</span>}
-          </Button>
-        </TooltipTrigger>
-        {!actionBarExpanded && (
-          <TooltipContent side="right" className="text-xs">
-            Expand
-          </TooltipContent>
-        )}
-      </Tooltip>
+        <span className="text-xs">
+          {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+        </span>
+      </Button>
     </div>
   );
 }

@@ -12,15 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Trash2,
-  Clock,
-  AlertCircle,
-  CheckCircle2,
-  Search,
-  X,
-  Star,
-} from "lucide-react";
+import { IconTrash, IconClock, IconAlertCircle, IconCircleCheckFilled, IconSearch, IconX, IconStar } from '@tabler/icons-react';
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import dayjs from "dayjs";
@@ -142,7 +134,7 @@ export function QueryHistory({
       <div className="p-3 border-b space-y-2">
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               value={searchTerm}
               onChange={(e) => {
@@ -166,7 +158,7 @@ export function QueryHistory({
                 size="icon"
                 className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6"
               >
-                <X className="h-3 w-3" />
+                <IconX className="h-3 w-3" />
               </Button>
             )}
           </div>
@@ -184,7 +176,7 @@ export function QueryHistory({
       <ScrollArea className="flex-1">
         {history.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full p-8 text-center">
-            <Clock className="h-12 w-12 text-muted-foreground mb-4" />
+            <IconClock className="h-12 w-12 text-muted-foreground mb-4" />
             <p className="text-muted-foreground">No query history yet</p>
           </div>
         ) : (
@@ -204,9 +196,9 @@ export function QueryHistory({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       {entry.error ? (
-                        <AlertCircle className="h-3 w-3 text-destructive flex-shrink-0" />
+                        <IconAlertCircle className="h-3 w-3 text-destructive flex-shrink-0" />
                       ) : (
-                        <CheckCircle2 className="h-3 w-3 text-green-600 dark:text-green-500 flex-shrink-0" />
+                        <IconCircleCheckFilled className="h-3 w-3 text-green-600 dark:text-green-500 flex-shrink-0" />
                       )}
                       <span className="text-xs text-muted-foreground">
                         {dayjs(entry.executedAt).fromNow()}
@@ -247,7 +239,7 @@ export function QueryHistory({
                         entry.isFavorite && "opacity-100 text-yellow-500",
                       )}
                     >
-                      <Star
+                      <IconStar
                         className={cn(
                           "h-3 w-3",
                           entry.isFavorite && "fill-current",
@@ -263,13 +255,13 @@ export function QueryHistory({
                       size="icon"
                       className="h-7 w-7"
                     >
-                      <Trash2 className="h-3 w-3" />
+                      <IconTrash className="h-3 w-3" />
                     </Button>
                   </div>
                 </div>
                 {entry.isFavorite && entry.name && (
                   <div className="flex items-center gap-2 mt-1 text-xs text-yellow-600 dark:text-yellow-500">
-                    <Star className="h-3 w-3 fill-current" />
+                    <IconStar className="h-3 w-3 fill-current" />
                     <span className="font-medium">{entry.name}</span>
                   </div>
                 )}
@@ -279,7 +271,7 @@ export function QueryHistory({
         )}
       </ScrollArea>
 
-      {/* Edit Favorite Dialog */}
+      {/* IconEdit Favorite Dialog */}
       <Dialog
         open={!!editingFavorite}
         onOpenChange={(open) => {
@@ -320,7 +312,7 @@ export function QueryHistory({
                 onClick={handleSaveFavorite}
                 disabled={!favoriteName.trim()}
               >
-                Save
+                IconDeviceFloppy
               </Button>
             </div>
           </div>

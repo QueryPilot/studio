@@ -8,16 +8,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
-  EyeOff,
-  Pin,
-  PinOff,
-  Copy,
-  Filter,
-} from "lucide-react";
+import { IconArrowsUpDown, IconArrowUp, IconArrowDown, IconEyeOff, IconPin, IconPinnedOff, IconCopy, IconFilter } from '@tabler/icons-react';
 import type { GridColumnV2 } from "../types";
 
 export interface ColumnHeaderContextMenuProps {
@@ -69,7 +60,7 @@ export function ColumnHeaderContextMenu({
       >
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
-            <ArrowUpDown className="mr-2 h-4 w-4" />
+            <IconArrowsUpDown className="mr-2 h-4 w-4" />
             Sort
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent
@@ -78,14 +69,14 @@ export function ColumnHeaderContextMenu({
             alignOffset={-5}
           >
             <DropdownMenuItem onClick={onSortAsc}>
-              <ArrowUp className="mr-2 h-4 w-4" />
+              <IconArrowUp className="mr-2 h-4 w-4" />
               Sort Ascending
               {sortDirection === "asc" && (
                 <span className="ml-auto text-muted-foreground">✓</span>
               )}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={onSortDesc}>
-              <ArrowDown className="mr-2 h-4 w-4" />
+              <IconArrowDown className="mr-2 h-4 w-4" />
               Sort Descending
               {sortDirection === "desc" && (
                 <span className="ml-auto text-muted-foreground">✓</span>
@@ -106,18 +97,18 @@ export function ColumnHeaderContextMenu({
 
         {isPinned ? (
           <DropdownMenuItem onClick={onUnpin}>
-            <PinOff className="mr-2 h-4 w-4" />
+            <IconPinnedOff className="mr-2 h-4 w-4" />
             Unpin Column
           </DropdownMenuItem>
         ) : (
           <DropdownMenuItem onClick={onPin}>
-            <Pin className="mr-2 h-4 w-4" />
-            Pin Column
+            <IconPin className="mr-2 h-4 w-4" />
+            IconPin Column
           </DropdownMenuItem>
         )}
 
         <DropdownMenuItem onClick={onHide}>
-          <EyeOff className="mr-2 h-4 w-4" />
+          <IconEyeOff className="mr-2 h-4 w-4" />
           Hide Column
         </DropdownMenuItem>
 
@@ -125,14 +116,14 @@ export function ColumnHeaderContextMenu({
 
         {onFilterByColumn && (
           <DropdownMenuItem onClick={onFilterByColumn}>
-            <Filter className="mr-2 h-4 w-4" />
-            Filter by this column
+            <IconFilter className="mr-2 h-4 w-4" />
+            IconFilter by this column
           </DropdownMenuItem>
         )}
 
         <DropdownMenuItem onClick={onCopyColumnName}>
-          <Copy className="mr-2 h-4 w-4" />
-          Copy Column Name
+          <IconCopy className="mr-2 h-4 w-4" />
+          IconCopy Column Name
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

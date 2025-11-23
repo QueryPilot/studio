@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Trash2, Key } from "lucide-react";
+import { IconTrash, IconKey } from '@tabler/icons-react';
 import { cn } from "@/lib/cn";
 import type { HStoreCustomCell } from "./types";
 import { hstoreToEditorText, normalizeHstoreEditorText } from "./hstoreFormat";
@@ -59,7 +59,7 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
   const commitCurrentText = useCallback(() => {
     const text = textareaRef.current?.value ?? "";
 
-    // Check if value actually changed
+    // IconCheck if value actually changed
     const hasChanged = text !== originalValueRef.current;
 
     // If no changes were made, cancel the edit
@@ -151,7 +151,7 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
       {/* Header with column info */}
       <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50">
         {isPrimaryKey && (
-          <Key className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
+          <IconKey className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
         )}
         <span className="text-[10px] font-medium text-foreground/80">
           {columnName}
@@ -197,7 +197,7 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
               title="Clear (NULL)"
               onClick={handleClear}
             >
-              <Trash2 className="h-3 w-3 mr-1" />
+              <IconTrash className="h-3 w-3 mr-1" />
               Clear
             </Button>
           )}
@@ -207,7 +207,7 @@ export const HStoreCellEditor: React.FC<HStoreCellEditorProps> = ({
             className="h-6 px-2"
             onClick={handleSave}
           >
-            Save
+            IconDeviceFloppy
           </Button>
         </div>
       </div>

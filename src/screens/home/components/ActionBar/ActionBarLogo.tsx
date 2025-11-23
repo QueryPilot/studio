@@ -1,30 +1,35 @@
-import { cn } from '@/lib/utils';
-import { useHomeScreenStore } from '../../store/homeScreenStore';
+import { useHomeScreenStore } from "../../store/homeScreenStore";
+import { getVersion } from "@tauri-apps/api/app";
+import { useEffect, useState } from "react";
 
 export function ActionBarLogo() {
-  const actionBarExpanded = useHomeScreenStore((s) => s.actionBarExpanded);
   const setContentMode = useHomeScreenStore((s) => s.setContentMode);
+  const [version, setVersion] = useState<string>("");
+
+  useEffect(() => {
+    getVersion()
+      .then(setVersion)
+      .catch(() => {
+        setVersion("");
+      });
+  }, []);
 
   const handleClick = () => {
-    setContentMode('browse');
+    setContentMode("browse");
   };
 
   return (
     <div
-      className={cn(
-        'flex items-center gap-2 p-2 cursor-pointer hover:bg-accent/50 transition-colors',
-        !actionBarExpanded && 'justify-center'
-      )}
+      className="flex items-center gap-3 cursor-pointer hover:bg-accent/50 transition-colors p-4"
       onClick={handleClick}
     >
-      <img
-        src="/logo.png"
-        alt="Query Pilot"
-        className="h-8 w-8 rounded-lg"
-      />
-      {actionBarExpanded && (
-        <span className="text-xs font-semibold truncate">Query Pilot</span>
-      )}
+      <img src="/logo.png" alt="Query Pilot" className="rounded-lg h-16 w-16" />
+      <div className="flex flex-col items-start min-w-0">
+        <span className="text-lg font-semibold truncate">Query Pilot</span>
+        {version && (
+          <span className="text-xs text-muted-foreground">v{version}</span>
+        )}
+      </div>
     </div>
   );
 }

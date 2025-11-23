@@ -1,9 +1,4 @@
 import { Button } from '@/components/ui/button';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useHomeScreenStore } from '../../store/homeScreenStore';
 
@@ -18,7 +13,6 @@ const ENV_FILTERS = [
 ];
 
 export function EnvFilter() {
-  const actionBarExpanded = useHomeScreenStore((s) => s.actionBarExpanded);
   const activeEnvFilters = useHomeScreenStore((s) => s.activeEnvFilters);
   const toggleEnvFilter = useHomeScreenStore((s) => s.toggleEnvFilter);
 
@@ -31,32 +25,21 @@ export function EnvFilter() {
             : activeEnvFilters.includes(env.key);
 
         return (
-          <Tooltip key={env.key}>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className={cn(
-                  'gap-2 h-7',
-                  actionBarExpanded ? 'justify-start' : 'justify-center px-0',
-                  isActive && 'bg-accent'
-                )}
-                onClick={() => toggleEnvFilter(env.key)}
-              >
-                <div
-                  className={cn('h-2 w-2 rounded-full flex-shrink-0', env.color)}
-                />
-                {actionBarExpanded && (
-                  <span className="text-xs">{env.label}</span>
-                )}
-              </Button>
-            </TooltipTrigger>
-            {!actionBarExpanded && (
-              <TooltipContent side="right" className="text-xs">
-                {env.label}
-              </TooltipContent>
+          <Button
+            key={env.key}
+            variant="ghost"
+            size="sm"
+            className={cn(
+              'justify-start gap-2 h-7',
+              isActive && 'bg-accent'
             )}
-          </Tooltip>
+            onClick={() => toggleEnvFilter(env.key)}
+          >
+            <div
+              className={cn('h-2.5 w-2.5 rounded-full flex-shrink-0', env.color)}
+            />
+            <span className="text-xs">{env.label}</span>
+          </Button>
         );
       })}
     </div>

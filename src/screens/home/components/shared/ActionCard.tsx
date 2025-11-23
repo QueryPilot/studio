@@ -1,8 +1,8 @@
-import type { LucideIcon } from 'lucide-react';
+import type { Icon } from '@tabler/icons-react';
 import { cn } from '@/lib/utils';
 
 interface ActionCardProps {
-  icon: LucideIcon;
+  icon: Icon;
   title: string;
   description: string;
   onClick: () => void;

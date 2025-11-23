@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
-import { Database, ChevronDown, ChevronRight } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { IconDatabase, IconChevronDown, IconChevronRight, IconPlus } from '@tabler/icons-react';
 import { Button } from '@/components/ui/button';
 import { useConnectionStore } from '@/stores/connectionStoreNew';
 import { useHomeScreenStore } from '../../store/homeScreenStore';
@@ -14,8 +13,13 @@ export function ConnectionsSection() {
   const activeEnvFilters = useHomeScreenStore((s) => s.activeEnvFilters);
   const collapsedGroups = useHomeScreenStore((s) => s.collapsedGroups);
   const toggleGroup = useHomeScreenStore((s) => s.toggleGroup);
+  const openConnectionForm = useHomeScreenStore((s) => s.openConnectionForm);
 
-  // Filter connections by active env filters
+  const handleNewConnection = () => {
+    openConnectionForm('create');
+  };
+
+  // IconFilter connections by active env filters
   const filteredConnections = useMemo(() => {
     if (activeEnvFilters.includes('all')) {
       return connections;
@@ -67,14 +71,25 @@ export function ConnectionsSection() {
 
   return (
     <div>
-      <div className="flex items-center gap-2 mb-3">
-        <Database className="h-3.5 w-3.5 text-muted-foreground" />
-        <h2 className="text-xs font-medium text-muted-foreground">
-          Connections
-        </h2>
-        <span className="text-xs text-muted-foreground">
-          ({filteredConnections.length})
-        </span>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <IconDatabase className="h-3.5 w-3.5 text-muted-foreground" />
+          <h2 className="text-xs font-medium text-muted-foreground">
+            Connections
+          </h2>
+          <span className="text-xs text-muted-foreground">
+            ({filteredConnections.length})
+          </span>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 px-2 text-xs"
+          onClick={handleNewConnection}
+        >
+          <IconPlus className="h-3 w-3 mr-1" />
+          New
+        </Button>
       </div>
 
       <div className="space-y-3">
@@ -90,9 +105,9 @@ export function ConnectionsSection() {
                 onClick={() => toggleGroup(groupName)}
               >
                 {isCollapsed ? (
-                  <ChevronRight className="h-3 w-3" />
+                  <IconChevronRight className="h-3 w-3" />
                 ) : (
-                  <ChevronDown className="h-3 w-3" />
+                  <IconChevronDown className="h-3 w-3" />
                 )}
                 <span className="text-xs font-medium">{groupName}</span>
                 <span className="text-xs text-muted-foreground">
@@ -101,7 +116,7 @@ export function ConnectionsSection() {
               </Button>
 
               {!isCollapsed && (
-                <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 pl-5">
+                <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                   {groupConnections.map((connection) => (
                     <ConnectionCard
                       key={connection.profile.id}

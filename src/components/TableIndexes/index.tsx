@@ -6,7 +6,7 @@ import {
   type CustomRenderer,
 } from "@glideapps/glide-data-grid";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertCircle } from "lucide-react";
+import { IconAlertCircle } from '@tabler/icons-react';
 import { databaseService, type TableIndex } from "@/services/databaseService";
 import { EditableDataGrid } from "@/components/DataGridV2/base/EditableDataGrid";
 import type { GridEditCommitEvent } from "@/components/DataGridV2/types";
@@ -217,7 +217,7 @@ export const TableIndexes = memo(function TableIndexes({
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-8 select-text">
-        <AlertCircle className="h-12 w-12 text-destructive mb-4" />
+        <IconAlertCircle className="h-12 w-12 text-destructive mb-4" />
         <h3 className="text-lg font-semibold mb-2">Failed to load indexes</h3>
         <p className="text-sm text-muted-foreground max-w-md text-center select-text">
           {error}

@@ -12,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Star, Trash2, Edit, Search, X } from "lucide-react";
+import { IconStar, IconTrash, IconEdit, IconSearch, IconX } from '@tabler/icons-react';
 import { toast } from "sonner";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
@@ -128,7 +128,7 @@ export function SavedQueries({
         <div className="p-3 border-b space-y-2">
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 value={searchTerm}
                 onChange={(e) => {
@@ -152,7 +152,7 @@ export function SavedQueries({
                   size="icon"
                   className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6"
                 >
-                  <X className="h-3 w-3" />
+                  <IconX className="h-3 w-3" />
                 </Button>
               )}
             </div>
@@ -162,10 +162,10 @@ export function SavedQueries({
         <ScrollArea className="flex-1">
           {favorites.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full p-8 text-center">
-              <Star className="h-12 w-12 text-muted-foreground mb-4" />
+              <IconStar className="h-12 w-12 text-muted-foreground mb-4" />
               <p className="text-muted-foreground">No favorite queries yet</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Star queries from the history to see them here
+                IconStar queries from the history to see them here
               </p>
             </div>
           ) : (
@@ -181,7 +181,7 @@ export function SavedQueries({
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <Star className="h-3 w-3 text-yellow-500 fill-yellow-500 flex-shrink-0" />
+                        <IconStar className="h-3 w-3 text-yellow-500 fill-yellow-500 flex-shrink-0" />
                         <h4 className="font-medium text-sm">
                           {favorite.name || "Untitled Query"}
                         </h4>
@@ -212,7 +212,7 @@ export function SavedQueries({
                         size="icon"
                         className="h-7 w-7"
                       >
-                        <Edit className="h-3 w-3" />
+                        <IconEdit className="h-3 w-3" />
                       </Button>
                       <Button
                         onClick={(e) => {
@@ -223,7 +223,7 @@ export function SavedQueries({
                         size="icon"
                         className="h-7 w-7"
                       >
-                        <Trash2 className="h-3 w-3" />
+                        <IconTrash className="h-3 w-3" />
                       </Button>
                     </div>
                   </div>
@@ -234,7 +234,7 @@ export function SavedQueries({
         </ScrollArea>
       </div>
 
-      {/* Edit Favorite Name Dialog */}
+      {/* IconEdit Favorite Name Dialog */}
       <Dialog
         open={!!editingFavorite}
         onOpenChange={(open) => {

@@ -22,21 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Database,
-  Loader2,
-  CheckCircle2,
-  ChevronDown,
-  Shield,
-  Server,
-  Plus,
-  X,
-  Check,
-  ClipboardPaste,
-  ClipboardCheck,
-  XIcon,
-  Edit2,
-} from "lucide-react";
+import { IconDatabase, IconLoader2, IconCircleCheckFilled, IconChevronDown, IconShield, IconServer, IconPlus, IconX, IconCheck, IconClipboardText, IconClipboardCheck, IconPencil } from '@tabler/icons-react';
 import { cn } from "@/lib/utils";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { toast } from "sonner";
@@ -122,7 +108,7 @@ const getGroupTags = (): GroupTag[] => {
   return stored ? (JSON.parse(stored) as GroupTag[]) : [];
 };
 
-// Save group tags to localStorage
+// IconDeviceFloppy group tags to localStorage
 const saveGroupTags = (tags: GroupTag[]) => {
   localStorage.setItem("query_pilot_group_tags", JSON.stringify(tags));
 };
@@ -141,7 +127,7 @@ export function ConnectionDialog({
   const [dbType, setDbType] = useState<DatabaseType>(() => {
     // Handle both DatabaseConnection and ConnectionProfile types
     if (connection) {
-      // Check if it's a ConnectionProfile (has db_type field)
+      // IconCheck if it's a ConnectionProfile (has db_type field)
       if ("db_type" in connection) {
         const dbTypeMap: Record<number, DatabaseType> = {
           0: "postgresql", // DbType.PostgreSQL
@@ -307,19 +293,19 @@ export function ConnectionDialog({
     }
   }, [useSSHAgent]);
 
-  // Keyboard shortcuts
+  // IconKeyboard shortcuts
   useEffect(() => {
     if (!open) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Cmd+Enter = Save & Connect
+      // Cmd+Enter = IconDeviceFloppy & Connect
       if (e.metaKey && e.key === "Enter") {
         e.preventDefault();
         if (!isSaving && !isConnecting && !isTesting) {
           void handleConnect();
         }
       }
-      // Enter = Save (only if not in textarea/input with modifier)
+      // Enter = IconDeviceFloppy (only if not in textarea/input with modifier)
       else if (e.key === "Enter" && !e.metaKey && !e.shiftKey) {
         const target = e.target as HTMLElement;
         // Allow Enter in textareas
@@ -476,13 +462,13 @@ export function ConnectionDialog({
       } else {
         toast.error("Clipboard Empty", {
           description:
-            "No text found in clipboard. Copy connection details first.",
+            "No text found in clipboard. IconCopy connection details first.",
         });
       }
     } catch (error) {
       console.error("Clipboard error:", error);
 
-      // Check if it's the "not available in requested format" error
+      // IconCheck if it's the "not available in requested format" error
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       if (
@@ -491,7 +477,7 @@ export function ConnectionDialog({
       ) {
         toast.error("Clipboard Empty", {
           description:
-            "No text found in clipboard. Copy connection details first.",
+            "No text found in clipboard. IconCopy connection details first.",
         });
         return;
       }
@@ -517,7 +503,7 @@ export function ConnectionDialog({
         } else {
           toast.error("Clipboard Empty", {
             description:
-              "No text found in clipboard. Copy connection details first.",
+              "No text found in clipboard. IconCopy connection details first.",
           });
         }
       } catch (browserError) {
@@ -576,7 +562,7 @@ export function ConnectionDialog({
   const handleCreateGroup = (groupName: string) => {
     if (!groupName.trim()) return;
 
-    // Check if group already exists
+    // IconCheck if group already exists
     const exists = groupTags.some((t) => t.name === groupName);
     if (exists) {
       toast.error("Group already exists", {
@@ -621,7 +607,7 @@ export function ConnectionDialog({
       return;
     }
 
-    // Check if new name already exists
+    // IconCheck if new name already exists
     const exists = groupTags.some(
       (t) => t.name === newName && t.name !== oldName,
     );
@@ -688,11 +674,11 @@ export function ConnectionDialog({
 
   const getTagColor = (tagName: string, isGroup: boolean = false) => {
     if (!isGroup) {
-      // Check environment tags
+      // IconCheck environment tags
       const envTag = ENVIRONMENT_TAGS.find((t) => t.name === tagName);
       if (envTag) return { bg: envTag.color, text: envTag.textColor };
     } else {
-      // Check group tags
+      // IconCheck group tags
       const groupTag = groupTags.find((t) => t.name === tagName);
       if (groupTag) {
         const colorObj = TAG_COLORS.find((c) => c.class === groupTag.color);
@@ -952,7 +938,7 @@ export function ConnectionDialog({
           errorDetails.includes("ECONNREFUSED") ||
           errorDetails.includes("Connection refused")
         ) {
-          errorDetails = `Connection refused. Please check:\n• Database is running\n• Host and port are correct\n• Firewall settings`;
+          errorDetails = `Connection refused. Please check:\n• IconDatabase is running\n• Host and port are correct\n• Firewall settings`;
         } else if (
           errorDetails.includes("ENOTFOUND") ||
           errorDetails.includes("getaddrinfo")
@@ -1194,12 +1180,12 @@ export function ConnectionDialog({
       >
         <DialogHeader className="sticky top-0 bg-background px-4 py-2.5 border-b flex flex-row items-center justify-between">
           <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
-            <Database className="h-3.5 w-3.5" />
+            <IconDatabase className="h-3.5 w-3.5" />
             {isEditMode ? "Edit Connection" : "Connect Database"}
           </DialogTitle>
           <DialogClose asChild>
             <Button variant="ghost" size="icon" className="h-6 w-6 p-0">
-              <XIcon className="size-4" />
+              <IconX className="size-4" />
             </Button>
           </DialogClose>
         </DialogHeader>
@@ -1245,7 +1231,7 @@ export function ConnectionDialog({
                   alt="SQL Server"
                   className="h-4 w-4"
                 />
-                SQL Server
+                SQL IconServer
               </TabsTrigger>
             </TabsList>
 
@@ -1313,7 +1299,7 @@ export function ConnectionDialog({
                             </span>
                           )}
                         </div>
-                        <ChevronDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
+                        <IconChevronDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-[400px] p-0">
@@ -1339,7 +1325,7 @@ export function ConnectionDialog({
                                   }}
                                   className="gap-1.5 h-7 px-2 text-xs"
                                 >
-                                  <Plus className="h-3 w-3" />
+                                  <IconPlus className="h-3 w-3" />
                                   Create "{groupSearchValue}"
                                 </Button>
                               )}
@@ -1370,7 +1356,7 @@ export function ConnectionDialog({
                                   <span>{t.name}</span>
                                 </div>
                                 {selectedTags.includes(t.name) && (
-                                  <Check className="h-3.5 w-3.5" />
+                                  <IconCheck className="h-3.5 w-3.5" />
                                 )}
                               </CommandItem>
                             ))}
@@ -1447,7 +1433,7 @@ export function ConnectionDialog({
                                             setEditingGroupName(t.name);
                                           }}
                                         >
-                                          <Edit2 className="h-2.5 w-2.5" />
+                                          <IconPencil className="h-2.5 w-2.5" />
                                         </Button>
                                         <Button
                                           variant="ghost"
@@ -1458,12 +1444,12 @@ export function ConnectionDialog({
                                             handleDeleteGroup(t.name);
                                           }}
                                         >
-                                          <X className="h-2.5 w-2.5 text-destructive" />
+                                          <IconX className="h-2.5 w-2.5 text-destructive" />
                                         </Button>
                                       </div>
                                     )}
                                     {selectedTags.includes(t.name) && (
-                                      <Check className="h-3.5 w-3.5" />
+                                      <IconCheck className="h-3.5 w-3.5" />
                                     )}
                                   </div>
                                 </CommandItem>
@@ -1486,7 +1472,7 @@ export function ConnectionDialog({
                                   }}
                                   className="text-xs"
                                 >
-                                  <Plus className="h-3 w-3 mr-2" />
+                                  <IconPlus className="h-3 w-3 mr-2" />
                                   Create "{groupSearchValue}"
                                 </CommandItem>
                               </CommandGroup>
@@ -1570,7 +1556,7 @@ export function ConnectionDialog({
 
                   <div>
                     <Label htmlFor="database" className="text-xs">
-                      Database
+                      IconDatabase
                     </Label>
                     <Input
                       id="database"
@@ -1587,7 +1573,7 @@ export function ConnectionDialog({
               ) : (
                 <div>
                   <Label htmlFor="database" className="text-xs">
-                    Database File
+                    IconDatabase File
                   </Label>
                   <Input
                     id="database"
@@ -1611,7 +1597,7 @@ export function ConnectionDialog({
                         htmlFor="ssl-mode"
                         className="flex items-center gap-1.5 text-xs"
                       >
-                        <Shield className="h-3 w-3 text-muted-foreground" />
+                        <IconShield className="h-3 w-3 text-muted-foreground" />
                         SSL Mode
                       </Label>
                       <Popover open={sslModeOpen} onOpenChange={setSslModeOpen}>
@@ -1622,7 +1608,7 @@ export function ConnectionDialog({
                             className="w-full justify-between mt-1 h-8 text-xs"
                           >
                             <span className="capitalize">{sslMode}</span>
-                            <ChevronDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
+                            <IconChevronDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent
@@ -1660,7 +1646,7 @@ export function ConnectionDialog({
                         <div className="grid grid-cols-3 gap-3">
                           <div>
                             <Label htmlFor="ssl-key" className="text-xs">
-                              Key File
+                              IconKey File
                             </Label>
                             <div className="relative mt-1">
                               <Input
@@ -1754,7 +1740,7 @@ export function ConnectionDialog({
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <Label className="flex items-center gap-1.5 text-xs">
-                        <Server className="h-3 w-3 text-muted-foreground" />
+                        <IconServer className="h-3 w-3 text-muted-foreground" />
                         SSH Tunnel
                       </Label>
                       <Switch checked={useSSH} onCheckedChange={setUseSSH} />
@@ -1765,7 +1751,7 @@ export function ConnectionDialog({
                         <div className="grid grid-cols-12 gap-3">
                           <div className="col-span-8">
                             <Label htmlFor="ssh-host" className="text-xs">
-                              SSH Server
+                              SSH IconServer
                             </Label>
                             <Input
                               id="ssh-host"
@@ -1859,7 +1845,7 @@ export function ConnectionDialog({
                                 useSSHAgent && "text-muted-foreground",
                               )}
                             >
-                              Use SSH Key
+                              Use SSH IconKey
                             </Label>
                           </div>
 
@@ -1867,7 +1853,7 @@ export function ConnectionDialog({
                             <>
                               <div>
                                 <Label htmlFor="ssh-key" className="text-xs">
-                                  Private Key
+                                  Private IconKey
                                 </Label>
                                 <div className="mt-1 flex gap-2">
                                   <Input
@@ -1892,7 +1878,7 @@ export function ConnectionDialog({
                                   htmlFor="ssh-key-passphrase"
                                   className="text-xs"
                                 >
-                                  Key Passphrase
+                                  IconKey Passphrase
                                 </Label>
                                 <Input
                                   id="ssh-key-passphrase"
@@ -1918,7 +1904,7 @@ export function ConnectionDialog({
           <div className="mt-4 space-y-3">
             <div className="flex items-center justify-between">
               <Label className="flex items-center gap-1.5 text-xs">
-                <Server className="h-3 w-3 text-muted-foreground" />
+                <IconServer className="h-3 w-3 text-muted-foreground" />
                 AWS SSM Bastion
                 <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
                   Beta
@@ -2161,13 +2147,13 @@ export function ConnectionDialog({
             >
               {uriParsed && (
                 <>
-                  <ClipboardCheck className="h-3 w-3" />
+                  <IconClipboardCheck className="h-3 w-3" />
                   Parsed
                 </>
               )}
               {!uriParsed && (
                 <>
-                  <ClipboardPaste className="h-3 w-3" />
+                  <IconClipboardText className="h-3 w-3" />
                   Paste Config
                 </>
               )}
@@ -2187,12 +2173,12 @@ export function ConnectionDialog({
           >
             {isTesting ? (
               <>
-                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                <IconLoader2 className="mr-1.5 h-3 w-3 animate-spin" />
                 {testStage === "ssh" ? "Testing SSH…" : "Testing DB…"}
               </>
             ) : testSuccess ? (
               <>
-                <CheckCircle2 className="mr-1.5 h-3 w-3" />
+                <IconCircleCheckFilled className="mr-1.5 h-3 w-3" />
                 Tested
               </>
             ) : (
@@ -2208,7 +2194,7 @@ export function ConnectionDialog({
           >
             {isSaving && (
               <>
-                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                <IconLoader2 className="mr-1.5 h-3 w-3 animate-spin" />
                 Saving...
               </>
             )}
@@ -2222,7 +2208,7 @@ export function ConnectionDialog({
           >
             {isConnecting && (
               <>
-                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                <IconLoader2 className="mr-1.5 h-3 w-3 animate-spin" />
                 Connecting...
               </>
             )}

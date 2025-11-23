@@ -25,7 +25,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import Dagre from "@dagrejs/dagre";
-import { Key, Link2, ChevronDown, ChevronUp } from "lucide-react";
+import { IconKey, IconLink, IconChevronDown, IconChevronUp } from '@tabler/icons-react';
 import {
   Tooltip,
   TooltipContent,
@@ -214,13 +214,13 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
   const renderColumnIcons = useCallback((column: ColumnMeta) => {
     const icons = [];
     if (column.is_pk) {
-      icons.push(<Key key="pk" className="h-3 w-3 text-amber-500" />);
+      icons.push(<IconKey key="pk" className="h-3 w-3 text-amber-500" />);
     }
     if (
       column.is_fk ||
       (!column.is_pk && column.name.toLowerCase().includes("_id"))
     ) {
-      icons.push(<Link2 key="fk" className="h-3 w-3 text-sky-500" />);
+      icons.push(<IconLink key="fk" className="h-3 w-3 text-sky-500" />);
     }
     return icons.length > 0 ? (
       <div className="flex gap-0.5">{icons}</div>
@@ -265,9 +265,9 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
             title={expanded ? "Show less" : "Show all columns"}
           >
             {expanded ? (
-              <ChevronUp className="h-3.5 w-3.5" />
+              <IconChevronUp className="h-3.5 w-3.5" />
             ) : (
-              <ChevronDown className="h-3.5 w-3.5" />
+              <IconChevronDown className="h-3.5 w-3.5" />
             )}
           </button>
         ) : null}

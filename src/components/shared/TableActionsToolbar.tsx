@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { Button } from "@/components/ui/button";
-import { Plus, Eye, CheckCircle2 } from "lucide-react";
+import { IconPlus, IconEye } from '@tabler/icons-react';
 import { PendingChangesIndicator } from "./PendingChangesIndicator";
 
 interface TableActionsToolbarProps {
@@ -27,7 +27,7 @@ export const TableActionsToolbar = memo(function TableActionsToolbar({
         disabled={disabled}
         className="h-7 text-xs"
       >
-        <Plus className="h-3.5 w-3.5 mr-1.5" />
+        <IconPlus className="h-3.5 w-3.5 mr-1.5" />
         {addButtonLabel}
       </Button>
 
@@ -41,7 +41,7 @@ export const TableActionsToolbar = memo(function TableActionsToolbar({
             onClick={onReviewChanges}
             className="h-7 text-xs"
           >
-            <Eye className="h-3.5 w-3.5 mr-1.5" />
+            <IconEye className="h-3.5 w-3.5 mr-1.5" />
             Review
           </Button>
         </>

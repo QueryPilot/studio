@@ -5,17 +5,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
-import {
-  PanelLeft,
-  Plus,
-  RefreshCw,
-  Shuffle,
-  ZoomIn,
-  ZoomOut,
-  Maximize2,
-  ArrowRightLeft,
-  ArrowUpDown,
-} from "lucide-react";
+import { IconLayoutSidebar, IconPlus, IconRefresh, IconArrowsShuffle, IconZoomIn, IconZoomOut, IconMaximize, IconArrowsRightLeft, IconArrowsUpDown } from '@tabler/icons-react';
 
 export type LayoutDirection = "LR" | "TB" | "RL" | "BT";
 
@@ -57,11 +47,11 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
               aria-pressed={isCodeVisible}
               onClick={onToggleCodePanel}
             >
-              <PanelLeft className="h-3.5 w-3.5" />
+              <IconLayoutSidebar className="h-3.5 w-3.5" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>
-            {isCodeVisible ? "Hide Code Editor" : "Show Code Editor"}
+            {isCodeVisible ? "Hide IconCode Editor" : "Show IconCode Editor"}
           </TooltipContent>
         </Tooltip>
       </div>
@@ -78,7 +68,7 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
                 onZoomIn?.();
               }}
             >
-              <ZoomIn className="h-3.5 w-3.5" />
+              <IconZoomIn className="h-3.5 w-3.5" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>Zoom In</TooltipContent>
@@ -94,7 +84,7 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
                 onZoomOut?.();
               }}
             >
-              <ZoomOut className="h-3.5 w-3.5" />
+              <IconZoomOut className="h-3.5 w-3.5" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>Zoom Out</TooltipContent>
@@ -110,7 +100,7 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
                 onFitView?.();
               }}
             >
-              <Maximize2 className="h-3.5 w-3.5" />
+              <IconMaximize className="h-3.5 w-3.5" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>Fit View</TooltipContent>
@@ -126,7 +116,7 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
                 onAutoArrange?.();
               }}
             >
-              <Shuffle className="h-3.5 w-3.5" />
+              <IconArrowsShuffle className="h-3.5 w-3.5" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>Auto Arrange</TooltipContent>
@@ -142,7 +132,7 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
                 onRefresh?.();
               }}
             >
-              <RefreshCw className="h-3.5 w-3.5" />
+              <IconRefresh className="h-3.5 w-3.5" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>Refresh</TooltipContent>
@@ -162,7 +152,7 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
                 onLayoutDirectionChange?.("TB");
               }}
             >
-              <ArrowUpDown className="h-3.5 w-3.5" />
+              <IconArrowsUpDown className="h-3.5 w-3.5" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>Vertical Layout</TooltipContent>
@@ -178,7 +168,7 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
                 onLayoutDirectionChange?.("LR");
               }}
             >
-              <ArrowRightLeft className="h-3.5 w-3.5" />
+              <IconArrowsRightLeft className="h-3.5 w-3.5" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>Horizontal Layout</TooltipContent>
@@ -198,7 +188,7 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
                 onCreateView?.();
               }}
             >
-              <Plus className="h-3.5 w-3.5" />
+              <IconPlus className="h-3.5 w-3.5" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>New View</TooltipContent>

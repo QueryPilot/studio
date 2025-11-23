@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { ChevronDown, ChevronRight, Star } from "lucide-react";
+import { IconChevronDown, IconChevronRight, IconStar } from '@tabler/icons-react';
 
 interface SidebarSectionProps {
   title: string;
@@ -32,9 +32,9 @@ export function SidebarSection({
             onClick={onToggle}
           >
             {isExpanded ? (
-              <ChevronDown className="h-4 w-4" />
+              <IconChevronDown className="h-4 w-4" />
             ) : (
-              <ChevronRight className="h-4 w-4" />
+              <IconChevronRight className="h-4 w-4" />
             )}
             <span className="font-medium text-xs">{title}</span>
             <span className="text-xs text-muted-foreground ml-auto">
@@ -148,7 +148,7 @@ export function SidebarItem({
             onClick={onToggleStar}
             title={isStarred ? "Unstar" : "Star"}
           >
-            <Star
+            <IconStar
               className={cn(
                 "h-3 w-3",
                 isStarred

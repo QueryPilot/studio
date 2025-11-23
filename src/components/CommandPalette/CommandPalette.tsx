@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo } from "react";
-import { Eye, FunctionSquare, Loader2, Table } from "lucide-react";
+import { IconEye, IconMathFunction, IconLoader2, IconTable } from '@tabler/icons-react';
 import Fuse, { type IFuseOptions } from "fuse.js";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -419,10 +419,10 @@ export function CommandPalette(): React.ReactElement {
                     <div className="flex justify-between items-center w-full">
                       <div className="text-xs font-medium flex items-center gap-2 flex-1 truncate">
                         {item.entityType === "function" ? (
-                          <FunctionSquare className="!h-3.5 !w-3.5 text-purple-500" />
+                          <IconMathFunction className="!h-3.5 !w-3.5 text-purple-500" />
                         ) : item.entityType === "materializedView" ||
                           item.entityType === "view" ? (
-                          <Eye
+                          <IconEye
                             className={cn("!h-3.5 !w-3.5", {
                               "text-green-500": item.entityType === "view",
                               "text-blue-500":
@@ -430,7 +430,7 @@ export function CommandPalette(): React.ReactElement {
                             })}
                           />
                         ) : (
-                          <Table className="!h-3.5 !w-3.5 text-primary" />
+                          <IconTable className="!h-3.5 !w-3.5 text-primary" />
                         )}
                         {item.name}
                       </div>
@@ -475,7 +475,7 @@ interface ListSpinnerProps {
 function ListSpinner({ message }: ListSpinnerProps) {
   return (
     <div className="flex items-center justify-center py-6 text-sm text-muted-foreground gap-2">
-      <Loader2 className="size-4 animate-spin" />
+      <IconLoader2 className="size-4 animate-spin" />
       {message}
     </div>
   );

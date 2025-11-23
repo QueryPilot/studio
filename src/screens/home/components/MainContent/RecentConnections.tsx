@@ -1,4 +1,4 @@
-import { Clock } from 'lucide-react';
+import { IconClock } from '@tabler/icons-react';
 import { useConnectionStore } from '@/stores/connectionStoreNew';
 import { ConnectionCard } from '../shared/ConnectionCard';
 
@@ -13,7 +13,7 @@ export function RecentConnections() {
   return (
     <div>
       <div className="flex items-center gap-2 mb-3">
-        <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+        <IconClock className="h-3.5 w-3.5 text-muted-foreground" />
         <h2 className="text-xs font-medium text-muted-foreground">
           Recent Connections
         </h2>

@@ -7,7 +7,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { Check } from "lucide-react";
+import { IconCheck } from '@tabler/icons-react';
 
 interface NullableCellEditorProps {
   value: NullableCell;
@@ -99,7 +99,7 @@ export const NullableCellEditor: React.FC<NullableCellEditorProps> = ({
                     YES
                   </span>
                 </div>
-                <Check
+                <IconCheck
                   className={cn(
                     "h-3 w-3",
                     value.data.value === "YES" ? "opacity-100" : "opacity-0",
@@ -114,7 +114,7 @@ export const NullableCellEditor: React.FC<NullableCellEditorProps> = ({
                 <div className="flex items-center gap-2">
                   <span className="text-red-600 dark:text-red-400">NO</span>
                 </div>
-                <Check
+                <IconCheck
                   className={cn(
                     "h-3 w-3",
                     value.data.value === "NO" ? "opacity-100" : "opacity-0",

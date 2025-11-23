@@ -8,7 +8,7 @@ import {
 } from "@glideapps/glide-data-grid";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertCircle, Trash2 } from "lucide-react";
+import { IconAlertCircle } from '@tabler/icons-react';
 import { DataGridBase } from "@/components/DataGridV2/base/DataGridBase";
 import { useColumnSizing } from "@/components/DataGridV2/hooks/useColumnSizing";
 import { TextSingleLineCellRenderer } from "@/components/DataGridV2/renderers/TextCell";
@@ -443,7 +443,7 @@ export const TableStructure = memo(function TableStructure({
         } as const;
       }
 
-      // Foreign Key, Check - read-only
+      // Foreign IconKey, IconCheck - read-only
       if (
         column.field === "foreign_key" ||
         column.field === "check_constraint"
@@ -510,7 +510,7 @@ export const TableStructure = memo(function TableStructure({
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-8 select-text">
-        <AlertCircle className="h-12 w-12 text-destructive mb-4" />
+        <IconAlertCircle className="h-12 w-12 text-destructive mb-4" />
         <h3 className="text-lg font-semibold mb-2">Failed to load structure</h3>
         <p className="text-sm text-muted-foreground max-w-md text-center select-text">
           {error}

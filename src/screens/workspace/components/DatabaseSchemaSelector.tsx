@@ -1,14 +1,5 @@
 import { useEffect, useCallback, useRef, useState } from "react";
-import {
-  Check,
-  ChevronDown,
-  Plus,
-  Table,
-  Eye,
-  FunctionSquare,
-  Zap,
-  Database,
-} from "lucide-react";
+import { IconCheck, IconChevronDown, IconPlus, IconTable, IconEye, IconMathFunction, IconBolt, IconDatabase } from '@tabler/icons-react';
 import {
   Command,
   CommandEmpty,
@@ -57,7 +48,7 @@ export function DatabaseSchemaSelector({
   const [schemaPopoverOpen, setSchemaPopoverOpen] = useState(false);
   const queryClient = useQueryClient();
 
-  // Check if connection is active
+  // IconCheck if connection is active
   const isConnectionActive = databaseService.isConnectionActive(connectionId);
   const prevActiveRef = useRef(isConnectionActive);
 
@@ -284,7 +275,7 @@ export function DatabaseSchemaSelector({
             <span className="truncate">
               {selectedSchema || "Select schema"}
             </span>
-            <ChevronDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+            <IconChevronDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[200px] p-0" align="start">
@@ -303,7 +294,7 @@ export function DatabaseSchemaSelector({
                     }}
                     className="text-xs"
                   >
-                    <Check
+                    <IconCheck
                       className={cn(
                         "mr-2 h-3 w-3",
                         selectedSchema === schema ? "opacity-100" : "opacity-0",
@@ -319,7 +310,7 @@ export function DatabaseSchemaSelector({
                   onSelect={handleCreateSchema}
                   className="text-xs text-muted-foreground"
                 >
-                  <Plus className="mr-2 h-3 w-3" />
+                  <IconPlus className="mr-2 h-3 w-3" />
                   Create new schema
                 </CommandItem>
               </CommandGroup>
@@ -337,38 +328,38 @@ export function DatabaseSchemaSelector({
             className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
             title="Create new object"
           >
-            <Plus className="h-4 w-4" />
+            <IconPlus className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-48">
           <DropdownMenuItem onClick={handleCreateTable} className="text-xs">
-            <Table className="mr-2 h-3.5 w-3.5 text-primary" />
-            New Table
+            <IconTable className="mr-2 h-3.5 w-3.5 text-primary" />
+            New IconTable
           </DropdownMenuItem>
           <DropdownMenuItem onClick={handleCreateView} className="text-xs">
-            <Eye className="mr-2 h-3.5 w-3.5 text-green-500" />
+            <IconEye className="mr-2 h-3.5 w-3.5 text-green-500" />
             New View
           </DropdownMenuItem>
           <DropdownMenuItem onClick={handleCreateMaterializedView} className="text-xs">
-            <Eye className="mr-2 h-3.5 w-3.5 text-blue-500" />
+            <IconEye className="mr-2 h-3.5 w-3.5 text-blue-500" />
             New Materialized View
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleCreateFunction} className="text-xs">
-            <FunctionSquare className="mr-2 h-3.5 w-3.5 text-purple-500" />
+            <IconMathFunction className="mr-2 h-3.5 w-3.5 text-purple-500" />
             New Function
           </DropdownMenuItem>
           <DropdownMenuItem onClick={handleCreateProcedure} className="text-xs">
-            <FunctionSquare className="mr-2 h-3.5 w-3.5 text-orange-500" />
+            <IconMathFunction className="mr-2 h-3.5 w-3.5 text-orange-500" />
             New Procedure
           </DropdownMenuItem>
           <DropdownMenuItem onClick={handleCreateTrigger} className="text-xs">
-            <Zap className="mr-2 h-3.5 w-3.5 text-yellow-500" />
+            <IconBolt className="mr-2 h-3.5 w-3.5 text-yellow-500" />
             New Trigger
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleCreateSchema} className="text-xs">
-            <Database className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
+            <IconDatabase className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
             New Schema
           </DropdownMenuItem>
         </DropdownMenuContent>

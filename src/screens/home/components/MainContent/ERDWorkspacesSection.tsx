@@ -1,4 +1,4 @@
-import { GitBranch, Plus } from 'lucide-react';
+import { IconSchema, IconPlus } from '@tabler/icons-react';
 import { Button } from '@/components/ui/button';
 
 export function ERDWorkspacesSection() {
@@ -13,7 +13,7 @@ export function ERDWorkspacesSection() {
     <div>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
+          <IconSchema className="h-3.5 w-3.5 text-muted-foreground" />
           <h2 className="text-xs font-medium text-muted-foreground">
             ERD Workspaces
           </h2>
@@ -24,7 +24,7 @@ export function ERDWorkspacesSection() {
           className="h-6 px-2 text-xs"
           onClick={handleCreateWorkspace}
         >
-          <Plus className="h-3 w-3 mr-1" />
+          <IconPlus className="h-3 w-3 mr-1" />
           New
         </Button>
       </div>

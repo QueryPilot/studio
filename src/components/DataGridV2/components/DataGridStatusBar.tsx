@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { cn } from "@/lib/utils";
-import { Loader2, Eye } from "lucide-react";
+import { IconLoader2, IconEye } from '@tabler/icons-react';
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -124,7 +124,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
                       className="h-5 w-5"
                       onClick={onViewDetails}
                     >
-                      <Eye className="h-3 w-3" />
+                      <IconEye className="h-3 w-3" />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent side="top" className="text-xs">
@@ -150,7 +150,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
       <div className="flex items-center gap-2">
         {showProgressBar && (
           <>
-            <Loader2 className="h-3 w-3 animate-spin" />
+            <IconLoader2 className="h-3 w-3 animate-spin" />
             <span className="text-primary">
               Streaming {getProgressPercentage()}%
             </span>
@@ -165,7 +165,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
         )}
         {showStreamingSpinner && (
           <>
-            <Loader2 className="h-3 w-3 animate-spin text-primary" />
+            <IconLoader2 className="h-3 w-3 animate-spin text-primary" />
             <span className="text-primary">Streaming...</span>
             <span className="text-muted-foreground">•</span>
           </>

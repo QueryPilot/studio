@@ -1,5 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import { AlertCircle, RefreshCw, Copy, Check } from "lucide-react";
+import { IconAlertCircle, IconRefresh, IconCopy, IconCheck } from '@tabler/icons-react';
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { captureException } from "@/utils/sentry";
@@ -82,7 +82,7 @@ export class ErrorBoundary extends Component<Props, State> {
           <div className="max-w-2xl w-full space-y-6">
             <div className="flex items-start space-x-4">
               <div className="flex-shrink-0">
-                <AlertCircle className="h-10 w-10 text-destructive" />
+                <IconAlertCircle className="h-10 w-10 text-destructive" />
               </div>
               <div className="flex-1 space-y-3">
                 <div>
@@ -155,7 +155,7 @@ export class ErrorBoundary extends Component<Props, State> {
                     variant="default"
                     size="xs"
                   >
-                    <RefreshCw className="h-4 w-4 mr-2" />
+                    <IconRefresh className="h-4 w-4 mr-2" />
                     Reload App
                   </Button>
                   {process.env.NODE_ENV === "development" && (
@@ -165,9 +165,9 @@ export class ErrorBoundary extends Component<Props, State> {
                       size="xs"
                     >
                       {this.state.copied ? (
-                        <Check className="h-4 w-4 mr-2" />
+                        <IconCheck className="h-4 w-4 mr-2" />
                       ) : (
-                        <Copy className="h-4 w-4 mr-2" />
+                        <IconCopy className="h-4 w-4 mr-2" />
                       )}
                       {this.state.copied ? "Copied!" : "Copy Error"}
                     </Button>

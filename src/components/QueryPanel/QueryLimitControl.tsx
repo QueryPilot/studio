@@ -5,7 +5,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { AlertCircle } from "lucide-react";
+import { IconAlertCircle } from '@tabler/icons-react';
 import { usePreferencesStore } from "@/stores/preferencesStore";
 
 interface QueryLimitControlProps {
@@ -23,7 +23,7 @@ export function QueryLimitControl({ appliedLimit, onFocusEditor }: QueryLimitCon
     <div className="flex items-center gap-2">
       {appliedLimit ? (
         <>
-          <AlertCircle className="h-3.5 w-3.5 text-yellow-600" />
+          <IconAlertCircle className="h-3.5 w-3.5 text-yellow-600" />
           <span className="text-xs text-yellow-700 dark:text-yellow-300">
             Auto limited
           </span>

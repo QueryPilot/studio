@@ -1,7 +1,7 @@
 import { memo } from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { StopCircle } from "lucide-react";
+import { IconPlayerStop } from '@tabler/icons-react';
 import { QueryLimitControl } from "./QueryLimitControl";
 import { KeyboardShortcut } from "@/components/ui/keyboard-shortcut";
 
@@ -53,7 +53,7 @@ export const QueryToolbar = memo(function QueryToolbar({
         >
           <TabsList className="!h-7">
             <TabsTrigger value="table" className="text-xs h-6" tabIndex={0}>
-              Table
+              IconTable
             </TabsTrigger>
             <TabsTrigger value="json" className="text-xs h-6" tabIndex={1}>
               JSON
@@ -108,7 +108,7 @@ export const QueryToolbar = memo(function QueryToolbar({
         >
           {isExecuting ? (
             <>
-              <StopCircle className="h-3.5 w-3.5" />
+              <IconPlayerStop className="h-3.5 w-3.5" />
               <span className="ml-1">Cancel</span>
             </>
           ) : (

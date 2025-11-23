@@ -16,7 +16,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { XIcon, RefreshCcw, Key } from "lucide-react";
+import { IconX, IconRefresh, IconKey } from '@tabler/icons-react';
 import { cn } from "@/lib/cn";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
@@ -125,7 +125,7 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
   const commitCurrentText = useCallback(() => {
     const text = inputRef.current?.value ?? "";
 
-    // Check if value actually changed
+    // IconCheck if value actually changed
     const hasChanged = text !== (originalValueRef.current || "");
 
     // If no changes were made, cancel the edit
@@ -202,7 +202,7 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
       {/* Header with column info */}
       <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
         {isPrimaryKey && (
-          <Key className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
+          <IconKey className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
         )}
         <span className="text-[10px] font-medium text-foreground/80">
           {columnName}
@@ -249,7 +249,7 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
               onClick={handleClear}
               title="Clear (NULL)"
             >
-              <XIcon className="h-3 w-3" />
+              <IconX className="h-3 w-3" />
             </Button>
           )}
 
@@ -260,7 +260,7 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
                 className="h-6 px-2 text-[11px] font-mono gap-1 hover:bg-muted"
                 title={`Generate UUID v${selectedVersion}`}
               >
-                <RefreshCcw className="h-3 w-3" />
+                <IconRefresh className="h-3 w-3" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent

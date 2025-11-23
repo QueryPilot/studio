@@ -13,15 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import {
-  Pencil,
-  Plus,
-  Trash2,
-  CheckCircle2,
-  X,
-  Loader2,
-  Undo2,
-} from "lucide-react";
+import { IconPencil, IconPlus, IconTrash, IconCircleCheckFilled, IconX, IconLoader2, IconArrowBackUp } from '@tabler/icons-react';
 import { toast } from "sonner";
 import ReactDiffViewer from "react-diff-viewer-continued";
 import { useTheme } from "next-themes";
@@ -58,10 +50,10 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
 
   const [isCommitting, setIsCommitting] = useState(false);
 
-  // Check if this is table-specific or workspace-wide
+  // IconCheck if this is table-specific or workspace-wide
   const isTableSpecific = database !== undefined && table !== undefined;
 
-  // Filter commands based on scope
+  // IconFilter commands based on scope
   const connectionCommands = Array.from(stagedCommands.entries()).filter(
     ([tableKey]) => {
       if (isTableSpecific) {
@@ -320,7 +312,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         <div className="grid grid-cols-5 gap-3">
           <div className="flex items-center gap-2 rounded-xl border bg-card p-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
-              <CheckCircle2 className="h-4 w-4 text-primary" />
+              <IconCircleCheckFilled className="h-4 w-4 text-primary" />
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Total</p>
@@ -330,7 +322,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
 
           <div className="flex items-center gap-2 rounded-xl border bg-card p-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-500/10">
-              <Pencil className="h-4 w-4 text-blue-500" />
+              <IconPencil className="h-4 w-4 text-blue-500" />
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Updates</p>
@@ -340,7 +332,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
 
           <div className="flex items-center gap-2 rounded-xl border bg-card p-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-green-500/10">
-              <Plus className="h-4 w-4 text-green-500" />
+              <IconPlus className="h-4 w-4 text-green-500" />
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Inserts</p>
@@ -350,7 +342,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
 
           <div className="flex items-center gap-2 rounded-xl border bg-card p-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-red-500/10">
-              <Trash2 className="h-4 w-4 text-red-500" />
+              <IconTrash className="h-4 w-4 text-red-500" />
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Deletes</p>
@@ -360,7 +352,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
 
           <div className="flex items-center gap-2 rounded-xl border bg-card p-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-purple-500/10">
-              <Pencil className="h-4 w-4 text-purple-500" />
+              <IconPencil className="h-4 w-4 text-purple-500" />
             </div>
             <div>
               <p className="text-xs text-muted-foreground">DDL</p>
@@ -402,18 +394,18 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
             onClick={handleDiscardAll}
             disabled={isCommitting}
           >
-            <X className="h-3.5 w-3.5 mr-1.5" />
+            <IconX className="h-3.5 w-3.5 mr-1.5" />
             {isTableSpecific ? "Discard" : "Discard All"}
           </Button>
           <Button size="xs" onClick={handleCommitAll} disabled={isCommitting}>
             {isCommitting ? (
               <>
-                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                <IconLoader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
                 Committing...
               </>
             ) : (
               <>
-                <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                <IconCircleCheckFilled className="h-3.5 w-3.5 mr-1.5" />
                 Commit {totalSummary.total}{" "}
                 {totalSummary.total === 1 ? "Change" : "Changes"}
               </>
@@ -609,7 +601,7 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
         <span className="text-xs text-muted-foreground">{row.tableName}</span>
         {hasInsert && (
           <>
-            <Plus className="h-3.5 w-3.5 text-green-500 ml-2" />
+            <IconPlus className="h-3.5 w-3.5 text-green-500 ml-2" />
             <span className="text-xs font-medium text-green-600 dark:text-green-400">
               Insert
             </span>
@@ -617,7 +609,7 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
         )}
         {hasDelete && (
           <>
-            <Trash2 className="h-3.5 w-3.5 text-red-500 ml-2" />
+            <IconTrash className="h-3.5 w-3.5 text-red-500 ml-2" />
             <span className="text-xs font-medium text-red-600 dark:text-red-400">
               Delete
             </span>
@@ -630,7 +622,7 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
         )}
         {hasUpdate && (
           <>
-            <Pencil className="h-3.5 w-3.5 text-blue-500 ml-2" />
+            <IconPencil className="h-3.5 w-3.5 text-blue-500 ml-2" />
             <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
               Update
             </span>
@@ -647,7 +639,7 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
         )}
         {hasDDL && (
           <>
-            <Pencil className="h-3.5 w-3.5 text-purple-500 ml-2" />
+            <IconPencil className="h-3.5 w-3.5 text-purple-500 ml-2" />
             <span className="text-xs font-medium text-purple-600 dark:text-purple-400">
               DDL
             </span>
@@ -668,7 +660,7 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
             onUndo(row.commands);
           }}
         >
-          <Undo2 className="h-3 w-3 mr-1" />
+          <IconArrowBackUp className="h-3 w-3 mr-1" />
           Undo
         </Button>
       </div>

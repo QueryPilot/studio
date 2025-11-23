@@ -7,7 +7,7 @@ import {
   useImperativeHandle,
   useMemo,
 } from "react";
-import { Search, Code, Sparkles, X, Loader2, CopyIcon } from "lucide-react";
+import { IconSearch, IconCode, IconSparkles, IconX, IconLoader2, IconCopy } from '@tabler/icons-react';
 import CodeMirror, { EditorView } from "@uiw/react-codemirror";
 import { sql, PostgreSQL } from "@codemirror/lang-sql";
 import { keymap } from "@codemirror/view";
@@ -61,19 +61,19 @@ const modeConfig: Record<
   }
 > = {
   search: {
-    icon: Search,
+    icon: IconSearch,
     label: "Simple Search",
     description: "Match any column",
     placeholder: "Search anything... (! case-sensitive, ? SQL, # AI)",
   },
   where: {
-    icon: Code,
+    icon: IconCode,
     label: "WHERE Clause",
     description: "SQL expressions",
     placeholder: "age > 25 AND status = 'active'",
   },
   ai: {
-    icon: Sparkles,
+    icon: IconSparkles,
     label: "AI Assistant",
     description: "Natural language",
     placeholder: "active users from last week",
@@ -260,7 +260,7 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
       const match = beforeCursor.match(/[a-zA-Z_][a-zA-Z0-9_]*$/);
 
       if (match) {
-        // Check if we're in a value context (after an operator)
+        // IconCheck if we're in a value context (after an operator)
         const textBeforeWord = beforeCursor
           .slice(0, beforeCursor.length - match[0].length)
           .trim();
@@ -308,7 +308,7 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
         setShowSuggestions(filtered.length > 0);
         setSelectedIndex(0);
       } else {
-        // Check if cursor is right after operator with no text yet
+        // IconCheck if cursor is right after operator with no text yet
         const trimmedBefore = beforeCursor.trim();
         const operatorMatch = trimmedBefore.match(
           /([a-zA-Z_][a-zA-Z0-9_]*)\s*[=<>!]+\s*$|([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:LIKE|ILIKE|IN|IS|BETWEEN)\s*$/i,
@@ -365,9 +365,9 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
 
     // Get icon for current mode/prefix
     const getModeIcon = () => {
-      if (value.startsWith("?")) return Code;
-      if (value.startsWith("#")) return Sparkles;
-      if (value.startsWith("!")) return Search;
+      if (value.startsWith("?")) return IconCode;
+      if (value.startsWith("#")) return IconSparkles;
+      if (value.startsWith("!")) return IconSearch;
       return null;
     };
 
@@ -456,7 +456,7 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
                           </DropdownMenuLabel>
                           {isLoadingProviders ? (
                             <DropdownMenuItem disabled className="text-xs pl-4">
-                              <Loader2 className="h-3 w-3 animate-spin mr-2" />
+                              <IconLoader2 className="h-3 w-3 animate-spin mr-2" />
                               Loading...
                             </DropdownMenuItem>
                           ) : (
@@ -770,7 +770,7 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
                   {/* Clear/Loading indicator - inside the wrapper */}
                   <div className="absolute right-1 top-1/2 -translate-y-1/2">
                     {isLoading ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                      <IconLoader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
                     ) : value ? (
                       <Button
                         variant="ghost"
@@ -780,7 +780,7 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
                           onValueChange("");
                         }}
                       >
-                        <X className="h-3.5 w-3.5" />
+                        <IconX className="h-3.5 w-3.5" />
                       </Button>
                     ) : null}
                   </div>
@@ -846,7 +846,7 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
         {/* AI explanation */}
         {explanation && !error && (
           <div className="flex items-center gap-1 ml-2">
-            <CopyIcon className="h-3 w-3 text-muted-foreground" />
+            <IconCopy className="h-3 w-3 text-muted-foreground" />
             <p
               className="text-xs text-muted-foreground px-1 truncate select-text"
               title={explanation}

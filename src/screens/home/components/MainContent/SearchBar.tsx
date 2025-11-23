@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import Fuse from 'fuse.js';
-import { Search } from 'lucide-react';
+import { IconSearch } from '@tabler/icons-react';
 import { Input } from '@/components/ui/input';
 import { useConnectionStore } from '@/stores/connectionStoreNew';
 import { useHomeScreenStore } from '../../store/homeScreenStore';
@@ -102,7 +102,7 @@ export function SearchBar({
 
   return (
     <div className="relative">
-      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+      <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
       <Input
         ref={inputRef}
         type="text"
