@@ -1,4 +1,5 @@
 import type { Theme, Rectangle } from "@glideapps/glide-data-grid";
+import type { ColumnMeta } from "@/types/database";
 
 interface DrawSortIndicatorArgs {
   ctx: CanvasRenderingContext2D;
@@ -6,6 +7,104 @@ interface DrawSortIndicatorArgs {
   rect: Rectangle;
   direction: 'asc' | 'desc' | null;
   sortIndex?: number;
+}
+
+interface DrawColumnTypeIconArgs {
+  ctx: CanvasRenderingContext2D;
+  theme: Theme;
+  x: number;
+  y: number;
+  meta: ColumnMeta | null | undefined;
+}
+
+// Draw column type icon (PK key, FK link, etc.)
+function drawColumnTypeIcon({
+  ctx,
+  theme,
+  x,
+  y,
+  meta,
+}: DrawColumnTypeIconArgs): number {
+  if (!meta) return 0;
+
+  const iconSize = 10;
+  const iconPadding = 4;
+  let iconWidth = 0;
+
+  ctx.save();
+
+  // Primary Key - draw key icon
+  if (meta.is_pk) {
+    ctx.fillStyle = '#f59e0b'; // amber-500
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 1.2;
+
+    // Draw key icon
+    const kx = x;
+    const ky = y - iconSize / 2;
+
+    // Key head (circle)
+    ctx.beginPath();
+    ctx.arc(kx + 3, ky + 3, 2.5, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Key shaft
+    ctx.beginPath();
+    ctx.moveTo(kx + 5.5, ky + 3);
+    ctx.lineTo(kx + 9, ky + 3);
+    ctx.stroke();
+
+    // Key teeth
+    ctx.beginPath();
+    ctx.moveTo(kx + 7, ky + 3);
+    ctx.lineTo(kx + 7, ky + 5);
+    ctx.moveTo(kx + 8.5, ky + 3);
+    ctx.lineTo(kx + 8.5, ky + 4.5);
+    ctx.stroke();
+
+    iconWidth = iconSize + iconPadding;
+  }
+  // Foreign Key - draw link icon
+  else if (meta.is_fk) {
+    ctx.strokeStyle = '#3b82f6'; // blue-500
+    ctx.lineWidth = 1.2;
+
+    const lx = x;
+    const ly = y - iconSize / 2;
+
+    // Draw two interlocking chain links
+    ctx.beginPath();
+    // First link
+    ctx.arc(lx + 3, ly + 5, 2.5, Math.PI * 0.5, Math.PI * 1.5);
+    ctx.moveTo(lx + 3, ly + 2.5);
+    ctx.lineTo(lx + 5, ly + 2.5);
+    ctx.moveTo(lx + 3, ly + 7.5);
+    ctx.lineTo(lx + 5, ly + 7.5);
+    ctx.stroke();
+
+    // Second link
+    ctx.beginPath();
+    ctx.arc(lx + 7, ly + 5, 2.5, Math.PI * 1.5, Math.PI * 0.5);
+    ctx.moveTo(lx + 5, ly + 2.5);
+    ctx.lineTo(lx + 7, ly + 2.5);
+    ctx.moveTo(lx + 5, ly + 7.5);
+    ctx.lineTo(lx + 7, ly + 7.5);
+    ctx.stroke();
+
+    iconWidth = iconSize + iconPadding;
+  }
+  // Nullable indicator - draw small circle with question mark
+  else if (meta.nullable) {
+    ctx.fillStyle = theme.textMedium ?? theme.textHeader;
+    ctx.font = '8px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('?', x + iconSize / 2, y);
+    iconWidth = 8 + iconPadding;
+  }
+
+  ctx.restore();
+  return iconWidth;
 }
 
 export function drawSortIndicator({
@@ -60,7 +159,7 @@ export function drawSortIndicator({
 interface CreateDrawHeaderArgs {
   getSortDirection: (columnId: string) => 'asc' | 'desc' | null;
   getSortIndex: (columnId: string) => number;
-  columns: Array<{ id: string }>;
+  columns: Array<{ id: string; meta?: ColumnMeta | null }>;
   /** Number of columns currently sorted (for showing multi-sort index) */
   sortedColumnCount?: number;
 }
@@ -68,8 +167,12 @@ interface CreateDrawHeaderArgs {
 export function createDrawHeader({
   getSortDirection,
   getSortIndex,
+  columns,
   sortedColumnCount = 0,
 }: CreateDrawHeaderArgs) {
+  // Create a map for quick lookup of column metadata
+  const columnMetaMap = new Map(columns.map(c => [c.id, c.meta]));
+
   return (args: {
     ctx: CanvasRenderingContext2D;
     column: { id?: string; title?: string };
@@ -84,14 +187,25 @@ export function createDrawHeader({
   }): boolean => {
     const { ctx, column, theme, rect } = args;
 
-    // Find the column ID
+    // Find the column ID and metadata
     const colId = column.id ?? '';
     const direction = getSortDirection(colId);
     const sortIndex = getSortIndex(colId);
+    const meta = columnMetaMap.get(colId);
 
     // Draw header text
     const padding = 8;
     const title = column.title ?? colId;
+    const centerY = rect.y + rect.height / 2;
+
+    // Draw column type icon first
+    const iconWidth = drawColumnTypeIcon({
+      ctx,
+      theme,
+      x: rect.x + padding,
+      y: centerY,
+      meta,
+    });
 
     ctx.save();
     ctx.fillStyle = theme.textHeader;
@@ -99,9 +213,10 @@ export function createDrawHeader({
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
 
-    // Calculate available width for text (leave room for sort indicator if sorted)
+    // Calculate available width for text (leave room for icon and sort indicator)
     const sortIndicatorWidth = direction ? 20 : 0;
-    const maxTextWidth = rect.width - padding * 2 - sortIndicatorWidth;
+    const textStartX = rect.x + padding + iconWidth;
+    const maxTextWidth = rect.width - padding * 2 - iconWidth - sortIndicatorWidth;
 
     // Truncate text if needed
     let displayText = title;
@@ -116,8 +231,8 @@ export function createDrawHeader({
 
     ctx.fillText(
       displayText,
-      rect.x + padding,
-      rect.y + rect.height / 2
+      textStartX,
+      centerY
     );
     ctx.restore();
 

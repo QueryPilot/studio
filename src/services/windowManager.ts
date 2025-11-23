@@ -21,11 +21,11 @@ function getMacOSTrafficLightPosition(): {
     if (majorVersion >= 26) {
       return { x: 10, y: 21 };
     } else {
-      return { x: 10, y: 15 };
+      return { x: 10, y: 14 };
     }
   } catch {
     // Fallback position
-    return { x: 10, y: 15 };
+    return { x: 10, y: 14 };
   }
 }
 

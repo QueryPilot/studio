@@ -269,8 +269,8 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
         focusPanel(content.id);
       }}
     >
-      <div className="panel-header flex items-center justify-between bg-secondary rounded-t-xl">
-        <div className="overflow-x-auto relative scrollbar-none px-0.5 pt-0.5">
+      <div className="panel-header flex items-center justify-between bg-secondary rounded-t-lg">
+        <div className="overflow-x-auto relative scrollbar-none px-[3px] pt-[3px]">
           <div
             ref={tabsContainerRef}
             className="flex items-center relative overflow-hidden overflow-x-scroll scrollbar-none"

@@ -9,6 +9,8 @@ interface SidebarSectionProps {
   onToggle: () => void;
   children: ReactNode;
   stickyClass?: string;
+  onAdd?: () => void;
+  addTooltip?: string;
 }
 
 export function SidebarSection({
@@ -18,24 +20,52 @@ export function SidebarSection({
   onToggle,
   children,
   stickyClass = "sticky top-0 bg-background z-20",
+  onAdd,
+  addTooltip,
 }: SidebarSectionProps) {
   return (
     <div>
-      <div className={stickyClass}>
-        <button
-          className="flex items-center gap-1.5 w-full text-left bg-muted/50 p-1.5 rounded text-xs text-foreground/80 dark:text-foreground/70"
-          onClick={onToggle}
-        >
-          {isExpanded ? (
-            <ChevronDown className="h-4 w-4" />
-          ) : (
-            <ChevronRight className="h-4 w-4" />
+      <div className={cn(stickyClass, "group/section")}>
+        <div className="flex items-center bg-muted/50 rounded text-xs text-foreground/80 dark:text-foreground/70">
+          <button
+            className="flex items-center gap-1.5 flex-1 text-left p-1.5"
+            onClick={onToggle}
+          >
+            {isExpanded ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronRight className="h-4 w-4" />
+            )}
+            <span className="font-medium text-xs">{title}</span>
+            <span className="text-xs text-muted-foreground ml-auto">
+              {count}
+            </span>
+          </button>
+          {onAdd && (
+            <button
+              className="p-1 mr-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              onClick={(e) => {
+                e.stopPropagation();
+                onAdd();
+              }}
+              title={addTooltip || `Add ${title.slice(0, -1)}`}
+            >
+              <svg
+                className="h-3.5 w-3.5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 4v16m8-8H4"
+                />
+              </svg>
+            </button>
           )}
-          <span className="font-medium text-xs">{title}</span>
-          <span className="text-xs text-muted-foreground ml-auto mr-2">
-            {count}
-          </span>
-        </button>
+        </div>
       </div>
       {isExpanded && (
         <div className="ml-3.5 mt-0.5 space-y-0.5 px-2 overflow-x-hidden">

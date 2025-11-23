@@ -28,6 +28,7 @@ import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { Skeleton } from "../ui/skeleton";
 import { type TabMetadata } from "@/types/workbench";
 import { ERDPanel } from "@/components/Erd";
+import { TableDesigner } from "@/components/TableDesigner";
 import useWorkbenchStore from "@/stores/workbenchStore";
 
 interface PanelContentRendererProps {
@@ -169,6 +170,21 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
           tabId={tabId}
           database={metadata?.database}
           schema={metadata?.schema}
+        />
+      );
+    }
+
+    if (type === "design") {
+      return (
+        <TableDesigner
+          connectionId={metadata?.connectionId || activeConnectionId || ""}
+          database={metadata?.database || ""}
+          schema={metadata?.schema}
+          className="h-full"
+          onSave={(tableName, columns) => {
+            // TODO: Execute CREATE TABLE SQL
+            console.log("Create table:", tableName, columns);
+          }}
         />
       );
     }

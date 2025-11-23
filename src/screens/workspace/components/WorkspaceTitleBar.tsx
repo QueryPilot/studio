@@ -761,7 +761,7 @@ export function WorkspaceTitleBar({
       data-tauri-drag-region
     >
       {/* Left Section - Add padding for macOS traffic lights */}
-      <div className="flex items-center gap-2 pl-24">
+      <div className="flex items-center gap-2 pl-20">
         <Button
           variant="ghost"
           size="sm"
@@ -1034,7 +1034,10 @@ export function WorkspaceTitleBar({
       {/* Center Section - Absolute positioning for true center */}
       <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-2 text-xs max-w-[50%] min-w-0 select-none">
         {/* Database Name with Type */}
-        <div className="flex items-center gap-1.5 min-w-0 flex-shrink" data-tauri-drag-region>
+        <div
+          className="flex items-center gap-1.5 min-w-0 flex-shrink"
+          data-tauri-drag-region
+        >
           <span className="font-medium text-xs truncate" data-tauri-drag-region>
             {selectedDatabase || connection?.database || "Loading..."}
           </span>

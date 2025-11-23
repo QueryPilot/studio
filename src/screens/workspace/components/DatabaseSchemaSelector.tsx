@@ -1,12 +1,14 @@
 import { useEffect, useCallback, useRef, useState } from "react";
-import { Check, ChevronsUpDown } from "lucide-react";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Check,
+  ChevronDown,
+  Plus,
+  Table,
+  Eye,
+  FunctionSquare,
+  Zap,
+  Database,
+} from "lucide-react";
 import {
   Command,
   CommandEmpty,
@@ -14,12 +16,20 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandSeparator,
 } from "@/components/ui/command";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { databaseService } from "@/services/databaseService";
 import { cn } from "@/lib/utils";
@@ -27,14 +37,16 @@ import { safeListen } from "@/utils/tauri";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
+import {
+  openQueryWithTemplate,
+  openTableDesigner,
+} from "@/utils/workbench/openers";
 
 interface DatabaseSchemaSelectorProps {
   connectionId: string;
   selectedSchema: string;
   onSchemaChange: (schema: string) => void;
 }
-
-const COMMAND_THRESHOLD = 10;
 
 export function DatabaseSchemaSelector({
   connectionId,
@@ -188,32 +200,78 @@ export function DatabaseSchemaSelector({
     };
   }, [connectionId, queryClient]);
 
-  // Render schema selector (Select for <=10 items, Command for >10)
-  const renderSchemaSelector = () => {
-    if (schemas.length === 0) return null;
+  // Handle create new schema
+  const handleCreateSchema = useCallback(() => {
+    setSchemaPopoverOpen(false);
+    openQueryWithTemplate({
+      connectionId,
+      database: selectedDatabase,
+      schema: selectedSchema,
+      objectType: 'schema',
+    });
+  }, [connectionId, selectedDatabase, selectedSchema]);
 
-    if (schemas.length <= COMMAND_THRESHOLD) {
-      return (
-        <Select value={selectedSchema} onValueChange={handleSchemaSelect}>
-          <SelectTrigger
-            className="text-xs min-w-[120px] max-w-[180px] border-0 !bg-background hover:bg-muted/50"
-            disabled={isSwitchingSchema}
-          >
-            <SelectValue placeholder="Select schema" />
-          </SelectTrigger>
-          <SelectContent>
-            {schemas.map((schema) => (
-              <SelectItem key={schema} value={schema} className="text-xs">
-                {schema}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      );
-    }
+  // Create object handlers
+  const handleCreateTable = useCallback(() => {
+    openTableDesigner({
+      connectionId,
+      database: selectedDatabase,
+      schema: selectedSchema,
+    });
+  }, [connectionId, selectedDatabase, selectedSchema]);
 
-    // Use Command component for long lists
-    return (
+  const handleCreateView = useCallback(() => {
+    openQueryWithTemplate({
+      connectionId,
+      database: selectedDatabase,
+      schema: selectedSchema,
+      objectType: 'view',
+    });
+  }, [connectionId, selectedDatabase, selectedSchema]);
+
+  const handleCreateMaterializedView = useCallback(() => {
+    openQueryWithTemplate({
+      connectionId,
+      database: selectedDatabase,
+      schema: selectedSchema,
+      objectType: 'materializedView',
+    });
+  }, [connectionId, selectedDatabase, selectedSchema]);
+
+  const handleCreateFunction = useCallback(() => {
+    openQueryWithTemplate({
+      connectionId,
+      database: selectedDatabase,
+      schema: selectedSchema,
+      objectType: 'function',
+    });
+  }, [connectionId, selectedDatabase, selectedSchema]);
+
+  const handleCreateProcedure = useCallback(() => {
+    openQueryWithTemplate({
+      connectionId,
+      database: selectedDatabase,
+      schema: selectedSchema,
+      objectType: 'procedure',
+    });
+  }, [connectionId, selectedDatabase, selectedSchema]);
+
+  const handleCreateTrigger = useCallback(() => {
+    openQueryWithTemplate({
+      connectionId,
+      database: selectedDatabase,
+      schema: selectedSchema,
+      objectType: 'trigger',
+    });
+  }, [connectionId, selectedDatabase, selectedSchema]);
+
+  if (schemas.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="flex items-center justify-between w-full">
+      {/* Schema Selector */}
       <Popover open={schemaPopoverOpen} onOpenChange={setSchemaPopoverOpen}>
         <PopoverTrigger asChild>
           <Button
@@ -221,15 +279,15 @@ export function DatabaseSchemaSelector({
             role="combobox"
             aria-expanded={schemaPopoverOpen}
             disabled={isSwitchingSchema}
-            className="text-xs min-w-[120px] max-w-[180px] justify-between border-0 !bg-background hover:bg-muted/50 h-8"
+            className="text-xs min-w-[100px] max-w-[160px] justify-between border-0 !bg-background hover:bg-muted/50 h-8 px-3"
           >
             <span className="truncate">
               {selectedSchema || "Select schema"}
             </span>
-            <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+            <ChevronDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[240px] p-0" align="start">
+        <PopoverContent className="w-[200px] p-0" align="start">
           <Command>
             <CommandInput placeholder="Search schemas..." className="h-9" />
             <CommandList>
@@ -255,14 +313,66 @@ export function DatabaseSchemaSelector({
                   </CommandItem>
                 ))}
               </CommandGroup>
+              <CommandSeparator />
+              <CommandGroup>
+                <CommandItem
+                  onSelect={handleCreateSchema}
+                  className="text-xs text-muted-foreground"
+                >
+                  <Plus className="mr-2 h-3 w-3" />
+                  Create new schema
+                </CommandItem>
+              </CommandGroup>
             </CommandList>
           </Command>
         </PopoverContent>
       </Popover>
-    );
-  };
 
-  return (
-    <div className="flex items-center gap-1">{renderSchemaSelector()}</div>
+      {/* Create Object Dropdown */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+            title="Create new object"
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-48">
+          <DropdownMenuItem onClick={handleCreateTable} className="text-xs">
+            <Table className="mr-2 h-3.5 w-3.5 text-primary" />
+            New Table
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleCreateView} className="text-xs">
+            <Eye className="mr-2 h-3.5 w-3.5 text-green-500" />
+            New View
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleCreateMaterializedView} className="text-xs">
+            <Eye className="mr-2 h-3.5 w-3.5 text-blue-500" />
+            New Materialized View
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={handleCreateFunction} className="text-xs">
+            <FunctionSquare className="mr-2 h-3.5 w-3.5 text-purple-500" />
+            New Function
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleCreateProcedure} className="text-xs">
+            <FunctionSquare className="mr-2 h-3.5 w-3.5 text-orange-500" />
+            New Procedure
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleCreateTrigger} className="text-xs">
+            <Zap className="mr-2 h-3.5 w-3.5 text-yellow-500" />
+            New Trigger
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={handleCreateSchema} className="text-xs">
+            <Database className="mr-2 h-3.5 w-3.5 text-muted-foreground" />
+            New Schema
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
