@@ -18,7 +18,7 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from "@/components/ui/resizable";
-import { History, Star } from "lucide-react";
+import { IconHistory, IconStar } from '@tabler/icons-react';
 import { toast } from "sonner";
 
 import { tableStreamingService } from "@/services/tableStreamingService";
@@ -168,10 +168,10 @@ export const QueryPanel = memo(function QueryPanel({
     [effectiveConnectionId, database, schema, tabId],
   );
 
-  // Keyboard services for command registration
+  // IconKeyboard services for command registration
   const keyboardServices = useKeyboardServicesOptional();
 
-  // Debug: Check if keyboardServices is available
+  // Debug: IconCheck if keyboardServices is available
   useEffect(() => {
     console.log("[QueryPanel] keyboardServices:", {
       available: !!keyboardServices,
@@ -562,7 +562,7 @@ export const QueryPanel = memo(function QueryPanel({
           executionTime,
         };
       } catch (error) {
-        // Check if this is a user cancellation
+        // IconCheck if this is a user cancellation
         const isCancellation =
           (error instanceof Error && error.name === "AbortError") ||
           (error instanceof Error && error.message.includes("cancelled")) ||
@@ -605,7 +605,7 @@ export const QueryPanel = memo(function QueryPanel({
         setIsStreaming(false);
         setAbortController(null);
 
-        // Save to history (skip if cancelled)
+        // IconDeviceFloppy to history (skip if cancelled)
         const wasCancelled = controller.signal.aborted;
         if (sql.trim() && !wasCancelled) {
           await queryHistoryService.addEntry({
@@ -703,7 +703,7 @@ export const QueryPanel = memo(function QueryPanel({
 
   useEffect(() => {
     const handleFormat = () => {
-      // Check if THIS panel should handle the event
+      // IconCheck if THIS panel should handle the event
       if (!isFocusedRef.current) return;
       console.log("🟢 QueryPanel handling format event");
       handleBeautify();
@@ -855,7 +855,7 @@ export const QueryPanel = memo(function QueryPanel({
             <>
               <ResizableHandle className="bg-secondary w-1" />
 
-              {/* History and Saved Queries */}
+              {/* IconHistory and Saved Queries */}
               <ResizablePanel defaultSize={30} minSize={20}>
                 <Tabs
                   defaultValue="history"
@@ -870,11 +870,11 @@ export const QueryPanel = memo(function QueryPanel({
                       className="text-xs"
                       tabIndex={0}
                     >
-                      <History className="h-3 w-3 mr-1" />
-                      History
+                      <IconHistory className="h-3 w-3 mr-1" />
+                      IconHistory
                     </TabsTrigger>
                     <TabsTrigger value="saved" className="text-xs" tabIndex={1}>
-                      <Star className="h-3 w-3 mr-1" />
+                      <IconStar className="h-3 w-3 mr-1" />
                       Saved
                     </TabsTrigger>
                   </TabsList>

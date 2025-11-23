@@ -5,7 +5,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Check, X } from "lucide-react";
+import { IconCheck, IconX } from '@tabler/icons-react';
 import { useCrudStore } from "@/stores/crudStore";
 import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
 
@@ -54,7 +54,7 @@ export function StagingActionsToolbar(props: StagingActionsToolbarProps) {
             className="h-6 text-xs px-2"
             onClick={handleOpenCommitPreview}
           >
-            <Check className="h-3 w-3 mr-1" />
+            <IconCheck className="h-3 w-3 mr-1" />
             Commit ({commands.length})
           </Button>
         </TooltipTrigger>
@@ -75,7 +75,7 @@ export function StagingActionsToolbar(props: StagingActionsToolbarProps) {
             className="h-6 text-xs px-2"
             onClick={handleDiscard}
           >
-            <X className="h-3 w-3 mr-1" />
+            <IconX className="h-3 w-3 mr-1" />
             Discard
           </Button>
         </TooltipTrigger>

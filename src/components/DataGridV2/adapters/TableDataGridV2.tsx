@@ -71,7 +71,7 @@ import {
 } from "./columnUtils";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
+import { IconPlus } from '@tabler/icons-react';
 import type { CellValue as FrontCellValue } from "@/types/cellValue";
 import type { CellValue as BackendCellValue } from "@/services/backend";
 import type { ColumnMeta } from "@/types/database";
@@ -381,7 +381,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     }));
   }, [tableDataQuery.columns]);
 
-  // AI Filter hook - detect dialect from connection (default to postgresql)
+  // AI IconFilter hook - detect dialect from connection (default to postgresql)
   const { generateFilter: generateAIFilter, isLoading: isAIFilterLoading } =
     useAIFilter(filterColumns, table, "postgresql");
 
@@ -440,7 +440,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     }
   }, [quickFilterValue, quickFilterMode, filterColumns, generateAIFilter]);
 
-  // Keyboard shortcuts for focusing quick filter (Cmd+F or /)
+  // IconKeyboard shortcuts for focusing quick filter (Cmd+F or /)
   useEffect(() => {
     if (!isTableMode) return;
 
@@ -1041,7 +1041,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
         if (!payload.primaryKeys) return false;
 
-        // Check if this command's PK matches this row's PK
+        // IconCheck if this command's PK matches this row's PK
         return Object.entries(payload.primaryKeys).every(([key, value]) => {
           const cellValue = row[key];
           if (
@@ -1150,7 +1150,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         });
       }
 
-      // Check if this insert has a specific position (by row key)
+      // IconCheck if this insert has a specific position (by row key)
       const insertAfterRowKey = cmd.metadata.insertAfterRowKey;
       if (insertAfterRowKey) {
         // Find the target row in the current result array
@@ -1191,7 +1191,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       return;
     }
 
-    // Check current selection state before setting timeout
+    // IconCheck current selection state before setting timeout
     // This prevents infinite loops when gridSelection updates
     const hasExistingSelection =
       (gridSelection?.rows && gridSelection.rows.length > 0) ||
@@ -1478,7 +1478,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         const tableKey = getTableKey({ connectionId, database, schema, table });
         const commands = stagedCommands.get(tableKey) ?? [];
 
-        // Check if this row is a pending insertion (first N rows where N = number of INSERT commands)
+        // IconCheck if this row is a pending insertion (first N rows where N = number of INSERT commands)
         const insertCommands = commands.filter(
           (cmd) => cmd.type === "data.insert",
         );
@@ -1561,7 +1561,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           const oldVal = payload.oldValue;
           const newVal = payload.newValue;
 
-          // Check if values are actually different
+          // IconCheck if values are actually different
           const valuesAreDifferent = !areValuesEqual(oldVal, newVal);
 
           if (valuesAreDifferent) {
@@ -1710,7 +1710,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   }, [gridSelection]);
 
   const selectedRowCount = selectedRowsSet.size;
-  // Check if there's any selection: full rows, columns, or cell ranges
+  // IconCheck if there's any selection: full rows, columns, or cell ranges
   const hasSelection =
     selectedRowCount > 0 ||
     (gridSelection?.rows && gridSelection.rows.length > 0) ||
@@ -1884,7 +1884,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     async () => {
       const selection = gridSelectionRef.current;
       if (!selection) return;
-      console.log("🟢 Copy as JSON command executed");
+      console.log("🟢 IconCopy as JSON command executed");
       await copySelection(selection, "json");
     },
     {
@@ -1916,7 +1916,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             }
           }}
         >
-          <Plus className="h-3 w-3" />
+          <IconPlus className="h-3 w-3" />
           Add Row
         </Button>
 
@@ -2218,7 +2218,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
                 setQuickFilterError(null);
               }}
             >
-              Clear Filter
+              Clear IconFilter
             </Button>
           </div>
         </div>
@@ -2243,7 +2243,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         }
       }}
     >
-      {/* Quick Filter toolbar - only in table mode */}
+      {/* Quick IconFilter toolbar - only in table mode */}
       {isTableMode && (
         <div className="flex-none pb-1.5 pt-0.5 bg-background">
           <QuickFilter

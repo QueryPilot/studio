@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import type { JsonCustomCell } from "./types";
 import { CodeEditor } from "@/components/CodeEditor";
 import { Button } from "@/components/ui/button";
-import { Trash2, Key } from "lucide-react";
+import { IconTrash, IconKey } from '@tabler/icons-react';
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
 interface JsonCellEditorProps {
@@ -107,7 +107,7 @@ export const JsonCellEditor: React.FC<JsonCellEditorProps> = ({
     const currentMinified = trimmed ? minifyJson(trimmed) : null;
     const originalMinified = originalValueRef.current ? minifyJson(originalValueRef.current) : null;
 
-    // Check if value actually changed
+    // IconCheck if value actually changed
     const hasChanged = currentMinified !== originalMinified;
 
     // If no changes were made, cancel the edit
@@ -215,7 +215,7 @@ export const JsonCellEditor: React.FC<JsonCellEditorProps> = ({
       {/* Header with column info */}
       <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50">
         {isPrimaryKey && (
-          <Key className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
+          <IconKey className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
         )}
         <span className="text-[10px] font-medium text-foreground/80">
           {columnName}
@@ -258,7 +258,7 @@ export const JsonCellEditor: React.FC<JsonCellEditorProps> = ({
             }}
             title="Clear (NULL)"
           >
-            <Trash2 className="h-3 w-3 mr-1" />
+            <IconTrash className="h-3 w-3 mr-1" />
             Clear
           </Button>
         )}

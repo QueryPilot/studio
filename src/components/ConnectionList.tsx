@@ -7,17 +7,7 @@ import type { ConnectionProfile, StoredConnection } from "@/types/connection";
 import { DbType } from "@/types/connection";
 import { windowManager } from "@/services/windowManager";
 import { toast } from "sonner";
-import {
-  Database,
-  Layers3,
-  Circle,
-  GripVertical,
-  Edit2,
-  Trash2,
-  Plus,
-  Copy,
-  ExternalLink,
-} from "lucide-react";
+import { IconDatabase, IconStack3, IconCircle, IconGripVertical, IconPencil, IconTrash, IconPlus, IconCopy, IconExternalLink } from '@tabler/icons-react';
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import {
   DndContext,
@@ -148,7 +138,7 @@ function ConnectionItem({
           {...listeners}
           className="flex items-center justify-center transition-opacity opacity-0 group-hover:opacity-100 text-muted-foreground/70 cursor-grab active:cursor-grabbing touch-none"
         >
-          <GripVertical className="h-3.5 w-3.5" />
+          <IconGripVertical className="h-3.5 w-3.5" />
         </div>
 
         <img
@@ -163,11 +153,11 @@ function ConnectionItem({
               {connection.profile.name}
             </span>
             {isActive && (
-              <Circle className="h-1.5 w-1.5 fill-primary text-primary flex-shrink-0" />
+              <IconCircle className="h-1.5 w-1.5 fill-primary text-primary flex-shrink-0" />
             )}
             {hasOpenWindows && !isActive && (
               <div className="flex items-center gap-0.5 flex-shrink-0">
-                <ExternalLink className="h-2.5 w-2.5 text-blue-500" />
+                <IconExternalLink className="h-2.5 w-2.5 text-blue-500" />
                 {windowCount > 1 && (
                   <span className="text-[9px] font-medium text-blue-500">
                     {windowCount}
@@ -234,7 +224,7 @@ function ConnectionItem({
             onEdit();
           }}
         >
-          <Edit2 className="!h-3.5 !w-3.5" />
+          <IconPencil className="!h-3.5 !w-3.5" />
         </Button>
         <Button
           variant="ghost"
@@ -245,7 +235,7 @@ function ConnectionItem({
             onDelete();
           }}
         >
-          <Trash2 className="!h-3.5 !w-3.5" />
+          <IconTrash className="!h-3.5 !w-3.5" />
         </Button>
       </div>
     </div>
@@ -274,7 +264,7 @@ function ConnectionGroup({
   return (
     <div className="mb-4">
       <div className="flex items-center gap-1.5 mb-1.5 px-1">
-        <Layers3 className="h-3 w-3 text-muted-foreground" />
+        <IconStack3 className="h-3 w-3 text-muted-foreground" />
         <h2 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
           {title}
         </h2>
@@ -333,14 +323,14 @@ function ConnectionGroup({
                       onClick={handleEdit}
                       className="py-1 px-2 text-xs"
                     >
-                      <Edit2 className="mr-1.5 h-3 w-3" />
-                      Edit
+                      <IconPencil className="mr-1.5 h-3 w-3" />
+                      IconEdit
                     </ContextMenuItem>
                     <ContextMenuItem
                       onClick={handleDuplicate}
                       className="py-1 px-2 text-xs"
                     >
-                      <Copy className="mr-1.5 h-3 w-3" />
+                      <IconCopy className="mr-1.5 h-3 w-3" />
                       Duplicate
                     </ContextMenuItem>
                     <ContextMenuSeparator />
@@ -348,7 +338,7 @@ function ConnectionGroup({
                       onClick={handleDelete}
                       className="text-destructive focus:text-destructive py-1 px-2 text-xs"
                     >
-                      <Trash2 className="mr-1.5 h-3 w-3" />
+                      <IconTrash className="mr-1.5 h-3 w-3" />
                       Delete
                     </ContextMenuItem>
                     {onAddConnection && (
@@ -358,7 +348,7 @@ function ConnectionGroup({
                           onClick={onAddConnection}
                           className="py-1 px-2 text-xs"
                         >
-                          <Plus className="mr-1.5 h-3 w-3" />
+                          <IconPlus className="mr-1.5 h-3 w-3" />
                           Add Connection
                         </ContextMenuItem>
                       </>
@@ -459,7 +449,7 @@ export function ConnectionList({
     setSelectedIndex(-1);
   }, [flatConnections]);
 
-  // Keyboard navigation
+  // IconKeyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Cmd+F or / to focus search
@@ -551,7 +541,7 @@ export function ConnectionList({
     return (
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center text-muted-foreground">
-          <Database className="mx-auto h-12 w-12 mb-4 opacity-50 animate-pulse" />
+          <IconDatabase className="mx-auto h-12 w-12 mb-4 opacity-50 animate-pulse" />
           <h3 className="text-lg font-medium">Loading connections...</h3>
         </div>
       </div>
@@ -562,7 +552,7 @@ export function ConnectionList({
     return (
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center text-muted-foreground">
-          <Database className="mx-auto h-12 w-12 mb-4 opacity-50" />
+          <IconDatabase className="mx-auto h-12 w-12 mb-4 opacity-50" />
           <h3 className="text-lg font-medium mb-2">No connections yet</h3>
           <p className="text-xs">
             Click "Load PostgreSQL Dev" to add development connections,
@@ -578,7 +568,7 @@ export function ConnectionList({
     return (
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center text-muted-foreground">
-          <Database className="mx-auto h-12 w-12 mb-4 opacity-50" />
+          <IconDatabase className="mx-auto h-12 w-12 mb-4 opacity-50" />
           <h3 className="text-lg font-medium mb-2">No matches found</h3>
           <p className="text-xs">
             Try adjusting your search terms or clear the filter.
@@ -657,7 +647,7 @@ export function ConnectionList({
       (tag) => !envTags.includes(tag),
     );
 
-    // Check if dropped on a group zone (empty area or group header)
+    // IconCheck if dropped on a group zone (empty area or group header)
     const overData = over.data.current;
     if (overData?.type === "group") {
       const targetGroupTitle = overData.title;
@@ -697,7 +687,7 @@ export function ConnectionList({
       (tag) => !envTags.includes(tag),
     );
 
-    // Check if moving to a different group
+    // IconCheck if moving to a different group
     if (activeGroupTag !== overGroupTag) {
       try {
         if (activeGroupTag) {
@@ -791,14 +781,14 @@ export function ConnectionList({
                 onClick={onAddConnection}
                 className="py-1 px-2 text-xs"
               >
-                <Plus className="mr-1.5 h-3 w-3" />
+                <IconPlus className="mr-1.5 h-3 w-3" />
                 Add Connection
               </ContextMenuItem>
             )}
           </ContextMenuContent>
         </ContextMenu>
 
-        {/* Edit Connection Dialog */}
+        {/* IconEdit Connection Dialog */}
         {editingConnection && (
           <ConnectionDialog
             open={isEditDialogOpen}
@@ -827,7 +817,7 @@ export function ConnectionList({
               {
                 ...duplicatingConnection.profile,
                 id: `conn-${Date.now()}`,
-                name: `${duplicatingConnection.profile.name} (Copy)`,
+                name: `${duplicatingConnection.profile.name} (IconCopy)`,
                 metadata: duplicatingConnection.metadata,
               } as ConnectionProfile
             }

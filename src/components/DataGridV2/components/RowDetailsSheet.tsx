@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, Copy, Check } from "lucide-react";
+import { IconSearch, IconCopy, IconCheck } from '@tabler/icons-react';
 import type { GridColumnV2, GridRowModel } from "../types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -107,16 +107,16 @@ export function RowDetailsSheet({
 
     const query = searchQuery.toLowerCase();
     return columnSummaries.filter((summary) => {
-      // Search in column name
+      // IconSearch in column name
       const nameMatch = summary.columnName.toLowerCase().includes(query);
 
-      // Search in column type
+      // IconSearch in column type
       const typeMatch = summary.columnType.toLowerCase().includes(query);
 
-      // Search in display value
+      // IconSearch in display value
       const valueMatch = summary.displayValue?.toLowerCase().includes(query);
 
-      // Search in multiple display values
+      // IconSearch in multiple display values
       const multiValueMatch = summary.displayValues.some((val) =>
         val.toLowerCase().includes(query),
       );
@@ -141,7 +141,7 @@ export function RowDetailsSheet({
     return JSON.stringify(data, null, 2);
   }, [rows, columns]);
 
-  // Copy handler
+  // IconCopy handler
   const handleCopy = useCallback(
     (columnName: string, value: string) => {
       navigator.clipboard
@@ -256,7 +256,7 @@ export function RowDetailsSheet({
             </div>
             {viewMode === "summary" && (
               <div className="relative">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
                 <Input
                   placeholder="Search anything"
                   value={searchQuery}
@@ -326,9 +326,9 @@ export function RowDetailsSheet({
                             }}
                           >
                             {copiedColumn === summary.columnName ? (
-                              <Check className="h-3 w-3 text-green-600" />
+                              <IconCheck className="h-3 w-3 text-green-600" />
                             ) : (
-                              <Copy className="h-3 w-3" />
+                              <IconCopy className="h-3 w-3" />
                             )}
                           </Button>
                         </div>
@@ -346,9 +346,9 @@ export function RowDetailsSheet({
                             }}
                           >
                             {copiedColumn === summary.columnName ? (
-                              <Check className="h-3 w-3 text-green-600" />
+                              <IconCheck className="h-3 w-3 text-green-600" />
                             ) : (
-                              <Copy className="h-3 w-3" />
+                              <IconCopy className="h-3 w-3" />
                             )}
                           </Button>
                         </div>
@@ -369,9 +369,9 @@ export function RowDetailsSheet({
                             }}
                           >
                             {copiedColumn === summary.columnName ? (
-                              <Check className="h-3 w-3 text-green-600" />
+                              <IconCheck className="h-3 w-3 text-green-600" />
                             ) : (
-                              <Copy className="h-3 w-3" />
+                              <IconCopy className="h-3 w-3" />
                             )}
                           </Button>
                         </div>
@@ -392,9 +392,9 @@ export function RowDetailsSheet({
                             }}
                           >
                             {copiedColumn === summary.columnName ? (
-                              <Check className="h-3 w-3 text-green-600" />
+                              <IconCheck className="h-3 w-3 text-green-600" />
                             ) : (
-                              <Copy className="h-3 w-3" />
+                              <IconCopy className="h-3 w-3" />
                             )}
                           </Button>
                         </div>
@@ -426,14 +426,14 @@ export function RowDetailsSheet({
 }
 
 /**
- * Check if a value is a JSON object or array
+ * IconCheck if a value is a JSON object or array
  */
 function isJSONValue(value: unknown): boolean {
   if (value === null || value === undefined) {
     return false;
   }
 
-  // Check if it's an object or array (but not Date)
+  // IconCheck if it's an object or array (but not Date)
   if (typeof value === "object" && !(value instanceof Date)) {
     return true;
   }

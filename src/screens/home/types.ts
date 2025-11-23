@@ -18,6 +18,7 @@ export interface HomeScreenState {
 
   // UI state
   actionBarExpanded: boolean;
+  sidebarWidth: number;
   collapsedGroups: string[];
 
   // Actions
@@ -28,5 +29,7 @@ export interface HomeScreenState {
   toggleEnvFilter: (env: string) => void;
   setSearchQuery: (query: string) => void;
   toggleActionBar: () => void;
+  setActionBarExpanded: (expanded: boolean) => void;
+  setSidebarWidth: (width: number) => void;
   toggleGroup: (group: string) => void;
 }

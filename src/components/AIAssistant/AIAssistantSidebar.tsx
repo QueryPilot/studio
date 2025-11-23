@@ -1,11 +1,5 @@
 import { Button } from "@/components/ui/button";
-import {
-  SlidersVertical,
-  CheckIcon,
-  Loader,
-  RefreshCcwIcon,
-  CopyIcon,
-} from "lucide-react";
+import { IconAdjustments, IconCheck, IconLoader, IconRefresh, IconCopy } from '@tabler/icons-react';
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { useAIChat } from "@/hooks/useAIChat";
 import { useAIChatStore } from "@/stores/aiChatStore";
@@ -105,7 +99,7 @@ export function AIAssistantSidebar() {
     const initialize = async () => {
       setIsInitializing(true);
 
-      // Check sidecar health
+      // IconCheck sidecar health
       const healthy = await checkSidecarHealth();
       setSidecarHealthy(healthy);
 
@@ -213,7 +207,7 @@ export function AIAssistantSidebar() {
             }}
             title="AI Settings"
           >
-            <SlidersVertical className="h-4 w-4" />
+            <IconAdjustments className="h-4 w-4" />
           </Button>
         </div>
 
@@ -243,7 +237,7 @@ export function AIAssistantSidebar() {
             }}
             title="AI Settings"
           >
-            <SlidersVertical className="h-4 w-4" />
+            <IconAdjustments className="h-4 w-4" />
           </Button>
         </div>
 
@@ -260,7 +254,7 @@ export function AIAssistantSidebar() {
                 openPreferences("ai");
               }}
             >
-              Open Settings
+              Open IconSettings
             </Button>
           </div>
         </div>
@@ -268,7 +262,7 @@ export function AIAssistantSidebar() {
     );
   }
 
-  // Check if the selected provider has an API key configured on the sidecar
+  // IconCheck if the selected provider has an API key configured on the sidecar
   const isProviderActuallyConfigured =
     selectedProvider && configuredProviders.includes(selectedProvider);
 
@@ -295,7 +289,7 @@ export function AIAssistantSidebar() {
             }}
             title="AI Settings"
           >
-            <SlidersVertical className="h-4 w-4" />
+            <IconAdjustments className="h-4 w-4" />
           </Button>
         </div>
 
@@ -334,7 +328,7 @@ export function AIAssistantSidebar() {
           }}
           title="AI Settings"
         >
-          <SlidersVertical className="h-4 w-4" />
+          <IconAdjustments className="h-4 w-4" />
         </Button>
       </div>
 
@@ -411,7 +405,7 @@ export function AIAssistantSidebar() {
                                   onClick={() => regenerate()}
                                   label="Retry"
                                 >
-                                  <RefreshCcwIcon className="size-3" />
+                                  <IconRefresh className="size-3" />
                                 </MessageAction>
                                 <MessageAction
                                   onClick={() =>
@@ -419,7 +413,7 @@ export function AIAssistantSidebar() {
                                   }
                                   label="Copy"
                                 >
-                                  <CopyIcon className="size-3" />
+                                  <IconCopy className="size-3" />
                                 </MessageAction>
                               </MessageActions>
                             )}
@@ -451,7 +445,7 @@ export function AIAssistantSidebar() {
             ))}
             {chatStatus === "submitted" && (
               <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
-                <Loader className="size-3 animate-spin" />
+                <IconLoader className="size-3 animate-spin" />
                 <span>Thinking...</span>
               </div>
             )}
@@ -555,7 +549,7 @@ export function AIAssistantSidebar() {
                                 <ModelSelectorName>{model}</ModelSelectorName>
                                 {selectedProvider === provider.name &&
                                   selectedModel === model && (
-                                    <CheckIcon className="ml-auto size-4" />
+                                    <IconCheck className="ml-auto size-4" />
                                   )}
                               </ModelSelectorItem>
                             ))}

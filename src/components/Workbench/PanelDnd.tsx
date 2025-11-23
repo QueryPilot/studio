@@ -2,15 +2,7 @@ import React, { useCallback, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { type PanelContent, type DropPosition } from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
-import {
-  X,
-  LayoutGrid,
-  PanelRight,
-  PanelBottom,
-  PanelLeft,
-  PanelTop,
-  Plus,
-} from "lucide-react";
+import { IconX, IconLayoutGrid, IconLayoutSidebarRight, IconLayoutBottombar, IconLayoutSidebar, IconLayoutNavbar, IconPlus } from '@tabler/icons-react';
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -328,12 +320,12 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
             onClick={handleNewQueryTab}
             title="New query tab"
           >
-            <Plus className="h-3 w-3" />
+            <IconPlus className="h-3 w-3" />
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="h-6 w-6">
-                <LayoutGrid className="h-3 w-3" />
+                <IconLayoutGrid className="h-3 w-3" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48 text-xs">
@@ -342,7 +334,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                   handleSplit("right");
                 }}
               >
-                <PanelRight className="mr-2 h-4 w-4" />
+                <IconLayoutSidebarRight className="mr-2 h-4 w-4" />
                 Split Right
                 <DropdownMenuShortcut>⌘\</DropdownMenuShortcut>
               </DropdownMenuItem>
@@ -351,7 +343,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                   handleSplit("down");
                 }}
               >
-                <PanelBottom className="mr-2 h-4 w-4" />
+                <IconLayoutBottombar className="mr-2 h-4 w-4" />
                 Split Down
                 <DropdownMenuShortcut>⌘⇧\</DropdownMenuShortcut>
               </DropdownMenuItem>
@@ -360,7 +352,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                   handleSplit("left");
                 }}
               >
-                <PanelLeft className="mr-2 h-4 w-4" />
+                <IconLayoutSidebar className="mr-2 h-4 w-4" />
                 Split Left
                 <DropdownMenuShortcut>⌘⌥←</DropdownMenuShortcut>
               </DropdownMenuItem>
@@ -369,7 +361,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                   handleSplit("up");
                 }}
               >
-                <PanelTop className="mr-2 h-4 w-4" />
+                <IconLayoutNavbar className="mr-2 h-4 w-4" />
                 Split Up
                 <DropdownMenuShortcut>⌘⌥↑</DropdownMenuShortcut>
               </DropdownMenuItem>
@@ -381,7 +373,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
                 }}
                 className="text-destructive focus:text-destructive"
               >
-                <X className="mr-2 h-4 w-4 text-destructive" />
+                <IconX className="mr-2 h-4 w-4 text-destructive" />
                 Close Panel
                 <DropdownMenuShortcut className="text-destructive">
                   ⌘⇧W

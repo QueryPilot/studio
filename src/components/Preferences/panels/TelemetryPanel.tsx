@@ -1,7 +1,7 @@
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Info, ExternalLink, AlertCircle } from "lucide-react";
+import { IconInfoCircle, IconExternalLink, IconAlertCircle } from '@tabler/icons-react';
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { disableSentry, configureTelemetryBackend } from "@/utils/sentry";
 import { useState } from "react";
@@ -63,7 +63,7 @@ export default function TelemetryPanel() {
       </div>
 
       <Alert>
-        <Info className="h-4 w-4" />
+        <IconInfoCircle className="h-4 w-4" />
         <AlertDescription>
           <strong>Your privacy matters:</strong> All data is anonymized and we never collect queries,
           credentials, personal information, or user messages. Only error stack traces and performance
@@ -73,7 +73,7 @@ export default function TelemetryPanel() {
 
       {needsRestart && (
         <Alert variant="default" className="border-yellow-500/50 bg-yellow-50/50 dark:bg-yellow-950/20">
-          <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-500" />
+          <IconAlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-500" />
           <AlertDescription>
             <strong>Restart required:</strong> Please restart Query Pilot for error tracking to take effect.
             You can continue using the app, but error tracking won't be active until you restart.
@@ -182,7 +182,7 @@ export default function TelemetryPanel() {
               <li>• App version & OS info</li>
               <li>• Operation types (anonymized)</li>
               <li>• Performance metrics</li>
-              <li>• Database adapter types</li>
+              <li>• IconDatabase adapter types</li>
             </ul>
           </div>
           <div>
@@ -192,7 +192,7 @@ export default function TelemetryPanel() {
             <ul className="text-xs text-muted-foreground space-y-1">
               <li>• SQL queries or content</li>
               <li>• API keys or credentials</li>
-              <li>• Database connection strings</li>
+              <li>• IconDatabase connection strings</li>
               <li>• AI chat messages or responses</li>
               <li>• Personal user information</li>
             </ul>
@@ -209,7 +209,7 @@ export default function TelemetryPanel() {
           className="text-primary hover:underline flex items-center gap-1"
         >
           Privacy Policy
-          <ExternalLink className="h-3 w-3" />
+          <IconExternalLink className="h-3 w-3" />
         </a>
         <span className="text-muted-foreground">•</span>
         <a
@@ -219,7 +219,7 @@ export default function TelemetryPanel() {
           className="text-primary hover:underline flex items-center gap-1"
         >
           Sentry Privacy
-          <ExternalLink className="h-3 w-3" />
+          <IconExternalLink className="h-3 w-3" />
         </a>
       </div>
     </div>

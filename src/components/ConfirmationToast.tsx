@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { AlertTriangle } from "lucide-react";
+import { IconAlertTriangle } from '@tabler/icons-react';
 
 interface ConfirmationToastProps {
   title: string;
@@ -20,7 +20,7 @@ export function ConfirmationToast({
 }: ConfirmationToastProps) {
   return (
     <div className="flex gap-3 w-full">
-      <AlertTriangle className="h-5 w-5 text-orange-500 flex-shrink-0 mt-0.5" />
+      <IconAlertTriangle className="h-5 w-5 text-orange-500 flex-shrink-0 mt-0.5" />
       <div className="flex flex-col gap-3 flex-1">
         <div className="flex flex-col gap-1">
           <div className="font-semibold text-sm">{title}</div>

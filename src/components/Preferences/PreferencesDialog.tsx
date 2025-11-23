@@ -7,7 +7,7 @@ import AIPanel from "./panels/AIPanel";
 import TelemetryPanel from "./panels/TelemetryPanel";
 import { GlobalShortcutsPanel } from "./panels/GlobalShortcutsPanel";
 import { Suspense, lazy } from "react";
-import { Loader2 } from "lucide-react";
+import { IconLoader2 } from '@tabler/icons-react';
 
 // Lazy load the shortcuts panel (it might be heavy)
 const ShortcutsPanel = lazy(() => import("./panels/EditorPanel"));
@@ -45,7 +45,7 @@ export function PreferencesDialog({
           <Suspense
             fallback={
               <div className="flex items-center justify-center h-full">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
             }
           >

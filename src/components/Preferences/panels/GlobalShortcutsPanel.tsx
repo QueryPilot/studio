@@ -12,7 +12,7 @@ import {
 import { getGlobalShortcutManager } from "@/services/globalShortcuts";
 import { isTauri } from "@/utils/tauri";
 import { toast } from "sonner";
-import { Keyboard, Info, AlertCircle } from "lucide-react";
+import { IconKeyboard, IconInfoCircle, IconAlertCircle } from '@tabler/icons-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 export function GlobalShortcutsPanel() {
@@ -35,7 +35,7 @@ export function GlobalShortcutsPanel() {
         setDefaultShortcut(defaultKey);
         setCustomShortcut(defaultKey);
 
-        // Check if default shortcut is registered
+        // IconCheck if default shortcut is registered
         const registered = await manager.isRegistered(defaultKey);
         setIsRegistered(registered);
       }
@@ -147,7 +147,7 @@ export function GlobalShortcutsPanel() {
     return (
       <div className="space-y-4">
         <Alert>
-          <AlertCircle className="h-4 w-4" />
+          <IconAlertCircle className="h-4 w-4" />
           <AlertTitle>Not Available</AlertTitle>
           <AlertDescription>
             Global shortcuts are only available in the desktop application.
@@ -169,7 +169,7 @@ export function GlobalShortcutsPanel() {
       </div>
 
       <Alert>
-        <Info className="h-4 w-4" />
+        <IconInfoCircle className="h-4 w-4" />
         <AlertTitle>How it works</AlertTitle>
         <AlertDescription>
           Global shortcuts allow you to activate Query Pilot from any
@@ -181,7 +181,7 @@ export function GlobalShortcutsPanel() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Keyboard className="h-5 w-5" />
+            <IconKeyboard className="h-5 w-5" />
             Show/Activate Window
           </CardTitle>
           <CardDescription>
@@ -241,7 +241,7 @@ export function GlobalShortcutsPanel() {
 
           {isRegistered && (
             <Alert className="bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800">
-              <Info className="h-4 w-4 text-green-600 dark:text-green-400" />
+              <IconInfoCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
               <AlertTitle className="text-green-600 dark:text-green-400">
                 Active
               </AlertTitle>

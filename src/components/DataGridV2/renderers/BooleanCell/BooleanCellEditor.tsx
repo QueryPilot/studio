@@ -6,7 +6,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Key } from "lucide-react";
+import { IconKey } from '@tabler/icons-react';
 import { type BooleanCustomCell } from "./types";
 
 interface BooleanCellEditorProps {
@@ -116,7 +116,7 @@ export const BooleanCellEditor: React.FC<BooleanCellEditorProps> = ({
       {/* Header with column info */}
       <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
         {isPrimaryKey && (
-          <Key className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
+          <IconKey className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
         )}
         <span className="text-[10px] font-medium text-foreground/80">
           {columnName}

@@ -1,6 +1,6 @@
 import React from "react";
 import { cn } from "@/lib/utils";
-import { X, Table2, Eye, FunctionSquare, Code } from "lucide-react";
+import { IconX, IconTable, IconEye, IconMathFunction, IconCode } from '@tabler/icons-react';
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 
@@ -49,17 +49,17 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
     switch (tabType) {
       case "table":
         if (isView) {
-          return Eye;
+          return IconEye;
         }
-        return Table2;
+        return IconTable;
       case "view":
-        return Eye;
+        return IconEye;
       case "function":
-        return FunctionSquare;
+        return IconMathFunction;
       case "query":
-        return Code;
+        return IconCode;
       default:
-        return Table2;
+        return IconTable;
     }
   };
 
@@ -120,7 +120,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
               onClose();
             }}
           >
-            <X className="h-3.5 w-3.5" />
+            <IconX className="h-3.5 w-3.5" />
           </button>
 
           <Icon

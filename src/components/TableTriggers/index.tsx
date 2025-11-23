@@ -6,7 +6,7 @@ import {
   type CustomRenderer,
 } from "@glideapps/glide-data-grid";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertCircle, Zap } from "lucide-react";
+import { IconAlertCircle, IconBolt } from '@tabler/icons-react';
 import { databaseService, type TriggerMeta } from "@/services/databaseService";
 import { EditableDataGrid } from "@/components/DataGridV2/base/EditableDataGrid";
 import type { GridEditCommitEvent } from "@/components/DataGridV2/types";
@@ -200,7 +200,7 @@ export const TableTriggers = memo(function TableTriggers({
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-8 select-text">
-        <AlertCircle className="h-12 w-12 text-destructive mb-4" />
+        <IconAlertCircle className="h-12 w-12 text-destructive mb-4" />
         <h3 className="text-lg font-semibold mb-2">Failed to load triggers</h3>
         <p className="text-sm text-muted-foreground max-w-md text-center select-text">
           {error}
@@ -212,7 +212,7 @@ export const TableTriggers = memo(function TableTriggers({
   if (!hasTriggers) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-        <Zap className="h-12 w-12 text-muted-foreground/50 mb-4" />
+        <IconBolt className="h-12 w-12 text-muted-foreground/50 mb-4" />
         <p className="text-sm">This table has no triggers.</p>
       </div>
     );

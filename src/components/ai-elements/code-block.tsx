@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
-import { CheckIcon, CopyIcon } from "lucide-react";
+import { IconCheck, IconCopy } from '@tabler/icons-react';
 import {
   type ComponentProps,
   createContext,
@@ -161,7 +161,7 @@ export const CodeBlockCopyButton = ({
     }, timeout);
   };
 
-  const Icon = isCopied ? CheckIcon : CopyIcon;
+  const Icon = isCopied ? IconCheck : IconCopy;
 
   return (
     <Button

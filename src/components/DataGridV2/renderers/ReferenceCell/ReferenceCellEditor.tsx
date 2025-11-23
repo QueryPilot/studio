@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback } from "react";
 import type { ReferenceCustomCell } from "./types";
 import { Button } from "@/components/ui/button";
-import { XIcon, SearchIcon, Loader2Icon, Key } from "lucide-react";
+import { IconX, IconSearch, IconLoader2, IconKey } from '@tabler/icons-react';
 import { cn } from "@/lib/cn";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
@@ -122,7 +122,7 @@ export const ReferenceCellEditor: React.FC<ReferenceCellEditorProps> = ({
   );
 
   const commitCurrentValue = useCallback(() => {
-    // Check if value actually changed
+    // IconCheck if value actually changed
     const hasChanged = searchText !== initialValue;
 
     // If no changes were made, cancel the edit
@@ -249,7 +249,7 @@ export const ReferenceCellEditor: React.FC<ReferenceCellEditorProps> = ({
         {/* Header with column info */}
         <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50">
           {isPrimaryKey && (
-            <Key className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
+            <IconKey className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
           )}
           <span className="text-[10px] font-medium text-foreground/80">
             {columnName}
@@ -273,13 +273,13 @@ export const ReferenceCellEditor: React.FC<ReferenceCellEditorProps> = ({
                 onClick={handleClear}
                 title="Clear (NULL)"
               >
-                <XIcon className="h-3 w-3" />
+                <IconX className="h-3 w-3" />
               </Button>
             )}
           </div>
 
         <div className="relative">
-          <SearchIcon className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+          <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
           <input
             ref={inputRef}
             type="text"
@@ -292,7 +292,7 @@ export const ReferenceCellEditor: React.FC<ReferenceCellEditorProps> = ({
             placeholder="Search any column..."
           />
           {isSearching && (
-            <Loader2Icon className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 animate-spin text-muted-foreground" />
+            <IconLoader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 animate-spin text-muted-foreground" />
           )}
         </div>
 

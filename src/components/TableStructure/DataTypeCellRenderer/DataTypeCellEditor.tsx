@@ -7,7 +7,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { Check } from "lucide-react";
+import { IconCheck } from '@tabler/icons-react';
 import { cn } from "@/lib/cn";
 
 interface DataTypeCellEditorProps {
@@ -161,7 +161,7 @@ const DataTypeCellEditor: React.FC<DataTypeCellEditorProps> = ({
                     className="text-xs font-mono flex items-center justify-between"
                   >
                     <div className="flex items-center gap-2">{type}</div>
-                    <Check
+                    <IconCheck
                       className={cn(
                         "h-3 w-3",
                         isSelected ? "opacity-100" : "opacity-0",

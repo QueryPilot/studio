@@ -7,16 +7,7 @@ import {
   ContextMenuSubTrigger,
 } from "@/components/ui/context-menu";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
-import {
-  Copy,
-  Download,
-  Eye,
-  Pin,
-  PinOff,
-  Plus,
-  Trash2,
-  ClipboardPaste,
-} from "lucide-react";
+import { IconCopy, IconDownload, IconEye, IconPin, IconPinnedOff, IconPlus, IconTrash, IconClipboardText } from '@tabler/icons-react';
 import type { GridColumnV2, GridRowModel } from "../types";
 import type { DatabaseType } from "@/types/database";
 import {
@@ -118,7 +109,7 @@ export function GridContextMenuItems({
     [renderShortcut],
   );
 
-  // Copy handlers
+  // IconCopy handlers
   const handleCopyJSON = useCallback(async () => {
     try {
       const content = copyAsJSON(selectedRows, columns);
@@ -268,7 +259,7 @@ export function GridContextMenuItems({
             onClick={onAddRow}
             className="text-xs py-1 px-2 outline-none"
           >
-            <Plus className="mr-1.5 h-3 w-3 text-foreground" />
+            <IconPlus className="mr-1.5 h-3 w-3 text-foreground" />
             <span className="flex-1">Add Row</span>
           </ContextMenuItem>
         )}
@@ -277,7 +268,7 @@ export function GridContextMenuItems({
             onClick={onPaste}
             className="text-xs py-1 px-2 outline-none"
           >
-            <ClipboardPaste className="mr-3.5 h-3 w-3" />
+            <IconClipboardText className="mr-3.5 h-3 w-3" />
             <span className="flex-1">Paste</span>
           </ContextMenuItem>
         )}
@@ -292,16 +283,16 @@ export function GridContextMenuItems({
         onClick={onViewDetails}
         className="text-xs py-1 px-2 outline-none"
       >
-        <Eye className="mr-1.5 h-3 w-3 text-foreground" />
+        <IconEye className="mr-1.5 h-3 w-3 text-foreground" />
         <span className="flex-1">View Details</span>
       </ContextMenuItem>
 
       <ContextMenuSeparator className="my-1" />
 
-      {/* Copy submenu */}
+      {/* IconCopy submenu */}
       <ContextMenuSub>
         <ContextMenuSubTrigger className="text-xs py-1 px-2 outline-none">
-          <Copy className="mr-3.5 h-3 w-3 text-foreground" />
+          <IconCopy className="mr-3.5 h-3 w-3 text-foreground" />
           <span className="flex-1">Copy</span>
         </ContextMenuSubTrigger>
         <ContextMenuSubContent className="text-xs p-1">
@@ -332,7 +323,7 @@ export function GridContextMenuItems({
             <span className="flex-1">Copy cells as INSERT</span>
           </ContextMenuItem>
           <ContextMenuSeparator className="my-1" />
-          {/* Copy rows context menus  */}
+          {/* IconCopy rows context menus  */}
           <ContextMenuItem
             onClick={handleCopyTSV}
             className="text-xs py-1 px-2 outline-none"
@@ -367,7 +358,7 @@ export function GridContextMenuItems({
           disabled={!canPinMore}
           className="text-xs py-1 px-2 outline-none"
         >
-          <Pin className="mr-1.5 h-3 w-3 text-foreground" />
+          <IconPin className="mr-1.5 h-3 w-3 text-foreground" />
           <span className="flex-1">Pin Rows</span>
           {!canPinMore && (
             <span className="text-xs text-muted-foreground ml-1">Max</span>
@@ -379,7 +370,7 @@ export function GridContextMenuItems({
           onClick={handleUnpinRows}
           className="text-xs py-1 px-2 outline-none"
         >
-          <PinOff className="mr-1.5 h-3 w-3 text-foreground" />
+          <IconPinnedOff className="mr-1.5 h-3 w-3 text-foreground" />
           <span className="flex-1">Unpin Rows</span>
         </ContextMenuItem>
       )}
@@ -391,7 +382,7 @@ export function GridContextMenuItems({
             onClick={onPaste}
             className="text-xs py-1 px-2 outline-none"
           >
-            <ClipboardPaste className="mr-1.5 h-3 w-3 text-foreground" />
+            <IconClipboardText className="mr-1.5 h-3 w-3 text-foreground" />
             <span className="flex-1">Paste</span>
             {shortcuts.paste}
           </ContextMenuItem>
@@ -403,7 +394,7 @@ export function GridContextMenuItems({
           onClick={onInsertRowBelow}
           className="text-xs py-1 px-2 outline-none"
         >
-          <Plus className="mr-1.5 h-3 w-3 text-foreground" />
+          <IconPlus className="mr-1.5 h-3 w-3 text-foreground" />
           <span className="flex-1">Add Row</span>
           {shortcuts.insertBelow}
         </ContextMenuItem>
@@ -412,7 +403,7 @@ export function GridContextMenuItems({
       {/* Export submenu */}
       <ContextMenuSub>
         <ContextMenuSubTrigger className="text-xs py-1 px-2 outline-none">
-          <Download className="mr-3.5 h-3 w-3" />
+          <IconDownload className="mr-3.5 h-3 w-3" />
           <span className="flex-1">Export</span>
         </ContextMenuSubTrigger>
         <ContextMenuSubContent className="text-xs p-1">
@@ -420,28 +411,28 @@ export function GridContextMenuItems({
             onClick={handleExportCSV}
             className="text-xs py-1 px-2 outline-none"
           >
-            <Download className="mr-1.5 h-3 w-3 text-foreground" />
+            <IconDownload className="mr-1.5 h-3 w-3 text-foreground" />
             <span className="flex-1">Export as CSV</span>
           </ContextMenuItem>
           <ContextMenuItem
             onClick={handleExportJSON}
             className="text-xs py-1 px-2 outline-none"
           >
-            <Download className="mr-1.5 h-3 w-3 text-foreground" />
+            <IconDownload className="mr-1.5 h-3 w-3 text-foreground" />
             <span className="flex-1">Export as JSON</span>
           </ContextMenuItem>
           <ContextMenuItem
             onClick={handleExportTSV}
             className="text-xs py-1 px-2 outline-none"
           >
-            <Download className="mr-1.5 h-3 w-3 text-foreground" />
+            <IconDownload className="mr-1.5 h-3 w-3 text-foreground" />
             <span className="flex-1">Export as TSV</span>
           </ContextMenuItem>
           <ContextMenuItem
             onClick={handleExportExcel}
             className="text-xs py-1 px-2 outline-none"
           >
-            <Download className="mr-1.5 h-3 w-3 text-foreground" />
+            <IconDownload className="mr-1.5 h-3 w-3 text-foreground" />
             <span className="flex-1">Export as Excel</span>
           </ContextMenuItem>
         </ContextMenuSubContent>
@@ -455,7 +446,7 @@ export function GridContextMenuItems({
         onClick={onDeleteRows}
         className="text-xs py-1 px-2 outline-none"
       >
-        <Trash2 className="mr-1.5 h-3 w-3 text-destructive" />
+        <IconTrash className="mr-1.5 h-3 w-3 text-destructive" />
         <span className="flex-1">Delete</span>
         {shortcuts.deleteRows}
       </ContextMenuItem>

@@ -6,9 +6,9 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
+import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
-import { Calendar as CalendarIcon, X as ClearIcon, Key } from "lucide-react";
+import { IconCalendar as CalendarIcon, IconX as ClearIcon, IconKey } from '@tabler/icons-react';
 
 import dayjs from "dayjs";
 
@@ -71,7 +71,7 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
     const nextUpper = upperText.trim() || null;
     const currentValue = `${bounds[0]}${nextLower ?? ""},${nextUpper ?? ""}${bounds[1]}`;
 
-    // Check if value actually changed
+    // IconCheck if value actually changed
     const hasChanged = currentValue !== originalValueRef.current;
 
     // If no changes were made, cancel the edit
@@ -107,7 +107,7 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
       finishedRef.current = true;
       setOpenRange(false);
 
-      // Check if value actually changed
+      // IconCheck if value actually changed
       const nextLower = lowerText.trim() || null;
       const nextUpper = upperText.trim() || null;
       const text = `${bounds[0]}${nextLower ?? ""},${nextUpper ?? ""}${bounds[1]}`;
@@ -187,7 +187,7 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
       {/* Header with column info */}
       <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
         {isPrimaryKey && (
-          <Key className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
+          <IconKey className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
         )}
         <span className="text-[10px] font-medium text-foreground/80">
           {columnName}
@@ -282,7 +282,7 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
                     <span className="text-xs font-medium uppercase text-muted-foreground">
                       Start
                     </span>
-                    <Calendar
+                    <CalendarPicker
                       mode="single"
                       month={displayLowerDate}
                       selected={lowerDateValue}
@@ -331,7 +331,7 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
                     <span className="text-xs font-medium uppercase text-muted-foreground">
                       End
                     </span>
-                    <Calendar
+                    <CalendarPicker
                       mode="single"
                       month={displayUpperDate}
                       selected={upperDateValue}

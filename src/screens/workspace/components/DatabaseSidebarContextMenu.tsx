@@ -1,16 +1,6 @@
 import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
-import {
-  Download,
-  Copy,
-  FileText,
-  Trash2,
-  Eye,
-  Layers,
-  ChevronRight,
-  Star,
-  Eraser,
-} from "lucide-react";
+import { IconDownload, IconCopy, IconFileText, IconTrash, IconEye, IconStack2, IconChevronRight, IconStar, IconEraser } from '@tabler/icons-react';
 
 interface ContextMenuProps {
   x: number;
@@ -110,7 +100,7 @@ export function DatabaseSidebarContextMenu({
       {hasTablesOrViews && (
         <>
           <MenuItem
-            icon={<Eye className="h-3.5 w-3.5" />}
+            icon={<IconEye className="h-3.5 w-3.5" />}
             label={selectedCount === 1 ? "View Data" : `View Data (${selectedCount})`}
             onClick={() => {
               onViewData();
@@ -118,7 +108,7 @@ export function DatabaseSidebarContextMenu({
             }}
           />
           <MenuItem
-            icon={<Layers className="h-3.5 w-3.5" />}
+            icon={<IconStack2 className="h-3.5 w-3.5" />}
             label={selectedCount === 1 ? "View Structure" : `View Structure (${selectedCount})`}
             onClick={() => {
               onViewStructure();
@@ -131,7 +121,7 @@ export function DatabaseSidebarContextMenu({
 
       {/* Export */}
       <MenuItem
-        icon={<Download className="h-3.5 w-3.5" />}
+        icon={<IconDownload className="h-3.5 w-3.5" />}
         label="Export To File"
         onClick={() => {
           onExport();
@@ -141,9 +131,9 @@ export function DatabaseSidebarContextMenu({
 
       <MenuSeparator />
 
-      {/* Copy options */}
+      {/* IconCopy options */}
       <MenuItem
-        icon={<Copy className="h-3.5 w-3.5" />}
+        icon={<IconCopy className="h-3.5 w-3.5" />}
         label={selectedCount === 1 ? "Copy Name" : `Copy Names (${selectedCount})`}
         onClick={() => {
           onCopyName();
@@ -151,7 +141,7 @@ export function DatabaseSidebarContextMenu({
         }}
       />
       <MenuItem
-        icon={<FileText className="h-3.5 w-3.5" />}
+        icon={<IconFileText className="h-3.5 w-3.5" />}
         label={selectedCount === 1 ? "Copy Definition" : `Copy Definitions (${selectedCount})`}
         onClick={() => {
           onCopyDefinition();
@@ -161,7 +151,7 @@ export function DatabaseSidebarContextMenu({
 
       {/* Pin/Star */}
       <MenuItem
-        icon={<Star className="h-3.5 w-3.5" />}
+        icon={<IconStar className="h-3.5 w-3.5" />}
         label={selectedCount === 1 ? "Pin to Top" : `Pin (${selectedCount})`}
         onClick={() => {
           onPin();
@@ -175,12 +165,12 @@ export function DatabaseSidebarContextMenu({
       {hasOnlyTables && selectedCount === 1 && (
         <>
           <MenuItem
-            icon={<FileText className="h-3.5 w-3.5" />}
+            icon={<IconFileText className="h-3.5 w-3.5" />}
             label="SQL: Create"
             hasSubmenu
           />
           <MenuItem
-            icon={<Copy className="h-3.5 w-3.5" />}
+            icon={<IconCopy className="h-3.5 w-3.5" />}
             label="Duplicate"
             onClick={() => {
               onDuplicate?.();
@@ -194,7 +184,7 @@ export function DatabaseSidebarContextMenu({
       {/* Dangerous operations */}
       {hasOnlyTables && (
         <MenuItem
-          icon={<Eraser className="h-3.5 w-3.5" />}
+          icon={<IconEraser className="h-3.5 w-3.5" />}
           label={selectedCount === 1 ? "Truncate..." : `Truncate (${selectedCount})...`}
           onClick={() => {
             onTruncate();
@@ -205,7 +195,7 @@ export function DatabaseSidebarContextMenu({
       )}
 
       <MenuItem
-        icon={<Trash2 className="h-3.5 w-3.5" />}
+        icon={<IconTrash className="h-3.5 w-3.5" />}
         label={selectedCount === 1 ? "Delete..." : `Delete (${selectedCount})...`}
         onClick={() => {
           onDelete();
@@ -246,7 +236,7 @@ function MenuItem({
     >
       {icon}
       <span className="flex-1 text-left">{label}</span>
-      {hasSubmenu && <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+      {hasSubmenu && <IconChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
     </button>
   );
 }

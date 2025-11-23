@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { AlertCircle, Loader2 } from "lucide-react";
+import { IconAlertCircle, IconLoader2 } from '@tabler/icons-react';
 import { Button } from "@/components/ui/button";
 import logo from "@/assets/logo.png";
 
@@ -16,7 +16,7 @@ export const DataGridErrorState = memo(function DataGridErrorState({
 }: DataGridErrorStateProps) {
   return (
     <div className="flex flex-col items-center justify-center h-full p-8 select-text">
-      <AlertCircle className="h-12 w-12 text-destructive mb-4" />
+      <IconAlertCircle className="h-12 w-12 text-destructive mb-4" />
       <h3 className="text-lg font-semibold mb-2">Failed to load table data</h3>
       <p className="text-sm text-muted-foreground max-w-md text-center select-text mb-4">
         {error}
@@ -24,7 +24,7 @@ export const DataGridErrorState = memo(function DataGridErrorState({
       <div className="flex gap-2">
         {onRetry && (
           <Button variant="outline" size="sm" onClick={onRetry}>
-            Clear Filter
+            Clear IconFilter
           </Button>
         )}
         {onReload && (
@@ -80,7 +80,7 @@ export const DataGridLoadingIndicator = memo(function DataGridLoadingIndicator({
   return (
     <div className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t w-full">
       <div className="flex items-center justify-center py-3 gap-3">
-        <Loader2 className="h-4 w-4 animate-spin" />
+        <IconLoader2 className="h-4 w-4 animate-spin" />
         <div className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">
             {isStreaming ? "Streaming" : "Loading"}{" "}

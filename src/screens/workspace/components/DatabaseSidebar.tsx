@@ -1,15 +1,6 @@
 import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
-import {
-  Search,
-  Table,
-  Eye,
-  FunctionSquare,
-  RefreshCw,
-  AlertCircle,
-  Bolt,
-  BookMarked,
-} from "lucide-react";
+import { IconSearch, IconTable, IconEye, IconMathFunction, IconRefresh, IconAlertCircle, IconBolt, IconBookmark } from '@tabler/icons-react';
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePanelStore } from "@/stores/panelStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
@@ -463,7 +454,7 @@ export function DatabaseSidebar({
     selectedSchema,
   );
 
-  // Filter items based on search
+  // IconFilter items based on search
   const filterItems = <T extends { name: string }>(items: T[]): T[] => {
     if (!searchQuery) return items;
     return items.filter((item) =>
@@ -471,7 +462,7 @@ export function DatabaseSidebar({
     );
   };
 
-  // Check if a table/view is currently active in the active panel
+  // IconCheck if a table/view is currently active in the active panel
   const isTableActive = (tableName: string, schema: string): boolean => {
     // First check workbench store (new system)
     if (focusedPanelId) {
@@ -501,7 +492,7 @@ export function DatabaseSidebar({
     );
   };
 
-  // Check if a function is currently active in the active panel
+  // IconCheck if a function is currently active in the active panel
   const isFunctionActive = (functionName: string, schema: string): boolean => {
     // First check workbench store (new system)
     if (focusedPanelId) {
@@ -530,7 +521,7 @@ export function DatabaseSidebar({
     );
   };
 
-  // Check if a table has pending changes
+  // IconCheck if a table has pending changes
   const hasTablePendingChanges = (
     tableName: string,
     schema: string,
@@ -554,7 +545,7 @@ export function DatabaseSidebar({
   if (showLoadingSkeleton) {
     return (
       <div className="flex flex-col h-full p-2 space-y-3">
-        {/* Search bar skeleton */}
+        {/* IconSearch bar skeleton */}
         <Skeleton className="h-7 w-full" />
 
         {/* Tables section skeleton */}
@@ -589,11 +580,11 @@ export function DatabaseSidebar({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Search Input and Refresh */}
+      {/* IconSearch Input and Refresh */}
       <div className="p-1">
         <div className="flex gap-1 items-center">
           <div className="relative flex-1">
-            <Search className="absolute left-1.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <IconSearch className="absolute left-1.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               type="text"
               placeholder="Search objects..."
@@ -612,7 +603,7 @@ export function DatabaseSidebar({
             disabled={isLoadingData || isRefreshing}
             title="Refresh"
           >
-            <RefreshCw
+            <IconRefresh
               className={cn(
                 "h-3 w-3",
                 (isLoadingData || isRefreshing) && "animate-spin",
@@ -626,7 +617,7 @@ export function DatabaseSidebar({
       {error && (
         <div className="px-2 py-1">
           <div className="flex items-center gap-2 text-xs text-red-500">
-            <AlertCircle className="h-3 w-3" />
+            <IconAlertCircle className="h-3 w-3" />
             <span>{error}</span>
           </div>
         </div>
@@ -666,9 +657,9 @@ export function DatabaseSidebar({
 
                 const icon =
                   item.type === "function" ? (
-                    <FunctionSquare className="h-3.5 w-4 min-w-4 text-purple-500 flex-shrink-0" />
+                    <IconMathFunction className="h-3.5 w-4 min-w-4 text-purple-500 flex-shrink-0" />
                   ) : item.type === "view" ? (
-                    <Eye
+                    <IconEye
                       className={cn(
                         "h-4 min-h-4 w-4 min-w-4 flex-shrink-0",
                         (itemData as TableMeta).kind === "MaterializedView"
@@ -677,7 +668,7 @@ export function DatabaseSidebar({
                       )}
                     />
                   ) : (
-                    <Table className="h-3.5 w-4 min-w-4 text-primary flex-shrink-0" />
+                    <IconTable className="h-3.5 w-4 min-w-4 text-primary flex-shrink-0" />
                   );
 
                 const isActive =
@@ -728,7 +719,7 @@ export function DatabaseSidebar({
                         <>
                           <ActionButton
                             icon={
-                              <Bolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                              <IconBolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
                             }
                             onClick={(e) => {
                               e.stopPropagation();
@@ -741,7 +732,7 @@ export function DatabaseSidebar({
                           />
                           <ActionButton
                             icon={
-                              <BookMarked className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                              <IconBookmark className="h-3 w-3 text-muted-foreground hover:text-foreground" />
                             }
                             onClick={(e) => {
                               e.stopPropagation();
@@ -780,7 +771,7 @@ export function DatabaseSidebar({
                   <SidebarItem
                     key={`${table.schema}.${table.name}`}
                     icon={
-                      <Table className="h-3.5 w-4 min-w-4 text-primary flex-shrink-0" />
+                      <IconTable className="h-3.5 w-4 min-w-4 text-primary flex-shrink-0" />
                     }
                     name={table.name}
                     isActive={isTableActive(table.name, table.schema)}
@@ -814,7 +805,7 @@ export function DatabaseSidebar({
                       <>
                         <ActionButton
                           icon={
-                            <Bolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                            <IconBolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
                           }
                           onClick={(e) => {
                             e.stopPropagation();
@@ -824,7 +815,7 @@ export function DatabaseSidebar({
                         />
                         <ActionButton
                           icon={
-                            <BookMarked className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                            <IconBookmark className="h-3 w-3 text-muted-foreground hover:text-foreground" />
                           }
                           onClick={(e) => {
                             e.stopPropagation();
@@ -858,7 +849,7 @@ export function DatabaseSidebar({
                   <SidebarItem
                     key={`${view.schema}.${view.name}`}
                     icon={
-                      <Eye
+                      <IconEye
                         className={cn(
                           "h-4 min-h-4 w-4 min-w-4 flex-shrink-0",
                           view.kind === "MaterializedView"
@@ -899,7 +890,7 @@ export function DatabaseSidebar({
                       <>
                         <ActionButton
                           icon={
-                            <Bolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                            <IconBolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
                           }
                           onClick={(e) => {
                             e.stopPropagation();
@@ -909,7 +900,7 @@ export function DatabaseSidebar({
                         />
                         <ActionButton
                           icon={
-                            <BookMarked className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                            <IconBookmark className="h-3 w-3 text-muted-foreground hover:text-foreground" />
                           }
                           onClick={(e) => {
                             e.stopPropagation();
@@ -944,7 +935,7 @@ export function DatabaseSidebar({
                   <SidebarItem
                     key={`${func.schema}.${func.name}`}
                     icon={
-                      <FunctionSquare className="h-3.5 w-4 min-w-4 text-purple-500 flex-shrink-0" />
+                      <IconMathFunction className="h-3.5 w-4 min-w-4 text-purple-500 flex-shrink-0" />
                     }
                     name={func.name}
                     isActive={isFunctionActive(func.name, func.schema)}
