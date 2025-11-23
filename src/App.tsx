@@ -1,5 +1,5 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import { MainScreen } from "./screens/main/MainScreen";
+import { HomeScreen } from "./screens/home/HomeScreen";
 import { WorkspaceScreen } from "./screens/workspace/WorkspaceScreen";
 import { useEffect, useState } from "react";
 import { isTauri } from "./utils/tauri";
@@ -28,7 +28,7 @@ function AppContent() {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={<MainScreen />} />
+        <Route path="/" element={<HomeScreen />} />
         <Route path="/workspace/:connectionId" element={<WorkspaceScreen />} />
       </Routes>
     </Router>
