@@ -81,7 +81,7 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
       <Panel
         content={node.content}
         path={path}
-        className={cn(className, "rounded-xl overflow-hidden border-2", {
+        className={cn(className, "rounded-xl overflow-hidden border-[3px]", {
           "border-primary/30": totalPanels > 1 && node.id === focusedPanelId,
           "border-background": totalPanels <= 1 || node.id !== focusedPanelId,
         })}

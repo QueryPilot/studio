@@ -956,17 +956,15 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     [finalColumns, toggleSort],
   );
 
-  // Custom header draw function for sort indicators (only when columns are sorted)
+  // Custom header draw function for sort indicators and column type icons
   const drawHeader = useMemo(
     () =>
-      sortColumns.length > 0
-        ? createDrawHeader({
-            getSortDirection,
-            getSortIndex,
-            columns: finalColumns,
-            sortedColumnCount: sortColumns.length,
-          })
-        : undefined,
+      createDrawHeader({
+        getSortDirection,
+        getSortIndex,
+        columns: finalColumns,
+        sortedColumnCount: sortColumns.length,
+      }),
     [getSortDirection, getSortIndex, finalColumns, sortColumns.length],
   );
 

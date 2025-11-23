@@ -25,7 +25,13 @@ import {
 } from "./DatabaseSidebarItem";
 import { DatabaseSidebarContextMenu } from "./DatabaseSidebarContextMenu";
 import { useSchemaData } from "@/hooks/useSchemaData";
-import { openFunctionObject, openTableObject } from "@/utils/workbench/openers";
+import {
+  openFunctionObject,
+  openTableObject,
+  openTableDesigner,
+  openQueryWithTemplate,
+  type CreateObjectType,
+} from "@/utils/workbench/openers";
 import {
   useStarredItemsStore,
   type StarredItemType,
@@ -405,6 +411,33 @@ export function DatabaseSidebar({
     }
   };
 
+  // Handlers for creating new objects
+  const handleCreateTable = () => {
+    openTableDesigner({
+      connectionId,
+      database: selectedDatabase,
+      schema: selectedSchema,
+    });
+  };
+
+  const handleCreateView = () => {
+    openQueryWithTemplate({
+      connectionId,
+      database: selectedDatabase,
+      schema: selectedSchema,
+      objectType: 'view',
+    });
+  };
+
+  const handleCreateFunction = () => {
+    openQueryWithTemplate({
+      connectionId,
+      database: selectedDatabase,
+      schema: selectedSchema,
+      objectType: 'function',
+    });
+  };
+
   // Handle star toggle
   const handleToggleStar = (
     type: StarredItemType,
@@ -738,6 +771,8 @@ export function DatabaseSidebar({
                 toggleNode("tables");
               }}
               stickyClass="sticky top-0 bg-background z-30"
+              onAdd={handleCreateTable}
+              addTooltip="Create new table"
             >
               {filterItems(tables).map((table) => {
                 const itemKey = getItemKey('table', table.name, table.schema);
@@ -814,6 +849,8 @@ export function DatabaseSidebar({
               onToggle={() => {
                 toggleNode("views");
               }}
+              onAdd={handleCreateView}
+              addTooltip="Create new view"
             >
               {filterItems(views).map((view) => {
                 const itemKey = getItemKey('view', view.name, view.schema);
@@ -898,6 +935,8 @@ export function DatabaseSidebar({
                 toggleNode("functions");
               }}
               stickyClass="sticky top-0 bg-background z-10"
+              onAdd={handleCreateFunction}
+              addTooltip="Create new function"
             >
               {filterItems(functions).map((func) => {
                 const itemKey = getItemKey('function', func.name, func.schema);

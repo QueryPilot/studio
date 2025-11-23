@@ -4,6 +4,173 @@ import { usePanelStore } from '@/stores/panelStore';
 
 type TableViewType = 'data' | 'structure' | 'indexes';
 
+// SQL templates for creating database objects
+const SQL_TEMPLATES = {
+  schema: (_schema: string) => `CREATE SCHEMA "new_schema_name"
+  AUTHORIZATION current_user;
+
+-- Optional: Grant permissions
+-- GRANT USAGE ON SCHEMA "new_schema_name" TO some_role;
+-- GRANT ALL ON ALL TABLES IN SCHEMA "new_schema_name" TO some_role;`,
+
+  view: (schema: string) => `CREATE VIEW "${schema}"."view_name" AS
+SELECT
+  column1,
+  column2
+FROM "${schema}"."table_name"
+WHERE condition;`,
+
+  materializedView: (schema: string) => `CREATE MATERIALIZED VIEW "${schema}"."mv_name" AS
+SELECT
+  column1,
+  column2,
+  COUNT(*) as count
+FROM "${schema}"."table_name"
+GROUP BY column1, column2
+WITH DATA;
+
+-- To refresh: REFRESH MATERIALIZED VIEW "${schema}"."mv_name";`,
+
+  function: (schema: string) => `CREATE OR REPLACE FUNCTION "${schema}"."function_name"(
+  param1 INTEGER,
+  param2 TEXT DEFAULT 'default'
+)
+RETURNS TEXT
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  result TEXT;
+BEGIN
+  -- Your logic here
+  result := param2 || ' ' || param1::TEXT;
+  RETURN result;
+END;
+$$;`,
+
+  procedure: (schema: string) => `CREATE OR REPLACE PROCEDURE "${schema}"."procedure_name"(
+  IN param1 INTEGER,
+  INOUT param2 TEXT
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  -- Your logic here
+  param2 := param2 || ' processed';
+
+  -- Example: Insert into a table
+  -- INSERT INTO some_table (col1, col2) VALUES (param1, param2);
+END;
+$$;`,
+
+  trigger: (schema: string) => `-- First create the trigger function
+CREATE OR REPLACE FUNCTION "${schema}"."trigger_function_name"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  -- For INSERT/UPDATE triggers
+  NEW.updated_at := NOW();
+  RETURN NEW;
+
+  -- For DELETE triggers, use:
+  -- RETURN OLD;
+END;
+$$;
+
+-- Then create the trigger
+CREATE TRIGGER "trigger_name"
+  BEFORE INSERT OR UPDATE ON "${schema}"."table_name"
+  FOR EACH ROW
+  EXECUTE FUNCTION "${schema}"."trigger_function_name"();`,
+};
+
+export type CreateObjectType = 'schema' | 'table' | 'view' | 'materializedView' | 'function' | 'procedure' | 'trigger';
+
+interface OpenQueryWithTemplateParams {
+  connectionId: string;
+  database: string;
+  schema: string;
+  objectType: CreateObjectType;
+}
+
+interface OpenTableDesignerParams {
+  connectionId: string;
+  database: string;
+  schema: string;
+}
+
+export function openQueryWithTemplate({
+  connectionId,
+  database,
+  schema,
+  objectType,
+}: OpenQueryWithTemplateParams): void {
+  const { focusedPanelId, addTab, panelContents, focusPanel } =
+    useWorkbenchStore.getState();
+
+  let targetPanelId = focusedPanelId;
+  if (!targetPanelId && panelContents.size > 0) {
+    const firstPanelId = Array.from(panelContents.keys())[0];
+    if (firstPanelId) {
+      targetPanelId = firstPanelId;
+      focusPanel(firstPanelId);
+    }
+  }
+
+  if (!targetPanelId) return;
+
+  const template = SQL_TEMPLATES[objectType]?.(schema) || '';
+  const tabId = `query-new-${objectType}-${Date.now()}`;
+  const titles: Record<CreateObjectType, string> = {
+    schema: 'New Schema',
+    table: 'New Table',
+    view: 'New View',
+    materializedView: 'New Materialized View',
+    function: 'New Function',
+    procedure: 'New Procedure',
+    trigger: 'New Trigger',
+  };
+
+  addTab(targetPanelId, tabId, {
+    type: 'query',
+    title: titles[objectType],
+    connectionId,
+    database,
+    schema,
+    sql: template,
+  });
+}
+
+export function openTableDesigner({
+  connectionId,
+  database,
+  schema,
+}: OpenTableDesignerParams): void {
+  const { focusedPanelId, addTab, panelContents, focusPanel } =
+    useWorkbenchStore.getState();
+
+  let targetPanelId = focusedPanelId;
+  if (!targetPanelId && panelContents.size > 0) {
+    const firstPanelId = Array.from(panelContents.keys())[0];
+    if (firstPanelId) {
+      targetPanelId = firstPanelId;
+      focusPanel(firstPanelId);
+    }
+  }
+
+  if (!targetPanelId) return;
+
+  const tabId = `design-new-table-${Date.now()}`;
+
+  addTab(targetPanelId, tabId, {
+    type: 'design',
+    title: 'New Table',
+    connectionId,
+    database,
+    schema,
+  });
+}
+
 interface OpenTableParams {
   table: TableMeta;
   connectionId: string;
