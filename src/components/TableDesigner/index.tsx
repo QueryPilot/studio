@@ -15,7 +15,6 @@ import { useColumnSizing } from "@/components/DataGridV2/hooks/useColumnSizing";
 import type { GridColumnV2 } from "@/components/DataGridV2/types";
 import { NullableCellRenderer } from "@/components/TableStructure/NullableCellRenderer";
 import { DataTypeCellRenderer } from "@/components/TableStructure/DataTypeCellRenderer";
-import ColumnNameCellRenderer from "@/components/TableStructure/ColumnNameCellRenderer";
 import { TextSingleLineCellRenderer } from "@/components/DataGridV2/renderers/TextCell";
 import { useCrudStore, buildCrudTableKey } from "@/stores/crudStore";
 import {
@@ -197,7 +196,6 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
   // Custom renderers
   const customRenderers = useMemo(
     () => [
-      ColumnNameCellRenderer as unknown as CustomRenderer<CustomCell>,
       NullableCellRenderer as unknown as CustomRenderer<CustomCell>,
       DataTypeCellRenderer as unknown as CustomRenderer<CustomCell>,
       TextSingleLineCellRenderer as unknown as CustomRenderer<CustomCell>,
@@ -233,14 +231,9 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
 
         case "column_name":
           return {
-            kind: GridCellKind.Custom,
-            data: {
-              kind: "column-name-cell",
-              name: rowData.column_name,
-              isPrimaryKey: rowData.column_meta.is_pk,
-              isForeignKey: rowData.column_meta.is_fk,
-            },
-            copyData: rowData.column_name,
+            kind: GridCellKind.Text,
+            data: rowData.column_name,
+            displayData: rowData.column_name,
             allowOverlay: true,
           } as AnyCell;
 
@@ -248,7 +241,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
           return {
             kind: GridCellKind.Custom,
             data: {
-              kind: "data-type-cell",
+              kind: "datatype-cell",
               value: rowData.db_type,
             },
             copyData: rowData.db_type,
@@ -470,7 +463,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
       <div className="flex-1 min-h-0">
         <DataGridBase
           columns={sizedColumns}
-          rows={gridRows.length}
+          rowCount={gridRows.length}
           getCellContent={getCellContent}
           onCellEdited={handleCellEdited}
           customRenderers={customRenderers}
@@ -485,6 +478,8 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
           onRowAppended={handleRowAppended}
           smoothScrollX
           smoothScrollY
+          rowSelect="none"
+          columnSelect="none"
         />
       </div>
 
