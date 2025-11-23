@@ -36,6 +36,7 @@ import {
   type FilterMode,
   type ColumnMeta as FilterColumnMeta,
 } from "@/utils/filterParser";
+import { openTableObject } from "@/utils/workbench/openers";
 import type { FilterConfig, SortConfig } from "@/types/filter";
 import {
   usePersistentViewState,
@@ -44,6 +45,7 @@ import {
   hasStagedCellChange,
   isRowPendingDeletion,
   isRowPendingInsertion,
+  useCellHoverIcons,
 } from "../hooks";
 import {
   useGridPreferences,
@@ -152,6 +154,10 @@ interface TableModeProps extends BaseTableDataGridV2Props {
   isView?: boolean;
   kind?: "Table" | "View" | "MaterializedView";
   onActionsChange?: (actions: React.ReactNode) => void;
+  /** Initial WHERE clause filter to apply (e.g., from FK reference navigation) */
+  initialFilter?: string;
+  /** Panel ID for FK reference navigation (to reuse tabs in the same panel) */
+  panelId?: string;
 }
 
 interface QueryModeProps extends BaseTableDataGridV2Props {
@@ -195,14 +201,25 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const scopeId = useScopedKeybindings(gridId);
   const [showDetailsSheet, setShowDetailsSheet] = useState(false);
 
-  // Quick filter state
-  const [quickFilterValue, setQuickFilterValue] = useState("");
-  const [quickFilterMode, setQuickFilterMode] = useState<FilterMode>("search");
+  // Get initial filter and panel ID from props (table mode only)
+  const initialFilter = props.mode === "table" ? props.initialFilter : undefined;
+  const panelId = props.mode === "table" ? props.panelId : undefined;
+
+  // Quick filter state - initialize with initialFilter if provided
+  const [quickFilterValue, setQuickFilterValue] = useState(() =>
+    initialFilter ? `?${initialFilter}` : ""
+  );
+  const [quickFilterMode, setQuickFilterMode] = useState<FilterMode>(() =>
+    initialFilter ? "where" : "search"
+  );
   const [quickFilterError, setQuickFilterError] = useState<string | null>(null);
   const [aiExplanation, setAiExplanation] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterConfig | undefined>(
     undefined,
   );
+
+  // Track the last applied initial filter to detect changes
+  const lastAppliedFilterRef = useRef<string | undefined>(undefined);
 
   useContextKey("dataGridFocus", isGridFocused, {
     scopeId,
@@ -304,10 +321,10 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     schema: isTableMode ? props.schema : undefined,
     options: {
       includeIndexes: false,
-      includeConstraints: false,
+      includeConstraints: true,  // Required for FK data
       includeTriggers: false,
       includeStatistics: false,
-      includeForeignKeys: false,
+      includeForeignKeys: true,
     },
     enabled: isTableMode,
   });
@@ -439,6 +456,26 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       }
     }
   }, [quickFilterValue, quickFilterMode, filterColumns, generateAIFilter]);
+
+  // Apply initial filter on mount or when it changes (for FK reference navigation)
+  useEffect(() => {
+    if (
+      initialFilter &&
+      initialFilter !== lastAppliedFilterRef.current &&
+      filterColumns.length > 0
+    ) {
+      lastAppliedFilterRef.current = initialFilter;
+      // Update the quick filter UI state
+      setQuickFilterValue(`?${initialFilter}`);
+      setQuickFilterMode("where");
+      setQuickFilterError(null);
+      // Parse and apply the filter
+      const result = parseWhereClause(initialFilter, filterColumns);
+      if (result.success) {
+        setActiveFilter(result.filter);
+      }
+    }
+  }, [initialFilter, filterColumns]);
 
   // IconKeyboard shortcuts for focusing quick filter (Cmd+F or /)
   useEffect(() => {
@@ -668,6 +705,31 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     return map;
   }, [tableStructure?.columns]);
 
+  // Build FK reference map by column name
+  const fkReferenceByColumn = useMemo(() => {
+    const map = new Map<string, { referenced_schema: string; referenced_table: string; referenced_column: string }>();
+
+    if (tableStructure?.foreignKeys) {
+      for (const fk of tableStructure.foreignKeys) {
+        // Map each column in the FK to its reference
+        if (fk.columns && fk.foreignColumns) {
+          for (let i = 0; i < fk.columns.length; i++) {
+            const colName = fk.columns[i];
+            const refCol = fk.foreignColumns[i];
+            if (colName && refCol) {
+              map.set(colName, {
+                referenced_schema: fk.foreignSchema ?? "public",
+                referenced_table: fk.foreignTable,
+                referenced_column: refCol,
+              });
+            }
+          }
+        }
+      }
+    }
+    return map;
+  }, [tableStructure?.foreignKeys]);
+
   const primaryKeyColumns = useMemo(() => {
     if (!tableStructure?.columns) {
       return [];
@@ -807,13 +869,18 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       columnMeta.map((meta, index) => {
         const id = meta.name || `col_${index}`;
         const structMeta = structureMetaByName.get(meta.name);
+        const fkRef = fkReferenceByColumn.get(meta.name);
         const mergedMeta = structMeta
           ? ({
               ...meta,
               enum_values: structMeta.enum_values ?? meta.enum_values,
               type_category: structMeta.type_category ?? meta.type_category,
-            } as typeof meta)
-          : meta;
+              // Add FK reference if available
+              fk_reference: fkRef ?? undefined,
+            } as typeof meta & { fk_reference?: typeof fkRef })
+          : fkRef
+            ? ({ ...meta, fk_reference: fkRef } as typeof meta & { fk_reference?: typeof fkRef })
+            : meta;
         return {
           id,
           field: meta.name,
@@ -824,7 +891,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           meta: mergedMeta,
         } as GridColumnV2;
       }),
-    [columnMeta, structureMetaByName],
+    [columnMeta, structureMetaByName, fkReferenceByColumn],
   );
 
   const reorderedColumns = useMemo(
@@ -1267,6 +1334,55 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     table,
     rows: deferredDisplayRows,
     columns: finalColumns,
+  });
+
+  // Cell hover icons for quick actions (copy, FK reference)
+  const handleOpenReference = useCallback(
+    (refSchema: string, refTable: string, refColumn: string, value: unknown) => {
+      if (!isTableMode) return;
+
+      // Build the WHERE clause filter
+      let filterValue: string;
+      if (value === null) {
+        filterValue = `"${refColumn}" IS NULL`;
+      } else if (typeof value === "string") {
+        // Escape single quotes in string values
+        const escaped = String(value).replace(/'/g, "''");
+        filterValue = `"${refColumn}" = '${escaped}'`;
+      } else if (typeof value === "number" || typeof value === "boolean") {
+        filterValue = `"${refColumn}" = ${value}`;
+      } else {
+        // For complex values, convert to string
+        const escaped = String(value).replace(/'/g, "''");
+        filterValue = `"${refColumn}" = '${escaped}'`;
+      }
+
+      // Open the referenced table with the filter
+      openTableObject({
+        table: {
+          name: refTable,
+          schema: refSchema,
+          kind: "Table",
+        },
+        connectionId,
+        database,
+        viewType: "data",
+        initialFilter: filterValue,
+        sourcePanelId: panelId,
+      });
+    },
+    [isTableMode, connectionId, database, panelId]
+  );
+
+  const {
+    onItemHovered: handleItemHovered,
+    drawCell: drawCellWithHoverIcons,
+  } = useCellHoverIcons({
+    columns: finalColumns,
+    rows: deferredDisplayRows,
+    onOpenReference: isTableMode ? handleOpenReference : undefined,
+    enabled: true,
+    containerRef: containerRef,
   });
 
   // Memoize clipboard callbacks to prevent recreation on every render
@@ -2369,6 +2485,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
               onHeaderClicked={handleHeaderClicked}
               drawHeader={drawHeader}
               onHeaderContextMenu={handleHeaderContextMenu}
+              onItemHovered={handleItemHovered}
+              drawCell={drawCellWithHoverIcons}
             />
           </GridContextMenu>
         )}
