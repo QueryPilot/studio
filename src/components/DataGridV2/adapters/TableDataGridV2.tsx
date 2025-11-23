@@ -71,7 +71,7 @@ import {
 } from "./columnUtils";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { IconPlus } from '@tabler/icons-react';
+import { IconPlus } from "@tabler/icons-react";
 import type { CellValue as FrontCellValue } from "@/types/cellValue";
 import type { CellValue as BackendCellValue } from "@/services/backend";
 import type { ColumnMeta } from "@/types/database";

@@ -60,7 +60,7 @@
 }
 
 .gdg-style {
-  @apply !rounded-none -ml-0.5 z-10 max-w-full;
+  @apply !rounded-none z-10 max-w-full;
 }
 
 /* Reduce expensive paints while resizing columns */
