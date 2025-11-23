@@ -176,6 +176,10 @@ interface OpenTableParams {
   connectionId: string;
   database: string;
   viewType?: TableViewType;
+  /** Initial WHERE clause filter to apply (without the WHERE keyword) */
+  initialFilter?: string;
+  /** Source panel ID - if provided, will try to reuse existing table tab in this panel */
+  sourcePanelId?: string;
 }
 
 interface OpenFunctionParams {
@@ -189,6 +193,8 @@ export function openTableObject({
   connectionId,
   database,
   viewType = 'data',
+  initialFilter,
+  sourcePanelId,
 }: OpenTableParams): void {
   const {
     focusedPanelId,
@@ -199,24 +205,62 @@ export function openTableObject({
     updateTabMetadata,
   } = useWorkbenchStore.getState();
 
-  const tabId = `table-${table.schema}-${table.name}`;
+  const baseTabId = `table-${table.schema}-${table.name}`;
 
-  for (const [panelId, content] of panelContents.entries()) {
-    if (content.tabIds.includes(tabId)) {
-      setActiveTab(panelId, tabId);
-      updateTabMetadata(panelId, tabId, {
-        type: 'table',
-        title: table.name,
-        connectionId,
-        database,
-        schema: table.schema,
-        table: table.name,
-        isView: table.kind !== 'Table',
-        kind: table.kind,
-        viewType,
-      });
-      focusPanel(panelId);
-      return;
+  // If sourcePanelId is provided and has a filter, try to reuse existing tab in that panel
+  if (sourcePanelId && initialFilter) {
+    const panelContent = panelContents.get(sourcePanelId);
+    if (panelContent) {
+      // Find existing tab for this table in the source panel
+      const existingTabId = panelContent.tabIds.find(tabId =>
+        tabId === baseTabId || tabId.startsWith(`${baseTabId}-`)
+      );
+
+      if (existingTabId) {
+        // Reuse existing tab - update filter
+        setActiveTab(sourcePanelId, existingTabId);
+        updateTabMetadata(sourcePanelId, existingTabId, {
+          type: 'table',
+          title: table.name,
+          connectionId,
+          database,
+          schema: table.schema,
+          table: table.name,
+          isView: table.kind !== 'Table',
+          kind: table.kind,
+          viewType,
+          initialFilter,
+        });
+        focusPanel(sourcePanelId);
+        return;
+      }
+    }
+  }
+
+  // For new tabs with filter, use unique ID; otherwise use base ID
+  const tabId = initialFilter
+    ? `${baseTabId}-${Date.now()}`
+    : baseTabId;
+
+  // Check for existing tab (only when no filter and no sourcePanelId)
+  if (!initialFilter) {
+    for (const [panelId, content] of panelContents.entries()) {
+      if (content.tabIds.includes(tabId)) {
+        setActiveTab(panelId, tabId);
+        updateTabMetadata(panelId, tabId, {
+          type: 'table',
+          title: table.name,
+          connectionId,
+          database,
+          schema: table.schema,
+          table: table.name,
+          isView: table.kind !== 'Table',
+          kind: table.kind,
+          viewType,
+        });
+        focusPanel(panelId);
+        return;
+      }
     }
   }
 
@@ -241,6 +285,7 @@ export function openTableObject({
       isView: table.kind !== 'Table',
       kind: table.kind,
       viewType,
+      initialFilter,
     });
     return;
   }

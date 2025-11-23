@@ -66,3 +66,9 @@ export {
 } from "./useStagedChangesIndicator";
 
 export { useColumnSorting } from "./useColumnSorting";
+
+export { useCellHoverIcons } from "./useCellHoverIcons";
+export type {
+  UseCellHoverIconsOptions,
+  UseCellHoverIconsResult,
+} from "./useCellHoverIcons";

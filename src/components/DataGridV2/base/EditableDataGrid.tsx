@@ -123,6 +123,9 @@ export interface EditableDataGridProps
   onHeaderClicked?: DataEditorProps["onHeaderClicked"];
   drawHeader?: DataEditorProps["drawHeader"];
   onHeaderContextMenu?: DataEditorProps["onHeaderContextMenu"];
+  onItemHovered?: DataEditorProps["onItemHovered"];
+  drawCell?: DataEditorProps["drawCell"];
+  onCellClicked?: DataEditorProps["onCellClicked"];
 }
 
 export interface EditableDataGridRef extends DataEditorRef {
@@ -156,6 +159,9 @@ export const EditableDataGrid = forwardRef<
     onHeaderClicked,
     drawHeader,
     onHeaderContextMenu,
+    onItemHovered,
+    drawCell,
+    onCellClicked,
     containerClassName,
     className,
     ...rest
@@ -520,6 +526,9 @@ export const EditableDataGrid = forwardRef<
       onHeaderClicked={onHeaderClicked}
       drawHeader={drawHeader}
       onHeaderContextMenu={onHeaderContextMenu}
+      onItemHovered={onItemHovered}
+      drawCell={drawCell}
+      onCellClicked={onCellClicked}
       drawFocusRing
       rangeSelect="rect"
       columnSelect="multi"

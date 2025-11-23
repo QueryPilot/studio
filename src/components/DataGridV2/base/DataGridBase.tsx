@@ -29,6 +29,10 @@ export interface DataGridBaseProps
   drawHeader?: DataEditorProps["drawHeader"];
   /** Optional header context menu handler */
   onHeaderContextMenu?: DataEditorProps["onHeaderContextMenu"];
+  /** Optional item hover handler */
+  onItemHovered?: DataEditorProps["onItemHovered"];
+  /** Optional custom cell draw function */
+  drawCell?: DataEditorProps["drawCell"];
 }
 
 export const DataGridBase = forwardRef(function DataGridBase(

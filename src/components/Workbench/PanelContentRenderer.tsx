@@ -329,6 +329,8 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                   onActionsChange={
                     activeView === "data" ? handleViewActionsChange : undefined
                   }
+                  initialFilter={metadata.initialFilter as string | undefined}
+                  panelId={panelId}
                 />
               </div>
 
