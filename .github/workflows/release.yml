@@ -124,7 +124,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             src-tauri/target/
-          key: ${{ runner.os }}-rust-release-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-rust-release-${{ hashFiles('src-tauri/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-rust-release-
             ${{ runner.os }}-rust-
