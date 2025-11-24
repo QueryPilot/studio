@@ -212,7 +212,7 @@ jobs:
 
       - name: Build Tauri app (macOS with signing)
         env:
-          NODE_OPTIONS: --max-old-space-size=8192
+          NODE_OPTIONS: --max-old-space-size=6144
           APPLE_ID: ${{ secrets.APPLE_DEVELOPER_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
