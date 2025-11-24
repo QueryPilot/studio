@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 
 const host = process.env.TAURI_DEV_HOST;
+const disableSourcemaps = process.env.VITE_DISABLE_SOURCEMAPS === "true";
 
 const require = createRequire(import.meta.url);
 
@@ -26,7 +27,9 @@ export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     // Only upload source maps in production builds when SENTRY_AUTH_TOKEN is set
-    ...(mode === "production" && process.env.SENTRY_AUTH_TOKEN
+    ...(mode === "production" &&
+    !disableSourcemaps &&
+    process.env.SENTRY_AUTH_TOKEN
       ? [
           sentryVitePlugin({
             org: process.env.SENTRY_ORG || "query-pilot",
@@ -52,7 +55,7 @@ export default defineConfig(({ mode }) => ({
 
   build: {
     // Generate source maps for production (uploaded to Sentry, then deleted)
-    sourcemap: mode === "production",
+    sourcemap: mode === "production" && !disableSourcemaps,
   },
 
   resolve: {
