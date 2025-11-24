@@ -54,7 +54,7 @@ jobs:
           VERSION_NUMBER="${VERSION#v}"
 
           # Extract changelog for this version
-          CHANGELOG_CONTENT=$(awk "/^## \[$VERSION_NUMBER\]/,/^## \[[0-9]/" CHANGELOG.md | head -n -1 || echo "See CHANGELOG.md for details")
+          CHANGELOG_CONTENT=$(sed -n "/^## \[$VERSION_NUMBER\]/,/^---$/p" CHANGELOG.md | sed '1d;$d' || echo "See CHANGELOG.md for details")
 
           # Create release notes
           cat > /tmp/release-notes.md << EOF
