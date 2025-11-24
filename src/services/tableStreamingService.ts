@@ -233,7 +233,9 @@ export async function streamEntityPage(
     let resolvedColumns: ColumnMeta[] | null = columnsHint ?? null;
     const rows: TableDataRow[] = [];
     let executionTimeMs: number | undefined;
-    let estimatedTotal: number | undefined = estimatedTotalHint;
+    // Normalize invalid estimates (reltuples can be -1 for unanalyzed tables)
+    let estimatedTotal: number | undefined =
+      estimatedTotalHint != null && estimatedTotalHint > 0 ? estimatedTotalHint : undefined;
 
     const abortHandler = () => {
       reject(new DOMException("Streaming aborted", "AbortError"));
@@ -244,21 +246,24 @@ export async function streamEntityPage(
     }
 
     // Fetch estimated total count early for progress reporting (on first page only)
+    // This uses SELECT COUNT(*) which always returns >= 0
     const fetchEstimatedTotal = async () => {
       if (offset === 0 && !estimatedTotal) {
         try {
-          estimatedTotal = await BackendAPI.getTableCount(
+          const count = await BackendAPI.getTableCount(
             connectionId,
             schema,
             entityName,
           );
-          // Notify progress with estimated total immediately
-          if (onProgress) {
-            onProgress({
-              rowsFetched: 0,
-              totalRows: estimatedTotal,
-              started: true,
-            });
+          if (count > 0) {
+            estimatedTotal = count;
+            if (onProgress) {
+              onProgress({
+                rowsFetched: 0,
+                totalRows: estimatedTotal,
+                started: true,
+              });
+            }
           }
         } catch (error) {
           console.warn("Failed to fetch estimated total:", error);
@@ -375,11 +380,23 @@ export async function streamEntityPage(
                 // If we got fewer rows than requested, we've definitely reached the end
                 // This is critical when filters are applied since estimatedTotal is unfiltered count
                 const fetchedFullPage = rows.length === fetchLimit;
+                // Handle invalid estimatedTotal (-1 or negative means unknown)
                 const hasMoreFromEstimate =
-                  estimatedTotal != null
+                  estimatedTotal != null && estimatedTotal > 0
                     ? offset + rows.length < estimatedTotal
-                    : true;
+                    : true; // If no valid estimate, assume more data if we got a full page
                 const hasMore = !limitReached && fetchedFullPage && hasMoreFromEstimate;
+
+                console.log('[StreamService] hasMore calculation:', {
+                  rowsLength: rows.length,
+                  fetchLimit,
+                  offset,
+                  estimatedTotal,
+                  limitReached,
+                  fetchedFullPage,
+                  hasMoreFromEstimate,
+                  hasMore,
+                });
 
                 resolve({
                   columns: resolvedColumns,

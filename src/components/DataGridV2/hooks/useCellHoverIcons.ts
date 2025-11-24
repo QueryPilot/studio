@@ -66,10 +66,115 @@ const ICON_SIZE = 14;
 const ICON_SPACING = 6;
 const BUTTON_SIZE = 22; // Size of the clickable button area
 const HOVER_DELAY_MS = 150; // Delay before showing icons
+const COPIED_FEEDBACK_MS = 3000; // Duration to show copied checkmark
 
-// Simple SVG path data for icons
-const COPY_ICON_PATH = "M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z";
-const LINK_ICON_PATH = "M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z";
+// Draw Tabler copy icon (stroke-based)
+function drawCopyIcon(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, color: string): void {
+  const scale = size / 24;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  // Front rectangle with rounded corners (7,7 to 21,21)
+  ctx.beginPath();
+  ctx.roundRect(7, 7, 14, 14, 2.667);
+  ctx.stroke();
+
+  // Back rectangle path
+  ctx.beginPath();
+  ctx.moveTo(4.012, 16.737);
+  ctx.bezierCurveTo(3.4, 16.4, 3, 15.75, 3, 15);
+  ctx.lineTo(3, 5);
+  ctx.bezierCurveTo(3, 3.9, 3.9, 3, 5, 3);
+  ctx.lineTo(15, 3);
+  ctx.bezierCurveTo(15.75, 3, 16.158, 3.385, 16.5, 4);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// Draw Tabler clipboard-check icon (copied feedback)
+function drawCopiedIcon(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, color: string): void {
+  const scale = size / 24;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  // Clipboard body
+  ctx.beginPath();
+  ctx.moveTo(9, 5);
+  ctx.lineTo(7, 5);
+  ctx.bezierCurveTo(5.9, 5, 5, 5.9, 5, 7);
+  ctx.lineTo(5, 19);
+  ctx.bezierCurveTo(5, 20.1, 5.9, 21, 7, 21);
+  ctx.lineTo(17, 21);
+  ctx.bezierCurveTo(18.1, 21, 19, 20.1, 19, 19);
+  ctx.lineTo(19, 7);
+  ctx.bezierCurveTo(19, 5.9, 18.1, 5, 17, 5);
+  ctx.lineTo(15, 5);
+  ctx.stroke();
+
+  // Clipboard top (rounded rect)
+  ctx.beginPath();
+  ctx.roundRect(9, 3, 6, 4, 2);
+  ctx.stroke();
+
+  // Checkmark
+  ctx.beginPath();
+  ctx.moveTo(9, 14);
+  ctx.lineTo(11, 16);
+  ctx.lineTo(15, 12);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// Draw Tabler external-link icon
+function drawLinkIcon(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, color: string): void {
+  const scale = size / 24;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  // Main rectangle
+  ctx.beginPath();
+  ctx.moveTo(12, 6);
+  ctx.lineTo(6, 6);
+  ctx.bezierCurveTo(4.9, 6, 4, 6.9, 4, 8);
+  ctx.lineTo(4, 18);
+  ctx.bezierCurveTo(4, 19.1, 4.9, 20, 6, 20);
+  ctx.lineTo(16, 20);
+  ctx.bezierCurveTo(17.1, 20, 18, 19.1, 18, 18);
+  ctx.lineTo(18, 12);
+  ctx.stroke();
+
+  // Diagonal arrow line
+  ctx.beginPath();
+  ctx.moveTo(11, 13);
+  ctx.lineTo(20, 4);
+  ctx.stroke();
+
+  // Arrow head
+  ctx.beginPath();
+  ctx.moveTo(15, 4);
+  ctx.lineTo(20, 4);
+  ctx.lineTo(20, 9);
+  ctx.stroke();
+
+  ctx.restore();
+}
 
 // Determine content alignment based on data type
 function getContentAlignment(column: GridColumnV2): "left" | "right" | "center" {
@@ -127,13 +232,18 @@ export function useCellHoverIcons(
 ): UseCellHoverIconsResult {
   const { columns, rows, onOpenReference, enabled = true, containerRef } = options;
   const [hoveredCell, setHoveredCell] = useState<Item | null>(null);
+  const [hoveredRow, setHoveredRow] = useState<number | null>(null);
   const [hoveredButton, setHoveredButton] = useState<string | null>(null);
+  const [copiedCell, setCopiedCell] = useState<string | null>(null); // Track which cell was just copied
 
   // Track icon bounds for click detection
   const iconBoundsRef = useRef<Map<string, { action: string; bounds: Rectangle }[]>>(new Map());
 
   // Timer for hover delay
   const hoverTimerRef = useRef<number | null>(null);
+
+  // Timer for copied feedback
+  const copiedTimerRef = useRef<number | null>(null);
 
   const onItemHovered = useCallback(
     (args: GridMouseEventArgs) => {
@@ -150,6 +260,14 @@ export function useCellHoverIcons(
 
       if (args.kind === "cell") {
         const [col, row] = args.location;
+        // Update hovered row immediately (no delay for row highlight)
+        setHoveredRow(row);
+        // Check if this is a different cell than currently hovered
+        if (hoveredCell && (hoveredCell[0] !== col || hoveredCell[1] !== row)) {
+          // Immediately hide icons when moving to a different cell
+          setHoveredCell(null);
+          setHoveredButton(null);
+        }
         // Add delay before showing icons
         hoverTimerRef.current = window.setTimeout(() => {
           setHoveredCell([col, row]);
@@ -157,10 +275,11 @@ export function useCellHoverIcons(
         }, HOVER_DELAY_MS);
       } else {
         setHoveredCell(null);
+        setHoveredRow(null);
         setHoveredButton(null);
       }
     },
-    [enabled]
+    [enabled, hoveredCell]
   );
 
   // Cleanup on unmount
@@ -169,6 +288,10 @@ export function useCellHoverIcons(
       if (hoverTimerRef.current !== null) {
         window.clearTimeout(hoverTimerRef.current);
         hoverTimerRef.current = null;
+      }
+      if (copiedTimerRef.current !== null) {
+        window.clearTimeout(copiedTimerRef.current);
+        copiedTimerRef.current = null;
       }
       iconBoundsRef.current.clear();
     };
@@ -280,21 +403,22 @@ export function useCellHoverIcons(
           },
         });
 
-        // Draw icon
-        ctx.fillStyle = theme.textMedium ?? theme.textDark;
-        ctx.globalAlpha = 0.85;
+        // Draw icon with appropriate color
+        const iconColor = theme.textMedium ?? theme.textDark;
+        const successColor = "#22c55e"; // green-500 for copied feedback
 
-        // Scale and position the icon path
-        ctx.save();
-        ctx.translate(iconX, iconY);
-        const scale = ICON_SIZE / 24; // SVG viewBox is 24x24
-        ctx.scale(scale, scale);
+        // Check if this cell was just copied
+        const isCopied = iconDef.id === "copy" && copiedCell === cellKey;
 
-        const path = new Path2D(iconDef.icon === "copy" ? COPY_ICON_PATH : LINK_ICON_PATH);
-        ctx.fill(path);
-
-        ctx.restore();
-        ctx.globalAlpha = 1;
+        if (iconDef.icon === "copy") {
+          if (isCopied) {
+            drawCopiedIcon(ctx, iconX, iconY, ICON_SIZE, successColor);
+          } else {
+            drawCopyIcon(ctx, iconX, iconY, ICON_SIZE, iconColor);
+          }
+        } else {
+          drawLinkIcon(ctx, iconX, iconY, ICON_SIZE, iconColor);
+        }
       });
 
       // Store bounds for click detection
@@ -302,7 +426,7 @@ export function useCellHoverIcons(
 
       ctx.restore();
     },
-    [enabled, hoveredCell, hoveredButton, columns, rows, onOpenReference]
+    [enabled, hoveredCell, hoveredButton, copiedCell, columns, rows, onOpenReference]
   );
 
   // Handle click on icons via container click listener
@@ -360,6 +484,20 @@ export function useCellHoverIcons(
 
             copyToClipboard(valueStr)
               .then(() => {
+                // Show copied feedback icon
+                setCopiedCell(cellKey);
+
+                // Clear any existing timer
+                if (copiedTimerRef.current !== null) {
+                  window.clearTimeout(copiedTimerRef.current);
+                }
+
+                // Reset after delay
+                copiedTimerRef.current = window.setTimeout(() => {
+                  setCopiedCell(null);
+                  copiedTimerRef.current = null;
+                }, COPIED_FEEDBACK_MS);
+
                 toast.success("Copied to clipboard", {
                   description: valueStr.length > 50 ? `${valueStr.slice(0, 50)}...` : valueStr,
                   duration: 2000,

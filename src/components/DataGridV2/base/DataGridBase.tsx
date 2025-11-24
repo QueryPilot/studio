@@ -1,7 +1,8 @@
-import { forwardRef, type Ref, useMemo } from "react";
+import { forwardRef, type Ref, useMemo, useState, useCallback } from "react";
 import DataEditor, {
   type DataEditorProps,
   type DataEditorRef,
+  type GridMouseEventArgs,
 } from "@glideapps/glide-data-grid";
 import "@glideapps/glide-data-grid/dist/index.css";
 import "../styles/datagrid-overrides.css";
@@ -42,6 +43,7 @@ export const DataGridBase = forwardRef(function DataGridBase(
   const { columns, rowCount, getCellContent, containerClassName, ...rest } =
     props;
   const { resolvedTheme } = useTheme();
+  const [hoveredRow, setHoveredRow] = useState<number | null>(null);
 
   const { width = "100%", height = "100%", className, ...editorProps } = rest;
 
@@ -49,6 +51,43 @@ export const DataGridBase = forwardRef(function DataGridBase(
   const theme = useMemo(
     () => createDataGridTheme(resolvedTheme || "light"),
     [resolvedTheme],
+  );
+
+  // Handle item hover to track row
+  const handleItemHovered = useCallback(
+    (args: GridMouseEventArgs) => {
+      if (args.kind === "cell") {
+        setHoveredRow(args.location[1]);
+      } else {
+        setHoveredRow(null);
+      }
+      // Call external handler if provided
+      rest.onItemHovered?.(args);
+    },
+    [rest.onItemHovered]
+  );
+
+  // Merge row hover with external getRowThemeOverride
+  const mergedGetRowThemeOverride = useCallback(
+    (rowIndex: number) => {
+      // First check external override (higher priority)
+      const externalOverride = rest.getRowThemeOverride?.(rowIndex);
+      if (externalOverride) {
+        return externalOverride;
+      }
+
+      // Apply hover highlight as lowest priority
+      if (rowIndex === hoveredRow) {
+        return {
+          bgCell: resolvedTheme === "dark"
+            ? "rgba(255, 255, 255, 0.04)"
+            : "rgba(0, 0, 0, 0.03)",
+        };
+      }
+
+      return undefined;
+    },
+    [rest.getRowThemeOverride, hoveredRow, resolvedTheme]
   );
 
   const containerClasses = cn(
@@ -73,7 +112,7 @@ export const DataGridBase = forwardRef(function DataGridBase(
         smoothScrollY={true}
         rowHeight={28}
         headerHeight={28}
-        getRowThemeOverride={rest.getRowThemeOverride}
+        getRowThemeOverride={mergedGetRowThemeOverride}
         highlightRegions={rest.highlightRegions}
         keybindings={rest.keybindings} // Undefined by default = Glide's native copy/paste enabled
         columnSelect="multi"
@@ -84,6 +123,7 @@ export const DataGridBase = forwardRef(function DataGridBase(
         fillHandle
         getCellsForSelection={true} // Enable copy functionality
         {...editorProps}
+        onItemHovered={handleItemHovered}
       />
     </div>
   );

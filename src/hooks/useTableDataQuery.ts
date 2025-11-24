@@ -171,8 +171,12 @@ export function useTableDataQuery(
       if (currentOffset === 0) {
         const structure = await loadStructure();
         columnsHint = structure?.columns;
-        structureRowCount = structure?.rowCount;
-        estimatedTotalHint = structure?.rowCount ?? undefined;
+        // Only use positive row counts (reltuples can be -1 for unanalyzed tables)
+        const rowCount = structure?.rowCount;
+        if (rowCount != null && rowCount > 0) {
+          structureRowCount = rowCount;
+          estimatedTotalHint = rowCount;
+        }
       }
 
       const existing =
@@ -219,7 +223,7 @@ export function useTableDataQuery(
                       {
                         columns: columnsHint ?? [],
                         rows: [...accumulatedRows],
-                        hasMore: false, // Mark as false during streaming to prevent auto-fetch
+                        hasMore: true, // Keep true during streaming - final result will set correct value
                         estimatedTotal: bestEstimate,
                         executionTimeMs: undefined,
                         offset: currentOffset,
@@ -242,7 +246,7 @@ export function useTableDataQuery(
                       {
                         columns: columnsHint ?? [],
                         rows: [...accumulatedRows], // Shallow copy for immutability
-                        hasMore: false, // Mark as false during streaming to prevent auto-fetch
+                        hasMore: true, // Keep true during streaming - final result will set correct value
                         estimatedTotal: bestEstimate,
                         executionTimeMs: undefined,
                         offset: currentOffset,
@@ -257,7 +261,7 @@ export function useTableDataQuery(
                   newPages[pageIndex] = {
                     ...existingPage,
                     rows: [...accumulatedRows], // Shallow copy for immutability
-                    hasMore: false, // Keep false during streaming
+                    hasMore: existingPage?.hasMore ?? true, // Preserve existing value during streaming
                     estimatedTotal:
                       bestEstimate ?? existingPage?.estimatedTotal,
                   } as TableDataPage;
@@ -270,6 +274,10 @@ export function useTableDataQuery(
             );
           });
         };
+
+        // Only do progressive updates for first page (initial load)
+        // For pagination, skip progressive updates to avoid lag
+        const enableProgressiveUpdates = currentOffset === 0;
 
         const pageResult = await streamEntityPage({
           connectionId,
@@ -298,9 +306,11 @@ export function useTableDataQuery(
             // Accumulate rows - use push for O(1) instead of spread O(n)
             accumulatedRows.push(...batchRows);
 
-            // Schedule update on next animation frame (throttled)
-            // Pass the current estimated total for progress bar
-            scheduleUpdate(estimatedTotalHint);
+            // Only schedule progressive updates for first page
+            // Pagination pages load without intermediate updates to avoid lag
+            if (enableProgressiveUpdates) {
+              scheduleUpdate(estimatedTotalHint);
+            }
           },
         });
 
@@ -407,14 +417,29 @@ export function useTableDataQuery(
     error: infiniteQuery.error,
     isFetching: infiniteQuery.isFetching,
     isFetchingNextPage: infiniteQuery.isFetchingNextPage,
-    hasNextPage: infiniteQuery.hasNextPage && !isStreamingRef.current,
+    hasNextPage: infiniteQuery.hasNextPage,
     fetchNextPage: async () => {
+      console.log('[useTableDataQuery] fetchNextPage called:', {
+        isFetchingNextPage: infiniteQuery.isFetchingNextPage,
+        isStreaming: isStreamingRef.current,
+        hasNextPage: infiniteQuery.hasNextPage,
+      });
       // Prevent overlapping fetches while streaming
-      if (isStreamingRef.current) {
-        console.log("⚠️ Blocked fetchNextPage - currently streaming");
+      if (infiniteQuery.isFetchingNextPage || isStreamingRef.current) {
+        console.log("⚠️ Blocked fetchNextPage - currently streaming or fetching");
         return;
       }
-      await infiniteQuery.fetchNextPage();
+      try {
+        console.log('[useTableDataQuery] Calling infiniteQuery.fetchNextPage()');
+        const result = await infiniteQuery.fetchNextPage();
+        console.log('[useTableDataQuery] fetchNextPage completed:', {
+          status: result.status,
+          pagesCount: result.data?.pages.length,
+          isFetchingNextPage: infiniteQuery.isFetchingNextPage,
+        });
+      } catch (error) {
+        console.error('[useTableDataQuery] fetchNextPage error:', error);
+      }
     },
     refetch: async () => infiniteQuery.refetch(),
     cancelStream,
