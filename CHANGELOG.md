@@ -13,6 +13,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.5.0] - 2025-11-24
+
+### New Features
+- Meet the new Home Screen with an action bar, recent connections, and ERD workspace shortcuts so you can jump into the right workflow immediately.
+- Design tables visually with the Table Designer, then export accurate SQL for new schemas without leaving the app.
+- Filter any dataset faster using the Quick Filter toolbar: switch between simple search, raw WHERE clauses, or let the AI generate filters and human-readable explanations for you.
+- Sort columns directly from the TableDataGrid header menu, pin or hide them, and act on hover icons for copy or foreign-key navigation without breaking your editing flow.
+- Enjoy a smarter SQL editor with CodeMirror, context-aware completion, hover tooltips, semantic linting, Postgres-aware parsing, and worker-powered linting for instant feedback on large scripts.
+- Automatically stay up to date thanks to the integrated Tauri updater plugin and in-app UpdateChecker for downloading and installing new versions.
+- Opt into crash and performance reporting with the new Sentry integration, complete with user-controlled telemetry settings in Preferences.
+
+### Improvements
+- Data grids feel snappier with optimized column sizing/visibility, persistent sizing, clearer loading states, and richer status bars, making large tables easier to explore.
+- Tab-specific connections and improved query context detection keep streaming queries, AI actions, and SQL completion aligned with the active workspace.
+- Table Structure, Indexes, and Triggers now highlight pending edits, allow inline adjustments, and surface detailed DDL previews so you can review changes confidently.
+- Vault storage handles keychain prompts gracefully, skipping writes when access isn’t granted and surfacing helpful toasts to avoid data loss.
+- The AI Assistant sidebar, prompt input, and tool outputs gained clearer layouts and copy-to-clipboard controls for smoother conversational workflows.
+
+### Bug Fixes
+- DataGrid components now honor nullable defaults, align Quick Filter UI elements, and render status and selection summaries consistently, eliminating visual glitches seen in 0.4.x.
+
+### Breaking Changes
+- Connection management moved to the Home Screen; the legacy ConnectionDialog and ConnectionList have been removed, so update any scripts or workflows that relied on those legacy components.
+
 ## [0.4.0] - 2025-11-17
 
 ### Added
