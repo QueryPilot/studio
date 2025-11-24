@@ -340,38 +340,19 @@ else
 fi
 
 echo ""
-echo -e "${MAGENTA}🚀 GitHub Actions will now build the release...${NC}"
+echo "=================================================================="
+echo -e "${GREEN}✅ Release v$NEXT_VERSION tagged and pushed!${NC}"
+echo "=================================================================="
+echo ""
+echo -e "${MAGENTA}🚀 GitHub Actions will now:${NC}"
+echo "  1. Build the release artifacts"
+echo "  2. Generate update manifest (latest.json)"
+echo "  3. Publish to $TARGET_REPO"
 echo ""
 echo "Monitor the build at:"
 echo -e "${BLUE}https://github.com/$SOURCE_REPO/actions${NC}"
 echo ""
-echo -e "${YELLOW}⏳ Waiting for release artifacts to be built...${NC}"
-echo ""
-echo "Once the build completes (usually 10-15 minutes), this script will:"
-echo "  1. Download the release artifacts"
-echo "  2. Generate update manifest (latest.json)"
-echo "  3. Publish to $TARGET_REPO"
-echo ""
-read -p "Continue when build is complete? (y/N) " -n 1 -r
-echo
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    echo ""
-    echo -e "${YELLOW}Manual next steps:${NC}"
-    echo "  1. Wait for GitHub Actions to complete"
-    echo "  2. Run: ./scripts/publish-to-app-repo.sh v$NEXT_VERSION"
-    exit 0
-fi
-
-echo ""
-echo -e "${CYAN}🔄 Running cross-repository publish script...${NC}"
-bash "$SCRIPT_DIR/publish-to-app-repo.sh" "v$NEXT_VERSION"
-
-echo ""
-echo "=================================================================="
-echo -e "${GREEN}✅ Release v$NEXT_VERSION published successfully!${NC}"
-echo "=================================================================="
-echo ""
-echo -e "${BLUE}🔗 View release at:${NC}"
-echo -e "   ${BLUE}https://github.com/$TARGET_REPO/releases/tag/v$NEXT_VERSION${NC}"
+echo "Release will be available at:"
+echo -e "${BLUE}https://github.com/$TARGET_REPO/releases/tag/v$NEXT_VERSION${NC}"
 echo ""
 echo -e "${GREEN}Done!${NC}"
