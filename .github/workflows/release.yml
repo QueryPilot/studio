@@ -46,6 +46,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.get_version.outputs.version }}
         run: |
+          # Delete existing release with same tag if exists
+          if gh release view "$VERSION" &> /dev/null; then
+            echo "🗑️ Deleting existing release $VERSION..."
+            gh release delete "$VERSION" --yes
+          fi
+
           PRERELEASE=""
           if [[ "$VERSION" == *"alpha"* ]] || [[ "$VERSION" == *"beta"* ]]; then
             PRERELEASE="--prerelease"
@@ -142,7 +148,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('src-tauri/sidecar-ai/bun.lockb') }}
+          key: ${{ runner.os }}-bun-${{ hashFiles('src-tauri/sidecar-ai/bun.lock') }}
           restore-keys: |
             ${{ runner.os }}-bun-
 
