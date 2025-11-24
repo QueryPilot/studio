@@ -223,7 +223,8 @@ jobs:
           # Single DSN for all components (Frontend, Backend, Sidecar)
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           VITE_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          # SENTRY_AUTH_TOKEN disabled - source maps upload causes OOM on M1 runners
+          # SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG || 'query-pilot' }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT || 'query-pilot' }}
           # GitHub token for update checker (read-only, compiled into Rust binary)
