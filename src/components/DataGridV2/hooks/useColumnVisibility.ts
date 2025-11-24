@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GridColumnV2 } from "../types";
 
 export interface UseColumnVisibilityOptions {
@@ -115,18 +115,49 @@ export function useColumnVisibility(
     [columns, onChange],
   );
 
+  // Cache to preserve object identity for unchanged columns
+  const columnCacheRef = useRef<Map<string, GridColumnV2>>(new Map());
+
   const { visibleColumns, hiddenColumns } = useMemo(() => {
+    const cache = columnCacheRef.current;
     const visible: GridColumnV2[] = [];
     const hidden: GridColumnV2[] = [];
+
     columns.forEach((column) => {
       const isVisible = visibilityMap[column.id] ?? true;
-      const nextColumn = { ...column, isVisible };
+      const cached = cache.get(column.id);
+
+      // Reuse cached column if visibility and base properties unchanged
+      let nextColumn: GridColumnV2;
+      if (
+        cached &&
+        (cached as GridColumnV2 & { isVisible?: boolean }).isVisible === isVisible &&
+        cached.width === column.width &&
+        cached.title === column.title
+      ) {
+        nextColumn = cached;
+      } else {
+        nextColumn = { ...column, isVisible } as GridColumnV2;
+        cache.set(column.id, nextColumn);
+      }
+
       if (isVisible) {
         visible.push(nextColumn);
       } else {
         hidden.push(nextColumn);
       }
     });
+
+    // Clean up stale cache entries
+    if (cache.size > columns.length) {
+      const columnIds = new Set(columns.map((c) => c.id));
+      for (const key of cache.keys()) {
+        if (!columnIds.has(key)) {
+          cache.delete(key);
+        }
+      }
+    }
+
     return { visibleColumns: visible, hiddenColumns: hidden };
   }, [columns, visibilityMap]);
 

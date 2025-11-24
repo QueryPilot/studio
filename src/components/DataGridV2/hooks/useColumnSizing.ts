@@ -60,11 +60,11 @@ export function useColumnSizing(
     {},
   );
 
-  // Coalesce rapid drag events into a single state write per animation frame
-  const resizeRafIdRef = useRef<number | null>(null);
+  // Track pending resize and drag state - no React state updates during drag for 60fps
   const pendingResizeRef = useRef<{ columnId: string; width: number } | null>(
     null,
   );
+  const isDraggingRef = useRef(false);
 
   // Initialize widths on mount, not during render
 
@@ -118,32 +118,39 @@ export function useColumnSizing(
           ...prev,
           [columnId]: nextWidth,
         };
-        onChange?.(next);
+        // Only call onChange when not dragging to avoid expensive updates during resize
+        if (!isDraggingRef.current) {
+          onChange?.(next);
+        }
         return next;
       });
     },
     [maxColumnWidth, minColumnWidth, onChange],
   );
 
+  // RAF-based resize for 60fps - coalesce multiple events per frame
+  const resizeRafRef = useRef<number | null>(null);
+
   const handleColumnResize = useCallback<
     UseColumnSizingResult["handleColumnResize"]
   >(
     (column, newSize) => {
       if (!column.id || newSize <= 0 || Number.isNaN(newSize)) return;
-      const next = Math.round(newSize);
-      if (widthOverrides[column.id] === next) return;
-      pendingResizeRef.current = { columnId: column.id, width: next };
-      if (resizeRafIdRef.current == null) {
-        resizeRafIdRef.current = window.requestAnimationFrame(() => {
+      isDraggingRef.current = true;
+      pendingResizeRef.current = { columnId: column.id, width: Math.round(newSize) };
+
+      // Coalesce to single RAF per frame for 60fps
+      if (resizeRafRef.current === null) {
+        resizeRafRef.current = requestAnimationFrame(() => {
+          resizeRafRef.current = null;
           const pending = pendingResizeRef.current;
-          resizeRafIdRef.current = null;
           if (pending) {
             setColumnWidth(pending.columnId, pending.width);
           }
         });
       }
     },
-    [setColumnWidth, widthOverrides],
+    [setColumnWidth],
   );
 
   const handleColumnResizeEnd = useCallback<
@@ -152,10 +159,14 @@ export function useColumnSizing(
     (column, newSize) => {
       if (!column.id) return;
       if (newSize <= 0) return;
-      if (resizeRafIdRef.current != null) {
-        cancelAnimationFrame(resizeRafIdRef.current);
-        resizeRafIdRef.current = null;
+      // Cancel pending RAF
+      if (resizeRafRef.current !== null) {
+        cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
       }
+      // Clear dragging flag before final update so onChange fires
+      isDraggingRef.current = false;
+      pendingResizeRef.current = null;
       setColumnWidth(column.id, Math.round(newSize));
     },
     [setColumnWidth],
@@ -193,14 +204,44 @@ export function useColumnSizing(
     [columns, maxColumnWidth, minColumnWidth, onChange],
   );
 
-  const sizedColumns = useMemo(
-    () =>
-      columns.map((column) => {
-        const override = widthOverrides[column.id];
-        return override ? { ...column, width: override } : column;
-      }),
-    [columns, widthOverrides],
-  );
+  // Cache sized columns to avoid recreating unchanged column objects
+  const sizedColumnsCache = useRef<Map<string, GridColumnV2>>(new Map());
+
+  const sizedColumns = useMemo(() => {
+    const cache = sizedColumnsCache.current;
+
+    const result = columns.map((column) => {
+      const override = widthOverrides[column.id];
+      const targetWidth = override ?? column.width;
+      const cached = cache.get(column.id);
+
+      // Reuse cached column if width and base column haven't changed
+      if (cached && cached.width === targetWidth && cached.id === column.id) {
+        // Check if base column properties changed (other than width)
+        if (cached.title === column.title &&
+            cached.icon === column.icon &&
+            cached.hasMenu === column.hasMenu) {
+          return cached;
+        }
+      }
+
+      const sized = override ? { ...column, width: override } : column;
+      cache.set(column.id, sized);
+      return sized;
+    });
+
+    // Clean up stale cache entries
+    if (cache.size > columns.length) {
+      const columnIds = new Set(columns.map(c => c.id));
+      for (const key of cache.keys()) {
+        if (!columnIds.has(key)) {
+          cache.delete(key);
+        }
+      }
+    }
+
+    return result;
+  }, [columns, widthOverrides]);
 
   return {
     sizedColumns,

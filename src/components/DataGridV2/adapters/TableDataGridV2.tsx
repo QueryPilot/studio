@@ -936,12 +936,17 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     [flushWidths],
   );
 
-  const { sizedColumns, handleColumnResize, handleColumnResizeEnd } =
-    useColumnSizing({
-      columns: reorderedColumns,
-      initialWidths: columnState.widths,
-      onChange: throttledWidthsChange,
-    });
+  // Get column sizing handlers - widths applied at the end for performance
+  const {
+    sizedColumns: _sizedColumns,
+    columnWidths,
+    handleColumnResize,
+    handleColumnResizeEnd,
+  } = useColumnSizing({
+    columns: reorderedColumns,
+    initialWidths: columnState.widths,
+    onChange: throttledWidthsChange,
+  });
 
   const handleColumnVisibilityChange = useCallback(
     (visibility: Record<string, boolean>) => {
@@ -960,8 +965,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     [gridId],
   );
 
+  // Use reorderedColumns (without widths) for visibility - stable during resize
   const { visibleColumns } = useColumnVisibility({
-    columns: sizedColumns,
+    columns: reorderedColumns,
     initialHidden: Object.entries(columnState.visibility)
       .filter(([, visible]) => !visible)
       .map(([id]) => id),
@@ -986,11 +992,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   );
 
   useColumnPinning({
-    columns: sizedColumns,
+    columns: reorderedColumns,
     initialPinned: columnState.pinned,
     onChange: handlePinnedColumnsChange,
   });
 
+  // Compute column order/visibility/pinning - stable during resize
   const { columns: computedColumns, freezeColumns } = useMemo(() => {
     const filtered = filterVisibleColumns(
       visibleColumns,
@@ -1004,8 +1011,27 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   if (computedColumns.length > 0) {
     columnsRef.current = computedColumns;
   }
-  const finalColumns =
+  const baseColumns2 =
     computedColumns.length > 0 ? computedColumns : columnsRef.current;
+
+  // Apply widths at the END - only this memo recalculates during resize
+  const finalColumnsCache = useRef<Map<string, GridColumnV2>>(new Map());
+  const finalColumns = useMemo(() => {
+    const cache = finalColumnsCache.current;
+    return baseColumns2.map((column) => {
+      const width = columnWidths[column.id] ?? column.width;
+      const cached = cache.get(column.id);
+
+      // Reuse cached if width unchanged
+      if (cached && cached.width === width && cached.id === column.id) {
+        return cached;
+      }
+
+      const withWidth = width !== column.width ? { ...column, width } : column;
+      cache.set(column.id, withWidth);
+      return withWidth;
+    });
+  }, [baseColumns2, columnWidths]);
 
   // Column sorting
   const { sortColumns, toggleSort, getSortIndex, getSortDirection } =
