@@ -235,8 +235,7 @@ jobs:
           # Build Tauri with telemetry feature if Sentry DSN is configured
           if [ -n "$SENTRY_DSN" ]; then
             echo "🚀 Building with telemetry feature enabled"
-            cd src-tauri && cargo build --release --target ${{ matrix.target }} --features telemetry && cd ..
-            pnpm build
+            pnpm tauri build --target ${{ matrix.target }} -- --features telemetry
           else
             echo "🚀 Building without telemetry"
             pnpm tauri build --target ${{ matrix.target }}
