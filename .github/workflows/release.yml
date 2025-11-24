@@ -439,7 +439,7 @@ jobs:
           VERSION_NUMBER="${VERSION#v}"
 
           # Extract from CHANGELOG.md
-          awk "/^## \[$VERSION_NUMBER\]/,/^## \[[0-9]/" CHANGELOG.md | head -n -1 > RELEASE_NOTES.md
+          sed -n "/^## \[$VERSION_NUMBER\]/,/^---$/p" CHANGELOG.md | sed '1d;$d' > RELEASE_NOTES.md
 
           # Add footer
           cat >> RELEASE_NOTES.md << 'EOF'
