@@ -42,40 +42,10 @@ if ! command -v codex &> /dev/null; then
     exit 1
 fi
 
-# Check if gh CLI is installed
-if ! command -v gh &> /dev/null; then
-    echo -e "${RED}❌ Error: GitHub CLI (gh) not found${NC}"
-    echo ""
-    echo "Install from: https://cli.github.com/"
-    echo "  macOS: brew install gh"
-    echo "  Linux: See https://github.com/cli/cli/blob/trunk/docs/install_linux.md"
-    exit 1
-fi
+# Note: gh CLI not required - this script uses git directly
 
-# Check GitHub authentication
-if ! gh auth status &> /dev/null; then
-    echo -e "${RED}❌ Error: Not authenticated with GitHub${NC}"
-    echo ""
-    echo "Run: gh auth login"
-    exit 1
-fi
-
-# Check for updater signing key
-if [ ! -f "$UPDATER_KEY_PATH" ]; then
-    echo -e "${YELLOW}⚠️  Warning: Updater signing key not found at $UPDATER_KEY_PATH${NC}"
-    echo ""
-    echo "Auto-update signatures will not be generated."
-    echo "Run: ./scripts/generate-updater-keys.sh"
-    echo ""
-    read -p "Continue without signing? (y/N) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 1
-    fi
-    SIGN_UPDATES=false
-else
-    SIGN_UPDATES=true
-fi
+# Note: Updater signing happens in GitHub Actions using TAURI_PRIVATE_KEY secret
+# Local signing key not needed for CI-based releases
 
 # Check for uncommitted changes
 if ! git diff-index --quiet HEAD -- 2>/dev/null; then
