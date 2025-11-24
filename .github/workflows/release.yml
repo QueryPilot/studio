@@ -51,14 +51,18 @@ jobs:
             PRERELEASE="--prerelease"
           fi
 
-          gh release create "$VERSION" \
-            --draft \
-            $PRERELEASE \
-            --title "Query Pilot $VERSION" \
-            --notes "## 🚀 Query Pilot $VERSION
+          VERSION_NUMBER="${VERSION#v}"
 
-          ### What's New
-          <!-- Add release notes here -->
+          # Extract changelog for this version
+          CHANGELOG_CONTENT=$(awk "/^## \[$VERSION_NUMBER\]/,/^## \[[0-9]/" CHANGELOG.md | head -n -1 || echo "See CHANGELOG.md for details")
+
+          # Create release notes
+          cat > /tmp/release-notes.md << EOF
+          ## 🚀 Query Pilot $VERSION
+
+          $CHANGELOG_CONTENT
+
+          ---
 
           ### 📦 Installation
 
@@ -71,7 +75,14 @@ jobs:
           - **macOS**: Signed and notarized with Apple Developer ID
 
           ### 📝 Full Changelog
-          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md)"
+          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md)
+          EOF
+
+          gh release create "$VERSION" \
+            --draft \
+            $PRERELEASE \
+            --title "Query Pilot $VERSION" \
+            --notes-file /tmp/release-notes.md
 
   build-release:
     name: Build (${{ matrix.platform }})
@@ -113,7 +124,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             src-tauri/target/
-          key: ${{ runner.os }}-rust-release-${{ hashFiles('src-tauri/Cargo.lock') }}
+          key: ${{ runner.os }}-rust-release-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-rust-release-
             ${{ runner.os }}-rust-
