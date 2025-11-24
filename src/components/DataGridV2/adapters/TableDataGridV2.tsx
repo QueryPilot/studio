@@ -648,7 +648,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     hasNextPage,
   } = isTableMode
     ? {
-        isLoading: tableDataQuery.status === "loading" && !tableDataQuery.data,
+        // Show loading state when fetching initial data (status pending or fetching without any pages yet)
+        isLoading: tableDataQuery.status === "pending" || (tableDataQuery.isFetching && !tableDataQuery.isFetchingNextPage && tableDataQuery.rows.length === 0),
         isLoadingMore: tableDataQuery.isFetchingNextPage,
         error:
           tableDataQuery.error instanceof Error
@@ -1842,6 +1843,13 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   );
 
   const scrollDebounceRef = useRef<NodeJS.Timeout | undefined>(undefined);
+  const loadingMoreRef = useRef(false); // Ref-based guard to prevent duplicate fetches
+
+  // Update ref when isLoadingMore changes
+  useEffect(() => {
+    console.log('[InfiniteLoad] isLoadingMore changed:', isLoadingMore);
+    loadingMoreRef.current = isLoadingMore;
+  }, [isLoadingMore]);
 
   const handleVisibleRegionChanged = useCallback(
     (region: Rectangle) => {
@@ -1852,9 +1860,23 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         persistScrollOffset({ x: region.x, y: region.y });
       }, 150);
 
-      const threshold = rowsRef.current.length - 500;
-      const nearEnd = region.y + region.height > threshold;
-      if (nearEnd && hasNextPage && !isLoadingMore && loadMore) {
+      // Trigger loading when within 100 rows of the end (or immediately if fewer rows)
+      const threshold = Math.max(0, rowsRef.current.length - 100);
+      const nearEnd = region.y + region.height >= threshold;
+      console.log('[InfiniteLoad] Check:', {
+        visibleEnd: region.y + region.height,
+        threshold,
+        nearEnd,
+        hasNextPage,
+        isLoadingMore,
+        loadingMoreRef: loadingMoreRef.current,
+        hasLoadMore: !!loadMore,
+        totalRows: rowsRef.current.length,
+      });
+      // Use both state and ref guards to prevent duplicate fetches
+      if (nearEnd && hasNextPage && !isLoadingMore && !loadingMoreRef.current && loadMore) {
+        loadingMoreRef.current = true; // Set immediately to prevent duplicates
+        console.log('[InfiniteLoad] Triggering loadMore');
         void loadMore();
       }
     },
@@ -1880,7 +1902,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const selectedRowKeys = useMemo(() => {
     return Array.from(selectedRowsSet)
       .map((idx) => getRowKey(rowsRef.current[idx], idx))
-      .filter((key): key is string => !key);
+      .filter((key): key is string => Boolean(key));
   }, [selectedRowsSet, getRowKey]);
 
   // Handler: Insert row below selected row
