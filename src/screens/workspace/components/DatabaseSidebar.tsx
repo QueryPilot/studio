@@ -1,6 +1,16 @@
 import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
-import { IconSearch, IconTable, IconEye, IconMathFunction, IconRefresh, IconAlertCircle, IconBolt, IconBookmark } from '@tabler/icons-react';
+import {
+  IconSearch,
+  IconTable,
+  IconEye,
+  IconMathFunction,
+  IconRefresh,
+  IconAlertCircle,
+  IconBolt,
+  IconBookmark,
+  IconAssembly,
+} from "@tabler/icons-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePanelStore } from "@/stores/panelStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
@@ -21,7 +31,6 @@ import {
   openTableObject,
   openTableDesigner,
   openQueryWithTemplate,
-  type CreateObjectType,
 } from "@/utils/workbench/openers";
 import {
   useStarredItemsStore,
@@ -115,7 +124,9 @@ export function DatabaseSidebar({
       const timer = setTimeout(() => {
         setIsRefreshing(false);
       }, 100);
-      return () => { clearTimeout(timer); };
+      return () => {
+        clearTimeout(timer);
+      };
     }
     return undefined;
   }, [selectedDatabase, selectedSchema]);
@@ -131,7 +142,11 @@ export function DatabaseSidebar({
   };
 
   // Generate unique key for an item
-  const getItemKey = (type: 'table' | 'view' | 'function', name: string, schema: string) => {
+  const getItemKey = (
+    type: "table" | "view" | "function",
+    name: string,
+    schema: string,
+  ) => {
     return `${type}:${schema}.${name}`;
   };
 
@@ -140,30 +155,30 @@ export function DatabaseSidebar({
     const allItems: string[] = [];
 
     // Add starred items if expanded
-    if (expandedNodes.has('starred')) {
-      starredItems.forEach(item => {
+    if (expandedNodes.has("starred")) {
+      starredItems.forEach((item) => {
         allItems.push(getItemKey(item.type, item.name, item.schema));
       });
     }
 
     // Add tables if expanded
-    if (expandedNodes.has('tables')) {
-      filterItems(tables).forEach(table => {
-        allItems.push(getItemKey('table', table.name, table.schema));
+    if (expandedNodes.has("tables")) {
+      filterItems(tables).forEach((table) => {
+        allItems.push(getItemKey("table", table.name, table.schema));
       });
     }
 
     // Add views if expanded
-    if (expandedNodes.has('views')) {
-      filterItems(views).forEach(view => {
-        allItems.push(getItemKey('view', view.name, view.schema));
+    if (expandedNodes.has("views")) {
+      filterItems(views).forEach((view) => {
+        allItems.push(getItemKey("view", view.name, view.schema));
       });
     }
 
     // Add functions if expanded
-    if (expandedNodes.has('functions')) {
-      filterItems(functions).forEach(func => {
-        allItems.push(getItemKey('function', func.name, func.schema));
+    if (expandedNodes.has("functions")) {
+      filterItems(functions).forEach((func) => {
+        allItems.push(getItemKey("function", func.name, func.schema));
       });
     }
 
@@ -174,7 +189,7 @@ export function DatabaseSidebar({
   const handleItemSelection = (
     itemKey: string,
     event: React.MouseEvent,
-    onClick: () => void
+    onClick: () => void,
   ) => {
     const isCmdOrCtrl = event.metaKey || event.ctrlKey;
     const isShift = event.shiftKey;
@@ -201,7 +216,7 @@ export function DatabaseSidebar({
         const rangeItems = allItems.slice(start, end + 1);
 
         const newSelected = new Set(selectedItems);
-        rangeItems.forEach(item => newSelected.add(item));
+        rangeItems.forEach((item) => newSelected.add(item));
         setSelectedItems(newSelected);
       }
     } else {
@@ -251,8 +266,10 @@ export function DatabaseSidebar({
       }
     };
 
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => window.removeEventListener('mouseup', handleMouseUp);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
   }, [isDragging]);
 
   // Handle right-click to show context menu
@@ -275,43 +292,48 @@ export function DatabaseSidebar({
   // Get selected types breakdown
   const getSelectedTypesBreakdown = () => {
     const breakdown = { tables: 0, views: 0, functions: 0 };
-    selectedItems.forEach(itemKey => {
-      const [type] = itemKey.split(':');
-      if (type === 'table') breakdown.tables++;
-      else if (type === 'view') breakdown.views++;
-      else if (type === 'function') breakdown.functions++;
+    selectedItems.forEach((itemKey) => {
+      const [type] = itemKey.split(":");
+      if (type === "table") breakdown.tables++;
+      else if (type === "view") breakdown.views++;
+      else if (type === "function") breakdown.functions++;
     });
     return breakdown;
   };
 
   // Context menu action handlers
   const handleExport = () => {
-    console.log('Export selected items:', Array.from(selectedItems));
+    console.log("Export selected items:", Array.from(selectedItems));
     // TODO: Implement export functionality
   };
 
   const handleCopyName = () => {
-    const names = Array.from(selectedItems).map(itemKey => {
-      const [, rest] = itemKey.split(':');
-      if (!rest) return '';
-      const parts = rest.split('.');
-      return parts[parts.length - 1] || '';
-    }).filter(Boolean);
-    navigator.clipboard.writeText(names.join('\n'));
+    const names = Array.from(selectedItems)
+      .map((itemKey) => {
+        const [, rest] = itemKey.split(":");
+        if (!rest) return "";
+        const parts = rest.split(".");
+        return parts[parts.length - 1] || "";
+      })
+      .filter(Boolean);
+    navigator.clipboard.writeText(names.join("\n"));
   };
 
   const handleCopyDefinition = () => {
-    console.log('Copy definition for selected items:', Array.from(selectedItems));
+    console.log(
+      "Copy definition for selected items:",
+      Array.from(selectedItems),
+    );
     // TODO: Implement copy definition functionality
     // This would generate CREATE TABLE/VIEW/FUNCTION statements and copy to clipboard
   };
 
   const handlePin = () => {
     // Toggle pin/star for all selected items
-    selectedItems.forEach(itemKey => {
-      const [type, rest] = itemKey.split(':');
+    selectedItems.forEach((itemKey) => {
+      const [type, rest] = itemKey.split(":");
       if (!rest) return;
-      const [schema, name] = rest.split('.');
+      const [schema, name] = rest.split(".");
       if (!schema || !name) return;
 
       toggleStarred({
@@ -325,53 +347,55 @@ export function DatabaseSidebar({
   };
 
   const handleTruncate = () => {
-    console.log('Truncate selected tables:', Array.from(selectedItems));
+    console.log("Truncate selected tables:", Array.from(selectedItems));
     // TODO: Show confirmation dialog with warning
     // Options: Restart identity, Cascade
   };
 
   const handleDeleteSelected = () => {
-    console.log('Delete selected items:', Array.from(selectedItems));
+    console.log("Delete selected items:", Array.from(selectedItems));
     // TODO: Show confirmation dialog with warning
     // Options: Ignore foreign key checks, Cascade
   };
 
   const handleViewData = () => {
     // Open data view for all selected tables/views
-    selectedItems.forEach(itemKey => {
-      const [type, rest] = itemKey.split(':');
-      if (!rest || (type !== 'table' && type !== 'view')) return;
+    selectedItems.forEach((itemKey) => {
+      const [type, rest] = itemKey.split(":");
+      if (!rest || (type !== "table" && type !== "view")) return;
 
-      const [schema, name] = rest.split('.');
+      const [schema, name] = rest.split(".");
       if (!schema || !name) return;
 
-      const item = tables.find(t => t.name === name && t.schema === schema) ||
-                   views.find(v => v.name === name && v.schema === schema);
+      const item =
+        tables.find((t) => t.name === name && t.schema === schema) ||
+        views.find((v) => v.name === name && v.schema === schema);
       if (item) {
-        handleTableClick(item, 'data');
+        handleTableClick(item, "data");
       }
     });
   };
 
   const handleViewStructure = () => {
     // Open structure view for all selected tables/views
-    selectedItems.forEach(itemKey => {
-      const [type, rest] = itemKey.split(':');
-      if (!rest || (type !== 'table' && type !== 'view')) return;
+    selectedItems.forEach((itemKey) => {
+      const [type, rest] = itemKey.split(":");
+      if (!rest || (type !== "table" && type !== "view")) return;
 
-      const [schema, name] = rest.split('.');
+      const [schema, name] = rest.split(".");
       if (!schema || !name) return;
 
-      const item = tables.find(t => t.name === name && t.schema === schema) ||
-                   views.find(v => v.name === name && v.schema === schema);
+      const item =
+        tables.find((t) => t.name === name && t.schema === schema) ||
+        views.find((v) => v.name === name && v.schema === schema);
       if (item) {
-        handleTableClick(item, 'structure');
+        handleTableClick(item, "structure");
       }
     });
   };
 
   const handleDuplicate = () => {
-    console.log('Duplicate item:', Array.from(selectedItems)[0]);
+    console.log("Duplicate item:", Array.from(selectedItems)[0]);
     // TODO: Implement duplicate functionality
   };
 
@@ -416,7 +440,7 @@ export function DatabaseSidebar({
       connectionId,
       database: selectedDatabase,
       schema: selectedSchema,
-      objectType: 'view',
+      objectType: "view",
     });
   };
 
@@ -425,7 +449,7 @@ export function DatabaseSidebar({
       connectionId,
       database: selectedDatabase,
       schema: selectedSchema,
-      objectType: 'function',
+      objectType: "function",
     });
   };
 
@@ -628,7 +652,9 @@ export function DatabaseSidebar({
         <div
           className={cn(
             "pb-2 min-w-0 transition-opacity duration-150",
-            isRefreshing && tables.length > 0 && "opacity-50 pointer-events-none",
+            isRefreshing &&
+              tables.length > 0 &&
+              "opacity-50 pointer-events-none",
             isDragging && "select-none",
           )}
         >
@@ -694,9 +720,15 @@ export function DatabaseSidebar({
                     onClick={(e) => {
                       handleItemSelection(itemKey, e, onClick);
                     }}
-                    onMouseDown={(e) => handleItemMouseDown(itemKey, e)}
-                    onMouseEnter={() => handleItemMouseEnter(itemKey)}
-                    onContextMenu={(e) => handleContextMenu(itemKey, e)}
+                    onMouseDown={(e) => {
+                      handleItemMouseDown(itemKey, e);
+                    }}
+                    onMouseEnter={() => {
+                      handleItemMouseEnter(itemKey);
+                    }}
+                    onContextMenu={(e) => {
+                      handleContextMenu(itemKey, e);
+                    }}
                     isSelected={selectedItems.has(itemKey)}
                     rowCount={
                       "row_estimate" in itemData
@@ -719,7 +751,7 @@ export function DatabaseSidebar({
                         <>
                           <ActionButton
                             icon={
-                              <IconBolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                              <IconAssembly className="h-3 w-3 text-muted-foreground hover:text-foreground" />
                             }
                             onClick={(e) => {
                               e.stopPropagation();
@@ -766,7 +798,7 @@ export function DatabaseSidebar({
               addTooltip="Create new table"
             >
               {filterItems(tables).map((table) => {
-                const itemKey = getItemKey('table', table.name, table.schema);
+                const itemKey = getItemKey("table", table.name, table.schema);
                 return (
                   <SidebarItem
                     key={`${table.schema}.${table.name}`}
@@ -780,9 +812,15 @@ export function DatabaseSidebar({
                         handleTableClick(table, "data");
                       });
                     }}
-                    onMouseDown={(e) => handleItemMouseDown(itemKey, e)}
-                    onMouseEnter={() => handleItemMouseEnter(itemKey)}
-                    onContextMenu={(e) => handleContextMenu(itemKey, e)}
+                    onMouseDown={(e) => {
+                      handleItemMouseDown(itemKey, e);
+                    }}
+                    onMouseEnter={() => {
+                      handleItemMouseEnter(itemKey);
+                    }}
+                    onContextMenu={(e) => {
+                      handleContextMenu(itemKey, e);
+                    }}
                     isSelected={selectedItems.has(itemKey)}
                     rowCount={table.row_estimate}
                     isStarred={isStarred(
@@ -844,7 +882,7 @@ export function DatabaseSidebar({
               addTooltip="Create new view"
             >
               {filterItems(views).map((view) => {
-                const itemKey = getItemKey('view', view.name, view.schema);
+                const itemKey = getItemKey("view", view.name, view.schema);
                 return (
                   <SidebarItem
                     key={`${view.schema}.${view.name}`}
@@ -865,9 +903,15 @@ export function DatabaseSidebar({
                         handleTableClick(view, "data");
                       });
                     }}
-                    onMouseDown={(e) => handleItemMouseDown(itemKey, e)}
-                    onMouseEnter={() => handleItemMouseEnter(itemKey)}
-                    onContextMenu={(e) => handleContextMenu(itemKey, e)}
+                    onMouseDown={(e) => {
+                      handleItemMouseDown(itemKey, e);
+                    }}
+                    onMouseEnter={() => {
+                      handleItemMouseEnter(itemKey);
+                    }}
+                    onContextMenu={(e) => {
+                      handleContextMenu(itemKey, e);
+                    }}
                     isSelected={selectedItems.has(itemKey)}
                     className="border-l-2 border-l-transparent"
                     isStarred={isStarred(
@@ -930,7 +974,7 @@ export function DatabaseSidebar({
               addTooltip="Create new function"
             >
               {filterItems(functions).map((func) => {
-                const itemKey = getItemKey('function', func.name, func.schema);
+                const itemKey = getItemKey("function", func.name, func.schema);
                 return (
                   <SidebarItem
                     key={`${func.schema}.${func.name}`}
@@ -944,9 +988,15 @@ export function DatabaseSidebar({
                         handleFunctionClick(func);
                       });
                     }}
-                    onMouseDown={(e) => handleItemMouseDown(itemKey, e)}
-                    onMouseEnter={() => handleItemMouseEnter(itemKey)}
-                    onContextMenu={(e) => handleContextMenu(itemKey, e)}
+                    onMouseDown={(e) => {
+                      handleItemMouseDown(itemKey, e);
+                    }}
+                    onMouseEnter={() => {
+                      handleItemMouseEnter(itemKey);
+                    }}
+                    onContextMenu={(e) => {
+                      handleContextMenu(itemKey, e);
+                    }}
                     isSelected={selectedItems.has(itemKey)}
                     isStarred={isStarred(
                       connectionId,
@@ -987,7 +1037,9 @@ export function DatabaseSidebar({
           y={contextMenu.y}
           selectedCount={selectedItems.size}
           selectedTypes={getSelectedTypesBreakdown()}
-          onClose={() => setContextMenu(null)}
+          onClose={() => {
+            setContextMenu(null);
+          }}
           onExport={handleExport}
           onCopyName={handleCopyName}
           onCopyDefinition={handleCopyDefinition}

@@ -9,7 +9,15 @@ import React, {
 } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { IconTable, IconBolt, IconBookmark, IconCode, IconCopy, IconClipboardCheck } from '@tabler/icons-react';
+import {
+  IconTable,
+  IconBolt,
+  IconBookmark,
+  IconCode,
+  IconCopy,
+  IconClipboardCheck,
+  IconAssembly,
+} from "@tabler/icons-react";
 import { TableDataGridV2 } from "@/components/DataGridV2";
 import { TableStructure } from "@/components/TableStructure";
 import { TableIndexes } from "@/components/TableIndexes";
@@ -211,7 +219,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                     className="flex items-center gap-1 text-xs px-2"
                     tabIndex={1}
                   >
-                    <IconBolt className="h-3 w-3" />
+                    <IconAssembly className="h-3 w-3" />
                     <span>Structure</span>
                   </TabsTrigger>
 

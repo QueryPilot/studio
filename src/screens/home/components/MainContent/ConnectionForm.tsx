@@ -26,7 +26,6 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import {
-  IconDatabase,
   IconLoader2,
   IconCircleCheckFilled,
   IconChevronDown,
@@ -141,7 +140,7 @@ export function ConnectionForm() {
   const [name, setName] = useState(connection?.profile.name || "");
   const [host, setHost] = useState(connection?.profile.host || "localhost");
   const [port, setPort] = useState(
-    connection?.profile.port?.toString() || getDefaultPort(dbType),
+    connection?.profile.port.toString() || getDefaultPort(dbType),
   );
   const [username, setUsername] = useState(connection?.profile.username || "");
   const [password, setPassword] = useState(connection?.profile.password || "");
@@ -150,7 +149,7 @@ export function ConnectionForm() {
     connection?.profile.ssl_mode || SslMode.Disable,
   );
   const [selectedTags, setSelectedTags] = useState<string[]>(() => {
-    if (isEditMode && connection) {
+    if (isEditMode && connection.profile.tags) {
       return connection.metadata.tags || [];
     }
     return ["local"];
@@ -166,7 +165,7 @@ export function ConnectionForm() {
   const [useSSH, setUseSSH] = useState(!!existingSshTunnel);
   const [sshHost, setSshHost] = useState(existingSshTunnel?.host || "");
   const [sshPort, setSshPort] = useState(
-    existingSshTunnel?.port?.toString() || "22",
+    existingSshTunnel?.port.toString() || "22",
   );
   const [sshUser, setSshUser] = useState(existingSshTunnel?.user || "");
   const [sshPassword, setSshPassword] = useState(
@@ -342,6 +341,7 @@ export function ConnectionForm() {
         toast.error("Clipboard Empty");
       }
     } catch (error) {
+      console.error(error);
       toast.error("Clipboard Access Failed");
     }
   };
@@ -553,7 +553,7 @@ export function ConnectionForm() {
     try {
       const profile = buildConnectionProfile(connection?.profile.id);
 
-      if (isEditMode && connection?.profile.id) {
+      if (isEditMode && connection.profile.id) {
         await persistUpdate(connection.profile.id, profile, selectedTags);
       } else {
         await persistConnection(profile, selectedTags);
@@ -585,7 +585,7 @@ export function ConnectionForm() {
     try {
       const profile = buildConnectionProfile(connection?.profile.id);
 
-      if (isEditMode && connection?.profile.id) {
+      if (isEditMode && connection.profile.id) {
         await persistUpdate(connection.profile.id, profile, selectedTags);
       } else {
         await persistConnection(profile, selectedTags);

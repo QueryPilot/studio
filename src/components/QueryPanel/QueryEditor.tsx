@@ -14,6 +14,10 @@ interface QueryEditorProps {
   isExecuting?: boolean;
   height?: string;
   readOnly?: boolean;
+  /** Override dialect (bypasses auto-detection when set) */
+  dialectOverride?: SqlDialect;
+  /** Callback to report the detected dialect */
+  onDialectDetected?: (dialect: SqlDialect) => void;
 }
 
 export const QueryEditor = memo(
@@ -29,13 +33,23 @@ export const QueryEditor = memo(
       isExecuting = false,
       height = "100%",
       readOnly = false,
+      dialectOverride,
+      onDialectDetected,
     },
     ref,
   ) {
     // Smart dialect detection - uses plsql for PL/pgSQL code (DO blocks, functions, etc.)
-    const dialect = useMemo<SqlDialect>(() => {
+    const detectedDialect = useMemo<SqlDialect>(() => {
       return detectSqlDialect(dbType, value);
     }, [dbType, value]);
+
+    // Use override if provided, otherwise use detected
+    const dialect = dialectOverride ?? detectedDialect;
+
+    // Report detected dialect to parent (for showing in toolbar)
+    useMemo(() => {
+      onDialectDetected?.(detectedDialect);
+    }, [detectedDialect, onDialectDetected]);
 
     const handleExecute = useCallback(
       (query?: string) => {

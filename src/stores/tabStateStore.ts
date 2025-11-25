@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { ColumnMeta } from "@/types/database";
+import type { SqlDialect } from "@/components/CodeEditor/types";
 
 // Store for preserving tab state across panel moves
 export interface QueryResult {
@@ -29,6 +30,7 @@ interface QueryState {
   lastExecutedQuery: string;
   lastSelectQuery: string | null; // Store last SELECT query for auto-refresh after mutations
   inTransaction: boolean; // Track if this tab has an active transaction
+  selectedDialect?: SqlDialect | "auto"; // Selected SQL dialect (auto = auto-detect)
 }
 
 interface TabStateStore {
@@ -72,6 +74,7 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
         lastExecutedQuery: "",
         lastSelectQuery: null,
         inTransaction: false,
+        selectedDialect: "auto" as const,
       };
       newStates.set(tabId, { ...existing, ...state });
       return { queryStates: newStates };

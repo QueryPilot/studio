@@ -88,6 +88,15 @@ export const QueryPanel = memo(function QueryPanel({
     globalState?.viewMode || "table",
   );
 
+  // Dialect selection: "auto" means auto-detect, otherwise use selected dialect
+  const [selectedDialect, setSelectedDialect] = useState<SqlDialect | "auto">(
+    globalState?.selectedDialect || "auto"
+  );
+  const [detectedDialect, setDetectedDialect] = useState<SqlDialect>("postgresql");
+  
+  // Results panel visibility - hidden by default, shown when query executes
+  const [showResults, setShowResults] = useState(result !== null);
+
   // Get transaction state from persisted store
   const inTransaction = globalState?.inTransaction || false;
 
@@ -206,6 +215,7 @@ export const QueryPanel = memo(function QueryPanel({
       isStreaming,
       appliedLimit,
       viewMode,
+      selectedDialect,
     });
   }, [
     query,
@@ -214,6 +224,7 @@ export const QueryPanel = memo(function QueryPanel({
     isStreaming,
     appliedLimit,
     viewMode,
+    selectedDialect,
     tabId,
     setQueryState,
   ]);
@@ -682,6 +693,17 @@ export const QueryPanel = memo(function QueryPanel({
     setShowHistory((prev) => !prev);
   }, []);
 
+  const toggleResults = useCallback(() => {
+    setShowResults((prev) => !prev);
+  }, []);
+
+  // Auto-show results panel when query execution starts or completes
+  useEffect(() => {
+    if (isExecuting || result !== null) {
+      setShowResults(true);
+    }
+  }, [isExecuting, result]);
+
   const focusEditor = useCallback(() => {
     editorRef.current?.focus();
   }, []);
@@ -801,53 +823,64 @@ export const QueryPanel = memo(function QueryPanel({
                     onExecute={handleExecute}
                     isExecuting={isExecuting}
                     height="100%"
+                    dialectOverride={selectedDialect === "auto" ? undefined : selectedDialect}
+                    onDialectDetected={setDetectedDialect}
                   />
                   {/* Toolbar */}
                   <QueryToolbar
                     isExecuting={isExecuting}
                     query={query}
                     showHistory={showHistory}
+                    showResults={showResults}
                     viewMode={viewMode}
                     appliedLimit={appliedLimit?.limit}
                     focused={isPanelFocused}
+                    dialect={selectedDialect}
+                    detectedDialect={detectedDialect}
                     onExecute={() => handleExecute()}
                     onCancel={handleCancel}
                     onBeautify={handleBeautify}
                     onToggleHistory={toggleHistory}
+                    onToggleResults={toggleResults}
                     onViewModeChange={setViewMode}
+                    onDialectChange={setSelectedDialect}
                     onFocusEditor={focusEditor}
                   />
                 </div>
               </ResizablePanel>
 
-              <div className="px-1">
-                <ResizableHandle className="bg-secondary !h-1 rounded-xl" />
-              </div>
-
-              {/* Results */}
-              <ResizablePanel defaultSize={50} minSize={20}>
-                <div className="flex flex-col h-full">
-                  {/* Results */}
-                  <div className="flex-1 min-h-0">
-                    <ResultViewer
-                      result={result}
-                      isLoading={isExecuting}
-                      isStreaming={isStreaming}
-                      connectionId={effectiveConnectionId}
-                      database={database}
-                      height="100%"
-                      gridId={queryGridId}
-                      viewMode={viewMode}
-                      cursorSetupMs={result?.cursorSetupMs}
-                      totalStreamingMs={result?.totalStreamingMs}
-                      fetchCount={result?.fetchCount}
-                      networkMs={result?.networkMs}
-                      conversionMs={result?.conversionMs}
-                      ipcSendMs={result?.ipcSendMs}
-                    />
+              {showResults && (
+                <>
+                  <div className="px-1">
+                    <ResizableHandle className="bg-secondary !h-1 rounded-xl" />
                   </div>
-                </div>
-              </ResizablePanel>
+
+                  {/* Results */}
+                  <ResizablePanel defaultSize={50} minSize={20}>
+                    <div className="flex flex-col h-full">
+                      {/* Results */}
+                      <div className="flex-1 min-h-0">
+                        <ResultViewer
+                          result={result}
+                          isLoading={isExecuting}
+                          isStreaming={isStreaming}
+                          connectionId={effectiveConnectionId}
+                          database={database}
+                          height="100%"
+                          gridId={queryGridId}
+                          viewMode={viewMode}
+                          cursorSetupMs={result?.cursorSetupMs}
+                          totalStreamingMs={result?.totalStreamingMs}
+                          fetchCount={result?.fetchCount}
+                          networkMs={result?.networkMs}
+                          conversionMs={result?.conversionMs}
+                          ipcSendMs={result?.ipcSendMs}
+                        />
+                      </div>
+                    </div>
+                  </ResizablePanel>
+                </>
+              )}
             </ResizablePanelGroup>
           </ResizablePanel>
 
