@@ -121,8 +121,9 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
   const [open, setOpen] = useState(false);
   const [timeCollapsed, setTimeCollapsed] = useState(false);
   const [manualText, setManualText] = useState<string>(raw ?? "");
-  // Start dirty to preserve original format - only sync when picker is explicitly used
-  const [manualDirty, setManualDirty] = useState(true);
+  const [manualDirty, setManualDirty] = useState(false);
+  // Skip the initial effect run to preserve original value format
+  const hasInitialized = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const buildDateTimeString = useCallback(() => {
@@ -313,7 +314,12 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
   }, []);
 
   // Sync manual text with picker selections (unless user is typing)
+  // Skip initial mount to preserve original value format
   useEffect(() => {
+    if (!hasInitialized.current) {
+      hasInitialized.current = true;
+      return;
+    }
     if (manualDirty) return;
     const built = buildDateTimeString();
     const nextText = built ?? "";
