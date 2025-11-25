@@ -4,6 +4,7 @@ import { handleConfig } from "./config";
 import { handleProviders } from "./providers";
 import { handleChatStream } from "./chat";
 import { handleTextToSQL } from "./text-to-sql";
+import { handleOpenRouterModels } from "./openrouter-models";
 
 export const routes = {
   "/health": handleHealth,
@@ -12,4 +13,5 @@ export const routes = {
   "/providers": handleProviders,
   "/chat": handleChatStream,
   "/text-to-sql": handleTextToSQL,
+  "/openrouter-models": handleOpenRouterModels,
 };

@@ -3,6 +3,11 @@ import type { CustomCellRenderer } from "../../types";
 import { ReferenceCellEditorWithProps } from "./ReferenceCellEditor";
 import { truncateTextToWidth } from "../../utils/textUtils";
 import { type ReferenceCustomCell } from "./types";
+import { 
+  getCachedThemeValues, 
+  getCachedFont,
+  DEFAULT_FONT_FAMILY,
+} from "../../utils/renderCache";
 
 const ReferenceCellRenderer: CustomCellRenderer<ReferenceCustomCell> = {
   isMatch: (cell: CustomCell): cell is ReferenceCustomCell => {
@@ -15,21 +20,21 @@ const ReferenceCellRenderer: CustomCellRenderer<ReferenceCustomCell> = {
   draw: (args, cell) => {
     const { ctx, rect, theme } = args;
     const { value, displayValue } = cell.data;
-    const fontFamily =
-      "Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif";
-    const baseFont = `${theme.baseFontStyle} ${fontFamily}`;
+    
+    // Use cached theme values
+    const cachedTheme = getCachedThemeValues(theme);
 
     let text: string;
     let color: string;
 
     if (value == null) {
       text = "NULL";
-      color = "rgba(127,127,127,0.7)";
-      ctx.font = `italic ${baseFont}`;
+      color = cachedTheme.nullTextColor;
+      ctx.font = cachedTheme.italicFont;
     } else {
       text = displayValue || String(value);
-      color = theme.textDark;
-      ctx.font = baseFont;
+      color = cachedTheme.textDark;
+      ctx.font = cachedTheme.baseFont;
     }
 
     // Draw the text with left alignment
@@ -37,10 +42,7 @@ const ReferenceCellRenderer: CustomCellRenderer<ReferenceCustomCell> = {
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
 
-    const padding =
-      typeof theme.cellHorizontalPadding === "number"
-        ? theme.cellHorizontalPadding
-        : 8;
+    const padding = cachedTheme.cellHorizontalPadding;
 
     // Reserve space for arrow icon
     const arrowWidth = 20;
@@ -56,7 +58,7 @@ const ReferenceCellRenderer: CustomCellRenderer<ReferenceCustomCell> = {
     if (value != null && args.hoverAmount > 0) {
       const arrowX = rect.x + rect.width - padding - 12;
       ctx.fillStyle = theme.accentColor;
-      ctx.font = `14px ${fontFamily}`;
+      ctx.font = getCachedFont("14px", DEFAULT_FONT_FAMILY);
       ctx.textAlign = "center";
       ctx.fillText("→", arrowX, centerY);
     }

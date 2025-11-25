@@ -313,118 +313,86 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
             </div>
           </div>
 
-          {/* Content Area */}
+          {/* Content Area - Render only active tab for better performance */}
           <div className="flex-1 min-h-0 overflow-hidden relative">
             <Suspense fallback={<TabLoadingSkeleton />}>
-              {/* Render all tab contents but only show the active one */}
-              <div
-                className={`absolute inset-0 px-1 ${
-                  activeView === "data" ? "block" : "hidden"
-                }`}
-              >
-                <TableDataGridV2
-                  mode="table"
-                  gridId={tableGridId ?? `table:${tabId}`}
-                  connectionId={
-                    activeConnectionId || metadata.connectionId || ""
-                  }
-                  database={metadata.database || ""}
-                  schema={metadata.schema}
-                  table={metadata.table || ""}
-                  isView={isView}
-                  kind={metadata.kind}
-                  className="h-full"
-                  onActionsChange={
-                    activeView === "data" ? handleViewActionsChange : undefined
-                  }
-                  initialFilter={metadata.initialFilter as string | undefined}
-                  panelId={panelId}
-                />
-              </div>
+              <div className="absolute inset-0 px-1">
+                {activeView === "data" && (
+                  <TableDataGridV2
+                    mode="table"
+                    gridId={tableGridId ?? `table:${tabId}`}
+                    connectionId={
+                      activeConnectionId || metadata.connectionId || ""
+                    }
+                    database={metadata.database || ""}
+                    schema={metadata.schema}
+                    table={metadata.table || ""}
+                    isView={isView}
+                    kind={metadata.kind}
+                    className="h-full"
+                    onActionsChange={handleViewActionsChange}
+                    initialFilter={metadata.initialFilter as string | undefined}
+                    panelId={panelId}
+                  />
+                )}
 
-              <div
-                className={`absolute inset-0 px-1 ${
-                  activeView === "structure" ? "block" : "hidden"
-                }`}
-              >
-                <TableStructure
-                  connectionId={
-                    activeConnectionId || metadata.connectionId || ""
-                  }
-                  database={metadata.database || ""}
-                  schema={metadata.schema}
-                  table={metadata.table || ""}
-                  isView={isView}
-                  kind={metadata.kind}
-                  onActionsChange={
-                    activeView === "structure"
-                      ? handleViewActionsChange
-                      : undefined
-                  }
-                />
-              </div>
+                {activeView === "structure" && (
+                  <TableStructure
+                    connectionId={
+                      activeConnectionId || metadata.connectionId || ""
+                    }
+                    database={metadata.database || ""}
+                    schema={metadata.schema}
+                    table={metadata.table || ""}
+                    isView={isView}
+                    kind={metadata.kind}
+                    onActionsChange={handleViewActionsChange}
+                  />
+                )}
 
-              <div
-                className={`absolute inset-0 px-1 ${
-                  activeView === "indexes" ? "block" : "hidden"
-                }`}
-              >
-                <TableIndexes
-                  connectionId={
-                    activeConnectionId || metadata.connectionId || ""
-                  }
-                  database={metadata.database || ""}
-                  schema={metadata.schema}
-                  table={metadata.table || ""}
-                  onActionsChange={
-                    activeView === "indexes"
-                      ? handleViewActionsChange
-                      : undefined
-                  }
-                />
-              </div>
+                {activeView === "indexes" && (
+                  <TableIndexes
+                    connectionId={
+                      activeConnectionId || metadata.connectionId || ""
+                    }
+                    database={metadata.database || ""}
+                    schema={metadata.schema}
+                    table={metadata.table || ""}
+                    onActionsChange={handleViewActionsChange}
+                  />
+                )}
 
-              <div
-                className={`absolute inset-0 px-1 ${
-                  activeView === "triggers" ? "block" : "hidden"
-                }`}
-              >
-                <TableTriggers
-                  connectionId={
-                    activeConnectionId || metadata.connectionId || ""
-                  }
-                  database={metadata.database || ""}
-                  schema={metadata.schema}
-                  table={metadata.table || ""}
-                  onActionsChange={
-                    activeView === "triggers"
-                      ? handleViewActionsChange
-                      : undefined
-                  }
-                />
-              </div>
-              <div
-                className={`absolute inset-0 px-1 ${
-                  activeView === "definition" ? "block" : "hidden"
-                }`}
-              >
-                <ObjectDefinition
-                  connectionId={
-                    activeConnectionId || metadata.connectionId || ""
-                  }
-                  database={metadata.database || ""}
-                  schema={metadata.schema || "public"}
-                  objectName={metadata.table || ""}
-                  objectType={
-                    isMaterializedView
-                      ? "materialized_view"
-                      : isView
-                      ? "view"
-                      : "table"
-                  }
-                  className="h-full"
-                  onDefinitionLoad={handleDefinitionLoad}
-                />
+                {activeView === "triggers" && (
+                  <TableTriggers
+                    connectionId={
+                      activeConnectionId || metadata.connectionId || ""
+                    }
+                    database={metadata.database || ""}
+                    schema={metadata.schema}
+                    table={metadata.table || ""}
+                    onActionsChange={handleViewActionsChange}
+                  />
+                )}
+
+                {activeView === "definition" && (
+                  <ObjectDefinition
+                    connectionId={
+                      activeConnectionId || metadata.connectionId || ""
+                    }
+                    database={metadata.database || ""}
+                    schema={metadata.schema || "public"}
+                    objectName={metadata.table || ""}
+                    objectType={
+                      isMaterializedView
+                        ? "materialized_view"
+                        : isView
+                        ? "view"
+                        : "table"
+                    }
+                    className="h-full"
+                    onDefinitionLoad={handleDefinitionLoad}
+                  />
+                )}
               </div>
             </Suspense>
           </div>

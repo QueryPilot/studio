@@ -120,6 +120,63 @@ export interface TextToSQLResponse {
   error?: string;
 }
 
+export interface OpenRouterModel {
+  id: string;
+  name: string;
+  description: string;
+  contextLength: number;
+  pricing: {
+    prompt: number;
+    completion: number;
+  };
+  modality: string;
+}
+
+export interface OpenRouterModelsResponse {
+  models: OpenRouterModel[];
+  total: number;
+  offset: number;
+  limit: number;
+  hasMore: boolean;
+}
+
+/**
+ * Search OpenRouter models
+ */
+export async function searchOpenRouterModels(
+  query?: string,
+  limit = 50,
+  offset = 0,
+): Promise<OpenRouterModelsResponse | null> {
+  try {
+    const params = new URLSearchParams();
+    if (query) params.set("query", query);
+    params.set("limit", limit.toString());
+    params.set("offset", offset.toString());
+
+    const response = await fetch(
+      `${AI_SIDECAR_URL}/openrouter-models?${params.toString()}`,
+      {
+        method: "GET",
+        signal: AbortSignal.timeout(10000), // 10 second timeout
+      },
+    );
+
+    if (!response.ok) {
+      console.error(
+        "[AIService] Failed to fetch OpenRouter models:",
+        response.status,
+      );
+      return null;
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("[AIService] Error fetching OpenRouter models:", error);
+    return null;
+  }
+}
+
 /**
  * Convert natural language to SQL WHERE clause using AI
  */

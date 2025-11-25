@@ -304,6 +304,32 @@ src-tauri/src/
 └── types.rs                # Shared Rust types
 ```
 
+### SQL Code Editor & Language Server
+
+**Multi-Dialect Linting Strategy:**
+- CodeMirror 6-based editor with dialect-specific validation
+- **PostgreSQL**: Uses `pg-parser` WASM (libpg_query) for 100% PostgreSQL compatibility including PL/pgSQL
+- **MySQL/SQLite/MSSQL**: Web Worker-based validation for non-blocking syntax checking
+- Dialect linters in `src/components/CodeEditor/languages/sql/dialect-validators/`
+
+**Smart SQL Features:**
+- Context-aware autocomplete with table/column suggestions
+- Real-time semantic linting with metadata from active connection
+- Hover tooltips for table/column information
+- Symbol table tracking for CTE and subquery references
+- Web Worker isolation prevents UI blocking during validation
+
+**Architecture:**
+- `src/components/CodeEditor/core/` - Core editor logic and query utilities
+- `src/components/CodeEditor/languages/sql/` - SQL language support
+  - `context.ts` - SQL context analyzer (the "Brain")
+  - `completion.ts` - Intelligent autocomplete
+  - `linter-strategy.ts` - Unified dialect linter interface
+  - `pg-parser-linter.ts` - PostgreSQL WASM parser
+  - `linter-worker-manager.ts` - Worker pool for non-blocking validation
+  - `metadataProvider.ts` - Schema metadata integration
+- Separate DBML language support in `languages/dbml/` for ERD editing
+
 ## Key Patterns
 
 1. **MessagePack Serialization**: Used for large data transfers (row batches) to eliminate JSON overhead
@@ -313,6 +339,7 @@ src-tauri/src/
 5. **Event-Driven Invalidation**: Table-level listeners in `dataInvalidationStore` for reactive updates
 6. **Debounced Writes**: Vault storage with 250ms debounce to batch edits
 7. **BroadcastChannel for Multi-Window**: Cross-window coordination without Tauri events
+8. **Web Worker Isolation**: CPU-intensive validation runs in workers to prevent UI freezing
 
 ## Testing Strategy
 

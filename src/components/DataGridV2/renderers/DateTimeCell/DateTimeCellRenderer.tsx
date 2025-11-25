@@ -2,8 +2,9 @@ import { truncateTextToWidth } from "../../utils/textUtils";
 
 import { type CustomCell } from "@glideapps/glide-data-grid";
 import type { CustomCellRenderer } from "../../types";
-import { DateTimeCellEditorWithProps } from "./DateTimeCellEditor";
+import { LazyDateTimeCellEditorWithProps } from "../hooks/lazyEditors";
 import { type DateTimeCustomCell, type DateTimeKind } from "./types";
+import { getCachedThemeValues } from "../../utils/renderCache";
 
 const formatForDisplay = (
   kind: DateTimeKind,
@@ -45,21 +46,18 @@ const DateTimeCellRenderer: CustomCellRenderer<DateTimeCustomCell> = {
     const { ctx, rect, theme } = args;
     const { value, kind } = cell.data;
 
+    // Use cached theme values
+    const cachedTheme = getCachedThemeValues(theme);
+
     const text = formatForDisplay(kind, value);
     const isNull = value == null;
 
-    // Match NULL styling used by default text cells and ensure full font family is set
-    const fontFamily =
-      "Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif";
-    const baseFont = `${theme.baseFontStyle} ${fontFamily}`;
-    ctx.fillStyle = isNull ? "rgba(127,127,127,0.7)" : theme.textDark;
-    ctx.font = isNull ? `italic ${baseFont}` : baseFont; // only NULL italic
+    ctx.fillStyle = isNull ? cachedTheme.nullTextColor : cachedTheme.textDark;
+    ctx.font = isNull ? cachedTheme.italicFont : cachedTheme.baseFont;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    const padding =
-      typeof theme.cellHorizontalPadding === "number"
-        ? theme.cellHorizontalPadding
-        : 8;
+
+    const padding = cachedTheme.cellHorizontalPadding;
     const maxWidth = Math.max(0, rect.width - padding * 2);
     const displayText = isNull
       ? "NULL"
@@ -76,7 +74,7 @@ const DateTimeCellRenderer: CustomCellRenderer<DateTimeCustomCell> = {
       return undefined;
     }
     return {
-      editor: DateTimeCellEditorWithProps,
+      editor: LazyDateTimeCellEditorWithProps,
       disablePadding: true,
       disableStyling: false,
     };

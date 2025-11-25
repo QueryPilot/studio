@@ -3,6 +3,7 @@ import type { CustomCellRenderer } from "../../types";
 import { TextSingleLineCellEditorWithProps } from "./TextSingleLineCellEditor";
 import { truncateTextToWidth } from "../../utils/textUtils";
 import { type TextSingleLineCustomCell } from "./types";
+import { getCachedThemeValues } from "../../utils/renderCache";
 
 const TextSingleLineCellRenderer: CustomCellRenderer<TextSingleLineCustomCell> =
   {
@@ -16,21 +17,21 @@ const TextSingleLineCellRenderer: CustomCellRenderer<TextSingleLineCustomCell> =
     draw: (args, cell) => {
       const { ctx, rect, theme } = args;
       const { value } = cell.data;
-      const fontFamily =
-        "Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif";
-      const baseFont = `${theme.baseFontStyle} ${fontFamily}`;
+      
+      // Use cached theme values
+      const cachedTheme = getCachedThemeValues(theme);
 
       let text: string;
       let color: string;
 
       if (value == null) {
         text = "NULL";
-        color = "rgba(127,127,127,0.7)";
-        ctx.font = `italic ${baseFont}`;
+        color = cachedTheme.nullTextColor;
+        ctx.font = cachedTheme.italicFont;
       } else {
         text = value;
-        color = theme.textDark;
-        ctx.font = baseFont;
+        color = cachedTheme.textDark;
+        ctx.font = cachedTheme.baseFont;
       }
 
       // Draw the text with left alignment
@@ -38,10 +39,7 @@ const TextSingleLineCellRenderer: CustomCellRenderer<TextSingleLineCustomCell> =
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
 
-      const padding =
-        typeof theme.cellHorizontalPadding === "number"
-          ? theme.cellHorizontalPadding
-          : 8;
+      const padding = cachedTheme.cellHorizontalPadding;
       const maxWidth = Math.max(0, rect.width - padding * 2);
       const displayText =
         value == null ? "NULL" : truncateTextToWidth(text, maxWidth, ctx.font);

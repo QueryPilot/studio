@@ -18,6 +18,7 @@ const routeConfig: Record<
   "/providers": { method: "GET", handler: routes["/providers"] },
   "/chat": { method: "POST", handler: routes["/chat"] },
   "/text-to-sql": { method: "POST", handler: routes["/text-to-sql"] },
+  "/openrouter-models": { method: "GET", handler: routes["/openrouter-models"] },
 };
 
 // HTTP server using Bun's built-in server

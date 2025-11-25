@@ -5,6 +5,7 @@ import {
   GridCellKind,
 } from "@glideapps/glide-data-grid";
 import { truncateTextToWidth } from "../../utils/textUtils";
+import { getCachedThemeValues } from "../../utils/renderCache";
 
 export interface TextCellData extends CustomCell {
   kind: GridCellKind.Custom;
@@ -30,17 +31,20 @@ export const TextCellRenderer: CustomRenderer<TextCellData> = {
     const text = cell.data.displayValue ?? cell.data.value ?? "";
     const isNull = cell.data.value === null;
 
+    // Use cached theme values
+    const cachedTheme = getCachedThemeValues(theme);
+
     // Set up text styles
     if (isNull) {
-      ctx.fillStyle = theme.textLight;
-      ctx.font = `italic ${theme.baseFontStyle}`;
+      ctx.fillStyle = cachedTheme.nullTextColor;
+      ctx.font = cachedTheme.italicFont;
     } else {
-      ctx.fillStyle = theme.textDark;
-      ctx.font = theme.baseFontStyle;
+      ctx.fillStyle = cachedTheme.textDark;
+      ctx.font = cachedTheme.baseFont;
     }
 
     // Calculate text metrics
-    const padding = theme.cellHorizontalPadding;
+    const padding = cachedTheme.cellHorizontalPadding;
     const maxWidth = width - padding * 2;
 
     // Apply text truncation

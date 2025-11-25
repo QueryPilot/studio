@@ -1,6 +1,12 @@
 import React from "react";
 import { cn } from "@/lib/utils";
-import { IconX, IconTable, IconEye, IconMathFunction, IconBrandTabler } from '@tabler/icons-react';
+import {
+  IconX,
+  IconTable,
+  IconEye,
+  IconMathFunction,
+  IconBrandTabler,
+} from "@tabler/icons-react";
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 
@@ -134,12 +140,12 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
       </div>
 
       <div
-        className={cn("py-1.5 bg-muted/60", {
+        className={cn("py-1.5 bg-muted/60 min-w-px max-w-px", {
           "bg-transparent": !(!isLast && !isActive && !isNextActive),
         })}
       >
         <div
-          className={cn("h-5 w-px min-w-px self-center", {
+          className={cn("h-5 w-px min-w-px self-center max-w-px", {
             "bg-muted-foreground/30": !isLast && !isActive && !isNextActive,
             "bg-transparent": !(!isLast && !isActive && !isNextActive),
           })}

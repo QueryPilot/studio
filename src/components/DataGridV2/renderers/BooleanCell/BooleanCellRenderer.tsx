@@ -3,6 +3,7 @@ import { type CustomCell } from "@glideapps/glide-data-grid";
 import { BooleanCellEditorWithProps } from "./BooleanCellEditor";
 import { type BooleanCustomCell } from "./types";
 import { type CustomCellRenderer } from "../../types";
+import { getCachedThemeValues } from "../../utils/renderCache";
 
 // Renderer for the boolean cell
 const BooleanCellRenderer: CustomCellRenderer<BooleanCustomCell> = {
@@ -17,27 +18,27 @@ const BooleanCellRenderer: CustomCellRenderer<BooleanCustomCell> = {
   draw: (args, cell) => {
     const { ctx, rect, theme } = args;
     const { value } = cell.data;
-    const fontFamily =
-      "Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif";
-    const baseFont = `${theme.baseFontStyle} ${fontFamily}`;
+    
+    // Use cached theme values
+    const cachedTheme = getCachedThemeValues(theme);
 
     // Don't fill the background - let the grid handle it
     // This ensures proper borders and hover states
 
     // Determine text and color based on value
     let text: string;
-    let color: string = theme.textDark;
+    let color: string = cachedTheme.textDark;
 
     if (value == null) {
       text = "NULL";
-      color = "rgba(127,127,127,0.7)";
-      ctx.font = `italic ${baseFont}`;
+      color = cachedTheme.nullTextColor;
+      ctx.font = cachedTheme.italicFont;
     } else if (value) {
       text = "TRUE";
-      ctx.font = baseFont; // non-italic
+      ctx.font = cachedTheme.baseFont;
     } else {
       text = "FALSE";
-      ctx.font = baseFont; // non-italic
+      ctx.font = cachedTheme.baseFont;
     }
 
     // Draw the text with proper alignment
@@ -48,10 +49,10 @@ const BooleanCellRenderer: CustomCellRenderer<BooleanCustomCell> = {
     let x: number;
     switch (cell.contentAlign) {
       case "left":
-        x = rect.x + 8; // Add some padding
+        x = rect.x + cachedTheme.cellHorizontalPadding;
         break;
       case "right":
-        x = rect.x + rect.width - 8; // Add some padding
+        x = rect.x + rect.width - cachedTheme.cellHorizontalPadding;
         break;
       case "center":
       default:
