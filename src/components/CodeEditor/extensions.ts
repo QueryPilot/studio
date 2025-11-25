@@ -32,7 +32,6 @@ import {
   codeFolding,
   foldKeymap,
 } from "@codemirror/language";
-import { lintGutter } from "@codemirror/lint";
 import {
   searchKeymap,
   highlightSelectionMatches,
@@ -41,9 +40,9 @@ import {
 import type { SqlDialect, CodeEditorLanguage } from "./types";
 import { acceptCompletion, autocompletion } from "@codemirror/autocomplete";
 import { dbmlMixed } from "./languages/dbml/dbml-mixed";
-import { createSqlLinter, createSemanticLinter } from "./languages/sql/sql-linter";
-import { createWorkerLinter } from "./languages/sql/linter-worker-manager";
-import { createPgParserLinter, preInitPgParser } from "./languages/sql/pg-parser-linter";
+import { createSemanticLinter } from "./languages/sql/sql-linter";
+import { createDialectLinter } from "./languages/sql/linter-strategy";
+import { preInitPgParser } from "./languages/sql/pg-parser-linter";
 
 // Pre-initialize pg-parser WASM to avoid delay on first lint
 preInitPgParser();
@@ -51,7 +50,7 @@ import { createSqlCompletionSource } from "./languages/sql/completion";
 import { createSqlHoverExtension } from "./languages/sql/hover";
 import { createSqlMetadataProvider } from "./languages/sql/metadataProvider";
 import { createExpandStarExtension } from "./languages/sql/code-actions";
-import { syntaxTree } from "@codemirror/language";
+import { getQueryAtCursor } from "./core";
 
 // Enhanced SQL folding service using syntax tree for better nested support
 const sqlFoldService = foldService.of((state, from) => {
@@ -336,96 +335,6 @@ const isDestructiveQuery = (query: string): { isDestructive: boolean; type: stri
   }
 
   return { isDestructive: false, type: "" };
-};
-
-// AST-based helper to get query at cursor position
-// Uses syntax tree for reliable statement boundary detection
-const getQueryAtCursor = (view: EditorView): string => {
-  const state = view.state;
-  const selection = state.selection.main;
-
-  // If there's a selection, return the selected text
-  if (selection.from !== selection.to) {
-    return state
-      .sliceDoc(selection.from, selection.to)
-      .trim()
-      .replace(/;\s*$/, "");
-  }
-
-  // Use AST to find the statement containing the cursor
-  const cursorPos = selection.from;
-  const tree = syntaxTree(state);
-
-  // Find the node at cursor and walk up to find enclosing Statement
-  let node = tree.resolveInner(cursorPos, -1);
-
-  // Walk up to find Statement or Script node
-  while (node && node.parent) {
-    const name = node.type.name;
-    // Statement types in SQL grammar
-    if (name === "Statement" ||
-        name === "SelectStatement" ||
-        name === "InsertStatement" ||
-        name === "UpdateStatement" ||
-        name === "DeleteStatement" ||
-        name === "CreateStatement" ||
-        name === "AlterStatement" ||
-        name === "DropStatement" ||
-        name === "Script") {
-      break;
-    }
-    node = node.parent;
-  }
-
-  // If we found a statement node, extract its content
-  if (node && node.type.name !== "Script") {
-    const query = state.sliceDoc(node.from, node.to).trim().replace(/;\s*$/, "");
-    return query;
-  }
-
-  // Fallback: If AST parsing fails (e.g., incomplete syntax),
-  // find statement boundaries using sibling traversal
-  const cursor = tree.cursor();
-  cursor.moveTo(cursorPos);
-
-  // Try to find Statement siblings at the top level
-  while (cursor.parent()) {
-    const typeName = cursor.type.name;
-    if (typeName === "Script") {
-      // We're at the script level, now find the statement containing cursor
-      if (cursor.firstChild()) {
-        let statementStart = 0;
-        let statementEnd = state.doc.length;
-
-        do {
-          const childTypeName = cursor.type.name;
-          if (childTypeName === "Statement" ||
-              childTypeName.includes("Statement")) {
-            if (cursor.to <= cursorPos) {
-              // This statement is before cursor
-              statementStart = cursor.to;
-            } else if (cursor.from <= cursorPos && cursor.to >= cursorPos) {
-              // Cursor is inside this statement
-              const query = state.sliceDoc(cursor.from, cursor.to).trim().replace(/;\s*$/, "");
-              return query;
-            } else {
-              // This statement is after cursor
-              statementEnd = cursor.from;
-              break;
-            }
-          }
-        } while (cursor.nextSibling());
-
-        // Extract content between statements
-        const query = state.sliceDoc(statementStart, statementEnd).trim().replace(/;\s*$/, "");
-        return query;
-      }
-      break;
-    }
-  }
-
-  // Ultimate fallback: return entire document
-  return state.doc.toString().trim().replace(/;\s*$/, "");
 };
 
 // Execute query with destructive action protection
@@ -754,20 +663,8 @@ export const getEditorExtensions = (
   );
 
   if (language === "sql") {
-    // Add lint gutter for all dialects
-    extensions.push(lintGutter());
-
-    if (dialect === "postgresql") {
-      // For PostgreSQL, use pg-parser (most accurate, supports PL/pgSQL)
-      // Skip other linters to reduce lag
-      extensions.push(createPgParserLinter());
-    } else {
-      // For other dialects, use worker + Lezer linters
-      extensions.push(
-        createWorkerLinter(dialect),
-        createSqlLinter(dialect)
-      );
-    }
+    // Add dialect-specific linter using unified strategy
+    extensions.push(...createDialectLinter(dialect));
   }
 
   // Add tab handling: prioritize autocomplete acceptance over indentation

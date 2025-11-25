@@ -110,12 +110,41 @@ export class SqlMetadataProvider implements MetadataProvider {
   }
 }
 
+// Provider instance cache keyed by "connectionId:schema"
+const providerCache = new Map<string, MetadataProvider>();
+
 /**
- * Factory function to create a SqlMetadataProvider.
+ * Factory function to create or retrieve a cached SqlMetadataProvider.
+ * Memoizes instances by connectionId + schema to avoid recreation on every extension rebuild.
  */
 export function createSqlMetadataProvider(
   connectionId: string,
   defaultSchema?: string
 ): MetadataProvider {
-  return new SqlMetadataProvider(connectionId, defaultSchema);
+  const schema = defaultSchema || "public";
+  const cacheKey = `${connectionId}:${schema}`;
+  
+  let provider = providerCache.get(cacheKey);
+  if (!provider) {
+    provider = new SqlMetadataProvider(connectionId, schema);
+    providerCache.set(cacheKey, provider);
+  }
+  
+  return provider;
+}
+
+/**
+ * Clear the provider cache. Call when connections are closed or schema is refreshed.
+ */
+export function clearProviderCache(connectionId?: string): void {
+  if (connectionId) {
+    // Clear entries for specific connection
+    for (const key of providerCache.keys()) {
+      if (key.startsWith(`${connectionId}:`)) {
+        providerCache.delete(key);
+      }
+    }
+  } else {
+    providerCache.clear();
+  }
 }

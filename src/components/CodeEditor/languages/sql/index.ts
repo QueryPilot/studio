@@ -30,6 +30,8 @@ export {
 export {
   createWorkerLinter,
   terminateLinterWorker,
+  acquireLinterWorker,
+  releaseLinterWorker,
 } from "./linter-worker-manager";
 
 // PostgreSQL parser (uses libpg_query for 100% PostgreSQL compatibility)
@@ -40,10 +42,18 @@ export {
   preInitPgParser,
 } from "./pg-parser-linter";
 
+// Unified linter strategy
+export {
+  createDialectLinter,
+  usesWorkerLinter,
+  getLinterDescription,
+} from "./linter-strategy";
+
 // Metadata provider
 export {
   SqlMetadataProvider,
   createSqlMetadataProvider,
+  clearProviderCache,
 } from "./metadataProvider";
 
 // Dialect validators

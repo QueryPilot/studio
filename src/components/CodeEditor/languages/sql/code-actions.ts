@@ -13,7 +13,7 @@ import {
   type ViewUpdate,
   WidgetType,
 } from "@codemirror/view";
-import type { SqlMetadataProvider } from "./metadataProvider";
+import type { MetadataProvider } from "../../types";
 
 interface StarExpansionTarget {
   from: number;
@@ -128,7 +128,7 @@ function quoteIdentifier(name: string, dialect: string): string {
  * Create the Expand Star code action extension
  */
 export function createExpandStarExtension(
-  provider: SqlMetadataProvider,
+  provider: MetadataProvider,
   defaultSchema: string,
   dialect: string = "postgresql",
 ): Extension {
@@ -207,7 +207,7 @@ export function createExpandStarExtension(
 class ExpandStarWidget extends WidgetType {
   constructor(
     private target: StarExpansionTarget,
-    private provider: SqlMetadataProvider,
+    private provider: MetadataProvider,
     private defaultSchema: string,
     private dialect: string = "postgresql",
   ) {
@@ -322,7 +322,7 @@ class ExpandStarWidget extends WidgetType {
  */
 export async function expandStarAtPosition(
   view: EditorView,
-  provider: SqlMetadataProvider,
+  provider: MetadataProvider,
   defaultSchema: string,
   dialect: string = "postgresql",
 ): Promise<boolean> {

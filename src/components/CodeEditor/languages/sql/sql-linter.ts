@@ -236,10 +236,64 @@ export const createSqlLinter = (dialect?: SqlDialect): Extension =>
     needsRefresh: (update) => update.docChanged,
   });
 
-// Cache for entity existence checks to avoid repeated async calls
-const entityExistsCache = new Map<string, { exists: boolean; timestamp: number }>();
-const columnTypeCache = new Map<string, { type: string; timestamp: number }>();
-const CACHE_TTL = 30000; // 30 seconds
+// LRU Cache implementation with TTL support
+class LRUCache<T> {
+  private cache = new Map<string, { value: T; timestamp: number }>();
+  private maxSize: number;
+  private ttl: number;
+
+  constructor(maxSize: number = 1000, ttl: number = 30000) {
+    this.maxSize = maxSize;
+    this.ttl = ttl;
+  }
+
+  get(key: string): T | undefined {
+    const entry = this.cache.get(key);
+    if (!entry) return undefined;
+
+    // Check TTL
+    if (Date.now() - entry.timestamp > this.ttl) {
+      this.cache.delete(key);
+      return undefined;
+    }
+
+    // Move to end (most recently used)
+    this.cache.delete(key);
+    this.cache.set(key, entry);
+    return entry.value;
+  }
+
+  set(key: string, value: T): void {
+    // Remove existing entry if present
+    if (this.cache.has(key)) {
+      this.cache.delete(key);
+    }
+
+    // Evict oldest entries if at capacity
+    while (this.cache.size >= this.maxSize) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.cache.delete(oldestKey);
+      } else {
+        break;
+      }
+    }
+
+    this.cache.set(key, { value, timestamp: Date.now() });
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+}
+
+// Cache for entity existence checks with LRU eviction (max 1000 entries, 30s TTL)
+// Cache constants
+const CACHE_MAX_SIZE = 1000;
+const CACHE_TTL_MS = 30000; // 30 seconds
+
+const entityExistsCache = new LRUCache<boolean>(CACHE_MAX_SIZE, CACHE_TTL_MS);
+const columnTypeCache = new LRUCache<string>(CACHE_MAX_SIZE, CACHE_TTL_MS);
 
 // Type compatibility groups
 const NUMERIC_TYPES = ['integer', 'int', 'int4', 'int8', 'bigint', 'smallint', 'decimal', 'numeric', 'real', 'float', 'double', 'money'];
@@ -290,8 +344,8 @@ const checkEntityExists = async (
   const cacheKey = `${schema || "default"}:${entityName.toLowerCase()}`;
   const cached = entityExistsCache.get(cacheKey);
 
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.exists;
+  if (cached !== undefined) {
+    return cached;
   }
 
   try {
@@ -299,7 +353,7 @@ const checkEntityExists = async (
     const exists = entities.some(
       (e) => e.name.toLowerCase() === entityName.toLowerCase()
     );
-    entityExistsCache.set(cacheKey, { exists, timestamp: Date.now() });
+    entityExistsCache.set(cacheKey, exists);
     return exists;
   } catch {
     // On error, assume entity exists to avoid false positives
@@ -319,8 +373,8 @@ const getColumnType = async (
   const cacheKey = `${schema || "default"}:${tableName.toLowerCase()}:${columnName.toLowerCase()}`;
   const cached = columnTypeCache.get(cacheKey);
 
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.type;
+  if (cached !== undefined) {
+    return cached;
   }
 
   try {
@@ -329,7 +383,7 @@ const getColumnType = async (
       (f) => f.name.toLowerCase() === columnName.toLowerCase()
     );
     if (field) {
-      columnTypeCache.set(cacheKey, { type: field.dataType, timestamp: Date.now() });
+      columnTypeCache.set(cacheKey, field.dataType);
       return field.dataType;
     }
   } catch {

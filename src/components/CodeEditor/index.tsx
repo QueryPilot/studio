@@ -9,13 +9,21 @@ import {
 } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { EditorView } from "@codemirror/view";
-import { syntaxTree } from "@codemirror/language";
+import { getQueryAtCursor } from "./core";
 import { useTheme } from "@/components/theme-provider";
 import { getThemeExtensions } from "./themes";
 import { getEditorExtensions } from "./extensions";
+import {
+  acquireLinterWorker,
+  releaseLinterWorker,
+} from "./languages/sql/linter-worker-manager";
+import { usesWorkerLinter } from "./languages/sql/linter-strategy";
 import type { CodeEditorProps } from "./types";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import { useScopedKeybindings, useContextKey } from "@/hooks/useContextKey";
+
+// Delay for focus operations to ensure editor is fully rendered
+const FOCUS_DELAY_MS = 100;
 
 export interface CodeEditorRef {
   focus: () => void;
@@ -72,6 +80,19 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
         setIsFocused(false);
       };
     }, []);
+
+    // Acquire/release linter worker for SQL editors that use worker-based linting
+    // Uses reference counting to properly cleanup when last editor unmounts
+    useEffect(() => {
+      if (language !== "sql" || !usesWorkerLinter(dialect)) {
+        return;
+      }
+
+      acquireLinterWorker();
+      return () => {
+        releaseLinterWorker();
+      };
+    }, [language, dialect]);
 
     useImperativeHandle(
       ref,
@@ -149,53 +170,7 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
 
             // If we have an editor view, extract query at cursor
             if (!queryArg && editorRef.current) {
-              const view = editorRef.current;
-              const state = view.state;
-              const selection = state.selection.main;
-
-              // If there's a selection, use it
-              if (selection.from !== selection.to) {
-                const selectedQuery = state
-                  .sliceDoc(selection.from, selection.to)
-                  .trim()
-                  .replace(/;\s*$/, "");
-                handleExecute(selectedQuery);
-                return;
-              }
-
-              // Use AST to find the statement containing the cursor
-              const cursorPos = selection.from;
-              const tree = syntaxTree(state);
-
-              // Find the node at cursor and walk up to find enclosing Statement
-              let node = tree.resolveInner(cursorPos, -1);
-
-              // Walk up to find Statement or Script node
-              while (node && node.parent) {
-                const name = node.type.name;
-                if (name === "Statement" ||
-                    name === "SelectStatement" ||
-                    name === "InsertStatement" ||
-                    name === "UpdateStatement" ||
-                    name === "DeleteStatement" ||
-                    name === "CreateStatement" ||
-                    name === "AlterStatement" ||
-                    name === "DropStatement" ||
-                    name === "Script") {
-                  break;
-                }
-                node = node.parent;
-              }
-
-              // Extract query from statement node
-              let extractedQuery = "";
-              if (node && node.type.name !== "Script") {
-                extractedQuery = state.sliceDoc(node.from, node.to).trim().replace(/;\s*$/, "");
-              } else {
-                // Fallback: return entire document
-                extractedQuery = state.doc.toString().trim().replace(/;\s*$/, "");
-              }
-
+              const extractedQuery = getQueryAtCursor(editorRef.current);
               handleExecute(extractedQuery);
               return;
             }
@@ -208,38 +183,9 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
       commandRegisteredRef.current = true;
     }, [handleExecute, keyboardServices, onExecute]);
 
-    // Memoize the theme extensions
-    const themeExtensions = useMemo(() => {
-      return getThemeExtensions(actualTheme);
-    }, [actualTheme]);
-
-    useEffect(() => {
-      return () => {
-        if (keyboardServices && commandRegisteredRef.current) {
-          keyboardServices.commandService.unregister(
-            "editor.action.executeQuery",
-          );
-          commandRegisteredRef.current = false;
-        }
-      };
-    }, [keyboardServices]);
-
-    // Create extensions
-    const extensions = useMemo(() => {
-      return [
-        ...getEditorExtensions(
-          language,
-          dialect,
-          readOnly,
-          lineNumbers,
-          onExecute,
-          onEnter,
-          connectionId,
-          database,
-          schema,
-          { disableExecuteKeymap },
-        ),
-        ...themeExtensions,
+    // Static layout theme - never changes
+    const layoutExtensions = useMemo(
+      () =>
         EditorView.theme({
           "&": {
             height: "100%",
@@ -262,40 +208,78 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
             minHeight: "100%",
           },
         }),
-      ];
-    }, [
-      language,
-      dialect,
-      readOnly,
-      lineNumbers,
-      onExecute,
-      onEnter,
-      connectionId,
-      database,
-      schema,
-      themeExtensions,
-      disableExecuteKeymap,
-    ]);
+      []
+    );
 
-    // Handle auto-focus - focus on mount and when autoFocus changes
-    useEffect(() => {
-      if (autoFocus && editorRef.current) {
-        // Small delay to ensure editor is fully rendered
-        setTimeout(() => {
-          editorRef.current?.focus();
-        }, 100);
-      }
-    }, [autoFocus]);
+    // Theme extensions - only changes when theme changes
+    const themeExtensions = useMemo(
+      () => getThemeExtensions(actualTheme),
+      [actualTheme]
+    );
 
-    // Also focus when value changes (e.g., when tab becomes active)
+    // Stable refs for callbacks to avoid extension rebuilds
+    const onExecuteRef = useRef(onExecute);
+    const onEnterRef = useRef(onEnter);
     useEffect(() => {
-      if (autoFocus && editorRef.current) {
-        // Small delay to ensure editor is fully rendered
-        setTimeout(() => {
-          editorRef.current?.focus();
-        }, 100);
-      }
-    }, [value, autoFocus]);
+      onExecuteRef.current = onExecute;
+      onEnterRef.current = onEnter;
+    }, [onExecute, onEnter]);
+
+    useEffect(() => {
+      return () => {
+        if (keyboardServices && commandRegisteredRef.current) {
+          keyboardServices.commandService.unregister(
+            "editor.action.executeQuery",
+          );
+          commandRegisteredRef.current = false;
+        }
+      };
+    }, [keyboardServices]);
+
+    // Core extensions - stable, only rebuilds when language/connection config changes
+    const coreExtensions = useMemo(
+      () =>
+        getEditorExtensions(
+          language,
+          dialect,
+          readOnly,
+          lineNumbers,
+          onExecuteRef.current,
+          onEnterRef.current,
+          connectionId,
+          database,
+          schema,
+          { disableExecuteKeymap }
+        ),
+      [
+        language,
+        dialect,
+        readOnly,
+        lineNumbers,
+        connectionId,
+        database,
+        schema,
+        disableExecuteKeymap,
+      ]
+    );
+
+    // Combined extensions array
+    const extensions = useMemo(
+      () => [...coreExtensions, ...themeExtensions, layoutExtensions],
+      [coreExtensions, themeExtensions, layoutExtensions]
+    );
+
+    // Consolidated auto-focus effect
+    // Handles: initial mount, autoFocus prop change, and tab activation (value change)
+    useEffect(() => {
+      if (!autoFocus || !editorRef.current) return;
+
+      const timeoutId = setTimeout(() => {
+        editorRef.current?.focus();
+      }, FOCUS_DELAY_MS);
+
+      return () => clearTimeout(timeoutId);
+    }, [autoFocus, value]);
 
     return (
       <div
@@ -343,7 +327,7 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
             if (autoFocus) {
               setTimeout(() => {
                 view.focus();
-              }, 100);
+              }, FOCUS_DELAY_MS);
             }
           }}
           basicSetup={{
@@ -352,19 +336,8 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
             autocompletion: false, // Managed by extensions
             defaultKeymap: false, // We add this manually in extensions
           }}
-          onFocus={() => {
-            setIsFocused(true);
-            registerExecuteCommand();
-          }}
-          onBlur={() => {
-            setIsFocused(false);
-            if (keyboardServices && commandRegisteredRef.current) {
-              keyboardServices.commandService.unregister(
-                "editor.action.executeQuery",
-              );
-              commandRegisteredRef.current = false;
-            }
-          }}
+          // Focus handling is managed via DOM event listeners in onCreateEditor
+          // to ensure reliable capture-phase handling and proper cleanup
         />
       </div>
     );

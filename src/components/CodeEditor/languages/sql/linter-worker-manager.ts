@@ -145,14 +145,33 @@ class LinterWorkerManager {
   }
 }
 
-// Singleton instance
+// Singleton instance with reference counting
 let workerManager: LinterWorkerManager | null = null;
+let refCount = 0;
 
 const getWorkerManager = (): LinterWorkerManager => {
   if (!workerManager) {
     workerManager = new LinterWorkerManager();
   }
   return workerManager;
+};
+
+/**
+ * Increment reference count when a new editor uses the worker.
+ */
+export const acquireLinterWorker = (): void => {
+  refCount++;
+};
+
+/**
+ * Decrement reference count and terminate worker if no more users.
+ */
+export const releaseLinterWorker = (): void => {
+  refCount = Math.max(0, refCount - 1);
+  if (refCount === 0 && workerManager) {
+    workerManager.terminate();
+    workerManager = null;
+  }
 };
 
 /**
@@ -189,12 +208,13 @@ export const createWorkerLinter = (dialect?: string): Extension => {
 };
 
 /**
- * Terminate the linter worker.
- * Call this when the editor is unmounted.
+ * Terminate the linter worker immediately.
+ * Only call this when you know no editors are using it, or at app shutdown.
  */
 export const terminateLinterWorker = (): void => {
   if (workerManager) {
     workerManager.terminate();
     workerManager = null;
+    refCount = 0;
   }
 };

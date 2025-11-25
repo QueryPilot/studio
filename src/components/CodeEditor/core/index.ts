@@ -10,3 +10,5 @@ export type {
   MetadataProvider,
   EditorContextAnalysis,
 } from "./types";
+
+export { getQueryAtCursor, getQueryAtCursorFromState } from "./query-utils";
