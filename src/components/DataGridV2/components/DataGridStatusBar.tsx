@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { cn } from "@/lib/utils";
-import { IconLoader2, IconEye } from '@tabler/icons-react';
+import { IconLoader2, IconEye } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -68,14 +68,14 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
     // Only show estimated total if there's actually more to load
     // When filtered, estimatedTotal may be wrong (unfiltered count), so check hasMore
     if (estimatedTotal && estimatedTotal > loadedRows && hasMore) {
-      return `${loadedRows.toLocaleString()} / ${estimatedTotal.toLocaleString()} rows`;
+      return `${loadedRows} / ${estimatedTotal} rows`;
     }
 
     if (hasMore) {
-      return `${loadedRows.toLocaleString()} rows (loading more...)`;
+      return `${loadedRows} rows (loading more...)`;
     }
 
-    return `${loadedRows.toLocaleString()} rows`;
+    return `${loadedRows} rows`;
   };
 
   const getProgressPercentage = () => {
@@ -112,8 +112,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
           >
             <div className="flex items-center gap-1.5">
               <span className="text-primary font-medium">
-                {selectedRows.toLocaleString()}{" "}
-                {selectedRows !== 1 ? "rows" : "row"} selected
+                {selectedRows} {selectedRows !== 1 ? "rows" : "row"} selected
               </span>
               {onViewDetails && (
                 <Tooltip>
