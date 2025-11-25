@@ -203,15 +203,16 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const [showDetailsSheet, setShowDetailsSheet] = useState(false);
 
   // Get initial filter and panel ID from props (table mode only)
-  const initialFilter = props.mode === "table" ? props.initialFilter : undefined;
+  const initialFilter =
+    props.mode === "table" ? props.initialFilter : undefined;
   const panelId = props.mode === "table" ? props.panelId : undefined;
 
   // Quick filter state - initialize with initialFilter if provided
   const [quickFilterValue, setQuickFilterValue] = useState(() =>
-    initialFilter ? `?${initialFilter}` : ""
+    initialFilter ? `?${initialFilter}` : "",
   );
   const [quickFilterMode, setQuickFilterMode] = useState<FilterMode>(() =>
-    initialFilter ? "where" : "search"
+    initialFilter ? "where" : "search",
   );
   const [quickFilterError, setQuickFilterError] = useState<string | null>(null);
   const [aiExplanation, setAiExplanation] = useState<string | null>(null);
@@ -322,7 +323,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     schema: isTableMode ? props.schema : undefined,
     options: {
       includeIndexes: false,
-      includeConstraints: true,  // Required for FK data
+      includeConstraints: true, // Required for FK data
       includeTriggers: false,
       includeStatistics: false,
       includeForeignKeys: true,
@@ -650,7 +651,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   } = isTableMode
     ? {
         // Show loading state when fetching initial data (status pending or fetching without any pages yet)
-        isLoading: tableDataQuery.status === "pending" || (tableDataQuery.isFetching && !tableDataQuery.isFetchingNextPage && tableDataQuery.rows.length === 0),
+        isLoading:
+          tableDataQuery.status === "pending" ||
+          (tableDataQuery.isFetching &&
+            !tableDataQuery.isFetchingNextPage &&
+            tableDataQuery.rows.length === 0),
         isLoadingMore: tableDataQuery.isFetchingNextPage,
         error:
           tableDataQuery.error instanceof Error
@@ -709,7 +714,14 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   // Build FK reference map by column name
   const fkReferenceByColumn = useMemo(() => {
-    const map = new Map<string, { referenced_schema: string; referenced_table: string; referenced_column: string }>();
+    const map = new Map<
+      string,
+      {
+        referenced_schema: string;
+        referenced_table: string;
+        referenced_column: string;
+      }
+    >();
 
     if (tableStructure?.foreignKeys) {
       for (const fk of tableStructure.foreignKeys) {
@@ -881,8 +893,10 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
               fk_reference: fkRef ?? undefined,
             } as typeof meta & { fk_reference?: typeof fkRef })
           : fkRef
-            ? ({ ...meta, fk_reference: fkRef } as typeof meta & { fk_reference?: typeof fkRef })
-            : meta;
+          ? ({ ...meta, fk_reference: fkRef } as typeof meta & {
+              fk_reference?: typeof fkRef;
+            })
+          : meta;
         return {
           id,
           field: meta.name,
@@ -902,30 +916,33 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   );
 
   // Batch width persistence - only persist on resize end, not during drag
-  const flushWidths = useCallback((widths: Record<string, number>) => {
-    const state = useGridPreferencesStore.getState();
-    const current = state.preferences[gridId]?.columns.widths ?? {};
-    const changed = Object.keys(widths).some(
-      (key) => current[key] !== widths[key],
-    );
-    if (changed) {
-      // Use requestIdleCallback to defer persistence until browser is idle
-      if (typeof requestIdleCallback !== 'undefined') {
-        requestIdleCallback(() => {
-          upsertGridColumnsState(gridId, (draft) => {
-            draft.widths = widths;
+  const flushWidths = useCallback(
+    (widths: Record<string, number>) => {
+      const state = useGridPreferencesStore.getState();
+      const current = state.preferences[gridId]?.columns.widths ?? {};
+      const changed = Object.keys(widths).some(
+        (key) => current[key] !== widths[key],
+      );
+      if (changed) {
+        // Use requestIdleCallback to defer persistence until browser is idle
+        if (typeof requestIdleCallback !== "undefined") {
+          requestIdleCallback(() => {
+            upsertGridColumnsState(gridId, (draft) => {
+              draft.widths = widths;
+            });
           });
-        });
-      } else {
-        // Fallback for browsers without requestIdleCallback
-        setTimeout(() => {
-          upsertGridColumnsState(gridId, (draft) => {
-            draft.widths = widths;
-          });
-        }, 0);
+        } else {
+          // Fallback for browsers without requestIdleCallback
+          setTimeout(() => {
+            upsertGridColumnsState(gridId, (draft) => {
+              draft.widths = widths;
+            });
+          }, 0);
+        }
       }
-    }
-  }, [gridId]);
+    },
+    [gridId],
+  );
 
   // Get column sizing handlers - widths applied at the end for performance
   const {
@@ -943,26 +960,30 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   // Performance monitoring during resize (development only)
   useEffect(() => {
-    if (process.env.NODE_ENV !== 'development') return;
-    
+    if (process.env.NODE_ENV !== "development") return;
+
     const isResizing = isResizingColumns();
     if (isResizing) {
       perfMonitor.startFPSMonitoring();
-      console.log('🚀 [DataGrid] Started FPS monitoring during column resize');
+      console.log("🚀 [DataGrid] Started FPS monitoring during column resize");
     } else if (!isResizing && perfMonitor) {
       // Small delay to catch final frames
       const timer = setTimeout(() => {
         const metrics = perfMonitor.stopFPSMonitoring();
         if (metrics.totalFrames > 0) {
-          console.log('📊 [DataGrid] Column resize performance:', {
+          console.log("📊 [DataGrid] Column resize performance:", {
             fps: `${metrics.fps} fps`,
             avgFrameTime: `${metrics.avgFrameTime}ms`,
             droppedFrames: `${metrics.droppedFrames}/${metrics.totalFrames}`,
-            efficiency: `${Math.round((1 - metrics.droppedFrames / metrics.totalFrames) * 100)}%`,
+            efficiency: `${Math.round(
+              (1 - metrics.droppedFrames / metrics.totalFrames) * 100,
+            )}%`,
           });
         }
       }, 100);
-      return () => clearTimeout(timer);
+      return () => {
+        clearTimeout(timer);
+      };
     }
   }, [isResizingColumns]);
 
@@ -1034,7 +1055,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   // Apply widths at the END - cache column objects to avoid recreating unchanged ones
   const finalColumnsCache = useRef<Map<string, GridColumnV2>>(new Map());
-  
+
   const finalColumns = useMemo(() => {
     const cache = finalColumnsCache.current;
     const result = baseColumns2.map((column) => {
@@ -1050,7 +1071,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       cache.set(column.id, withWidth);
       return withWidth;
     });
-    
+
     return result;
   }, [baseColumns2, columnWidths]);
 
@@ -1373,13 +1394,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   const rowsRef = useRef(deferredDisplayRows);
   rowsRef.current = deferredDisplayRows;
-  
+
   // Track finalColumns in ref for stable access in getCellContent
   const finalColumnsRef = useRef(finalColumns);
   finalColumnsRef.current = finalColumns;
 
   // Track staged changes for visual indicators (must be after finalColumns)
-  // Skip expensive computation during column resize for performance
   const stagedChanges = useStagedChangesIndicator({
     connectionId,
     database,
@@ -1388,17 +1408,19 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     rows: deferredDisplayRows,
     columns: finalColumns,
   });
-  
+
   // Track staged changes in ref for stable access in getCellContent
   const stagedChangesRef = useRef(stagedChanges);
-  // Only update ref when not resizing to avoid expensive map rebuilds
-  if (!isResizingColumns()) {
-    stagedChangesRef.current = stagedChanges;
-  }
+  stagedChangesRef.current = stagedChanges;
 
   // Cell hover icons for quick actions (copy, FK reference)
   const handleOpenReference = useCallback(
-    (refSchema: string, refTable: string, refColumn: string, value: unknown) => {
+    (
+      refSchema: string,
+      refTable: string,
+      refColumn: string,
+      value: unknown,
+    ) => {
       if (!isTableMode) return;
 
       // Build the WHERE clause filter
@@ -1431,19 +1453,17 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         sourcePanelId: panelId,
       });
     },
-    [isTableMode, connectionId, database, panelId]
+    [isTableMode, connectionId, database, panelId],
   );
 
-  const {
-    onItemHovered: handleItemHovered,
-    drawCell: drawCellWithHoverIcons,
-  } = useCellHoverIcons({
-    columns: finalColumns,
-    rows: deferredDisplayRows,
-    onOpenReference: isTableMode ? handleOpenReference : undefined,
-    enabled: true,
-    containerRef: containerRef,
-  });
+  const { onItemHovered: handleItemHovered, drawCell: drawCellWithHoverIcons } =
+    useCellHoverIcons({
+      columns: finalColumns,
+      rows: deferredDisplayRows,
+      onOpenReference: isTableMode ? handleOpenReference : undefined,
+      enabled: true,
+      containerRef: containerRef,
+    });
 
   // Memoize clipboard callbacks to prevent recreation on every render
   const toTextCallback = useCallback(
@@ -1906,7 +1926,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   // Update ref when isLoadingMore changes
   useEffect(() => {
-    console.log('[InfiniteLoad] isLoadingMore changed:', isLoadingMore);
     loadingMoreRef.current = isLoadingMore;
   }, [isLoadingMore]);
 
@@ -1922,20 +1941,17 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       // Trigger loading when within 100 rows of the end (or immediately if fewer rows)
       const threshold = Math.max(0, rowsRef.current.length - 100);
       const nearEnd = region.y + region.height >= threshold;
-      console.log('[InfiniteLoad] Check:', {
-        visibleEnd: region.y + region.height,
-        threshold,
-        nearEnd,
-        hasNextPage,
-        isLoadingMore,
-        loadingMoreRef: loadingMoreRef.current,
-        hasLoadMore: !!loadMore,
-        totalRows: rowsRef.current.length,
-      });
+
       // Use both state and ref guards to prevent duplicate fetches
-      if (nearEnd && hasNextPage && !isLoadingMore && !loadingMoreRef.current && loadMore) {
+      if (
+        nearEnd &&
+        hasNextPage &&
+        !isLoadingMore &&
+        !loadingMoreRef.current &&
+        loadMore
+      ) {
         loadingMoreRef.current = true; // Set immediately to prevent duplicates
-        console.log('[InfiniteLoad] Triggering loadMore');
+
         void loadMore();
       }
     },
@@ -2172,7 +2188,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     (rowIndex: number) => {
       // Use stable ref during resize for performance
       const changes = stagedChangesRef.current;
-      
+
       // Priority 1: Staged deletions (highest priority - red)
       if (isRowPendingDeletion(changes, rowIndex)) {
         return {
@@ -2424,7 +2440,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         </div>
       );
     }
-    return <DataGridEmptyState />;
+    return <DataGridEmptyState onReload={() => tableDataQuery.refetch()} />;
   }
 
   if ((isLoading || isLoadingMore) && dataRows.length === 0) {

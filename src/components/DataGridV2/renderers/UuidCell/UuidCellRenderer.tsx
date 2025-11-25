@@ -3,6 +3,16 @@ import type { CustomCellRenderer } from "../../types";
 import { UuidCellEditorWithProps } from "./UuidCellEditor";
 import { truncateTextMiddleToWidth } from "../../utils/textUtils";
 import { type UuidCustomCell } from "./types";
+import { 
+  getCachedThemeValues, 
+  MONOSPACE_FONT_FAMILY,
+} from "../../utils/renderCache";
+
+// Pre-cached monospace font for UUIDs
+const MONO_FONT = `400 11px ${MONOSPACE_FONT_FAMILY}`;
+
+// Color for invalid UUID
+const INVALID_UUID_COLOR = "#ef4444";
 
 const UuidCellRenderer: CustomCellRenderer<UuidCustomCell> = {
   isMatch: (cell: CustomCell): cell is UuidCustomCell => {
@@ -15,27 +25,27 @@ const UuidCellRenderer: CustomCellRenderer<UuidCustomCell> = {
   draw: (args, cell) => {
     const { ctx, rect, theme } = args;
     const { value, isValid } = cell.data;
-    const baseFont = `400 11px monospace`;
+    
+    // Use cached theme values
+    const cachedTheme = getCachedThemeValues(theme);
 
     let text: string;
     let color: string;
 
     if (value == null) {
       text = "NULL";
-      color = "rgba(127,127,127,0.7)";
-      const fontFamily =
-        "Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif";
-      ctx.font = `italic ${theme.baseFontStyle} ${fontFamily}`;
+      color = cachedTheme.nullTextColor;
+      ctx.font = cachedTheme.italicFont;
     } else {
       text = value;
 
       // Color code based on validity
       if (isValid === false) {
-        color = "#ef4444"; // red for invalid UUID
+        color = INVALID_UUID_COLOR;
       } else {
-        color = theme.textDark;
+        color = cachedTheme.textDark;
       }
-      ctx.font = baseFont;
+      ctx.font = MONO_FONT;
     }
 
     // Draw the text with left alignment
@@ -43,10 +53,7 @@ const UuidCellRenderer: CustomCellRenderer<UuidCustomCell> = {
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
 
-    const padding =
-      typeof theme.cellHorizontalPadding === "number"
-        ? theme.cellHorizontalPadding
-        : 8;
+    const padding = cachedTheme.cellHorizontalPadding;
 
     const availableWidth = rect.width - padding * 2;
     const displayText =

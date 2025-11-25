@@ -1,8 +1,18 @@
 import { type CustomCell } from "@glideapps/glide-data-grid";
 import type { CustomCellRenderer } from "../../types";
-import { JsonCellEditorWithProps } from "./JSONCellEditor";
+import { LazyJsonCellEditorWithProps } from "../hooks/lazyEditors";
 import { truncateTextToWidth } from "../../utils/textUtils";
 import { type JsonCustomCell } from "./types";
+import { 
+  getCachedThemeValues, 
+  MONOSPACE_FONT_FAMILY,
+} from "../../utils/renderCache";
+
+// Pre-cached monospace font for JSON
+const MONO_FONT = `400 11px ${MONOSPACE_FONT_FAMILY}`;
+
+// Color for invalid JSON
+const INVALID_JSON_COLOR = "#ef4444";
 
 const JSONCellRenderer: CustomCellRenderer<JsonCustomCell> = {
   isMatch: (cell: CustomCell): cell is JsonCustomCell => {
@@ -15,17 +25,17 @@ const JSONCellRenderer: CustomCellRenderer<JsonCustomCell> = {
   draw: (args, cell) => {
     const { ctx, rect, theme } = args;
     const { value, isValid } = cell.data;
-    const fontFamily =
-      "Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif";
-    const baseFont = `400 11px monospace`;
+    
+    // Use cached theme values
+    const cachedTheme = getCachedThemeValues(theme);
 
     let text: string;
     let color: string;
 
     if (value == null) {
       text = "NULL";
-      color = "rgba(127,127,127,0.7)";
-      ctx.font = `italic ${theme.baseFontStyle} ${fontFamily}`;
+      color = cachedTheme.nullTextColor;
+      ctx.font = cachedTheme.italicFont;
     } else {
       // Show minified/compact JSON
       try {
@@ -39,11 +49,11 @@ const JSONCellRenderer: CustomCellRenderer<JsonCustomCell> = {
 
       // Color code based on validity
       if (isValid === false) {
-        color = "#ef4444"; // red for invalid JSON
+        color = INVALID_JSON_COLOR;
       } else {
-        color = theme.textDark;
+        color = cachedTheme.textDark;
       }
-      ctx.font = baseFont;
+      ctx.font = MONO_FONT;
     }
 
     // Draw the text with left alignment
@@ -51,10 +61,7 @@ const JSONCellRenderer: CustomCellRenderer<JsonCustomCell> = {
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
 
-    const padding =
-      typeof theme.cellHorizontalPadding === "number"
-        ? theme.cellHorizontalPadding
-        : 8;
+    const padding = cachedTheme.cellHorizontalPadding;
     const maxWidth = Math.max(0, rect.width - padding * 2);
     const displayText =
       value == null ? "NULL" : truncateTextToWidth(text, maxWidth, ctx.font);
@@ -71,7 +78,7 @@ const JSONCellRenderer: CustomCellRenderer<JsonCustomCell> = {
       return undefined;
     }
     return {
-      editor: JsonCellEditorWithProps,
+      editor: LazyJsonCellEditorWithProps,
       disablePadding: true,
       disableStyling: false,
     };

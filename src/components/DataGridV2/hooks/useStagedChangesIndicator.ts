@@ -3,7 +3,7 @@ import { useCrudStore } from "@/stores/crudStore";
 import type { CrudCommand } from "@/types/crud";
 import type { GridRowModel, GridColumnV2 } from "../types";
 
-interface StagedChangesMap {
+export interface StagedChangesMap {
   /** Map of row index → set of changed column fields */
   rowChanges: Map<number, Set<string>>;
   /** Set of row indexes that are pending INSERT */
@@ -11,6 +11,13 @@ interface StagedChangesMap {
   /** Set of row indexes that are pending DELETE */
   deletedRows: Set<number>;
 }
+
+// Empty/default result to avoid allocations when disabled
+const EMPTY_RESULT: StagedChangesMap = {
+  rowChanges: new Map(),
+  insertedRows: new Set(),
+  deletedRows: new Set(),
+};
 
 interface UseStagedChangesIndicatorOptions {
   connectionId: string;
@@ -26,6 +33,10 @@ interface UseStagedChangesIndicatorOptions {
  *
  * Returns a map of row indexes to changed column fields for efficient lookups
  * during grid rendering.
+ * 
+ * Performance optimizations:
+ * - Caches PK map separately to avoid full rebuilds
+ * - Early exit when no staged commands
  */
 export function useStagedChangesIndicator(
   options: UseStagedChangesIndicatorOptions,
@@ -42,21 +53,36 @@ export function useStagedChangesIndicator(
 
   const commands = stagedCommands.get(tableKey) ?? [];
 
+  // Memoize PK column list to avoid recomputation
+  const pkColumns = useMemo(() => {
+    return columns.filter((col) => col.meta?.is_pk);
+  }, [columns]);
+
   // Memoize PK map separately to avoid rebuilding on every render
   const pkToRowIndex = useMemo(() => {
+    // Skip computation when no commands
+    if (commands.length === 0) {
+      return new Map<string, number>();
+    }
+
     const map = new Map<string, number>();
     rows.forEach((row, index) => {
       // Create a stable PK key from the row using column metadata
-      const pkKey = createPrimaryKeyString(row, columns);
+      const pkKey = createPrimaryKeyStringFast(row, pkColumns);
       if (pkKey) {
         map.set(pkKey, index);
       }
     });
     return map;
-  }, [rows, columns]);
+  }, [rows, pkColumns, commands.length]);
 
-  return useMemo(() => {
-    const result: StagedChangesMap = {
+  const result = useMemo(() => {
+    // Early exit when no commands
+    if (commands.length === 0) {
+      return EMPTY_RESULT;
+    }
+
+    const newResult: StagedChangesMap = {
       rowChanges: new Map(),
       insertedRows: new Set(),
       deletedRows: new Set(),
@@ -74,22 +100,19 @@ export function useStagedChangesIndicator(
           const pkKey = createPrimaryKeyStringFromRecord(payload.primaryKeys);
           const rowIndex = pkToRowIndex.get(pkKey);
           if (rowIndex !== undefined) {
-            if (!result.rowChanges.has(rowIndex)) {
-              result.rowChanges.set(rowIndex, new Set());
+            let rowChangeSet = newResult.rowChanges.get(rowIndex);
+            if (!rowChangeSet) {
+              rowChangeSet = new Set();
+              newResult.rowChanges.set(rowIndex, rowChangeSet);
             }
-            const rowChangeSet = result.rowChanges.get(rowIndex);
-            if (rowChangeSet) {
-              rowChangeSet.add(payload.column);
-            }
+            rowChangeSet.add(payload.column);
           }
           break;
         }
 
         case "data.insert": {
-          // INSERT commands appear as the first N rows in the grid
-          // (they're prepended in the optimistic updates)
-          // So we need to mark row indexes 0..insertCount-1 as inserted
-          break; // We'll handle this after counting all INSERT commands
+          // INSERT commands are handled below after counting
+          break;
         }
 
         case "data.delete": {
@@ -101,7 +124,7 @@ export function useStagedChangesIndicator(
           const pkKey = createPrimaryKeyStringFromRecord(payload.primaryKeys);
           const rowIndex = pkToRowIndex.get(pkKey);
           if (rowIndex !== undefined) {
-            result.deletedRows.add(rowIndex);
+            newResult.deletedRows.add(rowIndex);
           }
           break;
         }
@@ -111,30 +134,30 @@ export function useStagedChangesIndicator(
     // Mark inserted rows by checking for the __insert_temp_id__ metadata field
     // This field is added to all inserted rows in the optimistic update logic
     // and remains even after the user edits the row's primary key
-    const insertCommandCount = commands.filter((cmd) => cmd.type === "data.insert").length;
-    if (insertCommandCount > 0) {
+    const hasInsertCommands = commands.some((cmd) => cmd.type === "data.insert");
+    if (hasInsertCommands) {
       rows.forEach((row, index) => {
         // Check for the hidden __insert_temp_id__ field that marks inserted rows
         if (row["__insert_temp_id__"]) {
-          result.insertedRows.add(index);
+          newResult.insertedRows.add(index);
         }
       });
     }
 
-    return result;
+    return newResult;
   }, [commands, pkToRowIndex, rows]);
+
+  return result;
 }
 
 /**
- * Create a stable string key from a row's primary key values
+ * Create a stable string key from a row's primary key values (optimized version)
+ * Uses pre-filtered PK columns to avoid filtering on every call
  */
-function createPrimaryKeyString(
+function createPrimaryKeyStringFast(
   row: GridRowModel,
-  columns: GridColumnV2[],
+  pkColumns: GridColumnV2[],
 ): string | null {
-  // Find all primary key columns
-  const pkColumns = columns.filter((col) => col.meta?.is_pk);
-
   if (pkColumns.length === 0) {
     // Fallback: use 'id' field if no PK columns found
     const idCell = row["id"];
@@ -149,19 +172,18 @@ function createPrimaryKeyString(
     return null;
   }
 
-  // Build composite PK string from all PK columns (sorted for consistency)
-  const pkValues = pkColumns
-    .map((col) => {
-      const cellValue = row[col.field];
-      if (
-        cellValue &&
-        typeof cellValue === "object" &&
-        "value" in cellValue
-      ) {
-        return String(cellValue.value ?? "null");
-      }
-      return "null";
-    });
+  // Build composite PK string from all PK columns
+  const pkValues = pkColumns.map((col) => {
+    const cellValue = row[col.field];
+    if (
+      cellValue &&
+      typeof cellValue === "object" &&
+      "value" in cellValue
+    ) {
+      return String(cellValue.value ?? "null");
+    }
+    return "null";
+  });
 
   return pkValues.join("|");
 }

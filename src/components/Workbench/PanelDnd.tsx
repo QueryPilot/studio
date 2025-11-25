@@ -1,8 +1,23 @@
-import React, { useCallback, useEffect, useRef } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useMemo,
+  useTransition,
+} from "react";
 import { cn } from "@/lib/utils";
 import { type PanelContent, type DropPosition } from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
-import { IconX, IconLayoutGrid, IconLayoutSidebarRight, IconLayoutBottombar, IconLayoutSidebar, IconLayoutNavbar, IconPlus } from '@tabler/icons-react';
+import {
+  IconX,
+  IconLayoutGrid,
+  IconLayoutSidebarRight,
+  IconLayoutBottombar,
+  IconLayoutSidebar,
+  IconLayoutNavbar,
+  IconPlus,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -28,6 +43,69 @@ const EMPTY_PANEL_SHORTCUTS: Array<{ label: string; binding: string }> = [
   { label: "Command palette", binding: "cmd+shift+p" },
   { label: "Split panel", binding: "cmd+\\" },
 ];
+
+// Keep last N tabs mounted for instant switching
+const MAX_MOUNTED_TABS = 3;
+
+/**
+ * Hook to track recently accessed tabs and keep the last N mounted.
+ * Uses React 19's startTransition for non-cached tabs to keep old UI visible
+ * while new content loads.
+ */
+function useRecentTabs(activeTabId: string | null, allTabIds: string[]) {
+  // Track order of recently accessed tabs (most recent first)
+  const [recentOrder, setRecentOrder] = useState<string[]>(() =>
+    activeTabId ? [activeTabId] : [],
+  );
+
+  // React 19 transition - keeps old UI visible while new tab loads
+  const [isPending, startTransition] = useTransition();
+
+  // Use ref to check cache status without triggering re-renders
+  const recentOrderRef = useRef(recentOrder);
+  recentOrderRef.current = recentOrder;
+
+  // Update recent order when active tab changes
+  useEffect(() => {
+    if (!activeTabId) return;
+
+    // Check if tab is already in cache using ref (avoids dependency loop)
+    const isAlreadyCached = recentOrderRef.current.includes(activeTabId);
+
+    const updateOrder = () => {
+      setRecentOrder((prev) => {
+        // Skip if already at front
+        if (prev[0] === activeTabId) return prev;
+        // Remove from current position and add to front
+        const filtered = prev.filter((id) => id !== activeTabId);
+        return [activeTabId, ...filtered].slice(0, MAX_MOUNTED_TABS);
+      });
+    };
+
+    if (isAlreadyCached) {
+      // Cached tab - update immediately for instant switch
+      updateOrder();
+    } else {
+      // Non-cached tab - use transition to keep old UI visible while loading
+      startTransition(updateOrder);
+    }
+  }, [activeTabId]); // Only depend on activeTabId
+
+  // Clean up tabs that no longer exist
+  useEffect(() => {
+    const validTabIds = new Set(allTabIds);
+    setRecentOrder((prev) => {
+      const filtered = prev.filter((id) => validTabIds.has(id));
+      // Only update if something was removed
+      return filtered.length === prev.length ? prev : filtered;
+    });
+  }, [allTabIds]);
+
+  // Return set of tabs that should remain mounted + pending state
+  const mountedTabs = useMemo(() => new Set(recentOrder), [recentOrder]);
+
+  return { mountedTabs, isPending };
+}
 
 function ShortcutKeys({
   binding,
@@ -148,24 +226,21 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
 
   const isFocused = focusedPanelId === content.id;
 
-  // CRITICAL FIX: Set DOM focus when logical focus changes
-  // This ensures keyboard shortcuts target the correct panel
+  // Track recently accessed tabs - keeps last N tabs mounted for instant switching
+  // isPending is true while a non-cached tab is loading (React 19 transition)
+  const { mountedTabs, isPending } = useRecentTabs(
+    content.activeTabId,
+    content.tabIds,
+  );
+
+  // Focus the panel itself when it becomes logically focused
+  // Note: We intentionally don't focus the inner grid content to avoid
+  // triggering auto-selection of the first cell. The user should click
+  // on the grid to focus it and select a specific cell.
   useEffect(() => {
     if (isFocused && panelRef.current) {
-      // Use requestAnimationFrame to ensure DOM is updated
-      requestAnimationFrame(() => {
-        // Look for the focusable content wrapper (tabIndex=-1 means programmatically focusable)
-        // TableDataGridV2 wrapper has: tabIndex={-1} className="flex h-full flex-col outline-none"
-        const focusableWrapper = panelRef.current?.querySelector<HTMLElement>(
-          '.panel-body [tabindex="-1"]',
-        );
-        if (focusableWrapper) {
-          focusableWrapper.focus({ preventScroll: true });
-        } else {
-          // Fallback: focus the panel itself
-          panelRef.current?.focus({ preventScroll: true });
-        }
-      });
+      // Only focus the panel container, not the inner content
+      panelRef.current.focus({ preventScroll: true });
     }
   }, [isFocused]);
 
@@ -385,27 +460,38 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
       </div>
 
       <div className="panel-body flex-1 overflow-hidden relative">
-        {/* Render ALL tab contents - keep them mounted to preserve state */}
-        {content.tabIds.map((tabId) => {
-          const isActive = content.activeTabId === tabId;
-          const metadata = content.metadata?.[tabId];
+        {/* Subtle loading indicator when switching to non-cached tab */}
+        {isPending && (
+          <div className="absolute top-0 left-0 right-0 h-0.5 z-50 overflow-hidden">
+            <div className="h-full bg-primary/60 animate-pulse" />
+          </div>
+        )}
 
-          return (
-            <div
-              key={tabId}
-              className={cn(
-                "absolute inset-0",
-                isActive ? "block z-10" : "hidden",
-              )}
-            >
-              <PanelContentRenderer
-                panelId={content.id}
-                tabId={tabId}
-                metadata={metadata}
-              />
-            </div>
-          );
-        })}
+        {/* Render recently accessed tabs - keeps last N mounted for instant switching */}
+        {/* Inactive tabs are hidden via CSS but remain mounted to preserve state */}
+        {content.tabIds
+          .filter((tabId) => mountedTabs.has(tabId))
+          .map((tabId) => {
+            const isActive = content.activeTabId === tabId;
+            const metadata = content.metadata?.[tabId];
+            if (!metadata) return null;
+
+            return (
+              <div
+                key={tabId}
+                className={cn(
+                  "absolute inset-0",
+                  isActive ? "visible z-10" : "invisible z-0",
+                )}
+              >
+                <PanelContentRenderer
+                  panelId={content.id}
+                  tabId={tabId}
+                  metadata={metadata}
+                />
+              </div>
+            );
+          })}
 
         {content.tabIds.length === 0 && (
           <div className="flex h-full w-full items-center justify-center p-6">

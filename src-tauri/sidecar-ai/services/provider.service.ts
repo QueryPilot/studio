@@ -1,6 +1,9 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createXai } from "@ai-sdk/xai";
+import { createGateway } from "@ai-sdk/gateway";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { ollama, createOllama } from "ollama-ai-provider";
 import { ConfigService } from "./config.service";
 import { createProviderRegistry } from "ai";
@@ -13,6 +16,11 @@ export class ProviderService {
     }),
     google: createGoogleGenerativeAI({
       apiKey: ConfigService.getApiKey("google"),
+    }),
+    xai: createXai({ apiKey: ConfigService.getApiKey("xai") }),
+    gateway: createGateway({ apiKey: ConfigService.getApiKey("gateway") }),
+    openrouter: createOpenRouter({
+      apiKey: ConfigService.getApiKey("openrouter"),
     }),
     // ollama: createOllama(),
   });
@@ -45,6 +53,30 @@ export class ProviderService {
           );
         }
         return createGoogleGenerativeAI({ apiKey });
+
+      case "xai":
+        if (!apiKey) {
+          throw new Error(
+            `xAI API key not configured. Please set it in Settings.`,
+          );
+        }
+        return createXai({ apiKey });
+
+      case "gateway":
+        if (!apiKey) {
+          throw new Error(
+            `Vercel AI Gateway API key not configured. Please set it in Settings.`,
+          );
+        }
+        return createGateway({ apiKey });
+
+      case "openrouter":
+        if (!apiKey) {
+          throw new Error(
+            `OpenRouter API key not configured. Please set it in Settings.`,
+          );
+        }
+        return createOpenRouter({ apiKey });
 
       // case "ollama":
       //   // Ollama doesn't need an API key (local)

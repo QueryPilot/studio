@@ -24,3 +24,19 @@ export {
 } from "./pasteUtils";
 
 export { perfMonitor } from "./performanceMonitor";
+
+export {
+  DEFAULT_FONT_FAMILY,
+  MONOSPACE_FONT_FAMILY,
+  getCachedFont,
+  getCachedItalicFont,
+  getCachedThemeValues,
+  getCachedTextWidth,
+  setCachedTextWidth,
+  getCachedTruncation,
+  setCachedTruncation,
+  clearAllRenderCaches,
+  getRenderCacheStats,
+} from "./renderCache";
+
+export { truncateTextToWidth, truncateTextMiddleToWidth, preWarmTruncationCache } from "./textUtils";

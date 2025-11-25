@@ -3,6 +3,7 @@ import { EnumCellEditorWithProps } from "./EnumCellEditor";
 
 import type { CustomCellRenderer } from "../../types";
 import { type EnumCustomCell } from "./types";
+import { getCachedThemeValues } from "../../utils/renderCache";
 
 // Renderer for the enum cell
 const EnumCellRenderer: CustomCellRenderer<EnumCustomCell> = {
@@ -16,9 +17,9 @@ const EnumCellRenderer: CustomCellRenderer<EnumCustomCell> = {
   draw: (args, cell) => {
     const { ctx, rect, theme } = args;
     const { value } = cell.data;
-    const fontFamily =
-      "Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif";
-    const baseFont = `${theme.baseFontStyle} ${fontFamily}`;
+    
+    // Use cached theme values
+    const cachedTheme = getCachedThemeValues(theme);
 
     // Determine text and color based on value
     let text: string;
@@ -26,13 +27,12 @@ const EnumCellRenderer: CustomCellRenderer<EnumCustomCell> = {
 
     if (value == null) {
       text = "NULL";
-      // Match NULL styling used by default text cells
-      color = "rgba(127,127,127,0.7)";
-      ctx.font = `italic ${baseFont}`;
+      color = cachedTheme.nullTextColor;
+      ctx.font = cachedTheme.italicFont;
     } else {
       text = value;
-      color = theme.textDark;
-      ctx.font = baseFont; // non-italic
+      color = cachedTheme.textDark;
+      ctx.font = cachedTheme.baseFont;
     }
 
     // Draw the text with left alignment
@@ -40,7 +40,7 @@ const EnumCellRenderer: CustomCellRenderer<EnumCustomCell> = {
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
 
-    const x = rect.x + 8; // Add some padding
+    const x = rect.x + cachedTheme.cellHorizontalPadding;
     const centerY = rect.y + rect.height / 2;
     ctx.fillText(text, x, centerY);
 

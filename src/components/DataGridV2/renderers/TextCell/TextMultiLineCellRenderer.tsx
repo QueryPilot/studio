@@ -3,6 +3,14 @@ import type { CustomCellRenderer } from "../../types";
 import { TextMultiLineCellEditorWithProps } from "./TextMultiLineCellEditor";
 import { truncateTextToWidth } from "../../utils/textUtils";
 import { type TextMultiLineCustomCell } from "./types";
+import { 
+  MONOSPACE_FONT_FAMILY,
+  getCachedThemeValues,
+} from "../../utils/renderCache";
+
+// Pre-cached monospace font
+const MONO_FONT = `400 11px ${MONOSPACE_FONT_FAMILY}`;
+const MONO_FONT_ITALIC = `italic 400 11px ${MONOSPACE_FONT_FAMILY}`;
 
 const TextMultiLineCellRenderer: CustomCellRenderer<TextMultiLineCustomCell> = {
   isMatch: (cell: CustomCell): cell is TextMultiLineCustomCell => {
@@ -15,9 +23,9 @@ const TextMultiLineCellRenderer: CustomCellRenderer<TextMultiLineCustomCell> = {
   draw: (args, cell) => {
     const { ctx, rect, theme } = args;
     const { value, displayValue, showLineBadge } = cell.data;
-    const fontFamily =
-      "Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif";
-    const baseFont = `400 11px monospace`;
+    
+    // Use cached theme values
+    const cachedTheme = getCachedThemeValues(theme);
 
     let text: string;
     let color: string;
@@ -26,8 +34,8 @@ const TextMultiLineCellRenderer: CustomCellRenderer<TextMultiLineCustomCell> = {
 
     if (value == null) {
       text = "NULL";
-      color = "rgba(127,127,127,0.7)";
-      ctx.font = `italic ${baseFont}`;
+      color = cachedTheme.nullTextColor;
+      ctx.font = MONO_FONT_ITALIC;
     } else {
       const lines = value.split("\n");
       lineCount = lines.length;
@@ -42,8 +50,8 @@ const TextMultiLineCellRenderer: CustomCellRenderer<TextMultiLineCustomCell> = {
         text = value;
       }
 
-      color = theme.textDark;
-      ctx.font = baseFont;
+      color = cachedTheme.textDark;
+      ctx.font = MONO_FONT;
     }
 
     // Draw the text with left alignment
@@ -51,10 +59,7 @@ const TextMultiLineCellRenderer: CustomCellRenderer<TextMultiLineCustomCell> = {
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
 
-    const padding =
-      typeof theme.cellHorizontalPadding === "number"
-        ? theme.cellHorizontalPadding
-        : 8;
+    const padding = cachedTheme.cellHorizontalPadding;
 
     // Reserve space for line count badge if needed
     const badgeWidth = showBadge ? 50 : 0;
@@ -72,7 +77,7 @@ const TextMultiLineCellRenderer: CustomCellRenderer<TextMultiLineCustomCell> = {
       const badgeX = rect.x + rect.width - padding - 45;
       const badgeY = centerY;
 
-      ctx.font = `${theme.baseFontStyle} ${fontFamily}`;
+      ctx.font = cachedTheme.baseFont;
       ctx.fillStyle = "rgba(100,100,100,0.5)";
       ctx.textAlign = "right";
       ctx.fillText(badgeText, badgeX + 45, badgeY);

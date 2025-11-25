@@ -2,9 +2,10 @@ import { type CustomCell } from "@glideapps/glide-data-grid";
 import type { CustomCellRenderer } from "../../types";
 import { truncateTextToWidth } from "../../utils/textUtils";
 
-import { DateTimeRangeCellEditorWithProps } from "./DateTimeRangeCellEditor";
+import { LazyDateTimeRangeCellEditorWithProps } from "../hooks/lazyEditors";
 import { buildText } from "./utils";
 import { type TstzRangeCustomCell } from "./types";
+import { getCachedThemeValues } from "../../utils/renderCache";
 
 const DateTimeRangeCellRenderer: CustomCellRenderer<TstzRangeCustomCell> = {
   isMatch: (cell: CustomCell): cell is TstzRangeCustomCell => {
@@ -19,18 +20,15 @@ const DateTimeRangeCellRenderer: CustomCellRenderer<TstzRangeCustomCell> = {
     const text = buildText(cell.data.value);
     const isEmpty = text.length === 0;
 
-    // Match NULL styling used by default text cells and ensure full font family is set
-    const fontFamily =
-      "Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif";
-    const baseFont = `${theme.baseFontStyle} ${fontFamily}`;
-    ctx.fillStyle = isEmpty ? "rgba(127,127,127,0.7)" : theme.textDark;
-    ctx.font = isEmpty ? `italic ${baseFont}` : baseFont; // only NULL italic
+    // Use cached theme values
+    const cachedTheme = getCachedThemeValues(theme);
+    
+    ctx.fillStyle = isEmpty ? cachedTheme.nullTextColor : cachedTheme.textDark;
+    ctx.font = isEmpty ? cachedTheme.italicFont : cachedTheme.baseFont;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    const padding =
-      typeof theme.cellHorizontalPadding === "number"
-        ? theme.cellHorizontalPadding
-        : 8;
+
+    const padding = cachedTheme.cellHorizontalPadding;
     const maxWidth = Math.max(0, rect.width - padding * 2);
     const displayText = isEmpty
       ? "NULL"
@@ -46,7 +44,7 @@ const DateTimeRangeCellRenderer: CustomCellRenderer<TstzRangeCustomCell> = {
       return undefined;
     }
     return {
-      editor: DateTimeRangeCellEditorWithProps,
+      editor: LazyDateTimeRangeCellEditorWithProps,
       disablePadding: true,
       disableStyling: false,
     };

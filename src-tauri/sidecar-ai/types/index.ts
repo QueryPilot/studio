@@ -1,6 +1,6 @@
 export interface ChatRequest {
   messages: Array<any>; // Accept UIMessage[] from AI SDK
-  provider: "openai" | "anthropic" | "google" | "ollama";
+  provider: "openai" | "anthropic" | "google" | "xai" | "gateway" | "openrouter" | "ollama";
   model: string;
   apiKey?: string;
   connectionId?: string;

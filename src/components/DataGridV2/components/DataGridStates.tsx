@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { IconAlertCircle, IconLoader2 } from '@tabler/icons-react';
+import { IconAlertCircle, IconLoader2, IconRefresh } from '@tabler/icons-react';
 import { Button } from "@/components/ui/button";
 import logo from "@/assets/logo.png";
 
@@ -37,13 +37,17 @@ export const DataGridErrorState = memo(function DataGridErrorState({
   );
 });
 
+interface DataGridEmptyStateProps {
+  title?: string;
+  description?: string;
+  onReload?: () => void;
+}
+
 export const DataGridEmptyState = memo(function DataGridEmptyState({
   title = "Empty table",
   description = "No rows found in this table. Start adding data to see it displayed here.",
-}: {
-  title?: string;
-  description?: string;
-}) {
+  onReload,
+}: DataGridEmptyStateProps) {
   return (
     <div className="flex flex-col items-center justify-center h-full p-8">
       <img
@@ -52,9 +56,15 @@ export const DataGridEmptyState = memo(function DataGridEmptyState({
         className="w-20 h-20 mb-4 opacity-40 dark:opacity-30"
       />
       <h3 className="text-lg font-semibold mb-2">{title}</h3>
-      <p className="text-sm text-muted-foreground max-w-md text-center select-text">
+      <p className="text-sm text-muted-foreground max-w-md text-center select-text mb-4">
         {description}
       </p>
+      {onReload && (
+        <Button variant="outline" size="sm" onClick={onReload} className="gap-1.5">
+          <IconRefresh className="h-3.5 w-3.5" />
+          Reload
+        </Button>
+      )}
     </div>
   );
 });

@@ -3,6 +3,7 @@ import type { CustomCellRenderer } from "../../types";
 import { truncateTextToWidth } from "../../utils/textUtils";
 import { NumberCellEditorWithProps } from "./NumberCellEditor";
 import { type NumberCustomCell } from "./types";
+import { getCachedThemeValues } from "../../utils/renderCache";
 
 const NumberCellRenderer: CustomCellRenderer<NumberCustomCell> = {
   isMatch: (cell: CustomCell): cell is NumberCustomCell => {
@@ -17,19 +18,15 @@ const NumberCellRenderer: CustomCellRenderer<NumberCustomCell> = {
     const { value } = cell.data;
     const isNull = value == null;
 
-    const fontFamily =
-      "Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif";
-    const baseFont = `${theme.baseFontStyle} ${fontFamily}`;
+    // Use cached theme values
+    const cachedTheme = getCachedThemeValues(theme);
 
-    ctx.fillStyle = isNull ? "rgba(127,127,127,0.7)" : theme.textDark;
-    ctx.font = isNull ? `italic ${baseFont}` : baseFont;
+    ctx.fillStyle = isNull ? cachedTheme.nullTextColor : cachedTheme.textDark;
+    ctx.font = isNull ? cachedTheme.italicFont : cachedTheme.baseFont;
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
 
-    const padding =
-      typeof theme.cellHorizontalPadding === "number"
-        ? theme.cellHorizontalPadding
-        : 8;
+    const padding = cachedTheme.cellHorizontalPadding;
     const maxWidth = Math.max(0, rect.width - padding * 2);
 
     const displayText = isNull

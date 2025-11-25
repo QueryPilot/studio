@@ -316,7 +316,7 @@ export function DatabaseSidebar({
         return parts[parts.length - 1] || "";
       })
       .filter(Boolean);
-    navigator.clipboard.writeText(names.join("\n"));
+    void navigator.clipboard.writeText(names.join("\n"));
   };
 
   const handleCopyDefinition = () => {
@@ -843,7 +843,7 @@ export function DatabaseSidebar({
                       <>
                         <ActionButton
                           icon={
-                            <IconBolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                            <IconAssembly className="h-3 w-3 text-muted-foreground hover:text-foreground" />
                           }
                           onClick={(e) => {
                             e.stopPropagation();
