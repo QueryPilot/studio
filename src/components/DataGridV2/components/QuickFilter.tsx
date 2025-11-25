@@ -467,20 +467,24 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
     // Clear button handler (Phase 1.4)
     const handleClearClick = useCallback(() => {
       onValueChange("");
-    }, [onValueChange]);
+      // Reset to search mode when clearing
+      if (mode !== "search") {
+        onModeChange("search");
+      }
+    }, [onValueChange, onModeChange, mode]);
 
     // CodeMirror change handler (Phase 1.4)
     const handleEditorChange = useCallback(
       (newValue: string) => {
-        // Detect mode shortcuts and strip the prefix from editor
+        // Detect mode shortcuts and switch mode synchronously
         if (newValue.startsWith("?") && mode !== "where") {
-          onModeChange("where");
           const contentWithoutPrefix = newValue.slice(1);
+          onModeChange("where");
           onValueChange("?" + contentWithoutPrefix);
-          // Update editor to show content without prefix
-          setTimeout(() => {
+          // Synchronously update editor to remove prefix from display
+          requestAnimationFrame(() => {
             const view = editorViewRef.current;
-            if (view) {
+            if (view && view.state.doc.toString() !== contentWithoutPrefix) {
               view.dispatch({
                 changes: {
                   from: 0,
@@ -489,17 +493,17 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
                 },
               });
             }
-          }, 0);
+          });
           return;
         }
         if (newValue.startsWith("#") && mode !== "ai") {
-          onModeChange("ai");
           const contentWithoutPrefix = newValue.slice(1);
+          onModeChange("ai");
           onValueChange("#" + contentWithoutPrefix);
-          // Update editor to show content without prefix
-          setTimeout(() => {
+          // Synchronously update editor to remove prefix from display
+          requestAnimationFrame(() => {
             const view = editorViewRef.current;
-            if (view) {
+            if (view && view.state.doc.toString() !== contentWithoutPrefix) {
               view.dispatch({
                 changes: {
                   from: 0,
@@ -508,17 +512,17 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
                 },
               });
             }
-          }, 0);
+          });
           return;
         }
         if (newValue.startsWith("!") && mode !== "search") {
-          onModeChange("search");
           const contentWithoutPrefix = newValue.slice(1);
+          onModeChange("search");
           onValueChange("!" + contentWithoutPrefix);
-          // Update editor to show content without prefix
-          setTimeout(() => {
+          // Synchronously update editor to remove prefix from display
+          requestAnimationFrame(() => {
             const view = editorViewRef.current;
-            if (view) {
+            if (view && view.state.doc.toString() !== contentWithoutPrefix) {
               view.dispatch({
                 changes: {
                   from: 0,
@@ -527,11 +531,20 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
                 },
               });
             }
-          }, 0);
+          });
           return;
         }
 
-        // Add prefix for AI/WHERE modes if not present
+        // Handle empty value - reset to search mode
+        if (newValue === "") {
+          onValueChange("");
+          if (mode !== "search") {
+            onModeChange("search");
+          }
+          return;
+        }
+
+        // Add prefix for AI/WHERE/SEARCH modes if not present
         if (mode === "ai" && !newValue.startsWith("#")) {
           onValueChange("#" + newValue);
         } else if (mode === "where" && !newValue.startsWith("?")) {
@@ -564,11 +577,11 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
       insertSuggestion(columnName, false);
     }, [insertSuggestion]);
 
-    // Get icon for current mode/prefix
+    // Get icon for current mode (based on mode prop, not value prefix)
     const getModeIcon = () => {
-      if (value.startsWith("?")) return IconCode;
-      if (value.startsWith("#")) return IconSparkles;
-      if (value.startsWith("!")) return IconSearch;
+      if (mode === "where") return IconCode;
+      if (mode === "ai") return IconSparkles;
+      if (mode === "search") return IconSearch;
       return null;
     };
 
