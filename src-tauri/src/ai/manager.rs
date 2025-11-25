@@ -35,7 +35,7 @@ impl AIManager {
         use std::collections::HashMap;
 
         const KEYCHAIN_SERVICE: &str = "dev.querypilot.studio.ai";
-        let providers = ["openai", "anthropic", "google"];
+        let providers = ["openai", "anthropic", "google", "xai", "gateway", "openrouter"];
 
         let mut keys = HashMap::new();
 
@@ -77,7 +77,7 @@ impl AIManager {
         use std::collections::HashMap;
 
         const KEYCHAIN_SERVICE: &str = "dev.querypilot.studio.ai";
-        let providers = ["openai", "anthropic", "google"];
+        let providers = ["openai", "anthropic", "google", "xai", "gateway", "openrouter"];
 
         let mut keys = HashMap::new();
 

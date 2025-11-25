@@ -159,11 +159,11 @@ const DroppableZone: React.FC<DroppableZoneProps> = ({
   if (!isVisible) return null;
 
   const positionStyles: Record<DropPosition, string> = {
-    top: "absolute top-1 left-1 right-1 h-1/3",
-    bottom: "absolute bottom-1 left-1 right-1 h-1/3",
-    left: "absolute top-1 left-1 bottom-1 w-1/3",
-    right: "absolute top-1 right-1 bottom-1 w-1/3",
-    center: "absolute inset-4",
+    top: "absolute top-1 left-1 right-1 h-1/5",
+    bottom: "absolute bottom-1 left-1 right-1 h-1/5",
+    left: "absolute top-1 left-1 bottom-1 w-1/5",
+    right: "absolute top-1 right-1 bottom-1 w-1/5",
+    center: "absolute inset-[20%]",
   };
 
   const labels: Record<DropPosition, string> = {
@@ -221,8 +221,11 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
     (state) => state.dragDropContext.draggedTab !== null,
   );
   const isSourcePanel = draggedTab?.panelId === content.id;
-  // Show drop zones if dragging and either not source panel OR only one panel exists
-  const showDropZones = isDragActive && (!isSourcePanel || panelCount === 1);
+  // Show split zones (top/bottom/left/right) on ALL panels when dragging
+  const showSplitZones = isDragActive;
+  // Show center zone only on non-source panels (dropping on source center is a no-op)
+  // Exception: show center on source if it's the only panel (for consistency)
+  const showCenterZone = isDragActive && (!isSourcePanel || panelCount === 1);
 
   const isFocused = focusedPanelId === content.id;
 
@@ -250,7 +253,8 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
     console.log(`Panel ${content.id} - Drag state:`, {
       isDragActive,
       isSourcePanel,
-      showDropZones,
+      showSplitZones,
+      showCenterZone,
       draggedTab,
       panelCount,
       contentId: content.id,
@@ -258,7 +262,8 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
   }, [
     isDragActive,
     isSourcePanel,
-    showDropZones,
+    showSplitZones,
+    showCenterZone,
     draggedTab,
     panelCount,
     content.id,
@@ -519,27 +524,27 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
         <DroppableZone
           panelId={content.id}
           position="top"
-          isVisible={showDropZones}
+          isVisible={showSplitZones}
         />
         <DroppableZone
           panelId={content.id}
           position="bottom"
-          isVisible={showDropZones}
+          isVisible={showSplitZones}
         />
         <DroppableZone
           panelId={content.id}
           position="left"
-          isVisible={showDropZones}
+          isVisible={showSplitZones}
         />
         <DroppableZone
           panelId={content.id}
           position="right"
-          isVisible={showDropZones}
+          isVisible={showSplitZones}
         />
         <DroppableZone
           panelId={content.id}
           position="center"
-          isVisible={showDropZones}
+          isVisible={showCenterZone}
         />
       </div>
     </div>

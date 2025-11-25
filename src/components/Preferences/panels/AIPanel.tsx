@@ -2,13 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,10 +11,7 @@ import {
   IconCircleCheckFilled,
   IconCircleX,
   IconRefresh,
-  IconSearch,
-  IconX,
   IconExternalLink,
-  IconKey,
   IconRobot,
   IconSparkles,
 } from "@tabler/icons-react";
@@ -29,16 +19,23 @@ import { Badge } from "@/components/ui/badge";
 import {
   getChatProviders,
   getSidecarStatus,
-  searchOpenRouterModels,
   type AIProviderConfig,
-  type OpenRouterModel,
 } from "@/services/aiService";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { useAIChatStore } from "@/stores/aiChatStore";
 
 export default function AIPanel() {
+  // AI Chat Store
+  const {
+    providerDefaultModels,
+    providerEnabledModels,
+    setProviderDefaultModel,
+    getProviderDefaultModel,
+    toggleProviderModel,
+    getProviderEnabledModels,
+  } = useAIChatStore();
+
   // Provider state
   const [providers, setProviders] = useState<AIProviderConfig[]>([]);
   const [configuredProviders, setConfiguredProviders] = useState<string[]>([]);
@@ -50,18 +47,14 @@ export default function AIPanel() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
+  // Default model selection (local state for current provider)
+  const [selectedModel, setSelectedModel] = useState<string>("");
+  const [hoveredModel, setHoveredModel] = useState<string | null>(null);
+
   // Sidecar status
   const [sidecarStatus, setSidecarStatus] = useState<
     "checking" | "online" | "offline"
   >("checking");
-
-  // OpenRouter model search
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<OpenRouterModel[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<OpenRouterModel | null>(
-    null,
-  );
 
   // Load providers from sidecar
   const loadProviders = useCallback(async () => {
@@ -117,25 +110,6 @@ export default function AIPanel() {
     }
   }, []);
 
-  // Search OpenRouter models
-  const handleModelSearch = useCallback(async () => {
-    if (!searchQuery.trim()) {
-      setSearchResults([]);
-      return;
-    }
-
-    setIsSearching(true);
-    try {
-      const result = await searchOpenRouterModels(searchQuery, 20, 0);
-      setSearchResults(result?.models || []);
-    } catch (error) {
-      console.error("Failed to search models:", error);
-      toast.error("Failed to search models");
-    } finally {
-      setIsSearching(false);
-    }
-  }, [searchQuery]);
-
   // Save API key
   const handleSaveApiKey = async () => {
     setIsSaving(true);
@@ -148,15 +122,22 @@ export default function AIPanel() {
       try {
         await invoke("reload_ai_api_keys");
         console.log("✅ API keys reloaded in sidecar");
+
+        // Small delay to ensure sidecar has reloaded
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Refresh configured providers
+        const statusData = await getSidecarStatus();
+        console.log("✅ Status after reload:", statusData);
+        setConfiguredProviders(statusData?.configuredProviders || []);
+
+        // Force re-render by reloading providers
+        await loadProviders();
       } catch (reloadError) {
         console.error("Failed to reload API keys in sidecar:", reloadError);
       }
 
-      // Refresh configured providers
-      const statusData = await getSidecarStatus();
-      setConfiguredProviders(statusData?.configuredProviders || []);
-
-      toast.success(`${selectedProvider} API key saved securely`);
+      toast.success(`${selectedProvider} API key saved and configured`);
     } catch (error) {
       console.error("Failed to save API key:", error);
       toast.error("Failed to save API key");
@@ -175,436 +156,422 @@ export default function AIPanel() {
   useEffect(() => {
     if (selectedProvider) {
       void loadApiKey();
-    }
-  }, [selectedProvider, loadApiKey]);
-
-  // Search on Enter key
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      if (searchQuery) {
-        void handleModelSearch();
+      // Load default model for this provider
+      const defaultModel = getProviderDefaultModel(selectedProvider);
+      if (defaultModel) {
+        setSelectedModel(defaultModel);
+      } else {
+        // If no default, clear selection
+        setSelectedModel("");
       }
-    }, 500);
-
-    return () => clearTimeout(handler);
-  }, [searchQuery, handleModelSearch]);
+    }
+  }, [selectedProvider, loadApiKey, getProviderDefaultModel]);
 
   const currentProviderConfig = providers.find((p) => p.name === selectedProvider);
   const isProviderConfigured = configuredProviders.includes(selectedProvider);
 
   return (
-    <div className="max-w-5xl space-y-6 max-h-[calc(80vh-2rem)] overflow-y-auto -mx-4 px-4">
+    <div className="max-w-7xl">
       {/* Header */}
-      <div className="sticky top-0 bg-background z-10 pb-4 border-b">
+      <div className="sticky top-0 z-10 bg-background pb-3 space-y-3">
         <div className="flex items-center justify-between">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
+            <div className="bg-primary/10 p-1.5 rounded-lg">
               <IconRobot className="h-5 w-5 text-primary" />
-              <h2 className="text-lg font-semibold">AI Assistant Configuration</h2>
             </div>
-            <p className="text-sm text-muted-foreground">
-              Configure AI providers and manage API keys securely
-            </p>
+            <div>
+              <h2 className="text-lg font-semibold">AI Assistant Configuration</h2>
+              <p className="text-xs text-muted-foreground">
+                Configure AI providers and manage API keys securely
+              </p>
+            </div>
           </div>
 
           {/* Sidecar Status */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             {sidecarStatus === "checking" && (
-              <Badge variant="secondary" className="gap-1.5">
-                <IconLoader2 className="h-3 w-3 animate-spin" />
+              <Badge variant="secondary" className="gap-1.5 h-8">
+                <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
                 Checking...
               </Badge>
             )}
             {sidecarStatus === "online" && (
-              <Badge variant="default" className="gap-1.5 bg-green-600">
-                <IconCircleCheckFilled className="h-3 w-3" />
-                AI Sidecar Online
+              <Badge variant="default" className="gap-1.5 h-8 bg-green-600 hover:bg-green-700">
+                <div className="w-2 h-2 bg-white rounded-full" />
+                QP AI Server Online
               </Badge>
             )}
             {sidecarStatus === "offline" && (
-              <Badge variant="destructive" className="gap-1.5">
-                <IconCircleX className="h-3 w-3" />
-                AI Sidecar Offline
+              <Badge variant="destructive" className="gap-1.5 h-8">
+                <IconCircleX className="h-3.5 w-3.5" />
+                QP AI Server Offline
               </Badge>
             )}
             <Button
               variant="outline"
-              size="sm"
+              size="icon"
               onClick={() => {
                 void checkSidecarStatus();
                 void loadProviders();
               }}
               disabled={sidecarStatus === "checking"}
+              className="h-8 w-8"
             >
-              <IconRefresh className="h-3.5 w-3.5" />
+              <IconRefresh className="h-4 w-4" />
             </Button>
           </div>
         </div>
+
+        <Separator />
       </div>
 
       {loadingProviders ? (
-        <div className="flex items-center justify-center py-12">
+        <div className="flex items-center justify-center py-12 mt-4">
           <div className="flex items-center gap-2 text-muted-foreground">
             <IconLoader2 className="h-5 w-5 animate-spin" />
             <span>Loading providers...</span>
           </div>
         </div>
       ) : (
-        <Tabs defaultValue="configure" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="configure">
-              <IconKey className="h-4 w-4 mr-2" />
-              Configure Providers
-            </TabsTrigger>
-            <TabsTrigger value="browse">
-              <IconSparkles className="h-4 w-4 mr-2" />
-              Browse Models
-            </TabsTrigger>
-          </TabsList>
+        <div className="grid grid-cols-12 gap-4 mt-4">
+          {/* Left Column: Provider List */}
+          <div className="col-span-5">
+            <div className="bg-muted/30 rounded-lg p-3 max-h-[calc(100vh-12rem)] overflow-y-auto">
+              <div className="mb-2">
+                <h3 className="text-sm font-semibold">Available Providers</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Select a provider to configure
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                {providers.map((provider) => {
+                  const isConfigured = configuredProviders.includes(provider.name);
+                  const isSelected = selectedProvider === provider.name;
+                  const defaultModelId = getProviderDefaultModel(provider.name);
+                  const defaultModelInfo = defaultModelId
+                    ? provider.models.find((m) => m.id === defaultModelId)
+                    : null;
+                  const enabledModels = getProviderEnabledModels(provider.name);
+                  const enabledCount = enabledModels.length;
+                  const totalCount = provider.models.length;
 
-          {/* Configure Tab */}
-          <TabsContent value="configure" className="space-y-6">
-            <div className="grid md:grid-cols-2 gap-6">
-              {/* Provider List */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Available Providers</CardTitle>
-                  <CardDescription>
-                    Select a provider to configure
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ScrollArea className="h-[400px] pr-4">
-                    <div className="space-y-2">
-                      {providers.map((provider) => {
-                        const isConfigured = configuredProviders.includes(
-                          provider.name,
-                        );
-                        const isSelected = selectedProvider === provider.name;
-
-                        return (
-                          <button
-                            key={provider.name}
-                            onClick={() => setSelectedProvider(provider.name)}
-                            className={`w-full text-left p-4 rounded-lg border-2 transition-all ${
-                              isSelected
-                                ? "border-primary bg-primary/5"
-                                : "border-border hover:border-primary/50 hover:bg-accent"
-                            }`}
-                          >
-                            <div className="flex items-start justify-between">
-                              <div className="space-y-1 flex-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-medium capitalize">
-                                    {provider.name}
-                                  </span>
-                                  {isConfigured && (
-                                    <IconCircleCheckFilled className="h-4 w-4 text-green-600" />
-                                  )}
-                                </div>
-                                <p className="text-xs text-muted-foreground">
-                                  {provider.models.length} models available
-                                </p>
-                              </div>
-                              {provider.requiresApiKey && (
-                                <Badge
-                                  variant={
-                                    isConfigured ? "default" : "secondary"
-                                  }
-                                  className="text-xs"
-                                >
-                                  {isConfigured ? "Configured" : "API Key Required"}
-                                </Badge>
-                              )}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </ScrollArea>
-                </CardContent>
-              </Card>
-
-              {/* Configuration Panel */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base capitalize">
-                    {selectedProvider || "Select Provider"}
-                  </CardTitle>
-                  <CardDescription>
-                    {currentProviderConfig?.requiresApiKey
-                      ? "Configure API key for this provider"
-                      : "No API key required"}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {currentProviderConfig ? (
-                    <>
-                      {/* Models List */}
-                      <div className="space-y-2">
-                        <Label className="text-xs font-medium text-muted-foreground">
-                          Available Models
-                        </Label>
-                        <ScrollArea className="h-32 rounded-md border p-3">
-                          <div className="space-y-1">
-                            {currentProviderConfig.models.map((model) => (
-                              <div
-                                key={model}
-                                className="text-xs font-mono text-muted-foreground"
-                              >
-                                • {model}
-                              </div>
-                            ))}
-                          </div>
-                        </ScrollArea>
-                      </div>
-
-                      <Separator />
-
-                      {/* API Key Configuration */}
-                      {currentProviderConfig.requiresApiKey && (
-                        <div className="space-y-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="api-key">API Key</Label>
-                            <div className="flex gap-2">
-                              <div className="relative flex-1">
-                                <Input
-                                  id="api-key"
-                                  type={showApiKey ? "text" : "password"}
-                                  value={currentApiKey}
-                                  onChange={(e) =>
-                                    setCurrentApiKey(e.target.value)
-                                  }
-                                  placeholder={`Enter ${selectedProvider} API key`}
-                                  className="pr-10 font-mono text-sm"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => setShowApiKey(!showApiKey)}
-                                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                                >
-                                  {showApiKey ? (
-                                    <IconEyeOff className="h-4 w-4" />
-                                  ) : (
-                                    <IconEye className="h-4 w-4" />
-                                  )}
-                                </button>
-                              </div>
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                              Stored securely in system keychain
-                            </p>
-                          </div>
-
-                          <Button
-                            onClick={handleSaveApiKey}
-                            disabled={isSaving || !currentApiKey.trim()}
-                            className="w-full"
-                          >
-                            {isSaving && (
-                              <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
+                  return (
+                    <button
+                      key={provider.name}
+                      onClick={() => setSelectedProvider(provider.name)}
+                      className={`w-full text-left p-2.5 rounded-md transition-all ${
+                        isSelected
+                          ? "bg-primary/10"
+                          : "hover:bg-accent/50"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="space-y-0.5 flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <h3 className="font-semibold capitalize text-xs">
+                              {provider.name}
+                            </h3>
+                            {isConfigured && (
+                              <IconCircleCheckFilled className="h-3 w-3 text-green-600" />
                             )}
-                            Save API Key
-                          </Button>
-
-                          {isProviderConfigured && (
-                            <div className="flex items-center gap-2 text-xs text-green-600">
-                              <IconCircleCheckFilled className="h-4 w-4" />
-                              <span>Provider configured successfully</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {enabledCount > 0
+                              ? `${enabledCount}/${totalCount} models enabled`
+                              : `${totalCount} models available`
+                            }
+                          </p>
+                          {defaultModelInfo && (
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <Badge variant="outline" className="text-[10px] font-mono px-1 py-0 h-3.5">
+                                {defaultModelInfo.name}
+                              </Badge>
                             </div>
                           )}
                         </div>
-                      )}
-
-                      {/* Provider Links */}
-                      <div className="pt-4 space-y-2">
-                        <Label className="text-xs font-medium text-muted-foreground">
-                          Documentation
-                        </Label>
-                        {selectedProvider === "openai" && (
-                          <a
-                            href="https://platform.openai.com/api-keys"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-2 text-xs text-primary hover:underline"
+                        {provider.requiresApiKey && (
+                          <Badge
+                            variant={isConfigured ? "default" : "secondary"}
+                            className="text-[10px] shrink-0"
                           >
-                            Get OpenAI API Key
-                            <IconExternalLink className="h-3 w-3" />
-                          </a>
-                        )}
-                        {selectedProvider === "anthropic" && (
-                          <a
-                            href="https://console.anthropic.com/settings/keys"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-2 text-xs text-primary hover:underline"
-                          >
-                            Get Anthropic API Key
-                            <IconExternalLink className="h-3 w-3" />
-                          </a>
-                        )}
-                        {selectedProvider === "google" && (
-                          <a
-                            href="https://aistudio.google.com/app/apikey"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-2 text-xs text-primary hover:underline"
-                          >
-                            Get Google AI API Key
-                            <IconExternalLink className="h-3 w-3" />
-                          </a>
-                        )}
-                        {selectedProvider === "xai" && (
-                          <a
-                            href="https://console.x.ai"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-2 text-xs text-primary hover:underline"
-                          >
-                            Get xAI API Key
-                            <IconExternalLink className="h-3 w-3" />
-                          </a>
-                        )}
-                        {selectedProvider === "gateway" && (
-                          <a
-                            href="https://vercel.com/docs/ai-gateway"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-2 text-xs text-primary hover:underline"
-                          >
-                            Get Vercel AI Gateway Key
-                            <IconExternalLink className="h-3 w-3" />
-                          </a>
-                        )}
-                        {selectedProvider === "openrouter" && (
-                          <a
-                            href="https://openrouter.ai/keys"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-2 text-xs text-primary hover:underline"
-                          >
-                            Get OpenRouter API Key
-                            <IconExternalLink className="h-3 w-3" />
-                          </a>
+                            {isConfigured ? "Configured" : "API Key Required"}
+                          </Badge>
                         )}
                       </div>
-                    </>
-                  ) : (
-                    <div className="py-12 text-center text-muted-foreground text-sm">
-                      Select a provider to configure
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="sticky bottom-0 bg-muted/30 pt-2 -mx-3 px-3 pb-3 -mb-3">
+                <Separator className="mb-2" />
+                <Button
+                  variant="outline"
+                  className="w-full border-dashed text-xs h-8"
+                  disabled
+                >
+                  <IconSparkles className="h-3.5 w-3.5 mr-2" />
+                  Add Custom Provider
+                </Button>
+              </div>
             </div>
-          </TabsContent>
+          </div>
 
-          {/* Browse Models Tab */}
-          <TabsContent value="browse" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  Browse OpenRouter Models
-                </CardTitle>
-                <CardDescription>
-                  Search and explore 200+ AI models from OpenRouter
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Search Bar */}
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search models (e.g., claude, gpt, llama)..."
-                      className="pl-10 pr-10"
-                    />
-                    {searchQuery && (
-                      <button
-                        onClick={() => {
-                          setSearchQuery("");
-                          setSearchResults([]);
-                        }}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                      >
-                        <IconX className="h-4 w-4" />
-                      </button>
-                    )}
-                  </div>
-                  <Button
-                    onClick={handleModelSearch}
-                    disabled={isSearching || !searchQuery.trim()}
-                  >
-                    {isSearching ? (
-                      <IconLoader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <IconSearch className="h-4 w-4" />
-                    )}
-                  </Button>
-                </div>
+          {/* Right Column: Configuration Panel */}
+          <div className="col-span-7">
+            <div className="max-h-[calc(100vh-12rem)] overflow-y-auto">
+              <div className="mb-2">
+                <h3 className="text-sm font-semibold capitalize">
+                  {selectedProvider || "Select Provider"}
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {currentProviderConfig?.requiresApiKey
+                    ? "Configure API key for this provider"
+                    : "No API key required"}
+                </p>
+              </div>
+              <div className="space-y-3">
+                {currentProviderConfig ? (
+                  <>
+                    {/* Models List */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium">Available Models</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Select models to enable (checked models will appear in model selector)
+                      </p>
+                      <div className="bg-accent/50 rounded-lg p-3 max-h-56 overflow-y-auto">
+                        <div className="space-y-1.5">
+                          {currentProviderConfig.models.map((modelInfo) => {
+                            const enabledModels = getProviderEnabledModels(selectedProvider);
+                            const isEnabled = enabledModels.includes(modelInfo.id);
+                            const isDefault = selectedModel === modelInfo.id;
 
-                {/* Results */}
-                {searchResults.length > 0 ? (
-                  <ScrollArea className="h-[500px] pr-4">
-                    <div className="space-y-3">
-                      {searchResults.map((model) => (
-                        <button
-                          key={model.id}
-                          onClick={() => setSelectedModel(model)}
-                          className={`w-full text-left p-4 rounded-lg border-2 transition-all ${
-                            selectedModel?.id === model.id
-                              ? "border-primary bg-primary/5"
-                              : "border-border hover:border-primary/50 hover:bg-accent"
-                          }`}
-                        >
-                          <div className="space-y-2">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="space-y-1 flex-1 min-w-0">
-                                <div className="font-medium text-sm truncate">
-                                  {model.name}
-                                </div>
-                                <div className="text-xs font-mono text-muted-foreground">
-                                  {model.id}
-                                </div>
+                            return (
+                              <div
+                                key={modelInfo.id}
+                                className="group relative"
+                                onMouseEnter={() => setHoveredModel(modelInfo.id)}
+                                onMouseLeave={() => setHoveredModel(null)}
+                              >
+                                <button
+                                  onClick={() => {
+                                    toggleProviderModel(selectedProvider, modelInfo.id);
+                                    toast.success(
+                                      isEnabled
+                                        ? `${modelInfo.name} disabled`
+                                        : `${modelInfo.name} enabled`
+                                    );
+                                  }}
+                                  className={`w-full text-left px-2.5 py-1.5 rounded-md transition-colors ${
+                                    isDefault
+                                      ? "bg-primary/20 text-primary"
+                                      : isEnabled
+                                      ? "bg-accent/50"
+                                      : "hover:bg-accent/30 text-muted-foreground"
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2.5">
+                                    {/* Checkbox */}
+                                    <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0 ${
+                                      isEnabled
+                                        ? "border-primary bg-primary"
+                                        : "border-muted-foreground"
+                                    }`}>
+                                      {isEnabled && (
+                                        <IconCircleCheckFilled className="h-2.5 w-2.5 text-white" />
+                                      )}
+                                    </div>
+
+                                    {/* Model Info */}
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className={`text-xs font-mono ${
+                                          isDefault ? "font-semibold" : ""
+                                        }`}>
+                                          {modelInfo.name}
+                                        </span>
+                                        {isDefault && (
+                                          <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">
+                                            Default
+                                          </Badge>
+                                        )}
+                                      </div>
+
+                                      {/* Context Window and Pricing */}
+                                      <div className="flex items-center gap-2 mt-0.5">
+                                        {modelInfo.contextWindow && (
+                                          <span className="text-[10px] text-muted-foreground">
+                                            {(modelInfo.contextWindow / 1000).toLocaleString()}K ctx
+                                          </span>
+                                        )}
+                                        {modelInfo.pricing && (
+                                          <span className="text-[10px] text-muted-foreground">
+                                            ${modelInfo.pricing.input}/${modelInfo.pricing.output} per 1M
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </button>
+
+                                {/* Set as Default button on hover (only for enabled models) */}
+                                {hoveredModel === modelInfo.id && isEnabled && !isDefault && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedModel(modelInfo.id);
+                                      setProviderDefaultModel(selectedProvider, modelInfo.id);
+                                      toast.success(`${modelInfo.name} set as default`);
+                                    }}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 h-6 text-[10px] px-2"
+                                  >
+                                    Set as Default
+                                  </Button>
+                                )}
                               </div>
-                              <Badge variant="secondary" className="text-xs shrink-0">
-                                {model.contextLength.toLocaleString()} ctx
-                              </Badge>
-                            </div>
-                            <p className="text-xs text-muted-foreground line-clamp-2">
-                              {model.description}
-                            </p>
-                            <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                              <span>
-                                In: ${model.pricing.prompt.toFixed(6)}/1k
-                              </span>
-                              <span>
-                                Out: ${model.pricing.completion.toFixed(6)}/1k
-                              </span>
-                              <Badge variant="outline" className="text-xs">
-                                {model.modality}
-                              </Badge>
-                            </div>
-                          </div>
-                        </button>
-                      ))}
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
-                  </ScrollArea>
-                ) : searchQuery && !isSearching ? (
-                  <div className="py-12 text-center text-muted-foreground text-sm">
-                    No models found for "{searchQuery}"
-                  </div>
+
+                    <Separator />
+
+                    {/* API Key Configuration */}
+                    {currentProviderConfig.requiresApiKey && (
+                      <div className="space-y-3">
+                        <div className="space-y-1.5">
+                          <Label htmlFor="api-key" className="text-xs font-medium">
+                            API Key
+                          </Label>
+                          <div className="relative">
+                            <Input
+                              id="api-key"
+                              type={showApiKey ? "text" : "password"}
+                              value={currentApiKey}
+                              onChange={(e) => setCurrentApiKey(e.target.value)}
+                              placeholder={`Enter ${selectedProvider} API key`}
+                              className="pr-10 font-mono text-xs h-9"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowApiKey(!showApiKey)}
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                            >
+                              {showApiKey ? (
+                                <IconEyeOff className="h-3.5 w-3.5" />
+                              ) : (
+                                <IconEye className="h-3.5 w-3.5" />
+                              )}
+                            </button>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Stored securely in system keychain
+                          </p>
+                        </div>
+
+                        <Button
+                          onClick={handleSaveApiKey}
+                          disabled={isSaving || !currentApiKey.trim()}
+                          className="w-full h-8 text-xs"
+                        >
+                          {isSaving && (
+                            <IconLoader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                          )}
+                          Save API Key
+                        </Button>
+
+                        {isProviderConfigured && (
+                          <div className="flex items-center gap-2 text-xs text-green-600">
+                            <IconCircleCheckFilled className="h-3.5 w-3.5" />
+                            <span>Provider configured successfully</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Provider Links */}
+                    <div className="space-y-1.5">
+                      <h4 className="text-xs font-medium">Documentation</h4>
+                      {selectedProvider === "openai" && (
+                        <a
+                          href="https://platform.openai.com/api-keys"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+                        >
+                          Get OpenAI API Key
+                          <IconExternalLink className="h-3 w-3" />
+                        </a>
+                      )}
+                      {selectedProvider === "anthropic" && (
+                        <a
+                          href="https://console.anthropic.com/settings/keys"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+                        >
+                          Get Anthropic API Key
+                          <IconExternalLink className="h-3 w-3" />
+                        </a>
+                      )}
+                      {selectedProvider === "google" && (
+                        <a
+                          href="https://aistudio.google.com/app/apikey"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+                        >
+                          Get Google AI API Key
+                          <IconExternalLink className="h-3 w-3" />
+                        </a>
+                      )}
+                      {selectedProvider === "xai" && (
+                        <a
+                          href="https://console.x.ai"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+                        >
+                          Get xAI API Key
+                          <IconExternalLink className="h-3 w-3" />
+                        </a>
+                      )}
+                      {selectedProvider === "gateway" && (
+                        <a
+                          href="https://vercel.com/docs/ai-gateway"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+                        >
+                          Get Vercel AI Gateway Key
+                          <IconExternalLink className="h-3 w-3" />
+                        </a>
+                      )}
+                      {selectedProvider === "openrouter" && (
+                        <a
+                          href="https://openrouter.ai/keys"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+                        >
+                          Get OpenRouter API Key
+                          <IconExternalLink className="h-3 w-3" />
+                        </a>
+                      )}
+                    </div>
+                  </>
                 ) : (
                   <div className="py-12 text-center text-muted-foreground text-sm">
-                    Enter a search query to browse models
+                    Select a provider to configure
                   </div>
                 )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

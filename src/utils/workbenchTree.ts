@@ -7,13 +7,12 @@ import type {
 } from "@/types/workbench";
 
 export const CONSTRAINTS: WorkbenchConstraints = {
-  MAX_COLUMNS: 2, // Maximum 2 columns
-  MAX_ROWS: 2, // Maximum 2 rows
+  MAX_COLUMNS: 99, // No practical limit
+  MAX_ROWS: 99, // No practical limit
   MIN_PANEL_WIDTH: 200,
   MIN_PANEL_HEIGHT: 150,
   MIN_SPLIT_RATIO: 0.1,
   MAX_SPLIT_RATIO: 0.9,
-  // Tree depth removed - using row/column constraints instead
 };
 
 export function generateId(): string {

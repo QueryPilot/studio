@@ -32,6 +32,14 @@ import { cn } from "@/lib/cn";
 import { type DateTimeCustomCell } from "./types";
 import { parseDateTime } from "./utils";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
+import dayjs from "dayjs";
+
+// Normalize datetime strings for comparison (handles timezone differences)
+const normalizeDateTimeForComparison = (value: string | null): number | null => {
+  if (!value) return null;
+  const parsed = dayjs(value);
+  return parsed.isValid() ? parsed.valueOf() : null;
+};
 
 // Time Picker Component (following shadcn pattern)
 interface TimePickerProps {
@@ -113,7 +121,8 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
   const [open, setOpen] = useState(false);
   const [timeCollapsed, setTimeCollapsed] = useState(false);
   const [manualText, setManualText] = useState<string>(raw ?? "");
-  const [manualDirty, setManualDirty] = useState(false);
+  // Start dirty to preserve original format - only sync when picker is explicitly used
+  const [manualDirty, setManualDirty] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const buildDateTimeString = useCallback(() => {
@@ -135,8 +144,8 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
       return `${y}-${m}-${d}`;
     }
 
-    // datetime-cell
-    let result = `${y}-${m}-${d} ${hour}:${minute}:${second}`;
+    // datetime-cell - use T separator for ISO format consistency
+    let result = `${y}-${m}-${d}T${hour}:${minute}:${second}`;
     if (millisecond) result += `.${millisecond}`;
     if (selectedTimezone && selectedTimezone !== "none")
       result += selectedTimezone === "Z" ? "Z" : selectedTimezone;
@@ -169,8 +178,10 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
     const trimmed = manualText.trim();
     const currentValue = !trimmed && nullable ? null : trimmed;
 
-    // IconCheck if value actually changed
-    const hasChanged = currentValue !== originalValueRef.current;
+    // Check if value actually changed (normalize to handle timezone differences)
+    const originalNorm = normalizeDateTimeForComparison(originalValueRef.current);
+    const currentNorm = normalizeDateTimeForComparison(currentValue);
+    const hasChanged = originalNorm !== currentNorm;
 
     // If no changes were made, cancel the edit
     if (!hasChanged) {
@@ -242,10 +253,12 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
       finishedRef.current = true;
       setOpen(false);
 
-      // IconCheck if value actually changed
+      // Check if value actually changed (normalize to handle timezone differences)
       const trimmed = manualText.trim();
       const committedValue: string | null = !trimmed && nullable ? null : trimmed;
-      const hasChanged = committedValue !== originalValueRef.current;
+      const originalNorm = normalizeDateTimeForComparison(originalValueRef.current);
+      const currentNorm = normalizeDateTimeForComparison(committedValue);
+      const hasChanged = originalNorm !== currentNorm;
 
       // If no changes, cancel and move
       if (!hasChanged) {
@@ -271,7 +284,7 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
 
   const handleDateSelect = useCallback((date: Date | undefined) => {
     setSelectedDate(date ?? null);
-    setManualDirty(false);
+    setManualDirty(false); // Let sync effect update the text
   }, []);
 
   const handleHourChange = useCallback((next: string) => {
@@ -299,7 +312,7 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
     setManualDirty(false);
   }, []);
 
-  // Sync manual text with picker selections unless user is typing
+  // Sync manual text with picker selections (unless user is typing)
   useEffect(() => {
     if (manualDirty) return;
     const built = buildDateTimeString();
@@ -391,18 +404,16 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
               <IconTrash className="h-3 w-3" />
             </Button>
           )}
+          {/* Hide picker button for time-cell - user can type directly */}
+          {kind !== "time-cell" && (
           <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
               <Button
                 variant="ghost"
                 className="h-6 w-6 p-0 z-50"
-                title={kind === "time-cell" ? "Pick time" : "Pick date/time"}
+                title="Pick date/time"
               >
-                {kind === "time-cell" ? (
-                  <IconClock className="h-3 w-3" />
-                ) : (
-                  <CalendarIcon className="h-3 w-3" />
-                )}
+                <CalendarIcon className="h-3 w-3" />
               </Button>
             </PopoverTrigger>
             <PopoverContent
@@ -606,6 +617,7 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
               </div>
             </PopoverContent>
           </Popover>
+          )}
         </div>
       </div>
     </div>
