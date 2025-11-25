@@ -53,6 +53,7 @@ import {
   upsertGridColumnsState,
   useGridPreferencesStore,
 } from "../stores";
+import { perfMonitor } from "../utils/performanceMonitor";
 import {
   useColumnPinning,
   useColumnSizing,
@@ -900,41 +901,31 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     [baseColumns, columnState.order],
   );
 
-  const widthsTimerRef = useRef<number | undefined>(undefined);
-  const pendingWidthsRef = useRef<Record<string, number> | null>(null);
-
-  const flushWidths = useCallback(() => {
-    if (widthsTimerRef.current) {
-      clearTimeout(widthsTimerRef.current);
-      widthsTimerRef.current = undefined;
-    }
-    if (pendingWidthsRef.current) {
-      const latest = pendingWidthsRef.current;
-      pendingWidthsRef.current = null;
-      const state = useGridPreferencesStore.getState();
-      const current = state.preferences[gridId]?.columns.widths ?? {};
-      const changed = Object.keys(latest).some(
-        (key) => current[key] !== latest[key],
-      );
-      if (changed) {
-        upsertGridColumnsState(gridId, (draft) => {
-          draft.widths = latest;
+  // Batch width persistence - only persist on resize end, not during drag
+  const flushWidths = useCallback((widths: Record<string, number>) => {
+    const state = useGridPreferencesStore.getState();
+    const current = state.preferences[gridId]?.columns.widths ?? {};
+    const changed = Object.keys(widths).some(
+      (key) => current[key] !== widths[key],
+    );
+    if (changed) {
+      // Use requestIdleCallback to defer persistence until browser is idle
+      if (typeof requestIdleCallback !== 'undefined') {
+        requestIdleCallback(() => {
+          upsertGridColumnsState(gridId, (draft) => {
+            draft.widths = widths;
+          });
         });
+      } else {
+        // Fallback for browsers without requestIdleCallback
+        setTimeout(() => {
+          upsertGridColumnsState(gridId, (draft) => {
+            draft.widths = widths;
+          });
+        }, 0);
       }
     }
   }, [gridId]);
-
-  const throttledWidthsChange = useCallback(
-    (widths: Record<string, number>) => {
-      pendingWidthsRef.current = widths;
-      if (widthsTimerRef.current == null) {
-        widthsTimerRef.current = window.setTimeout(() => {
-          flushWidths();
-        }, 120);
-      }
-    },
-    [flushWidths],
-  );
 
   // Get column sizing handlers - widths applied at the end for performance
   const {
@@ -942,11 +933,38 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     columnWidths,
     handleColumnResize,
     handleColumnResizeEnd,
+    isDragging: isResizingColumns,
   } = useColumnSizing({
     columns: reorderedColumns,
     initialWidths: columnState.widths,
-    onChange: throttledWidthsChange,
+    // Don't persist during resize - only on resize end
+    onChange: undefined,
   });
+
+  // Performance monitoring during resize (development only)
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') return;
+    
+    const isResizing = isResizingColumns();
+    if (isResizing) {
+      perfMonitor.startFPSMonitoring();
+      console.log('🚀 [DataGrid] Started FPS monitoring during column resize');
+    } else if (!isResizing && perfMonitor) {
+      // Small delay to catch final frames
+      const timer = setTimeout(() => {
+        const metrics = perfMonitor.stopFPSMonitoring();
+        if (metrics.totalFrames > 0) {
+          console.log('📊 [DataGrid] Column resize performance:', {
+            fps: `${metrics.fps} fps`,
+            avgFrameTime: `${metrics.avgFrameTime}ms`,
+            droppedFrames: `${metrics.droppedFrames}/${metrics.totalFrames}`,
+            efficiency: `${Math.round((1 - metrics.droppedFrames / metrics.totalFrames) * 100)}%`,
+          });
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isResizingColumns]);
 
   const handleColumnVisibilityChange = useCallback(
     (visibility: Record<string, boolean>) => {
@@ -1014,15 +1032,16 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const baseColumns2 =
     computedColumns.length > 0 ? computedColumns : columnsRef.current;
 
-  // Apply widths at the END - only this memo recalculates during resize
+  // Apply widths at the END - cache column objects to avoid recreating unchanged ones
   const finalColumnsCache = useRef<Map<string, GridColumnV2>>(new Map());
+  
   const finalColumns = useMemo(() => {
     const cache = finalColumnsCache.current;
-    return baseColumns2.map((column) => {
+    const result = baseColumns2.map((column) => {
       const width = columnWidths[column.id] ?? column.width;
       const cached = cache.get(column.id);
 
-      // Reuse cached if width unchanged
+      // Reuse cached if width unchanged - this prevents object churn
       if (cached && cached.width === width && cached.id === column.id) {
         return cached;
       }
@@ -1031,6 +1050,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       cache.set(column.id, withWidth);
       return withWidth;
     });
+    
+    return result;
   }, [baseColumns2, columnWidths]);
 
   // Column sorting
@@ -1352,8 +1373,13 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   const rowsRef = useRef(deferredDisplayRows);
   rowsRef.current = deferredDisplayRows;
+  
+  // Track finalColumns in ref for stable access in getCellContent
+  const finalColumnsRef = useRef(finalColumns);
+  finalColumnsRef.current = finalColumns;
 
   // Track staged changes for visual indicators (must be after finalColumns)
+  // Skip expensive computation during column resize for performance
   const stagedChanges = useStagedChangesIndicator({
     connectionId,
     database,
@@ -1362,6 +1388,13 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     rows: deferredDisplayRows,
     columns: finalColumns,
   });
+  
+  // Track staged changes in ref for stable access in getCellContent
+  const stagedChangesRef = useRef(stagedChanges);
+  // Only update ref when not resizing to avoid expensive map rebuilds
+  if (!isResizingColumns()) {
+    stagedChangesRef.current = stagedChanges;
+  }
 
   // Cell hover icons for quick actions (copy, FK reference)
   const handleOpenReference = useCallback(
@@ -2137,8 +2170,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   const getRowThemeOverride = useCallback(
     (rowIndex: number) => {
+      // Use stable ref during resize for performance
+      const changes = stagedChangesRef.current;
+      
       // Priority 1: Staged deletions (highest priority - red)
-      if (isRowPendingDeletion(stagedChanges, rowIndex)) {
+      if (isRowPendingDeletion(changes, rowIndex)) {
         return {
           bgCell: "rgba(239, 68, 68, 0.06)", // red-500 with low opacity
           bgCellMedium: "rgba(239, 68, 68, 0.08)",
@@ -2148,7 +2184,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       }
 
       // Priority 2: Pending insertions (green)
-      if (isRowPendingInsertion(stagedChanges, rowIndex)) {
+      if (isRowPendingInsertion(changes, rowIndex)) {
         return {
           bgCell: "rgba(34, 197, 94, 0.06)", // green-500 with low opacity
           bgCellMedium: "rgba(34, 197, 94, 0.08)",
@@ -2166,7 +2202,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       }
 
       // Priority 4: Staged changes (subtle orange)
-      if (stagedChanges.rowChanges.has(rowIndex)) {
+      if (changes.rowChanges.has(rowIndex)) {
         return {
           bgCell: "rgba(252, 163, 17, 0.04)", // Brand orange with very low opacity
           bgCellMedium: "rgba(252, 163, 17, 0.06)",
@@ -2185,13 +2221,13 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       return undefined;
     },
-    [pinnedRows.length, selectedRowsSet, stagedChanges],
+    [pinnedRows.length, selectedRowsSet],
   );
 
   const getCellContent = useCallback(
     (cell: Item) => {
       const [colIndex, rowIndex] = cell;
-      const column = finalColumns[colIndex];
+      const column = finalColumnsRef.current[colIndex];
       const row = rowsRef.current[rowIndex];
       if (!column || !row) {
         return {
@@ -2217,7 +2253,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       // Apply cell-level styling for staged changes
       const hasPendingChange = hasStagedCellChange(
-        stagedChanges,
+        stagedChangesRef.current,
         rowIndex,
         column.field,
       );
@@ -2262,7 +2298,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
       return finalCell;
     },
-    [finalColumns, stagedChanges],
+    [isQueryMode],
   );
 
   useContextKey("selectionEmpty", !hasSelection, {
@@ -2491,7 +2527,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             <EditableDataGrid
               ref={gridRef}
               containerClassName={cn("h-full", className)}
-              rows={rowsRef.current}
+              rows={deferredDisplayRows}
               columns={finalColumns}
               getCellContent={getCellContent}
               onCellEditStart={handleCellEditStart}
@@ -2507,7 +2543,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
               }}
               onColumnResizeEnd={(column, size) => {
                 handleColumnResizeEnd(column, size);
-                flushWidths();
+                // Persist widths after resize completes
+                flushWidths(columnWidths);
               }}
               onColumnMoved={(start, end) => {
                 if (start === end) return;

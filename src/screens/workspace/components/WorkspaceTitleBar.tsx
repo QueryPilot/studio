@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { IconHome, IconRefresh, IconLock, IconSettings, IconLayoutSidebar, IconCheck, IconDatabase, IconCircle, IconSchema, IconSun, IconMoon, IconDeviceDesktop, IconAlertCircle, IconLoader2, IconRotate, IconRobot, IconArrowBackUp, IconArrowForwardUp, IconGitCommit } from '@tabler/icons-react';
+import { IconHome, IconRefresh, IconLock, IconSettings, IconLayoutSidebar, IconCheck, IconDatabase, IconCircle, IconSitemap, IconSun, IconMoon, IconDeviceDesktop, IconAlertCircle, IconLoader2, IconRotate, IconRobot, IconArrowBackUp, IconArrowForwardUp, IconGitCommit } from '@tabler/icons-react';
 import {
   Popover,
   PopoverContent,
@@ -1093,7 +1093,7 @@ export function WorkspaceTitleBar({
           onClick={handleOpenErd}
           title="Open ERD"
         >
-          <IconSchema className="h-3.5 w-3.5" />
+          <IconSitemap className="h-3.5 w-3.5" />
         </Button>
 
         <Button

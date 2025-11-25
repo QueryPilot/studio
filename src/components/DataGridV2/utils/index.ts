@@ -22,3 +22,5 @@ export {
   type PasteFormat,
   type ParsedPasteData,
 } from "./pasteUtils";
+
+export { perfMonitor } from "./performanceMonitor";

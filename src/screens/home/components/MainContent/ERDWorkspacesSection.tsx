@@ -1,4 +1,4 @@
-import { IconSchema, IconPlus } from '@tabler/icons-react';
+import { IconSitemap, IconPlus } from '@tabler/icons-react';
 import { Button } from '@/components/ui/button';
 
 export function ERDWorkspacesSection() {
@@ -13,7 +13,7 @@ export function ERDWorkspacesSection() {
     <div>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <IconSchema className="h-3.5 w-3.5 text-muted-foreground" />
+          <IconSitemap className="h-3.5 w-3.5 text-muted-foreground" />
           <h2 className="text-xs font-medium text-muted-foreground">
             ERD Workspaces
           </h2>

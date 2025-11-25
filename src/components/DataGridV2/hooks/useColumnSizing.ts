@@ -21,6 +21,7 @@ export interface UseColumnSizingResult {
     measure: () => number | undefined | null,
   ) => void;
   resetColumnWidths: (next?: Record<string, number>) => void;
+  isDragging: () => boolean;
 }
 
 const clampWidth = (
@@ -61,13 +62,11 @@ export function useColumnSizing(
   );
 
   // Track pending resize and drag state - no React state updates during drag for 60fps
-  const pendingResizeRef = useRef<{ columnId: string; width: number } | null>(
-    null,
-  );
+  const pendingResizeRef = useRef<Record<string, number>>({});
   const isDraggingRef = useRef(false);
+  const committedWidthsRef = useRef<Record<string, number>>({});
 
   // Initialize widths on mount, not during render
-
   useEffect(() => {
     if (initialWidths && Object.keys(widthOverrides).length === 0) {
       const sanitized = sanitizeWidths(
@@ -78,6 +77,7 @@ export function useColumnSizing(
       );
       if (Object.keys(sanitized).length > 0) {
         setWidthOverrides(sanitized);
+        committedWidthsRef.current = sanitized;
       }
       // Don't call onChange during initialization to prevent infinite loops
       // onChange will be called when user actually resizes columns
@@ -111,14 +111,17 @@ export function useColumnSizing(
 
   const setColumnWidth = useCallback<UseColumnSizingResult["setColumnWidth"]>(
     (columnId, width) => {
+      const nextWidth = clampWidth(width, minColumnWidth, maxColumnWidth);
+      
+      // Always update state (for Glide animation), but skip onChange during drag
       setWidthOverrides((prev) => {
-        const nextWidth = clampWidth(width, minColumnWidth, maxColumnWidth);
         if (prev[columnId] === nextWidth) return prev;
         const next = {
           ...prev,
           [columnId]: nextWidth,
         };
-        // Only call onChange when not dragging to avoid expensive updates during resize
+        committedWidthsRef.current = next;
+        // Only call onChange when not dragging (for persistence)
         if (!isDraggingRef.current) {
           onChange?.(next);
         }
@@ -128,8 +131,10 @@ export function useColumnSizing(
     [maxColumnWidth, minColumnWidth, onChange],
   );
 
-  // RAF-based resize for 60fps - coalesce multiple events per frame
+  // Throttle state updates to every 2 frames (~30fps) for smooth animation with less overhead
   const resizeRafRef = useRef<number | null>(null);
+  const frameCounterRef = useRef(0);
+  const THROTTLE_FRAMES = 2; // Update every 2 frames = 30fps (still smooth, half the overhead)
 
   const handleColumnResize = useCallback<
     UseColumnSizingResult["handleColumnResize"]
@@ -137,18 +142,28 @@ export function useColumnSizing(
     (column, newSize) => {
       if (!column.id || newSize <= 0 || Number.isNaN(newSize)) return;
       isDraggingRef.current = true;
-      pendingResizeRef.current = { columnId: column.id, width: Math.round(newSize) };
+      
+      // Store pending resize
+      pendingResizeRef.current[column.id] = Math.round(newSize);
 
-      // Coalesce to single RAF per frame for 60fps
-      if (resizeRafRef.current === null) {
-        resizeRafRef.current = requestAnimationFrame(() => {
-          resizeRafRef.current = null;
-          const pending = pendingResizeRef.current;
-          if (pending) {
-            setColumnWidth(pending.columnId, pending.width);
-          }
-        });
+      // Cancel any pending RAF
+      if (resizeRafRef.current !== null) {
+        cancelAnimationFrame(resizeRafRef.current);
       }
+      
+      // Throttle updates to every N frames for smooth animation with less React overhead
+      resizeRafRef.current = requestAnimationFrame(() => {
+        resizeRafRef.current = null;
+        frameCounterRef.current++;
+        
+        // Only update state every THROTTLE_FRAMES frames
+        if (frameCounterRef.current % THROTTLE_FRAMES === 0) {
+          const pending = { ...pendingResizeRef.current };
+          Object.entries(pending).forEach(([columnId, width]) => {
+            setColumnWidth(columnId, width);
+          });
+        }
+      });
     },
     [setColumnWidth],
   );
@@ -159,17 +174,38 @@ export function useColumnSizing(
     (column, newSize) => {
       if (!column.id) return;
       if (newSize <= 0) return;
-      // Cancel pending RAF
+      
+      // Cancel any pending RAF
       if (resizeRafRef.current !== null) {
         cancelAnimationFrame(resizeRafRef.current);
         resizeRafRef.current = null;
       }
-      // Clear dragging flag before final update so onChange fires
+      
+      // Reset frame counter
+      frameCounterRef.current = 0;
+      
+      // Clear dragging flag FIRST
       isDraggingRef.current = false;
-      pendingResizeRef.current = null;
-      setColumnWidth(column.id, Math.round(newSize));
+      
+      // Get all pending width changes (including the final size)
+      const pendingWidths = { ...pendingResizeRef.current };
+      pendingWidths[column.id] = Math.round(newSize); // Ensure final size is included
+      
+      // Clear pending ref
+      pendingResizeRef.current = {};
+      
+      // Commit final widths with persistence
+      if (Object.keys(pendingWidths).length > 0) {
+        setWidthOverrides((prev) => {
+          const next = { ...prev, ...pendingWidths };
+          committedWidthsRef.current = next;
+          // Call onChange for persistence
+          onChange?.(next);
+          return next;
+        });
+      }
     },
-    [setColumnWidth],
+    [onChange],
   );
 
   const autoSizeColumn = useCallback<UseColumnSizingResult["autoSizeColumn"]>(
@@ -243,6 +279,8 @@ export function useColumnSizing(
     return result;
   }, [columns, widthOverrides]);
 
+  const isDragging = useCallback(() => isDraggingRef.current, []);
+
   return {
     sizedColumns,
     columnWidths: widthOverrides,
@@ -251,5 +289,6 @@ export function useColumnSizing(
     setColumnWidth,
     autoSizeColumn,
     resetColumnWidths,
+    isDragging,
   };
 }

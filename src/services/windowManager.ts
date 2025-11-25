@@ -19,7 +19,7 @@ function getMacOSTrafficLightPosition(): {
 
     // Match Rust logic: macOS 26+ uses different position
     if (majorVersion >= 26) {
-      return { x: 10, y: 21 };
+      return { x: 10, y: 18 };
     } else {
       return { x: 10, y: 14 };
     }

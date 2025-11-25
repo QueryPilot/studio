@@ -35,18 +35,22 @@ export function MainContent() {
   const isSearching = searchResults !== null;
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="p-6 space-y-6">
-        {/* Search Bar */}
+    <div className="h-full flex flex-col overflow-hidden">
+      {/* Sticky Search Bar */}
+      <div className="sticky top-0 z-10 bg-background border-b px-6 py-4">
         <SearchBar
           onResultsChange={handleResultsChange}
           onSelectedIndexChange={handleSelectedIndexChange}
           selectedIndex={selectedIndex}
         />
+      </div>
 
-        {/* Search Results */}
-        {isSearching ? (
-          <div>
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="p-6 space-y-6">
+          {/* Search Results */}
+          {isSearching ? (
+            <div>
             <div className="text-xs text-muted-foreground mb-3">
               {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} found
             </div>
@@ -78,6 +82,7 @@ export function MainContent() {
             <ERDWorkspacesSection />
           </>
         )}
+        </div>
       </div>
     </div>
   );

@@ -42,22 +42,25 @@ export function useStagedChangesIndicator(
 
   const commands = stagedCommands.get(tableKey) ?? [];
 
+  // Memoize PK map separately to avoid rebuilding on every render
+  const pkToRowIndex = useMemo(() => {
+    const map = new Map<string, number>();
+    rows.forEach((row, index) => {
+      // Create a stable PK key from the row using column metadata
+      const pkKey = createPrimaryKeyString(row, columns);
+      if (pkKey) {
+        map.set(pkKey, index);
+      }
+    });
+    return map;
+  }, [rows, columns]);
+
   return useMemo(() => {
     const result: StagedChangesMap = {
       rowChanges: new Map(),
       insertedRows: new Set(),
       deletedRows: new Set(),
     };
-
-    // Build a map of primary keys to row indexes for lookups
-    const pkToRowIndex = new Map<string, number>();
-    rows.forEach((row, index) => {
-      // Create a stable PK key from the row using column metadata
-      const pkKey = createPrimaryKeyString(row, columns);
-      if (pkKey) {
-        pkToRowIndex.set(pkKey, index);
-      }
-    });
 
     commands.forEach((command: CrudCommand) => {
       switch (command.type) {
@@ -119,7 +122,7 @@ export function useStagedChangesIndicator(
     }
 
     return result;
-  }, [commands, rows, columns]);
+  }, [commands, pkToRowIndex, rows]);
 }
 
 /**

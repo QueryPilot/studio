@@ -3,7 +3,14 @@ import {
   usePreferencesStore,
   type PreferenceCategory,
 } from "@/stores/preferencesStore";
-import { IconSettings, IconCode, IconRobot, IconKeyboard, IconWorld, IconActivity } from '@tabler/icons-react';
+import {
+  IconSettings,
+  IconCode,
+  IconRobot,
+  IconKeyboard,
+  IconWorld,
+  IconActivity,
+} from "@tabler/icons-react";
 import logo from "@/assets/logo.png";
 
 const categories = [
@@ -43,12 +50,8 @@ export function PreferencesSidebar() {
   const { activeCategory, setActiveCategory } = usePreferencesStore();
 
   return (
-    <div className="w-64 border-r bg-muted/30 flex flex-col overflow-hidden max-h-[80vh]">
-      <div className="p-4 border-b flex items-center gap-3">
-        <img src={logo} alt="Query Pilot" className="h-8 w-8" />
-        <h2 className="font-semibold text-base">Preferences</h2>
-      </div>
-      <nav className="flex-1 p-3 space-y-1 overflow-y-scroll max-h-[calc(80vh-65px)]">
+    <div className="pt-10 w-64 bg-secondary flex flex-col overflow-hidden h-full">
+      <nav className="flex-1 p-3 space-y-1 overflow-y-scroll h-full border-none">
         {categories.map((category) => {
           const Icon = category.icon;
           return (
@@ -58,11 +61,14 @@ export function PreferencesSidebar() {
                 setActiveCategory(category.id);
               }}
               className={cn(
-                "w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-md transition-all",
-                "hover:bg-accent/50 hover:text-accent-foreground",
-                activeCategory === category.id
-                  ? "bg-accent text-accent-foreground font-medium shadow-sm"
-                  : "text-muted-foreground",
+                "w-full flex items-center gap-2.5 px-2.5 py-2 text-xs rounded-lg transition-all",
+                "border-l-2 border-l-transparent rounded-l-none hover:bg-primary/20 hover:text-primary hover:border-l-primary ",
+                {
+                  "bg-primary/20 text-primary font-medium border-l-primary":
+                    activeCategory === category.id,
+                  "text-muted-foreground hover:text-foreground":
+                    activeCategory !== category.id,
+                },
               )}
             >
               <Icon className="h-4 w-4 shrink-0" />

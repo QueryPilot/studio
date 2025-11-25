@@ -1,4 +1,4 @@
-import { IconPlus, IconSchema } from "@tabler/icons-react";
+import { IconPlus, IconSitemap } from "@tabler/icons-react";
 import { useHomeScreenStore } from "../../store/homeScreenStore";
 
 export function ActionBarActions() {
@@ -35,7 +35,7 @@ export function ActionBarActions() {
         onClick={handleNewERD}
       >
         <div className="flex items-center justify-center h-6 w-6 rounded-md bg-secondary">
-          <IconSchema className="h-5 w-5 text-amber-500" />
+          <IconSitemap className="h-5 w-5 text-amber-500" />
         </div>
         <div className="flex flex-col">
           <span className="text-xs font-medium">ERD Workspace</span>

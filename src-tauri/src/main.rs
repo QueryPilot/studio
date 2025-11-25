@@ -4,6 +4,7 @@
 )]
 
 mod http_server;
+mod menu;
 // NOTE: window_state module removed - tracking now uses BroadcastChannel API on frontend
 
 // Use library modules
@@ -57,6 +58,18 @@ fn main() {
         .manage(ai_manager.clone())
         .manage(app_state)
         .setup(|app| {
+            // Build and set the application menu
+            let menu = menu::build_menu(&app.handle())
+                .expect("Failed to build menu");
+            app.set_menu(menu)
+                .expect("Failed to set menu");
+
+            // Register menu event handler
+            let app_handle = app.handle().clone();
+            app.on_menu_event(move |_app, event| {
+                menu::handle_menu_event(&app_handle, event);
+            });
+
             // Register default global shortcut to show/activate main window
             #[cfg(target_os = "macos")]
             let default_shortcut = "CommandOrControl+Shift+Space";
@@ -180,7 +193,13 @@ fn main() {
 
     // Run the app with proper cleanup
     app.run(|app_handle, event| {
-        if let tauri::RunEvent::ExitRequested { .. } = event {
+        // Handle both ExitRequested and Exit to ensure cleanup on Cmd+Q
+        let should_cleanup = matches!(
+            event,
+            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+        );
+
+        if should_cleanup {
             tracing::info!("🛑 Application exit requested, cleaning up resources...");
 
             // Stop AI sidecar
