@@ -113,7 +113,7 @@ export function useColumnSizing(
     (columnId, width) => {
       const nextWidth = clampWidth(width, minColumnWidth, maxColumnWidth);
       
-      // Always update state (for Glide animation), but skip onChange during drag
+      // Direct state update - our ref optimizations prevent expensive downstream work
       setWidthOverrides((prev) => {
         if (prev[columnId] === nextWidth) return prev;
         const next = {
@@ -131,10 +131,9 @@ export function useColumnSizing(
     [maxColumnWidth, minColumnWidth, onChange],
   );
 
-  // Throttle state updates to every 2 frames (~30fps) for smooth animation with less overhead
-  const resizeRafRef = useRef<number | null>(null);
-  const frameCounterRef = useRef(0);
-  const THROTTLE_FRAMES = 2; // Update every 2 frames = 30fps (still smooth, half the overhead)
+  // Time-based throttle: update every 32ms (~30fps) for smooth animation with less overhead
+  const lastUpdateTimeRef = useRef(0);
+  const THROTTLE_MS = 32; // ~30fps (every 2 frames)
 
   const handleColumnResize = useCallback<
     UseColumnSizingResult["handleColumnResize"]
@@ -143,29 +142,35 @@ export function useColumnSizing(
       if (!column.id || newSize <= 0 || Number.isNaN(newSize)) return;
       isDraggingRef.current = true;
       
-      // Store pending resize
+      // Always store the latest value
       pendingResizeRef.current[column.id] = Math.round(newSize);
 
-      // Cancel any pending RAF
-      if (resizeRafRef.current !== null) {
-        cancelAnimationFrame(resizeRafRef.current);
-      }
+      // Time-based throttle: skip if updated recently
+      const now = performance.now();
+      if (now - lastUpdateTimeRef.current < THROTTLE_MS) return;
+      lastUpdateTimeRef.current = now;
       
-      // Throttle updates to every N frames for smooth animation with less React overhead
-      resizeRafRef.current = requestAnimationFrame(() => {
-        resizeRafRef.current = null;
-        frameCounterRef.current++;
+      // Batch update: apply all pending widths in single state update
+      const pending = pendingResizeRef.current;
+      if (Object.keys(pending).length === 0) return;
+      
+      setWidthOverrides((prev) => {
+        let changed = false;
+        const next = { ...prev };
         
-        // Only update state every THROTTLE_FRAMES frames
-        if (frameCounterRef.current % THROTTLE_FRAMES === 0) {
-          const pending = { ...pendingResizeRef.current };
-          Object.entries(pending).forEach(([columnId, width]) => {
-            setColumnWidth(columnId, width);
-          });
+        for (const [columnId, width] of Object.entries(pending)) {
+          if (prev[columnId] !== width) {
+            next[columnId] = width;
+            changed = true;
+          }
         }
+        
+        if (!changed) return prev;
+        committedWidthsRef.current = next;
+        return next;
       });
     },
-    [setColumnWidth],
+    [],
   );
 
   const handleColumnResizeEnd = useCallback<
@@ -175,21 +180,15 @@ export function useColumnSizing(
       if (!column.id) return;
       if (newSize <= 0) return;
       
-      // Cancel any pending RAF
-      if (resizeRafRef.current !== null) {
-        cancelAnimationFrame(resizeRafRef.current);
-        resizeRafRef.current = null;
-      }
-      
-      // Reset frame counter
-      frameCounterRef.current = 0;
-      
       // Clear dragging flag FIRST
       isDraggingRef.current = false;
       
+      // Reset throttle timer
+      lastUpdateTimeRef.current = 0;
+      
       // Get all pending width changes (including the final size)
       const pendingWidths = { ...pendingResizeRef.current };
-      pendingWidths[column.id] = Math.round(newSize); // Ensure final size is included
+      pendingWidths[column.id] = Math.round(newSize);
       
       // Clear pending ref
       pendingResizeRef.current = {};
