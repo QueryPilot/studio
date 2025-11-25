@@ -6,9 +6,19 @@ export interface ChatRequest {
   connectionId?: string;
 }
 
+export interface AIModelInfo {
+  id: string;
+  name: string;
+  contextWindow?: number;
+  pricing?: {
+    input: number;  // per million tokens
+    output: number; // per million tokens
+  };
+}
+
 export interface AIProviderConfig {
   name: string;
-  models: string[];
+  models: AIModelInfo[];
   requiresApiKey: boolean;
 }
 

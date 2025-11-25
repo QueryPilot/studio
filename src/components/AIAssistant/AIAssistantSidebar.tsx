@@ -78,6 +78,7 @@ export function AIAssistantSidebar() {
     setProvider,
     setModel,
     loadProviders,
+    getProviderEnabledModels,
   } = useAIChatStore();
 
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
@@ -536,31 +537,41 @@ export function AIAssistantSidebar() {
                         .filter((provider) =>
                           configuredProviders.includes(provider.name),
                         )
-                        .map((provider) => (
-                          <ModelSelectorGroup
-                            key={provider.name}
-                            heading={provider.name}
-                          >
-                            {provider.models.map((model) => (
-                              <ModelSelectorItem
-                                key={model}
-                                value={model}
-                                onSelect={() => {
-                                  setProvider(provider.name);
-                                  setModel(model);
-                                  setModelSelectorOpen(false);
-                                }}
-                              >
-                                <ModelSelectorLogo provider={provider.name} />
-                                <ModelSelectorName>{model}</ModelSelectorName>
-                                {selectedProvider === provider.name &&
-                                  selectedModel === model && (
-                                    <IconCheck className="ml-auto size-4" />
-                                  )}
-                              </ModelSelectorItem>
-                            ))}
-                          </ModelSelectorGroup>
-                        ))}
+                        .map((provider) => {
+                          const enabledModels = getProviderEnabledModels(provider.name);
+                          const filteredModels = provider.models.filter((m) =>
+                            enabledModels.includes(m.id),
+                          );
+
+                          // Skip provider if no enabled models
+                          if (filteredModels.length === 0) return null;
+
+                          return (
+                            <ModelSelectorGroup
+                              key={provider.name}
+                              heading={provider.name}
+                            >
+                              {filteredModels.map((model) => (
+                                <ModelSelectorItem
+                                  key={model.id}
+                                  value={model.id}
+                                  onSelect={() => {
+                                    setProvider(provider.name);
+                                    setModel(model.id);
+                                    setModelSelectorOpen(false);
+                                  }}
+                                >
+                                  <ModelSelectorLogo provider={provider.name} />
+                                  <ModelSelectorName>{model.name}</ModelSelectorName>
+                                  {selectedProvider === provider.name &&
+                                    selectedModel === model.id && (
+                                      <IconCheck className="ml-auto size-4" />
+                                    )}
+                                </ModelSelectorItem>
+                              ))}
+                            </ModelSelectorGroup>
+                          );
+                        })}
                     </ModelSelectorList>
                   </ModelSelectorContent>
                 </ModelSelector>

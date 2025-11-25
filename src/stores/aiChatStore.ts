@@ -13,12 +13,22 @@ interface AIChatStoreState {
   availableProviders: AIProviderConfig[];
   configuredProviders: string[]; // Providers with API keys configured on sidecar
 
+  // Per-provider default models
+  providerDefaultModels: Record<string, string>; // { provider: modelName }
+
+  // Per-provider enabled models (for multi-select)
+  providerEnabledModels: Record<string, string[]>; // { provider: [modelNames] }
+
   // Loading state
   isLoadingProviders: boolean;
 
   // Actions
   setProvider: (provider: string) => void;
   setModel: (model: string) => void;
+  setProviderDefaultModel: (provider: string, model: string) => void;
+  getProviderDefaultModel: (provider: string) => string | null;
+  toggleProviderModel: (provider: string, model: string) => void;
+  getProviderEnabledModels: (provider: string) => string[];
   loadProviders: () => Promise<void>;
   setProviders: (providers: AIProviderConfig[]) => void;
   checkConfiguredProviders: () => Promise<void>;
@@ -32,6 +42,8 @@ export const useAIChatStore = create<AIChatStoreState>()(
       selectedModel: null,
       availableProviders: [],
       configuredProviders: [],
+      providerDefaultModels: {},
+      providerEnabledModels: {},
       isLoadingProviders: false,
 
       // Set the selected provider
@@ -52,6 +64,63 @@ export const useAIChatStore = create<AIChatStoreState>()(
       // Set the selected model
       setModel: (model: string) => {
         set({ selectedModel: model });
+      },
+
+      // Set default model for a provider
+      setProviderDefaultModel: (provider: string, model: string) => {
+        set((state) => ({
+          providerDefaultModels: {
+            ...state.providerDefaultModels,
+            [provider]: model,
+          },
+        }));
+      },
+
+      // Get default model for a provider
+      getProviderDefaultModel: (provider: string) => {
+        return get().providerDefaultModels[provider] || null;
+      },
+
+      // Toggle model enabled/disabled for a provider
+      toggleProviderModel: (provider: string, model: string) => {
+        set((state) => {
+          const currentEnabled = state.providerEnabledModels[provider] || [];
+          const isEnabled = currentEnabled.includes(model);
+
+          let newEnabled: string[];
+          if (isEnabled) {
+            // Remove model
+            newEnabled = currentEnabled.filter((m) => m !== model);
+
+            // If this was the default model, clear it
+            if (state.providerDefaultModels[provider] === model) {
+              const newDefaults = { ...state.providerDefaultModels };
+              delete newDefaults[provider];
+              return {
+                providerEnabledModels: {
+                  ...state.providerEnabledModels,
+                  [provider]: newEnabled,
+                },
+                providerDefaultModels: newDefaults,
+              };
+            }
+          } else {
+            // Add model
+            newEnabled = [...currentEnabled, model];
+          }
+
+          return {
+            providerEnabledModels: {
+              ...state.providerEnabledModels,
+              [provider]: newEnabled,
+            },
+          };
+        });
+      },
+
+      // Get enabled models for a provider
+      getProviderEnabledModels: (provider: string) => {
+        return get().providerEnabledModels[provider] || [];
       },
 
       // Load providers from the sidecar
@@ -144,10 +213,12 @@ export const useAIChatStore = create<AIChatStoreState>()(
     }),
     {
       name: "ai-chat-store",
-      version: 1,
+      version: 3,
       partialize: (state) => ({
         selectedProvider: state.selectedProvider,
         selectedModel: state.selectedModel,
+        providerDefaultModels: state.providerDefaultModels,
+        providerEnabledModels: state.providerEnabledModels,
         // Don't persist availableProviders or configuredProviders - fetch fresh on load
       }),
     },

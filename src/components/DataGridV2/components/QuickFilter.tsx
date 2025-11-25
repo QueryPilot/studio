@@ -105,6 +105,7 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
     const [cursorPosition, setCursorPosition] = useState(0);
     const [hasLintError, setHasLintError] = useState(false);
     const pgParserRef = useRef<PgParser | null>(null);
+    const justAcceptedSuggestion = useRef(false);
 
     // Theme for CodeMirror
     const { resolvedTheme } = useTheme();
@@ -239,6 +240,7 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
       setProvider,
       setModel,
       loadProviders,
+      getProviderEnabledModels,
     } = useAIChatStore();
 
     // Load providers when entering AI mode
@@ -270,9 +272,9 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
 
         if (isAfterOperator || isAfterQuote) {
           // We're typing a value - check if the column has enum values
-          // Extract the column name before the operator
+          // Extract the column name before the operator (allow optional quote after operator)
           const columnMatch = textBeforeWord.match(
-            /([a-zA-Z_][a-zA-Z0-9_]*)\s*[=<>!]+\s*$|([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:LIKE|ILIKE|IN|IS|BETWEEN)\s*$/i,
+            /([a-zA-Z_][a-zA-Z0-9_]*)\s*[=<>!]+\s*['"]?$|([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:LIKE|ILIKE|IN|IS|BETWEEN)\s*['"]?$/i,
           );
           const columnName = columnMatch?.[1] || columnMatch?.[2];
 
@@ -288,7 +290,9 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
               if (filtered.length > 0) {
                 setEnumSuggestions(filtered);
                 setSuggestionType("enum");
-                setShowSuggestions(true);
+                if (!justAcceptedSuggestion.current) {
+                  setShowSuggestions(true);
+                }
                 setSelectedIndex(0);
                 return;
               }
@@ -305,13 +309,17 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
         );
         setSuggestions(filtered);
         setSuggestionType("column");
-        setShowSuggestions(filtered.length > 0);
+        if (filtered.length > 0 && !justAcceptedSuggestion.current) {
+          setShowSuggestions(true);
+        } else {
+          setShowSuggestions(false);
+        }
         setSelectedIndex(0);
       } else {
         // IconCheck if cursor is right after operator with no text yet
         const trimmedBefore = beforeCursor.trim();
         const operatorMatch = trimmedBefore.match(
-          /([a-zA-Z_][a-zA-Z0-9_]*)\s*[=<>!]+\s*$|([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:LIKE|ILIKE|IN|IS|BETWEEN)\s*$/i,
+          /([a-zA-Z_][a-zA-Z0-9_]*)\s*[=<>!]+\s*['"]?$|([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:LIKE|ILIKE|IN|IS|BETWEEN)\s*['"]?$/i,
         );
 
         if (operatorMatch) {
@@ -322,7 +330,9 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
           if (column?.enumValues && column.enumValues.length > 0) {
             setEnumSuggestions(column.enumValues);
             setSuggestionType("enum");
-            setShowSuggestions(true);
+            if (!justAcceptedSuggestion.current) {
+              setShowSuggestions(true);
+            }
             setSelectedIndex(0);
             return;
           }
@@ -345,6 +355,10 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
         // For enum values, wrap in quotes
         const insertText = isEnum ? `'${text}'` : text;
         const newValue = value.slice(0, wordStart) + insertText + afterCursor;
+
+        // Set flag to prevent suggestions from re-appearing
+        justAcceptedSuggestion.current = true;
+
         onValueChange(newValue);
         setShowSuggestions(false);
 
@@ -353,11 +367,25 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
           const view = editorViewRef.current;
           if (view) {
             view.focus();
-            const newPos = wordStart + insertText.length;
-            view.dispatch({
-              selection: { anchor: newPos, head: newPos },
-            });
+            // Calculate cursor position in editor coordinates (without prefix)
+            const prefixLen =
+              (newValue.startsWith("?") && mode === "where") ||
+              (newValue.startsWith("#") && mode === "ai") ||
+              (newValue.startsWith("!") && mode === "search")
+                ? 1
+                : 0;
+            const editorPos = wordStart + insertText.length - prefixLen;
+            // Only set cursor if position is valid
+            if (editorPos >= 0 && editorPos <= view.state.doc.length) {
+              view.dispatch({
+                selection: { anchor: editorPos, head: editorPos },
+              });
+            }
           }
+          // Reset flag after a short delay
+          setTimeout(() => {
+            justAcceptedSuggestion.current = false;
+          }, 100);
         }, 0);
       },
       [value, cursorPosition, onValueChange],
@@ -474,31 +502,41 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
                                   </DropdownMenuItem>
                                 );
                               }
-                              return configured.map((provider) => (
-                                <div key={provider.name}>
-                                  <DropdownMenuLabel className="text-[10px] text-muted-foreground pl-4">
-                                    {provider.name}
-                                  </DropdownMenuLabel>
-                                  {provider.models.map((model) => (
-                                    <DropdownMenuItem
-                                      key={`${provider.name}-${model}`}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setProvider(provider.name);
-                                        setModel(model);
-                                      }}
-                                      className={cn(
-                                        "text-xs pl-6",
-                                        selectedProvider === provider.name &&
-                                          selectedModel === model &&
-                                          "bg-accent",
-                                      )}
-                                    >
-                                      {model}
-                                    </DropdownMenuItem>
-                                  ))}
-                                </div>
-                              ));
+                              return configured.map((provider) => {
+                                const enabledModels = getProviderEnabledModels(provider.name);
+                                const filteredModels = provider.models.filter((m) =>
+                                  enabledModels.includes(m.id),
+                                );
+
+                                // Skip provider if no enabled models
+                                if (filteredModels.length === 0) return null;
+
+                                return (
+                                  <div key={provider.name}>
+                                    <DropdownMenuLabel className="text-[10px] text-muted-foreground pl-4">
+                                      {provider.name}
+                                    </DropdownMenuLabel>
+                                    {filteredModels.map((model) => (
+                                      <DropdownMenuItem
+                                        key={`${provider.name}-${model.id}`}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setProvider(provider.name);
+                                          setModel(model.id);
+                                        }}
+                                        className={cn(
+                                          "text-xs pl-6",
+                                          selectedProvider === provider.name &&
+                                            selectedModel === model.id &&
+                                            "bg-accent",
+                                        )}
+                                      >
+                                        {model.name}
+                                      </DropdownMenuItem>
+                                    ))}
+                                  </div>
+                                );
+                              });
                             })()
                           )}
                         </>
@@ -522,12 +560,73 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
                           : value
                       }
                       onChange={(newValue) => {
+                        // Detect mode shortcuts and strip the prefix from editor
+                        if (newValue.startsWith("?") && mode !== "where") {
+                          onModeChange("where");
+                          const contentWithoutPrefix = newValue.slice(1);
+                          onValueChange("?" + contentWithoutPrefix);
+                          // Update editor to show content without prefix
+                          setTimeout(() => {
+                            const view = editorViewRef.current;
+                            if (view) {
+                              view.dispatch({
+                                changes: {
+                                  from: 0,
+                                  to: view.state.doc.length,
+                                  insert: contentWithoutPrefix,
+                                },
+                              });
+                            }
+                          }, 0);
+                          return;
+                        }
+                        if (newValue.startsWith("#") && mode !== "ai") {
+                          onModeChange("ai");
+                          const contentWithoutPrefix = newValue.slice(1);
+                          onValueChange("#" + contentWithoutPrefix);
+                          // Update editor to show content without prefix
+                          setTimeout(() => {
+                            const view = editorViewRef.current;
+                            if (view) {
+                              view.dispatch({
+                                changes: {
+                                  from: 0,
+                                  to: view.state.doc.length,
+                                  insert: contentWithoutPrefix,
+                                },
+                              });
+                            }
+                          }, 0);
+                          return;
+                        }
+                        if (newValue.startsWith("!") && mode !== "search") {
+                          onModeChange("search");
+                          const contentWithoutPrefix = newValue.slice(1);
+                          onValueChange("!" + contentWithoutPrefix);
+                          // Update editor to show content without prefix
+                          setTimeout(() => {
+                            const view = editorViewRef.current;
+                            if (view) {
+                              view.dispatch({
+                                changes: {
+                                  from: 0,
+                                  to: view.state.doc.length,
+                                  insert: contentWithoutPrefix,
+                                },
+                              });
+                            }
+                          }, 0);
+                          return;
+                        }
+
                         // Always add prefix based on current mode
                         const prefix =
                           mode === "where"
                             ? "?"
                             : mode === "ai"
                             ? "#"
+                            : mode === "search" && value.startsWith("!")
+                            ? "!"
                             : "";
                         onValueChange(prefix + newValue);
                       }}
@@ -720,6 +819,7 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
                             {
                               key: "Mod-.",
                               run: () => {
+                                justAcceptedSuggestion.current = false; // Allow manual trigger
                                 setSuggestions(columns);
                                 setSuggestionType("column");
                                 setShowSuggestions(columns.length > 0);
@@ -754,19 +854,6 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
                       }}
                     />
                   </div>
-                  {/* Shimmer overlay when loading */}
-                  {isLoading && value && (
-                    <div className="absolute inset-0 flex items-center pl-8 pr-7 pointer-events-none bg-background rounded-md">
-                      <Shimmer
-                        as="span"
-                        className="text-xs truncate"
-                        duration={30}
-                        spread={1}
-                      >
-                        {value || "Generating..."}
-                      </Shimmer>
-                    </div>
-                  )}
                   {/* Clear/Loading indicator - inside the wrapper */}
                   <div className="absolute right-1 top-1/2 -translate-y-1/2">
                     {isLoading ? (

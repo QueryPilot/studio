@@ -1,5 +1,9 @@
 import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
 import { type DateTimeKind, type Bounds } from "./types";
+
+// Enable UTC plugin
+dayjs.extend(utc);
 
 export const parseDateTime = (
   value: string | number | null | undefined,
@@ -13,6 +17,7 @@ export const parseDateTime = (
   const tzMatch = strValue.match(/([+-]\d{2}:\d{2}|Z)$/);
   const timezone = tzMatch ? tzMatch[1] : null;
 
+  // For time-cell, just extract time components directly
   if (kind === "time-cell") {
     const timeMatch = strValue.match(
       /(\d{2}):(\d{2})(?::(\d{2}))?(?:\.(\d+))?/,
@@ -31,19 +36,49 @@ export const parseDateTime = (
     }
   }
 
-  // Parse with dayjs, preserving timezone
-  const parsed = dayjs(strValue);
-  if (!parsed.isValid()) return { date: null, time: null, timezone: null };
+  // Parse date/datetime using regex to avoid timezone conversion
+  // Format: YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss or YYYY-MM-DD HH:mm:ss
+  const dateTimeMatch = strValue.match(
+    /(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.(\d+))?)?/,
+  );
+
+  if (!dateTimeMatch) {
+    // Fallback to dayjs for unusual formats
+    const parsed = dayjs(strValue);
+    if (!parsed.isValid()) return { date: null, time: null, timezone: null };
+    return {
+      date: parsed.toDate(),
+      time:
+        kind !== "date-cell"
+          ? {
+              hour: parsed.format("HH"),
+              minute: parsed.format("mm"),
+              second: parsed.format("ss"),
+              millisecond: parsed.format("SSS"),
+            }
+          : null,
+      timezone,
+    };
+  }
+
+  const [, year, month, day, hour, minute, second, millisecond] = dateTimeMatch;
+
+  // Create date without timezone conversion by using UTC and then treating as local display
+  const dateObj = new Date(
+    parseInt(year, 10),
+    parseInt(month, 10) - 1,
+    parseInt(day, 10),
+  );
 
   return {
-    date: parsed.toDate(),
+    date: dateObj,
     time:
-      kind !== "date-cell"
+      kind !== "date-cell" && hour
         ? {
-            hour: parsed.format("HH"),
-            minute: parsed.format("mm"),
-            second: parsed.format("ss"),
-            millisecond: parsed.format("SSS"),
+            hour: hour,
+            minute: minute || "00",
+            second: second || "00",
+            millisecond: millisecond || "",
           }
         : null,
     timezone,

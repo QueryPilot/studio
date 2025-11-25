@@ -2461,7 +2461,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     >
       {/* Quick IconFilter toolbar - only in table mode */}
       {isTableMode && (
-        <div className="flex-none pb-1.5 pt-0.5 bg-background">
+        <div className="flex-none pb-1.5 pt-1 bg-background">
           <QuickFilter
             ref={quickFilterRef}
             columns={filterColumns}
