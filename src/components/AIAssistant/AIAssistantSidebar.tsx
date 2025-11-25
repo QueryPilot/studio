@@ -1,5 +1,11 @@
 import { Button } from "@/components/ui/button";
-import { IconAdjustments, IconCheck, IconLoader, IconRefresh, IconCopy } from '@tabler/icons-react';
+import {
+  IconAdjustments,
+  IconCheck,
+  IconLoader,
+  IconRefresh,
+  IconCopy,
+} from "@tabler/icons-react";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { useAIChat } from "@/hooks/useAIChat";
 import { useAIChatStore } from "@/stores/aiChatStore";
@@ -318,8 +324,8 @@ export function AIAssistantSidebar() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b">
-        <h2 className="text-lg font-semibold">AI Assistant</h2>
+      <div className="flex items-center justify-between p-2 py-1.5 border-b">
+        <h2 className="text-base font-semibold">AI Assistant</h2>
         <Button
           variant="ghost"
           size="icon"
@@ -528,7 +534,7 @@ export function AIAssistantSidebar() {
 
                       {availableProviders
                         .filter((provider) =>
-                          configuredProviders.includes(provider.name)
+                          configuredProviders.includes(provider.name),
                         )
                         .map((provider) => (
                           <ModelSelectorGroup
