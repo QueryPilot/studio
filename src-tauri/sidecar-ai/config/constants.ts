@@ -4,6 +4,7 @@ export const PORT = 47856;
 // Allowed CORS origins - only allow requests from Tauri webview and localhost dev server
 export const ALLOWED_ORIGINS = [
   "tauri://localhost",
+  "https://tauri.localhost", // Tauri 2 production on macOS
   "http://localhost:1420",
   "http://127.0.0.1:1420",
 ];

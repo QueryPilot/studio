@@ -2,13 +2,45 @@ import { useEffect } from "react";
 import { ActionBar } from "./components/ActionBar/ActionBar";
 import { MainContent } from "./components/MainContent/MainContent";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { PreferencesDialog } from "@/components/Preferences/PreferencesDialog";
+import { useMenuEventListener } from "@/hooks/useMenuEventListener";
+import { useHomeScreenStore } from "./store/homeScreenStore";
+import { isTauri } from "@/utils/tauri";
 
 export function HomeScreen() {
   const fetchConnections = useConnectionStore((s) => s.fetchConnections);
+  const { openConnectionForm } = useHomeScreenStore();
+
+  useMenuEventListener();
 
   useEffect(() => {
     void fetchConnections();
   }, [fetchConnections]);
+
+  // Listen for events from other windows to open connection form
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    let unlisten: (() => void) | undefined;
+
+    const setupListener = async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      unlisten = await listen<{ mode: "create" | "edit" }>(
+        "open-connection-form",
+        (event) => {
+          openConnectionForm(event.payload.mode);
+        },
+      );
+    };
+
+    void setupListener();
+
+    return () => {
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, [openConnectionForm]);
 
   return (
     <div className="relative h-screen flex flex-col bg-secondary">
@@ -33,6 +65,8 @@ export function HomeScreen() {
           <MainContent />
         </div>
       </div>
+
+      <PreferencesDialog />
     </div>
   );
 }

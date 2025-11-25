@@ -31,6 +31,52 @@ const NUMERIC_TYPE_TOKENS = new Set([
   "smallserial",
 ]);
 
+// Column metadata cache to avoid re-parsing db_type on every cell render
+interface ParsedColumnMeta {
+  dbType: string;
+  normalizedDbType: string;
+  dbTypeTokens: string[];
+  isNumericDbType: boolean;
+  isArrayDbType: boolean;
+  isBoolDbType: boolean;
+  isJsonDbType: boolean;
+  isMoneyDbType: boolean;
+  isDateTimeDbType: boolean;
+  isUuidDbType: boolean;
+}
+
+const columnMetaCache = new WeakMap<GridColumnV2, ParsedColumnMeta>();
+
+function getOrParseColumnMeta(column: GridColumnV2): ParsedColumnMeta {
+  let cached = columnMetaCache.get(column);
+  if (cached) {
+    return cached;
+  }
+
+  const dbType = column.meta?.db_type.toLowerCase() || "";
+  const normalizedDbType = dbType.replace(/[(),]/g, " ");
+  const dbTypeTokens = normalizedDbType
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+  
+  const parsed: ParsedColumnMeta = {
+    dbType,
+    normalizedDbType,
+    dbTypeTokens,
+    isNumericDbType: dbTypeTokens.some((token) => NUMERIC_TYPE_TOKENS.has(token)),
+    isArrayDbType: dbType.includes("array") || dbType.startsWith("_") || dbType.endsWith("[]"),
+    isBoolDbType: dbType.includes("bool"),
+    isJsonDbType: dbType.includes("json"),
+    isMoneyDbType: dbType.includes("money"),
+    isDateTimeDbType: dbType.includes("timestamp") || dbType.includes("date") || dbType.includes("time"),
+    isUuidDbType: dbType.includes("uuid"),
+  };
+
+  columnMetaCache.set(column, parsed);
+  return parsed;
+}
+
 /**
  * Helper to cache cell results
  */
@@ -76,17 +122,10 @@ export function buildGridCellV2(opts: {
   }
 
   const rawValue = value?.value;
-  const dbType = column.meta?.db_type.toLowerCase() || "";
-  const normalizedDbType = dbType.replace(/[(),]/g, " ");
-  const dbTypeTokens = normalizedDbType
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter(Boolean);
-  const isNumericDbType = dbTypeTokens.some((token) =>
-    NUMERIC_TYPE_TOKENS.has(token),
-  );
-  const isArrayDbType =
-    dbType.includes("array") || dbType.startsWith("_") || dbType.endsWith("[]");
+  
+  // Use cached parsed metadata to avoid re-parsing db_type on every cell render
+  const { dbType, isNumericDbType, isArrayDbType, isBoolDbType, isJsonDbType, 
+          isMoneyDbType, isDateTimeDbType, isUuidDbType } = getOrParseColumnMeta(column);
 
   // Enum cells - use custom cell to support enum values
   if (column.meta?.enum_values && column.meta.enum_values.length > 0) {
@@ -114,7 +153,7 @@ export function buildGridCellV2(opts: {
   }
 
   // Boolean cells - use custom cell to support null values (including NULL)
-  if (dbType.includes("bool") || typeof rawValue === "boolean") {
+  if (isBoolDbType || typeof rawValue === "boolean") {
     let boolValue: boolean | null = null;
 
     if (rawValue === null || rawValue === undefined) {
@@ -156,7 +195,7 @@ export function buildGridCellV2(opts: {
   }
 
   // Money cells - format with currency symbol
-  if (dbType.includes("money")) {
+  if (isMoneyDbType) {
     if (rawValue == null) {
       return cacheAndReturn(value, column.id, readOnly, {
         kind: GridCellKind.Text,
@@ -219,7 +258,7 @@ export function buildGridCellV2(opts: {
   }
 
   // JSON/JSONB cells - use custom JSON editor
-  if (dbType.includes("json")) {
+  if (isJsonDbType) {
     let jsonString: string | null = null;
     let isValid = true;
 
@@ -313,7 +352,7 @@ export function buildGridCellV2(opts: {
   }
 
   // Date/Time cells - provide custom editor with calendar popover
-  if (dbType.includes("timestamptz") || dbType.includes("timestamp")) {
+  if (dbType.includes("timestamptz") || dbType.includes("timestamp")) { // Keep specific check for timestamp types
     const v = rawValue == null ? null : String(rawValue);
     return cacheAndReturn(value, column.id, readOnly, {
       kind: GridCellKind.Custom,
@@ -386,7 +425,7 @@ export function buildGridCellV2(opts: {
   }
 
   // UUID cells - use custom UUID editor with generation
-  if (dbType.includes("uuid")) {
+  if (isUuidDbType) {
     const uuidString = rawValue == null ? null : String(rawValue);
 
     // Validate UUID format

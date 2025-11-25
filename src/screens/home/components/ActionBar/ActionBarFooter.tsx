@@ -1,17 +1,14 @@
 import { IconSettings, IconMoon, IconSun } from '@tabler/icons-react';
 import { Button } from '@/components/ui/button';
 import { useTheme } from '@/components/theme-provider';
+import { usePreferencesStore } from '@/stores/preferencesStore';
 
 export function ActionBarFooter() {
   const { theme, setTheme } = useTheme();
+  const { openPreferences } = usePreferencesStore();
 
   const handleToggleTheme = () => {
     setTheme(theme === 'dark' ? 'light' : 'dark');
-  };
-
-  const handleOpenSettings = () => {
-    // TODO: Open settings dialog
-    console.log('Open settings');
   };
 
   return (
@@ -20,7 +17,7 @@ export function ActionBarFooter() {
         variant="ghost"
         size="sm"
         className="justify-start gap-2 h-8"
-        onClick={handleOpenSettings}
+        onClick={() => openPreferences()}
       >
         <IconSettings className="h-3.5 w-3.5" />
         <span className="text-xs">Settings</span>

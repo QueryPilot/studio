@@ -26,12 +26,15 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauri } from "@/utils/tauri";
 import { windowChannelTracker } from "@/services/windowChannelTracker";
 import { windowManager } from "@/services/windowManager";
+import { useMenuEventListener } from "@/hooks/useMenuEventListener";
 
 // Default sidebars state - using a constant to avoid creating new objects
 const DEFAULT_SIDEBARS = { left: true, right: false };
 
 export function WorkspaceScreen() {
   const { connectionId } = useParams<{ connectionId: string }>();
+
+  useMenuEventListener();
   const [searchParams, setSearchParams] = useSearchParams();
   const { initWorkspace, setActiveConnection: setActiveWorkspace } =
     useWorkspaceScreenStore();

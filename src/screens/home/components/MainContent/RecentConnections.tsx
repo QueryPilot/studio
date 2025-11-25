@@ -4,7 +4,7 @@ import { ConnectionCard } from '../shared/ConnectionCard';
 
 export function RecentConnections() {
   const getRecentConnections = useConnectionStore((s) => s.getRecentConnections);
-  const recentConnections = getRecentConnections(8);
+  const recentConnections = getRecentConnections(4);
 
   if (recentConnections.length === 0) {
     return null;
