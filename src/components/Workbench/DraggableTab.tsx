@@ -1,6 +1,6 @@
 import React from "react";
 import { cn } from "@/lib/utils";
-import { IconX, IconTable, IconEye, IconMathFunction, IconCode } from '@tabler/icons-react';
+import { IconX, IconTable, IconEye, IconMathFunction, IconBrandTabler } from '@tabler/icons-react';
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 
@@ -57,7 +57,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
       case "function":
         return IconMathFunction;
       case "query":
-        return IconCode;
+        return IconBrandTabler;
       default:
         return IconTable;
     }
