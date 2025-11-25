@@ -13,6 +13,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.6.0] - 2025-11-26
+
+### New Features
+- Work in a multi-dialect SQL editor with context-aware autocomplete, real-time linting, and metadata hovers for PostgreSQL, MySQL, SQLite, and MSSQL.
+- Pick and configure AI provider models in Preferences and the assistant sidebar, enabling or hiding models per provider so only allowed options appear.
+- Track grid performance with built-in FPS and render-time monitoring to keep large tables feeling smooth.
+- Use the refreshed desktop menu for dynamic actions plus built-in update checks and installs.
+
+### Improvements
+- QuickFilter switches modes instantly, debounces typing, and serves faster, more accurate suggestions for long SQL queries.
+- DataGrid scrolling, column resizing, and cell editors are leaner, cutting redraws for snappier edits on big datasets.
+- Query panel and toolbar manage SQL dialect selection more reliably, with clearer linting feedback while you type.
+- AIAssistant sidebar layout is cleaner, making model choices and conversations easier to follow.
+- Home screen connection form is clearer and steadier with improved placeholders and state handling.
+
+### Bug Fixes
+- Desktop updates are more reliable after correcting updater configuration and menu event handling.
+
 ## [0.5.0] - 2025-11-24
 
 ### New Features
