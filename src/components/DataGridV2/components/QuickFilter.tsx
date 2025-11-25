@@ -6,7 +6,9 @@ import {
   forwardRef,
   useImperativeHandle,
   useMemo,
+  memo,
 } from "react";
+import { useDebounce } from "@/hooks/useDebounce";
 import { IconSearch, IconCode, IconSparkles, IconX, IconLoader2, IconCopy } from '@tabler/icons-react';
 import CodeMirror, { EditorView } from "@uiw/react-codemirror";
 import { sql, PostgreSQL } from "@codemirror/lang-sql";
@@ -79,6 +81,60 @@ const modeConfig: Record<
     placeholder: "active users from last week",
   },
 };
+
+// Pre-compiled regex patterns for performance (Phase 3.1)
+const WORD_AT_CURSOR_REGEX = /[a-zA-Z_][a-zA-Z0-9_]*$/;
+const OPERATOR_REGEX = /[=<>!]+\s*$|(?:LIKE|ILIKE|IN|IS|BETWEEN)\s*$/i;
+const QUOTE_REGEX = /['"]$/;
+const COLUMN_EXTRACTION_REGEX = /([a-zA-Z_][a-zA-Z0-9_]*)\s*[=<>!]+\s*['"]?$|([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:LIKE|ILIKE|IN|IS|BETWEEN)\s*['"]?$/i;
+
+// Memoized suggestion item components (Phase 2.3)
+interface EnumSuggestionItemProps {
+  value: string;
+  isSelected: boolean;
+  onSelect: (value: string) => void;
+}
+
+const EnumSuggestionItem = memo<EnumSuggestionItemProps>(({ value, isSelected, onSelect }) => {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(value)}
+      className={cn(
+        "w-full text-left px-2 py-1 text-xs rounded",
+        "hover:bg-accent",
+        isSelected && "bg-accent"
+      )}
+    >
+      <span className="font-mono">'{value}'</span>
+    </button>
+  );
+});
+EnumSuggestionItem.displayName = "EnumSuggestionItem";
+
+interface ColumnSuggestionItemProps {
+  column: ColumnMeta;
+  isSelected: boolean;
+  onSelect: (name: string) => void;
+}
+
+const ColumnSuggestionItem = memo<ColumnSuggestionItemProps>(({ column, isSelected, onSelect }) => {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(column.name)}
+      className={cn(
+        "w-full text-left px-2 py-1 text-xs rounded",
+        "hover:bg-accent",
+        isSelected && "bg-accent"
+      )}
+    >
+      <span className="font-mono">{column.name}</span>
+      <span className="ml-2 text-muted-foreground">({column.dataType})</span>
+    </button>
+  );
+});
+ColumnSuggestionItem.displayName = "ColumnSuggestionItem";
 
 export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
   function QuickFilter(
@@ -250,6 +306,23 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
       }
     }, [mode, loadProviders]);
 
+    // Debounce value and cursor position to reduce expensive operations (Phase 1.1)
+    const debouncedValue = useDebounce(value, 150);
+    const debouncedCursor = useDebounce(cursorPosition, 150);
+
+    // Memoize column map for O(1) lookups (Phase 1.3)
+    const columnMap = useMemo(() => {
+      const map = new Map<string, ColumnMeta>();
+      columns.forEach(col => map.set(col.name.toLowerCase(), col));
+      return map;
+    }, [columns]);
+
+    // Memoize filtered columns helper (Phase 1.3)
+    const getFilteredColumns = useCallback((searchTerm: string) => {
+      const lowerSearch = searchTerm.toLowerCase();
+      return columns.filter(c => c.name.toLowerCase().includes(lowerSearch));
+    }, [columns]);
+
     // Update suggestions based on input
     useEffect(() => {
       if (mode !== "where" && mode !== "ai") {
@@ -258,30 +331,25 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
       }
 
       // Get word at cursor
-      const beforeCursor = value.slice(0, cursorPosition);
-      const match = beforeCursor.match(/[a-zA-Z_][a-zA-Z0-9_]*$/);
+      const beforeCursor = debouncedValue.slice(0, debouncedCursor);
+      const match = beforeCursor.match(WORD_AT_CURSOR_REGEX);
 
       if (match) {
         // IconCheck if we're in a value context (after an operator)
         const textBeforeWord = beforeCursor
           .slice(0, beforeCursor.length - match[0].length)
           .trim();
-        const isAfterOperator =
-          /[=<>!]+\s*$|(?:LIKE|ILIKE|IN|IS|BETWEEN)\s*$/i.test(textBeforeWord);
-        const isAfterQuote = /['"]$/.test(textBeforeWord);
+        const isAfterOperator = OPERATOR_REGEX.test(textBeforeWord);
+        const isAfterQuote = QUOTE_REGEX.test(textBeforeWord);
 
         if (isAfterOperator || isAfterQuote) {
           // We're typing a value - check if the column has enum values
           // Extract the column name before the operator (allow optional quote after operator)
-          const columnMatch = textBeforeWord.match(
-            /([a-zA-Z_][a-zA-Z0-9_]*)\s*[=<>!]+\s*['"]?$|([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:LIKE|ILIKE|IN|IS|BETWEEN)\s*['"]?$/i,
-          );
+          const columnMatch = textBeforeWord.match(COLUMN_EXTRACTION_REGEX);
           const columnName = columnMatch?.[1] || columnMatch?.[2];
 
           if (columnName) {
-            const column = columns.find(
-              (c) => c.name.toLowerCase() === columnName.toLowerCase(),
-            );
+            const column = columnMap.get(columnName.toLowerCase());
             if (column?.enumValues && column.enumValues.length > 0) {
               const searchTerm = match[0].toLowerCase();
               const filtered = column.enumValues.filter((v) =>
@@ -303,10 +371,8 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
         }
 
         // We're typing a column name
-        const searchTerm = match[0].toLowerCase();
-        const filtered = columns.filter((c) =>
-          c.name.toLowerCase().includes(searchTerm),
-        );
+        const searchTerm = match[0];
+        const filtered = getFilteredColumns(searchTerm);
         setSuggestions(filtered);
         setSuggestionType("column");
         if (filtered.length > 0 && !justAcceptedSuggestion.current) {
@@ -318,15 +384,11 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
       } else {
         // IconCheck if cursor is right after operator with no text yet
         const trimmedBefore = beforeCursor.trim();
-        const operatorMatch = trimmedBefore.match(
-          /([a-zA-Z_][a-zA-Z0-9_]*)\s*[=<>!]+\s*['"]?$|([a-zA-Z_][a-zA-Z0-9_]*)\s+(?:LIKE|ILIKE|IN|IS|BETWEEN)\s*['"]?$/i,
-        );
+        const operatorMatch = trimmedBefore.match(COLUMN_EXTRACTION_REGEX);
 
         if (operatorMatch) {
           const columnName = operatorMatch[1] || operatorMatch[2];
-          const column = columns.find(
-            (c) => c.name.toLowerCase() === columnName.toLowerCase(),
-          );
+          const column = columnMap.get(columnName.toLowerCase());
           if (column?.enumValues && column.enumValues.length > 0) {
             setEnumSuggestions(column.enumValues);
             setSuggestionType("enum");
@@ -339,7 +401,7 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
         }
         setShowSuggestions(false);
       }
-    }, [value, cursorPosition, columns, mode]);
+    }, [debouncedValue, debouncedCursor, columns, mode]);
 
     const insertSuggestion = useCallback(
       (text: string, isEnum: boolean = false) => {
@@ -347,7 +409,7 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
         const afterCursor = value.slice(cursorPosition);
 
         // Find start of current word
-        const match = beforeCursor.match(/[a-zA-Z_][a-zA-Z0-9_]*$/);
+        const match = beforeCursor.match(WORD_AT_CURSOR_REGEX);
         const wordStart = match
           ? cursorPosition - match[0].length
           : cursorPosition;
@@ -359,37 +421,148 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
         // Set flag to prevent suggestions from re-appearing
         justAcceptedSuggestion.current = true;
 
-        onValueChange(newValue);
+        // Hide suggestions immediately
         setShowSuggestions(false);
 
-        // Focus back to editor and set cursor position
-        setTimeout(() => {
-          const view = editorViewRef.current;
-          if (view) {
-            view.focus();
-            // Calculate cursor position in editor coordinates (without prefix)
-            const prefixLen =
-              (newValue.startsWith("?") && mode === "where") ||
-              (newValue.startsWith("#") && mode === "ai") ||
-              (newValue.startsWith("!") && mode === "search")
-                ? 1
-                : 0;
-            const editorPos = wordStart + insertText.length - prefixLen;
-            // Only set cursor if position is valid
-            if (editorPos >= 0 && editorPos <= view.state.doc.length) {
+        // Calculate cursor position in editor coordinates (without prefix)
+        const prefixLen =
+          (newValue.startsWith("?") && mode === "where") ||
+          (newValue.startsWith("#") && mode === "ai") ||
+          (newValue.startsWith("!") && mode === "search")
+            ? 1
+            : 0;
+        const editorPos = wordStart + insertText.length - prefixLen;
+
+        // Update value and cursor position synchronously via editor
+        const view = editorViewRef.current;
+        if (view) {
+          const changes = {
+            from: 0,
+            to: view.state.doc.length,
+            insert: newValue.startsWith("?") || newValue.startsWith("#") || newValue.startsWith("!")
+              ? newValue.slice(1)
+              : newValue
+          };
+
+          const validPos = Math.max(0, Math.min(editorPos, changes.insert.length));
+
+          view.dispatch({
+            changes,
+            selection: { anchor: validPos, head: validPos },
+          });
+          view.focus();
+        }
+
+        // Update parent value
+        onValueChange(newValue);
+
+        // Reset flag using requestAnimationFrame instead of setTimeout
+        requestAnimationFrame(() => {
+          justAcceptedSuggestion.current = false;
+        });
+      },
+      [value, cursorPosition, onValueChange, mode],
+    );
+
+    // Clear button handler (Phase 1.4)
+    const handleClearClick = useCallback(() => {
+      onValueChange("");
+    }, [onValueChange]);
+
+    // CodeMirror change handler (Phase 1.4)
+    const handleEditorChange = useCallback(
+      (newValue: string) => {
+        // Detect mode shortcuts and strip the prefix from editor
+        if (newValue.startsWith("?") && mode !== "where") {
+          onModeChange("where");
+          const contentWithoutPrefix = newValue.slice(1);
+          onValueChange("?" + contentWithoutPrefix);
+          // Update editor to show content without prefix
+          setTimeout(() => {
+            const view = editorViewRef.current;
+            if (view) {
               view.dispatch({
-                selection: { anchor: editorPos, head: editorPos },
+                changes: {
+                  from: 0,
+                  to: view.state.doc.length,
+                  insert: contentWithoutPrefix,
+                },
               });
             }
-          }
-          // Reset flag after a short delay
+          }, 0);
+          return;
+        }
+        if (newValue.startsWith("#") && mode !== "ai") {
+          onModeChange("ai");
+          const contentWithoutPrefix = newValue.slice(1);
+          onValueChange("#" + contentWithoutPrefix);
+          // Update editor to show content without prefix
           setTimeout(() => {
-            justAcceptedSuggestion.current = false;
-          }, 100);
-        }, 0);
+            const view = editorViewRef.current;
+            if (view) {
+              view.dispatch({
+                changes: {
+                  from: 0,
+                  to: view.state.doc.length,
+                  insert: contentWithoutPrefix,
+                },
+              });
+            }
+          }, 0);
+          return;
+        }
+        if (newValue.startsWith("!") && mode !== "search") {
+          onModeChange("search");
+          const contentWithoutPrefix = newValue.slice(1);
+          onValueChange("!" + contentWithoutPrefix);
+          // Update editor to show content without prefix
+          setTimeout(() => {
+            const view = editorViewRef.current;
+            if (view) {
+              view.dispatch({
+                changes: {
+                  from: 0,
+                  to: view.state.doc.length,
+                  insert: contentWithoutPrefix,
+                },
+              });
+            }
+          }, 0);
+          return;
+        }
+
+        // Add prefix for AI/WHERE modes if not present
+        if (mode === "ai" && !newValue.startsWith("#")) {
+          onValueChange("#" + newValue);
+        } else if (mode === "where" && !newValue.startsWith("?")) {
+          onValueChange("?" + newValue);
+        } else if (mode === "search" && !newValue.startsWith("!")) {
+          onValueChange("!" + newValue);
+        } else {
+          onValueChange(newValue);
+        }
       },
-      [value, cursorPosition, onValueChange],
+      [mode, onModeChange, onValueChange]
     );
+
+    // Limit rendered suggestions for performance (Phase 2.1)
+    const MAX_VISIBLE_SUGGESTIONS = 50;
+    const visibleSuggestions = useMemo(() => {
+      return suggestions.slice(0, MAX_VISIBLE_SUGGESTIONS);
+    }, [suggestions]);
+
+    const visibleEnumSuggestions = useMemo(() => {
+      return enumSuggestions.slice(0, MAX_VISIBLE_SUGGESTIONS);
+    }, [enumSuggestions]);
+
+    // Stable select handlers for memoized components (Phase 2.3)
+    const handleEnumSelect = useCallback((enumValue: string) => {
+      insertSuggestion(enumValue, true);
+    }, [insertSuggestion]);
+
+    const handleColumnSelect = useCallback((columnName: string) => {
+      insertSuggestion(columnName, false);
+    }, [insertSuggestion]);
 
     // Get icon for current mode/prefix
     const getModeIcon = () => {
@@ -559,77 +732,7 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
                           ? value.slice(1)
                           : value
                       }
-                      onChange={(newValue) => {
-                        // Detect mode shortcuts and strip the prefix from editor
-                        if (newValue.startsWith("?") && mode !== "where") {
-                          onModeChange("where");
-                          const contentWithoutPrefix = newValue.slice(1);
-                          onValueChange("?" + contentWithoutPrefix);
-                          // Update editor to show content without prefix
-                          setTimeout(() => {
-                            const view = editorViewRef.current;
-                            if (view) {
-                              view.dispatch({
-                                changes: {
-                                  from: 0,
-                                  to: view.state.doc.length,
-                                  insert: contentWithoutPrefix,
-                                },
-                              });
-                            }
-                          }, 0);
-                          return;
-                        }
-                        if (newValue.startsWith("#") && mode !== "ai") {
-                          onModeChange("ai");
-                          const contentWithoutPrefix = newValue.slice(1);
-                          onValueChange("#" + contentWithoutPrefix);
-                          // Update editor to show content without prefix
-                          setTimeout(() => {
-                            const view = editorViewRef.current;
-                            if (view) {
-                              view.dispatch({
-                                changes: {
-                                  from: 0,
-                                  to: view.state.doc.length,
-                                  insert: contentWithoutPrefix,
-                                },
-                              });
-                            }
-                          }, 0);
-                          return;
-                        }
-                        if (newValue.startsWith("!") && mode !== "search") {
-                          onModeChange("search");
-                          const contentWithoutPrefix = newValue.slice(1);
-                          onValueChange("!" + contentWithoutPrefix);
-                          // Update editor to show content without prefix
-                          setTimeout(() => {
-                            const view = editorViewRef.current;
-                            if (view) {
-                              view.dispatch({
-                                changes: {
-                                  from: 0,
-                                  to: view.state.doc.length,
-                                  insert: contentWithoutPrefix,
-                                },
-                              });
-                            }
-                          }, 0);
-                          return;
-                        }
-
-                        // Always add prefix based on current mode
-                        const prefix =
-                          mode === "where"
-                            ? "?"
-                            : mode === "ai"
-                            ? "#"
-                            : mode === "search" && value.startsWith("!")
-                            ? "!"
-                            : "";
-                        onValueChange(prefix + newValue);
-                      }}
+                      onChange={handleEditorChange}
                       extensions={[
                         // Only use SQL highlighting for where mode
                         ...(mode === "where"
@@ -863,9 +966,7 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
                         variant="ghost"
                         size="sm"
                         className="h-6 w-6 p-0 mt-0.5"
-                        onClick={() => {
-                          onValueChange("");
-                        }}
+                        onClick={handleClearClick}
                       >
                         <IconX className="h-3.5 w-3.5" />
                       </Button>
@@ -882,40 +983,21 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
               >
                 <div className="max-h-48 overflow-y-auto">
                   {suggestionType === "enum"
-                    ? enumSuggestions.map((enumValue, idx) => (
-                        <button
+                    ? visibleEnumSuggestions.map((enumValue, idx) => (
+                        <EnumSuggestionItem
                           key={enumValue}
-                          type="button"
-                          onClick={() => {
-                            insertSuggestion(enumValue, true);
-                          }}
-                          className={cn(
-                            "w-full text-left px-2 py-1 text-xs rounded",
-                            "hover:bg-accent",
-                            idx === selectedIndex && "bg-accent",
-                          )}
-                        >
-                          <span className="font-mono">'{enumValue}'</span>
-                        </button>
+                          value={enumValue}
+                          isSelected={idx === selectedIndex}
+                          onSelect={handleEnumSelect}
+                        />
                       ))
-                    : suggestions.map((col, idx) => (
-                        <button
+                    : visibleSuggestions.map((col, idx) => (
+                        <ColumnSuggestionItem
                           key={col.name}
-                          type="button"
-                          onClick={() => {
-                            insertSuggestion(col.name, false);
-                          }}
-                          className={cn(
-                            "w-full text-left px-2 py-1 text-xs rounded",
-                            "hover:bg-accent",
-                            idx === selectedIndex && "bg-accent",
-                          )}
-                        >
-                          <span className="font-mono">{col.name}</span>
-                          <span className="ml-2 text-muted-foreground">
-                            ({col.dataType})
-                          </span>
-                        </button>
+                          column={col}
+                          isSelected={idx === selectedIndex}
+                          onSelect={handleColumnSelect}
+                        />
                       ))}
                 </div>
               </PopoverContent>
