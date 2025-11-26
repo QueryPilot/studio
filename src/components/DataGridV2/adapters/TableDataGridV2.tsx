@@ -14,6 +14,7 @@ import type {
   Rectangle,
 } from "@glideapps/glide-data-grid";
 import { GridCellKind, CompactSelection } from "@glideapps/glide-data-grid";
+import isEqual from "lodash/isEqual";
 import { EditableDataGrid, type EditableDataGridRef } from "../base";
 import type { GridColumnV2, GridRowModel } from "../types";
 import { useTableDataQuery } from "@/hooks/useTableDataQuery";
@@ -104,41 +105,26 @@ import type { JsonValue } from "@/types/crud";
 
 /**
  * Compare two values for equality, handling null/undefined and type coercion
+ * Optimized to avoid JSON.stringify for performance in hot paths
  */
 function areValuesEqual(a: unknown, b: unknown): boolean {
+  // Reference equality (fast path)
+  if (a === b) return true;
+
   // Handle null/undefined
-  if (a === null && b === null) return true;
-  if (a === undefined && b === undefined) return true;
-  if (a === null && b === undefined) return true;
-  if (a === undefined && b === null) return true;
-  if ((a === null || a === undefined) && b !== null && b !== undefined)
-    return false;
-  if ((b === null || b === undefined) && a !== null && a !== undefined)
-    return false;
+  if (a == null && b == null) return true;
+  if (a == null || b == null) return false;
 
-  // Handle primitive types
-  if (typeof a !== "object" && typeof b !== "object") {
-    // For numbers, use strict equality
-    if (typeof a === "number" && typeof b === "number") {
-      return a === b;
-    }
-    // For strings, handle numeric string comparison
-    if (typeof a === "string" && typeof b === "number") {
-      return Number(a) === b;
-    }
-    if (typeof a === "number" && typeof b === "string") {
-      return a === Number(b);
-    }
-    // Default: strict equality
-    return a === b;
+  // Special handling for numeric string coercion (database-specific)
+  if (typeof a === "string" && typeof b === "number") {
+    return Number(a) === b;
+  }
+  if (typeof a === "number" && typeof b === "string") {
+    return a === Number(b);
   }
 
-  // Handle objects (use JSON comparison for simplicity)
-  if (typeof a === "object" && typeof b === "object") {
-    return JSON.stringify(a) === JSON.stringify(b);
-  }
-
-  return false;
+  // Use lodash isEqual for deep comparison (handles nested objects, arrays, Date, etc.)
+  return isEqual(a, b);
 }
 
 interface BaseTableDataGridV2Props {
@@ -769,13 +755,21 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         const cell = row[columnName];
         const value = cell?.value;
         if (value === null || value === undefined) return "__null__";
-        if (typeof value === "object") {
-          try {
-            return JSON.stringify(value);
-          } catch {
-            return String(value);
-          }
+        if (typeof value !== "object") return String(value);
+        // Fast object-to-string for common types (avoids JSON.stringify)
+        if (Array.isArray(value)) {
+          return `[${value.map((v) => (v == null ? "null" : String(v))).join(",")}]`;
         }
+        if (value instanceof Date) {
+          return value.toISOString();
+        }
+        // For other objects, use a simple key concatenation
+        const keys = Object.keys(value as Record<string, unknown>);
+        if (keys.length <= 4) {
+          const obj = value as Record<string, unknown>;
+          return `{${keys.map((k) => `${k}:${obj[k] == null ? "null" : String(obj[k])}`).join(",")}}`;
+        }
+        // Fallback for complex objects
         return String(value);
       });
       let computed = `${
@@ -1152,7 +1146,17 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   const contextMenuProps = getMenuProps();
 
+  // Pre-build column lookup map for O(1) access (used in INSERT row building)
+  const columnByFieldMap = useMemo(() => {
+    const map = new Map<string, GridColumnV2>();
+    for (const col of finalColumns) {
+      map.set(col.field, col);
+    }
+    return map;
+  }, [finalColumns]);
+
   // Apply optimistic updates from staged commands to display rows
+  // Optimized: O(N+M) instead of O(N×M) using index-based lookup
   const displayRowsWithOptimisticUpdates = useMemo(() => {
     if (!isTableMode) {
       return displayRows;
@@ -1165,79 +1169,112 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       return displayRows;
     }
 
-    // First, apply UPDATE commands to existing rows
-    const updatedRows = displayRows.map((row) => {
-      // Find all UPDATE commands for this row
-      const updateCommands = commands.filter((cmd) => {
-        if (cmd.type !== "data.update") return false;
+    // Build index: PK signature → array of UPDATE commands (O(M) where M = commands)
+    const updateCommandsByPK = new Map<
+      string,
+      Array<{ column: string; newValue: unknown }>
+    >();
 
-        const payload = cmd.payload as {
-          primaryKeys?: Record<string, unknown>;
-        };
+    for (const cmd of commands) {
+      if (cmd.type !== "data.update") continue;
+      const payload = cmd.payload as {
+        primaryKeys?: Record<string, unknown>;
+        column?: string;
+        newValue?: unknown;
+      };
+      if (!payload.primaryKeys || !payload.column) continue;
 
-        if (!payload.primaryKeys) return false;
+      // Create stable PK signature from sorted keys
+      const pkEntries = Object.entries(payload.primaryKeys).sort(([a], [b]) =>
+        a.localeCompare(b),
+      );
+      const pkSig = pkEntries.map(([k, v]) => `${k}=${JSON.stringify(v)}`).join("|");
 
-        // IconCheck if this command's PK matches this row's PK
-        return Object.entries(payload.primaryKeys).every(([key, value]) => {
-          const cellValue = row[key];
-          if (
-            !cellValue ||
-            typeof cellValue !== "object" ||
-            !("value" in cellValue)
-          ) {
-            return false;
-          }
-          return cellValue.value === value;
-        });
-      });
-
-      if (updateCommands.length === 0) {
-        return row;
+      if (!updateCommandsByPK.has(pkSig)) {
+        updateCommandsByPK.set(pkSig, []);
       }
-
-      // Apply all updates to create a new row
-      const updatedRow = { ...row };
-      updateCommands.forEach((cmd) => {
-        const payload = cmd.payload as {
-          column?: string;
-          newValue?: unknown;
-        };
-
-        if (payload.column && payload.column in updatedRow) {
-          const existingCell = updatedRow[payload.column];
-          if (
-            existingCell &&
-            typeof existingCell === "object" &&
-            "value" in existingCell
-          ) {
-            updatedRow[payload.column] = {
-              ...existingCell,
-              value: payload.newValue,
-            };
-          }
-        }
+      updateCommandsByPK.get(pkSig)!.push({
+        column: payload.column,
+        newValue: payload.newValue,
       });
+    }
 
-      return updatedRow;
-    });
+    // Apply UPDATE commands to existing rows (O(N) where N = rows)
+    const updatedRows =
+      updateCommandsByPK.size === 0
+        ? displayRows
+        : displayRows.map((row) => {
+            // Build PK signature for this row using primaryKeyColumns
+            const pkEntries = primaryKeyColumns
+              .map((colName) => {
+                const cell = row[colName];
+                const value =
+                  cell && typeof cell === "object" && "value" in cell
+                    ? cell.value
+                    : undefined;
+                return [colName, value] as [string, unknown];
+              })
+              .sort(([a], [b]) => a.localeCompare(b));
 
-    // Then, insert new rows at their specified positions (or at top if no position specified)
+            const pkSig = pkEntries
+              .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+              .join("|");
+
+            // O(1) lookup instead of O(M) filter
+            const updates = updateCommandsByPK.get(pkSig);
+            if (!updates || updates.length === 0) {
+              return row;
+            }
+
+            // Apply all updates to create a new row
+            const updatedRow = { ...row };
+            for (const { column, newValue } of updates) {
+              if (column in updatedRow) {
+                const existingCell = updatedRow[column];
+                if (
+                  existingCell &&
+                  typeof existingCell === "object" &&
+                  "value" in existingCell
+                ) {
+                  updatedRow[column] = {
+                    ...existingCell,
+                    value: newValue,
+                  };
+                }
+              }
+            }
+            return updatedRow;
+          });
+
+    // Collect INSERT commands
     const insertCommands = commands.filter((cmd) => cmd.type === "data.insert");
+    if (insertCommands.length === 0) {
+      return updatedRows;
+    }
 
     // Build result array with inserts at correct positions
     const result = [...updatedRows];
 
-    insertCommands.forEach((cmd) => {
+    // Pre-build row key index for O(1) lookup during insert positioning
+    const rowKeyToIndex = new Map<string, number>();
+    for (let i = 0; i < result.length; i++) {
+      rowKeyToIndex.set(getRowKey(result[i], i), i);
+    }
+
+    // Track offset as we insert (positions shift)
+    let insertOffset = 0;
+
+    for (const cmd of insertCommands) {
       const payload = cmd.payload as {
         values?: Record<string, JsonValue>;
         tempId?: string;
       };
 
-      // Build a complete row with ALL columns from schema (not just the ones with values)
+      // Build a complete row with ALL columns from schema
       const row: GridRowModel = {};
 
-      // First, populate ALL columns with NULL defaults using proper column metadata
-      finalColumns.forEach((col) => {
+      // Populate ALL columns with NULL defaults using pre-built column map
+      for (const col of finalColumns) {
         const dbType = col.meta?.db_type ?? col.type ?? "text";
         row[col.field] = {
           value: null,
@@ -1245,13 +1282,10 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           db_type: dbType,
           is_truncated: false,
         };
-      });
+      }
 
       // Track the INSERT command's tempId for linking UPDATE commands
       const insertTempId = payload.tempId || cmd.id;
-
-      // Add hidden metadata field to track the INSERT tempId
-      // This will be used when creating UPDATE commands for this row
       row["__insert_temp_id__"] = {
         value: insertTempId,
         value_type: "Text",
@@ -1259,15 +1293,13 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         is_truncated: false,
       } as FrontCellValue;
 
-      // Then, overlay the actual values from the INSERT command
-      // Note: INSERT command values now include all edits (UPDATEs are merged into INSERT)
+      // Overlay the actual values from the INSERT command
       if (payload.values) {
-        Object.entries(payload.values).forEach(([key, value]) => {
-          // Find the column to get proper db_type
-          const column = finalColumns.find((c) => c.field === key);
+        for (const [key, value] of Object.entries(payload.values)) {
+          // O(1) lookup instead of .find()
+          const column = columnByFieldMap.get(key);
           const dbType = column?.meta?.db_type ?? column?.type ?? "text";
 
-          // Infer the value type
           let valueType: FrontCellValue["value_type"] = "Text";
           if (value === null) {
             valueType = "Null";
@@ -1283,28 +1315,25 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             db_type: dbType,
             is_truncated: false,
           };
-        });
+        }
       }
 
-      // IconCheck if this insert has a specific position (by row key)
+      // Insert at specified position or top
       const insertAfterRowKey = cmd.metadata.insertAfterRowKey;
       if (insertAfterRowKey) {
-        // Find the target row in the current result array
-        const targetIndex = result.findIndex(
-          (r, idx) => getRowKey(r, idx) === insertAfterRowKey,
-        );
-        if (targetIndex >= 0) {
-          // Insert after the target row
-          result.splice(targetIndex + 1, 0, row);
+        const targetIndex = rowKeyToIndex.get(insertAfterRowKey);
+        if (targetIndex !== undefined) {
+          result.splice(targetIndex + 1 + insertOffset, 0, row);
+          insertOffset++;
         } else {
-          // Target not found, insert at top (fallback)
           result.unshift(row);
+          insertOffset++;
         }
       } else {
-        // No position specified, insert at top (default behavior)
         result.unshift(row);
+        insertOffset++;
       }
-    });
+    }
 
     return result;
   }, [
@@ -1318,6 +1347,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     schema,
     table,
     finalColumns,
+    primaryKeyColumns,
+    columnByFieldMap,
   ]);
 
   // Auto-select first cell when grid gains focus with no existing selection

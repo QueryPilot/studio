@@ -17,18 +17,19 @@ const createTableKey = (
  */
 type InvalidationListener = () => void;
 
+/**
+ * Listeners are stored outside Zustand state to avoid triggering
+ * re-renders on subscribe/unsubscribe. Only invalidations (timestamps)
+ * need to be reactive state.
+ */
+const listenersMap = new Map<string, Set<InvalidationListener>>();
+
 interface DataInvalidationState {
   /**
    * Map of tableKey → last modified timestamp (ms)
    * Used to track when table data was last changed
    */
   invalidations: Map<string, number>;
-
-  /**
-   * Map of tableKey → Set of listener callbacks
-   * Listeners are notified when their table is invalidated
-   */
-  listeners: Map<string, Set<InvalidationListener>>;
 
   /**
    * Invalidate a specific table, triggering all subscribers to refetch
@@ -72,39 +73,23 @@ interface DataInvalidationState {
 export const useDataInvalidationStore = create<DataInvalidationState>(
   (set, get) => ({
     invalidations: new Map<string, number>(),
-    listeners: new Map<string, Set<InvalidationListener>>(),
 
     invalidateTable: (connectionId, database, schema, table) => {
-      try {
-        if (!connectionId || !database || !table) {
-          console.warn(
-            `[DataInvalidation] Invalid parameters: connectionId=${connectionId}, database=${database}, table=${table}`,
-          );
-          return;
-        }
-
-        const tableKey = createTableKey(connectionId, database, schema, table);
-        const timestamp = Date.now();
-
-        console.log(
-          `[DataInvalidation] Invalidating table: ${tableKey} at ${timestamp}`,
-        );
-
-        set((state) => {
-          const invalidations = new Map(state.invalidations);
-          invalidations.set(tableKey, timestamp);
-          return { invalidations };
-        });
-
-        // Notify all listeners for this table
-        get()._notifyListeners(tableKey);
-      } catch (error) {
-        console.error(
-          `[DataInvalidation] Error invalidating table:`,
-          error,
-          { connectionId, database, schema, table },
-        );
+      if (!connectionId || !database || !table) {
+        return;
       }
+
+      const tableKey = createTableKey(connectionId, database, schema, table);
+      const timestamp = Date.now();
+
+      set((state) => {
+        const invalidations = new Map(state.invalidations);
+        invalidations.set(tableKey, timestamp);
+        return { invalidations };
+      });
+
+      // Notify listeners outside of set() to avoid blocking
+      get()._notifyListeners(tableKey);
     },
 
     getLastModified: (connectionId, database, schema, table) => {
@@ -115,57 +100,37 @@ export const useDataInvalidationStore = create<DataInvalidationState>(
     subscribe: (connectionId, database, schema, table, callback) => {
       const tableKey = createTableKey(connectionId, database, schema, table);
 
-      console.log(`[DataInvalidation] New subscriber for table: ${tableKey}`);
-
-      set((state) => {
-        const listeners = new Map(state.listeners);
-        if (!listeners.has(tableKey)) {
-          listeners.set(tableKey, new Set());
-        }
-        listeners.get(tableKey)!.add(callback);
-        return { listeners };
-      });
+      // Direct mutation of external map - no state update needed
+      if (!listenersMap.has(tableKey)) {
+        listenersMap.set(tableKey, new Set());
+      }
+      listenersMap.get(tableKey)!.add(callback);
 
       // Return unsubscribe function
       return () => {
-        console.log(
-          `[DataInvalidation] Unsubscribing from table: ${tableKey}`,
-        );
-
-        set((state) => {
-          const listeners = new Map(state.listeners);
-          const tableListeners = listeners.get(tableKey);
-          if (tableListeners) {
-            tableListeners.delete(callback);
-            if (tableListeners.size === 0) {
-              listeners.delete(tableKey);
-            }
+        const tableListeners = listenersMap.get(tableKey);
+        if (tableListeners) {
+          tableListeners.delete(callback);
+          if (tableListeners.size === 0) {
+            listenersMap.delete(tableKey);
           }
-          return { listeners };
-        });
+        }
       };
     },
 
     _notifyListeners: (tableKey) => {
-      const listeners = get().listeners.get(tableKey);
+      const listeners = listenersMap.get(tableKey);
       if (listeners && listeners.size > 0) {
-        console.log(
-          `[DataInvalidation] Notifying ${listeners.size} listener(s) for table: ${tableKey}`,
-        );
-        listeners.forEach((callback) => {
-          try {
-            callback();
-          } catch (error) {
-            console.error(
-              `[DataInvalidation] Error in listener callback:`,
-              error,
-            );
-          }
+        // Use queueMicrotask to avoid blocking the main thread
+        queueMicrotask(() => {
+          listeners.forEach((callback) => {
+            try {
+              callback();
+            } catch {
+              // Silently handle listener errors
+            }
+          });
         });
-      } else {
-        console.log(
-          `[DataInvalidation] No listeners to notify for table: ${tableKey}`,
-        );
       }
     },
   }),

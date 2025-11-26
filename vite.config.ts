@@ -58,6 +58,11 @@ export default defineConfig(({ mode }) => ({
     sourcemap: mode === "production" && !disableSourcemaps,
   },
 
+  // Strip console.log/debug in production for performance
+  esbuild: {
+    drop: mode === "production" ? ["console", "debugger"] : [],
+  },
+
   resolve: {
     conditions: ["import", "default"],
     alias: {

@@ -93,17 +93,6 @@ function formatPgArray(value: unknown): string {
   }
 
   if (!Array.isArray(value)) {
-    // Try to parse JSON array string
-    if (typeof value === "object" && value !== null) {
-      try {
-        const parsed = JSON.parse(JSON.stringify(value));
-        if (Array.isArray(parsed)) {
-          return formatPgArray(parsed);
-        }
-      } catch {
-        // Fall through
-      }
-    }
     return String(value);
   }
 

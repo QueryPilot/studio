@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import {
   IconSearch,
@@ -78,8 +78,51 @@ export function DatabaseSidebar({
 
   const { focusedPanelId, panelContents } = useWorkbenchStore();
 
-  const { toggleStarred, isStarred, getStarredItems } = useStarredItemsStore();
-  const { stagedCommands, getTableKey } = useCrudStore();
+  const { toggleStarred, getStarredItems } = useStarredItemsStore();
+  const { stagedCommands } = useCrudStore();
+
+  // Pre-compute lookup maps for O(1) access (instead of O(N) .find() in loops)
+  const tablesByKey = useMemo(() => {
+    const map = new Map<string, TableMeta>();
+    tables.forEach((t) => map.set(`${t.schema}.${t.name}`, t));
+    return map;
+  }, [tables]);
+
+  const viewsByKey = useMemo(() => {
+    const map = new Map<string, TableMeta>();
+    views.forEach((v) => map.set(`${v.schema}.${v.name}`, v));
+    return map;
+  }, [views]);
+
+  const functionsByKey = useMemo(() => {
+    const map = new Map<string, FunctionMeta>();
+    functions.forEach((f) => map.set(`${f.schema}.${f.name}`, f));
+    return map;
+  }, [functions]);
+
+  // Pre-compute starred items set for O(1) lookups
+  const starredItemsRaw = getStarredItems(connectionId, selectedDatabase, selectedSchema);
+  const starredSet = useMemo(() => {
+    const set = new Set<string>();
+    starredItemsRaw.forEach((item) => set.add(`${item.type}:${item.schema}.${item.name}`));
+    return set;
+  }, [starredItemsRaw]);
+
+  // Pre-compute pending changes set for O(1) lookups
+  const pendingChangesSet = useMemo(() => {
+    const set = new Set<string>();
+    stagedCommands.forEach((commands, tableKey) => {
+      if (commands.length > 0 && tableKey.startsWith(`${connectionId}:`)) {
+        // tableKey format: "connectionId:database:schema:table"
+        const parts = tableKey.split(":");
+        if (parts.length >= 4) {
+          const [, , schema, table] = parts;
+          set.add(`${schema}.${table}`);
+        }
+      }
+    });
+    return set;
+  }, [stagedCommands, connectionId]);
 
   // Auto-expand sections when data is loaded
   useEffect(() => {
@@ -471,12 +514,8 @@ export function DatabaseSidebar({
     };
   };
 
-  // Get starred items for current context
-  const starredItems = getStarredItems(
-    connectionId,
-    selectedDatabase,
-    selectedSchema,
-  );
+  // Use pre-computed starred items
+  const starredItems = starredItemsRaw;
 
   // IconFilter items based on search
   const filterItems = <T extends { name: string }>(items: T[]): T[] => {
@@ -545,20 +584,7 @@ export function DatabaseSidebar({
     );
   };
 
-  // IconCheck if a table has pending changes
-  const hasTablePendingChanges = (
-    tableName: string,
-    schema: string,
-  ): boolean => {
-    const tableKey = getTableKey({
-      connectionId,
-      database: selectedDatabase,
-      schema,
-      table: tableName,
-    });
-    const commands = stagedCommands.get(tableKey);
-    return commands ? commands.length > 0 : false;
-  };
+  // Note: hasTablePendingChanges is now replaced by pendingChangesSet lookup
 
   // Show loading skeleton during initial connection, actively loading, or refreshing
   const showLoadingSkeleton =
@@ -670,12 +696,14 @@ export function DatabaseSidebar({
               stickyClass="sticky top-0 bg-background z-40"
             >
               {starredItems.map((item) => {
+                // Use O(1) lookup maps instead of O(N) .find()
+                const key = `${item.schema}.${item.name}`;
                 const itemData =
                   item.type === "function"
-                    ? functions.find((f) => f.name === item.name)
+                    ? functionsByKey.get(key)
                     : item.type === "view"
-                    ? views.find((v) => v.name === item.name)
-                    : tables.find((t) => t.name === item.name);
+                    ? viewsByKey.get(key)
+                    : tablesByKey.get(key);
 
                 if (!itemData) return null;
 
@@ -742,9 +770,7 @@ export function DatabaseSidebar({
                       item.schema,
                     )}
                     hasPendingChanges={
-                      item.type !== "function"
-                        ? hasTablePendingChanges(item.name, item.schema)
-                        : false
+                      item.type !== "function" && pendingChangesSet.has(`${item.schema}.${item.name}`)
                     }
                     actions={
                       item.type !== "function" ? (
@@ -823,22 +849,9 @@ export function DatabaseSidebar({
                     }}
                     isSelected={selectedItems.has(itemKey)}
                     rowCount={table.row_estimate}
-                    isStarred={isStarred(
-                      connectionId,
-                      selectedDatabase,
-                      table.schema,
-                      "table",
-                      table.name,
-                    )}
-                    onToggleStar={handleToggleStar(
-                      "table",
-                      table.name,
-                      table.schema,
-                    )}
-                    hasPendingChanges={hasTablePendingChanges(
-                      table.name,
-                      table.schema,
-                    )}
+                    isStarred={starredSet.has(`table:${table.schema}.${table.name}`)}
+                    onToggleStar={handleToggleStar("table", table.name, table.schema)}
+                    hasPendingChanges={pendingChangesSet.has(`${table.schema}.${table.name}`)}
                     actions={
                       <>
                         <ActionButton
@@ -914,22 +927,9 @@ export function DatabaseSidebar({
                     }}
                     isSelected={selectedItems.has(itemKey)}
                     className="border-l-2 border-l-transparent"
-                    isStarred={isStarred(
-                      connectionId,
-                      selectedDatabase,
-                      view.schema,
-                      "view",
-                      view.name,
-                    )}
-                    onToggleStar={handleToggleStar(
-                      "view",
-                      view.name,
-                      view.schema,
-                    )}
-                    hasPendingChanges={hasTablePendingChanges(
-                      view.name,
-                      view.schema,
-                    )}
+                    isStarred={starredSet.has(`view:${view.schema}.${view.name}`)}
+                    onToggleStar={handleToggleStar("view", view.name, view.schema)}
+                    hasPendingChanges={pendingChangesSet.has(`${view.schema}.${view.name}`)}
                     actions={
                       <>
                         <ActionButton
@@ -998,18 +998,8 @@ export function DatabaseSidebar({
                       handleContextMenu(itemKey, e);
                     }}
                     isSelected={selectedItems.has(itemKey)}
-                    isStarred={isStarred(
-                      connectionId,
-                      selectedDatabase,
-                      func.schema,
-                      "function",
-                      func.name,
-                    )}
-                    onToggleStar={handleToggleStar(
-                      "function",
-                      func.name,
-                      func.schema,
-                    )}
+                    isStarred={starredSet.has(`function:${func.schema}.${func.name}`)}
+                    onToggleStar={handleToggleStar("function", func.name, func.schema)}
                   />
                 );
               })}
