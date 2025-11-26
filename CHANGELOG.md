@@ -13,6 +13,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.7.0] - 2025-11-27
+
+### New Features
+- Work faster in the SQL editor with dedicated PostgreSQL parsing and linting workers, giving immediate feedback tailored to your selected dialect.
+- Enjoy smoother autocomplete and linting from the first keystroke thanks to pre-initialized workers and smarter request handling across PostgreSQL, MySQL, SQLite, and MSSQL.
+
+### Improvements
+- Edit large result sets with less lag: DataGrid updates now avoid redundant transforms, cache repeated work, and keep quick filters responsive during heavy input.
+- Stream query results more reliably with background decode workers that reduce UI stalls while data loads.
+- See clearer diagnostics: standardized logging replaces ad hoc console output so issues surface with better context.
+- SQL completion and hover feel snappier with content deduplication, caching, and cancellation of outdated requests to prevent slowdowns.
+- Query workspace panels and sidebars render more efficiently through memoized selectors and reduced re-renders, keeping navigation fluid.
+
+### Bug Fixes
+- SQL metadata and completion now ignore common transient errors, preventing interruptions while typing and browsing schemas.
+
 ## [0.6.1] - 2025-11-26
 
 ### Improvements
