@@ -2,7 +2,11 @@ import { decode } from "@msgpack/msgpack";
 import type { ColumnMeta } from "@/types/database";
 import type { TableDataRow } from "./tableDataTypes";
 import type { CellValue as BackendCellValue } from "./backend";
-import { mapRowsToTableData } from "./tableDataTransform";
+import {
+  mapRowsToTableData,
+  normalizeBackendValue,
+  deriveValueType,
+} from "./tableDataTransform";
 
 interface DecodeRequest {
   id: number;
@@ -17,11 +21,21 @@ interface MapRowsRequest {
   columns: ColumnMeta[];
 }
 
-type StreamWorkerRequest = DecodeRequest | MapRowsRequest;
+interface MapRowsNormalizedRequest {
+  id: number;
+  type: "mapRowsNormalized";
+  rows: BackendCellValue[][];
+  columns: ColumnMeta[];
+}
+
+type StreamWorkerRequest =
+  | DecodeRequest
+  | MapRowsRequest
+  | MapRowsNormalizedRequest;
 
 interface StreamWorkerResponse {
   id: number;
-  type: "decoded" | "mapped" | "error";
+  type: "decoded" | "mapped" | "mappedNormalized" | "error";
   rows?: BackendCellValue[][] | TableDataRow[];
   error?: string;
 }
@@ -59,6 +73,38 @@ ctx.onmessage = (event: MessageEvent<StreamWorkerRequest>) => {
       respond({
         id: message.id,
         type: "mapped",
+        rows: mapped,
+      });
+      return;
+    }
+
+    if (message.type === "mapRowsNormalized") {
+      const mapped = message.rows.map((row) => {
+        const tableRow: TableDataRow = {};
+        message.columns.forEach((column, index) => {
+          const rawValue = row[index];
+          const normalizedValue = normalizeBackendValue(rawValue);
+          tableRow[column.name] = {
+            value: normalizedValue ?? null,
+            db_type: column.db_type,
+            value_type: deriveValueType(rawValue, column.db_type),
+            is_truncated: false,
+            metadata:
+              typeof rawValue === "bigint"
+                ? {
+                    attributes: {
+                      originalBigInt: rawValue.toString(),
+                    },
+                  }
+                : undefined,
+          };
+        });
+        return tableRow;
+      });
+
+      respond({
+        id: message.id,
+        type: "mappedNormalized",
         rows: mapped,
       });
       return;

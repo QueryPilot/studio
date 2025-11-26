@@ -85,10 +85,6 @@ import { cn } from "@/lib/utils";
 import { GridContextMenu } from "../components/GridContextMenu";
 import { useContextKey, useScopedKeybindings } from "@/hooks/useContextKey";
 import { useCommand } from "@/hooks/useCommand";
-import {
-  deriveValueType,
-  normalizeBackendValue,
-} from "@/services/tableDataTransform";
 import { useCrudStore } from "@/stores/crudStore";
 import {
   createUpdateCommand,
@@ -513,98 +509,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   const queryData = isQueryMode ? props.data : null;
 
-  // Memoize query data transformation to prevent infinite render loop
-  // Convert only the newly streamed rows instead of rebuilding everything
-  const transformedQueryRowsRef = useRef<GridRowModel[]>([]);
-  const prevRowCountRef = useRef(0);
-  const prevColumnsRef = useRef<string[]>([]);
-  const prevColumnMetaRef = useRef<ColumnMeta[] | undefined>(undefined);
-  const prevRawRowsRef = useRef<unknown[][] | null>(null);
-
-  const transformedQueryRows = useMemo(() => {
-    if (!queryData) {
-      transformedQueryRowsRef.current = [];
-      prevRowCountRef.current = 0;
-      prevColumnsRef.current = [];
-      prevColumnMetaRef.current = undefined;
-      prevRawRowsRef.current = null;
-      return [];
-    }
-
-    const currentRows = queryData.rows;
-    const columns = queryData.columns;
-    const columnMeta = queryData.columnMeta;
-
-    const columnsChanged =
-      columns.length !== prevColumnsRef.current.length ||
-      columns.some((col, idx) => col !== prevColumnsRef.current[idx]) ||
-      (columnMeta?.length ?? 0) !== (prevColumnMetaRef.current?.length ?? 0);
-
-    const rowsReferenceChanged = currentRows !== prevRawRowsRef.current;
-    const rowsShrank = currentRows.length < prevRowCountRef.current;
-    const rowsReplacedWithSameLength =
-      rowsReferenceChanged && currentRows.length === prevRowCountRef.current;
-
-    const resetRequired =
-      columnsChanged || rowsShrank || rowsReplacedWithSameLength;
-
-    if (resetRequired) {
-      transformedQueryRowsRef.current = [];
-      prevRowCountRef.current = 0;
-    }
-
-    const startIndex = resetRequired ? 0 : prevRowCountRef.current;
-    const newRows = currentRows.slice(startIndex).map((row) => {
-      const rowObj: GridRowModel = {};
-      const backendRow = row as BackendCellValue[];
-      columns.forEach((colName, colIndex) => {
-        const rawValue = backendRow[colIndex] as BackendCellValue | undefined;
-        const colMeta = columnMeta?.[colIndex];
-        const dbType = colMeta?.db_type ?? "text";
-        const normalizedValue =
-          rawValue === undefined
-            ? null
-            : normalizeBackendValue(rawValue) ?? null;
-        const valueType =
-          rawValue === null || rawValue === undefined
-            ? "Null"
-            : deriveValueType(rawValue, dbType);
-        const metadata =
-          typeof rawValue === "bigint"
-            ? {
-                attributes: {
-                  originalBigInt: rawValue.toString(),
-                },
-              }
-            : undefined;
-
-        rowObj[colName] = {
-          value: normalizedValue,
-          db_type: dbType,
-          value_type: valueType,
-          is_truncated: false,
-          metadata,
-        } as FrontCellValue;
-      });
-      return rowObj;
-    });
-
-    if (resetRequired) {
-      transformedQueryRowsRef.current = newRows;
-    } else if (newRows.length > 0) {
-      transformedQueryRowsRef.current = [
-        ...transformedQueryRowsRef.current,
-        ...newRows,
-      ];
-    }
-
-    prevRowCountRef.current = currentRows.length;
-    prevColumnsRef.current = [...columns];
-    prevColumnMetaRef.current = columnMeta ? [...columnMeta] : undefined;
-    prevRawRowsRef.current = currentRows as unknown[][];
-
-    return transformedQueryRowsRef.current;
-  }, [queryData?.rows, queryData?.columns, queryData?.columnMeta]);
+  // Query mode rows are already normalized in the streaming worker; just pass through
+  const transformedQueryRows = useMemo(
+    () => queryData?.rows ?? [],
+    [queryData?.rows],
+  );
 
   const {
     isLoading,

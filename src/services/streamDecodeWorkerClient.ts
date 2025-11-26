@@ -19,7 +19,17 @@ interface StreamWorkerMapped {
   error?: string;
 }
 
-type StreamWorkerResponse = StreamWorkerDecoded | StreamWorkerMapped;
+interface StreamWorkerMappedNormalized {
+  id: number;
+  type: "mappedNormalized";
+  rows?: TableDataRow[];
+  error?: string;
+}
+
+type StreamWorkerResponse =
+  | StreamWorkerDecoded
+  | StreamWorkerMapped
+  | StreamWorkerMappedNormalized;
 
 class StreamDecodeWorkerManager {
   private worker: Worker | null = null;
@@ -149,6 +159,17 @@ class StreamDecodeWorkerManager {
   ): Promise<TableDataRow[]> {
     return this.send<TableDataRow[]>({
       type: "mapRows",
+      rows,
+      columns,
+    });
+  }
+
+  mapRowsNormalized(
+    rows: BackendCellValue[][],
+    columns: ColumnMeta[],
+  ): Promise<TableDataRow[]> {
+    return this.send<TableDataRow[]>({
+      type: "mapRowsNormalized",
       rows,
       columns,
     });
