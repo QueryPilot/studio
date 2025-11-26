@@ -35,7 +35,6 @@ import {
 import { cn } from "@/lib/utils";
 import type { FilterMode, ColumnMeta } from "@/utils/filterParser";
 import { useAIChatStore } from "@/stores/aiChatStore";
-import { Shimmer } from "@/components/ai-elements/shimmer";
 
 interface QuickFilterProps {
   columns: ColumnMeta[];
@@ -162,6 +161,7 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
     const [hasLintError, setHasLintError] = useState(false);
     const pgParserRef = useRef<PgParser | null>(null);
     const justAcceptedSuggestion = useRef(false);
+    const justSwitchedMode = useRef(false);
 
     // Theme for CodeMirror
     const { resolvedTheme } = useTheme();
@@ -388,6 +388,7 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
 
         if (operatorMatch) {
           const columnName = operatorMatch[1] || operatorMatch[2];
+          if (!columnName) return;
           const column = columnMap.get(columnName.toLowerCase());
           if (column?.enumValues && column.enumValues.length > 0) {
             setEnumSuggestions(column.enumValues);
@@ -466,92 +467,111 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
 
     // Clear button handler (Phase 1.4)
     const handleClearClick = useCallback(() => {
+      justSwitchedMode.current = true;
       onValueChange("");
       // Reset to search mode when clearing
       if (mode !== "search") {
         onModeChange("search");
       }
+      // Clear the editor content
+      const view = editorViewRef.current;
+      if (view && view.state.doc.length > 0) {
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: "" },
+        });
+      }
+      requestAnimationFrame(() => {
+        justSwitchedMode.current = false;
+      });
     }, [onValueChange, onModeChange, mode]);
 
     // CodeMirror change handler (Phase 1.4)
     const handleEditorChange = useCallback(
       (newValue: string) => {
-        // Detect mode shortcuts and switch mode synchronously
+        // Skip if we just switched modes (prevents loop from editor dispatch)
+        if (justSwitchedMode.current) {
+          return;
+        }
+
+        // Detect mode shortcuts and switch mode
         if (newValue.startsWith("?") && mode !== "where") {
           const contentWithoutPrefix = newValue.slice(1);
+          justSwitchedMode.current = true;
           onModeChange("where");
           onValueChange("?" + contentWithoutPrefix);
-          // Synchronously update editor to remove prefix from display
+          // Update editor to remove prefix from display
+          const view = editorViewRef.current;
+          if (view) {
+            view.dispatch({
+              changes: {
+                from: 0,
+                to: view.state.doc.length,
+                insert: contentWithoutPrefix,
+              },
+            });
+          }
           requestAnimationFrame(() => {
-            const view = editorViewRef.current;
-            if (view && view.state.doc.toString() !== contentWithoutPrefix) {
-              view.dispatch({
-                changes: {
-                  from: 0,
-                  to: view.state.doc.length,
-                  insert: contentWithoutPrefix,
-                },
-              });
-            }
+            justSwitchedMode.current = false;
           });
           return;
         }
         if (newValue.startsWith("#") && mode !== "ai") {
           const contentWithoutPrefix = newValue.slice(1);
+          justSwitchedMode.current = true;
           onModeChange("ai");
           onValueChange("#" + contentWithoutPrefix);
-          // Synchronously update editor to remove prefix from display
+          // Update editor to remove prefix from display
+          const view = editorViewRef.current;
+          if (view) {
+            view.dispatch({
+              changes: {
+                from: 0,
+                to: view.state.doc.length,
+                insert: contentWithoutPrefix,
+              },
+            });
+          }
           requestAnimationFrame(() => {
-            const view = editorViewRef.current;
-            if (view && view.state.doc.toString() !== contentWithoutPrefix) {
-              view.dispatch({
-                changes: {
-                  from: 0,
-                  to: view.state.doc.length,
-                  insert: contentWithoutPrefix,
-                },
-              });
-            }
+            justSwitchedMode.current = false;
           });
           return;
         }
         if (newValue.startsWith("!") && mode !== "search") {
           const contentWithoutPrefix = newValue.slice(1);
+          justSwitchedMode.current = true;
           onModeChange("search");
-          onValueChange("!" + contentWithoutPrefix);
-          // Synchronously update editor to remove prefix from display
+          onValueChange(contentWithoutPrefix); // Search mode has no prefix
+          // Update editor to remove prefix from display
+          const view = editorViewRef.current;
+          if (view) {
+            view.dispatch({
+              changes: {
+                from: 0,
+                to: view.state.doc.length,
+                insert: contentWithoutPrefix,
+              },
+            });
+          }
           requestAnimationFrame(() => {
-            const view = editorViewRef.current;
-            if (view && view.state.doc.toString() !== contentWithoutPrefix) {
-              view.dispatch({
-                changes: {
-                  from: 0,
-                  to: view.state.doc.length,
-                  insert: contentWithoutPrefix,
-                },
-              });
-            }
+            justSwitchedMode.current = false;
           });
           return;
         }
 
-        // Handle empty value - reset to search mode
+        // Handle empty value - just update value, don't auto-reset mode
+        // User can use Cmd+Backspace to reset to search mode
         if (newValue === "") {
           onValueChange("");
-          if (mode !== "search") {
-            onModeChange("search");
-          }
           return;
         }
 
-        // Add prefix for AI/WHERE/SEARCH modes if not present
+        // Add prefix for AI/WHERE modes if not present (search mode has no prefix)
         if (mode === "ai" && !newValue.startsWith("#")) {
           onValueChange("#" + newValue);
         } else if (mode === "where" && !newValue.startsWith("?")) {
           onValueChange("?" + newValue);
-        } else if (mode === "search" && !newValue.startsWith("!")) {
-          onValueChange("!" + newValue);
         } else {
+          // Search mode: no prefix needed, just pass the value through
           onValueChange(newValue);
         }
       },
@@ -643,9 +663,9 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
                               } else {
                                 onValueChange(currentValue);
                               }
-                              // Focus input after mode change (not for AI mode - user selects model first)
+                              // Focus editor after mode change (not for AI mode - user selects model first)
                               if (m !== "ai") {
-                                setTimeout(() => inputRef.current?.focus(), 0);
+                                setTimeout(() => editorViewRef.current?.focus(), 0);
                               }
                             }}
                             className={cn("text-xs", mode === m && "bg-accent")}
@@ -908,26 +928,42 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
                             },
                             {
                               key: "Backspace",
-                              run: () => {
-                                // Get display value (without prefix)
-                                const displayValue =
-                                  (value.startsWith("?") && mode === "where") ||
-                                  (value.startsWith("#") && mode === "ai") ||
-                                  (value.startsWith("!") && mode === "search")
-                                    ? value.slice(1)
-                                    : value;
-
-                                if (displayValue === "") {
-                                  // Remove prefix and go back to search mode
-                                  if (
-                                    value.startsWith("?") ||
-                                    value.startsWith("#") ||
-                                    value.startsWith("!")
-                                  ) {
-                                    onValueChange("");
+                              run: (view) => {
+                                // Check if editor is empty
+                                const editorContent = view.state.doc.toString();
+                                if (editorContent === "" && mode !== "search") {
+                                  // Reset to search mode on backspace in empty input
+                                  onValueChange("");
+                                  onModeChange("search");
+                                  return true;
+                                }
+                                return false;
+                              },
+                            },
+                            {
+                              key: "Mod-Backspace",
+                              run: (view) => {
+                                // Cmd+Backspace: clear input and reset to search mode
+                                const editorContent = view.state.doc.toString();
+                                if (editorContent === "" && mode !== "search") {
+                                  onValueChange("");
+                                  onModeChange("search");
+                                  return true;
+                                }
+                                // If there's content, clear it first
+                                if (editorContent !== "") {
+                                  justSwitchedMode.current = true;
+                                  view.dispatch({
+                                    changes: { from: 0, to: view.state.doc.length, insert: "" },
+                                  });
+                                  onValueChange("");
+                                  if (mode !== "search") {
                                     onModeChange("search");
-                                    return true;
                                   }
+                                  requestAnimationFrame(() => {
+                                    justSwitchedMode.current = false;
+                                  });
+                                  return true;
                                 }
                                 return false;
                               },

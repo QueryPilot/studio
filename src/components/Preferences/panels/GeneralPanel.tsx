@@ -6,15 +6,23 @@ import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/stores/appStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { useEffect, useState } from "react";
-import { check } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
+import { invoke } from "@tauri-apps/api/core";
 import {
   IconRefresh,
   IconLoader2,
   IconCheck,
   IconX,
+  IconDownload,
 } from "@tabler/icons-react";
 import { getVersion } from "@tauri-apps/api/app";
+
+interface ReleaseInfo {
+  version: string;
+  notes: string;
+  pub_date: string;
+  download_url: string;
+  signature: string | null;
+}
 
 export default function GeneralPanel() {
   const {
@@ -28,10 +36,12 @@ export default function GeneralPanel() {
   const { setUnsavedChanges } = usePreferencesStore();
 
   const [updateStatus, setUpdateStatus] = useState<
-    "idle" | "checking" | "available" | "downloading" | "uptodate" | "error"
+    "idle" | "checking" | "available" | "downloading" | "ready" | "uptodate" | "error"
   >("idle");
   const [updateMessage, setUpdateMessage] = useState("");
   const [appVersion, setAppVersion] = useState("");
+  const [pendingUpdate, setPendingUpdate] = useState<ReleaseInfo | null>(null);
+  const [downloadedPath, setDownloadedPath] = useState<string | null>(null);
 
   useEffect(() => {
     setUnsavedChanges(false);
@@ -42,21 +52,15 @@ export default function GeneralPanel() {
     try {
       setUpdateStatus("checking");
       setUpdateMessage("");
+      setPendingUpdate(null);
+      setDownloadedPath(null);
 
-      const update = await check();
+      const update = await invoke<ReleaseInfo | null>("check_for_updates");
 
       if (update) {
         setUpdateStatus("available");
         setUpdateMessage(`Version ${update.version} available`);
-
-        // Download and install
-        setUpdateStatus("downloading");
-        await update.downloadAndInstall();
-
-        // Prompt to relaunch
-        if (confirm("Update installed. Restart now?")) {
-          await relaunch();
-        }
+        setPendingUpdate(update);
       } else {
         setUpdateStatus("uptodate");
         setUpdateMessage("You're on the latest version");
@@ -65,6 +69,43 @@ export default function GeneralPanel() {
       setUpdateStatus("error");
       setUpdateMessage(
         error instanceof Error ? error.message : "Failed to check for updates",
+      );
+    }
+  };
+
+  const handleDownloadUpdate = async () => {
+    if (!pendingUpdate) return;
+
+    try {
+      setUpdateStatus("downloading");
+      setUpdateMessage(`Downloading v${pendingUpdate.version}...`);
+
+      const filePath = await invoke<string>("download_update", {
+        url: pendingUpdate.download_url,
+      });
+
+      setDownloadedPath(filePath);
+      setUpdateStatus("ready");
+      setUpdateMessage(`v${pendingUpdate.version} downloaded. Ready to install.`);
+    } catch (error) {
+      setUpdateStatus("error");
+      setUpdateMessage(
+        error instanceof Error ? error.message : "Failed to download update",
+      );
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    if (!downloadedPath) return;
+
+    try {
+      setUpdateMessage("Opening installer...");
+      await invoke("install_update", { filePath: downloadedPath });
+      setUpdateMessage("Installer opened. Please follow the installation prompts.");
+    } catch (error) {
+      setUpdateStatus("error");
+      setUpdateMessage(
+        error instanceof Error ? error.message : "Failed to install update",
       );
     }
   };
@@ -180,29 +221,51 @@ export default function GeneralPanel() {
                 </p>
               )}
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleCheckUpdate}
-              disabled={
-                updateStatus === "checking" || updateStatus === "downloading"
-              }
-            >
-              {updateStatus === "checking" || updateStatus === "downloading" ? (
-                <IconLoader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : updateStatus === "uptodate" ? (
-                <IconCheck className="h-4 w-4 mr-2 text-green-600" />
-              ) : updateStatus === "error" ? (
-                <IconX className="h-4 w-4 mr-2 text-destructive" />
-              ) : (
-                <IconRefresh className="h-4 w-4 mr-2" />
+            <div className="flex gap-2">
+              {updateStatus === "available" && (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={handleDownloadUpdate}
+                >
+                  <IconDownload className="h-4 w-4 mr-2" />
+                  Download
+                </Button>
               )}
-              {updateStatus === "checking"
-                ? "Checking..."
-                : updateStatus === "downloading"
-                ? "Installing..."
-                : "Check for Updates"}
-            </Button>
+              {updateStatus === "ready" && (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={handleInstallUpdate}
+                >
+                  <IconCheck className="h-4 w-4 mr-2" />
+                  Install
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCheckUpdate}
+                disabled={
+                  updateStatus === "checking" || updateStatus === "downloading"
+                }
+              >
+                {updateStatus === "checking" || updateStatus === "downloading" ? (
+                  <IconLoader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : updateStatus === "uptodate" ? (
+                  <IconCheck className="h-4 w-4 mr-2 text-green-600" />
+                ) : updateStatus === "error" ? (
+                  <IconX className="h-4 w-4 mr-2 text-destructive" />
+                ) : (
+                  <IconRefresh className="h-4 w-4 mr-2" />
+                )}
+                {updateStatus === "checking"
+                  ? "Checking..."
+                  : updateStatus === "downloading"
+                  ? "Downloading..."
+                  : "Check for Updates"}
+              </Button>
+            </div>
           </div>
         </div>
       </div>

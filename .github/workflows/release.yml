@@ -59,8 +59,8 @@ jobs:
 
           VERSION_NUMBER="${VERSION#v}"
 
-          # Extract changelog for this version
-          CHANGELOG_CONTENT=$(sed -n "/^## \[$VERSION_NUMBER\]/,/^---$/p" CHANGELOG.md | sed '1d;$d' || echo "See CHANGELOG.md for details")
+          # Extract changelog for this version only (stop at next version header)
+          CHANGELOG_CONTENT=$(awk "/^## \[$VERSION_NUMBER\]/{found=1;next} found && /^## \[/{exit} found" CHANGELOG.md || echo "See CHANGELOG.md for details")
 
           # Create release notes
           cat > /tmp/release-notes.md << EOF
@@ -438,8 +438,8 @@ jobs:
         run: |
           VERSION_NUMBER="${VERSION#v}"
 
-          # Extract from CHANGELOG.md
-          sed -n "/^## \[$VERSION_NUMBER\]/,/^---$/p" CHANGELOG.md | sed '1d;$d' > RELEASE_NOTES.md
+          # Extract from CHANGELOG.md (only current version, stop at next version header)
+          awk "/^## \[$VERSION_NUMBER\]/{found=1;next} found && /^## \[/{exit} found" CHANGELOG.md > RELEASE_NOTES.md
 
           # Add footer
           cat >> RELEASE_NOTES.md << 'EOF'
