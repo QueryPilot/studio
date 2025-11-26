@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { contextService } from "@/services/contextService";
 import { type Command } from "@/types/command";
 
@@ -226,7 +227,7 @@ export const defaultCommands: Command[] = [
     category: "Workbench",
     handler: async () => {
       try {
-        console.log("[RefreshAll] Handler started");
+        logger.info("[RefreshAll] Handler started");
 
         // Get store states
         const crudStore = useCrudStore.getState();
@@ -236,8 +237,8 @@ export const defaultCommands: Command[] = [
         const hasPendingEdits = crudStore.stagedCommands.size > 0;
         const hasUnsavedQueryChanges = tabStateStore.hasAnyUnsavedChanges();
 
-        console.log("[RefreshAll] Pending edits:", hasPendingEdits);
-        console.log("[RefreshAll] Unsaved queries:", hasUnsavedQueryChanges);
+        logger.info("[RefreshAll] Pending edits:", hasPendingEdits);
+        logger.info("[RefreshAll] Unsaved queries:", hasUnsavedQueryChanges);
 
         if (hasPendingEdits || hasUnsavedQueryChanges) {
           // Build description of changes
@@ -252,7 +253,7 @@ export const defaultCommands: Command[] = [
             description += "unsaved query changes";
           }
 
-          console.log("[RefreshAll] Showing confirmation toast");
+          logger.info("[RefreshAll] Showing confirmation toast");
 
           // Show a promise-based toast that waits for user confirmation
           const confirmed = await new Promise<boolean>((resolve) => {
@@ -296,35 +297,35 @@ export const defaultCommands: Command[] = [
             );
           });
 
-          console.log("[RefreshAll] User confirmed:", confirmed);
+          logger.info("[RefreshAll] User confirmed:", confirmed);
 
           if (!confirmed) {
-            console.log("[RefreshAll] User cancelled");
+            logger.info("[RefreshAll] User cancelled");
             return;
           }
         }
 
         // Discard all pending edits
         if (hasPendingEdits) {
-          console.log("[RefreshAll] Discarding pending edits");
+          logger.info("[RefreshAll] Discarding pending edits");
           crudStore.discardAll();
         }
 
         // Clear all caches (React Query + Zustand)
-        console.log("[RefreshAll] Clearing all caches");
+        logger.info("[RefreshAll] Clearing all caches");
         clearAllCaches();
 
         // Invalidate all queries to trigger refetch
-        console.log("[RefreshAll] Invalidating queries");
+        logger.info("[RefreshAll] Invalidating queries");
         await queryClient.invalidateQueries();
 
         // Show success toast
-        console.log("[RefreshAll] Showing success toast");
+        logger.info("[RefreshAll] Showing success toast");
         toast.success("Refreshed", {
           description: "All caches cleared and data reloaded",
         });
       } catch (error) {
-        console.error("[RefreshAll] Error:", error);
+        logger.error("[RefreshAll] Error:", error);
         toast.error("Refresh failed", {
           description: error instanceof Error ? error.message : "Unknown error",
         });
@@ -337,30 +338,30 @@ export const defaultCommands: Command[] = [
     category: "Workbench",
     handler: async () => {
       try {
-        console.log("[DiscardAllChanges] Handler started");
+        logger.info("[DiscardAllChanges] Handler started");
 
         // Get store states
         const crudStore = useCrudStore.getState();
 
         // Discard all pending edits without confirmation
-        console.log("[DiscardAllChanges] Discarding all changes");
+        logger.info("[DiscardAllChanges] Discarding all changes");
         crudStore.discardAll();
 
         // Clear all caches
-        console.log("[DiscardAllChanges] Clearing all caches");
+        logger.info("[DiscardAllChanges] Clearing all caches");
         clearAllCaches();
 
         // Invalidate all queries to trigger refetch
-        console.log("[DiscardAllChanges] Invalidating queries");
+        logger.info("[DiscardAllChanges] Invalidating queries");
         await queryClient.invalidateQueries();
 
         // Show success toast
-        console.log("[DiscardAllChanges] Showing success toast");
+        logger.info("[DiscardAllChanges] Showing success toast");
         toast.success("Changes discarded and refreshed", {
           description: "All pending changes discarded and data reloaded",
         });
       } catch (error) {
-        console.error("[DiscardAllChanges] Error:", error);
+        logger.error("[DiscardAllChanges] Error:", error);
         toast.error("Operation failed", {
           description: error instanceof Error ? error.message : "Unknown error",
         });

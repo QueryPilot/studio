@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ResizablePanelGroup,
@@ -184,7 +185,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
           setSchemas((prev) => (prev.length ? prev : [selectedSchema]));
         }
       } catch (err) {
-        console.error("Failed to load schemas for ERD", err);
+        logger.error("Failed to load schemas for ERD", err);
         if (!cancelled) {
           setSchemas((prev) => (prev.length ? prev : [selectedSchema]));
         }
@@ -310,7 +311,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
           relationshipCount: result.metadata.relationshipCount,
         });
       } catch (err) {
-        console.error("Failed to load ERD schema", err);
+        logger.error("Failed to load ERD schema", err);
         setError(
           err instanceof Error
             ? err.message

@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { useCallback, useState } from "react";
 import {
   queryHistoryService,
@@ -50,7 +51,7 @@ export function QueryHistory({
       );
       setHistory(entries);
     } catch (error) {
-      console.error("Failed to load query history:", error);
+      logger.error("Failed to load query history:", error);
     } finally {
       setIsLoading(false);
     }

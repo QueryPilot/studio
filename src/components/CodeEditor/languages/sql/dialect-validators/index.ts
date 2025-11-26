@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import type { SqlDialect } from "@/components/CodeEditor/types";
 import type { BaseDialectValidator } from "./base";
 import { PostgreSQLValidator } from "./postgresql";
@@ -38,7 +39,7 @@ export function getDialectValidator(
   const validator = validatorRegistry.get(normalizedDialect);
 
   if (!validator) {
-    console.warn(
+    logger.warn(
       `No validator found for dialect "${normalizedDialect}", falling back to PostgreSQL`,
     );
     return validatorRegistry.get("postgresql")!;

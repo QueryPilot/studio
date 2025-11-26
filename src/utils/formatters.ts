@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import type { ColumnMeta } from "../services/backend";
 
 /**
@@ -351,7 +352,7 @@ export function formatCell(value: CellValue, column: ColumnMeta): string {
   try {
     return formatter(value, column);
   } catch (error) {
-    console.warn(`Formatter error for type ${column.db_type}:`, error);
+    logger.warn(`Formatter error for type ${column.db_type}:`, error);
     if (typeof value === "string") return value;
     if (typeof value === "number") return value.toString();
     if (typeof value === "boolean") return value.toString();
@@ -373,7 +374,7 @@ export function formatCellWithType(value: CellValue, dbType: string): string {
     // Create minimal column meta for formatter
     return formatter(value, { db_type: dbType } as ColumnMeta);
   } catch (error) {
-    console.warn(`Formatter error for type ${dbType}:`, error);
+    logger.warn(`Formatter error for type ${dbType}:`, error);
     if (typeof value === "string") return value;
     if (typeof value === "number") return value.toString();
     if (typeof value === "boolean") return value.toString();

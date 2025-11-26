@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { invoke } from "@tauri-apps/api/core";
 import {
   type ConnectionMetadata,
@@ -56,7 +57,7 @@ class VaultStorageService {
     }
 
     if (!this.keychainAccessible) {
-      console.warn("Keychain not accessible, skipping vault write to prevent data loss");
+      logger.warn("Keychain not accessible, skipping vault write to prevent data loss");
       this.saveScheduled = false;
       return;
     }
@@ -69,7 +70,7 @@ class VaultStorageService {
         "Write encrypted snapshot",
       );
     } catch (err) {
-      console.error("Failed to write snapshot", err);
+      logger.error("Failed to write snapshot", err);
       if (err instanceof Error && (
         err.message.includes("keychain") ||
         err.message.includes("Keychain") ||
@@ -316,7 +317,7 @@ class VaultStorageService {
         // Ignore errors when initializing empty vault
       }
     } catch (err) {
-      console.error("Failed to read vault - keychain may be inaccessible", err);
+      logger.error("Failed to read vault - keychain may be inaccessible", err);
 
       // Check if this is a keychain access error
       if (err instanceof Error && (
@@ -326,7 +327,7 @@ class VaultStorageService {
         err.message.includes("timed out")
       )) {
         this.keychainAccessible = false;
-        console.warn("Keychain access failed - running in read-only mode to prevent data loss");
+        logger.warn("Keychain access failed - running in read-only mode to prevent data loss");
 
         // Throw to allow caller to handle UI feedback
         throw new Error("Keychain access required. Please grant access in System Settings.");
@@ -376,7 +377,7 @@ class VaultStorageService {
 
       return true;
     } catch (err) {
-      console.error("Retry keychain access failed", err);
+      logger.error("Retry keychain access failed", err);
       this.keychainAccessible = false;
       return false;
     }
@@ -389,7 +390,7 @@ class VaultStorageService {
       this.keychainAccessible = true;
       return true;
     } catch (err) {
-      console.error("Keychain access request failed", err);
+      logger.error("Keychain access request failed", err);
       this.keychainAccessible = false;
       return false;
     }

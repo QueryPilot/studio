@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { keyboardEventToDispatch } from '@/lib/keyboardDispatch';
 import { detectPlatform, type RuntimePlatform } from '@/lib/platform';
 
@@ -79,7 +80,7 @@ export class KeyboardHandler {
     // Debug logging for cmd+t, cmd+\, cmd+c, and cmd+v
     if (dispatch.includes('KeyT') || dispatch.includes('Backslash') || dispatch.includes('KeyC') || dispatch.includes('KeyV')) {
       const snapshot = this.contextService.snapshot();
-      console.log('[KeyboardHandler] Key pressed:', {
+      logger.info('[KeyboardHandler] Key pressed:', {
         dispatch,
         nextSequence,
         match: match ? match.command : 'NO MATCH',
@@ -102,7 +103,7 @@ export class KeyboardHandler {
     }
 
     if (match) {
-      console.log('[KeyboardHandler] Executing command:', match.command);
+      logger.info('[KeyboardHandler] Executing command:', match.command);
       this.execute(match.command, match.resolved.args);
       this.resetChord();
       if (this.preventDefault) {
@@ -116,7 +117,7 @@ export class KeyboardHandler {
 
   private execute(commandId: string, args: unknown): void {
     void this.commandService.execute(commandId, args).catch((error: unknown) => {
-      console.error(`[keyboardHandler] Failed to execute command ${commandId}:`, error);
+      logger.error(`[keyboardHandler] Failed to execute command ${commandId}:`, error);
     });
   }
 

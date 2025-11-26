@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { forwardRef, useCallback, useRef, useImperativeHandle } from "react";
 import type {
   DataEditorProps,
@@ -215,7 +216,7 @@ export const EditableDataGrid = forwardRef<
     (cell: Item) => {
       const coords = getCoordinates(cell);
       if (!coords) return;
-      console.log("🟠 Cell activated for editing:", {
+      logger.info("🟠 Cell activated for editing:", {
         cell,
         coords,
         column: coords.column.field,
@@ -229,15 +230,15 @@ export const EditableDataGrid = forwardRef<
 
   const handleCellEdited = useCallback(
     (cell: Item, newValue: GridCell) => {
-      console.log('[EditableDataGrid] handleCellEdited called:', { cell, newValue });
+      logger.info('[EditableDataGrid] handleCellEdited called:', { cell, newValue });
       if (!onCellEditCommit) {
-        console.log('[EditableDataGrid] No onCellEditCommit handler, skipping');
+        logger.info('[EditableDataGrid] No onCellEditCommit handler, skipping');
         editingCellRef.current = null;
         return;
       }
       const coords = getCoordinates(cell);
       if (!coords) {
-        console.log('[EditableDataGrid] Could not get coordinates, skipping');
+        logger.info('[EditableDataGrid] Could not get coordinates, skipping');
         editingCellRef.current = null;
         return;
       }
@@ -249,7 +250,7 @@ export const EditableDataGrid = forwardRef<
         newValue,
         previousValue: previous ?? null,
       };
-      console.log('[EditableDataGrid] Calling onCellEditCommit with event:', event);
+      logger.info('[EditableDataGrid] Calling onCellEditCommit with event:', event);
       const action = onCellEditCommit(event);
       processResult(action);
       editingCellRef.current = null;
@@ -262,7 +263,7 @@ export const EditableDataGrid = forwardRef<
       const cell = editingCellRef.current;
       editingCellRef.current = null;
 
-      console.log("🟡 handleFinishedEditing called:", {
+      logger.info("🟡 handleFinishedEditing called:", {
         newValue,
         cell,
         movement,
@@ -272,7 +273,7 @@ export const EditableDataGrid = forwardRef<
       if (newValue !== undefined) {
         // If newValue is provided, treat it as a cell edit
         if (cell) {
-          console.log("🟢 Calling handleCellEdited with:", { cell, newValue });
+          logger.info("🟢 Calling handleCellEdited with:", { cell, newValue });
           handleCellEdited(cell, newValue);
 
           // Handle movement (e.g., Tab to next cell with editor open)
@@ -291,7 +292,7 @@ export const EditableDataGrid = forwardRef<
                 nextRow < rows.length
               ) {
                 const nextCell: Item = [nextCol, nextRow];
-                console.log("🔵 Moving to next cell and opening editor:", {
+                logger.info("🔵 Moving to next cell and opening editor:", {
                   from: cell,
                   to: nextCell,
                 });
@@ -401,18 +402,18 @@ export const EditableDataGrid = forwardRef<
     coerceValue: coerceValue,
     allowGridFallback: false, // We handle paste ourselves
     onPaste: (event) => {
-      console.log('[EditableDataGrid] Paste event received:', event);
+      logger.info('[EditableDataGrid] Paste event received:', event);
 
       // Let custom handler override
       const result = onPaste?.(event);
       const bool = processResult(result);
       if (typeof bool === "boolean") {
-        console.log('[EditableDataGrid] Returning custom result:', bool);
+        logger.info('[EditableDataGrid] Returning custom result:', bool);
         return bool;
       }
 
       // Apply paste by calling handleCellEdited for each cell
-      console.log('[EditableDataGrid] Applying paste to cells...');
+      logger.info('[EditableDataGrid] Applying paste to cells...');
       const [colStart, rowStart] = event.target;
 
       for (let rowOffset = 0; rowOffset < event.values.length; rowOffset++) {
@@ -444,7 +445,7 @@ export const EditableDataGrid = forwardRef<
             },
           };
 
-          console.log('[EditableDataGrid] Pasting to cell:', { cell, value, currentCell, newCell });
+          logger.info('[EditableDataGrid] Pasting to cell:', { cell, value, currentCell, newCell });
           handleCellEdited(cell, newCell);
         }
       }

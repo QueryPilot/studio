@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { queryStreamClient } from "./queryStreamClient";
 import { isTauri } from "@/utils/tauri";
 import type { TableDataRow } from "./tableDataTypes";
@@ -6,7 +7,6 @@ import type { FilterConfig, SortConfig } from "@/types/filter";
 import { mapBackendColumnsToColumnMeta } from "./tableDataTransform";
 import { BackendAPI, type CellValue } from "./backend";
 import { getStreamDecodeWorker } from "./streamDecodeWorkerClient";
-import { logger } from "@/lib/logger";
 
 export interface StreamProgress {
   rowsFetched: number;
@@ -621,7 +621,7 @@ class TableStreamingService {
               // Safety timeout: resolve after 5 seconds even if count doesn't match
               setTimeout(() => {
                 clearInterval(pollInterval);
-                console.warn(
+                logger.warn(
                   `⚠️ streamQuery timeout waiting for batches: expected ${expectedRows}, got ${this.accumulatedRows.length}`,
                 );
                 const finalResult: StreamingTableResult = {

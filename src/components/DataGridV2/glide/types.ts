@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import {
   type GridCell,
   type GridColumn,
@@ -20,7 +21,7 @@ const getMeasurementContext = (): CanvasRenderingContext2D | null => {
       measurementCanvas = document.createElement("canvas");
       measurementCtx = measurementCanvas.getContext("2d");
     } catch (e) {
-      console.warn("Failed to create canvas context for text measurement:", e);
+      logger.warn("Failed to create canvas context for text measurement:", e);
       return null;
     }
   }
@@ -226,7 +227,7 @@ export const cellValueToGridCell = (
 
   // Debug log the value structure
   // if (typeof value === "object" && "display_value" in value) {
-  //   console.log("CellValue structure:", value);
+  //   logger.info("CellValue structure:", value);
   // }
 
   // Handle CellValue structure from types/cellValue.ts

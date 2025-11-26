@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { create } from "zustand";
 import { vaultStorage } from "@/services/vaultStorage";
 import {
@@ -352,7 +353,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     );
 
     if (existing) {
-      console.log(
+      logger.info(
         `[ConnectionStore] Found existing connection for database ${database}: ${existing.profile.id}`,
       );
       return existing.profile.id;
@@ -370,7 +371,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
       group: groupName,
     };
 
-    console.log(
+    logger.info(
       `[ConnectionStore] Cloning connection for database ${database}, group: ${groupName}`,
     );
 

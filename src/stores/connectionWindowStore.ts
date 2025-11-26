@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { create } from "zustand";
 import {
   windowChannelTracker,
@@ -62,7 +63,7 @@ export const useConnectionWindowStore = create<ConnectionWindowStore>(
     initialize: () => {
       // Subscribe to status changes from BroadcastChannel
       const unsubscribe = windowChannelTracker.onStatusChange((statuses) => {
-        console.log(
+        logger.info(
           "[ConnectionWindowStore] Status update received:",
           statuses.length,
           "connection(s)",
@@ -79,7 +80,7 @@ export const useConnectionWindowStore = create<ConnectionWindowStore>(
         });
       });
 
-      console.log(
+      logger.info(
         "[ConnectionWindowStore] Initialized with BroadcastChannel tracking",
       );
 

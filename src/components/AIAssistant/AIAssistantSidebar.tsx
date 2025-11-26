@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { Button } from "@/components/ui/button";
 import {
   IconAdjustments,
@@ -134,7 +135,7 @@ export function AIAssistantSidebar() {
       !selectedProvider &&
       availableProviders.length > 0
     ) {
-      console.log(
+      logger.info(
         "[AIAssistantSidebar] Auto-selecting configured provider:",
         configuredProviders[0],
       );
@@ -172,7 +173,7 @@ export function AIAssistantSidebar() {
       // Clear input after successful send
       setInputText("");
     } catch (error) {
-      console.error("[AIAssistantSidebar] Failed to send message:", error);
+      logger.error("[AIAssistantSidebar] Failed to send message:", error);
       toast.error("Failed to send message", {
         description: "Please try again.",
       });
@@ -274,7 +275,7 @@ export function AIAssistantSidebar() {
     selectedProvider && configuredProviders.includes(selectedProvider);
 
   // Debug logging
-  console.log("[AIAssistantSidebar] Debug:", {
+  logger.info("[AIAssistantSidebar] Debug:", {
     selectedProvider,
     selectedModel,
     configuredProviders,

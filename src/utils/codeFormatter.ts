@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { format as sqlFormat } from "sql-formatter";
 import type { SqlDialect } from "@/components/CodeEditor/types";
 
@@ -34,7 +35,7 @@ export function formatSql(
 
     return formatted;
   } catch (error) {
-    console.error("SQL formatting error:", error);
+    logger.error("SQL formatting error:", error);
     // Return original code if formatting fails
     return code;
   }
@@ -52,7 +53,7 @@ export function formatJson(code: string): string {
     const parsed = JSON.parse(code);
     return JSON.stringify(parsed, null, 2);
   } catch (error) {
-    console.error("JSON formatting error:", error);
+    logger.error("JSON formatting error:", error);
     return code;
   }
 }

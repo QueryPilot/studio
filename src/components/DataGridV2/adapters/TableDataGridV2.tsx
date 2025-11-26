@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import {
   memo,
   useCallback,
@@ -945,13 +946,13 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     const isResizing = isResizingColumns();
     if (isResizing) {
       perfMonitor.startFPSMonitoring();
-      console.log("🚀 [DataGrid] Started FPS monitoring during column resize");
+      logger.info("🚀 [DataGrid] Started FPS monitoring during column resize");
     } else if (!isResizing && perfMonitor) {
       // Small delay to catch final frames
       const timer = setTimeout(() => {
         const metrics = perfMonitor.stopFPSMonitoring();
         if (metrics.totalFrames > 0) {
-          console.log("📊 [DataGrid] Column resize performance:", {
+          logger.info("📊 [DataGrid] Column resize performance:", {
             fps: `${metrics.fps} fps`,
             avgFrameTime: `${metrics.avgFrameTime}ms`,
             droppedFrames: `${metrics.droppedFrames}/${metrics.totalFrames}`,

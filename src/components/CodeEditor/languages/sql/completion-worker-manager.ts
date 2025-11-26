@@ -4,6 +4,7 @@
  * Handles communication with the web worker for context analysis.
  */
 
+import { logger } from "@/lib/logger";
 import type {
   CompletionWorkerRequest,
   CompletionWorkerResponse,
@@ -34,13 +35,13 @@ class CompletionWorkerManager {
       };
 
       this.worker.onerror = (error) => {
-        console.error('[CompletionWorker] Worker error:', error);
+        logger.error('[CompletionWorker] Worker error:', error);
         this.rejectAllPending(new Error('Worker error'));
       };
 
       this.isInitialized = true;
     } catch (error) {
-      console.error('[CompletionWorker] Failed to initialize:', error);
+      logger.error('[CompletionWorker] Failed to initialize:', error);
       throw error;
     }
   }

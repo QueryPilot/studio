@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { Parser } from "@dbml/core";
 import type { TableStructure, ForeignKeyInfo } from "@/types/tableStructure";
 import type { ColumnMeta } from "@/types/database";
@@ -247,11 +248,11 @@ class DBMLService {
             // Handle edge cases where database might return partial values
             if (upperAction === "SET") {
               // If we just have "SET", assume it's "SET NULL" as it's most common
-              console.warn(`Ambiguous foreign key action "SET" - assuming "SET NULL"`);
+              logger.warn(`Ambiguous foreign key action "SET" - assuming "SET NULL"`);
               return "set null";
             }
             // Log unrecognized action for debugging
-            console.warn(`Unrecognized foreign key action: "${action}" - using lowercase`);
+            logger.warn(`Unrecognized foreign key action: "${action}" - using lowercase`);
             return action.toLowerCase();
         }
       };
@@ -306,7 +307,7 @@ class DBMLService {
     try {
       return Parser.parse(dbml, "dbml");
     } catch (error) {
-      console.error("Failed to parse DBML", error);
+      logger.error("Failed to parse DBML", error);
       return null;
     }
   }

@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import React, {
   useCallback,
   useEffect,
@@ -250,7 +251,7 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
   // Removed auto-scroll logic - using sticky positioning instead
 
   useEffect(() => {
-    console.log(`Panel ${content.id} - Drag state:`, {
+    logger.info(`Panel ${content.id} - Drag state:`, {
       isDragActive,
       isSourcePanel,
       showSplitZones,

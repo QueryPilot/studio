@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -59,7 +60,7 @@ export function UpdateChecker({ checkOnMount = false }: UpdateCheckerProps) {
         setShowDialog(true);
       }
     } catch (error) {
-      console.error("Update check failed:", error);
+      logger.error("Update check failed:", error);
       setState((prev) => ({
         ...prev,
         error: error instanceof Error ? error.message : String(error),
@@ -94,7 +95,7 @@ export function UpdateChecker({ checkOnMount = false }: UpdateCheckerProps) {
       // Close dialog - user will install manually
       setShowDialog(false);
     } catch (error) {
-      console.error("Update install failed:", error);
+      logger.error("Update install failed:", error);
       setState((prev) => ({
         ...prev,
         downloading: false,

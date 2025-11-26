@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
+import { logger } from "@/lib/logger";
 import {
   invoke,
   SERIALIZE_TO_IPC_FN,
@@ -7,7 +8,6 @@ import {
 import type { ColumnMeta, CellValue, StreamMessage } from "./backend";
 import { isTauri } from "../utils/tauri";
 import { getStreamDecodeWorker } from "./streamDecodeWorkerClient";
-import { logger } from "@/lib/logger";
 
 export interface QueryStreamParams {
   connId: string;
@@ -91,7 +91,7 @@ export class QueryStreamClient {
    * @example
    * const client = new QueryStreamClient();
    * for await (const batch of client.stream({ connId, sql })) {
-   *   console.log(`Received ${batch.rows.length} rows at offset ${batch.rowOffset}`);
+   *   logger.info(`Received ${batch.rows.length} rows at offset ${batch.rowOffset}`);
    * }
    */
   /*
@@ -308,7 +308,7 @@ export class QueryStreamClient {
             // Ensure all pending decode tasks are flushed before resolving
             pendingDecode
               .catch((error) => {
-                console.error(
+                logger.error(
                   "[QueryStreamClient] Pending decode error on success",
                   error,
                 );

@@ -5,6 +5,7 @@
  * and the FeatureErrorBoundary for isolated error handling
  */
 
+import { logger } from "@/lib/logger";
 import { FeatureErrorBoundary } from './FeatureErrorBoundary';
 import { QueryPanel } from './QueryPanel/QueryPanel';
 
@@ -14,7 +15,7 @@ export function WorkbenchPanelExample() {
     <FeatureErrorBoundary
       featureName="Query Panel"
       onReset={() => {
-        console.log('Query panel error boundary reset');
+        logger.info('Query panel error boundary reset');
       }}
     >
       <QueryPanel
@@ -33,7 +34,7 @@ export function DataGridExample() {
     <FeatureErrorBoundary
       featureName="Data Grid"
       onReset={() => {
-        console.log('Data grid error boundary reset');
+        logger.info('Data grid error boundary reset');
       }}
     >
       {/* Your data grid component */}
@@ -48,7 +49,7 @@ export function AIAssistantExample() {
     <FeatureErrorBoundary
       featureName="AI Assistant"
       onReset={() => {
-        console.log('AI assistant error boundary reset');
+        logger.info('AI assistant error boundary reset');
       }}
     >
       {/* Your AI assistant component */}

@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 /**
  * Check if running in Tauri context
  */
@@ -15,7 +16,7 @@ export async function safeInvoke<T>(
   args?: Record<string, unknown>,
 ): Promise<T | null> {
   if (!isTauri()) {
-    console.warn(`Cannot invoke "${cmd}" - not running in Tauri context`);
+    logger.warn(`Cannot invoke "${cmd}" - not running in Tauri context`);
     return null;
   }
 
@@ -31,7 +32,7 @@ export async function safeEmit(
   payload?: unknown,
 ): Promise<void> {
   if (!isTauri()) {
-    console.warn(`Cannot emit "${event}" - not running in Tauri context`);
+    logger.warn(`Cannot emit "${event}" - not running in Tauri context`);
     return;
   }
 
@@ -47,7 +48,7 @@ export async function safeListen(
   handler: (event: { payload: unknown }) => void,
 ): Promise<(() => void) | null> {
   if (!isTauri()) {
-    console.warn(`Cannot listen to "${event}" - not running in Tauri context`);
+    logger.warn(`Cannot listen to "${event}" - not running in Tauri context`);
     return null;
   }
 

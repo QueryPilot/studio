@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -69,7 +70,7 @@ export function GlobalShortcutsPanel() {
         description: "Show/activate Query Pilot",
         handler: () => {
           // The handler is in Rust, this is just for tracking
-          console.log("Global shortcut triggered:", customShortcut);
+          logger.info("Global shortcut triggered:", customShortcut);
         },
       });
 
@@ -87,7 +88,7 @@ export function GlobalShortcutsPanel() {
         );
       }
     } catch (error) {
-      console.error("Failed to register global shortcut:", error);
+      logger.error("Failed to register global shortcut:", error);
       toast.error("Failed to register shortcut");
     }
   };
@@ -98,7 +99,7 @@ export function GlobalShortcutsPanel() {
       setIsRegistered(false);
       toast.success("Global shortcut unregistered");
     } catch (error) {
-      console.error("Failed to unregister global shortcut:", error);
+      logger.error("Failed to unregister global shortcut:", error);
       toast.error("Failed to unregister shortcut");
     }
   };

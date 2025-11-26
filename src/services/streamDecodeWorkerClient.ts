@@ -1,7 +1,7 @@
+import { logger } from "@/lib/logger";
 import type { ColumnMeta } from "@/types/database";
 import type { TableDataRow } from "./tableDataTypes";
 import type { CellValue as BackendCellValue } from "./backend";
-import { logger } from "@/lib/logger";
 
 type DecodeResult = BackendCellValue[][];
 

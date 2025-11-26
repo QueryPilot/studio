@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import type {
   GridNode,
   Direction,
@@ -223,18 +224,18 @@ function countVerticalPanelsInColumn(
   targetPanelId: string,
 ): number {
   const path = findNodePath(tree, targetPanelId);
-  console.log(
+  logger.info(
     `🔍 countVerticalPanelsInColumn: path for ${targetPanelId}:`,
     path,
   );
   if (path === null) {
-    console.warn(`⚠️ Panel ${targetPanelId} not found in tree, returning 1`);
+    logger.warn(`⚠️ Panel ${targetPanelId} not found in tree, returning 1`);
     return 1;
   }
 
   // If path is empty array, this is the root panel
   if (path.length === 0) {
-    console.log(
+    logger.info(
       `📍 Target is root panel, counting all vertical panels in tree`,
     );
     // For root panel, count all vertical panels in the tree
@@ -248,7 +249,7 @@ function countVerticalPanelsInColumn(
     const currentPath = path.slice(0, i);
     const currentNode = getNodeByPath(tree, currentPath);
 
-    console.log(`  Checking path [${currentPath.join(",")}]:`, {
+    logger.info(`  Checking path [${currentPath.join(",")}]:`, {
       type: currentNode?.type,
       orientation:
         currentNode?.type === "branch" ? currentNode.orientation : "N/A",
@@ -262,7 +263,7 @@ function countVerticalPanelsInColumn(
       const childIndex = path[i];
       if (childIndex !== undefined && currentNode.children?.[childIndex]) {
         columnRoot = currentNode.children[childIndex];
-        console.log(
+        logger.info(
           `📍 Found column root at child[${childIndex}] of horizontal parent at [${currentPath.join(
             ",",
           )}]`,
@@ -275,7 +276,7 @@ function countVerticalPanelsInColumn(
   // If no horizontal parent found, the entire tree is the column
   if (!columnRoot) {
     columnRoot = tree;
-    console.log(`📍 No horizontal parent found, using entire tree as column`);
+    logger.info(`📍 No horizontal parent found, using entire tree as column`);
   }
 
   // Count vertical panels in this column
@@ -291,7 +292,7 @@ function countVerticalPanelsInColumn(
         ? countVerticalPanels(node.children[1])
         : 0;
       const total = topCount + bottomCount;
-      console.log(
+      logger.info(
         `🔢 Vertical branch: top=${topCount}, bottom=${bottomCount}, total=${total}`,
       );
       return total;
@@ -304,7 +305,7 @@ function countVerticalPanelsInColumn(
         ? countVerticalPanels(node.children[1])
         : 0;
       const max = Math.max(leftCount, rightCount);
-      console.log(
+      logger.info(
         `🔢 Horizontal branch within column: left=${leftCount}, right=${rightCount}, max=${max}`,
       );
       return max;
@@ -314,7 +315,7 @@ function countVerticalPanelsInColumn(
   }
 
   const count = countVerticalPanels(columnRoot);
-  console.log(
+  logger.info(
     `📊 Total vertical panels in column for ${targetPanelId}: ${count}`,
   );
   return count;
@@ -325,18 +326,18 @@ function countHorizontalPanelsInRow(
   targetPanelId: string,
 ): number {
   const path = findNodePath(tree, targetPanelId);
-  console.log(
+  logger.info(
     `🔍 countHorizontalPanelsInRow: path for ${targetPanelId}:`,
     path,
   );
   if (path === null) {
-    console.warn(`⚠️ Panel ${targetPanelId} not found in tree, returning 1`);
+    logger.warn(`⚠️ Panel ${targetPanelId} not found in tree, returning 1`);
     return 1;
   }
 
   // If path is empty array, this is the root panel
   if (path.length === 0) {
-    console.log(
+    logger.info(
       `📍 Target is root panel, counting all horizontal panels in tree`,
     );
     // For root panel, count all horizontal panels in the tree
@@ -358,7 +359,7 @@ function countHorizontalPanelsInRow(
       // Found vertical parent, the row is the child at path[i]
       rowPath = path.slice(0, i + 1);
       rowRoot = getNodeByPath(tree, rowPath) || tree;
-      console.log(
+      logger.info(
         `📍 Found row root at path [${rowPath.join(
           ",",
         )}] for panel ${targetPanelId}`,
@@ -370,7 +371,7 @@ function countHorizontalPanelsInRow(
   // If no vertical parent found, the entire tree is the row
   if (rowPath.length === 0) {
     rowRoot = tree;
-    console.log(`📍 Using entire tree as row root for panel ${targetPanelId}`);
+    logger.info(`📍 Using entire tree as row root for panel ${targetPanelId}`);
   }
 
   // Count horizontal panels in this row
@@ -386,7 +387,7 @@ function countHorizontalPanelsInRow(
         ? countHorizontalPanels(node.children[1])
         : 0;
       const total = leftCount + rightCount;
-      console.log(
+      logger.info(
         `🔢 Horizontal branch: left=${leftCount}, right=${rightCount}, total=${total}`,
       );
       return total;
@@ -399,7 +400,7 @@ function countHorizontalPanelsInRow(
         ? countHorizontalPanels(node.children[1])
         : 0;
       const max = Math.max(topCount, bottomCount);
-      console.log(
+      logger.info(
         `🔢 Vertical branch in row: top=${topCount}, bottom=${bottomCount}, max=${max}`,
       );
       return max;
@@ -409,7 +410,7 @@ function countHorizontalPanelsInRow(
   }
 
   const count = countHorizontalPanels(rowRoot);
-  console.log(
+  logger.info(
     `📊 Total horizontal panels in row for ${targetPanelId}: ${count}`,
   );
   return count;
@@ -434,7 +435,7 @@ export function canSplitPanel(
   targetPanelId: string,
   direction: Direction,
 ): boolean {
-  console.log(
+  logger.info(
     `🔍 canSplitPanel called for ${targetPanelId} direction: ${direction}`,
   );
 
@@ -447,12 +448,12 @@ export function canSplitPanel(
     const currentColumns = countHorizontalPanelsInRow(tree, targetPanelId);
     const canSplit = currentColumns < CONSTRAINTS.MAX_COLUMNS;
 
-    console.log(
+    logger.info(
       `📊 Column check: ${currentColumns} columns in row, max: ${CONSTRAINTS.MAX_COLUMNS}, can split: ${canSplit}`,
     );
 
     if (!canSplit) {
-      console.log(
+      logger.info(
         `❌ Cannot split: Already at max ${CONSTRAINTS.MAX_COLUMNS} columns in this row`,
       );
     }
@@ -463,12 +464,12 @@ export function canSplitPanel(
     const currentRows = countVerticalPanelsInColumn(tree, targetPanelId);
     const canSplit = currentRows < CONSTRAINTS.MAX_ROWS;
 
-    console.log(
+    logger.info(
       `📊 Row check: ${currentRows} rows in column, max: ${CONSTRAINTS.MAX_ROWS}, can split: ${canSplit}`,
     );
 
     if (!canSplit) {
-      console.log(
+      logger.info(
         `❌ Cannot split: Already at max ${CONSTRAINTS.MAX_ROWS} rows in this column`,
       );
     }
@@ -515,7 +516,7 @@ function redistributeHorizontalRatios(tree: GridNode, depth = 0): GridNode {
   const indent = "  ".repeat(depth);
 
   if (tree.type === "leaf") {
-    console.log(`${indent}🍃 Leaf node, no redistribution needed`);
+    logger.info(`${indent}🍃 Leaf node, no redistribution needed`);
     return tree;
   }
 
@@ -533,7 +534,7 @@ function redistributeHorizontalRatios(tree: GridNode, depth = 0): GridNode {
       const newRatio = leftColumns / totalColumns;
       const clampedRatio = Math.max(0.1, Math.min(0.9, newRatio));
 
-      console.log(`${indent}➡️ Horizontal branch redistribution:`, {
+      logger.info(`${indent}➡️ Horizontal branch redistribution:`, {
         id: tree.id.substring(0, 8),
         totalColumns,
         leftColumns,
@@ -557,7 +558,7 @@ function redistributeHorizontalRatios(tree: GridNode, depth = 0): GridNode {
       };
     } else {
       // For vertical branches, keep existing ratios but recurse
-      console.log(
+      logger.info(
         `${indent}↕️ Vertical branch, keeping ratio ${tree.splitRatio}, recursing`,
       );
       return {
@@ -618,27 +619,27 @@ export function splitPanel(
   newPanelContent?: Partial<PanelContent>,
   splitRatio = 0.5,
 ): { tree: GridNode; newPanelId: string } | null {
-  console.log("🔍 splitPanel called:", { targetPanelId, direction, tree });
+  logger.info("🔍 splitPanel called:", { targetPanelId, direction, tree });
 
   const path = findNodePath(tree, targetPanelId);
   if (path === null) {
-    console.error(
+    logger.error(
       "❌ splitPanel: findNodePath returned null for",
       targetPanelId,
     );
     return null;
   }
-  console.log("✅ Found path:", path);
+  logger.info("✅ Found path:", path);
 
   const orientation: Orientation = ["left", "right"].includes(direction)
     ? "horizontal"
     : "vertical";
 
   if (!canSplitPanel(tree, targetPanelId, direction)) {
-    console.error("❌ splitPanel: canSplitPanel returned false");
+    logger.error("❌ splitPanel: canSplitPanel returned false");
     return null;
   }
-  console.log("✅ Can split panel");
+  logger.info("✅ Can split panel");
 
   const targetNode = getNodeByPath(tree, path);
   if (!targetNode) return null;
@@ -655,7 +656,7 @@ export function splitPanel(
 
   let updatedTree = updateNodeAtPath(tree, path, newBranch);
 
-  console.log(
+  logger.info(
     "🔧 BEFORE redistribution, root splitRatio:",
     updatedTree.type === "branch" ? updatedTree.splitRatio : "N/A",
   );
@@ -669,7 +670,7 @@ export function splitPanel(
     updatedTree = redistributeVerticalRatios(updatedTree);
   }
 
-  console.log(
+  logger.info(
     "✅ AFTER redistribution, root splitRatio:",
     updatedTree.type === "branch" ? updatedTree.splitRatio : "N/A",
   );
@@ -677,16 +678,16 @@ export function splitPanel(
   // Log all splitRatios in the tree
   function logAllRatios(node: GridNode, prefix = "Root"): void {
     if (node.type === "branch") {
-      console.log(
+      logger.info(
         `  ${prefix}: splitRatio=${node.splitRatio}, orientation=${node.orientation}`,
       );
       if (node.children?.[0]) logAllRatios(node.children[0], `${prefix}.left`);
       if (node.children?.[1]) logAllRatios(node.children[1], `${prefix}.right`);
     } else {
-      console.log(`  ${prefix}: LEAF panel ${node.id.substring(0, 10)}`);
+      logger.info(`  ${prefix}: LEAF panel ${node.id.substring(0, 10)}`);
     }
   }
-  console.log("🌳 Complete tree structure with ratios:");
+  logger.info("🌳 Complete tree structure with ratios:");
   logAllRatios(updatedTree);
 
   return { tree: updatedTree, newPanelId: newPanel.id };

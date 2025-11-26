@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { toast } from "sonner";
 
 // Error codes from the Rust backend
@@ -220,7 +221,7 @@ export function handleBackendError(error: unknown): void {
   }
 
   // Log error for debugging
-  console.error("Backend error:", error);
+  logger.error("Backend error:", error);
 }
 
 /**

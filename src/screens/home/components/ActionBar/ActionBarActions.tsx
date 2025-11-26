@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { IconPlus, IconSitemap } from "@tabler/icons-react";
 import { useHomeScreenStore } from "../../store/homeScreenStore";
 
@@ -10,7 +11,7 @@ export function ActionBarActions() {
 
   const handleNewERD = () => {
     // TODO: Implement ERD workspace creation
-    console.log("Create ERD workspace");
+    logger.info("Create ERD workspace");
   };
 
   return (

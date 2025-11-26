@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Input } from "@/components/ui/input";
@@ -76,7 +77,7 @@ export default function AIPanel() {
         setSelectedProvider(firstConfigured?.name || providersData[0].name);
       }
     } catch (error) {
-      console.error("Failed to load providers:", error);
+      logger.error("Failed to load providers:", error);
       toast.error("Failed to load AI providers");
     } finally {
       setLoadingProviders(false);
@@ -93,7 +94,7 @@ export default function AIPanel() {
       });
       setCurrentApiKey(key || "");
     } catch (error) {
-      console.error("Failed to load API key:", error);
+      logger.error("Failed to load API key:", error);
       setCurrentApiKey("");
     }
   }, [selectedProvider]);
@@ -105,7 +106,7 @@ export default function AIPanel() {
       const statusData = await getSidecarStatus();
       setSidecarStatus(statusData ? "online" : "offline");
     } catch (error) {
-      console.error("Failed to check sidecar status:", error);
+      logger.error("Failed to check sidecar status:", error);
       setSidecarStatus("offline");
     }
   }, []);
@@ -121,25 +122,25 @@ export default function AIPanel() {
 
       try {
         await invoke("reload_ai_api_keys");
-        console.log("✅ API keys reloaded in sidecar");
+        logger.info("✅ API keys reloaded in sidecar");
 
         // Small delay to ensure sidecar has reloaded
         await new Promise(resolve => setTimeout(resolve, 500));
 
         // Refresh configured providers
         const statusData = await getSidecarStatus();
-        console.log("✅ Status after reload:", statusData);
+        logger.info("✅ Status after reload:", statusData);
         setConfiguredProviders(statusData?.configuredProviders || []);
 
         // Force re-render by reloading providers
         await loadProviders();
       } catch (reloadError) {
-        console.error("Failed to reload API keys in sidecar:", reloadError);
+        logger.error("Failed to reload API keys in sidecar:", reloadError);
       }
 
       toast.success(`${selectedProvider} API key saved and configured`);
     } catch (error) {
-      console.error("Failed to save API key:", error);
+      logger.error("Failed to save API key:", error);
       toast.error("Failed to save API key");
     } finally {
       setIsSaving(false);

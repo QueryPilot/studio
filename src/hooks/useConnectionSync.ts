@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { useEffect } from 'react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useConnectionStore } from '@/stores/connectionStoreNew';
@@ -27,7 +28,7 @@ export function useConnectionSync() {
         if (event.payload.affected_windows.includes(windowLabel)) {
           // Clear active connection in UI
           // This will be handled by useWindowConnection hook
-          console.log('Current window was using deleted connection:', event.payload.connection_id);
+          logger.info('Current window was using deleted connection:', event.payload.connection_id);
         }
 
         // Re-fetch connections to update the list

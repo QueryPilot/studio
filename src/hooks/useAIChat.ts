@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { useChat } from "@ai-sdk/react";
 import { AI_SIDECAR_URL } from "@/config/constants";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
@@ -30,7 +31,7 @@ export function useAIChat(options?: UseAIChatOptions) {
       ? `${selectedProvider}-${selectedModel}`
       : "uninitialized";
 
-  console.log("[useAIChat] Initializing with:", {
+  logger.info("[useAIChat] Initializing with:", {
     chatId,
     provider: selectedProvider,
     model: selectedModel,
@@ -51,7 +52,7 @@ export function useAIChat(options?: UseAIChatOptions) {
       },
     }),
     onError: (error) => {
-      console.error("[useAIChat] Chat error:", error);
+      logger.error("[useAIChat] Chat error:", error);
       options?.onError?.(error);
     },
   });

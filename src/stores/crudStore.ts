@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { create } from "zustand";
 
 import { BackendAPI } from "@/services/backend";
@@ -293,7 +294,7 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
 
       const { connectionId } = commands[0]?.target ?? {};
       if (!connectionId) {
-        console.error("Commands:", commands);
+        logger.error("Commands:", commands);
         throw new Error("CrudStore: Missing connectionId for staged commands");
       }
 
@@ -302,9 +303,9 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
         committingTableKeys: new Set(state.committingTableKeys).add(tableKey),
       }));
 
-      console.log("[CrudStore] Calling executeCrudTransaction with connectionId:", connectionId);
-      console.log("[CrudStore] Commands count:", commands.length);
-      console.log("[CrudStore] Commands to commit:", commands);
+      logger.info("[CrudStore] Calling executeCrudTransaction with connectionId:", connectionId);
+      logger.info("[CrudStore] Commands count:", commands.length);
+      logger.info("[CrudStore] Commands to commit:", commands);
 
       try {
         const result = await BackendAPI.executeCrudTransaction(
@@ -312,7 +313,7 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
           commands,
         );
 
-        console.log("[CrudStore] Backend execution result:", result);
+        logger.info("[CrudStore] Backend execution result:", result);
 
         // Check if transaction was successful
         if (!result.success) {
@@ -332,7 +333,7 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
 
         // SUCCESS: Keep staged commands for optimistic display
         // They will be cleared after refetch completes via clearCommittedChanges()
-        console.log("[CrudStore] Commit succeeded, keeping staged commands for optimistic display");
+        logger.info("[CrudStore] Commit succeeded, keeping staged commands for optimistic display");
 
         return result;
       } catch (error) {
@@ -347,7 +348,7 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
     },
 
     clearCommittedChanges: (tableKey) => {
-      console.log("[CrudStore] Clearing committed changes for:", tableKey);
+      logger.info("[CrudStore] Clearing committed changes for:", tableKey);
       set((state) => {
         const stagedCommands = cloneStagedCommands(state.stagedCommands);
         const commandIndex = new Map(state.commandIndex);

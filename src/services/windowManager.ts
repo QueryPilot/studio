@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { isTauri } from "@/utils/tauri";
 import { windowChannelTracker } from "./windowChannelTracker";
 import { platform, version } from "@tauri-apps/plugin-os";
@@ -115,7 +116,7 @@ class WindowManager {
         }
       }
     } catch (error) {
-      console.error("Failed to check/hide main window:", error);
+      logger.error("Failed to check/hide main window:", error);
     }
 
     // Create new window with transparent title bar
@@ -164,14 +165,14 @@ class WindowManager {
     // Note: Don't await this - it sets up a listener for future destruction
     void webview.once("tauri://destroyed", async () => {
       this.windows.delete(label);
-      console.log(
+      logger.info(
         `[WindowManager] Window ${label} destroyed, ${this.windows.size} windows remaining`,
       );
 
       // Only show main window if ALL workspace windows are closed
       // This allows users to have multiple workspace windows open
       if (this.windows.size === 0) {
-        console.log(
+        logger.info(
           `[WindowManager] All workspace windows closed, showing main window`,
         );
         try {
@@ -181,7 +182,7 @@ class WindowManager {
             await mainWindow.setFocus();
           }
         } catch (error) {
-          console.error("Failed to show main window:", error);
+          logger.error("Failed to show main window:", error);
         }
       }
     });
@@ -209,7 +210,7 @@ class WindowManager {
 
     // Only show main window if ALL workspace windows are closed
     if (this.windows.size === 0) {
-      console.log(
+      logger.info(
         `[WindowManager] All workspace windows closed, showing main window`,
       );
       try {
@@ -219,7 +220,7 @@ class WindowManager {
           await mainWindow.setFocus();
         }
       } catch (error) {
-        console.error("Failed to show main window:", error);
+        logger.error("Failed to show main window:", error);
       }
     }
   }
@@ -236,7 +237,7 @@ class WindowManager {
       windowChannelTracker.getWindowsForConnection(connectionId);
 
     if (windowLabels.length === 0) {
-      console.error(
+      logger.error(
         `[WindowManager] No windows found for connection ${connectionId}`,
       );
       return;
@@ -246,13 +247,13 @@ class WindowManager {
     const windowLabel = windowLabels[0];
 
     if (!windowLabel) {
-      console.error(
+      logger.error(
         `[WindowManager] Window label is undefined for connection ${connectionId}`,
       );
       return;
     }
 
-    console.log(
+    logger.info(
       `[WindowManager] Attempting to focus window ${windowLabel} for connection ${connectionId}`,
     );
 
@@ -262,14 +263,14 @@ class WindowManager {
         // On macOS, we need to unminimize and show the window first
         const isMinimized = await webview.isMinimized();
         if (isMinimized) {
-          console.log(`[WindowManager] Window is minimized, unminimizing...`);
+          logger.info(`[WindowManager] Window is minimized, unminimizing...`);
           await webview.unminimize();
         }
 
         // Ensure window is visible
         const isVisible = await webview.isVisible();
         if (!isVisible) {
-          console.log(`[WindowManager] Window is hidden, showing...`);
+          logger.info(`[WindowManager] Window is hidden, showing...`);
           await webview.show();
         }
 
@@ -284,14 +285,14 @@ class WindowManager {
           // requestUserAttention might not be available, ignore
         }
 
-        console.log(
+        logger.info(
           `[WindowManager] Successfully focused window ${windowLabel}`,
         );
       } catch (error) {
-        console.error(`[WindowManager] Failed to focus window:`, error);
+        logger.error(`[WindowManager] Failed to focus window:`, error);
       }
     } else {
-      console.error(
+      logger.error(
         `[WindowManager] Could not find webview for label ${windowLabel}`,
       );
     }
@@ -375,24 +376,24 @@ class WindowManager {
   }
 
   async closeCurrentWindow(): Promise<void> {
-    console.log("🪟 [WINDOW DEBUG] closeCurrentWindow called");
+    logger.info("🪟 [WINDOW DEBUG] closeCurrentWindow called");
 
     if (!isTauri()) {
-      console.log("🌐 [WINDOW DEBUG] Browser mode - calling window.close()");
+      logger.info("🌐 [WINDOW DEBUG] Browser mode - calling window.close()");
       // In browser mode, close the tab/window
       window.close();
       return;
     }
 
-    console.log("🖥️ [WINDOW DEBUG] Tauri mode - getting current window");
+    logger.info("🖥️ [WINDOW DEBUG] Tauri mode - getting current window");
     try {
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
       const currentWindow = getCurrentWindow();
-      console.log("🔗 [WINDOW DEBUG] Current window obtained, calling close()");
+      logger.info("🔗 [WINDOW DEBUG] Current window obtained, calling close()");
       await currentWindow.close();
-      console.log("✅ [WINDOW DEBUG] Window close completed successfully");
+      logger.info("✅ [WINDOW DEBUG] Window close completed successfully");
     } catch (error) {
-      console.error("❌ [WINDOW DEBUG] Error closing window:", error);
+      logger.error("❌ [WINDOW DEBUG] Error closing window:", error);
       throw error;
     }
   }

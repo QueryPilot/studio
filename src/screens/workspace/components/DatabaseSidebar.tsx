@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { useState, useEffect, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import {
@@ -346,7 +347,7 @@ export function DatabaseSidebar({
 
   // Context menu action handlers
   const handleExport = () => {
-    console.log("Export selected items:", Array.from(selectedItems));
+    logger.info("Export selected items:", Array.from(selectedItems));
     // TODO: Implement export functionality
   };
 
@@ -363,7 +364,7 @@ export function DatabaseSidebar({
   };
 
   const handleCopyDefinition = () => {
-    console.log(
+    logger.info(
       "Copy definition for selected items:",
       Array.from(selectedItems),
     );
@@ -390,13 +391,13 @@ export function DatabaseSidebar({
   };
 
   const handleTruncate = () => {
-    console.log("Truncate selected tables:", Array.from(selectedItems));
+    logger.info("Truncate selected tables:", Array.from(selectedItems));
     // TODO: Show confirmation dialog with warning
     // Options: Restart identity, Cascade
   };
 
   const handleDeleteSelected = () => {
-    console.log("Delete selected items:", Array.from(selectedItems));
+    logger.info("Delete selected items:", Array.from(selectedItems));
     // TODO: Show confirmation dialog with warning
     // Options: Ignore foreign key checks, Cascade
   };
@@ -438,7 +439,7 @@ export function DatabaseSidebar({
   };
 
   const handleDuplicate = () => {
-    console.log("Duplicate item:", Array.from(selectedItems)[0]);
+    logger.info("Duplicate item:", Array.from(selectedItems)[0]);
     // TODO: Implement duplicate functionality
   };
 

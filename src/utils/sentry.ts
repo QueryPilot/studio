@@ -5,6 +5,7 @@
  * Only active in production builds when user opts in via preferences.
  */
 
+import { logger } from "@/lib/logger";
 import * as Sentry from "@sentry/react";
 import type { TelemetryPreferences } from "@/stores/preferencesStore";
 import { invoke } from "@tauri-apps/api/core";
@@ -32,13 +33,13 @@ export function initializeSentry(
   appVersion: string,
 ): void {
   if (!shouldInitializeSentry(telemetryPrefs)) {
-    console.info("[Sentry] Skipping initialization (disabled or dev mode)");
+    logger.info("[Sentry] Skipping initialization (disabled or dev mode)");
     return;
   }
 
   const dsn = import.meta.env.VITE_SENTRY_DSN;
   if (!dsn) {
-    console.warn(
+    logger.warn(
       "[Sentry] DSN not configured (set VITE_SENTRY_DSN), skipping initialization",
     );
     return;
@@ -118,9 +119,9 @@ export function initializeSentry(
       ],
     });
 
-    console.info("[Sentry] Initialized successfully");
+    logger.info("[Sentry] Initialized successfully");
   } catch (error) {
-    console.error("[Sentry] Failed to initialize:", error);
+    logger.error("[Sentry] Failed to initialize:", error);
   }
 }
 
@@ -203,7 +204,7 @@ export function clearUserContext(): void {
  */
 export function disableSentry(): void {
   if (!Sentry.isInitialized()) {
-    console.info("[Sentry] Already disabled");
+    logger.info("[Sentry] Already disabled");
     return;
   }
 
@@ -211,10 +212,10 @@ export function disableSentry(): void {
     const client = Sentry.getClient();
     if (client) {
       client.close(2000); // Wait up to 2 seconds for events to flush
-      console.info("[Sentry] Disabled successfully");
+      logger.info("[Sentry] Disabled successfully");
     }
   } catch (error) {
-    console.error("[Sentry] Failed to disable:", error);
+    logger.error("[Sentry] Failed to disable:", error);
   }
 }
 
@@ -228,11 +229,11 @@ export async function configureTelemetryBackend(
   try {
     // Configure backend and AI sidecar via Tauri command
     await invoke("configure_telemetry", { sentryEnabled });
-    console.info(
+    logger.info(
       `[Sentry] Backend and sidecar configured: ${sentryEnabled}`,
     );
   } catch (error) {
-    console.error("[Sentry] Failed to configure backend telemetry:", error);
+    logger.error("[Sentry] Failed to configure backend telemetry:", error);
     throw error;
   }
 }

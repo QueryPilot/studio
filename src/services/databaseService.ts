@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { isTauri, safeInvoke, safeEmit } from "@/utils/tauri";
 import { vaultStorage } from "@/services/vaultStorage";
 import { BackendAPI, type DbType } from "./backend";
@@ -118,7 +119,7 @@ class DatabaseService {
       return existing;
     }
     if (!isTauri()) {
-      console.warn(
+      logger.warn(
         "Database operations require Tauri runtime - using mock connection",
       );
       // Return a mock connection for browser development
@@ -141,10 +142,10 @@ class DatabaseService {
         // Use database override if provided, otherwise use profile default
         const targetDatabase = databaseOverride || stored.profile.database;
 
-        console.log(
+        logger.info(
           `[DatabaseService] Connecting to ${stored.profile.name} (ID: ${stored.profile.id}) - database: ${targetDatabase}`,
         );
-        console.log(`[DatabaseService] Frontend connectionId: ${connectionId}, Profile ID: ${stored.profile.id}`);
+        logger.info(`[DatabaseService] Frontend connectionId: ${connectionId}, Profile ID: ${stored.profile.id}`);
 
         // Convert to backend profile type
         const profile: ConnectionProfile = {
@@ -188,7 +189,7 @@ class DatabaseService {
 
         return response;
       } catch (error) {
-        console.error("Failed to connect to database:", error);
+        logger.error("Failed to connect to database:", error);
 
         // Emit error health status
         const health: ConnectionHealth = {
@@ -214,7 +215,7 @@ class DatabaseService {
    */
   async connect(config: ConnectionConfig): Promise<ConnectResponse> {
     if (!isTauri()) {
-      console.warn(
+      logger.warn(
         "Database operations require Tauri runtime - using mock connection",
       );
       // Return a mock connection for browser development
@@ -254,7 +255,7 @@ class DatabaseService {
 
       return response;
     } catch (error) {
-      console.error("Failed to connect to database:", error);
+      logger.error("Failed to connect to database:", error);
       throw error;
     }
   }
@@ -274,7 +275,7 @@ class DatabaseService {
       this.activeConnections.delete(connectionId);
 
     } catch (error) {
-      console.error("Failed to disconnect from database:", error);
+      logger.error("Failed to disconnect from database:", error);
       throw error;
     }
   }
@@ -287,12 +288,12 @@ class DatabaseService {
     connectionId: string,
     database: string,
   ): Promise<void> {
-    console.log(
+    logger.info(
       `[DatabaseService] Switching connection ${connectionId} to database: ${database}`,
     );
 
     if (!isTauri()) {
-      console.warn("Database switch requires Tauri runtime - skipping in browser mode");
+      logger.warn("Database switch requires Tauri runtime - skipping in browser mode");
       return;
     }
 
@@ -310,9 +311,9 @@ class DatabaseService {
         this.activeConnections.set(connectionId, response);
       }
 
-      console.log(`[DatabaseService] Successfully switched to database: ${database}`);
+      logger.info(`[DatabaseService] Successfully switched to database: ${database}`);
     } catch (error) {
-      console.error(`[DatabaseService] Failed to switch database:`, error);
+      logger.error(`[DatabaseService] Failed to switch database:`, error);
       throw error;
     }
   }
@@ -342,7 +343,7 @@ class DatabaseService {
     const dbType = stored?.profile.db_type ?? "PostgreSQL";
 
     if (stored && dbType !== "PostgreSQL") {
-      console.warn(
+      logger.warn(
         `[DatabaseService] Schema switching not implemented for ${dbType}`,
       );
       return;
@@ -367,7 +368,7 @@ class DatabaseService {
         {},
       );
     } catch (error) {
-      console.error(
+      logger.error(
         `[DatabaseService] Failed to switch schema to ${schema} for connection ${connectionId}:`,
         error,
       );
@@ -383,7 +384,7 @@ class DatabaseService {
       const result = await BackendAPI.testConnection(connectionId);
       return result.success;
     } catch (error) {
-      console.error("Failed to test connection:", error);
+      logger.error("Failed to test connection:", error);
       return false;
     }
   }
@@ -418,7 +419,7 @@ class DatabaseService {
     try {
       return await BackendAPI.ping(connectionId);
     } catch (error) {
-      console.error("Failed to ping connection:", error);
+      logger.error("Failed to ping connection:", error);
       throw error;
     }
   }
@@ -526,7 +527,7 @@ class DatabaseService {
             }
           }
         } catch (err) {
-          console.error(
+          logger.error(
             `Failed to get structure for table ${table.name}:`,
             err,
           );
@@ -535,7 +536,7 @@ class DatabaseService {
 
       return targets;
     } catch (error) {
-      console.error("Failed to fetch foreign key targets:", error);
+      logger.error("Failed to fetch foreign key targets:", error);
       return [];
     }
   }
@@ -556,7 +557,7 @@ class DatabaseService {
       const databases = await BackendAPI.getDatabases(connectionId);
       return databases.map((db) => db.name);
     } catch (error) {
-      console.error("Failed to list databases:", error);
+      logger.error("Failed to list databases:", error);
       throw error;
     }
   }
@@ -572,7 +573,7 @@ class DatabaseService {
       const schemas = await BackendAPI.getSchemas(connectionId, _database);
       return schemas.map((s) => s.name);
     } catch (error) {
-      console.error("Failed to list schemas:", error);
+      logger.error("Failed to list schemas:", error);
       throw error;
     }
   }
@@ -612,7 +613,7 @@ class DatabaseService {
 
       return tableMetas;
     } catch (error) {
-      console.error(
+      logger.error(
         "[ConnectionId:",
         connectionId,
         ", Schema:",
@@ -641,7 +642,7 @@ class DatabaseService {
         arguments: f.arguments.split(",").map((a) => a.trim()),
       }));
     } catch (error) {
-      console.error("Failed to list functions:", error);
+      logger.error("Failed to list functions:", error);
       throw error;
     }
   }
@@ -672,7 +673,7 @@ class DatabaseService {
         created: undefined,
       }));
     } catch (error) {
-      console.error("Failed to list triggers:", error);
+      logger.error("Failed to list triggers:", error);
       throw error;
     }
   }
@@ -709,7 +710,7 @@ class DatabaseService {
         }),
       );
     } catch (error) {
-      console.error("Failed to get table columns:", error);
+      logger.error("Failed to get table columns:", error);
       throw error;
     }
   }
@@ -781,7 +782,7 @@ class DatabaseService {
       });
       return mapped;
     } catch (error) {
-      console.error("Failed to get table indexes:", error);
+      logger.error("Failed to get table indexes:", error);
       throw error;
     }
   }
@@ -796,7 +797,7 @@ class DatabaseService {
     try {
       return await BackendAPI.getIndexUsageStats(connectionId, table);
     } catch (error) {
-      console.error("Failed to get index usage stats:", error);
+      logger.error("Failed to get index usage stats:", error);
       throw error;
     }
   }
@@ -829,7 +830,7 @@ class DatabaseService {
 
       return types;
     } catch (error) {
-      console.error("Failed to get supported index types:", error);
+      logger.error("Failed to get supported index types:", error);
       // Throw error instead of masking it with fallback
       throw error;
     }
@@ -874,7 +875,7 @@ class DatabaseService {
 
       return types;
     } catch (error) {
-      console.error("Failed to get supported column types:", error);
+      logger.error("Failed to get supported column types:", error);
       // Throw error instead of masking it with fallback
       throw error;
     }
@@ -919,7 +920,7 @@ class DatabaseService {
 
       return typeInfo;
     } catch (error) {
-      console.error(`Failed to get type info for ${typeName}:`, error);
+      logger.error(`Failed to get type info for ${typeName}:`, error);
       throw error;
     }
   }
@@ -1057,7 +1058,7 @@ class DatabaseService {
 
       return structure;
     } catch (error) {
-      console.error("Failed to get table structure:", error);
+      logger.error("Failed to get table structure:", error);
       // Extract meaningful error message
       let errorMsg = "Unknown error";
       if (error instanceof Error) {
@@ -1102,7 +1103,7 @@ class DatabaseService {
 
       return definition;
     } catch (error) {
-      console.error("Failed to get object definition:", error);
+      logger.error("Failed to get object definition:", error);
       throw new Error(
         `Failed to get definition for ${objectType} ${schema}.${objectName}: ${
           error instanceof Error ? error.message : "Unknown error"
@@ -1435,7 +1436,7 @@ class DatabaseService {
         message =
           "Check constraint is violated by existing rows. We add NOT VALID for new checks, or fix the data then VALIDATE CONSTRAINT.";
       }
-      console.error("Failed to create index:", error);
+      logger.error("Failed to create index:", error);
       throw new Error(message);
     }
   }
@@ -1455,7 +1456,7 @@ class DatabaseService {
         indexName,
       });
     } catch (error) {
-      console.error("Failed to drop index:", error);
+      logger.error("Failed to drop index:", error);
       throw error;
     }
   }
@@ -1477,7 +1478,7 @@ class DatabaseService {
         newName,
       });
     } catch (error) {
-      console.error("Failed to rename index:", error);
+      logger.error("Failed to rename index:", error);
       throw error;
     }
   }
@@ -1513,7 +1514,7 @@ class DatabaseService {
         },
       });
     } catch (error) {
-      console.error("Failed to add column:", error);
+      logger.error("Failed to add column:", error);
       throw error;
     }
   }
@@ -1535,7 +1536,7 @@ class DatabaseService {
         columnName,
       });
     } catch (error) {
-      console.error("Failed to drop column:", error);
+      logger.error("Failed to drop column:", error);
       throw error;
     }
   }
@@ -1577,7 +1578,7 @@ class DatabaseService {
         },
       });
     } catch (error) {
-      console.error("Failed to modify column:", error);
+      logger.error("Failed to modify column:", error);
       throw error;
     }
   }
@@ -1601,7 +1602,7 @@ class DatabaseService {
         newName,
       });
     } catch (error) {
-      console.error("Failed to rename column:", error);
+      logger.error("Failed to rename column:", error);
       throw error;
     }
   }
@@ -1637,7 +1638,7 @@ class DatabaseService {
         },
       });
     } catch (error) {
-      console.error("Failed to add foreign key:", error);
+      logger.error("Failed to add foreign key:", error);
       throw error;
     }
   }
@@ -1659,7 +1660,7 @@ class DatabaseService {
         constraintName,
       });
     } catch (error) {
-      console.error("Failed to drop foreign key:", error);
+      logger.error("Failed to drop foreign key:", error);
       throw error;
     }
   }
@@ -1695,7 +1696,7 @@ class DatabaseService {
         },
       });
     } catch (error) {
-      console.error("Failed to create trigger:", error);
+      logger.error("Failed to create trigger:", error);
       throw error;
     }
   }
@@ -1717,7 +1718,7 @@ class DatabaseService {
         triggerName,
       });
     } catch (error) {
-      console.error("Failed to drop trigger:", error);
+      logger.error("Failed to drop trigger:", error);
       throw error;
     }
   }
@@ -1741,7 +1742,7 @@ class DatabaseService {
         enabled,
       });
     } catch (error) {
-      console.error("Failed to enable/disable trigger:", error);
+      logger.error("Failed to enable/disable trigger:", error);
       throw error;
     }
   }
@@ -1762,13 +1763,15 @@ class DatabaseService {
       try {
         await BackendAPI.disconnectAll();
       } catch (err) {
-        console.error("disconnectAll failed", err);
+        logger.error("disconnectAll failed", err);
       }
     }
 
     // Then clear frontend book-keeping
     const promises = Array.from(this.activeConnections.keys()).map((id) =>
-      this.disconnect(id).catch(console.error),
+      this.disconnect(id).catch((error) =>
+        logger.error("database-service", "Failed to disconnect", error),
+      ),
     );
     await Promise.all(promises);
 

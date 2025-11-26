@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import Dexie, { type Table } from "dexie";
 import type { StateStorage } from "zustand/middleware";
 
@@ -54,7 +55,7 @@ export const createIndexedDbStorage = (storeName?: string): StateStorage => {
         const record = await database.kv.get(scopedKey(name));
         return record?.value ?? null;
       } catch (error) {
-        console.warn("grid preferences storage getItem failed", error);
+        logger.warn("grid preferences storage getItem failed", error);
         return null;
       }
     },
@@ -62,14 +63,14 @@ export const createIndexedDbStorage = (storeName?: string): StateStorage => {
       try {
         await database.kv.put({ key: scopedKey(name), value });
       } catch (error) {
-        console.warn("grid preferences storage setItem failed", error);
+        logger.warn("grid preferences storage setItem failed", error);
       }
     },
     removeItem: async (name) => {
       try {
         await database.kv.delete(scopedKey(name));
       } catch (error) {
-        console.warn("grid preferences storage removeItem failed", error);
+        logger.warn("grid preferences storage removeItem failed", error);
       }
     },
   } satisfies StateStorage;

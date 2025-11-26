@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import React, { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { GridRenderer } from "./GridRenderer";
@@ -75,18 +76,18 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
       });
     }
 
-    console.log("🚀 Global drag started:", active.id, active.data.current);
+    logger.info("🚀 Global drag started:", active.id, active.data.current);
   };
 
   const handleDragOver = (event: DragOverEvent) => {
     const { active, over } = event;
-    console.log("🔄 Drag over:", { active: active.id, over: over?.id });
+    logger.info("🔄 Drag over:", { active: active.id, over: over?.id });
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
 
-    console.log("🏁 Global drag ended:", {
+    logger.info("🏁 Global drag ended:", {
       active: active.id,
       over: over?.id,
       activeData: active.data.current,
@@ -111,7 +112,7 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
     const { tabId, panelId: sourcePanelId } = activeData;
     const { panelId: targetPanelId, position } = overData;
 
-    console.log(
+    logger.info(
       `💧 Processing drop: ${tabId} from ${sourcePanelId} to ${targetPanelId} at ${position}`,
     );
 
@@ -135,7 +136,7 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
 
       const direction = directionMap[position];
       if (!direction) {
-        console.error("Invalid drop position:", position);
+        logger.error("Invalid drop position:", position);
         return;
       }
 
@@ -148,7 +149,7 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
         .substring(2, 11)}`;
 
       // Always create the split with the tab in the new panel
-      console.log(`🔨 Calling splitPanelAction:`, {
+      logger.info(`🔨 Calling splitPanelAction:`, {
         targetPanelId,
         direction,
         newPanelId,

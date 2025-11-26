@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { useEffect, useRef } from "react";
 import { databaseService } from "@/services/databaseService";
 import { isTauri, safeEmit } from "@/utils/tauri";
@@ -54,15 +55,15 @@ export function useConnectionAutoReconnect(connectionId?: string) {
       try {
         const health = await databaseService.getConnectionHealth(targetId);
         if (health.status !== "error") {
-          console.log(`[AutoReconnect] Connection already healthy, stopping`);
+          logger.info(`[AutoReconnect] Connection already healthy, stopping`);
           return true;
         }
       } catch (err: unknown) {
-        console.error("[AutoReconnect] Failed to inspect connection health:", err);
+        logger.error("[AutoReconnect] Failed to inspect connection health:", err);
       }
 
       const attemptNumber = attemptIndex + 1;
-      console.log(
+      logger.info(
         `[AutoReconnect] Attempt ${attemptNumber}/${RECONNECT_DELAYS.length} for connection ${targetId}`,
       );
 
@@ -70,14 +71,14 @@ export function useConnectionAutoReconnect(connectionId?: string) {
         await databaseService.connectById(targetId);
         await safeEmit("database-reconnected", { connectionId: targetId });
         
-        console.log(`[AutoReconnect] Successfully reconnected on attempt ${attemptNumber}`);
+        logger.info(`[AutoReconnect] Successfully reconnected on attempt ${attemptNumber}`);
         toast.success("Connection Restored", {
           description: "Successfully reconnected to the database.",
         });
         
         return true;
       } catch (err: unknown) {
-        console.error(`[AutoReconnect] Attempt ${attemptNumber} failed:`, err);
+        logger.error(`[AutoReconnect] Attempt ${attemptNumber} failed:`, err);
         
         // Show warning on last attempt
         if (attemptNumber === RECONNECT_DELAYS.length) {
@@ -133,7 +134,7 @@ export function useConnectionAutoReconnect(connectionId?: string) {
           return;
         }
       } catch (err: unknown) {
-        console.error("Failed to verify connection health before reconnect:", err);
+        logger.error("Failed to verify connection health before reconnect:", err);
         // Proceed with reconnect attempts even if health check fails.
       }
 
@@ -141,12 +142,12 @@ export function useConnectionAutoReconnect(connectionId?: string) {
     };
 
     const handleFocus = () => {
-      console.log("[AutoReconnect] Window focused, checking connection");
+      logger.info("[AutoReconnect] Window focused, checking connection");
       void startSequence();
     };
 
     const handleOnline = () => {
-      console.log("[AutoReconnect] Network connection restored, attempting reconnect");
+      logger.info("[AutoReconnect] Network connection restored, attempting reconnect");
       toast.info("Network Restored", {
         description: "Attempting to reconnect to database...",
         duration: 2000,
@@ -155,7 +156,7 @@ export function useConnectionAutoReconnect(connectionId?: string) {
     };
 
     const handleOffline = () => {
-      console.log("[AutoReconnect] Network connection lost");
+      logger.info("[AutoReconnect] Network connection lost");
       toast.warning("Network Lost", {
         description: "Network connection lost. Will reconnect when restored.",
         duration: 3000,

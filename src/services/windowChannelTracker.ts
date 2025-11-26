@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 /**
  * Window tracking using BroadcastChannel API for cross-window communication
  * Replaces Tauri-based window tracking with native web API
@@ -128,7 +129,7 @@ class WindowChannelTracker {
     try {
       this.channel.postMessage(fullMessage);
     } catch (error) {
-      console.error("[WindowChannelTracker] Failed to broadcast message:", error);
+      logger.error("[WindowChannelTracker] Failed to broadcast message:", error);
     }
   }
 
@@ -138,7 +139,7 @@ class WindowChannelTracker {
     }
     this.openWindows.get(connectionId)!.add(windowLabel);
 
-    console.log(
+    logger.info(
       `[WindowChannelTracker] Window ${windowLabel} registered for connection ${connectionId}`,
     );
   }
@@ -151,7 +152,7 @@ class WindowChannelTracker {
         this.openWindows.delete(connectionId);
       }
 
-      console.log(
+      logger.info(
         `[WindowChannelTracker] Window ${windowLabel} unregistered from connection ${connectionId}`,
       );
     }
@@ -182,7 +183,7 @@ class WindowChannelTracker {
     });
 
     if (deadWindows.length > 0) {
-      console.log(
+      logger.info(
         `[WindowChannelTracker] Cleaned up ${deadWindows.length} dead window(s)`,
       );
       this.notifyStatusChange();
@@ -214,7 +215,7 @@ class WindowChannelTracker {
       try {
         callback(statuses);
       } catch (error) {
-        console.error("[WindowChannelTracker] Status callback error:", error);
+        logger.error("[WindowChannelTracker] Status callback error:", error);
       }
     });
   }
@@ -234,7 +235,7 @@ class WindowChannelTracker {
       // This is fine for browser development
     }
 
-    console.log(
+    logger.info(
       `[WindowChannelTracker] Registering window ${this.currentWindowLabel} for connection ${connectionId}`,
     );
 
@@ -259,7 +260,7 @@ class WindowChannelTracker {
   unregisterWindow(): void {
     if (!this.currentConnectionId) return;
 
-    console.log(
+    logger.info(
       `[WindowChannelTracker] Unregistering window ${this.currentWindowLabel}`,
     );
 

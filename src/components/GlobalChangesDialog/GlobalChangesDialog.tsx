@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { useState, useMemo } from "react";
 import { useCrudStore } from "@/stores/crudStore";
 import type { CrudCommand } from "@/types/crud";
@@ -194,7 +195,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         });
         const result = await commitChanges(tableKey);
 
-        console.log(
+        logger.info(
           `[GlobalChangesDialog] Commit succeeded, waiting 100ms before invalidating...`,
         );
 
@@ -205,7 +206,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         // Broadcast invalidation to all components displaying this table
         const { invalidateTable } = useDataInvalidationStore.getState();
         invalidateTable(connectionId, database, schema, table);
-        console.log(
+        logger.info(
           `[GlobalChangesDialog] Invalidated table after commit: ${database}.${schema ?? "public"}.${table}`,
         );
 
@@ -231,7 +232,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
           const [connId, db, sch, tbl] = parts;
           if (connId && db && tbl) {
             invalidateTable(connId, db, sch, tbl);
-            console.log(
+            logger.info(
               `[GlobalChangesDialog] Invalidated table after commit: ${db}.${sch ?? "public"}.${tbl}`,
             );
           }
@@ -250,7 +251,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         onCommitSuccess();
       }
     } catch (error) {
-      console.error("❌ Commit failed:", error);
+      logger.error("❌ Commit failed:", error);
       toast.error("Commit failed", {
         description:
           error instanceof Error ? error.message : "Unknown error occurred",
@@ -467,7 +468,7 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
 
         // Show payload details
         const payload = cmd.payload as any;
-        console.log('[GlobalChangesDialog] DDL command:', { type: cmd.type, payload });
+        logger.info('[GlobalChangesDialog] DDL command:', { type: cmd.type, payload });
         if (payload.column) {
           // column.add - show full column definition
           ddlLines.push(`  Column: ${JSON.stringify(payload.column, null, 2)}`);

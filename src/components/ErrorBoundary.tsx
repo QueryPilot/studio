@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { IconAlertCircle, IconRefresh, IconCopy, IconCheck } from '@tabler/icons-react';
 import { Button } from "@/components/ui/button";
@@ -34,7 +35,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error("[ErrorBoundary] Uncaught error:", error, errorInfo);
+    logger.error("[ErrorBoundary] Uncaught error:", error, errorInfo);
 
     // Send error to Sentry if enabled
     captureException(error, {

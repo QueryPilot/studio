@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useAppStore } from "@/stores/appStore";
@@ -29,15 +30,15 @@ export function useMenuEventListener() {
           break;
         case "new_query":
           // TODO: Implement new query tab
-          console.log("New query tab");
+          logger.info("New query tab");
           break;
         case "new_erd":
           // TODO: Implement new ERD workspace
-          console.log("New ERD workspace");
+          logger.info("New ERD workspace");
           break;
         case "close_tab":
           // TODO: Implement close tab
-          console.log("Close tab");
+          logger.info("Close tab");
           break;
 
         // View Menu
@@ -46,7 +47,7 @@ export function useMenuEventListener() {
           break;
         case "toggle_ai":
           // TODO: Implement AI assistant toggle
-          console.log("Toggle AI assistant");
+          logger.info("Toggle AI assistant");
           break;
         case "set_theme:light":
           setTheme("light");
@@ -61,7 +62,7 @@ export function useMenuEventListener() {
         case "zoom_out":
         case "zoom_reset":
           // TODO: Implement zoom controls
-          console.log(action);
+          logger.info(action);
           break;
 
         // Edit Menu
@@ -69,7 +70,7 @@ export function useMenuEventListener() {
         case "replace":
         case "find_in_files":
           // TODO: Implement find/replace
-          console.log(action);
+          logger.info(action);
           break;
 
         // Database Menu
@@ -82,7 +83,7 @@ export function useMenuEventListener() {
         case "import":
         case "erd":
           // TODO: Implement database actions
-          console.log(action);
+          logger.info(action);
           break;
 
         // Help Menu
@@ -97,7 +98,7 @@ export function useMenuEventListener() {
           break;
 
         default:
-          console.warn("Unhandled menu action:", action);
+          logger.warn("Unhandled menu action:", action);
       }
     });
 
@@ -142,7 +143,7 @@ async function handleNewConnection(
       }
     }
   } catch (error) {
-    console.error("Failed to handle new connection:", error);
+    logger.error("Failed to handle new connection:", error);
     // Fallback - just open the form
     openConnectionForm("create");
   }
@@ -166,7 +167,7 @@ async function handleCheckUpdates() {
       alert("You're already on the latest version!");
     }
   } catch (error) {
-    console.error("Update check failed:", error);
+    logger.error("Update check failed:", error);
     alert(
       `Failed to check for updates: ${error instanceof Error ? error.message : "Unknown error"}`,
     );

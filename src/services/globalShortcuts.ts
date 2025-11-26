@@ -6,6 +6,7 @@
  * in the background or minimized.
  */
 
+import { logger } from "@/lib/logger";
 import { isTauri } from '@/utils/tauri';
 
 export type GlobalShortcutHandler = () => void | Promise<void>;
@@ -31,12 +32,12 @@ export class GlobalShortcutManager {
    */
   async initialize(): Promise<void> {
     if (!isTauri()) {
-      console.warn('[GlobalShortcutManager] Not running in Tauri, global shortcuts unavailable');
+      logger.warn('[GlobalShortcutManager] Not running in Tauri, global shortcuts unavailable');
       return;
     }
 
     if (this.isInitialized) {
-      console.warn('[GlobalShortcutManager] Already initialized');
+      logger.warn('[GlobalShortcutManager] Already initialized');
       return;
     }
 
@@ -48,12 +49,12 @@ export class GlobalShortcutManager {
       const registered = await isRegistered(defaultShortcut);
 
       if (registered) {
-        console.log('[GlobalShortcutManager] Default global shortcut already registered:', defaultShortcut);
+        logger.info('[GlobalShortcutManager] Default global shortcut already registered:', defaultShortcut);
       }
 
       this.isInitialized = true;
     } catch (error) {
-      console.error('[GlobalShortcutManager] Failed to initialize:', error);
+      logger.error('[GlobalShortcutManager] Failed to initialize:', error);
     }
   }
 
@@ -64,7 +65,7 @@ export class GlobalShortcutManager {
    */
   async register(config: GlobalShortcutConfig): Promise<boolean> {
     if (!isTauri()) {
-      console.warn('[GlobalShortcutManager] Cannot register shortcut: not in Tauri');
+      logger.warn('[GlobalShortcutManager] Cannot register shortcut: not in Tauri');
       return false;
     }
 
@@ -74,7 +75,7 @@ export class GlobalShortcutManager {
       // Check if already registered
       const alreadyRegistered = await isRegistered(config.shortcut);
       if (alreadyRegistered) {
-        console.warn(`[GlobalShortcutManager] Shortcut "${config.shortcut}" is already registered`);
+        logger.warn(`[GlobalShortcutManager] Shortcut "${config.shortcut}" is already registered`);
         return false;
       }
 
@@ -84,10 +85,10 @@ export class GlobalShortcutManager {
       // Store the config
       this.registeredShortcuts.set(config.shortcut, config);
 
-      console.log(`[GlobalShortcutManager] Registered: ${config.shortcut} - ${config.description}`);
+      logger.info(`[GlobalShortcutManager] Registered: ${config.shortcut} - ${config.description}`);
       return true;
     } catch (error) {
-      console.error(`[GlobalShortcutManager] Failed to register "${config.shortcut}":`, error);
+      logger.error(`[GlobalShortcutManager] Failed to register "${config.shortcut}":`, error);
       return false;
     }
   }
@@ -108,10 +109,10 @@ export class GlobalShortcutManager {
       await unregister(shortcut);
       this.registeredShortcuts.delete(shortcut);
 
-      console.log(`[GlobalShortcutManager] Unregistered: ${shortcut}`);
+      logger.info(`[GlobalShortcutManager] Unregistered: ${shortcut}`);
       return true;
     } catch (error) {
-      console.error(`[GlobalShortcutManager] Failed to unregister "${shortcut}":`, error);
+      logger.error(`[GlobalShortcutManager] Failed to unregister "${shortcut}":`, error);
       return false;
     }
   }
@@ -130,9 +131,9 @@ export class GlobalShortcutManager {
       await unregisterAll();
       this.registeredShortcuts.clear();
 
-      console.log('[GlobalShortcutManager] Unregistered all shortcuts');
+      logger.info('[GlobalShortcutManager] Unregistered all shortcuts');
     } catch (error) {
-      console.error('[GlobalShortcutManager] Failed to unregister all:', error);
+      logger.error('[GlobalShortcutManager] Failed to unregister all:', error);
     }
   }
 
@@ -150,7 +151,7 @@ export class GlobalShortcutManager {
       const { isRegistered } = await import('@tauri-apps/plugin-global-shortcut');
       return await isRegistered(shortcut);
     } catch (error) {
-      console.error(`[GlobalShortcutManager] Failed to check if "${shortcut}" is registered:`, error);
+      logger.error(`[GlobalShortcutManager] Failed to check if "${shortcut}" is registered:`, error);
       return false;
     }
   }

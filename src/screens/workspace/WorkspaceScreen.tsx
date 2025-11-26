@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { WorkspaceTitleBar } from "./components/WorkspaceTitleBar";
@@ -184,7 +185,7 @@ export function WorkspaceScreen() {
           ).catch(() => {});
         })
         .catch((err: unknown) => {
-          console.error("Failed to connect to database:", err);
+          logger.error("Failed to connect to database:", err);
         })
         .finally(() => {
           setIsLoading(false);
@@ -199,7 +200,7 @@ export function WorkspaceScreen() {
       // Disconnect this specific connection only
       // Note: This won't affect other windows' connections
       if (connectionId && databaseService.isConnectionActive(connectionId)) {
-        console.log(
+        logger.info(
           `[WorkspaceScreen] Unmounting - disconnecting connection ${connectionId}`,
         );
         void databaseService.disconnect(connectionId);
@@ -215,12 +216,12 @@ export function WorkspaceScreen() {
         if (event.shiftKey) {
           // Cmd+Shift+N: Open new main window
           event.preventDefault();
-          console.log('[WorkspaceScreen] Opening new main window (Cmd+Shift+N)');
+          logger.info('[WorkspaceScreen] Opening new main window (Cmd+Shift+N)');
           void windowManager.openNewMainWindow();
         } else {
           // Cmd+N: Open new table UI
           event.preventDefault();
-          console.log('[WorkspaceScreen] Opening new table UI (Cmd+N)');
+          logger.info('[WorkspaceScreen] Opening new table UI (Cmd+N)');
           // TODO: Implement new table UI action
         }
       }
@@ -271,14 +272,14 @@ export function WorkspaceScreen() {
 
           if (confirmed) {
             // User confirmed, disconnect and destroy window
-            console.log(`[WorkspaceScreen] Closing window with unsaved changes - disconnecting ${connectionId}`);
+            logger.info(`[WorkspaceScreen] Closing window with unsaved changes - disconnecting ${connectionId}`);
             try {
               if (databaseService.isConnectionActive(connectionId)) {
                 await databaseService.disconnect(connectionId);
-                console.log(`[WorkspaceScreen] Successfully disconnected ${connectionId}`);
+                logger.info(`[WorkspaceScreen] Successfully disconnected ${connectionId}`);
               }
             } catch (error) {
-              console.error(`[WorkspaceScreen] Failed to disconnect ${connectionId}:`, error);
+              logger.error(`[WorkspaceScreen] Failed to disconnect ${connectionId}:`, error);
             }
             
             // Small delay to ensure disconnect completes
@@ -291,16 +292,16 @@ export function WorkspaceScreen() {
           // No pending changes, prevent default and handle cleanup
           event.preventDefault();
           
-          console.log(`[WorkspaceScreen] Closing window - disconnecting ${connectionId}`);
+          logger.info(`[WorkspaceScreen] Closing window - disconnecting ${connectionId}`);
           
           // Disconnect if needed
           try {
             if (databaseService.isConnectionActive(connectionId)) {
               await databaseService.disconnect(connectionId);
-              console.log(`[WorkspaceScreen] Successfully disconnected ${connectionId}`);
+              logger.info(`[WorkspaceScreen] Successfully disconnected ${connectionId}`);
             }
           } catch (error) {
-            console.error(`[WorkspaceScreen] Failed to disconnect ${connectionId}:`, error);
+            logger.error(`[WorkspaceScreen] Failed to disconnect ${connectionId}:`, error);
           }
           
           // Small delay to ensure disconnect completes

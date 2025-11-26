@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { memo, useMemo, useCallback, useState } from "react";
 import {
   GridCellKind,
@@ -271,7 +272,7 @@ export const TableStructure = memo(function TableStructure({
 
           if (column.field === "nullable") {
             newDefinition.nullable = extractedValue === "YES";
-            console.log('[TableStructure] Nullable change:', { extractedValue, nullable: newDefinition.nullable });
+            logger.info('[TableStructure] Nullable change:', { extractedValue, nullable: newDefinition.nullable });
           } else if (column.field === "default") {
             newDefinition.defaultValue = extractedValue;
           } else if (column.field === "comment") {
@@ -280,13 +281,13 @@ export const TableStructure = memo(function TableStructure({
             newDefinition.dataType = extractedValue;
           }
 
-          console.log('[TableStructure] Creating modify command:', { columnName: row.column_name, newDefinition });
+          logger.info('[TableStructure] Creating modify command:', { columnName: row.column_name, newDefinition });
           const modifyCmd = createColumnModifyCommand(
             target,
             row.column_name,
             newDefinition,
           );
-          console.log('[TableStructure] Modify command created:', modifyCmd);
+          logger.info('[TableStructure] Modify command created:', modifyCmd);
           stageCommand(modifyCmd);
         }
       }

@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { useCallback, useEffect, useState } from "react";
 import {
   queryHistoryService,
@@ -54,7 +55,7 @@ export function SavedQueries({
       );
       setFavorites(favoritesData);
     } catch (error) {
-      console.error("Failed to load favorites:", error);
+      logger.error("Failed to load favorites:", error);
     } finally {
       setIsLoading(false);
     }

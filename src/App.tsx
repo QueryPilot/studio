@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { HomeScreen } from "./screens/home/HomeScreen";
 import { WorkspaceScreen } from "./screens/workspace/WorkspaceScreen";
@@ -100,7 +101,7 @@ function App() {
               });
             }
           } catch (error) {
-            console.error("Vault initialization failed", error);
+            logger.error("Vault initialization failed", error);
             // Show error toast when keychain access throws
             if (
               error instanceof Error &&
@@ -144,7 +145,7 @@ function App() {
             .initialize()
             .then(() => vaultStorage.preloadAll())
             .catch((error: unknown) => {
-              console.error(
+              logger.error(
                 "Background vault load for workspace window failed",
                 error,
               );
@@ -156,7 +157,7 @@ function App() {
             .initialize()
             .then(() => vaultStorage.preloadAll())
             .catch((error: unknown) => {
-              console.error("Background preload failed", error);
+              logger.error("Background preload failed", error);
             });
         }
 
@@ -176,7 +177,7 @@ function App() {
               await vaultStorage.flushPendingChanges();
             }
           } catch (err) {
-            console.error("Flush pending changes failed", err);
+            logger.error("Flush pending changes failed", err);
           } finally {
             if (toastId !== undefined) toast.dismiss(toastId);
           }
@@ -185,7 +186,7 @@ function App() {
           try {
             await databaseService.cleanup();
           } catch (err) {
-            console.error("Database cleanup failed on window close", err);
+            logger.error("Database cleanup failed on window close", err);
           }
 
           await currentWindow.destroy();
@@ -198,7 +199,7 @@ function App() {
 
         removeListener = unlisten;
       } catch (error) {
-        console.error("Failed to initialize window state plugin", error);
+        logger.error("Failed to initialize window state plugin", error);
       }
     };
 
@@ -225,7 +226,7 @@ function App() {
         try {
           await updateResource.close();
         } catch (error) {
-          console.error("Failed to close updater resource", error);
+          logger.error("Failed to close updater resource", error);
         }
         updateResource = null;
       }
@@ -268,7 +269,7 @@ function App() {
               success:
                 "Update downloaded. The application will restart to finish installation.",
               error: (err) => {
-                console.error("Failed to install update", err);
+                logger.error("Failed to install update", err);
                 return err instanceof Error
                   ? err.message
                   : "Failed to install update";
@@ -287,7 +288,7 @@ function App() {
           duration: 60000,
         });
       } catch (error) {
-        console.error("Update check failed", error);
+        logger.error("Update check failed", error);
       }
     };
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { logger } from "@/lib/logger";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -742,7 +743,7 @@ export const PromptInput = ({
             })
             .catch((err: unknown) => {
               // Don't clear on error - user may want to retry
-              console.error(err);
+              logger.error(err);
             });
         } else {
           // Sync function completed without throwing, clear attachments
@@ -752,7 +753,7 @@ export const PromptInput = ({
           }
         }
       } catch (error) {
-        console.error(error);
+        logger.error(error);
       }
     });
   };
@@ -1162,7 +1163,7 @@ export const PromptInputSpeechButton = ({
       };
 
       speechRecognition.onerror = (event) => {
-        console.error("Speech recognition error:", event.error);
+        logger.error("Speech recognition error:", event.error);
         setIsListening(false);
       };
 
