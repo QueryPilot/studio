@@ -17,6 +17,10 @@ import {
   acquireLinterWorker,
   releaseLinterWorker,
 } from "./languages/sql/linter-worker-manager";
+import {
+  acquirePgParserWorker,
+  releasePgParserWorker,
+} from "./languages/sql/pg-parser-worker-manager";
 import { usesWorkerLinter } from "./languages/sql/linter-strategy";
 import type { CodeEditorProps } from "./types";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
@@ -91,6 +95,19 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
       acquireLinterWorker();
       return () => {
         releaseLinterWorker();
+      };
+    }, [language, dialect]);
+
+    // Acquire/release pg-parser worker for PostgreSQL dialect
+    // PostgreSQL uses its own dedicated worker for WASM parsing
+    useEffect(() => {
+      if (language !== "sql" || dialect !== "postgresql") {
+        return;
+      }
+
+      acquirePgParserWorker();
+      return () => {
+        releasePgParserWorker();
       };
     }, [language, dialect]);
 

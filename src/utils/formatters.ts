@@ -19,6 +19,18 @@ export type CellValue =
  */
 export type CellFormatter = (value: CellValue, column: ColumnMeta) => string;
 
+// ============================================================================
+// CACHED FORMATTERS - Avoid recreating Intl objects per-call (perf critical)
+// ============================================================================
+const cachedNumberFormatter = new Intl.NumberFormat();
+const cachedDateTimeFormatter = new Intl.DateTimeFormat("en-US", {
+  dateStyle: "short",
+  timeStyle: "medium",
+});
+const cachedDateFormatter = new Intl.DateTimeFormat("en-US", {
+  dateStyle: "medium",
+});
+
 /**
  * Format UUID bytes as hyphenated string
  */
@@ -37,12 +49,8 @@ function formatUUID(bytes: number[]): string {
  */
 function formatTimestamp(micros: number): string {
   try {
-    // Convert microseconds to milliseconds
     const date = new Date(micros / 1000);
-    return new Intl.DateTimeFormat("en-US", {
-      dateStyle: "short",
-      timeStyle: "medium",
-    }).format(date);
+    return cachedDateTimeFormatter.format(date);
   } catch {
     return String(micros);
   }
@@ -53,12 +61,9 @@ function formatTimestamp(micros: number): string {
  */
 function formatDate(days: number): string {
   try {
-    // Days since Unix epoch (1970-01-01)
     const ms = days * 24 * 60 * 60 * 1000;
     const date = new Date(ms);
-    return new Intl.DateTimeFormat("en-US", {
-      dateStyle: "medium",
-    }).format(date);
+    return cachedDateFormatter.format(date);
   } catch {
     return String(days);
   }
@@ -125,9 +130,9 @@ function formatPgArray(value: unknown): string {
  * Maps database type names to formatting functions
  */
 const formatters: Record<string, CellFormatter> = {
-  // Integers - use number formatting
-  int2: (v) => (v === null ? "" : new Intl.NumberFormat().format(v as number)),
-  int4: (v) => (v === null ? "" : new Intl.NumberFormat().format(v as number)),
+  // Integers - use cached number formatter
+  int2: (v) => (v === null ? "" : cachedNumberFormatter.format(v as number)),
+  int4: (v) => (v === null ? "" : cachedNumberFormatter.format(v as number)),
   int8: (v) =>
     v === null
       ? ""
@@ -137,9 +142,9 @@ const formatters: Record<string, CellFormatter> = {
       ? v.toString()
       : JSON.stringify(v), // BigInt handling
   smallint: (v) =>
-    v === null ? "" : new Intl.NumberFormat().format(v as number),
+    v === null ? "" : cachedNumberFormatter.format(v as number),
   integer: (v) =>
-    v === null ? "" : new Intl.NumberFormat().format(v as number),
+    v === null ? "" : cachedNumberFormatter.format(v as number),
   bigint: (v) =>
     v === null
       ? ""
@@ -394,5 +399,5 @@ export function getAvailableFormatters(): string[] {
 }
 
 export function formatNumber(value: number): string {
-  return new Intl.NumberFormat("en-US").format(value);
+  return cachedNumberFormatter.format(value);
 }

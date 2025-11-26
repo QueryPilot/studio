@@ -4,9 +4,10 @@ import {
   SERIALIZE_TO_IPC_FN,
   transformCallback,
 } from "@tauri-apps/api/core";
-import { decode } from "@msgpack/msgpack";
 import type { ColumnMeta, CellValue, StreamMessage } from "./backend";
 import { isTauri } from "../utils/tauri";
+import { getStreamDecodeWorker } from "./streamDecodeWorkerClient";
+import { logger } from "@/lib/logger";
 
 export interface QueryStreamParams {
   connId: string;
@@ -185,11 +186,14 @@ export class QueryStreamClient {
 
     const { connId, tabId, sql, batchSize = 1000, userLimitPreference } = params;
 
+    const decodeWorker = getStreamDecodeWorker();
+
     return new Promise((resolve, reject) => {
       this.columns = undefined;
       this.estimatedRows = undefined;
       let totalRows = 0;
       let settled = false;
+      let pendingDecode = Promise.resolve<void>(undefined);
 
       const normalizeError = (err: unknown): Error =>
         err instanceof Error ? err : new Error(String(err));
@@ -212,62 +216,58 @@ export class QueryStreamClient {
       const dataChannel = createIpcChannel((message: unknown) => {
         // Type guard: ensure message is an ArrayBuffer
         if (!(message instanceof ArrayBuffer)) {
-          console.warn(
-            "[QueryStreamClient] Expected ArrayBuffer, received:",
-            typeof message,
-          );
-          return;
-        }
+        logger.warn(
+          "query-stream",
+          "Expected ArrayBuffer batch but received",
+          typeof message,
+        );
+        return;
+      }
         const buffer = message;
-        // Decode MessagePack binary data directly from ArrayBuffer
-        let parsedRows: CellValue[][];
-        try {
-          // ArrayBuffer → Uint8Array → MessagePack decode
-          const bytes = new Uint8Array(buffer);
+        // Decode off the main thread to keep UI responsive
+        pendingDecode = pendingDecode
+          .then(async () => {
+            // Skip empty buffers (used for cancellation checks)
+            if (buffer.byteLength === 0) {
+              return;
+            }
 
-          // Skip empty buffers (used for cancellation checks)
-          if (bytes.length === 0) {
-            return;
-          }
+            const decoded = await decodeWorker.decode(buffer);
 
-          parsedRows = decode(bytes, { useBigInt64: true }) as CellValue[][];
-        } catch (err: unknown) {
-          console.error(
-            "[QueryStreamClient] Failed to decode MessagePack batch",
-            err,
-          );
-          parsedRows = [];
-        }
+            if (!decoded || decoded.length === 0) {
+              return;
+            }
 
-        // Skip if no rows decoded
-        if (parsedRows.length === 0) {
-          return;
-        }
-
-        totalRows += parsedRows.length;
-        const batch: StreamBatch = {
-          rows: parsedRows,
-          rowOffset: batchCount * (batchSize || 1000),
-        };
-        batchCount++;
-        callbacks.onBatch?.(batch, totalRows);
+            totalRows += decoded.length;
+            const batch: StreamBatch = {
+              rows: decoded,
+              rowOffset: Math.max(totalRows - decoded.length, 0),
+            };
+            batchCount++;
+            callbacks.onBatch?.(batch, totalRows);
+          })
+          .catch((err) => {
+            logger.error("query-stream", "Failed to decode batch", err);
+          });
       });
 
       // Metadata channel: receives JSON StreamMessages
       const metadataChannel = createIpcChannel((message) => {
         if (!message || typeof message !== "object") {
-          console.warn(
-            "[QueryStreamClient] Skipping malformed metadata message",
-            message,
-          );
-          return;
-        }
+            logger.warn(
+              "query-stream",
+              "Skipping malformed metadata message",
+              message,
+            );
+            return;
+          }
 
         const typedMessage = message as StreamMessage;
 
         if (typeof (typedMessage as { type?: unknown }).type !== "string") {
-          console.warn(
-            "[QueryStreamClient] Metadata message missing type",
+          logger.warn(
+            "query-stream",
+            "Metadata message missing type",
             typedMessage,
           );
           return;
@@ -302,8 +302,20 @@ export class QueryStreamClient {
               conversionMs: typedMessage.conversion_ms,
               ipcSendMs: typedMessage.ipc_send_ms,
             };
+
             callbacks.onSuccess?.(result);
-            settleResolve(result);
+
+            // Ensure all pending decode tasks are flushed before resolving
+            pendingDecode
+              .catch((error) => {
+                console.error(
+                  "[QueryStreamClient] Pending decode error on success",
+                  error,
+                );
+              })
+              .finally(() => {
+                settleResolve(result);
+              });
             break;
           }
 
@@ -312,7 +324,11 @@ export class QueryStreamClient {
               `[${typedMessage.code}] ${typedMessage.message}`,
             );
             callbacks.onError?.(error);
-            settleReject(error);
+            pendingDecode
+              .catch(() => {
+                // swallow
+              })
+              .finally(() => settleReject(error));
             break;
           }
 
@@ -327,10 +343,9 @@ export class QueryStreamClient {
             break;
 
           default:
-            console.warn(
-              `[QueryStreamClient] Received unknown metadata message type: ${
-                (typedMessage as any).type
-              }`,
+            logger.warn(
+              "query-stream",
+              "Received unknown metadata message type",
               typedMessage,
             );
             break;

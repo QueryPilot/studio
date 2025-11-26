@@ -59,8 +59,9 @@ class SchemaCache {
     recent: 2 * 60 * 1000, // 2 min - for frequently accessed items
   };
 
-  private readonly maxCacheSize = 2000;
-  private readonly maxAccessPatternSize = 100;
+  // Reduced from 2000 to prevent memory bloat in long sessions
+  private readonly maxCacheSize = 500;
+  private readonly maxAccessPatternSize = 50;
 
   // Connection change handling
   setConnection(connectionId: string) {
@@ -252,9 +253,6 @@ class SchemaCache {
     if (existing) return existing;
 
     const fetchPromise = (async () => {
-      console.debug(
-        `[SchemaCache] Enum fetch start ${schema}.${table}.${column} (conn=${connectionId})`,
-      );
       // Try fast path from columns cache first
       try {
         const cols = await this.getTableColumns(connectionId, schema, table);
@@ -263,17 +261,12 @@ class SchemaCache {
         );
         const values =
           (meta as any)?.enum_values || (meta as any)?.set_values || [];
-        console.debug(`[SchemaCache] Column meta enum fast-path`, {
-          foundMeta: !!meta,
-          count: Array.isArray(values) ? values.length : 0,
-        });
         if (Array.isArray(values) && values.length > 0) {
           this.set(key, values, {
             ttl: this.ttlConfig.recent,
             priority: "medium",
             connectionId,
           });
-          console.debug(`[SchemaCache] Enum cached (fast)`, values);
           return values;
         }
       } catch {
@@ -299,10 +292,6 @@ class SchemaCache {
           (c) => c.name.toLowerCase() === column.toLowerCase(),
         ) as any;
         let values: string[] = meta?.enum_values || meta?.set_values || [];
-        console.debug(`[SchemaCache] Structure-based enum`, {
-          hasMeta: !!meta,
-          fromMetaCount: Array.isArray(values) ? values.length : 0,
-        });
         if (!Array.isArray(values) || values.length === 0) {
           // Try parse CHECK constraints like: CHECK (priority IN ('low','high'))
           for (const cons of structure.constraints) {
@@ -318,7 +307,6 @@ class SchemaCache {
                 .filter(Boolean);
               if (parts.length > 0) {
                 values = parts;
-                console.debug(`[SchemaCache] Enum parsed from CHECK`, values);
                 break;
               }
             }
@@ -330,7 +318,6 @@ class SchemaCache {
             priority: "medium",
             connectionId,
           });
-          console.debug(`[SchemaCache] Enum cached (structure)`, values);
           return values;
         }
       } catch {
@@ -343,7 +330,6 @@ class SchemaCache {
         priority: "low",
         connectionId,
       });
-      console.debug(`[SchemaCache] Enum not found -> caching empty`);
       return [];
     })();
 
@@ -512,9 +498,8 @@ class SchemaCache {
           priority: "low",
           connectionId: connId ?? "",
         });
-      } catch (error) {
+      } catch {
         // Silent fail for prefetch
-        console.debug(`Prefetch failed for ${item.key}:`, error);
       }
 
       // Small delay to avoid overwhelming the backend

@@ -3,11 +3,10 @@ import { isTauri } from "@/utils/tauri";
 import type { TableDataRow } from "./tableDataTypes";
 import type { ColumnMeta } from "@/types/database";
 import type { FilterConfig, SortConfig } from "@/types/filter";
-import {
-  mapBackendColumnsToColumnMeta,
-  mapRowsToTableData,
-} from "./tableDataTransform";
+import { mapBackendColumnsToColumnMeta } from "./tableDataTransform";
 import { BackendAPI, type CellValue } from "./backend";
+import { getStreamDecodeWorker } from "./streamDecodeWorkerClient";
+import { logger } from "@/lib/logger";
 
 export interface StreamProgress {
   rowsFetched: number;
@@ -206,6 +205,9 @@ export async function streamEntityPage(
 
   // Use provided tabId or generate table-specific ID for data browsing
   const effectiveTabId = tabId ?? `table-view:${schema}.${entityName}`;
+  const decodeWorker = getStreamDecodeWorker();
+  // Keep a simple promise chain to preserve batch order when mapping on the worker
+  let mappingQueue = Promise.resolve<void>(undefined);
 
   const basePageSize = limit ?? pageSize;
   const effectivePageSize = Math.max(1, basePageSize);
@@ -266,7 +268,11 @@ export async function streamEntityPage(
             }
           }
         } catch (error) {
-          console.warn("Failed to fetch estimated total:", error);
+          logger.warn(
+            "stream-service",
+            "Failed to fetch estimated total",
+            error,
+          );
         }
       }
     };
@@ -334,99 +340,121 @@ export async function streamEntityPage(
             return;
           }
 
-          const mappedRows = mapRowsToTableData(resolvedColumns, rawRows);
-          rows.push(...mappedRows);
-          if (onBatch) {
-            onBatch(mappedRows, rows.length - mappedRows.length);
-          }
+          // Offload normalization to the worker and preserve ordering via the queue
+          mappingQueue = mappingQueue
+            .then(async () => {
+              const mappedRows = await decodeWorker.mapRows(
+                rawRows,
+                resolvedColumns!,
+              );
 
-          if (onProgress) {
-            onProgress({
-              rowsFetched: rows.length,
-              totalRows: estimatedTotal,
+              rows.push(...mappedRows);
+              if (onBatch) {
+                onBatch(mappedRows, rows.length - mappedRows.length);
+              }
+
+              if (onProgress) {
+                onProgress({
+                  rowsFetched: rows.length,
+                  totalRows: estimatedTotal,
+                });
+              }
+            })
+            .catch((error) => {
+              logger.error(
+                "stream-service",
+                "Failed to map rows in worker",
+                error,
+              );
             });
-          }
         },
         onSuccess: (result) => {
-          executionTimeMs = result.executionTimeMs;
-          if (onProgress) {
-            onProgress({
-              rowsFetched: result.totalRows,
-              totalRows: estimatedTotal ?? result.totalRows,
-              executionTimeMs: result.executionTimeMs,
-              completed: true,
-            });
-          }
-
-          // CRITICAL FIX: Poll until all batches are accumulated
-          // The backend sends success before all batch messages are processed
-          const expectedRows = result.totalRows;
-          const pollInterval = setInterval(() => {
-            if (rows.length >= expectedRows) {
-              clearInterval(pollInterval);
-
-              try {
-                if (signal) {
-                  signal.removeEventListener("abort", abortHandler);
-                }
-
-                if (!resolvedColumns) {
-                  resolvedColumns = columnsHint ?? [];
-                }
-
-                const limitReached =
-                  (rowLimit != null && offset + rows.length >= rowLimit) ||
-                  limitReachedByRowCap === true;
-                // If we got fewer rows than requested, we've definitely reached the end
-                // This is critical when filters are applied since estimatedTotal is unfiltered count
-                const fetchedFullPage = rows.length === fetchLimit;
-                // Handle invalid estimatedTotal (-1 or negative means unknown)
-                const hasMoreFromEstimate =
-                  estimatedTotal != null && estimatedTotal > 0
-                    ? offset + rows.length < estimatedTotal
-                    : true; // If no valid estimate, assume more data if we got a full page
-                const hasMore = !limitReached && fetchedFullPage && hasMoreFromEstimate;
-
-                console.log('[StreamService] hasMore calculation:', {
-                  rowsLength: rows.length,
-                  fetchLimit,
-                  offset,
-                  estimatedTotal,
-                  limitReached,
-                  fetchedFullPage,
-                  hasMoreFromEstimate,
-                  hasMore,
+          mappingQueue
+            .catch(() => {
+              // ignore mapping errors here, they'll have been logged
+            })
+            .then(() => {
+              executionTimeMs = result.executionTimeMs;
+              if (onProgress) {
+                onProgress({
+                  rowsFetched: result.totalRows,
+                  totalRows: estimatedTotal ?? result.totalRows,
+                  executionTimeMs: result.executionTimeMs,
+                  completed: true,
                 });
+              }
 
+              // CRITICAL FIX: Poll until all batches are accumulated
+              // The backend sends success before all batch messages are processed
+              const expectedRows = result.totalRows;
+              const pollInterval = setInterval(() => {
+                if (rows.length >= expectedRows) {
+                  clearInterval(pollInterval);
+
+                  try {
+                    if (signal) {
+                      signal.removeEventListener("abort", abortHandler);
+                    }
+
+                    if (!resolvedColumns) {
+                      resolvedColumns = columnsHint ?? [];
+                    }
+
+                    const limitReached =
+                      (rowLimit != null && offset + rows.length >= rowLimit) ||
+                      limitReachedByRowCap === true;
+                    // If we got fewer rows than requested, we've definitely reached the end
+                    // This is critical when filters are applied since estimatedTotal is unfiltered count
+                    const fetchedFullPage = rows.length === fetchLimit;
+                    // Handle invalid estimatedTotal (-1 or negative means unknown)
+                    const hasMoreFromEstimate =
+                      estimatedTotal != null && estimatedTotal > 0
+                        ? offset + rows.length < estimatedTotal
+                        : true; // If no valid estimate, assume more data if we got a full page
+                    const hasMore = !limitReached && fetchedFullPage && hasMoreFromEstimate;
+
+                    logger.debug("stream-service", "hasMore calculation", {
+                      rowsLength: rows.length,
+                      fetchLimit,
+                      offset,
+                      estimatedTotal,
+                      limitReached,
+                      fetchedFullPage,
+                      hasMoreFromEstimate,
+                      hasMore,
+                    });
+
+                    resolve({
+                      columns: resolvedColumns,
+                      rows,
+                      hasMore,
+                      estimatedTotal,
+                      executionTimeMs,
+                    });
+                  } catch (error) {
+                    reject(
+                      error instanceof Error ? error : new Error(String(error)),
+                    );
+                  }
+                }
+              }, 10);
+
+              // Safety timeout: resolve after 5 seconds even if count doesn't match
+              setTimeout(() => {
+                clearInterval(pollInterval);
+                logger.warn(
+                  "stream-service",
+                  `Timeout waiting for batches: expected ${expectedRows}, got ${rows.length}`,
+                );
                 resolve({
-                  columns: resolvedColumns,
+                  columns: resolvedColumns ?? columnsHint ?? [],
                   rows,
-                  hasMore,
-                  estimatedTotal,
+                  hasMore: false,
+                  estimatedTotal: undefined,
                   executionTimeMs,
                 });
-              } catch (error) {
-                reject(
-                  error instanceof Error ? error : new Error(String(error)),
-                );
-              }
-            }
-          }, 10);
-
-          // Safety timeout: resolve after 5 seconds even if count doesn't match
-          setTimeout(() => {
-            clearInterval(pollInterval);
-            console.warn(
-              `⚠️ Timeout waiting for batches: expected ${expectedRows}, got ${rows.length}`,
-            );
-            resolve({
-              columns: resolvedColumns ?? columnsHint ?? [],
-              rows,
-              hasMore: false,
-              estimatedTotal: undefined,
-              executionTimeMs,
+              }, 5000);
             });
-          }, 5000);
         },
         onError: (error) => {
           if (signal) {

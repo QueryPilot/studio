@@ -17,7 +17,11 @@ import { Prec } from "@codemirror/state";
 import { getThemeExtensions } from "@/components/CodeEditor/themes";
 import { useTheme } from "@/components/theme-provider";
 import { linter, type Diagnostic } from "@codemirror/lint";
-import { PgParser } from "@supabase/pg-parser";
+import {
+  parseWithWorker,
+  acquirePgParserWorker,
+  releasePgParserWorker,
+} from "@/components/CodeEditor/languages/sql/pg-parser-worker-manager";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -159,7 +163,6 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [cursorPosition, setCursorPosition] = useState(0);
     const [hasLintError, setHasLintError] = useState(false);
-    const pgParserRef = useRef<PgParser | null>(null);
     const justAcceptedSuggestion = useRef(false);
     const justSwitchedMode = useRef(false);
 
@@ -190,16 +193,12 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
     const { resolvedTheme } = useTheme();
     const editorViewRef = useRef<EditorView | null>(null);
 
-    // Initialize pg-parser
+    // Acquire/release pg-parser worker for WHERE clause linting
     useEffect(() => {
-      const initParser = async () => {
-        if (!pgParserRef.current) {
-          const parser = new PgParser();
-          await parser.ready;
-          pgParserRef.current = parser;
-        }
+      acquirePgParserWorker();
+      return () => {
+        releasePgParserWorker();
       };
-      initParser().catch(console.error);
     }, []);
 
     // Expose focus method to parent
@@ -262,11 +261,11 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
           { dark: actualTheme === "dark" },
         ),
         EditorView.lineWrapping,
-        // SQL linter for WHERE clause validation
+        // SQL linter for WHERE clause validation (runs in Web Worker)
         linter(
           async (view: EditorView): Promise<Diagnostic[]> => {
             const content = view.state.doc.toString().trim();
-            if (!content || !pgParserRef.current) {
+            if (!content || content.length < 3) {
               setHasLintError(false);
               return [];
             }
@@ -274,37 +273,28 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
             try {
               // Wrap WHERE clause in SELECT to make it valid SQL
               const testSql = `SELECT * FROM t WHERE ${content}`;
-              const result = await pgParserRef.current.parse(testSql);
+              const diagnostics = await parseWithWorker(testSql);
 
-              if (result.error) {
+              if (diagnostics.length > 0) {
                 setHasLintError(true);
-                // Adjust position to account for "SELECT * FROM t WHERE " prefix (23 chars)
+                // Adjust positions to account for "SELECT * FROM t WHERE " prefix (23 chars)
                 const prefixLen = 23;
-                let from = 0;
-                let to = content.length;
-
-                const errorWithPosition = result.error as unknown as { position?: number };
-                if (errorWithPosition.position !== undefined && errorWithPosition.position > prefixLen) {
-                  from = errorWithPosition.position - prefixLen - 1;
-                  to = Math.min(from + 20, content.length);
-                }
-
-                return [{
-                  from: Math.max(0, from),
-                  to: Math.min(to, content.length),
-                  severity: "error",
-                  message: result.error.message || "Syntax error",
-                }];
+                return diagnostics.map(d => ({
+                  from: Math.max(0, d.from - prefixLen),
+                  to: Math.min(Math.max(0, d.to - prefixLen), content.length),
+                  severity: d.severity,
+                  message: d.message,
+                })).filter(d => d.from >= 0 && d.to > d.from);
               }
 
               setHasLintError(false);
               return [];
-            } catch (error) {
+            } catch {
               setHasLintError(false);
               return [];
             }
           },
-          { delay: 200 }
+          { delay: 300 } // Shorter delay since parsing is off-thread
         ),
       ];
     }, [resolvedTheme]);
@@ -375,9 +365,10 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
       }
     }, [mode, loadProviders]);
 
-    // Debounce value and cursor position to reduce expensive operations (Phase 1.1)
-    const debouncedValue = useDebounce(value, 150);
-    const debouncedCursor = useDebounce(cursorPosition, 150);
+    // Debounce value and cursor position to reduce expensive operations
+    // 250ms strikes balance between responsiveness and avoiding excessive recalcs
+    const debouncedValue = useDebounce(value, 250);
+    const debouncedCursor = useDebounce(cursorPosition, 250);
 
     // Memoize column map for O(1) lookups (Phase 1.3)
     const columnMap = useMemo(() => {
@@ -672,6 +663,14 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
         ]),
       );
     }, [insertSuggestion, onSubmit, onValueChange, onModeChange]);
+
+    // Stable combined extensions array - prevents CodeMirror re-initialization
+    const combinedExtensions = useMemo(() => {
+      if (mode === "where") {
+        return [...sqlExtensions, keymapExtension];
+      }
+      return [...basicExtensions, keymapExtension];
+    }, [mode, sqlExtensions, basicExtensions, keymapExtension]);
 
     // Clear button handler (Phase 1.4)
     const handleClearClick = useCallback(() => {
@@ -974,11 +973,7 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
                           : value
                       }
                       onChange={handleEditorChange}
-                      extensions={[
-                        // Use memoized extensions based on mode
-                        ...(mode === "where" ? sqlExtensions : basicExtensions),
-                        keymapExtension,
-                      ]}
+                      extensions={combinedExtensions}
                       placeholder={config.placeholder}
                       editable={!isLoading}
                       basicSetup={false}
