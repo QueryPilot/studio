@@ -58,6 +58,11 @@ export default defineConfig(({ mode }) => ({
     sourcemap: mode === "production" && !disableSourcemaps,
   },
 
+  // Configure worker format to ES modules for Web Worker support
+  worker: {
+    format: "es",
+  },
+
   // Strip console.log/debug in production for performance
   esbuild: {
     drop: mode === "production" ? ["console", "debugger"] : [],

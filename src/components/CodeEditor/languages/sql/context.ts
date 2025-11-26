@@ -40,6 +40,21 @@ const SCOPE_NODES = new Set([
   "ParenthesizedExpression",
 ]);
 
+// ============================================================================
+// CTE PARSING CACHE - Avoid re-parsing CTEs on every completion request
+// ============================================================================
+let cachedCTEs: { sql: string; hash: number; ctes: TableRef[] } | null = null;
+
+function hashString(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return hash;
+}
+
 /**
  * Find all scope boundaries (queries/subqueries) containing a position using the syntax tree.
  * Returns scopes from innermost to outermost.
@@ -156,13 +171,23 @@ function detectMutationContext(sql: string): {
 
 /**
  * Parse CTEs from SQL text and extract their column information
+ * Uses caching to avoid re-parsing on every completion request
  */
 function parseCTEs(sql: string): TableRef[] {
+  // Check cache first
+  const hash = hashString(sql);
+  if (cachedCTEs && cachedCTEs.hash === hash && cachedCTEs.sql === sql) {
+    return cachedCTEs.ctes;
+  }
+
   const ctes: TableRef[] = [];
 
   // Match WITH clause CTEs: WITH name AS (SELECT ...)
   const withMatch = sql.match(/\bWITH\s+/i);
-  if (!withMatch) return ctes;
+  if (!withMatch) {
+    cachedCTEs = { sql, hash, ctes };
+    return ctes;
+  }
 
   // Extract everything after WITH until the main SELECT/INSERT/UPDATE/DELETE
   const afterWith = sql.slice(withMatch.index! + withMatch[0].length);
@@ -229,6 +254,8 @@ function parseCTEs(sql: string): TableRef[] {
     }
   }
 
+  // Cache the result
+  cachedCTEs = { sql, hash, ctes };
   return ctes;
 }
 

@@ -26,8 +26,7 @@ export class SqlMetadataProvider implements MetadataProvider {
         schema: t.schema || targetSchema,
         description: undefined,
       }));
-    } catch (err) {
-      console.error(`[SqlMetadataProvider] Failed to list entities for schema "${targetSchema}":`, err);
+    } catch {
       return [];
     }
   }
@@ -50,8 +49,7 @@ export class SqlMetadataProvider implements MetadataProvider {
         nullable: col.nullable,
         isPrimaryKey: col.is_pk,
       }));
-    } catch (err) {
-      console.error(`[SqlMetadataProvider] Failed to list fields for "${targetSchema}.${entityName}":`, err);
+    } catch {
       return [];
     }
   }
@@ -90,8 +88,7 @@ export class SqlMetadataProvider implements MetadataProvider {
         rowCount: table.row_estimate,
         fields,
       };
-    } catch (err) {
-      console.error(`[SqlMetadataProvider] Failed to get details for "${entityName}":`, err);
+    } catch {
       return null;
     }
   }

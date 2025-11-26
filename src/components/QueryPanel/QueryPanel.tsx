@@ -311,62 +311,82 @@ export const QueryPanel = memo(function QueryPanel({
         let rowCount = 0;
         const accumulatedRows: unknown[][] = [];
         let rafId: number | undefined;
+        let pendingTimeout: number | undefined;
 
-        // Throttle updates using requestAnimationFrame
+        // Throttle updates using requestAnimationFrame with a minimum spacing
         const renderedCountRef = { current: 0 };
         const hasRenderedOnce = { current: false };
+        const MIN_UPDATE_INTERVAL_MS = 120;
+        let lastUpdateTime = 0;
 
         const scheduleUpdate = (force = false) => {
-          if (!force && rafId !== undefined) return; // Already scheduled
+          if (pendingTimeout !== undefined && !force) return; // Update already queued
 
-          if (rafId !== undefined && force) {
-            cancelAnimationFrame(rafId);
-            rafId = undefined;
+          const now = performance.now();
+          const delay = force
+            ? 0
+            : Math.max(MIN_UPDATE_INTERVAL_MS - (now - lastUpdateTime), 0);
+
+          if (pendingTimeout !== undefined && force) {
+            clearTimeout(pendingTimeout);
+            pendingTimeout = undefined;
           }
 
-          rafId = requestAnimationFrame(() => {
-            rafId = undefined;
+          pendingTimeout = window.setTimeout(() => {
+            pendingTimeout = undefined;
+            lastUpdateTime = performance.now();
 
-            // Don't render until we have rows - keeps skeleton visible
-            if (accumulatedRows.length === 0) {
-              return;
+            if (!force && rafId !== undefined) return; // Already scheduled in this frame
+
+            if (rafId !== undefined && force) {
+              cancelAnimationFrame(rafId);
+              rafId = undefined;
             }
 
-            // First render is synchronous to avoid flash, subsequent use startTransition
-            if (!hasRenderedOnce.current) {
-              hasRenderedOnce.current = true;
-              renderedCountRef.current = accumulatedRows.length;
-              setResult({
-                columns: currentColumns,
-                columnMeta: currentColumnMeta,
-                rows: accumulatedRows.slice(0),
-                rowCount: accumulatedRows.length,
-                executionTime: 0,
-              });
-              return;
-            }
+            rafId = requestAnimationFrame(() => {
+              rafId = undefined;
 
-            // Use startTransition for streaming updates to keep UI responsive
-            startTransition(() => {
-              setResult((prev) => {
-                if (!prev) {
-                  return null;
-                }
-                const already = renderedCountRef.current;
-                const total = accumulatedRows.length;
-                if (total <= already) {
-                  return prev;
-                }
-                const newRows = accumulatedRows.slice(already);
-                renderedCountRef.current = total;
-                return {
-                  ...prev,
-                  rows: [...prev.rows, ...newRows],
-                  rowCount: total,
-                };
+              // Don't render until we have rows - keeps skeleton visible
+              if (accumulatedRows.length === 0) {
+                return;
+              }
+
+              // First render is synchronous to avoid flash, subsequent use startTransition
+              if (!hasRenderedOnce.current) {
+                hasRenderedOnce.current = true;
+                renderedCountRef.current = accumulatedRows.length;
+                setResult({
+                  columns: currentColumns,
+                  columnMeta: currentColumnMeta,
+                  rows: accumulatedRows.slice(0),
+                  rowCount: accumulatedRows.length,
+                  executionTime: 0,
+                });
+                return;
+              }
+
+              // Use startTransition for streaming updates to keep UI responsive
+              startTransition(() => {
+                setResult((prev) => {
+                  if (!prev) {
+                    return null;
+                  }
+                  const already = renderedCountRef.current;
+                  const total = accumulatedRows.length;
+                  if (total <= already) {
+                    return prev;
+                  }
+                  const newRows = accumulatedRows.slice(already);
+                  renderedCountRef.current = total;
+                  return {
+                    ...prev,
+                    rows: [...prev.rows, ...newRows],
+                    rowCount: total,
+                  };
+                });
               });
             });
-          });
+          }, delay);
         };
 
         if (!effectiveConnectionId) {
@@ -409,6 +429,11 @@ export const QueryPanel = memo(function QueryPanel({
         );
 
         const final = await streamPromise;
+
+        if (pendingTimeout !== undefined) {
+          clearTimeout(pendingTimeout);
+          pendingTimeout = undefined;
+        }
 
         // Cancel any pending animation frame - we'll do immediate final update
         if (rafId !== undefined) {

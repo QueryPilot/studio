@@ -184,6 +184,8 @@ export const createWorkerLinter = (dialect?: string): Extension => {
   return linter(
     async (view) => {
       const content = view.state.doc.toString();
+      // Skip very short content
+      if (content.length < 10) return [];
 
       // Get viewport range for potential optimization
       const viewport = view.viewport;
@@ -195,13 +197,12 @@ export const createWorkerLinter = (dialect?: string): Extension => {
           viewport.from,
           viewport.to
         );
-      } catch (error) {
-        console.error('[WorkerLinter] Error:', error);
+      } catch {
         return [];
       }
     },
     {
-      delay: 250,
+      delay: 500, // Increased from 250ms
       needsRefresh: (update) => update.docChanged || update.viewportChanged
     }
   );

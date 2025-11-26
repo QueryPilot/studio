@@ -310,8 +310,8 @@ export const createSqlCompletionSource = (
           validFor: /^[\w_]*$/,
         };
       }
-    } catch (err) {
-      console.error("SQL completion error:", err);
+    } catch {
+      // Silently ignore errors - common during typing
     }
 
     return null;

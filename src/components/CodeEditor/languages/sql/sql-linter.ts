@@ -231,8 +231,12 @@ const collectDiagnostics = (
  * @returns CodeMirror linter extension
  */
 export const createSqlLinter = (dialect?: SqlDialect): Extension =>
-  linter((view) => collectDiagnostics(view.state, dialect), {
-    delay: 200,
+  linter((view) => {
+    // Skip linting very short content
+    if (view.state.doc.length < 10) return [];
+    return collectDiagnostics(view.state, dialect);
+  }, {
+    delay: 750, // Increased from 200ms - reduces blocking during typing
     needsRefresh: (update) => update.docChanged,
   });
 
@@ -731,10 +735,12 @@ export const createSemanticLinter = (
 ): Extension =>
   linter(
     async (view) => {
+      // Skip semantic linting for short content - not worth the overhead
+      if (view.state.doc.length < 20) return [];
       return collectSemanticDiagnostics(view.state, provider, defaultSchema);
     },
     {
-      delay: 500, // Async operations need slightly longer delay
+      delay: 1500, // Increased from 500ms - semantic linting is expensive
       needsRefresh: (update) => update.docChanged,
     }
   );

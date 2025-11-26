@@ -19,6 +19,7 @@ import {
   type StreamProgress,
 } from "@/services/tableStreamingService";
 import type { TableStructure } from "@/types/tableStructure";
+import { logger } from "@/lib/logger";
 
 export interface TableDataPage extends StreamEntityPageResult {
   offset: number;
@@ -124,7 +125,11 @@ export function useTableDataQuery(
         queryFn: () => fetchTableStructure(structureParams),
       });
     } catch (error) {
-      console.warn("Failed to load table structure for columns hint", error);
+      logger.warn(
+        "table-data-query",
+        "Failed to load table structure for columns hint",
+        error,
+      );
       return undefined;
     }
   }, [
@@ -200,13 +205,27 @@ export function useTableDataQuery(
         const accumulatedRows: TableDataRow[] = [];
         let rafId: number | undefined;
         let updateScheduled = false;
+        const MIN_PROGRESSIVE_INTERVAL_MS = 120;
+        const MAX_PROGRESSIVE_ROWS = 5000;
+        let lastProgressiveUpdate = 0;
 
         const scheduleUpdate = (currentEstimatedTotal?: number) => {
+          // Skip progressive updates when we've already pushed a lot of rows
+          // to avoid thrashing the grid during large streams.
+          if (!enableProgressiveUpdates) return;
+          if (accumulatedRows.length > MAX_PROGRESSIVE_ROWS) return;
+
+          const now = performance.now();
+          if (now - lastProgressiveUpdate < MIN_PROGRESSIVE_INTERVAL_MS) {
+            return;
+          }
+
           if (updateScheduled) return;
           updateScheduled = true;
 
           rafId = requestAnimationFrame(() => {
             updateScheduled = false;
+            lastProgressiveUpdate = performance.now();
 
             // Update the cache with partial page data for progressive rendering
             queryClient.setQueryData<InfiniteData<TableDataPage>>(
@@ -306,8 +325,8 @@ export function useTableDataQuery(
             // Accumulate rows - use push for O(1) instead of spread O(n)
             accumulatedRows.push(...batchRows);
 
-            // Only schedule progressive updates for first page
-            // Pagination pages load without intermediate updates to avoid lag
+            // Only schedule progressive updates for first page.
+            // Pagination pages load without intermediate updates to avoid lag.
             if (enableProgressiveUpdates) {
               scheduleUpdate(estimatedTotalHint);
             }
@@ -384,9 +403,10 @@ export function useTableDataQuery(
     const seenOffsets = new Set<number>();
     const uniquePages = infiniteQuery.data.pages.filter((page) => {
       if (seenOffsets.has(page.offset)) {
-        console.warn(
-          `⚠️ Duplicate page detected at offset ${page.offset}, skipping`,
-        );
+      logger.warn(
+        "table-data-query",
+        `Duplicate page detected at offset ${page.offset}, skipping`,
+      );
         return false;
       }
       seenOffsets.add(page.offset);
@@ -419,26 +439,32 @@ export function useTableDataQuery(
     isFetchingNextPage: infiniteQuery.isFetchingNextPage,
     hasNextPage: infiniteQuery.hasNextPage,
     fetchNextPage: async () => {
-      console.log('[useTableDataQuery] fetchNextPage called:', {
+      logger.debug("table-data-query", "fetchNextPage called", {
         isFetchingNextPage: infiniteQuery.isFetchingNextPage,
         isStreaming: isStreamingRef.current,
         hasNextPage: infiniteQuery.hasNextPage,
       });
       // Prevent overlapping fetches while streaming
       if (infiniteQuery.isFetchingNextPage || isStreamingRef.current) {
-        console.log("⚠️ Blocked fetchNextPage - currently streaming or fetching");
+        logger.debug(
+          "table-data-query",
+          "Blocked fetchNextPage - currently streaming or fetching",
+        );
         return;
       }
       try {
-        console.log('[useTableDataQuery] Calling infiniteQuery.fetchNextPage()');
+        logger.debug(
+          "table-data-query",
+          "Calling infiniteQuery.fetchNextPage()",
+        );
         const result = await infiniteQuery.fetchNextPage();
-        console.log('[useTableDataQuery] fetchNextPage completed:', {
+        logger.debug("table-data-query", "fetchNextPage completed", {
           status: result.status,
           pagesCount: result.data?.pages.length,
           isFetchingNextPage: infiniteQuery.isFetchingNextPage,
         });
       } catch (error) {
-        console.error('[useTableDataQuery] fetchNextPage error:', error);
+        logger.error("table-data-query", "fetchNextPage error", error);
       }
     },
     refetch: async () => infiniteQuery.refetch(),

@@ -214,63 +214,29 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     resetOnUnmount: true,
   });
 
-  // Debug: Log when dataGridFocus context changes
-  useEffect(() => {
-    console.log(
-      `[TableDataGridV2 ${gridId}] dataGridFocus context updated:`,
-      isGridFocused,
-      `(scope: ${scopeId})`,
-    );
-  }, [isGridFocused, gridId, scopeId]);
-
   const handleContainerClick = useCallback(() => {
-    // Don't steal focus if a cell is being edited
-    if (isEditingCell) {
-      console.log(
-        `[TableDataGridV2 ${gridId}] Cell is being edited, skipping grid focus`,
-      );
-      return;
-    }
-
-    console.log(
-      `[TableDataGridV2 ${gridId}] Container clicked, forcing grid focus`,
-    );
-    // Focus the Glide grid canvas directly, not the container
-    // This is required for Glide's native copy/paste to work
+    if (isEditingCell) return;
     if (gridRef.current) {
       gridRef.current.focus();
-      console.log(
-        `[TableDataGridV2 ${gridId}] Grid focused, active element:`,
-        document.activeElement,
-      );
     }
-  }, [gridId, isEditingCell]);
+  }, [isEditingCell]);
 
   const handleFocusCapture = useCallback(() => {
-    console.log(
-      `[TableDataGridV2 ${gridId}] handleFocusCapture - setting dataGridFocus=true`,
-    );
     setIsGridFocused(true);
-  }, [gridId]);
+  }, []);
 
   const handleBlurCapture = useCallback(
     (event: FocusEvent<HTMLDivElement>) => {
       const nextTarget = event.relatedTarget as Node | null;
       if (!containerRef.current) {
-        console.log(
-          `[TableDataGridV2 ${gridId}] handleBlurCapture - no container, setting dataGridFocus=false`,
-        );
         setIsGridFocused(false);
         return;
       }
       if (!nextTarget || !containerRef.current.contains(nextTarget)) {
-        console.log(
-          `[TableDataGridV2 ${gridId}] handleBlurCapture - focus left container, setting dataGridFocus=false`,
-        );
         setIsGridFocused(false);
       }
     },
-    [gridId],
+    [],
   );
 
   const isTableMode = props.mode === "table";
@@ -518,15 +484,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   tableDataQueryRef.current = tableDataQuery;
 
   useEffect(() => {
-    if (!isTableMode) {
-      return;
-    }
-
-    console.log(
-      `[TableDataGridV2] Subscribing to invalidations for: ${connectionId}:${database}:${
-        schema ?? "public"
-      }:${table}`,
-    );
+    if (!isTableMode) return;
 
     const unsubscribe = useDataInvalidationStore
       .getState()
@@ -536,24 +494,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         schema ?? "public",
         table,
         async () => {
-          console.log(
-            `[TableDataGridV2] Data invalidated for ${database}.${
-              schema ?? "public"
-            }.${table} - invalidating cache and refetching`,
-          );
-
-          // Use ref to get current tableDataQuery instance
-          // Force refetch by calling refetch - React Query will fetch fresh data
-          // The refetch() method automatically bypasses cache when called explicitly
-          const result = await tableDataQueryRef.current.refetch();
-
-          console.log(
-            `[TableDataGridV2] Refetch completed, got ${
-              result.data?.pages[0]?.rows.length ?? 0
-            } rows in first page`,
-          );
-
-          // Clear committed changes after refetch completes (for optimistic updates)
+          await tableDataQueryRef.current.refetch();
           const { clearCommittedChanges, getTableKey } =
             useCrudStore.getState();
           const tableKey = getTableKey({
@@ -566,29 +507,58 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         },
       );
 
-    return () => {
-      console.log(
-        `[TableDataGridV2] Unsubscribing from invalidations for: ${connectionId}:${database}:${
-          schema ?? "public"
-        }:${table}`,
-      );
-      unsubscribe();
-    };
-  }, [isTableMode, connectionId, database, schema, table]); // Removed tableDataQuery from deps
+    return unsubscribe;
+  }, [isTableMode, connectionId, database, schema, table]);
 
   const queryData = isQueryMode ? props.data : null;
 
   // Memoize query data transformation to prevent infinite render loop
-  // Use stable primitive dependencies instead of queryData object reference
-  const transformedQueryRows = useMemo(() => {
-    if (!queryData) return [];
+  // Convert only the newly streamed rows instead of rebuilding everything
+  const transformedQueryRowsRef = useRef<GridRowModel[]>([]);
+  const prevRowCountRef = useRef(0);
+  const prevColumnsRef = useRef<string[]>([]);
+  const prevColumnMetaRef = useRef<ColumnMeta[] | undefined>(undefined);
+  const prevRawRowsRef = useRef<unknown[][] | null>(null);
 
-    return queryData.rows.map((row) => {
+  const transformedQueryRows = useMemo(() => {
+    if (!queryData) {
+      transformedQueryRowsRef.current = [];
+      prevRowCountRef.current = 0;
+      prevColumnsRef.current = [];
+      prevColumnMetaRef.current = undefined;
+      prevRawRowsRef.current = null;
+      return [];
+    }
+
+    const currentRows = queryData.rows;
+    const columns = queryData.columns;
+    const columnMeta = queryData.columnMeta;
+
+    const columnsChanged =
+      columns.length !== prevColumnsRef.current.length ||
+      columns.some((col, idx) => col !== prevColumnsRef.current[idx]) ||
+      (columnMeta?.length ?? 0) !== (prevColumnMetaRef.current?.length ?? 0);
+
+    const rowsReferenceChanged = currentRows !== prevRawRowsRef.current;
+    const rowsShrank = currentRows.length < prevRowCountRef.current;
+    const rowsReplacedWithSameLength =
+      rowsReferenceChanged && currentRows.length === prevRowCountRef.current;
+
+    const resetRequired =
+      columnsChanged || rowsShrank || rowsReplacedWithSameLength;
+
+    if (resetRequired) {
+      transformedQueryRowsRef.current = [];
+      prevRowCountRef.current = 0;
+    }
+
+    const startIndex = resetRequired ? 0 : prevRowCountRef.current;
+    const newRows = currentRows.slice(startIndex).map((row) => {
       const rowObj: GridRowModel = {};
       const backendRow = row as BackendCellValue[];
-      queryData.columns.forEach((colName, colIndex) => {
+      columns.forEach((colName, colIndex) => {
         const rawValue = backendRow[colIndex] as BackendCellValue | undefined;
-        const colMeta = queryData.columnMeta?.[colIndex];
+        const colMeta = columnMeta?.[colIndex];
         const dbType = colMeta?.db_type ?? "text";
         const normalizedValue =
           rawValue === undefined
@@ -617,6 +587,22 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       });
       return rowObj;
     });
+
+    if (resetRequired) {
+      transformedQueryRowsRef.current = newRows;
+    } else if (newRows.length > 0) {
+      transformedQueryRowsRef.current = [
+        ...transformedQueryRowsRef.current,
+        ...newRows,
+      ];
+    }
+
+    prevRowCountRef.current = currentRows.length;
+    prevColumnsRef.current = [...columns];
+    prevColumnMetaRef.current = columnMeta ? [...columnMeta] : undefined;
+    prevRawRowsRef.current = currentRows as unknown[][];
+
+    return transformedQueryRowsRef.current;
   }, [queryData?.rows, queryData?.columns, queryData?.columnMeta]);
 
   const {
@@ -1157,6 +1143,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   // Apply optimistic updates from staged commands to display rows
   // Optimized: O(N+M) instead of O(N×M) using index-based lookup
+  // Further optimized: Only create new row objects for rows that actually changed
   const displayRowsWithOptimisticUpdates = useMemo(() => {
     if (!isTableMode) {
       return displayRows;
@@ -1199,52 +1186,62 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       });
     }
 
-    // Apply UPDATE commands to existing rows (O(N) where N = rows)
-    const updatedRows =
-      updateCommandsByPK.size === 0
-        ? displayRows
-        : displayRows.map((row) => {
-            // Build PK signature for this row using primaryKeyColumns
-            const pkEntries = primaryKeyColumns
-              .map((colName) => {
-                const cell = row[colName];
-                const value =
-                  cell && typeof cell === "object" && "value" in cell
-                    ? cell.value
-                    : undefined;
-                return [colName, value] as [string, unknown];
-              })
-              .sort(([a], [b]) => a.localeCompare(b));
+    // Apply UPDATE commands - only create new objects for modified rows
+    let updatedRows: GridRowModel[];
+    if (updateCommandsByPK.size === 0) {
+      updatedRows = displayRows;
+    } else {
+      // Pre-compute PK signatures for ALL rows once (avoids repeated computation)
+      const rowPkSignatures = displayRows.map((row) => {
+        const pkEntries = primaryKeyColumns
+          .map((colName) => {
+            const cell = row[colName];
+            const value =
+              cell && typeof cell === "object" && "value" in cell
+                ? cell.value
+                : undefined;
+            return [colName, value] as [string, unknown];
+          })
+          .sort(([a], [b]) => a.localeCompare(b));
+        return pkEntries.map(([k, v]) => `${k}=${JSON.stringify(v)}`).join("|");
+      });
 
-            const pkSig = pkEntries
-              .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
-              .join("|");
+      // Check if ANY rows need updates before mapping
+      const hasUpdates = rowPkSignatures.some((sig) =>
+        updateCommandsByPK.has(sig),
+      );
 
-            // O(1) lookup instead of O(M) filter
-            const updates = updateCommandsByPK.get(pkSig);
-            if (!updates || updates.length === 0) {
-              return row;
-            }
+      if (!hasUpdates) {
+        updatedRows = displayRows;
+      } else {
+        updatedRows = displayRows.map((row, idx) => {
+          const pkSig = rowPkSignatures[idx] ?? "";
+          const updates = updateCommandsByPK.get(pkSig);
+          if (!updates || updates.length === 0) {
+            return row; // Return original reference - no copy needed
+          }
 
-            // Apply all updates to create a new row
-            const updatedRow = { ...row };
-            for (const { column, newValue } of updates) {
-              if (column in updatedRow) {
-                const existingCell = updatedRow[column];
-                if (
-                  existingCell &&
-                  typeof existingCell === "object" &&
-                  "value" in existingCell
-                ) {
-                  updatedRow[column] = {
-                    ...existingCell,
-                    value: newValue,
-                  };
-                }
+          // Only create new object for rows that actually changed
+          const updatedRow = { ...row };
+          for (const { column, newValue } of updates) {
+            if (column in updatedRow) {
+              const existingCell = updatedRow[column];
+              if (
+                existingCell &&
+                typeof existingCell === "object" &&
+                "value" in existingCell
+              ) {
+                updatedRow[column] = {
+                  ...existingCell,
+                  value: newValue,
+                };
               }
             }
-            return updatedRow;
-          });
+          }
+          return updatedRow;
+        });
+      }
+    }
 
     // Collect INSERT commands
     const insertCommands = commands.filter((cmd) => cmd.type === "data.insert");
@@ -1388,10 +1385,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           return currentSelection;
         }
 
-        console.log(
-          `[TableDataGridV2 ${gridId}] Auto-selecting first cell on focus`,
-        );
-
         // Scroll to ensure first cell is visible
         requestAnimationFrame(() => {
           if (gridRef.current) {
@@ -1487,12 +1480,14 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     [isTableMode, connectionId, database, panelId],
   );
 
+  const isLargeDataset = deferredDisplayRows.length > 5000;
+
   const { onItemHovered: handleItemHovered, drawCell: drawCellWithHoverIcons } =
     useCellHoverIcons({
       columns: finalColumns,
       rows: deferredDisplayRows,
       onOpenReference: isTableMode ? handleOpenReference : undefined,
-      enabled: true,
+      enabled: !isLargeDataset,
       containerRef: containerRef,
     });
 
@@ -1610,8 +1605,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const { copySelection } = useClipboardBridge({
     toText: toTextCallback,
     toJson: toJsonCallback,
-    onCopySuccess: console.log,
-    onCopyError: console.error,
+    onCopySuccess: () => {},
+    onCopyError: () => {},
   });
 
   // CRUD Handlers - Must be after finalColumns is defined
@@ -2128,7 +2123,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     async () => {
       const selection = gridSelectionRef.current;
       if (!selection) return;
-      console.log("🟢 IconCopy as JSON command executed");
       await copySelection(selection, "json");
     },
     {
@@ -2174,25 +2168,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
               schema={schema}
               table={table}
               onCommitSuccess={async () => {
-                // Refresh table data from server after successful commit
-                console.log(
-                  "[TableDataGridV2] onCommitSuccess called - refetching data",
-                  {
-                    connectionId,
-                    database,
-                    schema,
-                    table,
-                  },
-                );
-
-                // Force refetch to get latest data from database
-                const result = await tableDataQueryRef.current.refetch();
-
-                console.log(
-                  `[TableDataGridV2] onCommitSuccess refetch completed, got ${
-                    result.data?.pages[0]?.rows.length ?? 0
-                  } rows`,
-                );
+                await tableDataQueryRef.current.refetch();
               }}
             />
           </>
@@ -2583,7 +2559,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
               onRowAppend={handleRowAppend}
               onRowDelete={handleRowDelete}
               overscrollX={0}
-              overscrollY={100}
+              overscrollY={24}
+              // Avoid rendering very tall buffers on large datasets
+              // This keeps DOM/paint work bounded when streaming big tables
+              smoothScrollX={true}
+              smoothScrollY={true}
               maxColumnWidth={1000}
               onColumnResize={(col, size) => {
                 handleColumnResize(col, size);

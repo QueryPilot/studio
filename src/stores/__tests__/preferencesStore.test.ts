@@ -5,7 +5,7 @@ describe('preferencesStore', () => {
   beforeEach(() => {
     // Reset store state before each test
     usePreferencesStore.setState({
-      smartQueryLimit: 10000,
+      smartQueryLimit: 500,
       isOpen: false,
       activeCategory: 'general',
       unsavedChanges: false,
@@ -13,9 +13,9 @@ describe('preferencesStore', () => {
   });
 
   describe('Smart Query Limit', () => {
-    it('should have default query limit of 10000', () => {
+    it('should have default query limit of 500', () => {
       const store = usePreferencesStore.getState();
-      expect(store.smartQueryLimit).toBe(10000);
+      expect(store.smartQueryLimit).toBe(500);
     });
 
     it('should update query limit', () => {
