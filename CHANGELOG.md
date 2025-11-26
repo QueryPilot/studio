@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.6.1] - 2025-11-26
+
+### Improvements
+- Checking for desktop updates in Preferences now pulls the latest release feed and gives you a Download + Install flow with clearer status, instead of auto-installing in the background.
+- Quick Filter mode switching is smoother: typing `?`, `#`, or `!` instantly swaps WHERE/AI/Search modes without stray prefixes, clearing/backspacing resets cleanly, and focus returns to the editor after changing modes.
+
+### Bug Fixes
+- Quick Filter no longer errors when an operator is typed without a column name, and Cmd+Backspace resets empty inputs back to search mode as expected.
+- The telemetry toggle now rolls back and explains when the backend was built without telemetry support, so development builds don’t leave the switch in a broken state.
+
 ## [0.6.0] - 2025-11-26
 
 ### New Features
