@@ -46,8 +46,10 @@ export default function TelemetryPanel() {
         });
       } catch (error) {
         console.error("Failed to enable backend telemetry:", error);
-        toast.error("Failed to enable telemetry", {
-          description: "Could not configure backend error tracking.",
+        // Revert the toggle since it failed
+        setTelemetry({ sentryEnabled: false });
+        toast.error("Telemetry not available", {
+          description: "Backend was not built with telemetry support. This is normal for development builds.",
         });
       }
     }

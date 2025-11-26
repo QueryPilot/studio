@@ -67,3 +67,4 @@ dist-release
 *.zip
 coverage/
 *.bun-build
+**/.cargo/
