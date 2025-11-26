@@ -343,7 +343,7 @@ export async function streamEntityPage(
           // Offload normalization to the worker and preserve ordering via the queue
           mappingQueue = mappingQueue
             .then(async () => {
-              const mappedRows = await decodeWorker.mapRows(
+              const mappedRows = await decodeWorker.mapRowsNormalized(
                 rawRows,
                 resolvedColumns!,
               );

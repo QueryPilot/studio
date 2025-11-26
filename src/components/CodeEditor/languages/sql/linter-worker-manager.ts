@@ -3,9 +3,14 @@
  *
  * Manages communication with the linter Web Worker and provides
  * a CodeMirror-compatible linter interface.
+ *
+ * DX optimizations:
+ * - Request cancellation: Only the latest request is processed
+ * - Content deduplication: Skips re-linting identical content
+ * - Result caching: Returns cached diagnostics for unchanged content
+ * - Pre-initialization: Worker ready before first use
  */
 
-import { logger } from "@/lib/logger";
 import { linter, type Diagnostic } from "@codemirror/lint";
 import type { Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
@@ -21,9 +26,15 @@ class LinterWorkerManager {
   private pendingRequests = new Map<number, {
     resolve: (diagnostics: Diagnostic[]) => void;
     reject: (error: Error) => void;
+    timeout: ReturnType<typeof setTimeout>;
   }>();
   private isInitialized = false;
   private initPromise: Promise<void> | null = null;
+
+  // DX: Content caching to avoid re-linting identical content
+  private lastContent: string | null = null;
+  private lastDialect: string | null = null;
+  private lastResult: Diagnostic[] = [];
 
   async initialize(): Promise<void> {
     if (this.isInitialized) return;
@@ -41,10 +52,10 @@ class LinterWorkerManager {
           this.handleResponse(event.data);
         };
 
-        this.worker.onerror = (error) => {
-          logger.error('[LinterWorker] Worker error:', error);
+        this.worker.onerror = () => {
           // Reject all pending requests
           for (const [id, handlers] of this.pendingRequests) {
+            clearTimeout(handlers.timeout);
             handlers.reject(new Error('Worker error'));
             this.pendingRequests.delete(id);
           }
@@ -53,7 +64,6 @@ class LinterWorkerManager {
         this.isInitialized = true;
         resolve();
       } catch (error) {
-        logger.error('[LinterWorker] Failed to initialize:', error);
         reject(error);
       }
     });
@@ -65,6 +75,7 @@ class LinterWorkerManager {
     const pending = this.pendingRequests.get(response.id);
     if (!pending) return;
 
+    clearTimeout(pending.timeout);
     this.pendingRequests.delete(response.id);
 
     if (response.type === 'error') {
@@ -90,12 +101,31 @@ class LinterWorkerManager {
     }));
   }
 
+  /**
+   * Cancel all pending requests except the current one.
+   * Resolves stale requests with empty diagnostics.
+   */
+  private cancelStaleRequests(currentId: number): void {
+    for (const [id, handlers] of this.pendingRequests) {
+      if (id !== currentId) {
+        clearTimeout(handlers.timeout);
+        handlers.resolve([]); // Resolve stale requests with empty result
+        this.pendingRequests.delete(id);
+      }
+    }
+  }
+
   async lint(
     content: string,
     dialect?: string,
     viewportStart?: number,
     viewportEnd?: number
   ): Promise<Diagnostic[]> {
+    // DX: Return cached result if content and dialect unchanged
+    if (content === this.lastContent && dialect === this.lastDialect) {
+      return this.lastResult;
+    }
+
     await this.initialize();
 
     if (!this.worker) {
@@ -104,8 +134,29 @@ class LinterWorkerManager {
 
     const id = ++this.requestId;
 
+    // DX: Cancel stale requests - only process the latest
+    this.cancelStaleRequests(id);
+
     return new Promise((resolve, reject) => {
-      this.pendingRequests.set(id, { resolve, reject });
+      // Timeout after 5 seconds (reduced from 10s for better UX)
+      const timeout = setTimeout(() => {
+        if (this.pendingRequests.has(id)) {
+          this.pendingRequests.delete(id);
+          resolve([]); // Return empty instead of rejecting for better UX
+        }
+      }, 5000);
+
+      this.pendingRequests.set(id, {
+        resolve: (diagnostics) => {
+          // DX: Cache the result
+          this.lastContent = content;
+          this.lastDialect = dialect ?? null;
+          this.lastResult = diagnostics;
+          resolve(diagnostics);
+        },
+        reject,
+        timeout,
+      });
 
       const request: LinterWorkerRequest = {
         id,
@@ -119,29 +170,27 @@ class LinterWorkerManager {
       };
 
       this.worker!.postMessage(request);
-
-      // Timeout after 10 seconds
-      setTimeout(() => {
-        if (this.pendingRequests.has(id)) {
-          this.pendingRequests.delete(id);
-          reject(new Error('Lint request timed out'));
-        }
-      }, 10000);
     });
   }
 
   terminate(): void {
     if (this.worker) {
+      // Clear all pending requests
+      for (const [, handlers] of this.pendingRequests) {
+        clearTimeout(handlers.timeout);
+        handlers.resolve([]); // Resolve with empty for clean shutdown
+      }
+      this.pendingRequests.clear();
+
       this.worker.terminate();
       this.worker = null;
       this.isInitialized = false;
       this.initPromise = null;
 
-      // Reject all pending requests
-      for (const [, handlers] of this.pendingRequests) {
-        handlers.reject(new Error('Worker terminated'));
-      }
-      this.pendingRequests.clear();
+      // Clear cache
+      this.lastContent = null;
+      this.lastDialect = null;
+      this.lastResult = [];
     }
   }
 }
@@ -165,7 +214,8 @@ export const acquireLinterWorker = (): void => {
 };
 
 /**
- * Decrement reference count and terminate worker if no more users.
+ * Release a reference to the linter worker.
+ * Call this when unmounting a non-PostgreSQL SQL editor.
  */
 export const releaseLinterWorker = (): void => {
   refCount = Math.max(0, refCount - 1);
@@ -203,10 +253,19 @@ export const createWorkerLinter = (dialect?: string): Extension => {
       }
     },
     {
-      delay: 500, // Increased from 250ms
+      delay: 400, // Balanced delay
       needsRefresh: (update) => update.docChanged || update.viewportChanged
     }
   );
+};
+
+/**
+ * Pre-initialize the worker to avoid delay on first lint.
+ */
+export const preInitLinterWorker = (): void => {
+  getWorkerManager().initialize().catch(() => {
+    // Silently ignore - will retry on first use
+  });
 };
 
 /**

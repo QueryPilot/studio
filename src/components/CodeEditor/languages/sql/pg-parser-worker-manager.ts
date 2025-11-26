@@ -3,6 +3,11 @@
  *
  * Manages communication with the pg-parser Web Worker.
  * Provides a simple async API for parsing SQL content off the main thread.
+ *
+ * DX optimizations:
+ * - Request cancellation: Only the latest request is processed
+ * - Content deduplication: Skips re-parsing identical content
+ * - Result caching: Returns cached diagnostics for unchanged content
  */
 
 import type { Diagnostic } from "@codemirror/lint";
@@ -21,6 +26,10 @@ class PgParserWorkerManager {
   >();
   private isReady = false;
   private readyPromise: Promise<void> | null = null;
+
+  // DX: Content caching to avoid re-parsing identical content
+  private lastContent: string | null = null;
+  private lastResult: Diagnostic[] = [];
 
   async initialize(): Promise<void> {
     if (this.isReady) return;
@@ -96,7 +105,26 @@ class PgParserWorkerManager {
     }
   }
 
+  /**
+   * Cancel all pending requests except the current one.
+   * Resolves stale requests with empty diagnostics.
+   */
+  private cancelStaleRequests(currentId: number): void {
+    for (const [id, handlers] of this.pendingRequests) {
+      if (id !== currentId) {
+        clearTimeout(handlers.timeout);
+        handlers.resolve([]); // Resolve stale requests with empty result
+        this.pendingRequests.delete(id);
+      }
+    }
+  }
+
   async parse(content: string): Promise<Diagnostic[]> {
+    // DX: Return cached result if content unchanged
+    if (content === this.lastContent) {
+      return this.lastResult;
+    }
+
     await this.initialize();
 
     if (!this.worker) {
@@ -105,16 +133,28 @@ class PgParserWorkerManager {
 
     const id = ++this.requestId;
 
+    // DX: Cancel stale requests - only process the latest
+    this.cancelStaleRequests(id);
+
     return new Promise((resolve, reject) => {
       // Timeout after 5 seconds
       const timeout = setTimeout(() => {
         if (this.pendingRequests.has(id)) {
           this.pendingRequests.delete(id);
-          resolve([]); // Return empty diagnostics on timeout instead of rejecting
+          resolve([]); // Return empty diagnostics on timeout
         }
       }, 5000);
 
-      this.pendingRequests.set(id, { resolve, reject, timeout });
+      this.pendingRequests.set(id, {
+        resolve: (diagnostics) => {
+          // DX: Cache the result
+          this.lastContent = content;
+          this.lastResult = diagnostics;
+          resolve(diagnostics);
+        },
+        reject,
+        timeout,
+      });
 
       const request: PgParserRequest = {
         id,
@@ -139,6 +179,10 @@ class PgParserWorkerManager {
       this.worker = null;
       this.isReady = false;
       this.readyPromise = null;
+
+      // Clear cache
+      this.lastContent = null;
+      this.lastResult = [];
     }
   }
 }

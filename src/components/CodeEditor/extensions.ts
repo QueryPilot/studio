@@ -43,9 +43,11 @@ import { dbmlMixed } from "./languages/dbml/dbml-mixed";
 import { createSemanticLinter } from "./languages/sql/sql-linter";
 import { createDialectLinter } from "./languages/sql/linter-strategy";
 import { preInitPgParser } from "./languages/sql/pg-parser-linter";
+import { preInitLinterWorker } from "./languages/sql/linter-worker-manager";
 
-// Pre-initialize pg-parser WASM to avoid delay on first lint
-preInitPgParser();
+// Pre-initialize workers to avoid delay on first lint
+preInitPgParser();      // PostgreSQL WASM worker
+preInitLinterWorker();  // MySQL/SQLite/MSSQL tokenizer worker
 import { createSqlCompletionSource } from "./languages/sql/completion";
 import { createSqlHoverExtension } from "./languages/sql/hover";
 import { createSqlMetadataProvider } from "./languages/sql/metadataProvider";

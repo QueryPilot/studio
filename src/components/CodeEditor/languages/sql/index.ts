@@ -32,6 +32,7 @@ export {
   terminateLinterWorker,
   acquireLinterWorker,
   releaseLinterWorker,
+  preInitLinterWorker,
 } from "./linter-worker-manager";
 
 // PostgreSQL parser (uses libpg_query for 100% PostgreSQL compatibility)
