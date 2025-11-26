@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { safeInvoke, isTauri } from "@/utils/tauri";
 import type { ColumnMeta } from "@/types/database";
 
@@ -69,7 +70,7 @@ export const CellEditService = {
 
       // Execute the update query
       if (!isTauri()) {
-        console.warn("Cell edit operations require Tauri runtime");
+        logger.warn("Cell edit operations require Tauri runtime");
         return {
           success: false,
           error: "Cell editing is not available in browser mode",
@@ -106,7 +107,7 @@ export const CellEditService = {
         message: `Successfully updated ${column}`,
       };
     } catch (error) {
-      console.error("Failed to update cell:", error);
+      logger.error("Failed to update cell:", error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Failed to update cell",

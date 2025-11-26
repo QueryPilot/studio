@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { create } from "zustand";
 import { v4 as uuidv4 } from "uuid";
 import type {
@@ -126,18 +127,18 @@ export const useWorkspaceScreenStore = create<WorkspaceScreenStore>(
 
     // Connection management
     setActiveConnection: (connectionId) => {
-      console.log(`[WorkspaceStore] Switching to connection: ${connectionId}`);
+      logger.info(`[WorkspaceStore] Switching to connection: ${connectionId}`);
       set({ activeConnectionId: connectionId });
 
       // Initialize workspace if it doesn't exist
       if (connectionId && !get().workspaces.has(connectionId)) {
-        console.log(`[WorkspaceStore] Initializing workspace for: ${connectionId}`);
+        logger.info(`[WorkspaceStore] Initializing workspace for: ${connectionId}`);
         get().initWorkspace(connectionId);
       }
     },
 
     clearWorkspace: (connectionId) => {
-      console.log(`[WorkspaceStore] Clearing workspace for: ${connectionId}`);
+      logger.info(`[WorkspaceStore] Clearing workspace for: ${connectionId}`);
       set((state) => {
         const newWorkspaces = new Map(state.workspaces);
         newWorkspaces.delete(connectionId);
@@ -147,7 +148,7 @@ export const useWorkspaceScreenStore = create<WorkspaceScreenStore>(
 
     // Initialize workspace
     initWorkspace: (connectionId) => {
-      console.log(`[WorkspaceStore] Creating new workspace for: ${connectionId}`);
+      logger.info(`[WorkspaceStore] Creating new workspace for: ${connectionId}`);
       set((state) => {
         const newWorkspaces = new Map(state.workspaces);
         newWorkspaces.set(connectionId, createDefaultWorkspace(connectionId));

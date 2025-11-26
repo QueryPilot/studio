@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { useEffect, useCallback, useRef, useState } from "react";
 import { IconCheck, IconChevronDown, IconPlus, IconTable, IconEye, IconMathFunction, IconBolt, IconDatabase } from '@tabler/icons-react';
 import {
@@ -71,7 +72,7 @@ export function DatabaseSchemaSelector({
       if (!databaseService.isConnectionActive(connectionId)) {
         throw new Error("Connection is not active");
       }
-      console.log(
+      logger.info(
         `[DatabaseSchemaSelector] Loading schemas for database: ${selectedDatabase}`,
       );
       return await databaseService.listSchemas(connectionId, selectedDatabase);
@@ -84,7 +85,7 @@ export function DatabaseSchemaSelector({
   // Auto-refresh on connection becoming active
   useEffect(() => {
     if (!prevActiveRef.current && isConnectionActive) {
-      console.log(
+      logger.info(
         "[DatabaseSchemaSelector] Connection became active - refreshing schemas",
       );
       // Connection just became active - invalidate queries
@@ -100,7 +101,7 @@ export function DatabaseSchemaSelector({
   // Handle schema errors
   useEffect(() => {
     if (schemasError) {
-      console.error("Failed to load schemas:", schemasError);
+      logger.error("Failed to load schemas:", schemasError);
       toast.error("Failed to load schemas");
     }
   }, [schemasError]);
@@ -128,7 +129,7 @@ export function DatabaseSchemaSelector({
         await databaseService.switchSchema(connectionId, schema);
         onSchemaChange(schema);
       } catch (err) {
-        console.error("Failed to switch schema:", err);
+        logger.error("Failed to switch schema:", err);
         toast.error("Failed to switch schema");
       } finally {
         setIsSwitchingSchema(false);
@@ -173,7 +174,7 @@ export function DatabaseSchemaSelector({
       cleanup = await safeListen("database-reconnected", (event) => {
         const payload = event.payload as { connectionId: string };
         if (payload.connectionId === connectionId) {
-          console.log(
+          logger.info(
             "[DatabaseSchemaSelector] Received reconnection event - refreshing schemas",
           );
           // Invalidate and refetch schemas

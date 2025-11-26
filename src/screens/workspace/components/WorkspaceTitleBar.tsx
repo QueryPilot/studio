@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { Button } from "@/components/ui/button";
 import { IconHome, IconRefresh, IconLock, IconSettings, IconLayoutSidebar, IconCheck, IconDatabase, IconCircle, IconSitemap, IconSun, IconMoon, IconDeviceDesktop, IconAlertCircle, IconLoader2, IconRotate, IconRobot, IconArrowBackUp, IconArrowForwardUp, IconGitCommit } from '@tabler/icons-react';
 import {
@@ -233,7 +234,7 @@ export function WorkspaceTitleBar({
     async () => {
       if (totalChanges > 0) {
         try {
-          console.log(
+          logger.info(
             "[WorkspaceTitleBar] Cmd+S pressed - committing all changes",
           );
 
@@ -246,7 +247,7 @@ export function WorkspaceTitleBar({
             0,
           );
 
-          console.log(
+          logger.info(
             `[WorkspaceTitleBar] Commit succeeded, invalidating ${stagedCommandsSnapshot.length} table(s)...`,
           );
 
@@ -259,7 +260,7 @@ export function WorkspaceTitleBar({
             const parts = tableKey.split(":");
             const [connId, db, sch, tbl] = parts;
             if (connId && db && tbl) {
-              console.log(
+              logger.info(
                 `[WorkspaceTitleBar] Invalidating table: ${db}.${
                   sch ?? "public"
                 }.${tbl}`,
@@ -436,7 +437,7 @@ export function WorkspaceTitleBar({
           await databaseService.disconnect(connectionId);
         }
       } catch (error) {
-        console.error("Failed to disconnect:", error);
+        logger.error("Failed to disconnect:", error);
         toast.error("Failed to disconnect", {
           description:
             error instanceof Error
@@ -456,7 +457,7 @@ export function WorkspaceTitleBar({
         description: "Successfully reconnected to the database.",
       });
     } catch (error) {
-      console.error("Failed to reconnect:", error);
+      logger.error("Failed to reconnect:", error);
       toast.error("Reconnection Failed", {
         description:
           error instanceof Error
@@ -543,7 +544,7 @@ export function WorkspaceTitleBar({
 
   const handleGoHome = async () => {
     try {
-      console.log("Going home from workspace:", connectionId);
+      logger.info("Going home from workspace:", connectionId);
 
       // Disconnect from the current database
       if (connectionId && databaseService.isConnectionActive(connectionId)) {
@@ -570,7 +571,7 @@ export function WorkspaceTitleBar({
         await currentWindow.close();
       }
     } catch (error) {
-      console.error("Failed to go home:", error);
+      logger.error("Failed to go home:", error);
       // Fallback: navigate using React Router
       void navigate("/");
     }
@@ -585,7 +586,7 @@ export function WorkspaceTitleBar({
   const handleSelectDatabase = async (dbName: string, hasProfile: boolean) => {
     // Prevent multiple simultaneous window operations
     if (isOpeningWindow) {
-      console.log(
+      logger.info(
         `[WorkspaceTitleBar] Already opening a window, ignoring request for ${dbName}`,
       );
       return;
@@ -601,11 +602,11 @@ export function WorkspaceTitleBar({
 
     try {
       if (!connection) {
-        console.error("Current connection not found");
+        logger.error("Current connection not found");
         return;
       }
 
-      console.log(
+      logger.info(
         `[WorkspaceTitleBar] Selecting database ${dbName}, hasProfile: ${hasProfile}, currentConnectionId: ${connectionId}`,
       );
 
@@ -622,19 +623,19 @@ export function WorkspaceTitleBar({
         );
 
         if (!existingConnection) {
-          console.error(
+          logger.error(
             `[WorkspaceTitleBar] Profile not found for database ${dbName}`,
           );
           return;
         }
 
-        console.log(
+        logger.info(
           `[WorkspaceTitleBar] Using existing profile for database ${dbName}: ${existingConnection.profile.id}`,
         );
         targetConnectionId = existingConnection.profile.id;
       } else {
         // New profile - create it
-        console.log(
+        logger.info(
           `[WorkspaceTitleBar] Creating new profile for database ${dbName} from source ${connectionId}`,
         );
 
@@ -648,7 +649,7 @@ export function WorkspaceTitleBar({
         );
 
         if (existingBeforeCreate) {
-          console.log(
+          logger.info(
             `[WorkspaceTitleBar] Profile was just created for ${dbName}, using it: ${existingBeforeCreate.profile.id}`,
           );
           targetConnectionId = existingBeforeCreate.profile.id;
@@ -659,7 +660,7 @@ export function WorkspaceTitleBar({
               dbName,
             );
 
-          console.log(
+          logger.info(
             `[WorkspaceTitleBar] Created new profile with ID: ${targetConnectionId}`,
           );
 
@@ -668,7 +669,7 @@ export function WorkspaceTitleBar({
         }
       }
 
-      console.log(
+      logger.info(
         `[WorkspaceTitleBar] Target connectionId: ${targetConnectionId}, isWorkspaceOpen: ${windowManager.isWorkspaceOpen(
           targetConnectionId,
         )}`,
@@ -677,13 +678,13 @@ export function WorkspaceTitleBar({
       // IconCheck if we need to open a new window or if one already exists
       if (windowManager.isWorkspaceOpen(targetConnectionId)) {
         // Window exists, focus it
-        console.log(
+        logger.info(
           `[WorkspaceTitleBar] Focusing existing window for ${dbName}`,
         );
         await windowManager.focusWorkspace(targetConnectionId);
       } else {
         // Create new window for this database (keep current window open)
-        console.log(
+        logger.info(
           `[WorkspaceTitleBar] Opening new window for ${dbName} with connectionId: ${targetConnectionId}`,
         );
         await windowManager.openWorkspace(
@@ -693,10 +694,10 @@ export function WorkspaceTitleBar({
             database: dbName,
           },
         );
-        console.log(`[WorkspaceTitleBar] New window opened successfully`);
+        logger.info(`[WorkspaceTitleBar] New window opened successfully`);
       }
     } catch (error) {
-      console.error("Failed to select database:", error);
+      logger.error("Failed to select database:", error);
       toast.error("Failed to select database", {
         description: error instanceof Error ? error.message : String(error),
       });

@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { useKeyboardServicesOptional } from '@/components/KeyboardProvider';
@@ -61,7 +62,7 @@ export function useCommand<TArgs = unknown>(
         (source === 'system' ? 'default' : source) as 'default' | 'system' | 'user'
       );
     } catch (error) {
-      console.error(`[useCommand] Failed to register command ${commandId}`, error);
+      logger.error(`[useCommand] Failed to register command ${commandId}`, error);
     }
 
     return () => {
@@ -77,7 +78,7 @@ export function useExecuteCommand(): (commandId: string, args?: unknown) => Prom
     async (commandId: string, args?: unknown) => {
       if (!commandService) {
         if (process.env.NODE_ENV !== 'production') {
-          console.warn(`[useExecuteCommand] Command service unavailable; skipping ${commandId}`);
+          logger.warn(`[useExecuteCommand] Command service unavailable; skipping ${commandId}`);
         }
         return;
       }

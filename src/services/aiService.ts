@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { AI_SIDECAR_URL } from "@/config/constants";
 
 export interface AIModelInfo {
@@ -36,14 +37,14 @@ export async function checkSidecarHealth(): Promise<boolean> {
     });
 
     if (!response.ok) {
-      console.warn("[AIService] Sidecar health check failed:", response.status);
+      logger.warn("[AIService] Sidecar health check failed:", response.status);
       return false;
     }
 
     const data: SidecarHealthResponse = await response.json();
     return data.status === "ok";
   } catch (error) {
-    console.warn("[AIService] Sidecar not reachable:", error);
+    logger.warn("[AIService] Sidecar not reachable:", error);
     return false;
   }
 }
@@ -59,7 +60,7 @@ export async function getChatProviders(): Promise<AIProviderConfig[]> {
     });
 
     if (!response.ok) {
-      console.error("[AIService] Failed to fetch providers:", response.status);
+      logger.error("[AIService] Failed to fetch providers:", response.status);
       return [];
     }
 
@@ -67,7 +68,7 @@ export async function getChatProviders(): Promise<AIProviderConfig[]> {
     const data: AIProviderConfig[] = await response.json();
     return data || [];
   } catch (error) {
-    console.error("[AIService] Error fetching providers:", error);
+    logger.error("[AIService] Error fetching providers:", error);
     return [];
   }
 }
@@ -94,7 +95,7 @@ export async function getSidecarStatus(): Promise<SidecarStatusResponse | null> 
 
     return await response.json();
   } catch (error) {
-    console.error("[AIService] Error fetching status:", error);
+    logger.error("[AIService] Error fetching status:", error);
     return null;
   }
 }
@@ -173,7 +174,7 @@ export async function searchOpenRouterModels(
     );
 
     if (!response.ok) {
-      console.error(
+      logger.error(
         "[AIService] Failed to fetch OpenRouter models:",
         response.status,
       );
@@ -182,7 +183,7 @@ export async function searchOpenRouterModels(
 
     return await response.json();
   } catch (error) {
-    console.error("[AIService] Error fetching OpenRouter models:", error);
+    logger.error("[AIService] Error fetching OpenRouter models:", error);
     return null;
   }
 }
@@ -212,7 +213,7 @@ export async function textToSQL(
       explanation: data.explanation,
     };
   } catch (error) {
-    console.error("[AIService] Text-to-SQL error:", error);
+    logger.error("[AIService] Text-to-SQL error:", error);
     return {
       error: error instanceof Error ? error.message : "Failed to generate SQL",
     };

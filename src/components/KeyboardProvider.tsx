@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import React, { type ReactNode, createContext, useContext, useEffect, useMemo } from 'react';
 
 import { contextKeyDefinitions } from '@/data/contextKeys';
@@ -35,13 +36,13 @@ function initializeServices(): void {
   try {
     commandService.registerMany(defaultCommands, 'default');
   } catch (error) {
-    console.error('[KeyboardProvider] Failed to register default commands:', error);
+    logger.error('[KeyboardProvider] Failed to register default commands:', error);
   }
 
   try {
     keybindingService.registerMany(defaultKeybindings, 'default');
   } catch (error) {
-    console.error('[KeyboardProvider] Failed to register default keybindings:', error);
+    logger.error('[KeyboardProvider] Failed to register default keybindings:', error);
   }
 
   servicesInitialized = true;
@@ -77,7 +78,7 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): React.JSX
       contextService.setValue('hasMultipleEditors', payload.panelCount > 1);
       // activeEditor should be true if there's at least one panel, even if focusedPanelId is null
       const hasActiveEditor = payload.panelCount > 0 || Boolean(payload.focusedPanelId);
-      console.log('[KeyboardProvider] Setting activeEditor context:', {
+      logger.info('[KeyboardProvider] Setting activeEditor context:', {
         panelCount: payload.panelCount,
         focusedPanelId: payload.focusedPanelId,
         hasActiveEditor,

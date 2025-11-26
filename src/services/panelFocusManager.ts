@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 export type PanelFocusHandle =
   | HTMLElement
   | {
@@ -203,7 +204,7 @@ export class PanelFocusManager {
       }
       return true;
     } catch (error) {
-      console.warn("[panelFocusManager] Failed to focus target", error);
+      logger.warn("[panelFocusManager] Failed to focus target", error);
       return false;
     }
   }

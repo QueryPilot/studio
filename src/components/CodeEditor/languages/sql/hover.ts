@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { hoverTooltip, Tooltip } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
@@ -112,7 +113,7 @@ export function createSqlHoverExtension(
         },
       };
     } catch (err) {
-      console.error("[SQL Hover] Error fetching details:", err);
+      logger.error("[SQL Hover] Error fetching details:", err);
       return null;
     }
   });

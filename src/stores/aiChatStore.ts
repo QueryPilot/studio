@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
@@ -127,7 +128,7 @@ export const useAIChatStore = create<AIChatStoreState>()(
       loadProviders: async () => {
         // Prevent concurrent loading
         if (get().isLoadingProviders) {
-          console.log("[AIChatStore] Already loading providers, skipping...");
+          logger.info("[AIChatStore] Already loading providers, skipping...");
           return;
         }
 
@@ -138,8 +139,8 @@ export const useAIChatStore = create<AIChatStoreState>()(
             getSidecarStatus(),
           ]);
 
-          console.log("[AIChatStore] Loaded providers:", providers);
-          console.log("[AIChatStore] Sidecar status:", status);
+          logger.info("[AIChatStore] Loaded providers:", providers);
+          logger.info("[AIChatStore] Sidecar status:", status);
 
           set({
             availableProviders: providers,
@@ -150,7 +151,7 @@ export const useAIChatStore = create<AIChatStoreState>()(
           const { selectedProvider, selectedModel } = get();
           const configuredProvidersList = status?.configuredProviders || [];
 
-          console.log("[AIChatStore] Current state:", {
+          logger.info("[AIChatStore] Current state:", {
             selectedProvider,
             selectedModel,
             configuredProvidersList,
@@ -163,7 +164,7 @@ export const useAIChatStore = create<AIChatStoreState>()(
             );
             const providerToUse = firstConfiguredProvider || providers[0];
 
-            console.log(
+            logger.info(
               "[AIChatStore] Auto-selecting provider:",
               providerToUse.name,
             );
@@ -185,7 +186,7 @@ export const useAIChatStore = create<AIChatStoreState>()(
             }
           }
         } catch (error) {
-          console.error("[AIChatStore] Failed to load providers:", error);
+          logger.error("[AIChatStore] Failed to load providers:", error);
         } finally {
           set({ isLoadingProviders: false });
         }
@@ -199,7 +200,7 @@ export const useAIChatStore = create<AIChatStoreState>()(
             set({ configuredProviders: status.configuredProviders });
           }
         } catch (error) {
-          console.error(
+          logger.error(
             "[AIChatStore] Failed to check configured providers:",
             error,
           );

@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
   useInfiniteQuery,
@@ -19,7 +20,6 @@ import {
   type StreamProgress,
 } from "@/services/tableStreamingService";
 import type { TableStructure } from "@/types/tableStructure";
-import { logger } from "@/lib/logger";
 
 export interface TableDataPage extends StreamEntityPageResult {
   offset: number;

@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import * as React from "react";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 
@@ -83,7 +84,7 @@ const TabsList = React.forwardRef<
   // Handle clicks - this DOES bubble unlike focus events
   const handleClick = () => {
     if (tabGroup) {
-      console.log("[TabsList] Click - setting focused:", tabGroup.tabGroupId);
+      logger.info("[TabsList] Click - setting focused:", tabGroup.tabGroupId);
       tabGroup.setFocused(true);
     }
   };
@@ -91,7 +92,7 @@ const TabsList = React.forwardRef<
   // Use capture phase to catch focus events before they reach children
   const handleFocusCapture = () => {
     if (tabGroup) {
-      console.log(
+      logger.info(
         "[TabsList] Focus capture - setting focused:",
         tabGroup.tabGroupId,
       );
@@ -146,7 +147,7 @@ const TabsTrigger = React.forwardRef<
     // Subscribe to modifier key changes from context
     React.useEffect(() => {
       if (!keyboardServices?.contextService) {
-        console.log("[TabsTrigger] No contextService available");
+        logger.info("[TabsTrigger] No contextService available");
         return;
       }
 
@@ -155,7 +156,7 @@ const TabsTrigger = React.forwardRef<
           keyboardServices.contextService.getValue("modifierKeyHeld");
         const newValue = Boolean(value);
         if (newValue !== isModifierHeld) {
-          console.log("[TabsTrigger] Modifier key changed:", {
+          logger.info("[TabsTrigger] Modifier key changed:", {
             value,
             newValue,
             tabIndex,
@@ -202,7 +203,7 @@ const TabsTrigger = React.forwardRef<
     // Debug logging for shortcut display
     React.useEffect(() => {
       if (isModifierHeld && tabIndex !== undefined && tabIndex <= 8) {
-        console.log("[TabsTrigger] Shortcut check:", {
+        logger.info("[TabsTrigger] Shortcut check:", {
           tabIndex,
           value,
           hasTabGroup: !!tabGroup,

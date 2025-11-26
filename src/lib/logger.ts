@@ -1,11 +1,35 @@
 type LogLevel = "debug" | "info" | "warn" | "error";
 
 const isProd = import.meta.env.PROD;
+const namespacePattern = /^[a-z0-9._-]+$/i;
 
-function emit(level: LogLevel, namespace: string, ...args: unknown[]) {
+function normalize(
+  namespaceOrMessage: unknown,
+  args: unknown[],
+): { namespace: string; payload: unknown[] } {
+  if (
+    typeof namespaceOrMessage === "string" &&
+    namespacePattern.test(namespaceOrMessage) &&
+    args.length > 0
+  ) {
+    return { namespace: namespaceOrMessage, payload: args };
+  }
+
+  return {
+    namespace: "app",
+    payload: [namespaceOrMessage, ...args],
+  };
+}
+
+function emit(
+  level: LogLevel,
+  namespaceOrMessage: unknown,
+  ...args: unknown[]
+) {
   // Drop non-error logs in production to avoid disk I/O and noise
   if (isProd && level !== "error") return;
 
+  const { namespace, payload } = normalize(namespaceOrMessage, args);
   const prefix = `[${namespace}]`;
   const fn =
     level === "debug"
@@ -19,12 +43,31 @@ function emit(level: LogLevel, namespace: string, ...args: unknown[]) {
 }
 
 export const logger = {
-  debug: (namespace: string, ...args: unknown[]) =>
-    emit("debug", namespace, ...args),
-  info: (namespace: string, ...args: unknown[]) =>
-    emit("info", namespace, ...args),
-  warn: (namespace: string, ...args: unknown[]) =>
-    emit("warn", namespace, ...args),
-  error: (namespace: string, ...args: unknown[]) =>
-    emit("error", namespace, ...args),
+  debug: (namespaceOrMessage: unknown, ...args: unknown[]) =>
+    emit("debug", namespaceOrMessage, ...args),
+  info: (namespaceOrMessage: unknown, ...args: unknown[]) =>
+    emit("info", namespaceOrMessage, ...args),
+  warn: (namespaceOrMessage: unknown, ...args: unknown[]) =>
+    emit("warn", namespaceOrMessage, ...args),
+  error: (namespaceOrMessage: unknown, ...args: unknown[]) =>
+    emit("error", namespaceOrMessage, ...args),
+  group: (namespaceOrMessage: unknown, ...args: unknown[]) => {
+    if (isProd) return;
+    const { namespace, payload } = normalize(namespaceOrMessage, args);
+    console.group(`[${namespace}]`, ...payload);
+  },
+  groupCollapsed: (namespaceOrMessage: unknown, ...args: unknown[]) => {
+    if (isProd) return;
+    const { namespace, payload } = normalize(namespaceOrMessage, args);
+    console.groupCollapsed(`[${namespace}]`, ...payload);
+  },
+  groupEnd: () => {
+    if (isProd) return;
+    console.groupEnd();
+  },
+  table: (namespaceOrMessage: unknown, data: unknown) => {
+    if (isProd) return;
+    const { namespace } = normalize(namespaceOrMessage, []);
+    console.table(data, [`[${namespace}]`]);
+  },
 };

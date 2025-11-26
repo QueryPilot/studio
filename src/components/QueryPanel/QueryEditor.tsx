@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { memo, useCallback, forwardRef, useMemo } from "react";
 import { CodeEditor } from "@/components/CodeEditor";
 import type { SqlDialect, CodeEditorRef } from "@/components/CodeEditor";
@@ -53,7 +54,7 @@ export const QueryEditor = memo(
 
     const handleExecute = useCallback(
       (query?: string) => {
-        console.log("[QueryEditor.handleExecute] Called with:", {
+        logger.info("[QueryEditor.handleExecute] Called with:", {
           query,
           queryLength: query?.length || 0,
           value,
@@ -63,7 +64,7 @@ export const QueryEditor = memo(
 
         // Prevent execution if already executing
         if (isExecuting) {
-          console.log(
+          logger.info(
             "[QueryEditor.handleExecute] Already executing, ignoring",
           );
           return;
@@ -71,7 +72,7 @@ export const QueryEditor = memo(
 
         if (onExecute) {
           const finalQuery = query || value;
-          console.log("[QueryEditor.handleExecute] Calling onExecute with:", {
+          logger.info("[QueryEditor.handleExecute] Calling onExecute with:", {
             finalQuery,
             finalQueryLength: finalQuery?.length || 0,
           });

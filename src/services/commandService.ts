@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import {
   type Command,
   type CommandDescriptor,
@@ -130,7 +131,7 @@ export class CommandService {
     }
 
     if (!this.contextService) {
-      console.warn(
+      logger.warn(
         `[commandService] No context service available to evaluate expression "${expression}"`,
       );
       return false;

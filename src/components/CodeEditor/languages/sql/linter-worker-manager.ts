@@ -5,6 +5,7 @@
  * a CodeMirror-compatible linter interface.
  */
 
+import { logger } from "@/lib/logger";
 import { linter, type Diagnostic } from "@codemirror/lint";
 import type { Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
@@ -41,7 +42,7 @@ class LinterWorkerManager {
         };
 
         this.worker.onerror = (error) => {
-          console.error('[LinterWorker] Worker error:', error);
+          logger.error('[LinterWorker] Worker error:', error);
           // Reject all pending requests
           for (const [id, handlers] of this.pendingRequests) {
             handlers.reject(new Error('Worker error'));
@@ -52,7 +53,7 @@ class LinterWorkerManager {
         this.isInitialized = true;
         resolve();
       } catch (error) {
-        console.error('[LinterWorker] Failed to initialize:', error);
+        logger.error('[LinterWorker] Failed to initialize:', error);
         reject(error);
       }
     });

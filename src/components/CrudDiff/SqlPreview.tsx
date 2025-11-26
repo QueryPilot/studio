@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { useCallback, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -50,7 +51,7 @@ function SqlStatementPanel({ statement }: SqlStatementPanelProps) {
         setCopied(false);
       }, 2000);
     } catch (error) {
-      console.error("Failed to copy SQL statement", error);
+      logger.error("Failed to copy SQL statement", error);
     }
   }, [statement.statement]);
 

@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { useState, useMemo, useRef, useEffect } from 'react';
 import Fuse from 'fuse.js';
 import { IconSearch } from '@tabler/icons-react';
@@ -76,7 +77,7 @@ export function SearchBar({
         e.preventDefault();
         if (searchResults[selectedIndex]) {
           // TODO: Connect to selected connection
-          console.log('Connect to', searchResults[selectedIndex].profile.id);
+          logger.info('Connect to', searchResults[selectedIndex].profile.id);
         }
         break;
       case 'Escape':

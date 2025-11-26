@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 /**
  * Represents a table reference in SQL
  */
@@ -122,10 +123,10 @@ export function parseMutationTables(sql: string): TableReference[] {
       return true;
     });
 
-    console.log(`[SQLParser] Parsed ${uniqueTables.length} unique table(s) from SQL:`, uniqueTables);
+    logger.info(`[SQLParser] Parsed ${uniqueTables.length} unique table(s) from SQL:`, uniqueTables);
     return uniqueTables;
   } catch (error) {
-    console.error("[SQLParser] Error parsing SQL:", error, { sql });
+    logger.error("[SQLParser] Error parsing SQL:", error, { sql });
     // Return empty array on error to prevent crashes
     return [];
   }

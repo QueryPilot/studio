@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -341,7 +342,7 @@ export function ConnectionForm() {
         toast.error("Clipboard Empty");
       }
     } catch (error) {
-      console.error(error);
+      logger.error(error);
       toast.error("Clipboard Access Failed");
     }
   };
@@ -592,7 +593,7 @@ export function ConnectionForm() {
       }
 
       // TODO: Implement actual connection
-      console.log("Connect to", profile.id);
+      logger.info("Connect to", profile.id);
 
       closeForm();
     } catch (error) {

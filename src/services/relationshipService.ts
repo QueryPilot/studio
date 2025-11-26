@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import type {
   ForeignKeyRelationship,
   TableRelationshipGraph,
@@ -85,7 +86,7 @@ class RelationshipService {
         );
         return { table: table.name, constraints };
       } catch (error) {
-        console.debug(
+        logger.debug(
           `Failed to fetch constraints for table ${table.name}:`,
           error,
         );

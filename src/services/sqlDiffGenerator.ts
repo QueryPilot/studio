@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { DbType } from "./backend";
 import type {
   CrudCommand,
@@ -222,7 +223,7 @@ export class SqlDiffGenerator {
       case 'fk.drop':
         return this.generateForeignKeyDrop(command as CrudCommandFor<'fk.drop'>, dbType);
       default:
-        console.warn(`SqlDiffGenerator: Unsupported command type ${(command as { type: CrudOperationType }).type}`);
+        logger.warn(`SqlDiffGenerator: Unsupported command type ${(command as { type: CrudOperationType }).type}`);
         return null;
     }
   }

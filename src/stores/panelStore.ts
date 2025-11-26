@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { create } from "zustand";
 import { v4 as uuidv4 } from "uuid";
 import type { PanelState, TabState } from "@/types/workspaceScreen";
@@ -49,7 +50,7 @@ export const usePanelStore = create<PanelStore>((set, get) => ({
   splitPosition: 0.5,
 
   createPanel: (type) => {
-    console.log("🆕 Creating new panel of type:", type);
+    logger.info("🆕 Creating new panel of type:", type);
     const panelId = uuidv4();
     const panel: PanelState = {
       id: panelId,
@@ -62,8 +63,8 @@ export const usePanelStore = create<PanelStore>((set, get) => ({
     set((state) => {
       const newPanels = new Map(state.panels);
       newPanels.set(panelId, panel);
-      console.log("✅ Panel created with ID:", panelId);
-      console.log("📊 Total panels now:", newPanels.size);
+      logger.info("✅ Panel created with ID:", panelId);
+      logger.info("📊 Total panels now:", newPanels.size);
       return { panels: newPanels };
     });
 
@@ -221,7 +222,7 @@ export const usePanelStore = create<PanelStore>((set, get) => ({
   },
 
   moveTabBetweenPanels: (tabId, fromPanelId, toPanelId) => {
-    console.log("🔄 moveTabBetweenPanels called:", {
+    logger.info("🔄 moveTabBetweenPanels called:", {
       tabId,
       fromPanelId,
       toPanelId,
@@ -230,7 +231,7 @@ export const usePanelStore = create<PanelStore>((set, get) => ({
     const fromPanel = get().panels.get(fromPanelId);
     const toPanel = get().panels.get(toPanelId);
 
-    console.log("📋 Panels found:", {
+    logger.info("📋 Panels found:", {
       fromPanel: fromPanel?.id,
       toPanel: toPanel?.id,
       fromPanelTabs: fromPanel ? Array.from(fromPanel.tabs.keys()) : [],
@@ -238,17 +239,17 @@ export const usePanelStore = create<PanelStore>((set, get) => ({
     });
 
     if (!fromPanel || !toPanel) {
-      console.log("❌ Missing panels for move operation");
+      logger.info("❌ Missing panels for move operation");
       return;
     }
 
     const tab = fromPanel.tabs.get(tabId);
     if (!tab) {
-      console.log("❌ Tab not found in source panel:", tabId);
+      logger.info("❌ Tab not found in source panel:", tabId);
       return;
     }
 
-    console.log("✅ Moving tab:", tab.title);
+    logger.info("✅ Moving tab:", tab.title);
 
     // Update tab's panel reference
     const movedTab = { ...tab, panelId: toPanelId };

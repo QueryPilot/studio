@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import React, {
   useState,
   useRef,
@@ -77,7 +78,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
             setCopied(false);
           }, 3000);
         } catch (err) {
-          console.error("Failed to copy to clipboard:", err);
+          logger.error("Failed to copy to clipboard:", err);
         }
       }
     };
@@ -183,7 +184,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
           className="h-full"
           onSave={(tableName, columns) => {
             // TODO: Execute CREATE TABLE SQL
-            console.log("Create table:", tableName, columns);
+            logger.info("Create table:", tableName, columns);
           }}
         />
       );

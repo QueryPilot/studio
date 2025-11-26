@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 /**
  * Performance monitoring utilities for DataGrid V2
  * 
@@ -118,7 +119,7 @@ class PerformanceMonitor {
       
       // Log slow renders (> 16ms)
       if (elapsed > 16) {
-        console.warn(`[Performance] Slow render detected in ${name}: ${elapsed.toFixed(2)}ms`);
+        logger.warn(`[Performance] Slow render detected in ${name}: ${elapsed.toFixed(2)}ms`);
       }
     }
   }
@@ -160,21 +161,39 @@ class PerformanceMonitor {
         ? this.stopFPSMonitoring() 
         : this.stopFPSMonitoring(); // Get final metrics
       
-      console.group('📊 DataGrid Performance Metrics');
-      console.log(`FPS: ${fpsMetrics.fps} (avg frame time: ${fpsMetrics.avgFrameTime}ms)`);
-      console.log(`Frames: ${fpsMetrics.totalFrames} (dropped: ${fpsMetrics.droppedFrames})`);
-      console.log(`Frame time range: ${fpsMetrics.minFrameTime.toFixed(2)}ms - ${fpsMetrics.maxFrameTime.toFixed(2)}ms`);
-      console.groupEnd();
+      logger.group("data-grid-perf", "📊 DataGrid Performance Metrics");
+      logger.info(
+        "data-grid-perf",
+        `FPS: ${fpsMetrics.fps} (avg frame time: ${fpsMetrics.avgFrameTime}ms)`,
+      );
+      logger.info(
+        "data-grid-perf",
+        `Frames: ${fpsMetrics.totalFrames} (dropped: ${fpsMetrics.droppedFrames})`,
+      );
+      logger.info(
+        "data-grid-perf",
+        `Frame time range: ${fpsMetrics.minFrameTime.toFixed(2)}ms - ${fpsMetrics.maxFrameTime.toFixed(2)}ms`,
+      );
+      logger.groupEnd();
     }
     
     if (this.renderCount > 0) {
       const renderMetrics = this.getRenderMetrics();
-      console.group('🎨 DataGrid Render Metrics');
-      console.log(`Render count: ${renderMetrics.renderCount}`);
-      console.log(`Avg render time: ${renderMetrics.avgRenderTime}ms`);
-      console.log(`Max render time: ${renderMetrics.maxRenderTime}ms`);
-      console.log(`Total render time: ${renderMetrics.totalRenderTime.toFixed(2)}ms`);
-      console.groupEnd();
+      logger.group("data-grid-perf", "🎨 DataGrid Render Metrics");
+      logger.info("data-grid-perf", `Render count: ${renderMetrics.renderCount}`);
+      logger.info(
+        "data-grid-perf",
+        `Avg render time: ${renderMetrics.avgRenderTime}ms`,
+      );
+      logger.info(
+        "data-grid-perf",
+        `Max render time: ${renderMetrics.maxRenderTime}ms`,
+      );
+      logger.info(
+        "data-grid-perf",
+        `Total render time: ${renderMetrics.totalRenderTime.toFixed(2)}ms`,
+      );
+      logger.groupEnd();
     }
   }
 }
@@ -185,11 +204,10 @@ export const perfMonitor = new PerformanceMonitor();
 // Development-only helper to enable monitoring via console
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   (window as any).__dataGridPerf = perfMonitor;
-  console.log('💡 DataGrid Performance Monitor available at window.__dataGridPerf');
-  console.log('   Usage:');
-  console.log('   - __dataGridPerf.startFPSMonitoring() - Start monitoring FPS');
-  console.log('   - __dataGridPerf.stopFPSMonitoring()  - Stop and get metrics');
-  console.log('   - __dataGridPerf.logMetrics()         - Log current metrics');
-  console.log('   - __dataGridPerf.reset()              - Reset all metrics');
+  logger.info('💡 DataGrid Performance Monitor available at window.__dataGridPerf');
+  logger.info('   Usage:');
+  logger.info('   - __dataGridPerf.startFPSMonitoring() - Start monitoring FPS');
+  logger.info('   - __dataGridPerf.stopFPSMonitoring()  - Stop and get metrics');
+  logger.info('   - __dataGridPerf.logMetrics()         - Log current metrics');
+  logger.info('   - __dataGridPerf.reset()              - Reset all metrics');
 }
-

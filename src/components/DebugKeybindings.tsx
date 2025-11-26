@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { useEffect, useState } from 'react';
 import { contextService } from '@/services/contextService';
 import { keybindingService } from '@/services/keybindingService';
@@ -52,8 +53,8 @@ export function DebugKeybindings() {
       );
 
       if (matchingBindings.length > 0) {
-        console.log('[DEBUG] Matching keybindings:', matchingBindings);
-        console.log('[DEBUG] Active context:', Object.fromEntries(contextService.snapshot()));
+        logger.info('[DEBUG] Matching keybindings:', matchingBindings);
+        logger.info('[DEBUG] Active context:', Object.fromEntries(contextService.snapshot()));
       }
     };
 
@@ -120,9 +121,9 @@ export function DebugKeybindings() {
         <div style={{ color: '#fff', marginBottom: '5px' }}>Quick Actions:</div>
         <button
           onClick={() => {
-            console.log('[DEBUG] All registered commands:', commandService.list());
-            console.log('[DEBUG] All registered keybindings:', keybindingService.list());
-            console.log('[DEBUG] Full context snapshot:', Object.fromEntries(contextService.snapshot()));
+            logger.info('[DEBUG] All registered commands:', commandService.list());
+            logger.info('[DEBUG] All registered keybindings:', keybindingService.list());
+            logger.info('[DEBUG] Full context snapshot:', Object.fromEntries(contextService.snapshot()));
           }}
           style={{
             background: '#333',

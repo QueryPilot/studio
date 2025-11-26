@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -26,7 +27,7 @@ export default function TelemetryPanel() {
             "Sentry has been disabled immediately across all components. No more data will be sent.",
         });
       } catch (error) {
-        console.error("Failed to disable backend telemetry:", error);
+        logger.error("Failed to disable backend telemetry:", error);
         toast.error("Failed to disable backend telemetry", {
           description:
             "Frontend tracking disabled, but backend may still be active.",
@@ -45,7 +46,7 @@ export default function TelemetryPanel() {
           duration: 5000,
         });
       } catch (error) {
-        console.error("Failed to enable backend telemetry:", error);
+        logger.error("Failed to enable backend telemetry:", error);
         // Revert the toggle since it failed
         setTelemetry({ sentryEnabled: false });
         toast.error("Telemetry not available", {

@@ -4,6 +4,7 @@
  * Provides code actions like "Expand Star" for SQL queries.
  */
 
+import { logger } from "@/lib/logger";
 import { StateField, type Extension } from "@codemirror/state";
 import {
   type EditorView,
@@ -286,7 +287,7 @@ class ExpandStarWidget extends WidgetType {
       }
 
       if (allColumns.length === 0) {
-        console.warn(
+        logger.warn(
           "[ExpandStar] No columns found for tables:",
           this.target.tables,
         );
@@ -308,7 +309,7 @@ class ExpandStarWidget extends WidgetType {
         },
       });
     } catch (error) {
-      console.error("[ExpandStar] Error expanding:", error);
+      logger.error("[ExpandStar] Error expanding:", error);
     }
   }
 
@@ -371,7 +372,7 @@ export async function expandStarAtPosition(
 
     return true;
   } catch (error) {
-    console.error("[ExpandStar] Error:", error);
+    logger.error("[ExpandStar] Error:", error);
     return false;
   }
 }

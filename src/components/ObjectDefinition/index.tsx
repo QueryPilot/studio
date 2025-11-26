@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import React, { useEffect, useState, useMemo } from "react";
 import { databaseService } from "@/services/databaseService";
 import { cn } from "@/lib/utils";
@@ -57,7 +58,7 @@ export const ObjectDefinition: React.FC<ObjectDefinitionProps> = React.memo(
           setDefinition(def);
           onDefinitionLoad?.(def);
         } catch (err) {
-          console.error("Failed to fetch object definition:", err);
+          logger.error("Failed to fetch object definition:", err);
           setError(
             err instanceof Error ? err.message : "Failed to fetch definition",
           );

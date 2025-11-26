@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import {
   databaseService,
   type TableMeta,
@@ -127,7 +128,7 @@ const loadSchemaData = async (
       functions: uniqueFunctions,
     } as any;
   } catch (err: unknown) {
-    console.error("Failed to load schema data:", err);
+    logger.error("Failed to load schema data:", err);
     throw new Error("Failed to load schema data");
   }
 };

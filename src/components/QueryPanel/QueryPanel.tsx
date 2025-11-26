@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import {
   memo,
   useState,
@@ -182,7 +183,7 @@ export const QueryPanel = memo(function QueryPanel({
 
   // Debug: IconCheck if keyboardServices is available
   useEffect(() => {
-    console.log("[QueryPanel] keyboardServices:", {
+    logger.info("[QueryPanel] keyboardServices:", {
       available: !!keyboardServices,
       commandService: !!keyboardServices?.commandService,
       tabId,
@@ -261,7 +262,7 @@ export const QueryPanel = memo(function QueryPanel({
 
   const handleExecute = useCallback(
     async (queryToExecute?: string) => {
-      console.log("[handleExecute] Called with:", {
+      logger.info("[handleExecute] Called with:", {
         queryToExecute,
         queryToExecuteLength: queryToExecute?.length || 0,
         fallbackQuery: query,
@@ -270,7 +271,7 @@ export const QueryPanel = memo(function QueryPanel({
 
       let sql = queryToExecute ?? query;
 
-      console.log("[handleExecute] Before trim:", {
+      logger.info("[handleExecute] Before trim:", {
         sql,
         sqlLength: sql.length || 0,
       });
@@ -278,14 +279,14 @@ export const QueryPanel = memo(function QueryPanel({
       // Clean up the SQL - remove trailing semicolons as they cause issues
       sql = sql.trim().replace(/;\s*$/, "");
 
-      console.log("[handleExecute] After trim and semicolon removal:", {
+      logger.info("[handleExecute] After trim and semicolon removal:", {
         sql,
         sqlLength: sql.length || 0,
         isEmpty: !sql,
       });
 
       if (!sql) {
-        console.log("[handleExecute] EMPTY QUERY - Showing error toast");
+        logger.info("[handleExecute] EMPTY QUERY - Showing error toast");
         toast.error("Please enter a query to execute");
         return;
       }
@@ -543,14 +544,14 @@ export const QueryPanel = memo(function QueryPanel({
           if (wasMutation) {
             // Clear cache
             handleMutationCache(sql, effectiveConnectionId);
-            console.log("[QueryPanel] Mutation detected - cache invalidated");
+            logger.info("[QueryPanel] Mutation detected - cache invalidated");
 
             // NEW: Broadcast invalidation to all components displaying affected tables
             const affectedTables = parseMutationTables(sql);
             if (affectedTables.length > 0) {
               const { invalidateTable } = useDataInvalidationStore.getState();
               affectedTables.forEach(({ schema, table }) => {
-                console.log(
+                logger.info(
                   `[QueryPanel] Invalidating table: ${schema ?? "public"}.${table}`,
                 );
                 invalidateTable(
@@ -561,7 +562,7 @@ export const QueryPanel = memo(function QueryPanel({
                 );
               });
             } else {
-              console.warn(
+              logger.warn(
                 "[QueryPanel] Mutation detected but no tables parsed from SQL:",
                 sql,
               );
@@ -606,7 +607,7 @@ export const QueryPanel = memo(function QueryPanel({
 
         if (isCancellation) {
           // User cancelled - don't show as error
-          console.log("Query cancelled by user");
+          logger.info("Query cancelled by user");
           return; // Exit early, no toast (already shown in handleCancel)
         } else {
           // Extract detailed error message
@@ -634,7 +635,7 @@ export const QueryPanel = memo(function QueryPanel({
             description: "Check the console for more details",
           });
 
-          console.error("Query execution failed:", error);
+          logger.error("Query execution failed:", error);
         }
       } finally {
         setIsExecuting(false);
@@ -752,19 +753,19 @@ export const QueryPanel = memo(function QueryPanel({
     const handleFormat = () => {
       // IconCheck if THIS panel should handle the event
       if (!isFocusedRef.current) return;
-      console.log("🟢 QueryPanel handling format event");
+      logger.info("🟢 QueryPanel handling format event");
       handleBeautify();
     };
 
     const handleToggleHistory = () => {
       if (!isFocusedRef.current) return;
-      console.log("🟢 QueryPanel handling toggle history event");
+      logger.info("🟢 QueryPanel handling toggle history event");
       toggleHistory();
     };
 
     const handleExecuteEvent = () => {
       if (!isFocusedRef.current) return;
-      console.log("🟢 QueryPanel handling execute event");
+      logger.info("🟢 QueryPanel handling execute event");
       handleExecute();
     };
 

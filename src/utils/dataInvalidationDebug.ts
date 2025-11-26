@@ -9,6 +9,7 @@
  * ```
  */
 
+import { logger } from "@/lib/logger";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { parseMutationTables } from "./sqlParser";
 
@@ -40,14 +41,14 @@ export const debugInvalidation = {
    */
   logStatus() {
     const status = this.getStatus();
-    console.group("📊 Data Invalidation Status");
-    console.log("Total Invalidations:", status.totalInvalidations);
-    console.log("Total Listeners:", status.totalListeners);
-    console.log("\nInvalidations:");
-    console.table(status.invalidations);
-    console.log("\nListeners:");
-    console.table(status.listeners);
-    console.groupEnd();
+    logger.group("invalidation-debug", "📊 Data Invalidation Status");
+    logger.info("Total Invalidations:", status.totalInvalidations);
+    logger.info("Total Listeners:", status.totalListeners);
+    logger.info("\nInvalidations:");
+    logger.table("invalidation-debug", status.invalidations);
+    logger.info("\nListeners:");
+    logger.table("invalidation-debug", status.listeners);
+    logger.groupEnd();
     return status;
   },
 
@@ -60,7 +61,7 @@ export const debugInvalidation = {
     schema: string,
     table: string,
   ) {
-    console.log(
+    logger.info(
       `🧪 Testing invalidation for: ${connectionId}:${database}:${schema}:${table}`,
     );
 
@@ -74,17 +75,17 @@ export const debugInvalidation = {
     );
 
     if (matchingListener) {
-      console.log(
+      logger.info(
         `✓ Found ${matchingListener.listenerCount} listener(s) for this table`,
       );
     } else {
-      console.warn(
+      logger.warn(
         "⚠️  No listeners found for this table. DataGridV2 may not be open for this table.",
       );
     }
 
     // Trigger invalidation
-    console.log("Triggering invalidation...");
+    logger.info("Triggering invalidation...");
     store.invalidateTable(connectionId, database, schema, table);
 
     // Check if invalidation was recorded
@@ -95,11 +96,11 @@ export const debugInvalidation = {
     );
 
     if (matchingInvalidation) {
-      console.log(
+      logger.info(
         `✓ Invalidation recorded at timestamp: ${matchingInvalidation.timestamp}`,
       );
     } else {
-      console.error("✗ Invalidation was not recorded");
+      logger.error("✗ Invalidation was not recorded");
     }
 
     return {
@@ -113,23 +114,23 @@ export const debugInvalidation = {
    * Test SQL parser
    */
   testSqlParser(sql: string) {
-    console.group("🔍 Testing SQL Parser");
-    console.log("Input SQL:", sql);
+    logger.group("invalidation-debug", "🔍 Testing SQL Parser");
+    logger.info("Input SQL:", sql);
 
     const tables = parseMutationTables(sql);
 
-    console.log(`Parsed ${tables.length} table(s):`);
-    console.table(tables);
+    logger.info(`Parsed ${tables.length} table(s):`);
+    logger.table("invalidation-debug", tables);
 
     if (tables.length === 0) {
-      console.warn(
+      logger.warn(
         "⚠️  No tables found. This might be a SELECT query or the parser failed.",
       );
     } else {
-      console.log("✓ Successfully parsed tables");
+      logger.info("✓ Successfully parsed tables");
     }
 
-    console.groupEnd();
+    logger.groupEnd();
     return tables;
   },
 
@@ -137,10 +138,10 @@ export const debugInvalidation = {
    * Clear all invalidations (useful for testing)
    */
   clearInvalidations() {
-    console.warn("⚠️  Clearing all invalidations");
+    logger.warn("⚠️  Clearing all invalidations");
     // Note: This requires adding a clearAll method to the store
     // For now, just log a warning
-    console.log(
+    logger.info(
       "This functionality requires adding a clearAll() method to the store",
     );
   },
@@ -149,8 +150,8 @@ export const debugInvalidation = {
    * Monitor invalidations in real-time
    */
   monitor(duration = 30000) {
-    console.log(`👁️  Monitoring invalidations for ${duration / 1000} seconds...`);
-    console.log("Any invalidations will be logged below:");
+    logger.info(`👁️  Monitoring invalidations for ${duration / 1000} seconds...`);
+    logger.info("Any invalidations will be logged below:");
 
     const store = useDataInvalidationStore.getState();
     const originalInvalidate = store.invalidateTable;
@@ -160,7 +161,7 @@ export const debugInvalidation = {
     // Wrap the invalidateTable method to log all calls
     store.invalidateTable = (connectionId, database, schema, table) => {
       eventCount++;
-      console.log(`[${new Date().toISOString()}] Invalidation #${eventCount}:`, {
+      logger.info(`[${new Date().toISOString()}] Invalidation #${eventCount}:`, {
         connectionId,
         database,
         schema,
@@ -172,13 +173,13 @@ export const debugInvalidation = {
     // Restore original after duration
     setTimeout(() => {
       store.invalidateTable = originalInvalidate;
-      console.log(`✓ Monitoring complete. Captured ${eventCount} invalidation(s)`);
+      logger.info(`✓ Monitoring complete. Captured ${eventCount} invalidation(s)`);
     }, duration);
 
     return () => {
       // Allow early stop
       store.invalidateTable = originalInvalidate;
-      console.log(`✓ Monitoring stopped. Captured ${eventCount} invalidation(s)`);
+      logger.info(`✓ Monitoring stopped. Captured ${eventCount} invalidation(s)`);
     };
   },
 
@@ -186,7 +187,7 @@ export const debugInvalidation = {
    * Run comprehensive system test
    */
   runSystemTest() {
-    console.group("🧪 Running System Test");
+    logger.group("invalidation-debug", "🧪 Running System Test");
 
     const tests = [
       {
@@ -223,20 +224,20 @@ export const debugInvalidation = {
       try {
         const result = test.test();
         if (result) {
-          console.log(`✓ ${test.name} - PASSED`);
+          logger.info(`✓ ${test.name} - PASSED`);
           passed++;
         } else {
-          console.error(`✗ ${test.name} - FAILED`);
+          logger.error(`✗ ${test.name} - FAILED`);
           failed++;
         }
       } catch (error) {
-        console.error(`✗ ${test.name} - ERROR:`, error);
+        logger.error(`✗ ${test.name} - ERROR:`, error);
         failed++;
       }
     });
 
-    console.log(`\nResults: ${passed} passed, ${failed} failed`);
-    console.groupEnd();
+    logger.info(`\nResults: ${passed} passed, ${failed} failed`);
+    logger.groupEnd();
 
     return { passed, failed, total: tests.length };
   },
@@ -245,7 +246,7 @@ export const debugInvalidation = {
 // Export to window for easy console access
 if (typeof window !== "undefined") {
   (window as any).debugInvalidation = debugInvalidation;
-  console.log(
+  logger.info(
     "💡 Debug utilities available via window.debugInvalidation or import",
   );
 }

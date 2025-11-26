@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { IconSitemap, IconPlus } from '@tabler/icons-react';
 import { Button } from '@/components/ui/button';
 
@@ -6,7 +7,7 @@ export function ERDWorkspacesSection() {
 
   const handleCreateWorkspace = () => {
     // TODO: Implement ERD workspace creation
-    console.log('Create ERD workspace');
+    logger.info('Create ERD workspace');
   };
 
   return (

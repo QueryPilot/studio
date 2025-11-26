@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ConnectionProfile } from "@/types/connection";
@@ -472,8 +473,8 @@ export class BackendAPI {
    * ]);
    *
    * if (result.success) {
-   *   console.log('Committed:', result.committed.length);
-   *   console.log('ID mappings:', result.idMappings);
+   *   logger.info('Committed:', result.committed.length);
+   *   logger.info('ID mappings:', result.idMappings);
    * }
    * ```
    */
@@ -520,7 +521,7 @@ export class BackendAPI {
     };
 
     // Debug logging
-    console.log("Invoking execute_crud_transaction with:", {
+    logger.info("Invoking execute_crud_transaction with:", {
       connId: connectionId,
       transaction,
     });

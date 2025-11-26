@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import Decimal from "decimal.js";
 
 /**
@@ -69,7 +70,7 @@ export const toDecimal = (val: unknown): Decimal | null => {
   if (typeof val === "number") {
     // Warn about unsafe integers (beyond 2^53 - 1)
     if (Number.isInteger(val) && !Number.isSafeInteger(val)) {
-      console.warn(
+      logger.warn(
         "Unsafe integer detected, precision may be lost:",
         val,
         "Consider using string representation",

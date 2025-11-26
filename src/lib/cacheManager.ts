@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { queryClient } from "./react-query-client";
 import { useTabStateStore } from "@/stores/tabStateStore";
 
@@ -69,7 +70,7 @@ export function clearTabCache(tabId: string, connectionId?: string): void {
     import("@tauri-apps/api/core")
       .then((tauri) => tauri.invoke("disconnect", { connId: compositeKey }))
       .catch((err) => {
-        console.warn(
+        logger.warn(
           `Failed to disconnect tab connection ${compositeKey}:`,
           err,
         );

@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { memo, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { IconAlertCircle, IconCircleX, IconClipboard, IconCircleCheck } from '@tabler/icons-react';
@@ -74,7 +75,7 @@ export const ResultViewer = memo(function ResultViewer({
     try {
       return JSON.stringify(objects, null, 2);
     } catch (err) {
-      console.warn("[ResultViewer] Failed to stringify query results", err);
+      logger.warn("[ResultViewer] Failed to stringify query results", err);
       return "[]";
     }
   }, [result, viewMode]);
