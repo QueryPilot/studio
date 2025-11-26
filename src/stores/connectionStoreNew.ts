@@ -86,18 +86,26 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     try {
       const id = await vaultStorage.storeConnection({ ...profile });
 
-      if (tags?.length) {
-        const uniqueTags = Array.from(
-          new Set(tags.map((tag) => tag.trim()).filter(Boolean)),
-        );
-        if (uniqueTags.length > 0) {
-          await vaultStorage.updateTags(id, uniqueTags);
-        }
+      const uniqueTags = tags?.length
+        ? Array.from(new Set(tags.map((tag) => tag.trim()).filter(Boolean)))
+        : [];
+
+      if (uniqueTags.length > 0) {
+        await vaultStorage.updateTags(id, uniqueTags);
       }
 
-      // Update UI immediately from cache - no need to refetch
-      const connections = await vaultStorage.listConnections();
-      set({ connections });
+      // Update local state directly - no need to refetch all connections
+      const newConnection: StoredConnection = {
+        profile: { ...profile, id },
+        metadata: {
+          created_at: new Date().toISOString(),
+          last_used: null,
+          use_count: 0,
+          tags: uniqueTags,
+          is_favorite: false,
+        },
+      };
+      set((state) => ({ connections: [...state.connections, newConnection] }));
       return id;
     } catch (err) {
       const error =
@@ -117,16 +125,28 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     try {
       await vaultStorage.updateConnection(id, { ...profile });
 
-      if (tags) {
-        const uniqueTags = Array.from(
-          new Set(tags.map((tag) => tag.trim()).filter(Boolean)),
-        );
+      const uniqueTags = tags
+        ? Array.from(new Set(tags.map((tag) => tag.trim()).filter(Boolean)))
+        : undefined;
+
+      if (uniqueTags) {
         await vaultStorage.updateTags(id, uniqueTags);
       }
 
-      // Update UI immediately from cache - no need to refetch
-      const connections = await vaultStorage.listConnections();
-      set({ connections });
+      // Update local state directly - no need to refetch all connections
+      set((state) => ({
+        connections: state.connections.map((conn) =>
+          conn.profile.id === id
+            ? {
+                ...conn,
+                profile: { ...profile, id },
+                metadata: uniqueTags
+                  ? { ...conn.metadata, tags: uniqueTags }
+                  : conn.metadata,
+              }
+            : conn,
+        ),
+      }));
     } catch (err) {
       const error =
         err instanceof Error ? err.message : "Failed to update connection";
@@ -140,9 +160,10 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     set({ error: null });
     try {
       await vaultStorage.deleteConnection(id);
-      // Update UI immediately from cache - no need to refetch
-      const connections = await vaultStorage.listConnections();
-      set({ connections });
+      // Update local state directly - no need to refetch all connections
+      set((state) => ({
+        connections: state.connections.filter((conn) => conn.profile.id !== id),
+      }));
     } catch (err) {
       const error =
         err instanceof Error ? err.message : "Failed to delete connection";
@@ -155,9 +176,14 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
   toggleFavorite: async (id: string) => {
     try {
       const isFavorite = await vaultStorage.toggleFavorite(id);
-      // Update UI immediately from cache - no need to refetch
-      const connections = await vaultStorage.listConnections();
-      set({ connections });
+      // Update local state directly - no need to refetch all connections
+      set((state) => ({
+        connections: state.connections.map((conn) =>
+          conn.profile.id === id
+            ? { ...conn, metadata: { ...conn.metadata, is_favorite: isFavorite } }
+            : conn,
+        ),
+      }));
       return isFavorite;
     } catch (err) {
       const error =
@@ -175,12 +201,19 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
         throw new Error("Connection not found");
       }
 
-      const tags = new Set(connection.metadata.tags);
-      tags.add(tag.trim());
-      await vaultStorage.updateTags(id, Array.from(tags).filter(Boolean));
-      // Update UI immediately from cache - no need to refetch
-      const connections = await vaultStorage.listConnections();
-      set({ connections });
+      const trimmedTag = tag.trim();
+      if (!trimmedTag) return;
+
+      const newTags = [...new Set([...connection.metadata.tags, trimmedTag])];
+      await vaultStorage.updateTags(id, newTags);
+      // Update local state directly - no need to refetch all connections
+      set((state) => ({
+        connections: state.connections.map((conn) =>
+          conn.profile.id === id
+            ? { ...conn, metadata: { ...conn.metadata, tags: newTags } }
+            : conn,
+        ),
+      }));
     } catch (err) {
       const error = err instanceof Error ? err.message : "Failed to add tag";
       set({ error });
@@ -196,13 +229,18 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
         throw new Error("Connection not found");
       }
 
-      const tags = connection.metadata.tags.filter(
+      const newTags = connection.metadata.tags.filter(
         (existingTag) => existingTag !== tag,
       );
-      await vaultStorage.updateTags(id, tags);
-      // Update UI immediately from cache - no need to refetch
-      const connections = await vaultStorage.listConnections();
-      set({ connections });
+      await vaultStorage.updateTags(id, newTags);
+      // Update local state directly - no need to refetch all connections
+      set((state) => ({
+        connections: state.connections.map((conn) =>
+          conn.profile.id === id
+            ? { ...conn, metadata: { ...conn.metadata, tags: newTags } }
+            : conn,
+        ),
+      }));
     } catch (err) {
       const error = err instanceof Error ? err.message : "Failed to remove tag";
       set({ error });
@@ -214,9 +252,22 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
   markAsUsed: async (id: string) => {
     try {
       await vaultStorage.markAsUsed(id);
-      // Update UI immediately from cache - no need to refetch
-      const connections = await vaultStorage.listConnections();
-      set({ connections });
+      // Update local state directly - no need to refetch all connections
+      const now = new Date().toISOString();
+      set((state) => ({
+        connections: state.connections.map((conn) =>
+          conn.profile.id === id
+            ? {
+                ...conn,
+                metadata: {
+                  ...conn.metadata,
+                  last_used: now,
+                  use_count: conn.metadata.use_count + 1,
+                },
+              }
+            : conn,
+        ),
+      }));
     } catch (err) {
       const error =
         err instanceof Error ? err.message : "Failed to mark as used";

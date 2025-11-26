@@ -163,6 +163,29 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
     const justAcceptedSuggestion = useRef(false);
     const justSwitchedMode = useRef(false);
 
+    // Refs for stable keymap access (avoid keymap recreation on every render)
+    const stateRefs = useRef({
+      showSuggestions: false,
+      suggestionType: "column" as "column" | "enum",
+      suggestions: [] as ColumnMeta[],
+      enumSuggestions: [] as string[],
+      selectedIndex: 0,
+      mode: "search" as FilterMode,
+      hasLintError: false,
+      value: "",
+      columns: [] as ColumnMeta[],
+    });
+    // Keep refs in sync
+    stateRefs.current.showSuggestions = showSuggestions;
+    stateRefs.current.suggestionType = suggestionType;
+    stateRefs.current.suggestions = suggestions;
+    stateRefs.current.enumSuggestions = enumSuggestions;
+    stateRefs.current.selectedIndex = selectedIndex;
+    stateRefs.current.mode = mode;
+    stateRefs.current.hasLintError = hasLintError;
+    stateRefs.current.value = value;
+    stateRefs.current.columns = columns;
+
     // Theme for CodeMirror
     const { resolvedTheme } = useTheme();
     const editorViewRef = useRef<EditorView | null>(null);
@@ -283,6 +306,52 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
           },
           { delay: 200 }
         ),
+      ];
+    }, [resolvedTheme]);
+
+    // Memoized non-SQL extensions for search/AI modes (avoids recreation on every render)
+    const basicExtensions = useMemo(() => {
+      const actualTheme = resolvedTheme === "dark" ? "dark" : "light";
+      return [
+        ...getThemeExtensions(actualTheme),
+        EditorView.theme(
+          {
+            "&.cm-editor": {
+              fontSize: "12px",
+              backgroundColor: "transparent !important",
+            },
+            ".cm-scroller": {
+              overflow: "hidden",
+              fontFamily:
+                "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+            },
+            ".cm-content": {
+              padding: "6px 0",
+              minHeight: "auto",
+            },
+            ".cm-line": {
+              padding: "0",
+            },
+            ".cm-gutters": {
+              display: "none !important",
+            },
+            ".cm-activeLineGutter": {
+              backgroundColor: "transparent !important",
+            },
+            ".cm-activeLine": {
+              backgroundColor: "transparent !important",
+            },
+            "&.cm-focused": {
+              outline: "none",
+            },
+            ".cm-placeholder": {
+              color: "hsl(var(--muted-foreground))",
+              fontStyle: "normal",
+            },
+          },
+          { dark: actualTheme === "dark" },
+        ),
+        EditorView.lineWrapping,
       ];
     }, [resolvedTheme]);
 
@@ -464,6 +533,145 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
       },
       [value, cursorPosition, onValueChange, mode],
     );
+
+    // Memoized keymap extension using refs for stable access
+    const keymapExtension = useMemo(() => {
+      return Prec.highest(
+        keymap.of([
+          {
+            key: "Enter",
+            run: () => {
+              const s = stateRefs.current;
+              if (s.showSuggestions) {
+                const currentSuggestions =
+                  s.suggestionType === "enum" ? s.enumSuggestions : s.suggestions;
+                if (currentSuggestions.length > 0) {
+                  if (s.suggestionType === "enum") {
+                    const enumValue = s.enumSuggestions[s.selectedIndex];
+                    if (enumValue) insertSuggestion(enumValue, true);
+                  } else {
+                    const suggestion = s.suggestions[s.selectedIndex];
+                    if (suggestion) insertSuggestion(suggestion.name, false);
+                  }
+                  return true;
+                }
+              }
+              if (s.mode === "where" && s.hasLintError) return true;
+              onSubmit();
+              return true;
+            },
+          },
+          {
+            key: "Escape",
+            run: () => {
+              const s = stateRefs.current;
+              if (s.showSuggestions) {
+                setShowSuggestions(false);
+                return true;
+              }
+              if (s.value) {
+                onValueChange("");
+                return true;
+              }
+              return false;
+            },
+          },
+          {
+            key: "ArrowDown",
+            run: () => {
+              const s = stateRefs.current;
+              if (s.showSuggestions) {
+                const currentSuggestions =
+                  s.suggestionType === "enum" ? s.enumSuggestions : s.suggestions;
+                setSelectedIndex((i) => Math.min(i + 1, currentSuggestions.length - 1));
+                return true;
+              }
+              return false;
+            },
+          },
+          {
+            key: "ArrowUp",
+            run: () => {
+              if (stateRefs.current.showSuggestions) {
+                setSelectedIndex((i) => Math.max(i - 1, 0));
+                return true;
+              }
+              return false;
+            },
+          },
+          {
+            key: "Tab",
+            run: () => {
+              const s = stateRefs.current;
+              if (s.showSuggestions) {
+                const currentSuggestions =
+                  s.suggestionType === "enum" ? s.enumSuggestions : s.suggestions;
+                if (currentSuggestions.length > 0) {
+                  if (s.suggestionType === "enum") {
+                    const enumValue = s.enumSuggestions[s.selectedIndex];
+                    if (enumValue) insertSuggestion(enumValue, true);
+                  } else {
+                    const suggestion = s.suggestions[s.selectedIndex];
+                    if (suggestion) insertSuggestion(suggestion.name, false);
+                  }
+                  return true;
+                }
+              }
+              return false;
+            },
+          },
+          {
+            key: "Backspace",
+            run: (view) => {
+              const editorContent = view.state.doc.toString();
+              if (editorContent === "" && stateRefs.current.mode !== "search") {
+                onValueChange("");
+                onModeChange("search");
+                return true;
+              }
+              return false;
+            },
+          },
+          {
+            key: "Mod-Backspace",
+            run: (view) => {
+              const editorContent = view.state.doc.toString();
+              if (editorContent === "" && stateRefs.current.mode !== "search") {
+                onValueChange("");
+                onModeChange("search");
+                return true;
+              }
+              if (editorContent !== "") {
+                justSwitchedMode.current = true;
+                view.dispatch({
+                  changes: { from: 0, to: view.state.doc.length, insert: "" },
+                });
+                onValueChange("");
+                if (stateRefs.current.mode !== "search") {
+                  onModeChange("search");
+                }
+                requestAnimationFrame(() => {
+                  justSwitchedMode.current = false;
+                });
+                return true;
+              }
+              return false;
+            },
+          },
+          {
+            key: "Mod-.",
+            run: () => {
+              justAcceptedSuggestion.current = false;
+              setSuggestions(stateRefs.current.columns);
+              setSuggestionType("column");
+              setShowSuggestions(stateRefs.current.columns.length > 0);
+              setSelectedIndex(0);
+              return true;
+            },
+          },
+        ]),
+      );
+    }, [insertSuggestion, onSubmit, onValueChange, onModeChange]);
 
     // Clear button handler (Phase 1.4)
     const handleClearClick = useCallback(() => {
@@ -767,220 +975,9 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
                       }
                       onChange={handleEditorChange}
                       extensions={[
-                        // Only use SQL highlighting for where mode
-                        ...(mode === "where"
-                          ? sqlExtensions
-                          : [
-                              // Basic extensions for non-SQL modes
-                              ...getThemeExtensions(
-                                resolvedTheme === "dark" ? "dark" : "light",
-                              ),
-                              EditorView.theme(
-                                {
-                                  "&.cm-editor": {
-                                    fontSize: "12px",
-                                    backgroundColor: "transparent !important",
-                                  },
-                                  ".cm-scroller": {
-                                    overflow: "hidden",
-                                    fontFamily:
-                                      "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-                                  },
-                                  ".cm-content": {
-                                    padding: "6px 0",
-                                    minHeight: "auto",
-                                  },
-                                  ".cm-line": {
-                                    padding: "0",
-                                  },
-                                  ".cm-gutters": {
-                                    display: "none !important",
-                                  },
-                                  ".cm-activeLineGutter": {
-                                    backgroundColor: "transparent !important",
-                                  },
-                                  ".cm-activeLine": {
-                                    backgroundColor: "transparent !important",
-                                  },
-                                  "&.cm-focused": {
-                                    outline: "none",
-                                  },
-                                  ".cm-placeholder": {
-                                    color: "hsl(var(--muted-foreground))",
-                                    fontStyle: "normal",
-                                  },
-                                },
-                                { dark: resolvedTheme === "dark" },
-                              ),
-                              EditorView.lineWrapping,
-                            ]),
-                        Prec.highest(
-                          keymap.of([
-                            {
-                              key: "Enter",
-                              run: () => {
-                                if (showSuggestions) {
-                                  const currentSuggestions =
-                                    suggestionType === "enum"
-                                      ? enumSuggestions
-                                      : suggestions;
-                                  if (currentSuggestions.length > 0) {
-                                    if (suggestionType === "enum") {
-                                      const enumValue =
-                                        enumSuggestions[selectedIndex];
-                                      if (enumValue) {
-                                        insertSuggestion(enumValue, true);
-                                      }
-                                    } else {
-                                      const suggestion =
-                                        suggestions[selectedIndex];
-                                      if (suggestion) {
-                                        insertSuggestion(
-                                          suggestion.name,
-                                          false,
-                                        );
-                                      }
-                                    }
-                                    return true;
-                                  }
-                                }
-                                // Block submission if there's a lint error in WHERE mode
-                                if (mode === "where" && hasLintError) {
-                                  return true;
-                                }
-                                onSubmit();
-                                return true;
-                              },
-                            },
-                            {
-                              key: "Escape",
-                              run: () => {
-                                if (showSuggestions) {
-                                  setShowSuggestions(false);
-                                  return true;
-                                }
-                                if (value) {
-                                  onValueChange("");
-                                  return true;
-                                }
-                                return false;
-                              },
-                            },
-                            {
-                              key: "ArrowDown",
-                              run: () => {
-                                if (showSuggestions) {
-                                  const currentSuggestions =
-                                    suggestionType === "enum"
-                                      ? enumSuggestions
-                                      : suggestions;
-                                  setSelectedIndex((i) =>
-                                    Math.min(
-                                      i + 1,
-                                      currentSuggestions.length - 1,
-                                    ),
-                                  );
-                                  return true;
-                                }
-                                return false;
-                              },
-                            },
-                            {
-                              key: "ArrowUp",
-                              run: () => {
-                                if (showSuggestions) {
-                                  setSelectedIndex((i) => Math.max(i - 1, 0));
-                                  return true;
-                                }
-                                return false;
-                              },
-                            },
-                            {
-                              key: "Tab",
-                              run: () => {
-                                if (showSuggestions) {
-                                  const currentSuggestions =
-                                    suggestionType === "enum"
-                                      ? enumSuggestions
-                                      : suggestions;
-                                  if (currentSuggestions.length > 0) {
-                                    if (suggestionType === "enum") {
-                                      const enumValue =
-                                        enumSuggestions[selectedIndex];
-                                      if (enumValue) {
-                                        insertSuggestion(enumValue, true);
-                                      }
-                                    } else {
-                                      const suggestion =
-                                        suggestions[selectedIndex];
-                                      if (suggestion) {
-                                        insertSuggestion(
-                                          suggestion.name,
-                                          false,
-                                        );
-                                      }
-                                    }
-                                    return true;
-                                  }
-                                }
-                                return false;
-                              },
-                            },
-                            {
-                              key: "Backspace",
-                              run: (view) => {
-                                // Check if editor is empty
-                                const editorContent = view.state.doc.toString();
-                                if (editorContent === "" && mode !== "search") {
-                                  // Reset to search mode on backspace in empty input
-                                  onValueChange("");
-                                  onModeChange("search");
-                                  return true;
-                                }
-                                return false;
-                              },
-                            },
-                            {
-                              key: "Mod-Backspace",
-                              run: (view) => {
-                                // Cmd+Backspace: clear input and reset to search mode
-                                const editorContent = view.state.doc.toString();
-                                if (editorContent === "" && mode !== "search") {
-                                  onValueChange("");
-                                  onModeChange("search");
-                                  return true;
-                                }
-                                // If there's content, clear it first
-                                if (editorContent !== "") {
-                                  justSwitchedMode.current = true;
-                                  view.dispatch({
-                                    changes: { from: 0, to: view.state.doc.length, insert: "" },
-                                  });
-                                  onValueChange("");
-                                  if (mode !== "search") {
-                                    onModeChange("search");
-                                  }
-                                  requestAnimationFrame(() => {
-                                    justSwitchedMode.current = false;
-                                  });
-                                  return true;
-                                }
-                                return false;
-                              },
-                            },
-                            {
-                              key: "Mod-.",
-                              run: () => {
-                                justAcceptedSuggestion.current = false; // Allow manual trigger
-                                setSuggestions(columns);
-                                setSuggestionType("column");
-                                setShowSuggestions(columns.length > 0);
-                                setSelectedIndex(0);
-                                return true;
-                              },
-                            },
-                          ]),
-                        ),
+                        // Use memoized extensions based on mode
+                        ...(mode === "where" ? sqlExtensions : basicExtensions),
+                        keymapExtension,
                       ]}
                       placeholder={config.placeholder}
                       editable={!isLoading}

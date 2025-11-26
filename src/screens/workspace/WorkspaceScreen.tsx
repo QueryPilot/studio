@@ -1,11 +1,11 @@
 import { useParams, useSearchParams } from "react-router-dom";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { WorkspaceTitleBar } from "./components/WorkspaceTitleBar";
 import { DatabaseSidebar } from "./components/DatabaseSidebar";
 import { DatabaseSchemaSelector } from "./components/DatabaseSchemaSelector";
 import { WorkbenchLayout } from "@/components/Workbench";
 import { useWorkspaceScreenStore } from "@/stores/workspaceScreenStore";
-
+import { useShallow } from "zustand/react/shallow";
 import { usePanelStore } from "@/stores/panelStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
@@ -36,32 +36,39 @@ export function WorkspaceScreen() {
 
   useMenuEventListener();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // Extract primitive values from searchParams to use as stable dependencies
+  const urlDbname = searchParams.get("dbname");
+  const urlSchema = searchParams.get("schema");
+
   const { initWorkspace, setActiveConnection: setActiveWorkspace } =
     useWorkspaceScreenStore();
-  // Subscribe to sidebar state reactively - use memoized selector
-  const sidebars = useWorkspaceScreenStore(
-    useCallback((state) => {
-      const workspace = state.workspaces.get(state.activeConnectionId || "");
-      return workspace?.sidebars ?? DEFAULT_SIDEBARS;
-    }, []),
-  );
+
+  // Subscribe to sidebar state - let Zustand handle equality checking
+  const sidebars = useWorkspaceScreenStore((state) => {
+    const workspace = state.workspaces.get(state.activeConnectionId || "");
+    return workspace?.sidebars ?? DEFAULT_SIDEBARS;
+  });
 
   const { initialize: initializePanels } = usePanelStore();
 
   const [isLoading, setIsLoading] = useState(true);
-  const selectedDatabase = useWorkspaceSelectionStore(
-    (state) => state.database,
-  );
 
-  const selectedSchema = useWorkspaceSelectionStore((state) => state.schema);
-  const setSelectedSchema = useWorkspaceSelectionStore(
-    (state) => state.setSchema,
-  );
-  const setActiveWorkspaceConnection = useWorkspaceSelectionStore(
-    (state) => state.setActiveConnection,
-  );
-  const setWorkspaceDatabase = useWorkspaceSelectionStore(
-    (state) => state.setSelectedDatabase,
+  // Use useShallow for multi-value selector to prevent unnecessary re-renders
+  const {
+    database: selectedDatabase,
+    schema: selectedSchema,
+    setSchema: setSelectedSchema,
+    setActiveConnection: setActiveWorkspaceConnection,
+    setSelectedDatabase: setWorkspaceDatabase,
+  } = useWorkspaceSelectionStore(
+    useShallow((state) => ({
+      database: state.database,
+      schema: state.schema,
+      setSchema: state.setSchema,
+      setActiveConnection: state.setActiveConnection,
+      setSelectedDatabase: state.setSelectedDatabase,
+    })),
   );
 
   useConnectionAutoReconnect(connectionId);
@@ -88,6 +95,7 @@ export function WorkspaceScreen() {
   );
 
   // Initialize from URL params or connection defaults
+  // Using extracted primitive values (urlDbname, urlSchema) instead of searchParams object
   useEffect(() => {
     setActiveWorkspaceConnection(connectionId ?? null);
     // Set active connection in workspace screen store for sidebar state
@@ -98,10 +106,6 @@ export function WorkspaceScreen() {
       if (connectionStore.activeConnectionId !== connectionId) {
         useConnectionStore.setState({ activeConnectionId: connectionId });
       }
-
-      // Read URL params
-      const urlDbname = searchParams.get("dbname");
-      const urlSchema = searchParams.get("schema");
 
       // Check if we have saved state for this connection
       const savedState =
@@ -148,10 +152,11 @@ export function WorkspaceScreen() {
     }
   }, [
     connectionId,
+    urlDbname,
+    urlSchema,
     setActiveWorkspaceConnection,
     setWorkspaceDatabase,
     setActiveWorkspace,
-    searchParams,
     updateUrlParams,
     setSelectedSchema,
   ]);
@@ -166,10 +171,7 @@ export function WorkspaceScreen() {
       // Register this window with the connection tracker (BroadcastChannel)
       void windowChannelTracker.registerWindow(connectionId);
 
-      // Get database from URL or use default
-      const urlDbname = searchParams.get("dbname");
-
-      // Connect to the database with optional database override
+      // Connect to the database with optional database override (using extracted urlDbname)
       void databaseService
         .connectById(connectionId, urlDbname || undefined)
         .then(() => {
@@ -203,7 +205,7 @@ export function WorkspaceScreen() {
         void databaseService.disconnect(connectionId);
       }
     };
-  }, [connectionId, initWorkspace, initializePanels, searchParams]);
+  }, [connectionId, urlDbname, initWorkspace, initializePanels]);
 
   // Handle keyboard shortcuts
   useEffect(() => {

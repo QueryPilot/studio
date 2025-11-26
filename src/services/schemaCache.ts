@@ -413,10 +413,11 @@ class SchemaCache {
     const pattern = this.accessPatterns.get(`schemas:${connectionId}`);
     if (!pattern) return;
 
-    const relatedSchemas = pattern
-      .map((key) => key.split(":")[2])
-      .filter((s, i, arr) => s && s !== schema && arr.indexOf(s) === i)
-      .slice(0, 2);
+    const relatedSchemas = [
+      ...new Set(
+        pattern.map((key) => key.split(":")[2]).filter((s) => s && s !== schema),
+      ),
+    ].slice(0, 2);
 
     for (const relatedSchema of relatedSchemas) {
       if (relatedSchema) {
@@ -439,11 +440,14 @@ class SchemaCache {
     if (!pattern) return;
 
     // Find other tables accessed in the same pattern
-    const relatedTables = pattern
-      .filter((key) => key.startsWith(`columns:${connectionId}:${schema}.`))
-      .map((key) => key.split(".")[1])
-      .filter((t, i, arr) => t && t !== table && arr.indexOf(t) === i)
-      .slice(0, 2);
+    const relatedTables = [
+      ...new Set(
+        pattern
+          .filter((key) => key.startsWith(`columns:${connectionId}:${schema}.`))
+          .map((key) => key.split(".")[1])
+          .filter((t) => t && t !== table),
+      ),
+    ].slice(0, 2);
 
     for (const relatedTable of relatedTables) {
       this.enqueuePrefetch(

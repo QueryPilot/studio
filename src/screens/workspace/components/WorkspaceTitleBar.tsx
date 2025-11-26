@@ -19,7 +19,7 @@ import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import type { DbType } from "@/types/connection";
 import { useNavigate } from "react-router-dom";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import Fuse, { type IFuseOptions } from "fuse.js";
@@ -85,10 +85,16 @@ export function WorkspaceTitleBar({
   connectionId,
   isConnecting: isInitiallyConnecting = false,
 }: WorkspaceTitleBarProps) {
-  const { connections, fetchConnections } = useConnectionStore();
-  const storedConnection = connections.find(
-    (c) => c.profile.id === connectionId,
+  // Optimized selectors - only subscribe to what we need
+  const storedConnection = useConnectionStore(
+    useCallback(
+      (s) => s.connections.find((c) => c.profile.id === connectionId),
+      [connectionId],
+    ),
   );
+  const fetchConnections = useConnectionStore((s) => s.fetchConnections);
+  // Get connections only for the groupedDatabases calculation
+  const connections = useConnectionStore((s) => s.connections);
 
   const connection = storedConnection?.profile;
   const navigate = useNavigate();
@@ -118,21 +124,10 @@ export function WorkspaceTitleBar({
     retry: 2,
   });
 
-  // Group databases into 3 sections:
-  // 1. Current database (highlighted)
-  // 2. Other databases on this server (same host/port)
-  // 3. All other saved profiles (different servers)
-  const groupedDatabases = useMemo(() => {
-    if (!connection) {
-      return {
-        current: null,
-        thisServer: [],
-        otherProfiles: [],
-      };
-    }
-
-    // Map databases on this server
-    const databaseItems: DatabaseItem[] = databases.map((db) => {
+  // Pre-compute database items (only when databases/connections/connection change)
+  const databaseItems = useMemo<DatabaseItem[]>(() => {
+    if (!connection) return [];
+    return databases.map((db) => {
       const hasProfile = connections.some(
         (conn) =>
           conn.profile.host === connection.host &&
@@ -143,11 +138,13 @@ export function WorkspaceTitleBar({
       const isCurrent = db === selectedDatabase;
       return { name: db, hasProfile, isCurrent };
     });
+  }, [databases, connections, connection, selectedDatabase]);
 
-    // Get all other saved profiles (different servers or different credentials)
-    const otherProfileItems: SavedProfileItem[] = connections
+  // Pre-compute other profile items (only when connections/connection change)
+  const otherProfileItems = useMemo<SavedProfileItem[]>(() => {
+    if (!connection) return [];
+    return connections
       .filter((conn) => {
-        // Exclude profiles on the same server with same username
         const isSameServer =
           conn.profile.host === connection.host &&
           conn.profile.port === connection.port &&
@@ -162,37 +159,42 @@ export function WorkspaceTitleBar({
         port: conn.profile.port,
         db_type: conn.profile.db_type,
       }));
+  }, [connections, connection]);
 
-    // Apply fuzzy search if there's a query
+  // Create Fuse indexes only when data changes (not on every search)
+  const dbFuse = useMemo(
+    () => new Fuse(databaseItems, DATABASE_FUSE_OPTIONS),
+    [databaseItems],
+  );
+  const profileFuse = useMemo(
+    () =>
+      new Fuse(otherProfileItems, {
+        keys: ["name", "database"],
+        threshold: 0.3,
+        includeScore: true,
+      }),
+    [otherProfileItems],
+  );
+
+  // Filter results based on search query
+  const groupedDatabases = useMemo(() => {
+    if (!connection) {
+      return { current: null, thisServer: [], otherProfiles: [] };
+    }
+
     let filteredDatabases = databaseItems;
     let filteredOtherProfiles = otherProfileItems;
 
     if (searchQuery.trim()) {
-      // IconSearch in databases
-      const dbFuse = new Fuse(databaseItems, DATABASE_FUSE_OPTIONS);
-      const dbResults = dbFuse.search(searchQuery);
-      filteredDatabases = dbResults.map((result) => result.item);
-
-      // IconSearch in other profiles (by name and database)
-      const profileFuse = new Fuse(otherProfileItems, {
-        keys: ["name", "database"],
-        threshold: 0.3,
-        includeScore: true,
-      });
-      const profileResults = profileFuse.search(searchQuery);
-      filteredOtherProfiles = profileResults.map((result) => result.item);
+      filteredDatabases = dbFuse.search(searchQuery).map((r) => r.item);
+      filteredOtherProfiles = profileFuse.search(searchQuery).map((r) => r.item);
     }
 
-    // Split databases into current and others
     const current = filteredDatabases.find((db) => db.isCurrent) || null;
     const thisServer = filteredDatabases.filter((db) => !db.isCurrent);
 
-    return {
-      current,
-      thisServer,
-      otherProfiles: filteredOtherProfiles,
-    };
-  }, [databases, connections, connection, selectedDatabase, searchQuery]);
+    return { current, thisServer, otherProfiles: filteredOtherProfiles };
+  }, [connection, databaseItems, otherProfileItems, dbFuse, profileFuse, searchQuery]);
   const { toggleSidebar: onToggleSidebar } = useWorkspaceScreenStore();
   const { openPreferences } = usePreferencesStore();
   const {
