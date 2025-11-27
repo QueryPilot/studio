@@ -429,6 +429,24 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
               onOpenAutoFocus={(e) => {
                 e.preventDefault();
               }}
+              onCloseAutoFocus={(e) => {
+                e.preventDefault();
+              }}
+              onPointerDownOutside={(e) => {
+                // Prevent closing when clicking on Select dropdown
+                const target = e.target as HTMLElement;
+                const isSelectContent =
+                  target.closest('[role="listbox"]') ||
+                  target.closest("[data-radix-select-content]") ||
+                  target.closest("[data-radix-select-viewport]") ||
+                  target.closest('[data-slot="select-content"]') ||
+                  target.hasAttribute("data-radix-select-item") ||
+                  target.closest("[data-radix-popper-content-wrapper]");
+
+                if (isSelectContent) {
+                  e.preventDefault();
+                }
+              }}
               onInteractOutside={(e) => {
                 // Prevent closing when clicking on Select dropdown
                 const target = e.target as HTMLElement;
@@ -493,6 +511,14 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
                     startMonth={new Date(1900, 0)}
                     endMonth={new Date(2100, 0)}
                     defaultMonth={selectedDate ?? new Date()}
+                    autoFocus={false}
+                    onDayClick={(day, modifiers, e) => {
+                      // Ensure single click works by stopping event from being swallowed
+                      e.stopPropagation();
+                      if (!modifiers.disabled) {
+                        handleDateSelect(day);
+                      }
+                    }}
                   />
                 )}
 
