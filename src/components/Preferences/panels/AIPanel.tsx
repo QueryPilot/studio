@@ -22,7 +22,13 @@ import {
   getSidecarStatus,
   type AIProviderConfig,
 } from "@/services/aiService";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { useAIChatStore } from "@/stores/aiChatStore";
 
@@ -125,7 +131,7 @@ export default function AIPanel() {
         logger.info("✅ API keys reloaded in sidecar");
 
         // Small delay to ensure sidecar has reloaded
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 500));
 
         // Refresh configured providers
         const statusData = await getSidecarStatus();
@@ -168,7 +174,9 @@ export default function AIPanel() {
     }
   }, [selectedProvider, loadApiKey, getProviderDefaultModel]);
 
-  const currentProviderConfig = providers.find((p) => p.name === selectedProvider);
+  const currentProviderConfig = providers.find(
+    (p) => p.name === selectedProvider,
+  );
   const isProviderConfigured = configuredProviders.includes(selectedProvider);
 
   return (
@@ -181,7 +189,9 @@ export default function AIPanel() {
               <IconRobot className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold">AI Assistant Configuration</h2>
+              <h2 className="text-lg font-semibold">
+                AI Assistant Configuration
+              </h2>
               <p className="text-xs text-muted-foreground">
                 Configure AI providers and manage API keys securely
               </p>
@@ -197,7 +207,10 @@ export default function AIPanel() {
               </Badge>
             )}
             {sidecarStatus === "online" && (
-              <Badge variant="default" className="gap-1.5 h-8 bg-green-600 hover:bg-green-700">
+              <Badge
+                variant="default"
+                className="gap-1.5 h-8 bg-green-600 hover:bg-green-700"
+              >
                 <div className="w-2 h-2 bg-white rounded-full" />
                 QP AI Server Online
               </Badge>
@@ -237,7 +250,7 @@ export default function AIPanel() {
         <div className="grid grid-cols-12 gap-4 mt-4">
           {/* Left Column: Provider List */}
           <div className="col-span-5">
-            <div className="bg-muted/30 rounded-lg p-3 max-h-[calc(100vh-12rem)] overflow-y-auto">
+            <div className="bg-muted/60 rounded-lg p-3 pb-0 max-h-[calc(100vh-8.8rem)] overflow-y-auto">
               <div className="mb-2">
                 <h3 className="text-sm font-semibold">Available Providers</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -246,7 +259,9 @@ export default function AIPanel() {
               </div>
               <div className="space-y-1.5">
                 {providers.map((provider) => {
-                  const isConfigured = configuredProviders.includes(provider.name);
+                  const isConfigured = configuredProviders.includes(
+                    provider.name,
+                  );
                   const isSelected = selectedProvider === provider.name;
                   const defaultModelId = getProviderDefaultModel(provider.name);
                   const defaultModelInfo = defaultModelId
@@ -259,11 +274,11 @@ export default function AIPanel() {
                   return (
                     <button
                       key={provider.name}
-                      onClick={() => setSelectedProvider(provider.name)}
+                      onClick={() => {
+                        setSelectedProvider(provider.name);
+                      }}
                       className={`w-full text-left p-2.5 rounded-md transition-all ${
-                        isSelected
-                          ? "bg-primary/10"
-                          : "hover:bg-accent/50"
+                        isSelected ? "bg-primary/10" : "hover:bg-accent/50"
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
@@ -279,12 +294,14 @@ export default function AIPanel() {
                           <p className="text-xs text-muted-foreground">
                             {enabledCount > 0
                               ? `${enabledCount}/${totalCount} models enabled`
-                              : `${totalCount} models available`
-                            }
+                              : `${totalCount} models available`}
                           </p>
                           {defaultModelInfo && (
                             <div className="flex items-center gap-1 mt-0.5">
-                              <Badge variant="outline" className="text-[10px] font-mono px-1 py-0 h-3.5">
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] font-mono px-1 py-0 h-3.5"
+                              >
                                 {defaultModelInfo.name}
                               </Badge>
                             </div>
@@ -304,8 +321,7 @@ export default function AIPanel() {
                 })}
               </div>
 
-              <div className="sticky bottom-0 bg-muted/30 pt-2 -mx-3 px-3 pb-3 -mb-3">
-                <Separator className="mb-2" />
+              <div className="sticky bottom-0 bg-muted p-3 -mx-3 px-3">
                 <Button
                   variant="outline"
                   className="w-full border-dashed text-xs h-8"
@@ -336,31 +352,44 @@ export default function AIPanel() {
                   <>
                     {/* Models List */}
                     <div className="space-y-1.5">
-                      <Label className="text-xs font-medium">Available Models</Label>
+                      <Label className="text-xs font-medium">
+                        Available Models
+                      </Label>
                       <p className="text-xs text-muted-foreground">
-                        Select models to enable (checked models will appear in model selector)
+                        Select models to enable (checked models will appear in
+                        model selector)
                       </p>
                       <div className="bg-accent/50 rounded-lg p-3 max-h-56 overflow-y-auto">
                         <div className="space-y-1.5">
                           {currentProviderConfig.models.map((modelInfo) => {
-                            const enabledModels = getProviderEnabledModels(selectedProvider);
-                            const isEnabled = enabledModels.includes(modelInfo.id);
+                            const enabledModels =
+                              getProviderEnabledModels(selectedProvider);
+                            const isEnabled = enabledModels.includes(
+                              modelInfo.id,
+                            );
                             const isDefault = selectedModel === modelInfo.id;
 
                             return (
                               <div
                                 key={modelInfo.id}
                                 className="group relative"
-                                onMouseEnter={() => setHoveredModel(modelInfo.id)}
-                                onMouseLeave={() => setHoveredModel(null)}
+                                onMouseEnter={() => {
+                                  setHoveredModel(modelInfo.id);
+                                }}
+                                onMouseLeave={() => {
+                                  setHoveredModel(null);
+                                }}
                               >
                                 <button
                                   onClick={() => {
-                                    toggleProviderModel(selectedProvider, modelInfo.id);
+                                    toggleProviderModel(
+                                      selectedProvider,
+                                      modelInfo.id,
+                                    );
                                     toast.success(
                                       isEnabled
                                         ? `${modelInfo.name} disabled`
-                                        : `${modelInfo.name} enabled`
+                                        : `${modelInfo.name} enabled`,
                                     );
                                   }}
                                   className={`w-full text-left px-2.5 py-1.5 rounded-md transition-colors ${
@@ -373,11 +402,13 @@ export default function AIPanel() {
                                 >
                                   <div className="flex items-center gap-2.5">
                                     {/* Checkbox */}
-                                    <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0 ${
-                                      isEnabled
-                                        ? "border-primary bg-primary"
-                                        : "border-muted-foreground"
-                                    }`}>
+                                    <div
+                                      className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0 ${
+                                        isEnabled
+                                          ? "border-primary bg-primary"
+                                          : "border-muted-foreground"
+                                      }`}
+                                    >
                                       {isEnabled && (
                                         <IconCircleCheckFilled className="h-2.5 w-2.5 text-white" />
                                       )}
@@ -386,13 +417,18 @@ export default function AIPanel() {
                                     {/* Model Info */}
                                     <div className="flex-1 min-w-0">
                                       <div className="flex items-center gap-1.5">
-                                        <span className={`text-xs font-mono ${
-                                          isDefault ? "font-semibold" : ""
-                                        }`}>
+                                        <span
+                                          className={`text-xs font-mono ${
+                                            isDefault ? "font-semibold" : ""
+                                          }`}
+                                        >
                                           {modelInfo.name}
                                         </span>
                                         {isDefault && (
-                                          <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">
+                                          <Badge
+                                            variant="outline"
+                                            className="text-[10px] px-1 py-0 h-4"
+                                          >
                                             Default
                                           </Badge>
                                         )}
@@ -402,12 +438,16 @@ export default function AIPanel() {
                                       <div className="flex items-center gap-2 mt-0.5">
                                         {modelInfo.contextWindow && (
                                           <span className="text-[10px] text-muted-foreground">
-                                            {(modelInfo.contextWindow / 1000).toLocaleString()}K ctx
+                                            {(
+                                              modelInfo.contextWindow / 1000
+                                            ).toLocaleString()}
+                                            K ctx
                                           </span>
                                         )}
                                         {modelInfo.pricing && (
                                           <span className="text-[10px] text-muted-foreground">
-                                            ${modelInfo.pricing.input}/${modelInfo.pricing.output} per 1M
+                                            ${modelInfo.pricing.input}/$
+                                            {modelInfo.pricing.output} per 1M
                                           </span>
                                         )}
                                       </div>
@@ -416,21 +456,28 @@ export default function AIPanel() {
                                 </button>
 
                                 {/* Set as Default button on hover (only for enabled models) */}
-                                {hoveredModel === modelInfo.id && isEnabled && !isDefault && (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setSelectedModel(modelInfo.id);
-                                      setProviderDefaultModel(selectedProvider, modelInfo.id);
-                                      toast.success(`${modelInfo.name} set as default`);
-                                    }}
-                                    className="absolute right-2 top-1/2 -translate-y-1/2 h-6 text-[10px] px-2"
-                                  >
-                                    Set as Default
-                                  </Button>
-                                )}
+                                {hoveredModel === modelInfo.id &&
+                                  isEnabled &&
+                                  !isDefault && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedModel(modelInfo.id);
+                                        setProviderDefaultModel(
+                                          selectedProvider,
+                                          modelInfo.id,
+                                        );
+                                        toast.success(
+                                          `${modelInfo.name} set as default`,
+                                        );
+                                      }}
+                                      className="absolute right-2 top-1/2 -translate-y-1/2 h-6 text-[10px] px-2"
+                                    >
+                                      Set as Default
+                                    </Button>
+                                  )}
                               </div>
                             );
                           })}
@@ -444,7 +491,10 @@ export default function AIPanel() {
                     {currentProviderConfig.requiresApiKey && (
                       <div className="space-y-3">
                         <div className="space-y-1.5">
-                          <Label htmlFor="api-key" className="text-xs font-medium">
+                          <Label
+                            htmlFor="api-key"
+                            className="text-xs font-medium"
+                          >
                             API Key
                           </Label>
                           <div className="relative">
@@ -452,13 +502,17 @@ export default function AIPanel() {
                               id="api-key"
                               type={showApiKey ? "text" : "password"}
                               value={currentApiKey}
-                              onChange={(e) => setCurrentApiKey(e.target.value)}
+                              onChange={(e) => {
+                                setCurrentApiKey(e.target.value);
+                              }}
                               placeholder={`Enter ${selectedProvider} API key`}
                               className="pr-10 font-mono text-xs h-9"
                             />
                             <button
                               type="button"
-                              onClick={() => setShowApiKey(!showApiKey)}
+                              onClick={() => {
+                                setShowApiKey(!showApiKey);
+                              }}
                               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                             >
                               {showApiKey ? (

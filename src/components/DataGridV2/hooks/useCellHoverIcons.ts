@@ -63,10 +63,22 @@ export interface UseCellHoverIconsResult {
 
 // Icon size and padding
 const ICON_SIZE = 14;
-const ICON_SPACING = 6;
-const BUTTON_SIZE = 22; // Size of the clickable button area
+const ICON_PADDING = 4; // Padding inside button
+const BUTTON_SIZE = 22; // Size of individual clickable area
 const HOVER_DELAY_MS = 150; // Delay before showing icons
 const COPIED_FEEDBACK_MS = 3000; // Duration to show copied checkmark
+
+// Detect dark mode from theme bgCell
+function isDarkTheme(bgCell: string): boolean {
+  if (bgCell.startsWith('#')) {
+    const hex = bgCell.slice(1);
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.5;
+  }
+  return false;
+}
 
 // Draw Tabler copy icon (stroke-based)
 function drawCopyIcon(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, color: string): void {
@@ -347,16 +359,17 @@ export function useCellHoverIcons(
       const alignment = getContentAlignment(column);
       const iconsOnLeft = alignment === "right"; // Icons opposite to content
 
-      // Calculate total width for all buttons
-      const totalButtonsWidth = icons.length * BUTTON_SIZE + (icons.length - 1) * ICON_SPACING;
+      // Calculate grouped container dimensions
+      const groupWidth = icons.length * BUTTON_SIZE;
+      const groupHeight = BUTTON_SIZE;
 
       // Icon container position with edge padding
       const edgePadding = 4;
-      const iconContainerX = iconsOnLeft
+      const groupX = iconsOnLeft
         ? rect.x + edgePadding
-        : rect.x + rect.width - totalButtonsWidth - edgePadding;
+        : rect.x + rect.width - groupWidth - edgePadding;
 
-      const buttonY = rect.y + (rect.height - BUTTON_SIZE) / 2;
+      const groupY = rect.y + (rect.height - groupHeight) / 2;
 
       // Draw icons
       ctx.save();
@@ -365,41 +378,79 @@ export function useCellHoverIcons(
       const cellKey = `${col},${row}`;
       const cellIconBounds: { action: string; bounds: Rectangle }[] = [];
 
-      // Draw each icon in its own separate button
+      // Draw grouped container background
+      ctx.fillStyle = theme.bgCell;
+      ctx.beginPath();
+      ctx.roundRect(groupX, groupY, groupWidth, groupHeight, 4);
+      ctx.fill();
+
+      // Draw border around entire group
+      ctx.strokeStyle = theme.borderColor ?? theme.bgCellMedium;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Draw each icon within the group
       icons.forEach((iconDef, index) => {
-        // Calculate button position
+        // Calculate button position within group
         const buttonX = iconsOnLeft
-          ? iconContainerX + index * (BUTTON_SIZE + ICON_SPACING)
-          : iconContainerX + (icons.length - 1 - index) * (BUTTON_SIZE + ICON_SPACING);
+          ? groupX + index * BUTTON_SIZE
+          : groupX + (icons.length - 1 - index) * BUTTON_SIZE;
 
         // Check if this button is hovered
         const isButtonHovered = hoveredButton === iconDef.id;
 
-        // Draw individual button background with hover effect
-        ctx.fillStyle = isButtonHovered
-          ? (theme.bgCellMedium ?? theme.bgHeaderHovered ?? "#e5e5e5")
-          : theme.bgCell;
-        ctx.beginPath();
-        ctx.roundRect(buttonX, buttonY, BUTTON_SIZE, BUTTON_SIZE, 4);
-        ctx.fill();
+        // Draw hover highlight for individual button (stronger contrast)
+        if (isButtonHovered) {
+          const isDark = isDarkTheme(theme.bgCell);
+          ctx.fillStyle = isDark ? "rgba(255, 255, 255, 0.15)" : "rgba(0, 0, 0, 0.1)";
+          ctx.beginPath();
+          // Apply rounded corners only on the edges
+          if (icons.length === 1) {
+            ctx.roundRect(buttonX, groupY, BUTTON_SIZE, groupHeight, 4);
+          } else if (index === 0 && iconsOnLeft) {
+            // First button (left side)
+            ctx.roundRect(buttonX, groupY, BUTTON_SIZE, groupHeight, [4, 0, 0, 4]);
+          } else if (index === icons.length - 1 && iconsOnLeft) {
+            // Last button (right side)
+            ctx.roundRect(buttonX, groupY, BUTTON_SIZE, groupHeight, [0, 4, 4, 0]);
+          } else if (index === 0 && !iconsOnLeft) {
+            // First button on right-aligned (right edge)
+            ctx.roundRect(buttonX, groupY, BUTTON_SIZE, groupHeight, [0, 4, 4, 0]);
+          } else if (index === icons.length - 1 && !iconsOnLeft) {
+            // Last button on right-aligned (left edge)
+            ctx.roundRect(buttonX, groupY, BUTTON_SIZE, groupHeight, [4, 0, 0, 4]);
+          } else {
+            // Middle buttons (no rounded corners)
+            ctx.rect(buttonX, groupY, BUTTON_SIZE, groupHeight);
+          }
+          ctx.fill();
+        }
 
-        // Add border for each button
-        ctx.strokeStyle = theme.borderColor ?? theme.bgCellMedium;
-        ctx.lineWidth = 1;
-        ctx.stroke();
+        // Draw divider between buttons (except for last button)
+        if (index < icons.length - 1) {
+          const dividerX = iconsOnLeft
+            ? buttonX + BUTTON_SIZE
+            : buttonX;
+          ctx.strokeStyle = theme.borderColor ?? theme.bgCellMedium;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(dividerX, groupY + 4);
+          ctx.lineTo(dividerX, groupY + groupHeight - 4);
+          ctx.stroke();
+        }
 
-        // Center icon within button
+        // Center icon within button area
         const iconX = buttonX + (BUTTON_SIZE - ICON_SIZE) / 2;
-        const iconY = buttonY + (BUTTON_SIZE - ICON_SIZE) / 2;
+        const iconY = groupY + (groupHeight - ICON_SIZE) / 2;
 
-        // Store bounds for this button (use button size for click area)
+        // Store bounds for this button
         cellIconBounds.push({
           action: iconDef.id,
           bounds: {
             x: buttonX,
-            y: buttonY,
+            y: groupY,
             width: BUTTON_SIZE,
-            height: BUTTON_SIZE,
+            height: groupHeight,
           },
         });
 
@@ -428,6 +479,32 @@ export function useCellHoverIcons(
     },
     [enabled, hoveredCell, hoveredButton, copiedCell, columns, rows, onOpenReference]
   );
+
+  // Clear hover state when mouse leaves the container
+  useEffect(() => {
+    if (!containerRef?.current) {
+      return;
+    }
+
+    const container = containerRef.current;
+
+    const handleMouseLeave = () => {
+      // Clear any pending hover timer
+      if (hoverTimerRef.current !== null) {
+        window.clearTimeout(hoverTimerRef.current);
+        hoverTimerRef.current = null;
+      }
+      setHoveredCell(null);
+      setHoveredRow(null);
+      setHoveredButton(null);
+    };
+
+    container.addEventListener("mouseleave", handleMouseLeave);
+
+    return () => {
+      container.removeEventListener("mouseleave", handleMouseLeave);
+    };
+  }, [containerRef]);
 
   // Handle click on icons via container click listener
   useEffect(() => {

@@ -3,8 +3,8 @@ import type { CustomCellRenderer } from "../../types";
 import { UuidCellEditorWithProps } from "./UuidCellEditor";
 import { truncateTextMiddleToWidth } from "../../utils/textUtils";
 import { type UuidCustomCell } from "./types";
-import { 
-  getCachedThemeValues, 
+import {
+  getCachedThemeValues,
   MONOSPACE_FONT_FAMILY,
 } from "../../utils/renderCache";
 
@@ -25,7 +25,7 @@ const UuidCellRenderer: CustomCellRenderer<UuidCustomCell> = {
   draw: (args, cell) => {
     const { ctx, rect, theme } = args;
     const { value, isValid } = cell.data;
-    
+
     // Use cached theme values
     const cachedTheme = getCachedThemeValues(theme);
 
@@ -55,10 +55,15 @@ const UuidCellRenderer: CustomCellRenderer<UuidCustomCell> = {
 
     const padding = cachedTheme.cellHorizontalPadding;
 
-    const availableWidth = rect.width - padding * 2;
+    // Use padding on both sides, with extra buffer for clean appearance
+    const rightPadding = padding;
+    const availableWidth = rect.width - padding - rightPadding;
     const displayText =
       availableWidth > 0
-        ? truncateTextMiddleToWidth(text, availableWidth, { ctx })
+        ? truncateTextMiddleToWidth(text, availableWidth, {
+            ctx,
+            font: ctx.font,
+          })
         : text;
 
     const x = rect.x + padding;

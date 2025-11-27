@@ -14,15 +14,73 @@ impl SidecarManager {
         }
     }
 
+    /// Kill any existing process listening on the given port
+    async fn kill_existing_on_port(&self, port: u16) {
+        #[cfg(unix)]
+        {
+            // Use lsof to find process on port, then kill it
+            let output = tokio::process::Command::new("lsof")
+                .args(["-ti", &format!(":{}", port)])
+                .output()
+                .await;
+
+            if let Ok(output) = output {
+                let pids = String::from_utf8_lossy(&output.stdout);
+                for pid in pids.lines() {
+                    if let Ok(pid) = pid.trim().parse::<i32>() {
+                        tracing::info!("Killing existing process on port {}: PID {}", port, pid);
+                        let _ = tokio::process::Command::new("kill")
+                            .args(["-9", &pid.to_string()])
+                            .output()
+                            .await;
+                    }
+                }
+            }
+        }
+
+        #[cfg(windows)]
+        {
+            // Use netstat to find process on port, then taskkill
+            let output = tokio::process::Command::new("netstat")
+                .args(["-ano"])
+                .output()
+                .await;
+
+            if let Ok(output) = output {
+                let lines = String::from_utf8_lossy(&output.stdout);
+                let port_str = format!(":{}", port);
+                for line in lines.lines() {
+                    if line.contains(&port_str) && line.contains("LISTENING") {
+                        if let Some(pid) = line.split_whitespace().last() {
+                            if let Ok(pid) = pid.parse::<u32>() {
+                                tracing::info!("Killing existing process on port {}: PID {}", port, pid);
+                                let _ = tokio::process::Command::new("taskkill")
+                                    .args(["/F", "/PID", &pid.to_string()])
+                                    .output()
+                                    .await;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Small delay to ensure port is released
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
     /// Start the AI sidecar process
     pub async fn start(&self, app_handle: &tauri::AppHandle) -> Result<u16> {
-        // Check if already running
+        // Check if already running in this instance
         if self.port.read().await.is_some() {
             return Ok(self.port.read().await.unwrap());
         }
 
         // Use hardcoded port 47856
         let port = 47856u16;
+
+        // Kill any existing process on the port (from previous crashed session)
+        self.kill_existing_on_port(port).await;
 
         // Start sidecar using Tauri's sidecar API
         tracing::info!("Starting AI sidecar binary...");
@@ -84,20 +142,32 @@ impl SidecarManager {
 
     /// Stop the AI sidecar process
     pub async fn stop(&self) -> Result<()> {
-        let mut handle = self.process_handle.write().await;
-        if let Some(child) = handle.take() {
-            tracing::info!("Stopping AI sidecar process");
+        // Use timeout to prevent hanging during shutdown
+        let stop_future = async {
+            // Try to acquire lock with short timeout
+            let mut handle = self.process_handle.write().await;
+            if let Some(child) = handle.take() {
+                tracing::info!("Stopping AI sidecar process");
 
-            // Kill the process explicitly
-            if let Err(e) = child.kill() {
-                tracing::warn!("Failed to kill AI sidecar process: {}", e);
-            } else {
-                tracing::info!("AI sidecar process killed successfully");
+                // Kill the process explicitly
+                if let Err(e) = child.kill() {
+                    tracing::warn!("Failed to kill AI sidecar process: {}", e);
+                } else {
+                    tracing::info!("AI sidecar process killed successfully");
+                }
+            }
+
+            *self.port.write().await = None;
+        };
+
+        // Timeout after 2 seconds to prevent app from hanging
+        match tokio::time::timeout(std::time::Duration::from_secs(2), stop_future).await {
+            Ok(()) => Ok(()),
+            Err(_) => {
+                tracing::warn!("AI sidecar stop timed out, forcing exit");
+                Ok(())
             }
         }
-
-        *self.port.write().await = None;
-        Ok(())
     }
 
     /// Get the current port

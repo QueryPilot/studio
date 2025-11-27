@@ -160,9 +160,9 @@ export async function handleTextToSQL(request: Request): Promise<Response> {
     console.log(`⏳ Calling ${provider}/${model}...`);
     const llmStartTime = Date.now();
 
-    // Add timeout for LLM call
+    // Add timeout for LLM call (60s to allow for thinking models like Gemini 2.5 Pro)
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error("LLM request timeout (20s)")), 20000);
+      setTimeout(() => reject(new Error("LLM request timeout (60s)")), 60000);
     });
 
     const result = await Promise.race([

@@ -99,6 +99,7 @@ import type {
   GridRowDeleteEvent,
 } from "../types";
 import type { JsonValue } from "@/types/crud";
+import { deriveValueType, normalizeBackendValue } from "@/services/tableDataTransform";
 
 /**
  * Compare two values for equality, handling null/undefined and type coercion
@@ -509,11 +510,40 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
 
   const queryData = isQueryMode ? props.data : null;
 
-  // Query mode rows are already normalized in the streaming worker; just pass through
-  const transformedQueryRows = useMemo(
-    () => queryData?.rows ?? [],
-    [queryData?.rows],
-  );
+  // Transform raw CellValue[][] to TableDataRow[] for query mode
+  // The streaming worker returns raw arrays; we need to convert to objects keyed by column names
+  const transformedQueryRows = useMemo((): GridRowModel[] => {
+    if (!queryData?.rows || !queryData?.columnMeta) {
+      return [];
+    }
+    const rows = queryData.rows;
+    const columns = queryData.columnMeta;
+    // Check if already transformed (first row is an object with column keys)
+    const firstRow = rows[0];
+    if (firstRow && typeof firstRow === "object" && !Array.isArray(firstRow)) {
+      // Already in TableDataRow format
+      return rows as unknown as GridRowModel[];
+    }
+    // Transform raw arrays to objects keyed by column names
+    return (rows as unknown as BackendCellValue[][]).map((row) => {
+      const tableRow: GridRowModel = {};
+      columns.forEach((col, index) => {
+        const rawValue = row[index];
+        const normalizedValue = normalizeBackendValue(rawValue);
+        tableRow[col.name] = {
+          value: normalizedValue ?? null,
+          db_type: col.db_type,
+          value_type: deriveValueType(rawValue, col.db_type),
+          is_truncated: false,
+          metadata:
+            typeof rawValue === "bigint"
+              ? { attributes: { originalBigInt: rawValue.toString() } }
+              : undefined,
+        };
+      });
+      return tableRow;
+    });
+  }, [queryData?.rows, queryData?.columnMeta]);
 
   const {
     isLoading,

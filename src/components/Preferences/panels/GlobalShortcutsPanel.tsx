@@ -13,7 +13,11 @@ import {
 import { getGlobalShortcutManager } from "@/services/globalShortcuts";
 import { isTauri } from "@/utils/tauri";
 import { toast } from "sonner";
-import { IconKeyboard, IconInfoCircle, IconAlertCircle } from '@tabler/icons-react';
+import {
+  IconKeyboard,
+  IconInfoCircle,
+  IconAlertCircle,
+} from "@tabler/icons-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 export function GlobalShortcutsPanel() {
@@ -160,7 +164,7 @@ export function GlobalShortcutsPanel() {
   }
 
   return (
-    <div className="max-w-3xl space-y-6 max-h-[calc(80vh-2rem)] overflow-y-scroll -mx-4 px-4">
+    <div className="max-w-3xl space-y-6 max-h-[calc(100vh - 32px)] overflow-y-scroll -mx-4 px-4">
       <div className="sticky top-0 bg-background z-10 pb-2">
         <h2 className="text-base font-semibold">Global Shortcuts</h2>
         <p className="text-xs text-muted-foreground">
