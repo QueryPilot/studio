@@ -1,4 +1,4 @@
-.PHONY: help d dev build build-ai build-ai-all verify-sidecars dev-sidecar ds package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup version release release-publish release-manual generate-keys test-ssh-setup test-ssh test-ssh-clean test-ssh-full setup-ssm-plugin
+.PHONY: help d dev build build-ai build-ai-all verify-sidecars dev-sidecar ds package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup version release release-publish release-manual release-local relc generate-keys test-ssh-setup test-ssh test-ssh-clean test-ssh-full setup-ssm-plugin
 
 SSH_KEYGEN ?= ssh-keygen
 
@@ -50,6 +50,7 @@ help:
 	@echo ""
 	@echo "Release Management:"
 	@echo "  make release                - AI-powered release with cross-repo publishing"
+	@echo "  make relc V=0.7.1           - Local build, sign, notarize & upload to GitHub"
 	@echo "  make release-publish V=0.5.0 - Publish built release to studio-app repo"
 	@echo "  make release-manual VERSION=1.2.3  - Manual release with specific version"
 	@echo "  make version VERSION=1.2.3  - Bump version only (no commit)"
@@ -355,3 +356,12 @@ version:
 		exit 1; \
 	fi
 	@bash scripts/bump-version.sh $(VERSION)
+
+# Local release - build, sign, notarize, upload to GitHub
+# Usage: make relc V=0.7.1
+# Requires: gh CLI authenticated, Apple Developer cert in keychain
+# Optional env: APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID (for notarization)
+#               TAURI_PRIVATE_KEY, TAURI_KEY_PASSWORD (for update signing)
+#               SENTRY_DSN (for telemetry build)
+release-local relc:
+	@bash scripts/release-local.sh $(V)
