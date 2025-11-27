@@ -55,14 +55,18 @@ check_requirements() {
     success "All requirements met"
 }
 
-# Get version
+# Get version - auto-increment patch if not specified
 get_version() {
+    CURRENT=$(jq -r '.version' package.json)
+
     if [ -z "$VERSION" ]; then
-        # Get current version from package.json
-        CURRENT=$(jq -r '.version' package.json)
-        echo -e "${YELLOW}Current version: $CURRENT${NC}"
-        read -p "Enter new version (or press Enter to use current): " VERSION
-        VERSION="${VERSION:-$CURRENT}"
+        # Auto-increment patch version
+        IFS='.' read -r MAJOR MINOR PATCH <<< "${CURRENT%%-*}"  # Strip any suffix
+        PATCH=$((PATCH + 1))
+        VERSION="$MAJOR.$MINOR.$PATCH"
+        log "Auto-incrementing: $CURRENT → $VERSION"
+    else
+        log "Using specified version: $VERSION"
     fi
 
     # Validate semver format
@@ -73,11 +77,23 @@ get_version() {
     log "Building version: v$VERSION"
 }
 
-# Bump version in all files
+# Bump version in all files and commit
 bump_version() {
     log "Bumping version to $VERSION..."
     bash scripts/bump-version.sh "$VERSION"
-    success "Version bumped"
+
+    log "Committing version bump..."
+    git add .
+    git commit -m "chore: release v$VERSION"
+
+    log "Creating tag v$VERSION..."
+    git tag "v$VERSION"
+
+    log "Pushing to remote..."
+    git push origin master
+    git push origin "v$VERSION"
+
+    success "Version bumped, committed and pushed"
 }
 
 # Build AI sidecar
@@ -103,10 +119,9 @@ build_app() {
 
     # Check for notarization credentials
     if [ -z "$APPLE_ID" ] || [ -z "$APPLE_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
-        warn "Notarization env vars not set (APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID)"
-        warn "App will be signed but NOT notarized"
-        read -p "Continue without notarization? [y/N]: " CONTINUE
-        [ "$CONTINUE" = "y" ] || [ "$CONTINUE" = "Y" ] || exit 1
+        warn "Notarization env vars not set - app will be signed but NOT notarized"
+    else
+        log "Notarization credentials found"
     fi
 
     # Build with telemetry if SENTRY_DSN is set
@@ -295,20 +310,14 @@ publish_to_app_repo() {
     success "Published to QueryPilot/studio-app"
 }
 
-# Finalize release (remove draft)
+# Finalize release (remove draft and publish)
 finalize_release() {
-    read -p "Publish release (remove draft status)? [y/N]: " PUBLISH
-    if [ "$PUBLISH" = "y" ] || [ "$PUBLISH" = "Y" ]; then
-        gh release edit "v$VERSION" --draft=false
-        success "Release published!"
+    log "Publishing release..."
+    gh release edit "v$VERSION" --draft=false
+    success "Release published!"
 
-        read -p "Also publish to studio-app repo? [y/N]: " PUBLISH_APP
-        if [ "$PUBLISH_APP" = "y" ] || [ "$PUBLISH_APP" = "Y" ]; then
-            publish_to_app_repo
-        fi
-    else
-        log "Release left as draft"
-    fi
+    # Auto-publish to studio-app if we have access
+    publish_to_app_repo
 }
 
 # Cleanup
