@@ -150,7 +150,6 @@ prepare_dmg() {
     cp "$DMG_PATH" "$DMG_NAME"
 
     success "DMG ready: $DMG_NAME"
-    echo "$DMG_NAME"
 }
 
 # Create GitHub release
@@ -341,11 +340,10 @@ main() {
     build_sidecar
     download_ssm
     build_app
-
-    DMG_FILE=$(prepare_dmg)
+    prepare_dmg
 
     create_release
-    upload_dmg "$DMG_FILE"
+    upload_dmg "Query-Pilot_${ARCH}.dmg"
     generate_manifest
     upload_manifest
     finalize_release
