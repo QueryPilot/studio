@@ -3,6 +3,7 @@ import DataEditor, {
   type DataEditorProps,
   type DataEditorRef,
   type GridMouseEventArgs,
+  type Rectangle,
 } from "@glideapps/glide-data-grid";
 import "@glideapps/glide-data-grid/dist/index.css";
 import "../styles/datagrid-overrides.css";
@@ -44,6 +45,7 @@ export const DataGridBase = forwardRef(function DataGridBase(
     props;
   const { resolvedTheme } = useTheme();
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
+  const [hoveredCell, setHoveredCell] = useState<[number, number] | null>(null);
 
   const { width = "100%", height = "100%", className, ...editorProps } = rest;
 
@@ -53,13 +55,15 @@ export const DataGridBase = forwardRef(function DataGridBase(
     [resolvedTheme],
   );
 
-  // Handle item hover to track row
+  // Handle item hover to track row and cell
   const handleItemHovered = useCallback(
     (args: GridMouseEventArgs) => {
       if (args.kind === "cell") {
         setHoveredRow(args.location[1]);
+        setHoveredCell([args.location[0], args.location[1]]);
       } else {
         setHoveredRow(null);
+        setHoveredCell(null);
       }
       // Call external handler if provided
       rest.onItemHovered?.(args);
@@ -70,25 +74,58 @@ export const DataGridBase = forwardRef(function DataGridBase(
   // Merge row hover with external getRowThemeOverride
   const mergedGetRowThemeOverride = useCallback(
     (rowIndex: number) => {
-      // First check external override (higher priority)
+      // Get external override first
       const externalOverride = rest.getRowThemeOverride?.(rowIndex);
-      if (externalOverride) {
-        return externalOverride;
-      }
 
-      // Apply hover highlight as lowest priority
+      // Apply hover highlight (merge with external override)
       if (rowIndex === hoveredRow) {
-        return {
-          bgCell: resolvedTheme === "dark"
-            ? "rgba(255, 255, 255, 0.04)"
-            : "rgba(0, 0, 0, 0.03)",
-        };
+        const hoverBgCell = resolvedTheme === "dark"
+          ? "rgba(255, 255, 255, 0.04)"
+          : "rgba(0, 0, 0, 0.03)";
+
+        // Merge hover bg with external override if exists
+        if (externalOverride) {
+          return {
+            ...externalOverride,
+            // Only apply hover bg if external doesn't have a specific bgCell
+            bgCell: externalOverride.bgCell || hoverBgCell,
+          };
+        }
+
+        return { bgCell: hoverBgCell };
       }
 
-      return undefined;
+      return externalOverride;
     },
     [rest.getRowThemeOverride, hoveredRow, resolvedTheme]
   );
+
+  // Create cell highlight region for hovered cell
+  const cellHighlightRegions = useMemo(() => {
+    const regions: { color: string; range: Rectangle }[] = [];
+
+    // Add external highlight regions if provided
+    if (rest.highlightRegions) {
+      regions.push(...rest.highlightRegions);
+    }
+
+    // Add hovered cell highlight
+    if (hoveredCell) {
+      regions.push({
+        color: resolvedTheme === "dark"
+          ? "rgba(255, 255, 255, 0.08)"
+          : "rgba(0, 0, 0, 0.05)",
+        range: {
+          x: hoveredCell[0],
+          y: hoveredCell[1],
+          width: 1,
+          height: 1,
+        },
+      });
+    }
+
+    return regions.length > 0 ? regions : undefined;
+  }, [hoveredCell, resolvedTheme, rest.highlightRegions]);
 
   const containerClasses = cn(
     "relative h-full w-full overflow-hidden rounded-md bg-background",
@@ -113,7 +150,7 @@ export const DataGridBase = forwardRef(function DataGridBase(
         rowHeight={28}
         headerHeight={28}
         getRowThemeOverride={mergedGetRowThemeOverride}
-        highlightRegions={rest.highlightRegions}
+        highlightRegions={cellHighlightRegions}
         keybindings={rest.keybindings} // Undefined by default = Glide's native copy/paste enabled
         columnSelect="multi"
         rowSelect="multi"

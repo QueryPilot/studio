@@ -1,6 +1,26 @@
 import { logger } from "@/lib/logger";
 import { Button } from "@/components/ui/button";
-import { IconHome, IconRefresh, IconLock, IconSettings, IconLayoutSidebar, IconCheck, IconDatabase, IconCircle, IconSitemap, IconSun, IconMoon, IconDeviceDesktop, IconAlertCircle, IconLoader2, IconRotate, IconRobot, IconArrowBackUp, IconArrowForwardUp, IconGitCommit } from '@tabler/icons-react';
+import {
+  IconHome,
+  IconRefresh,
+  IconLock,
+  IconSettings,
+  IconLayoutSidebar,
+  IconCheck,
+  IconDatabase,
+  IconCircle,
+  IconSitemap,
+  IconSun,
+  IconMoon,
+  IconDeviceDesktop,
+  IconAlertCircle,
+  IconLoader2,
+  IconRotate,
+  IconRobot,
+  IconArrowBackUp,
+  IconArrowForwardUp,
+  IconGitCommit,
+} from "@tabler/icons-react";
 import {
   Popover,
   PopoverContent,
@@ -188,14 +208,23 @@ export function WorkspaceTitleBar({
 
     if (searchQuery.trim()) {
       filteredDatabases = dbFuse.search(searchQuery).map((r) => r.item);
-      filteredOtherProfiles = profileFuse.search(searchQuery).map((r) => r.item);
+      filteredOtherProfiles = profileFuse
+        .search(searchQuery)
+        .map((r) => r.item);
     }
 
     const current = filteredDatabases.find((db) => db.isCurrent) || null;
     const thisServer = filteredDatabases.filter((db) => !db.isCurrent);
 
     return { current, thisServer, otherProfiles: filteredOtherProfiles };
-  }, [connection, databaseItems, otherProfileItems, dbFuse, profileFuse, searchQuery]);
+  }, [
+    connection,
+    databaseItems,
+    otherProfileItems,
+    dbFuse,
+    profileFuse,
+    searchQuery,
+  ]);
   const { toggleSidebar: onToggleSidebar } = useWorkspaceScreenStore();
   const { openPreferences } = usePreferencesStore();
   const {
@@ -1149,7 +1178,9 @@ export function WorkspaceTitleBar({
                 >
                   <IconSun className="mr-2 h-4 w-4" />
                   <span>Light</span>
-                  {theme === "light" && <IconCheck className="ml-auto h-4 w-4" />}
+                  {theme === "light" && (
+                    <IconCheck className="ml-auto h-4 w-4" />
+                  )}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => {
@@ -1158,7 +1189,9 @@ export function WorkspaceTitleBar({
                 >
                   <IconMoon className="mr-2 h-4 w-4" />
                   <span>Dark</span>
-                  {theme === "dark" && <IconCheck className="ml-auto h-4 w-4" />}
+                  {theme === "dark" && (
+                    <IconCheck className="ml-auto h-4 w-4" />
+                  )}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => {
@@ -1167,7 +1200,9 @@ export function WorkspaceTitleBar({
                 >
                   <IconDeviceDesktop className="mr-2 h-4 w-4" />
                   <span>System</span>
-                  {theme === "system" && <IconCheck className="ml-auto h-4 w-4" />}
+                  {theme === "system" && (
+                    <IconCheck className="ml-auto h-4 w-4" />
+                  )}
                 </DropdownMenuItem>
               </DropdownMenuSubContent>
             </DropdownMenuSub>
@@ -1178,7 +1213,7 @@ export function WorkspaceTitleBar({
               }}
             >
               <IconSettings className="mr-2 h-4 w-4" />
-              <span>Preferences</span>
+              <span>Settings</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

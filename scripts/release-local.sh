@@ -117,6 +117,13 @@ download_ssm() {
 build_app() {
     log "Building Tauri app for $TARGET..."
 
+    # Check for update checker token (compiled into binary)
+    if [ -z "$GITHUB_RELEASE_TOKEN" ]; then
+        warn "GITHUB_RELEASE_TOKEN not set - update checker will be disabled"
+    else
+        log "Update checker token configured"
+    fi
+
     # Check for notarization credentials
     if [ -z "$APPLE_ID" ] || [ -z "$APPLE_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
         warn "Notarization env vars not set - app will be signed but NOT notarized"

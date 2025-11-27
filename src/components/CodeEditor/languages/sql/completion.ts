@@ -256,6 +256,19 @@ export const createSqlCompletionSource = (
       if (intent === "column" && !qualifier) {
         const completions: Completion[] = [];
 
+        // Add table/CTE aliases with highest priority for qualified access
+        // This allows typing "cmcr" to get "cmcr." completion
+        for (const table of activeStatementTables) {
+          const aliasOrName = table.alias || table.name;
+          completions.push({
+            label: aliasOrName,
+            type: table.isCTE ? "constant" : "class",
+            detail: table.alias ? `alias → ${table.name}` : (table.isCTE ? "CTE" : "table"),
+            boost: 2, // Higher than columns to show aliases first
+            apply: aliasOrName + ".", // Add dot for qualified access
+          });
+        }
+
         // Fetch columns from all real tables in current scope (high boost)
         const realTables = activeStatementTables.filter((t) => !t.isCTE);
         if (realTables.length > 0) {
@@ -269,6 +282,18 @@ export const createSqlCompletionSource = (
 
         // Also include outer scope tables for correlated subqueries (lower boost)
         if (outerScopeTables && outerScopeTables.length > 0) {
+          // Add outer scope aliases
+          for (const table of outerScopeTables) {
+            const aliasOrName = table.alias || table.name;
+            completions.push({
+              label: aliasOrName,
+              type: table.isCTE ? "constant" : "class",
+              detail: `(outer) ${table.alias ? `alias → ${table.name}` : (table.isCTE ? "CTE" : "table")}`,
+              boost: 0.5,
+              apply: aliasOrName + ".",
+            });
+          }
+
           const outerRealTables = outerScopeTables.filter((t) => !t.isCTE);
           if (outerRealTables.length > 0) {
             const outerFieldPromises = outerRealTables.map((t) =>

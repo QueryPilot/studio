@@ -719,6 +719,11 @@ async fn execute_single_fetch_stream(
     // Get pool for raw streaming
     let pool = executor.get_pool();
 
+    // Check if this is a SELECT query (needs streaming) or mutation (needs execute)
+    // Queries with RETURNING clause also return rows, so treat them like SELECT
+    let is_select = is_select_query(sql);
+    let has_returning = sql.to_uppercase().contains(" RETURNING ");
+
     // Get connection from pool FIRST
     let conn_start = std::time::Instant::now();
     let pool_conn = pool
@@ -769,6 +774,43 @@ async fn execute_single_fetch_stream(
             total_streaming_ms: Some(exec_elapsed as u64),
             fetch_count: None,
             network_ms: Some(0),
+            conversion_ms: Some(0),
+            ipc_send_ms: Some(0),
+        });
+
+        return Ok(());
+    }
+
+    // For non-SELECT queries (UPDATE, INSERT, DELETE, etc.) without RETURNING,
+    // use execute to get affected rows count. Queries with RETURNING need streaming.
+    if !is_select && !has_returning {
+        tracing::info!("  🔀 Non-SELECT query, using execute() for affected rows count");
+
+        let exec_start = std::time::Instant::now();
+        let rows_affected = pool_conn
+            .execute(sql, &[])
+            .await
+            .map_err(|e| {
+                tracing::error!("❌ execute failed: {:?}", e);
+                extract_db_error_message(&e)
+            })?;
+        let exec_elapsed = exec_start.elapsed().as_millis();
+
+        tracing::info!("  ⏱ Executed mutation: {}ms, {} rows affected", exec_elapsed, rows_affected);
+
+        // Send empty columns (no result set for mutations without RETURNING)
+        let _ = metadata_channel.send(StreamMessage::Started {
+            columns: vec![],
+            estimated_rows: Some(rows_affected as i64),
+        });
+
+        let _ = metadata_channel.send(StreamMessage::Success {
+            total_rows: rows_affected as usize,
+            execution_time_ms: exec_elapsed as u64,
+            cursor_setup_ms: None,
+            total_streaming_ms: Some(exec_elapsed as u64),
+            fetch_count: None,
+            network_ms: Some(exec_elapsed as u64),
             conversion_ms: Some(0),
             ipc_send_ms: Some(0),
         });

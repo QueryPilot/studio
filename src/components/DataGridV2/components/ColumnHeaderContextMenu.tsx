@@ -8,7 +8,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
-import { IconArrowsUpDown, IconArrowUp, IconArrowDown, IconEyeOff, IconPin, IconPinnedOff, IconCopy, IconFilter } from '@tabler/icons-react';
+import { IconArrowsUpDown, IconSortAscendingSmallBig, IconSortDescendingSmallBig, IconEyeOff, IconPin, IconPinnedOff, IconCopy, IconFilter } from '@tabler/icons-react';
 import type { GridColumnV2 } from "../types";
 
 export interface ColumnHeaderContextMenuProps {
@@ -69,14 +69,14 @@ export function ColumnHeaderContextMenu({
             alignOffset={-5}
           >
             <DropdownMenuItem onClick={onSortAsc}>
-              <IconArrowUp className="mr-2 h-4 w-4" />
+              <IconSortAscendingSmallBig className="mr-2 h-4 w-4" />
               Sort Ascending
               {sortDirection === "asc" && (
                 <span className="ml-auto text-muted-foreground">✓</span>
               )}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={onSortDesc}>
-              <IconArrowDown className="mr-2 h-4 w-4" />
+              <IconSortDescendingSmallBig className="mr-2 h-4 w-4" />
               Sort Descending
               {sortDirection === "desc" && (
                 <span className="ml-auto text-muted-foreground">✓</span>
@@ -103,7 +103,7 @@ export function ColumnHeaderContextMenu({
         ) : (
           <DropdownMenuItem onClick={onPin}>
             <IconPin className="mr-2 h-4 w-4" />
-            IconPin Column
+            Pin Column
           </DropdownMenuItem>
         )}
 
@@ -117,13 +117,13 @@ export function ColumnHeaderContextMenu({
         {onFilterByColumn && (
           <DropdownMenuItem onClick={onFilterByColumn}>
             <IconFilter className="mr-2 h-4 w-4" />
-            IconFilter by this column
+            Filter by this column
           </DropdownMenuItem>
         )}
 
         <DropdownMenuItem onClick={onCopyColumnName}>
           <IconCopy className="mr-2 h-4 w-4" />
-          IconCopy Column Name
+          Copy Column Name
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

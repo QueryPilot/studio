@@ -72,12 +72,12 @@ export function PreferencesDialog({
           <div className="flex flex-col" data-tauri-drag-region>
             <div
               data-tauri-drag-region
-              className="h-8 flex items-center px-3 pt-2 w-screen pl-20 absolute top-0 left-0 z-50"
+              className="h-8 flex items-center px-3 w-screen pl-20 absolute top-0 left-0 z-50"
             >
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 px-2 gap-1 text-muted-foreground hover:text-foreground focus:outline-none"
+                className="h-7 px-2 gap-1 text-muted-foreground hover:text-foreground focus:outline-none outline-none"
                 onClick={() => {
                   handleOpenChange(false);
                 }}

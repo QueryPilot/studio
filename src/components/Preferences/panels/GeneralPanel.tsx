@@ -36,7 +36,13 @@ export default function GeneralPanel() {
   const { setUnsavedChanges } = usePreferencesStore();
 
   const [updateStatus, setUpdateStatus] = useState<
-    "idle" | "checking" | "available" | "downloading" | "ready" | "uptodate" | "error"
+    | "idle"
+    | "checking"
+    | "available"
+    | "downloading"
+    | "ready"
+    | "uptodate"
+    | "error"
   >("idle");
   const [updateMessage, setUpdateMessage] = useState("");
   const [appVersion, setAppVersion] = useState("");
@@ -86,7 +92,9 @@ export default function GeneralPanel() {
 
       setDownloadedPath(filePath);
       setUpdateStatus("ready");
-      setUpdateMessage(`v${pendingUpdate.version} downloaded. Ready to install.`);
+      setUpdateMessage(
+        `v${pendingUpdate.version} downloaded. Ready to install.`,
+      );
     } catch (error) {
       setUpdateStatus("error");
       setUpdateMessage(
@@ -101,7 +109,9 @@ export default function GeneralPanel() {
     try {
       setUpdateMessage("Opening installer...");
       await invoke("install_update", { filePath: downloadedPath });
-      setUpdateMessage("Installer opened. Please follow the installation prompts.");
+      setUpdateMessage(
+        "Installer opened. Please follow the installation prompts.",
+      );
     } catch (error) {
       setUpdateStatus("error");
       setUpdateMessage(
@@ -128,7 +138,7 @@ export default function GeneralPanel() {
   };
 
   return (
-    <div className="max-w-3xl space-y-6 max-h-[calc(80vh-2rem)] overflow-y-scroll -mx-4 px-4">
+    <div className="max-w-3xl space-y-6 max-h-[calc(100vh - 32px)] overflow-y-scroll -mx-4 px-4">
       <div className="sticky top-0 bg-background z-10 pb-2">
         <h2 className="text-base font-semibold">General Settings</h2>
         <p className="text-xs text-muted-foreground">
@@ -250,7 +260,8 @@ export default function GeneralPanel() {
                   updateStatus === "checking" || updateStatus === "downloading"
                 }
               >
-                {updateStatus === "checking" || updateStatus === "downloading" ? (
+                {updateStatus === "checking" ||
+                updateStatus === "downloading" ? (
                   <IconLoader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : updateStatus === "uptodate" ? (
                   <IconCheck className="h-4 w-4 mr-2 text-green-600" />

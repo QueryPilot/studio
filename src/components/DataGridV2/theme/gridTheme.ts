@@ -19,7 +19,7 @@ export const createDataGridTheme = (appTheme: string): Partial<Theme> => {
     bgIconHeader: isDark ? "#14213D" : "#F5F5F5",
     fgIconHeader: isDark ? "#D1D5DB" : "#111827",
     textHeader: isDark ? "#D1D5DB" : "#111827",
-    textHeaderSelected: isDark ? "#F3F4F6" : "#111827",
+    textHeaderSelected: "#09090B", // Always dark text on orange accent bg
     // bgHeaderSelected: "transparent",
 
     // Cell backgrounds matching our surface colors
