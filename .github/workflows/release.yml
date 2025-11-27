@@ -99,7 +99,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
+          - os: macos-26  # M1 ARM runner - beta, latest tooling
             platform: macos
             target: aarch64-apple-darwin
             arch: aarch64
@@ -129,6 +129,8 @@ jobs:
           workspaces: src-tauri
           cache-targets: true
           cache-on-failure: true
+          cache-all-crates: true
+          shared-key: "release-${{ matrix.target }}"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
