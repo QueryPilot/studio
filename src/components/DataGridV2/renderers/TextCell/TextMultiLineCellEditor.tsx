@@ -9,6 +9,7 @@ import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 // Constants for layout
 const HEADER_HEIGHT = 32; // Header with column info
 const FOOTER_HEIGHT = 36; // Footer with instructions
+const CONTENT_PADDING = 16; // p-2 top + bottom
 const MIN_TEXTAREA_HEIGHT = 60;
 const MAX_TEXTAREA_HEIGHT = 400;
 const MIN_CONTAINER_WIDTH = 300;
@@ -35,71 +36,63 @@ export const TextMultiLineCellEditor: React.FC<
   // Extract column metadata for header
   const { columnName, isPrimaryKey, dbType } = value.data;
 
-  // Calculate initial size based on content
-  const calculateTextareaHeight = useCallback(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return MIN_TEXTAREA_HEIGHT;
-    
-    // Temporarily reset height to measure content
+  // Calculate textarea height from content
+  const measureTextareaHeight = useCallback((textarea: HTMLTextAreaElement) => {
+    // Temporarily reset height to measure actual content
     const prevHeight = textarea.style.height;
-    textarea.style.height = "auto";
+    textarea.style.height = "0";
     const scrollHeight = textarea.scrollHeight;
     textarea.style.height = prevHeight;
-    
     return Math.max(MIN_TEXTAREA_HEIGHT, Math.min(MAX_TEXTAREA_HEIGHT, scrollHeight));
   }, []);
 
   const [size, setSize] = useState(() => {
     // Estimate initial height based on content length and line count
     const lineCount = (initialValue.match(/\n/g) || []).length + 1;
-    const estimatedLineHeight = 18; // Approximate line height for text-xs
-    const estimatedHeight = Math.max(
+    const estimatedLineHeight = 20; // Approximate line height for text-xs mono
+    const estimatedTextareaHeight = Math.max(
       MIN_TEXTAREA_HEIGHT,
-      Math.min(MAX_TEXTAREA_HEIGHT, lineCount * estimatedLineHeight + 20)
+      Math.min(MAX_TEXTAREA_HEIGHT, lineCount * estimatedLineHeight + 8)
     );
-    
+
     return {
       width: 400,
-      height: estimatedHeight + HEADER_HEIGHT + FOOTER_HEIGHT,
+      textareaHeight: estimatedTextareaHeight,
     };
   });
 
   // Adjust height on mount after textarea is rendered
   useLayoutEffect(() => {
     if (isManuallyResized) return;
-    
+
     const textarea = textareaRef.current;
     if (!textarea) return;
 
     // Measure actual content height
-    const textareaHeight = calculateTextareaHeight();
-    const containerHeight = textareaHeight + HEADER_HEIGHT + FOOTER_HEIGHT;
-    
+    const textareaHeight = measureTextareaHeight(textarea);
+    textarea.style.height = `${textareaHeight}px`;
+
     setSize((prev) => ({
       ...prev,
-      height: containerHeight,
+      textareaHeight,
     }));
-  }, [isManuallyResized, calculateTextareaHeight]);
+  }, [isManuallyResized, measureTextareaHeight]);
 
   // Handle input changes to auto-resize
   const handleTextareaChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     initialValueRef.current = e.target.value;
-    
+
     if (isManuallyResized) return;
-    
+
     const textarea = e.target;
-    // Reset and measure
-    textarea.style.height = "auto";
-    const scrollHeight = textarea.scrollHeight;
-    const textareaHeight = Math.max(MIN_TEXTAREA_HEIGHT, Math.min(MAX_TEXTAREA_HEIGHT, scrollHeight));
+    const textareaHeight = measureTextareaHeight(textarea);
     textarea.style.height = `${textareaHeight}px`;
-    
-    const containerHeight = textareaHeight + HEADER_HEIGHT + FOOTER_HEIGHT;
+
     setSize((prev) => ({
       ...prev,
-      height: containerHeight,
+      textareaHeight,
     }));
-  }, [isManuallyResized]);
+  }, [isManuallyResized, measureTextareaHeight]);
 
   const commit = useCallback(
     (nextValue: string | null) => {
@@ -278,12 +271,12 @@ export const TextMultiLineCellEditor: React.FC<
       const deltaY = e.clientY - startY;
 
       const newWidth = Math.max(MIN_CONTAINER_WIDTH, Math.min(MAX_CONTAINER_WIDTH, startWidth + deltaX));
-      const newHeight = Math.max(
-        MIN_TEXTAREA_HEIGHT + HEADER_HEIGHT + FOOTER_HEIGHT,
-        Math.min(MAX_TEXTAREA_HEIGHT + HEADER_HEIGHT + FOOTER_HEIGHT, startHeight + deltaY)
+      const newTextareaHeight = Math.max(
+        MIN_TEXTAREA_HEIGHT,
+        Math.min(MAX_TEXTAREA_HEIGHT, startHeight - HEADER_HEIGHT - FOOTER_HEIGHT - CONTENT_PADDING + deltaY)
       );
 
-      setSize({ width: newWidth, height: newHeight });
+      setSize({ width: newWidth, textareaHeight: newTextareaHeight });
     };
 
     const handleMouseUp = () => {
@@ -301,18 +294,24 @@ export const TextMultiLineCellEditor: React.FC<
     };
   }, []);
 
+  // Calculate total container height
+  const containerHeight = size.textareaHeight + HEADER_HEIGHT + FOOTER_HEIGHT + CONTENT_PADDING;
+
   return (
     <div
       ref={containerRef}
       className="flex flex-col bg-popover border border-border rounded-xl shadow-lg click-outside-ignore"
       style={{
         width: `${size.width}px`,
-        height: `${size.height}px`,
+        height: `${containerHeight}px`,
         position: "relative",
       }}
     >
       {/* Header with column info */}
-      <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50">
+      <div
+        className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50 shrink-0"
+        style={{ height: `${HEADER_HEIGHT}px` }}
+      >
         {isPrimaryKey && (
           <IconKey className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
         )}
@@ -326,7 +325,7 @@ export const TextMultiLineCellEditor: React.FC<
         )}
       </div>
 
-      <div className="flex-1 overflow-auto p-2">
+      <div className="p-2 shrink-0">
         <textarea
           ref={textareaRef}
           defaultValue={initialValue}
@@ -340,13 +339,17 @@ export const TextMultiLineCellEditor: React.FC<
           }}
           onChange={handleTextareaChange}
           className={cn(
-            "w-full h-full text-xs font-mono bg-transparent resize-none outline-none",
+            "w-full text-xs font-mono bg-transparent resize-none outline-none",
           )}
+          style={{ height: `${size.textareaHeight}px` }}
           placeholder={value.data.nullable ? "NULL" : ""}
         />
       </div>
 
-      <div className="flex items-center justify-between text-xs text-muted-foreground px-2 py-1 shrink-0 sticky bottom-0 bg-popover">
+      <div
+        className="flex items-center justify-between text-xs text-muted-foreground px-2 py-1 shrink-0 bg-popover border-t border-border/50"
+        style={{ height: `${FOOTER_HEIGHT}px` }}
+      >
         <div className="flex-1">
           Enter to save, Shift+Enter for new line, Esc to cancel
         </div>
