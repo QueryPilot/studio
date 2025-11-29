@@ -7,6 +7,10 @@ export interface ColumnMeta {
   dataType: string;
   nullable?: boolean;
   enumValues?: string[];
+  isPrimaryKey?: boolean;
+  isForeignKey?: boolean;
+  foreignTable?: string;
+  foreignColumn?: string;
 }
 
 export interface ParseResult {

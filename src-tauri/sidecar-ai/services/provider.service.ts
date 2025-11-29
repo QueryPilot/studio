@@ -4,86 +4,62 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createXai } from "@ai-sdk/xai";
 import { createGateway } from "@ai-sdk/gateway";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { ollama, createOllama } from "ollama-ai-provider";
 import { ConfigService } from "./config.service";
-import { createProviderRegistry } from "ai";
+
+type ProviderInstance = ReturnType<typeof createOpenAI>;
+
+const PROVIDER_FACTORIES: Record<string, (apiKey: string) => ProviderInstance> = {
+  openai: (apiKey) => createOpenAI({ apiKey }),
+  anthropic: (apiKey) => createAnthropic({ apiKey }),
+  google: (apiKey) => createGoogleGenerativeAI({ apiKey }),
+  xai: (apiKey) => createXai({ apiKey }),
+  gateway: (apiKey) => createGateway({ apiKey }),
+  openrouter: (apiKey) => createOpenRouter({ apiKey }),
+};
+
+const PROVIDER_NAMES: Record<string, string> = {
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  google: "Google",
+  xai: "xAI",
+  gateway: "Vercel AI Gateway",
+  openrouter: "OpenRouter",
+};
 
 export class ProviderService {
-  static registry = createProviderRegistry({
-    openai: createOpenAI({ apiKey: ConfigService.getApiKey("openai") }),
-    anthropic: createAnthropic({
-      apiKey: ConfigService.getApiKey("anthropic"),
-    }),
-    google: createGoogleGenerativeAI({
-      apiKey: ConfigService.getApiKey("google"),
-    }),
-    xai: createXai({ apiKey: ConfigService.getApiKey("xai") }),
-    gateway: createGateway({ apiKey: ConfigService.getApiKey("gateway") }),
-    openrouter: createOpenRouter({
-      apiKey: ConfigService.getApiKey("openrouter"),
-    }),
-    // ollama: createOllama(),
-  });
+  private static cache = new Map<string, ProviderInstance>();
 
-  static createProvider(provider: string) {
+  static getProvider(provider: string): ProviderInstance {
+    const cached = this.cache.get(provider);
+    if (cached) return cached;
+
     const apiKey = ConfigService.getApiKey(provider);
+    const factory = PROVIDER_FACTORIES[provider];
 
-    switch (provider) {
-      case "openai":
-        if (!apiKey) {
-          throw new Error(
-            `OpenAI API key not configured. Please set it in Settings.`,
-          );
-        }
-
-        return createOpenAI({ apiKey });
-
-      case "anthropic":
-        if (!apiKey) {
-          throw new Error(
-            `Anthropic API key not configured. Please set it in Settings.`,
-          );
-        }
-        return createAnthropic({ apiKey });
-
-      case "google":
-        if (!apiKey) {
-          throw new Error(
-            `Google API key not configured. Please set it in Settings.`,
-          );
-        }
-        return createGoogleGenerativeAI({ apiKey });
-
-      case "xai":
-        if (!apiKey) {
-          throw new Error(
-            `xAI API key not configured. Please set it in Settings.`,
-          );
-        }
-        return createXai({ apiKey });
-
-      case "gateway":
-        if (!apiKey) {
-          throw new Error(
-            `Vercel AI Gateway API key not configured. Please set it in Settings.`,
-          );
-        }
-        return createGateway({ apiKey });
-
-      case "openrouter":
-        if (!apiKey) {
-          throw new Error(
-            `OpenRouter API key not configured. Please set it in Settings.`,
-          );
-        }
-        return createOpenRouter({ apiKey });
-
-      // case "ollama":
-      //   // Ollama doesn't need an API key (local)
-      //   return ollama;
-
-      default:
-        throw new Error(`Unknown provider: ${provider}`);
+    if (!factory) {
+      throw new Error(`Unknown provider: ${provider}`);
     }
+
+    if (!apiKey) {
+      const name = PROVIDER_NAMES[provider] || provider;
+      throw new Error(`${name} API key not configured. Please set it in Settings.`);
+    }
+
+    const instance = factory(apiKey);
+    this.cache.set(provider, instance);
+    return instance;
+  }
+
+  static clearCache(): void {
+    this.cache.clear();
+  }
+
+  static invalidateProvider(provider: string): void {
+    this.cache.delete(provider);
+  }
+
+  // Legacy alias for backward compatibility
+  static createProvider(provider: string): ProviderInstance {
+    return this.getProvider(provider);
   }
 }
