@@ -86,6 +86,8 @@ import { GridContextMenu } from "../components/GridContextMenu";
 import { useContextKey, useScopedKeybindings } from "@/hooks/useContextKey";
 import { useCommand } from "@/hooks/useCommand";
 import { useCrudStore } from "@/stores/crudStore";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { DbType } from "@/types/connection";
 import {
   createUpdateCommand,
   createInsertCommand,
@@ -340,19 +342,80 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     filters: activeFilter,
   });
 
-  // Convert column metadata for filter parser
+  // Convert column metadata for filter parser, enriching with FK info from tableStructure
   const filterColumns = useMemo<FilterColumnMeta[]>(() => {
-    return tableDataQuery.columns.map((col) => ({
-      name: col.name,
-      dataType: col.db_type,
-      nullable: col.nullable,
-      enumValues: col.enum_values,
-    }));
-  }, [tableDataQuery.columns]);
+    // Build FK lookup from tableStructure (column -> foreign table/column mapping)
+    const fkMap = new Map<string, { table: string; column: string }>();
+    if (tableStructure?.foreignKeys) {
+      for (const fk of tableStructure.foreignKeys) {
+        // Map each source column to its foreign target
+        for (let i = 0; i < fk.columns.length; i++) {
+          const sourceCol = fk.columns[i];
+          const targetCol = fk.foreignColumns[i];
+          if (sourceCol && targetCol) {
+            fkMap.set(sourceCol, {
+              table: fk.foreignTable,
+              column: targetCol,
+            });
+          }
+        }
+      }
+    }
 
-  // AI IconFilter hook - detect dialect from connection (default to postgresql)
+    // Build PK lookup
+    const pkColumns = new Set<string>();
+    if (tableStructure?.columns) {
+      for (const col of tableStructure.columns) {
+        if (col.is_pk) {
+          pkColumns.add(col.name);
+        }
+      }
+    }
+
+    return tableDataQuery.columns.map((col) => {
+      const fkInfo = fkMap.get(col.name);
+      return {
+        name: col.name,
+        dataType: col.db_type,
+        nullable: col.nullable,
+        enumValues: col.enum_values,
+        isPrimaryKey: pkColumns.has(col.name),
+        isForeignKey: !!fkInfo,
+        foreignTable: fkInfo?.table,
+        foreignColumn: fkInfo?.column,
+      };
+    });
+  }, [tableDataQuery.columns, tableStructure?.foreignKeys, tableStructure?.columns]);
+
+  // Get connection info for dialect detection
+  const storedConnection = useConnectionStore(
+    (state) => state.connections.find((c) => c.profile.id === connectionId)
+  );
+
+  // Map DbType to dialect for AI filter
+  const dialect = useMemo((): "postgresql" | "mysql" | "sqlite" | "mssql" => {
+    const dbType = storedConnection?.profile.db_type;
+    switch (dbType) {
+      case DbType.PostgreSQL:
+        return "postgresql";
+      case DbType.MySQL:
+        return "mysql";
+      case DbType.SQLite:
+        return "sqlite";
+      case DbType.SQLServer:
+        return "mssql";
+      default:
+        return "postgresql";
+    }
+  }, [storedConnection?.profile.db_type]);
+
+  // AI filter hook with proper connection context
   const { generateFilter: generateAIFilter, isLoading: isAIFilterLoading } =
-    useAIFilter(filterColumns, table, "postgresql");
+    useAIFilter(filterColumns, table, dialect, {
+      connectionId,
+      schema,
+      enableCrossTable: true,
+    });
 
   // Handle filter submission
   const handleFilterSubmit = useCallback(async () => {

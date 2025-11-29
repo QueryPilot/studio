@@ -66,7 +66,7 @@ export async function getChatProviders(): Promise<AIProviderConfig[]> {
 
     // Backend returns array directly, not wrapped in object
     const data: AIProviderConfig[] = await response.json();
-    return data || [];
+    return data;
   } catch (error) {
     logger.error("[AIService] Error fetching providers:", error);
     return [];
@@ -118,16 +118,24 @@ export interface TextToSQLRequest {
     dataType: string;
     nullable: boolean;
     enumValues?: string[];
+    isPrimaryKey?: boolean;
+    isForeignKey?: boolean;
+    foreignTable?: string;
+    foreignColumn?: string;
   }>;
   tableName: string;
+  schema?: string;
   dialect: "postgresql" | "mysql" | "sqlite" | "mssql";
   provider: string;
   model: string;
+  connectionId?: string;
+  enableCrossTable?: boolean;
 }
 
 export interface TextToSQLResponse {
   whereClause?: string;
   explanation?: string;
+  usedSubquery?: boolean;
   error?: string;
 }
 
@@ -190,16 +198,20 @@ export async function searchOpenRouterModels(
 
 /**
  * Convert natural language to SQL WHERE clause using AI
+ * @param params.enableCrossTable - Enable cross-table exploration for queries like "todos by User X"
  */
 export async function textToSQL(
   params: TextToSQLRequest,
 ): Promise<TextToSQLResponse> {
   try {
+    // Increase timeout for cross-table mode (requires multiple tool calls)
+    const timeout = params.enableCrossTable ? 60000 : 30000;
+
     const response = await fetch(`${AI_SIDECAR_URL}/text-to-sql`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
-      signal: AbortSignal.timeout(30000), // 30 second timeout for AI
+      signal: AbortSignal.timeout(timeout),
     });
 
     const data = await response.json();
@@ -211,6 +223,7 @@ export async function textToSQL(
     return {
       whereClause: data.whereClause,
       explanation: data.explanation,
+      usedSubquery: data.usedSubquery,
     };
   } catch (error) {
     logger.error("[AIService] Text-to-SQL error:", error);
