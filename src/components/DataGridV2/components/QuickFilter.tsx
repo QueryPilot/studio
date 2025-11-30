@@ -765,10 +765,16 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
           return;
         }
 
-        // Handle empty value - just update value, don't auto-reset mode
-        // User can use Cmd+Backspace to reset to search mode
+        // Handle empty value - preserve mode prefix to prevent unwanted mode switch
+        // User must press Backspace on already empty editor to reset to search mode
         if (newValue === "") {
-          onValueChange("");
+          if (mode === "where") {
+            onValueChange("?");
+          } else if (mode === "ai") {
+            onValueChange("#");
+          } else {
+            onValueChange("");
+          }
           return;
         }
 
