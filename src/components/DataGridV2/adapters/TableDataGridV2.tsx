@@ -509,14 +509,16 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         quickFilterRef.current?.focus();
         return;
       }
-      // / key (when not in input)
+      // / key (when not in input or contenteditable - e.g., CodeMirror)
       if (
         e.key === "/" &&
         !e.metaKey &&
         !e.ctrlKey &&
         !e.altKey &&
         document.activeElement?.tagName !== "INPUT" &&
-        document.activeElement?.tagName !== "TEXTAREA"
+        document.activeElement?.tagName !== "TEXTAREA" &&
+        !(document.activeElement as HTMLElement)?.isContentEditable &&
+        !document.activeElement?.closest(".cm-editor")
       ) {
         e.preventDefault();
         quickFilterRef.current?.focus();
