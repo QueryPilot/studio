@@ -1,8 +1,16 @@
-import { generateObject, generateText, tool, stepCountIs } from "ai";
+import { generateObject, generateText, stepCountIs } from "ai";
 import { z } from "zod";
 import { getCorsHeaders } from "../middleware/cors";
 import { ProviderService } from "../services/provider.service";
-import { TAURI_API_URL } from "../config/constants";
+import { createTextToSqlTools, type ToolContext } from "../services/tool-factory.service";
+import { metrics, ToolMetrics } from "../utils/metrics";
+import { rateLimiter, addRateLimitHeaders } from "../utils/rate-limiter";
+import {
+  createError,
+  toActionableError,
+  errorResponse,
+  ErrorCode,
+} from "../utils/errors";
 
 // Types
 interface ColumnMeta {
@@ -28,7 +36,7 @@ interface TextToSQLRequest {
   enableCrossTable?: boolean;
 }
 
-// Response schema
+// Response schema for simple mode
 const responseSchema = z.object({
   whereClause: z.string().describe("SQL WHERE clause without the WHERE keyword"),
   explanation: z.string().optional().describe("Brief explanation of the filter"),
@@ -38,7 +46,7 @@ const responseSchema = z.object({
 // Constants
 const TIMEOUT_MS = 60_000;
 const MAX_COLUMNS = 100;
-const MAX_TOOL_ROUNDS = 5;
+const MAX_TOOL_ROUNDS = 8; // Increased for more complex cross-table scenarios
 
 // Common FK naming patterns → likely referenced table (singular/plural)
 const FK_PATTERNS: Array<{ pattern: RegExp; tableHints: string[] }> = [
@@ -72,9 +80,12 @@ function inferRelationships(columns: ColumnMeta[], currentTable: string): Inferr
     if (col.isForeignKey && col.foreignTable) continue;
 
     // Skip non-ID-like columns
-    if (!col.name.toLowerCase().endsWith("_id") &&
-        !col.name.toLowerCase().endsWith("_by") &&
-        !col.name.toLowerCase().includes("_ref")) continue;
+    if (
+      !col.name.toLowerCase().endsWith("_id") &&
+      !col.name.toLowerCase().endsWith("_by") &&
+      !col.name.toLowerCase().includes("_ref")
+    )
+      continue;
 
     // Skip if it's the primary key
     if (col.isPrimaryKey) continue;
@@ -82,7 +93,7 @@ function inferRelationships(columns: ColumnMeta[], currentTable: string): Inferr
     for (const { pattern, tableHints } of FK_PATTERNS) {
       const match = col.name.match(pattern);
       if (match) {
-        const tables = tableHints.map(hint => {
+        const tables = tableHints.map((hint) => {
           if (hint === "self") return currentTable;
           if (hint.includes("$1") && match[1]) {
             return hint.replace("$1", match[1].toLowerCase());
@@ -91,7 +102,7 @@ function inferRelationships(columns: ColumnMeta[], currentTable: string): Inferr
         });
 
         // Higher confidence for specific patterns
-        const isSpecific = FK_PATTERNS.slice(0, -1).some(p => p.pattern.test(col.name));
+        const isSpecific = FK_PATTERNS.slice(0, -1).some((p) => p.pattern.test(col.name));
 
         inferred.push({
           column: col.name,
@@ -104,163 +115,6 @@ function inferRelationships(columns: ColumnMeta[], currentTable: string): Inferr
   }
 
   return inferred;
-}
-
-// Helper to call Tauri backend via HTTP proxy (with bound context)
-async function callTauri(command: string, args: Record<string, unknown>) {
-  const startTime = Date.now();
-  console.log(`🔧 [Tool] Calling Tauri command: ${command}`, JSON.stringify(args));
-
-  try {
-    const response = await fetch(`${TAURI_API_URL}/__tauri__/invoke`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cmd: command, args }),
-    });
-
-    const elapsed = Date.now() - startTime;
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`❌ [Tool] ${command} failed (${response.status}) after ${elapsed}ms:`, errorText);
-      throw new Error(`Command failed: ${errorText}`);
-    }
-
-    const result = await response.json();
-    console.log(`✅ [Tool] ${command} succeeded in ${elapsed}ms`);
-    return result;
-  } catch (error) {
-    if (error instanceof TypeError && error.message.includes('fetch')) {
-      console.error(`❌ [Tool] ${command} - HTTP server not reachable at ${TAURI_API_URL}`);
-      throw new Error(`Cannot reach Tauri HTTP server. Is the app running?`);
-    }
-    throw error;
-  }
-}
-
-// Factory function to create cross-table tools with bound context
-// This ensures connectionId and schema are automatically included in all tool calls
-function createCrossTableTools(connectionId: string, schema: string) {
-  return {
-    list_tables: tool({
-      description: "Get all tables in the current schema. Returns table names, row counts, and sizes.",
-      inputSchema: z.object({}),
-      execute: async () => {
-        try {
-          const result = await callTauri("get_tables", { conn_id: connectionId, schema });
-          console.log(`📋 [list_tables] Raw result from callTauri:`, JSON.stringify(result).slice(0, 300));
-          const response = {
-            success: true,
-            tables: result.map((t: { name: string; schema?: string; row_count?: number; size?: string }) => ({
-              name: t.name,
-              schema: t.schema || schema,
-              rowCount: t.row_count,
-              size: t.size,
-            })),
-          };
-          console.log(`📋 [list_tables] Returning:`, JSON.stringify(response).slice(0, 300));
-          return response;
-        } catch (error) {
-          console.error(`📋 [list_tables] Error:`, error);
-          return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
-        }
-      },
-    }),
-
-    get_table_structure: tool({
-      description: "Get columns, data types, and constraints for a specific table.",
-      inputSchema: z.object({
-        table: z.string().describe("The table name to inspect"),
-      }),
-      execute: async ({ table }) => {
-        try {
-          const [columns, constraints] = await Promise.all([
-            callTauri("get_columns", { conn_id: connectionId, schema, table }),
-            callTauri("get_constraints", { conn_id: connectionId, table }),
-          ]);
-          return {
-            success: true,
-            table,
-            columns: columns.map((c: { name: string; db_type: string; nullable: boolean; primary_key?: boolean; default_value?: string }) => ({
-              name: c.name,
-              dataType: c.db_type,
-              nullable: c.nullable,
-              primaryKey: c.primary_key,
-              defaultValue: c.default_value,
-            })),
-            constraints: constraints.map((c: { name: string; constraint_type: string; definition?: string }) => ({
-              name: c.name,
-              type: c.constraint_type,
-              definition: c.definition,
-            })),
-          };
-        } catch (error) {
-          return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
-        }
-      },
-    }),
-
-    get_foreign_keys: tool({
-      description: "Get foreign key relationships for a table.",
-      inputSchema: z.object({
-        table: z.string().describe("The table name to get FKs for"),
-      }),
-      execute: async ({ table }) => {
-        try {
-          const constraints = await callTauri("get_constraints", { conn_id: connectionId, table });
-          const foreignKeys = constraints.filter(
-            (c: { constraint_type: string }) =>
-              c.constraint_type === "ForeignKey" || c.constraint_type === "FOREIGN KEY"
-          );
-          return {
-            success: true,
-            foreignKeys: foreignKeys.map((fk: { name: string; definition?: string; foreign_table?: string }) => ({
-              name: fk.name,
-              definition: fk.definition,
-              foreignTable: fk.foreign_table,
-            })),
-          };
-        } catch (error) {
-          return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
-        }
-      },
-    }),
-
-    execute_readonly_query: tool({
-      description: "Execute a read-only SELECT query to find data. Use this to search for IDs in related tables.",
-      inputSchema: z.object({
-        sql: z.string().describe("The SELECT query to execute (must start with SELECT or WITH)"),
-      }),
-      execute: async ({ sql }) => {
-        // Validate SELECT only
-        const trimmed = sql.trim().toLowerCase();
-        if (!trimmed.startsWith("select") && !trimmed.startsWith("with")) {
-          return { success: false, error: "Only SELECT queries are allowed" };
-        }
-
-        // Block dangerous keywords
-        const dangerous = ["insert", "update", "delete", "drop", "create", "alter", "truncate"];
-        const found = dangerous.find((kw) => trimmed.includes(kw));
-        if (found) {
-          return { success: false, error: `Query contains forbidden keyword: ${found.toUpperCase()}` };
-        }
-
-        try {
-          // Add LIMIT if not present
-          const finalSql = trimmed.includes("limit") ? sql : `${sql} LIMIT 100`;
-          const rows = await callTauri("execute_query", { conn_id: connectionId, sql: finalSql });
-          return {
-            success: true,
-            rows,
-            rowCount: rows.length,
-            query: finalSql,
-          };
-        } catch (error) {
-          return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
-        }
-      },
-    }),
-  };
 }
 
 // Build system prompt
@@ -287,18 +141,48 @@ function buildSystemPrompt(
 
   // Infer potential relationships from column naming
   const inferredRels = inferRelationships(columns, tableName);
-  const inferredRelText = inferredRels.length > 0
-    ? `\n## Inferred Relationships\n${inferredRels.map(r => `- ${r.column} → ${r.possibleTables.join(" | ")}`).join("\n")}`
-    : "";
+  const inferredRelText =
+    inferredRels.length > 0
+      ? `\n## Inferred Relationships\n${inferredRels.map((r) => `- ${r.column} → ${r.possibleTables.join(" | ")}`).join("\n")}`
+      : "";
 
   // Get dialect-specific syntax hints
-  const dialectHint = dialect === "postgresql"
-    ? "Use ILIKE for case-insensitive, NOW() - INTERVAL '7 days' for dates, column = true for booleans"
-    : dialect === "mysql"
-    ? "Use LOWER(col) LIKE for case-insensitive, DATE_SUB(NOW(), INTERVAL 7 DAY) for dates, column = 1 for booleans"
-    : dialect === "sqlite"
-    ? "Use LOWER(col) LIKE for case-insensitive, datetime('now', '-7 days') for dates, column = 1 for booleans"
-    : "Use standard SQL syntax";
+  const dialectHints: Record<string, string> = {
+    postgresql: `
+- Case-insensitive: ILIKE '%value%'
+- Date math: NOW() - INTERVAL '7 days', created_at >= '2024-01-01'::date
+- Booleans: column = true / column = false
+- NULL: column IS NULL, column IS NOT NULL
+- Range: column BETWEEN 10 AND 100
+- List: column IN ('a', 'b', 'c')
+- Pattern: name ~ '^prefix' (regex)`,
+    mysql: `
+- Case-insensitive: LOWER(col) LIKE '%value%'
+- Date math: DATE_SUB(NOW(), INTERVAL 7 DAY), created_at >= '2024-01-01'
+- Booleans: column = 1 / column = 0
+- NULL: column IS NULL, column IS NOT NULL
+- Range: column BETWEEN 10 AND 100
+- List: column IN ('a', 'b', 'c')
+- Pattern: name REGEXP '^prefix'`,
+    sqlite: `
+- Case-insensitive: LOWER(col) LIKE '%value%'
+- Date math: datetime('now', '-7 days'), date(created_at) >= '2024-01-01'
+- Booleans: column = 1 / column = 0
+- NULL: column IS NULL, column IS NOT NULL
+- Range: column BETWEEN 10 AND 100
+- List: column IN ('a', 'b', 'c')`,
+    mssql: `
+- Case-insensitive: col LIKE '%value%' (default case-insensitive collation)
+- Date math: DATEADD(day, -7, GETDATE()), created_at >= '2024-01-01'
+- Booleans: column = 1 / column = 0
+- NULL: column IS NULL, column IS NOT NULL
+- Range: column BETWEEN 10 AND 100
+- List: column IN ('a', 'b', 'c')
+- Top N: Use TOP(N) or OFFSET-FETCH for limiting
+- String concat: column + ' ' + other_column`,
+  };
+
+  const dialectHint = dialectHints[dialect] || "Use standard SQL syntax";
 
   const crossTableInstructions = enableCrossTable
     ? `
@@ -306,19 +190,32 @@ function buildSystemPrompt(
 
 When the user references entities from other tables (e.g., "orders by John", "items in category X"):
 
+### Available Tools
+- **list_tables**: Get all tables in the schema
+- **get_table_structure**: Get columns for a specific table
+- **get_indexes**: Check which columns are indexed (for performance)
+- **get_foreign_keys**: Get FK relationships for a table
+- **search_tables**: Search for a value across multiple tables at once (efficient!)
+- **execute_readonly_query**: Run a SELECT query to find specific IDs
+- **submit_where_clause**: Submit your final answer (REQUIRED!)
+
 ### Workflow
 1. Check if column has explicit FK (marked with [FK → table.column])
-2. If not, use inferred relationships or call list_tables to find related table
-3. Call get_table_structure to find searchable columns (name, email, title, etc.)
-4. Call execute_readonly_query: \`SELECT id FROM table WHERE name ILIKE '%search%'\`
-5. Generate WHERE clause with IN subquery
+2. Use search_tables to quickly find matching IDs across common tables
+3. Or use get_table_structure + execute_readonly_query for specific searches
+4. Generate WHERE clause with IN subquery
+5. **ALWAYS call submit_where_clause with your final answer**
 
 ### Output Format
 Use simple IN subqueries only:
 - \`user_id IN (SELECT id FROM users WHERE name ILIKE '%John%')\`
 - \`category_id IN (SELECT id FROM categories WHERE name ILIKE '%Electronics%')\`
 
-Do NOT use JOINs, CTEs, or complex nested queries.`
+Do NOT use JOINs, CTEs, or complex nested queries.
+
+### IMPORTANT
+You MUST call the **submit_where_clause** tool with your final WHERE clause.
+Do not just output text - call the tool!`
     : "";
 
   return `# SQL WHERE Clause Generator
@@ -337,10 +234,30 @@ ${dialectHint}
 ${crossTableInstructions}
 
 ## Examples
+
+### Basic Filters
 - "active users" → \`status = 'active'\`
 - "orders over 100" → \`amount > 100\`
-- "name contains john" → \`${dialect === "postgresql" ? "name ILIKE '%john%'" : "LOWER(name) LIKE '%john%'"}\`
-- "created this week" → \`${dialect === "postgresql" ? "created_at >= NOW() - INTERVAL '7 days'" : dialect === "mysql" ? "created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)" : "created_at >= datetime('now', '-7 days')"}\``;
+- "name contains john" → \`${dialect === "postgresql" ? "name ILIKE '%john%'" : dialect === "mssql" ? "name LIKE '%john%'" : "LOWER(name) LIKE '%john%'"}\`
+
+### Date Filters
+- "created this week" → \`${dialect === "postgresql" ? "created_at >= NOW() - INTERVAL '7 days'" : dialect === "mysql" ? "created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)" : dialect === "mssql" ? "created_at >= DATEADD(day, -7, GETDATE())" : "created_at >= datetime('now', '-7 days')"}\`
+- "created in January 2024" → \`${dialect === "postgresql" ? "created_at >= '2024-01-01' AND created_at < '2024-02-01'" : "created_at >= '2024-01-01' AND created_at < '2024-02-01'"}\`
+- "updated between dates" → \`updated_at BETWEEN '2024-01-01' AND '2024-12-31'\`
+
+### Range & List Filters
+- "price between 50 and 100" → \`price BETWEEN 50 AND 100\`
+- "status in pending or approved" → \`status IN ('pending', 'approved')\`
+- "age 18 to 25" → \`age >= 18 AND age <= 25\`
+
+### NULL Handling
+- "missing email" → \`email IS NULL\`
+- "has phone number" → \`phone IS NOT NULL\`
+- "incomplete profiles" → \`(email IS NULL OR name IS NULL)\`
+
+### Combined Filters
+- "active premium users" → \`status = 'active' AND tier = 'premium'\`
+- "orders over 100 or vip" → \`amount > 100 OR customer_type = 'vip'\``;
 }
 
 // Simple mode - no tools, direct generation
@@ -359,6 +276,15 @@ async function generateSimpleWhereClause(
   });
 }
 
+// Result type from submit_where_clause tool
+interface SubmitWhereClauseResult {
+  success: true;
+  whereClause: string;
+  explanation?: string;
+  usedSubquery?: boolean;
+  confidence?: "high" | "medium" | "low";
+}
+
 // Advanced mode - with tools for cross-table exploration
 async function generateCrossTableWhereClause(
   aiModel: ReturnType<ReturnType<typeof ProviderService.getProvider>>,
@@ -368,12 +294,16 @@ async function generateCrossTableWhereClause(
   tableName: string,
   schema: string,
   signal: AbortSignal
-) {
+): Promise<{ object: z.infer<typeof responseSchema> }> {
   console.log(`🔍 [Cross-Table] Starting exploration for: "${prompt}"`);
   console.log(`   Connection: ${connectionId}, Schema: ${schema}, Table: ${tableName}`);
 
-  // Create tools with bound context - AI doesn't need to pass connectionId/schema
-  const tools = createCrossTableTools(connectionId, schema);
+  // Create tools with bound context using the tool factory
+  const toolContext: ToolContext = { connectionId, schema };
+  const tools = createTextToSqlTools(toolContext);
+
+  // Track if submit_where_clause was called
+  let submittedResult: SubmitWhereClauseResult | null = null;
 
   const result = await generateText({
     model: aiModel,
@@ -382,108 +312,152 @@ async function generateCrossTableWhereClause(
 
 Current table: ${tableName} (in schema: ${schema})
 
-WORKFLOW for cross-table filtering (e.g., "todos by User John"):
-1. Use list_tables to see available tables
-2. Use get_table_structure on related tables to find searchable columns (name, email, title, etc.)
-3. Use execute_readonly_query to search: SELECT id FROM related_table WHERE name ILIKE '%search_term%'
-4. Generate final WHERE: fk_column IN (SELECT id FROM related_table WHERE condition)
+WORKFLOW:
+1. Analyze the filter request
+2. If it references other entities (users, categories, etc.):
+   - Use search_tables for quick cross-table search
+   - Or use get_table_structure + execute_readonly_query
+3. Generate the WHERE clause
+4. **CALL submit_where_clause with your final answer**
 
-CONSTRAINTS:
-- Use simple IN subqueries, NOT JOINs
-- Keep subqueries simple - single table, single condition
-
-After exploring, output ONLY the final WHERE clause in this exact format:
-WHERE_CLAUSE: <your where clause here>
-EXPLANATION: <brief explanation>`,
+Remember: You MUST call submit_where_clause - do not just output text!`,
     tools,
     stopWhen: stepCountIs(MAX_TOOL_ROUNDS),
     abortSignal: signal,
     onStepFinish: (step) => {
-      // v5: stepType was removed, use finishReason and toolResults to determine step type
       const hasToolResults = step.toolResults && step.toolResults.length > 0;
-      console.log(`📍 [Cross-Table] Step finished. finishReason: ${step.finishReason}, hasToolResults: ${hasToolResults}`);
+      console.log(
+        `📍 [Cross-Table] Step finished. finishReason: ${step.finishReason}, hasToolResults: ${hasToolResults}`
+      );
+
+      // Log tool calls
       if (step.toolCalls && step.toolCalls.length > 0) {
         for (const tc of step.toolCalls) {
-          // v5: args renamed to input
           console.log(`🔧 [Cross-Table] Tool call: ${tc.toolName}`, JSON.stringify(tc.input || {}));
         }
       }
+
+      // Check for submit_where_clause result
       if (step.toolResults && step.toolResults.length > 0) {
         for (const tr of step.toolResults) {
-          // v5: result renamed to output
           const resultStr = tr.output != null ? JSON.stringify(tr.output) : "undefined";
           const preview = resultStr.slice(0, 300);
-          console.log(`📦 [Cross-Table] Tool result (${tr.toolName}): ${preview}${resultStr.length > 300 ? '...' : ''}`);
+          console.log(
+            `📦 [Cross-Table] Tool result (${tr.toolName}): ${preview}${resultStr.length > 300 ? "..." : ""}`
+          );
+
+          // Capture submit_where_clause result
+          if (tr.toolName === "submit_where_clause" && tr.output) {
+            const output = tr.output as SubmitWhereClauseResult;
+            if (output.success && output.whereClause) {
+              submittedResult = output;
+              console.log(`✅ [Cross-Table] Captured submit_where_clause: ${output.whereClause}`);
+            }
+          }
         }
       }
+
       if (step.text) {
-        console.log(`📝 [Cross-Table] Step text: ${step.text.slice(0, 200)}${step.text.length > 200 ? '...' : ''}`);
+        console.log(
+          `📝 [Cross-Table] Step text: ${step.text.slice(0, 200)}${step.text.length > 200 ? "..." : ""}`
+        );
       }
     },
   });
 
-  // Parse the response to extract WHERE clause
-  const text = result.text;
-  console.log(`📝 [Cross-Table] AI response text:\n${text.slice(0, 500)}${text.length > 500 ? '...' : ''}`);
+  // Log stats
+  console.log(`📊 [Cross-Table] Steps count: ${result.steps?.length ?? 0}`);
+  console.log(`📊 [Cross-Table] Finish reason: ${result.finishReason}`);
 
-  // Log full result structure for debugging
-  console.log(`📊 [Cross-Table] Result keys:`, Object.keys(result));
-  console.log(`📊 [Cross-Table] Steps count:`, result.steps?.length ?? 0);
-  console.log(`📊 [Cross-Table] Finish reason:`, result.finishReason);
-  if (result.steps) {
-    for (let i = 0; i < result.steps.length; i++) {
-      const step = result.steps[i];
-      // v5: stepType removed, determine type from toolResults presence
-      const stepType = step.toolResults?.length ? "tool-result" : (step.toolCalls?.length ? "tool-call" : "text");
-      console.log(`📊 [Cross-Table] Step ${i + 1}: type=${stepType}, finish=${step.finishReason}, toolCalls=${step.toolCalls?.length ?? 0}`);
+  const toolCalls = result.steps?.flatMap((s) => s.toolCalls || []) || [];
+  console.log(`📊 [Cross-Table] Total tool calls: ${toolCalls.length}`);
+
+  // Check if submit_where_clause was called
+  if (submittedResult) {
+    console.log(`✅ [Cross-Table] Using submitted WHERE clause: ${submittedResult.whereClause}`);
+    return {
+      object: {
+        whereClause: submittedResult.whereClause,
+        explanation: submittedResult.explanation,
+        usedSubquery: submittedResult.usedSubquery,
+      },
+    };
+  }
+
+  // Fallback: Check all tool results for submit_where_clause
+  for (const step of result.steps || []) {
+    for (const tr of step.toolResults || []) {
+      if (tr.toolName === "submit_where_clause" && tr.output) {
+        const output = tr.output as SubmitWhereClauseResult;
+        if (output.success && output.whereClause) {
+          console.log(`✅ [Cross-Table] Found in steps: ${output.whereClause}`);
+          return {
+            object: {
+              whereClause: output.whereClause,
+              explanation: output.explanation,
+              usedSubquery: output.usedSubquery,
+            },
+          };
+        }
+      }
     }
   }
 
-  // Log tool usage stats
-  const toolCalls = result.steps?.flatMap(s => s.toolCalls || []) || [];
-  console.log(`📊 [Cross-Table] Total tool calls: ${toolCalls.length}`);
+  // Last resort: try to parse from text response
+  const text = result.text;
+  console.log(
+    `⚠️ [Cross-Table] submit_where_clause not called, trying text parsing:\n${text.slice(0, 500)}`
+  );
 
-  const whereMatch = text.match(/WHERE_CLAUSE:\s*(.+?)(?:\n|EXPLANATION:|$)/s);
-  const explainMatch = text.match(/EXPLANATION:\s*(.+?)$/s);
+  // Try various text patterns
+  const patterns = [
+    /WHERE_CLAUSE:\s*(.+?)(?:\n|EXPLANATION:|$)/s,
+    /whereClause['":\s]+([^'"}\n]+)/i,
+    /`([^`]+)`/,
+    /```sql?\n?([^`]+)```/,
+  ];
 
-  if (whereMatch) {
-    const clause = whereMatch[1].trim();
-    const explanation = explainMatch?.[1]?.trim();
-    const usedSubquery = clause.toLowerCase().includes("select") && clause.toLowerCase().includes(" in ");
-    console.log(`✅ [Cross-Table] Parsed WHERE clause: ${clause}`);
-    console.log(`   Explanation: ${explanation || 'none'}`);
-    console.log(`   Used subquery: ${usedSubquery}`);
-    return {
-      object: {
-        whereClause: clause,
-        explanation,
-        usedSubquery,
-      },
-    };
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const clause = match[1].trim().replace(/^WHERE\s+/i, "");
+      if (clause.length > 0 && clause.length < 1000) {
+        console.log(`⚠️ [Cross-Table] Fallback parsed: ${clause}`);
+        return {
+          object: {
+            whereClause: clause,
+            explanation: "Generated with cross-table exploration (fallback parsing)",
+            usedSubquery: clause.toLowerCase().includes("select"),
+          },
+        };
+      }
+    }
   }
 
-  // Fallback: try to extract any SQL-like content
-  const sqlMatch = text.match(/`([^`]+)`/) || text.match(/```sql?\n?([^`]+)```/);
-  if (sqlMatch) {
-    const clause = sqlMatch[1].trim().replace(/^WHERE\s+/i, "");
-    console.log(`⚠️ [Cross-Table] Used fallback parsing, clause: ${clause}`);
-    return {
-      object: {
-        whereClause: clause,
-        explanation: "Generated with cross-table exploration",
-        usedSubquery: clause.toLowerCase().includes("select"),
-      },
-    };
-  }
-
-  console.error(`❌ [Cross-Table] Could not parse response:\n${text}`);
-  throw new Error("Could not parse WHERE clause from AI response. The AI may not have found a valid filter.");
+  console.error(`❌ [Cross-Table] Could not extract WHERE clause from response:\n${text}`);
+  throw new Error(
+    "Could not parse WHERE clause from AI response. The AI may not have found a valid filter or did not call submit_where_clause."
+  );
 }
 
 // Main handler
 export async function handleTextToSQL(request: Request): Promise<Response> {
   const corsHeaders = getCorsHeaders(request);
-  const jsonHeaders = { "Content-Type": "application/json", ...corsHeaders };
+
+  // Rate limiting check
+  const rateLimitKey = request.headers.get("X-Connection-Id") || "anonymous";
+  const rateLimitResult = rateLimiter.checkWithGlobal("text-to-sql", rateLimitKey);
+
+  if (!rateLimitResult.allowed) {
+    const error = createError(ErrorCode.RATE_LIMITED, {
+      retryAfterMs: rateLimitResult.retryAfterMs,
+      resetAt: new Date(rateLimitResult.resetAt).toISOString(),
+    });
+    return errorResponse(error, corsHeaders);
+  }
+
+  // Start metrics tracking
+  const metric = ToolMetrics.textToSql("request");
 
   try {
     const body: TextToSQLRequest = await request.json();
@@ -499,21 +473,29 @@ export async function handleTextToSQL(request: Request): Promise<Response> {
       enableCrossTable = false,
     } = body;
 
-    console.log(`🔤 Text-to-SQL: "${prompt}" for ${tableName} (${dialect}) [${provider}/${model}]${enableCrossTable ? " [cross-table]" : ""}`);
+    console.log(
+      `🔤 Text-to-SQL: "${prompt}" for ${tableName} (${dialect}) [${provider}/${model}]${enableCrossTable ? " [cross-table]" : ""}`
+    );
 
-    // Validation
+    // Validation with actionable errors
     if (!prompt?.trim()) {
-      return new Response(JSON.stringify({ error: "Prompt is required" }), {
-        status: 400,
-        headers: jsonHeaders,
-      });
+      const error = createError(ErrorCode.INVALID_PROMPT);
+      metrics.endOperation(metric, false, error.message);
+      return errorResponse(error, corsHeaders);
     }
 
     if (!columns?.length) {
-      return new Response(JSON.stringify({ error: "Column metadata is required" }), {
-        status: 400,
-        headers: jsonHeaders,
+      const error = createError(ErrorCode.INVALID_COLUMNS);
+      metrics.endOperation(metric, false, error.message);
+      return errorResponse(error, corsHeaders);
+    }
+
+    if (enableCrossTable && !connectionId) {
+      const error = createError(ErrorCode.INVALID_CONNECTION, {
+        reason: "connectionId is required for cross-table filtering",
       });
+      metrics.endOperation(metric, false, error.message);
+      return errorResponse(error, corsHeaders);
     }
 
     // Get cached provider
@@ -530,6 +512,9 @@ export async function handleTextToSQL(request: Request): Promise<Response> {
     try {
       let result: { object: z.infer<typeof responseSchema> };
 
+      // Track AI generation with metrics
+      const aiMetric = ToolMetrics.textToSql(dialect);
+
       if (enableCrossTable && connectionId) {
         // Advanced mode with cross-table tools
         result = await generateCrossTableWhereClause(
@@ -543,30 +528,33 @@ export async function handleTextToSQL(request: Request): Promise<Response> {
         );
       } else {
         // Simple mode - direct generation
-        result = await generateSimpleWhereClause(
-          aiModel,
-          systemPrompt,
-          prompt,
-          controller.signal
-        );
+        result = await generateSimpleWhereClause(aiModel, systemPrompt, prompt, controller.signal);
       }
 
+      metrics.endOperation(aiMetric, true);
       console.log(`✅ Generated WHERE: ${result.object.whereClause}`);
 
-      return new Response(
+      // Success - end metrics
+      metrics.endOperation(metric, true);
+
+      const response = new Response(
         JSON.stringify({
           whereClause: result.object.whereClause,
           explanation: result.object.explanation,
           usedSubquery: result.object.usedSubquery,
         }),
-        { status: 200, headers: jsonHeaders }
+        { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
       );
+
+      return addRateLimitHeaders(response, "text-to-sql", rateLimitKey);
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
-        return new Response(JSON.stringify({ error: "Request timeout (60s)" }), {
-          status: 408,
-          headers: jsonHeaders,
+        const timeoutError = createError(ErrorCode.AI_TIMEOUT, {
+          timeoutMs: TIMEOUT_MS,
+          prompt: prompt.slice(0, 100),
         });
+        metrics.endOperation(metric, false, timeoutError.message);
+        return errorResponse(timeoutError, corsHeaders);
       }
       throw error;
     } finally {
@@ -575,11 +563,9 @@ export async function handleTextToSQL(request: Request): Promise<Response> {
   } catch (error) {
     console.error("❌ Text-to-SQL error:", error);
 
-    return new Response(
-      JSON.stringify({
-        error: error instanceof Error ? error.message : "Failed to generate SQL",
-      }),
-      { status: 500, headers: jsonHeaders }
-    );
+    // Convert to actionable error
+    const actionableError = toActionableError(error);
+    metrics.endOperation(metric, false, actionableError.message);
+    return errorResponse(actionableError, corsHeaders);
   }
 }
