@@ -2,6 +2,13 @@
   "name": "devdb-ai-sidecar",
   "version": "1.0.0",
   "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "test:watch": "bun test --watch"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.39",
     "@ai-sdk/gateway": "^2.0.15",
