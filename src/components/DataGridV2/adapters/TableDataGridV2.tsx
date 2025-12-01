@@ -36,7 +36,7 @@ import {
   sanitizeInput,
   detectFilterMode,
   type FilterMode,
-  type ColumnMeta as FilterColumnMeta,
+  type FilterColumnInfo,
 } from "@/utils/filterParser";
 import { openTableObject } from "@/utils/workbench/openers";
 import type { FilterConfig, SortConfig } from "@/types/filter";
@@ -343,7 +343,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   });
 
   // Convert column metadata for filter parser, enriching with FK info from tableStructure
-  const filterColumns = useMemo<FilterColumnMeta[]>(() => {
+  const filterColumns = useMemo<FilterColumnInfo[]>(() => {
     // Build FK lookup from tableStructure (column -> foreign table/column mapping)
     const fkMap = new Map<string, { table: string; column: string }>();
     if (tableStructure?.foreignKeys) {

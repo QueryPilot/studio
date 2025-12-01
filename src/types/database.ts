@@ -3,6 +3,16 @@
  * All database operations are handled by Rust backend with connection pooling
  */
 
+// Re-export canonical schema types from schema.ts
+export type {
+  ColumnMeta,
+  ForeignKeyRef,
+  EnhancedColumnMeta,
+} from "./schema";
+
+// Import for local use in interfaces below
+import type { ColumnMeta } from "./schema";
+
 export type DatabaseType =
   | "postgresql"
   | "mysql"
@@ -51,51 +61,6 @@ export interface DatabaseConnection {
 export interface ConnectionStatus {
   isConnected: boolean;
   latency?: number;
-}
-
-// Legacy ConnectionProfile removed; use types in src/types/connection instead
-
-export interface ColumnMeta {
-  name: string;
-  db_type: string;
-  nullable: boolean;
-  default: string | null;
-  is_pk: boolean;
-  is_fk: boolean;
-  ordinal: number;
-  precision?: number | null;
-  scale?: number | null;
-  comment?: string | null;
-  // MSSQL specific
-  is_identity?: boolean;
-  is_computed?: boolean;
-  is_hierarchyid?: boolean;
-  is_spatial?: boolean;
-  // MySQL/MariaDB specific
-  is_json?: boolean;
-  enum_values?: string[];
-  set_values?: string[];
-  is_virtual?: boolean;
-  // PostgreSQL custom types
-  type_category?: string; // 'enum', 'domain', 'composite', 'base', 'range', 'multirange'
-}
-
-export interface ForeignKeyRef {
-  constraint_name: string;
-  referenced_schema: string;
-  referenced_table: string;
-  referenced_column: string;
-  on_delete: string;
-  on_update: string;
-}
-
-export interface EnhancedColumnMeta extends ColumnMeta {
-  fk_reference?: ForeignKeyRef | null;
-  check_constraint?: string | null;
-  character_maximum_length?: number | null;
-  is_unique: boolean;
-  is_indexed: boolean;
-  comment?: string | null;
 }
 
 export interface QueryResult {

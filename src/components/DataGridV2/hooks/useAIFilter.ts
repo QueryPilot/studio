@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { textToSQL } from "@/services/aiService";
 import { useAIChatStore } from "@/stores/aiChatStore";
-import type { ColumnMeta } from "@/utils/filterParser";
+import type { FilterColumnInfo } from "@/utils/filterParser";
 
 interface UseAIFilterOptions {
   connectionId?: string;
@@ -18,7 +18,7 @@ interface UseAIFilterResult {
 }
 
 // Detect if prompt likely references related tables
-function shouldEnableCrossTable(prompt: string, columns: ColumnMeta[]): boolean {
+function shouldEnableCrossTable(prompt: string, columns: FilterColumnInfo[]): boolean {
   const lowerPrompt = prompt.toLowerCase();
 
   // Keywords that suggest cross-table filtering
@@ -43,7 +43,7 @@ function shouldEnableCrossTable(prompt: string, columns: ColumnMeta[]): boolean 
 }
 
 export function useAIFilter(
-  columns: ColumnMeta[],
+  columns: FilterColumnInfo[],
   tableName: string,
   dialect: "postgresql" | "mysql" | "sqlite" | "mssql",
   options: UseAIFilterOptions = {}

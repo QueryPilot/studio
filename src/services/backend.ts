@@ -48,27 +48,44 @@ export interface ConnectionHealth {
   error?: string;
 }
 
+// =============================================================================
+// Query Result Types (from Rust backend)
+// These types match the Rust serialization format exactly.
+// For grid display types, see @/types/cellValue.ts (GridCellValue)
+// For schema introspection types, see @/types/schema.ts (ColumnMeta)
+// =============================================================================
+
 export interface QueryHandle {
   id: string;
-  columns: ColumnMeta[];
+  columns: QueryColumnMeta[];
   estimated_rows?: number;
 }
 
-export interface ColumnMeta {
+/**
+ * Column metadata from query results (Rust backend).
+ * Contains rich type information including nested types.
+ */
+export interface QueryColumnMeta {
   name: string;
-  data_type: CellValueType;
+  /** Rich type information from Rust (supports nested types) */
+  data_type: RawCellValueType;
   nullable: boolean;
   primary_key: boolean;
+  /** Original database type string */
   db_type: string;
+  /** PostgreSQL type OID */
   type_oid?: number;
   default_value?: string | null;
   comment?: string | null;
   enum_values?: string[];
+  /** PostgreSQL type category */
   type_category?: string;
+  precision?: number;
+  scale?: number;
 }
 
 export interface PageChunk {
-  rows: CellValue[][];
+  rows: RawCellValue[][];
   has_more: boolean;
   rows_fetched: number;
   timing?: PageTiming;
@@ -79,20 +96,25 @@ export interface PageTiming {
   decode_ms: number;
 }
 
-// NEW: CellValue from Rust fast path - lightweight primitives (no display_value)
-// Matches Rust CellValue enum serialization (untagged)
-export type CellValue =
+/**
+ * Raw cell value from Rust backend - lightweight primitives.
+ * Matches Rust CellValue enum serialization (untagged).
+ * This is the transport format; use GridCellValue for display.
+ */
+export type RawCellValue =
   | null // Null
   | boolean // Bool
   | number // I16, I32, F32, F64, Timestamp (micros), Date (days)
   | bigint // I64/Uint64 values preserved with full precision
   | string // Text
-  | CellValue[] // Arrays (including nested)
-  | { [key: string]: CellValue }; // Json and composite structures
+  | RawCellValue[] // Arrays (including nested)
+  | { [key: string]: RawCellValue }; // Json and composite structures
 
-// Deprecated LegacyCellValue removed; use CellValue union type above
-
-export type CellValueType =
+/**
+ * Rich type information from Rust backend.
+ * Supports nested types (Array, Composite, Range, etc.)
+ */
+export type RawCellValueType =
   | "Null"
   | "Text"
   | "Integer"
@@ -104,10 +126,10 @@ export type CellValueType =
   | "Binary"
   | "Json"
   | "Uuid"
-  | { Array: CellValueType }
-  | { Composite: Array<[string, CellValueType]> }
-  | { Range: CellValueType }
-  | { Multirange: CellValueType }
+  | { Array: RawCellValueType }
+  | { Composite: Array<[string, RawCellValueType]> }
+  | { Range: RawCellValueType }
+  | { Multirange: RawCellValueType }
   | "Geometry"
   | "Geography"
   | "Xml"
@@ -122,6 +144,20 @@ export type CellValueType =
   | "Ltree"
   | "Cube"
   | { CustomType: string };
+
+// =============================================================================
+// Legacy type aliases for backward compatibility
+// These will be removed in a future version
+// =============================================================================
+
+/** @deprecated Use RawCellValue instead */
+export type CellValue = RawCellValue;
+
+/** @deprecated Use RawCellValueType instead */
+export type CellValueType = RawCellValueType;
+
+/** @deprecated Use QueryColumnMeta instead */
+export type ColumnMeta = QueryColumnMeta;
 
 export type DbSpecificValue = {
   PostgreSQL: PostgresValue;

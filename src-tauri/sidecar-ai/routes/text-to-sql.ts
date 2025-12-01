@@ -192,30 +192,38 @@ When the user references entities from other tables (e.g., "orders by John", "it
 
 ### Available Tools
 - **list_tables**: Get all tables in the schema
-- **get_table_structure**: Get columns for a specific table
+- **get_table_structure**: Get columns for a specific table (ALWAYS use this to verify column names!)
 - **get_indexes**: Check which columns are indexed (for performance)
 - **get_foreign_keys**: Get FK relationships for a table
 - **search_tables**: Search for a value across multiple tables at once (efficient!)
 - **execute_readonly_query**: Run a SELECT query to find specific IDs
 - **submit_where_clause**: Submit your final answer (REQUIRED!)
 
-### Workflow
-1. Check if column has explicit FK (marked with [FK → table.column])
-2. Use search_tables to quickly find matching IDs across common tables
-3. Or use get_table_structure + execute_readonly_query for specific searches
-4. Generate WHERE clause with IN subquery
-5. **ALWAYS call submit_where_clause with your final answer**
+### CRITICAL: Verify Column Names
+**NEVER assume column names!** Different databases use different naming conventions:
+- User name might be: \`name\`, \`username\`, \`full_name\`, \`display_name\`, \`email\`
+- User ID reference might be: \`user_id\`, \`owner_id\`, \`created_by\`, \`assigned_to\`
+
+**You MUST call get_table_structure on related tables to discover the actual column names.**
+
+### Workflow (MUST follow in order)
+1. If the filter references another entity (user, category, etc.):
+   a. Call **get_table_structure** on the related table to see its actual columns
+   b. Identify the correct column for the search (don't guess!)
+2. Use the discovered column names in your subquery
+3. Call **submit_where_clause** with your final answer
 
 ### Output Format
 Use simple IN subqueries only:
-- \`user_id IN (SELECT id FROM users WHERE name ILIKE '%John%')\`
-- \`category_id IN (SELECT id FROM categories WHERE name ILIKE '%Electronics%')\`
+- \`user_id IN (SELECT id FROM users WHERE username ILIKE '%John%')\`
+- \`category_id IN (SELECT id FROM categories WHERE title ILIKE '%Electronics%')\`
 
 Do NOT use JOINs, CTEs, or complex nested queries.
 
 ### IMPORTANT
-You MUST call the **submit_where_clause** tool with your final WHERE clause.
-Do not just output text - call the tool!`
+- **ALWAYS explore schema first** - call get_table_structure before writing subqueries
+- **ALWAYS call submit_where_clause** with your final WHERE clause
+- Do not just output text - call the tools!`
     : "";
 
   return `# SQL WHERE Clause Generator
@@ -312,15 +320,16 @@ async function generateCrossTableWhereClause(
 
 Current table: ${tableName} (in schema: ${schema})
 
-WORKFLOW:
+MANDATORY WORKFLOW:
 1. Analyze the filter request
 2. If it references other entities (users, categories, etc.):
-   - Use search_tables for quick cross-table search
-   - Or use get_table_structure + execute_readonly_query
-3. Generate the WHERE clause
+   - FIRST: Call **get_table_structure** on the related table to discover actual column names
+   - NEVER guess column names like "name" or "username" - verify them!
+   - THEN: Build your subquery using the discovered columns
+3. Generate the WHERE clause with correct column names
 4. **CALL submit_where_clause with your final answer**
 
-Remember: You MUST call submit_where_clause - do not just output text!`,
+CRITICAL: You MUST explore the schema before writing subqueries. Do not assume column names!`,
     tools,
     stopWhen: stepCountIs(MAX_TOOL_ROUNDS),
     abortSignal: signal,
