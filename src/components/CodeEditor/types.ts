@@ -31,4 +31,5 @@ export type {
   EntityDetails,
   MetadataProvider,
   EditorContextAnalysis,
+  JoinConditionSuggestion,
 } from "./core";

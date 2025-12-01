@@ -1,5 +1,5 @@
 import { schemaCache } from "@/services/schemaCache";
-import type { MetadataProvider, EntityMeta, FieldMeta, EntityDetails } from "../../types";
+import type { MetadataProvider, EntityMeta, FieldMeta, EntityDetails, JoinConditionSuggestion } from "../../types";
 
 /**
  * SQL implementation of MetadataProvider.
@@ -90,6 +90,212 @@ export class SqlMetadataProvider implements MetadataProvider {
       };
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Get suggested JOIN conditions between tables in scope and a target table.
+   * Uses FK relationships and column name matching as fallback.
+   */
+  async getJoinConditions(
+    tablesInScope: Array<{ name: string; alias?: string; schema?: string }>,
+    targetTable: { name: string; alias?: string; schema?: string },
+    schema?: string
+  ): Promise<JoinConditionSuggestion[]> {
+    const targetSchema = schema || this.defaultSchema;
+    const suggestions: JoinConditionSuggestion[] = [];
+    const seenConditions = new Set<string>();
+
+    try {
+      // Get relationship graph from cache
+      const graph = await schemaCache.getRelationshipGraph(
+        this.connectionId,
+        targetSchema
+      );
+
+      const targetTableName = targetTable.name;
+      const targetIdentifier = targetTable.alias || targetTable.name;
+
+      // Check each table in scope for FK relationships with the target
+      for (const scopeTable of tablesInScope) {
+        const scopeTableName = scopeTable.name;
+        const scopeIdentifier = scopeTable.alias || scopeTable.name;
+
+        // Check forward relationships: scopeTable -> targetTable
+        const outgoing = graph.relationships.get(scopeTableName) || [];
+        for (const rel of outgoing) {
+          if (rel.targetTable.toLowerCase() === targetTableName.toLowerCase()) {
+            const condition = `${scopeIdentifier}.${rel.sourceColumn} = ${targetIdentifier}.${rel.targetColumn}`;
+            if (!seenConditions.has(condition.toLowerCase())) {
+              seenConditions.add(condition.toLowerCase());
+              suggestions.push({
+                condition,
+                description: `FK: ${scopeTableName}.${rel.sourceColumn} → ${targetTableName}.${rel.targetColumn}`,
+                source: "fk",
+                score: 100,
+              });
+            }
+          }
+        }
+
+        // Check reverse relationships: targetTable -> scopeTable
+        const incoming = graph.reverseRelationships.get(scopeTableName) || [];
+        for (const rel of incoming) {
+          if (rel.sourceTable.toLowerCase() === targetTableName.toLowerCase()) {
+            const condition = `${targetIdentifier}.${rel.sourceColumn} = ${scopeIdentifier}.${rel.targetColumn}`;
+            if (!seenConditions.has(condition.toLowerCase())) {
+              seenConditions.add(condition.toLowerCase());
+              suggestions.push({
+                condition,
+                description: `FK: ${targetTableName}.${rel.sourceColumn} → ${scopeTableName}.${rel.targetColumn}`,
+                source: "fk",
+                score: 95,
+              });
+            }
+          }
+        }
+
+        // Also check if target has FK to scope table
+        const targetOutgoing = graph.relationships.get(targetTableName) || [];
+        for (const rel of targetOutgoing) {
+          if (rel.targetTable.toLowerCase() === scopeTableName.toLowerCase()) {
+            const condition = `${targetIdentifier}.${rel.sourceColumn} = ${scopeIdentifier}.${rel.targetColumn}`;
+            if (!seenConditions.has(condition.toLowerCase())) {
+              seenConditions.add(condition.toLowerCase());
+              suggestions.push({
+                condition,
+                description: `FK: ${targetTableName}.${rel.sourceColumn} → ${scopeTableName}.${rel.targetColumn}`,
+                source: "fk",
+                score: 90,
+              });
+            }
+          }
+        }
+      }
+
+      // If no FK relationships found, try column name matching as fallback
+      if (suggestions.length === 0) {
+        await this.addColumnMatchSuggestions(
+          tablesInScope,
+          targetTable,
+          targetSchema,
+          suggestions,
+          seenConditions
+        );
+      }
+
+      // Sort by score (highest first)
+      return suggestions.sort((a, b) => b.score - a.score);
+    } catch {
+      // On error, try column matching as fallback
+      try {
+        await this.addColumnMatchSuggestions(
+          tablesInScope,
+          targetTable,
+          targetSchema,
+          suggestions,
+          seenConditions
+        );
+        return suggestions.sort((a, b) => b.score - a.score);
+      } catch {
+        return [];
+      }
+    }
+  }
+
+  /**
+   * Add join suggestions based on matching column names (fallback when no FK)
+   */
+  private async addColumnMatchSuggestions(
+    tablesInScope: Array<{ name: string; alias?: string; schema?: string }>,
+    targetTable: { name: string; alias?: string; schema?: string },
+    targetSchema: string,
+    suggestions: JoinConditionSuggestion[],
+    seenConditions: Set<string>
+  ): Promise<void> {
+    const targetIdentifier = targetTable.alias || targetTable.name;
+
+    // Get target table columns
+    const targetColumns = await schemaCache.getTableColumns(
+      this.connectionId,
+      targetTable.schema || targetSchema,
+      targetTable.name
+    );
+
+    // Build a map of column names for quick lookup
+    const targetColumnNames = new Set(targetColumns.map(c => c.name.toLowerCase()));
+    const targetPkColumns = targetColumns.filter(c => c.is_pk).map(c => c.name);
+
+    for (const scopeTable of tablesInScope) {
+      const scopeIdentifier = scopeTable.alias || scopeTable.name;
+
+      // Get scope table columns
+      const scopeColumns = await schemaCache.getTableColumns(
+        this.connectionId,
+        scopeTable.schema || targetSchema,
+        scopeTable.name
+      );
+
+      const scopePkColumns = scopeColumns.filter(c => c.is_pk).map(c => c.name);
+
+      // Strategy 1: Look for common "id" patterns
+      // e.g., scopeTable.target_id = targetTable.id
+      const targetIdColumn = targetPkColumns[0] || "id";
+      const expectedFkName = `${targetTable.name.toLowerCase()}_${targetIdColumn.toLowerCase()}`;
+      
+      for (const col of scopeColumns) {
+        if (col.name.toLowerCase() === expectedFkName && targetColumnNames.has(targetIdColumn.toLowerCase())) {
+          const condition = `${scopeIdentifier}.${col.name} = ${targetIdentifier}.${targetIdColumn}`;
+          if (!seenConditions.has(condition.toLowerCase())) {
+            seenConditions.add(condition.toLowerCase());
+            suggestions.push({
+              condition,
+              description: `Column match: ${scopeTable.name}.${col.name} ≈ ${targetTable.name}.${targetIdColumn}`,
+              source: "column_match",
+              score: 50,
+            });
+          }
+        }
+      }
+
+      // Strategy 2: Check reverse - target has fk pattern to scope
+      const scopeIdColumn = scopePkColumns[0] || "id";
+      const expectedReverseFkName = `${scopeTable.name.toLowerCase()}_${scopeIdColumn.toLowerCase()}`;
+      
+      for (const col of targetColumns) {
+        if (col.name.toLowerCase() === expectedReverseFkName) {
+          const condition = `${targetIdentifier}.${col.name} = ${scopeIdentifier}.${scopeIdColumn}`;
+          if (!seenConditions.has(condition.toLowerCase())) {
+            seenConditions.add(condition.toLowerCase());
+            suggestions.push({
+              condition,
+              description: `Column match: ${targetTable.name}.${col.name} ≈ ${scopeTable.name}.${scopeIdColumn}`,
+              source: "column_match",
+              score: 45,
+            });
+          }
+        }
+      }
+
+      // Strategy 3: Match same column names (both tables have same column)
+      for (const scopeCol of scopeColumns) {
+        if (targetColumnNames.has(scopeCol.name.toLowerCase())) {
+          // Prefer PK/FK columns, skip very common names like "id", "created_at"
+          const commonNonJoinColumns = new Set(["id", "created_at", "updated_at", "deleted_at", "name", "description", "status"]);
+          if (commonNonJoinColumns.has(scopeCol.name.toLowerCase())) continue;
+
+          const condition = `${scopeIdentifier}.${scopeCol.name} = ${targetIdentifier}.${scopeCol.name}`;
+          if (!seenConditions.has(condition.toLowerCase())) {
+            seenConditions.add(condition.toLowerCase());
+            suggestions.push({
+              condition,
+              description: `Same column: ${scopeCol.name}`,
+              source: "column_match",
+              score: 30,
+            });
+          }
+        }
+      }
     }
   }
 

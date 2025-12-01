@@ -3,9 +3,10 @@ import {
   CompletionContext,
   CompletionSource,
 } from "@codemirror/autocomplete";
-import { createSqlMetadataProvider } from "./metadataProvider";
+import { createSqlMetadataProvider, SqlMetadataProvider } from "./metadataProvider";
 import { analyzeSqlContext } from "./context";
 import { searchFunctions, type SqlFunction } from "./functions";
+import type { JoinConditionSuggestion } from "../../types";
 
 interface CompletionOptions {
   connectionId?: string;
@@ -117,11 +118,21 @@ export const createSqlCompletionSource = (
       return null;
     }
 
-    // Early return if not explicitly triggered and nothing useful to complete
-    // But allow completion after '.' for qualified access (e.g., "table.column")
+    // Check for special contexts that should trigger completion even without typing
     const word = context.matchBefore(/[\w_]+/);
     const afterDot = context.matchBefore(/\.\s*[\w_]*$/);
-    if (!context.explicit && !afterDot && (!word || word.text.length < 1)) {
+    
+    // Check if we're in a JOIN ON context by looking at text before cursor
+    // This is more reliable than matchBefore patterns
+    const textBeforeCursor = context.state.doc.sliceString(
+      Math.max(0, context.pos - 100), 
+      context.pos
+    );
+    const isNearJoinOn = /\bJOIN\b.*\bON\s*$/i.test(textBeforeCursor);
+
+    // Early return if not explicitly triggered and nothing useful to complete
+    // But allow completion after '.', near JOIN ON, or when typing a word
+    if (!context.explicit && !afterDot && !isNearJoinOn && (!word || word.text.length < 1)) {
       return null;
     }
 
@@ -130,7 +141,7 @@ export const createSqlCompletionSource = (
 
     // Use AST-based context analysis
     const analysis = analyzeSqlContext(context, defaultSchema);
-    const { intent, activeStatementTables, qualifier, range, isInsertContext, insertTargetTable, outerScopeTables } = analysis;
+    const { intent, activeStatementTables, qualifier, range, isInsertContext, insertTargetTable, outerScopeTables, isJoinOnContext, joinTargetTable } = analysis;
 
     // Lazy quote context - only compute when needed
     let quoteCtx: QuoteContext | null = null;
@@ -153,6 +164,70 @@ export const createSqlCompletionSource = (
           };
         }
       }
+
+      // SCENARIO D: JOIN ON condition - suggest based on FK relationships
+      // This handles: FROM a JOIN b ON |
+      if (isJoinOnContext && joinTargetTable && joinTargetTable.name) {
+        // Get tables that are already in scope (excluding the one we're joining)
+        const tablesInScope = activeStatementTables.filter(
+          (t) => t.name.toLowerCase() !== joinTargetTable.name.toLowerCase()
+        );
+
+        // Try to get FK-based suggestions if we have tables in scope
+        if (tablesInScope.length > 0 && provider instanceof SqlMetadataProvider) {
+          try {
+            const conditions = await provider.getJoinConditions(
+              tablesInScope.map((t) => ({ name: t.name, alias: t.alias, schema: t.schema })),
+              { name: joinTargetTable.name, alias: joinTargetTable.alias, schema: joinTargetTable.schema },
+              defaultSchema
+            );
+
+            if (conditions && conditions.length > 0) {
+              return {
+                from: range.from,
+                options: mapJoinConditionsToCompletions(conditions),
+                validFor: /^[\w_.=\s]*$/,
+              };
+            }
+          } catch {
+            // Ignore errors in FK lookup, fall through to fallback
+          }
+        }
+
+        // Fallback: show table aliases for manual join condition construction
+        // Include both tables in scope AND the join target table
+        const allTables = [...tablesInScope];
+        // Always add the join target if it has a valid name
+        if (joinTargetTable.name) {
+          allTables.push(joinTargetTable);
+        }
+
+        const completions: Completion[] = [];
+
+        // Add table aliases for qualified access
+        for (const table of allTables) {
+          const aliasOrName = table.alias || table.name;
+          if (aliasOrName) { // Only add if we have a valid name
+            completions.push({
+              label: aliasOrName,
+              type: "class",
+              detail: table.alias ? `alias → ${table.name}` : "table",
+              boost: 10,
+              apply: aliasOrName + ".",
+            });
+          }
+        }
+
+        // Always return something when in JOIN ON context
+        if (completions.length > 0) {
+          return {
+            from: range.from,
+            options: completions,
+            validFor: /^[\w_]*$/,
+          };
+        }
+      }
+
       // SCENARIO A: Qualified field access (e.g., "u.id" or "users.id")
       if (intent === "column" && qualifier) {
         // First check current scope tables
@@ -438,6 +513,22 @@ function mapFunctionsToCompletions(functions: SqlFunction[], boost: number = 0.5
     info: `${fn.description}\n\nReturns: ${fn.returnType}`,
     apply: fn.parameters.length === 0 ? `${fn.name}()` : `${fn.name}(`,
     boost,
+  }));
+}
+
+/**
+ * Map JOIN condition suggestions to completions
+ */
+function mapJoinConditionsToCompletions(conditions: JoinConditionSuggestion[]): Completion[] {
+  return conditions.map((c, index) => ({
+    label: c.condition,
+    type: "text",
+    detail: c.description,
+    info: c.source === "fk" 
+      ? "Based on foreign key relationship" 
+      : "Based on column name matching",
+    boost: c.score - index, // Preserve order based on score
+    apply: c.condition,
   }));
 }
 

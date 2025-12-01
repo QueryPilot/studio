@@ -28,6 +28,9 @@ export interface SqlContextAnalysis {
   // Subquery context
   subqueryDepth?: number;
   outerScopeTables?: TableRef[]; // Tables from outer scopes (for correlated subqueries)
+  // JOIN ON context
+  isJoinOnContext?: boolean;
+  joinTargetTable?: TableRef; // The table being joined (the one right before ON)
 }
 
 // Scope boundary node types in Lezer SQL grammar
@@ -547,6 +550,147 @@ function detectIntent(state: EditorState, pos: number): SqlIntent {
 }
 
 /**
+ * Detect if we're in a JOIN ON context and extract the joining table.
+ * Uses AST-based analysis to handle all JOIN types:
+ * - Basic: FROM a JOIN b ON |
+ * - With aliases: FROM users u JOIN orders o ON |
+ * - LEFT/RIGHT/INNER/FULL: LEFT JOIN b ON |
+ * - Schema-qualified: JOIN schema.table ON |
+ * - Multi-table: FROM a JOIN b ON ... JOIN c ON |
+ * - Self-join: FROM emp e1 JOIN emp e2 ON |
+ */
+function detectJoinOnContext(
+  state: EditorState,
+  pos: number
+): { isJoinOnContext: boolean; joinTargetTable?: TableRef } {
+  const tree = syntaxTree(state);
+  const sql = state.doc.toString();
+  const beforeCursor = sql.slice(0, pos);
+
+  // Quick check: look for JOIN ... ON pattern before cursor
+  // This regex captures the table (with optional schema and alias) right before ON
+  // Pattern: JOIN [schema.]table [AS] [alias] ON
+  const joinOnPattern = /\b(?:LEFT\s+|RIGHT\s+|INNER\s+|FULL\s+(?:OUTER\s+)?|CROSS\s+)?JOIN\s+(?:([a-zA-Z0-9_"`[\]]+)\.)?([a-zA-Z0-9_"`[\]]+)(?:\s+(?:AS\s+)?([a-zA-Z0-9_"`[\]]+))?\s+ON\s*$/i;
+  const joinOnMatch = beforeCursor.match(joinOnPattern);
+
+  if (joinOnMatch) {
+    const schema = joinOnMatch[1]?.replace(/["`[\]]/g, "");
+    const tableName = joinOnMatch[2]?.replace(/["`[\]]/g, "") || "";
+    const alias = joinOnMatch[3]?.replace(/["`[\]]/g, "");
+
+    return {
+      isJoinOnContext: true,
+      joinTargetTable: {
+        schema,
+        name: tableName,
+        alias,
+      },
+    };
+  }
+
+  // Also check for partial conditions: JOIN b ON a.|
+  // In this case, we're completing a column, not the full condition
+  const partialConditionPattern = /\b(?:LEFT\s+|RIGHT\s+|INNER\s+|FULL\s+(?:OUTER\s+)?|CROSS\s+)?JOIN\s+(?:([a-zA-Z0-9_"`[\]]+)\.)?([a-zA-Z0-9_"`[\]]+)(?:\s+(?:AS\s+)?([a-zA-Z0-9_"`[\]]+))?\s+ON\s+[a-zA-Z0-9_"`[\].]+\s*$/i;
+  const partialMatch = beforeCursor.match(partialConditionPattern);
+
+  // If we have a partial condition (already started typing), don't suggest full condition
+  if (partialMatch) {
+    // Check if it's just a qualifier (ends with dot)
+    if (beforeCursor.trimEnd().endsWith('.')) {
+      // User is typing column - let normal column completion handle it
+      return { isJoinOnContext: false };
+    }
+  }
+
+  // Try AST-based detection for more complex cases
+  const node = tree.resolveInner(pos, -1);
+  let current: SyntaxNode | null = node;
+
+  while (current) {
+    // Check if we're inside a JoinExpression
+    if (current.name === "JoinExpression") {
+      // Look for ON keyword in this join expression
+      const cursor = current.cursor();
+      cursor.firstChild();
+      
+      let foundOn = false;
+      let joinTable: TableRef | undefined;
+      let onPos = -1;
+
+      do {
+        // Look for the ON keyword
+        if (cursor.name === "Keyword") {
+          const keyword = state.sliceDoc(cursor.from, cursor.to).toUpperCase();
+          if (keyword === "ON") {
+            foundOn = true;
+            onPos = cursor.to;
+          } else if (["JOIN", "LEFT", "RIGHT", "INNER", "FULL", "OUTER", "CROSS"].includes(keyword)) {
+            // This is a join keyword, next identifier should be the table
+            continue;
+          }
+        }
+
+        // Look for table identifier after JOIN keyword
+        if ((cursor.name === "Identifier" || cursor.name === "QuotedIdentifier") && !joinTable) {
+          const prevSibling = cursor.node.prevSibling;
+          // Check if previous sibling is JOIN or a dot (for schema.table)
+          if (prevSibling?.name === "Keyword") {
+            const kw = state.sliceDoc(prevSibling.from, prevSibling.to).toUpperCase();
+            if (kw === "JOIN") {
+              const tableName = state.sliceDoc(cursor.from, cursor.to).replace(/["`[\]]/g, "");
+              
+              // Check for alias
+              let alias: string | undefined;
+              let nextNode = cursor.node.nextSibling;
+              if (nextNode?.name === "Keyword") {
+                const nextKw = state.sliceDoc(nextNode.from, nextNode.to).toUpperCase();
+                if (nextKw === "AS") {
+                  nextNode = nextNode.nextSibling;
+                }
+              }
+              if (nextNode && (nextNode.name === "Identifier" || nextNode.name === "QuotedIdentifier")) {
+                const nextText = state.sliceDoc(nextNode.from, nextNode.to).toUpperCase();
+                // Make sure it's not ON keyword
+                if (nextText !== "ON") {
+                  alias = state.sliceDoc(nextNode.from, nextNode.to).replace(/["`[\]]/g, "");
+                }
+              }
+
+              // Check for schema
+              let schema: string | undefined;
+              if (prevSibling.prevSibling?.name === ".") {
+                const schemaNode = prevSibling.prevSibling.prevSibling;
+                if (schemaNode) {
+                  schema = state.sliceDoc(schemaNode.from, schemaNode.to).replace(/["`[\]]/g, "");
+                }
+              }
+
+              joinTable = { schema, name: tableName, alias };
+            }
+          }
+        }
+      } while (cursor.nextSibling());
+
+      // If we found ON and cursor is right after it (with optional whitespace)
+      if (foundOn && onPos > 0 && pos >= onPos) {
+        // Check that there's only whitespace between ON and cursor
+        const afterOn = sql.slice(onPos, pos);
+        if (/^\s*$/.test(afterOn) || /^\s*[\w$]*$/.test(afterOn)) {
+          return {
+            isJoinOnContext: true,
+            joinTargetTable: joinTable,
+          };
+        }
+      }
+    }
+
+    current = current.parent;
+  }
+
+  return { isJoinOnContext: false };
+}
+
+/**
  * Analyze the SQL context at the cursor position.
  * Returns information about what kind of completion is expected
  * and which tables are in scope.
@@ -596,6 +740,9 @@ export function analyzeSqlContext(
     }
   }
 
+  // Detect JOIN ON context
+  const joinContext = detectJoinOnContext(state, pos);
+
   return {
     intent,
     identifier,
@@ -608,5 +755,7 @@ export function analyzeSqlContext(
     updateTargetTable: mutationContext.isUpdate ? mutationContext.targetTable : undefined,
     subqueryDepth,
     outerScopeTables: outerTables.length > 0 ? outerTables : undefined,
+    isJoinOnContext: joinContext.isJoinOnContext,
+    joinTargetTable: joinContext.joinTargetTable,
   };
 }
