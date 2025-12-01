@@ -105,3 +105,5 @@ export function getQueryAtCursorFromState(state: EditorState): string {
   return cleanQuery(state.doc.toString());
 }
 
+
+

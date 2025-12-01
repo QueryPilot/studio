@@ -67,16 +67,20 @@ async function handleParse(
 
       const errorWithPosition = result.error as unknown as { position?: number };
       if (errorWithPosition.position !== undefined && errorWithPosition.position > 0) {
-        from = errorWithPosition.position - 1;
+        // Clamp positions to valid document range to prevent stale position issues
+        from = Math.min(Math.max(0, errorWithPosition.position - 1), content.length);
         to = Math.min(from + 20, content.length);
       }
 
-      diagnostics.push({
-        from,
-        to,
-        severity: "error",
-        message: result.error.message || "Syntax error",
-      });
+      // Only add diagnostic if positions are valid
+      if (from <= to && to <= content.length) {
+        diagnostics.push({
+          from,
+          to,
+          severity: "error",
+          message: result.error.message || "Syntax error",
+        });
+      }
     }
 
     return { diagnostics };

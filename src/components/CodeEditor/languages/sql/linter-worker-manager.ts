@@ -87,18 +87,31 @@ class LinterWorkerManager {
   }
 
   private convertDiagnostics(workerDiagnostics: WorkerDiagnostic[]): Diagnostic[] {
-    return workerDiagnostics.map(d => ({
-      from: d.from,
-      to: d.to,
-      severity: d.severity,
-      message: d.message,
-      actions: d.actions?.map(a => ({
-        name: a.name,
-        apply(view: EditorView, from: number, to: number) {
-          view.dispatch({ changes: { from, to, insert: a.replacement } });
-        }
-      }))
-    }));
+    // Validate diagnostic positions against cached content length
+    // This prevents stale diagnostics from causing issues when document has changed
+    const contentLength = this.lastContent?.length ?? 0;
+    
+    return workerDiagnostics
+      .filter(d => {
+        // Discard diagnostics with invalid positions
+        if (d.from < 0 || d.to < d.from) return false;
+        // If we have cached content, validate against its length
+        // Allow diagnostics if no cached content yet (first lint)
+        if (contentLength > 0 && d.to > contentLength) return false;
+        return true;
+      })
+      .map(d => ({
+        from: d.from,
+        to: d.to,
+        severity: d.severity,
+        message: d.message,
+        actions: d.actions?.map(a => ({
+          name: a.name,
+          apply(view: EditorView, from: number, to: number) {
+            view.dispatch({ changes: { from, to, insert: a.replacement } });
+          }
+        }))
+      }));
   }
 
   /**
@@ -254,7 +267,9 @@ export const createWorkerLinter = (dialect?: string): Extension => {
     },
     {
       delay: 400, // Balanced delay
-      needsRefresh: (update) => update.docChanged || update.viewportChanged
+      // Only refresh on document changes - viewport changes don't affect linting
+      // and cause unnecessary churn that can lead to race conditions
+      needsRefresh: (update) => update.docChanged
     }
   );
 };

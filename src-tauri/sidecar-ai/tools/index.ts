@@ -23,21 +23,38 @@ const tableSchema = identifierSchema;
 
 // Helper to call Tauri backend via HTTP proxy
 async function callTauri(command: string, args: Record<string, any>) {
-  const response = await fetch(`${TAURI_API_URL}/__tauri__/invoke`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      cmd: command,
-      args,
-    }),
-  });
+  const startTime = Date.now();
+  console.log(`🔧 [Tool] Calling Tauri command: ${command}`, JSON.stringify(args));
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Tauri command failed (${response.status}): ${errorText}`);
+  try {
+    const response = await fetch(`${TAURI_API_URL}/__tauri__/invoke`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cmd: command,
+        args,
+      }),
+    });
+
+    const elapsed = Date.now() - startTime;
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ [Tool] ${command} failed (${response.status}) after ${elapsed}ms:`, errorText);
+      throw new Error(`Tauri command failed (${response.status}): ${errorText}`);
+    }
+
+    const result = await response.json();
+    console.log(`✅ [Tool] ${command} succeeded in ${elapsed}ms`);
+    return result;
+  } catch (error) {
+    const elapsed = Date.now() - startTime;
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      console.error(`❌ [Tool] ${command} - HTTP server not reachable at ${TAURI_API_URL} (${elapsed}ms)`);
+      throw new Error(`Cannot reach Tauri HTTP server at ${TAURI_API_URL}. Is the app running?`);
+    }
+    throw error;
   }
-
-  return response.json();
 }
 
 // Core Tools

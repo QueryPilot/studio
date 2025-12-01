@@ -84,3 +84,5 @@ export function getLinterDescription(dialect: SqlDialect): string {
   return LINTER_STRATEGIES[dialect]?.description ?? "Unknown";
 }
 
+
+

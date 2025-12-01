@@ -93,14 +93,24 @@ class PgParserWorkerManager {
     if (response.type === "error" && response.payload.error) {
       pending.reject(new Error(response.payload.error));
     } else {
-      const diagnostics: Diagnostic[] = (response.payload.diagnostics || []).map(
-        (d) => ({
+      // Validate diagnostic positions against cached content length
+      // This prevents stale diagnostics from causing issues when document has changed
+      const contentLength = this.lastContent?.length ?? 0;
+      const diagnostics: Diagnostic[] = (response.payload.diagnostics || [])
+        .filter((d) => {
+          // Discard diagnostics with invalid positions
+          if (d.from < 0 || d.to < d.from) return false;
+          // If we have cached content, validate against its length
+          // Allow diagnostics if no cached content yet (first parse)
+          if (contentLength > 0 && d.to > contentLength) return false;
+          return true;
+        })
+        .map((d) => ({
           from: d.from,
           to: d.to,
           severity: d.severity,
           message: d.message,
-        })
-      );
+        }));
       pending.resolve(diagnostics);
     }
   }

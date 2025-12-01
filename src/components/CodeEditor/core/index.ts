@@ -9,6 +9,7 @@ export type {
   EntityDetails,
   MetadataProvider,
   EditorContextAnalysis,
+  JoinConditionSuggestion,
 } from "./types";
 
 export { getQueryAtCursor, getQueryAtCursorFromState } from "./query-utils";

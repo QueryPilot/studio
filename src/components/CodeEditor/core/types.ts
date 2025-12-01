@@ -32,6 +32,20 @@ export interface EntityDetails {
 }
 
 /**
+ * Suggested JOIN condition based on foreign key relationships
+ */
+export interface JoinConditionSuggestion {
+  /** The full ON condition string (e.g., "orders.customer_id = customers.id") */
+  condition: string;
+  /** Human-readable description */
+  description: string;
+  /** Source of the suggestion: "fk" for foreign key, "column_match" for name-based heuristic */
+  source: "fk" | "column_match";
+  /** Priority score (higher = better match) */
+  score: number;
+}
+
+/**
  * Generic metadata provider interface for database introspection.
  * Implemented by SQL, MongoDB, Redis, etc. adapters.
  */
@@ -44,6 +58,16 @@ export interface MetadataProvider {
 
   /** Get detailed info about an entity (for hover tooltips) */
   getEntityDetails?(entityName: string, schema?: string): Promise<EntityDetails | null>;
+
+  /**
+   * Get suggested JOIN conditions between tables in scope and a target table.
+   * Returns conditions based on FK relationships and column name matching.
+   */
+  getJoinConditions?(
+    tablesInScope: Array<{ name: string; alias?: string; schema?: string }>,
+    targetTable: { name: string; alias?: string; schema?: string },
+    schema?: string
+  ): Promise<JoinConditionSuggestion[]>;
 }
 
 /**
