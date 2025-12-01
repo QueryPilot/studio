@@ -37,11 +37,11 @@ import {
   PopoverAnchor,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import type { FilterMode, ColumnMeta } from "@/utils/filterParser";
+import type { FilterMode, FilterColumnInfo } from "@/utils/filterParser";
 import { useAIChatStore } from "@/stores/aiChatStore";
 
 interface QuickFilterProps {
-  columns: ColumnMeta[];
+  columns: FilterColumnInfo[];
   value: string;
   mode: FilterMode;
   onValueChange: (value: string) => void;
@@ -116,7 +116,7 @@ const EnumSuggestionItem = memo<EnumSuggestionItemProps>(({ value, isSelected, o
 EnumSuggestionItem.displayName = "EnumSuggestionItem";
 
 interface ColumnSuggestionItemProps {
-  column: ColumnMeta;
+  column: FilterColumnInfo;
   isSelected: boolean;
   onSelect: (name: string) => void;
 }
@@ -155,7 +155,7 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
     ref,
   ) {
     const [showSuggestions, setShowSuggestions] = useState(false);
-    const [suggestions, setSuggestions] = useState<ColumnMeta[]>([]);
+    const [suggestions, setSuggestions] = useState<FilterColumnInfo[]>([]);
     const [enumSuggestions, setEnumSuggestions] = useState<string[]>([]);
     const [suggestionType, setSuggestionType] = useState<"column" | "enum">(
       "column",
@@ -170,13 +170,13 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
     const stateRefs = useRef({
       showSuggestions: false,
       suggestionType: "column" as "column" | "enum",
-      suggestions: [] as ColumnMeta[],
+      suggestions: [] as FilterColumnInfo[],
       enumSuggestions: [] as string[],
       selectedIndex: 0,
       mode: "search" as FilterMode,
       hasLintError: false,
       value: "",
-      columns: [] as ColumnMeta[],
+      columns: [] as FilterColumnInfo[],
     });
     // Keep refs in sync
     stateRefs.current.showSuggestions = showSuggestions;
@@ -372,7 +372,7 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
 
     // Memoize column map for O(1) lookups (Phase 1.3)
     const columnMap = useMemo(() => {
-      const map = new Map<string, ColumnMeta>();
+      const map = new Map<string, FilterColumnInfo>();
       columns.forEach(col => map.set(col.name.toLowerCase(), col));
       return map;
     }, [columns]);

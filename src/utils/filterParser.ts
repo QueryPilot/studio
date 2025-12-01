@@ -1,8 +1,16 @@
 import type { FilterCondition, FilterConfig } from "@/types/filter";
+import type { ColumnMeta } from "@/types/schema";
+
+// Re-export ColumnMeta for backwards compatibility with existing imports
+export type { ColumnMeta };
 
 export type FilterMode = "search" | "where" | "ai";
 
-export interface ColumnMeta {
+/**
+ * Simplified column info for filter parsing.
+ * Uses a subset of ColumnMeta fields.
+ */
+export interface FilterColumnInfo {
   name: string;
   dataType: string;
   nullable?: boolean;
@@ -11,6 +19,20 @@ export interface ColumnMeta {
   isForeignKey?: boolean;
   foreignTable?: string;
   foreignColumn?: string;
+}
+
+/**
+ * Convert schema ColumnMeta to FilterColumnInfo
+ */
+export function toFilterColumnInfo(col: ColumnMeta): FilterColumnInfo {
+  return {
+    name: col.name,
+    dataType: col.db_type,
+    nullable: col.nullable,
+    enumValues: col.enum_values,
+    isPrimaryKey: col.is_pk,
+    isForeignKey: col.is_fk,
+  };
 }
 
 export interface ParseResult {
@@ -57,7 +79,7 @@ function isSearchableType(dataType: string): boolean {
 
 export function parseSimpleSearch(
   text: string,
-  columns: ColumnMeta[]
+  columns: FilterColumnInfo[]
 ): FilterConfig {
   let searchValue = text.trim();
   if (!searchValue) {
@@ -107,7 +129,7 @@ export function parseSimpleSearch(
 
 export function parseWhereClause(
   whereExpr: string,
-  _columns: ColumnMeta[]
+  _columns: FilterColumnInfo[]
 ): ParseResult {
   let expr = whereExpr.trim();
 

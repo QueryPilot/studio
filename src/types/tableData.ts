@@ -1,64 +1,47 @@
-// Table data reading types
+/**
+ * @deprecated This file contains legacy types. Use imports from:
+ * - @/types/schema for ColumnMeta and schema types
+ * - @/types/filter for FilterConfig and SortConfig
+ * - @/services/tableDataTypes for TableData* types
+ */
 
+// Import for local use
+import type { ColumnMeta } from "./schema";
+import type { FilterConfig, SortConfig } from "./filter";
+
+// Re-export from canonical locations for backwards compatibility
+export type { ColumnMeta };
+export type { FilterConfig as FilterSpec, SortConfig as SortSpec };
+
+// Legacy types - kept for backwards compatibility but prefer using tableDataTypes.ts
 export interface TableReadRequest {
   connectionId: string;
   table: string;
   schema?: string;
   select?: string[];
-  sorts?: SortSpec[];
-  filters?: FilterSpec[];
+  sorts?: SortConfig[];
+  filters?: FilterConfig;
   search?: string;
   cursor?: string;
   offset?: number;
   limit?: number;
 }
 
-export interface SortSpec {
-  column: string;
-  direction: 'asc' | 'desc';
-}
-
-export interface FilterSpec {
-  column: string;
-  operator: FilterOperator;
-  value: any;
-}
-
-export type FilterOperator = 
-  | '=' 
-  | '!=' 
-  | '<' 
-  | '<=' 
-  | '>' 
-  | '>=' 
-  | 'LIKE' 
-  | 'ILIKE' 
-  | 'IN' 
-  | 'IS NULL' 
-  | 'IS NOT NULL' 
+export type FilterOperator =
+  | '='
+  | '!='
+  | '<'
+  | '<='
+  | '>'
+  | '>='
+  | 'LIKE'
+  | 'ILIKE'
+  | 'IN'
+  | 'IS NULL'
+  | 'IS NOT NULL'
   | 'BETWEEN';
 
-export interface ColumnMeta {
-  name: string;
-  dbType: string;
-  nullable: boolean;
-  default?: string;
-  isPk: boolean;
-  isFk: boolean;
-  ordinal: number;
-  precision?: number;
-  scale?: number;
-  isIdentity?: boolean;
-  isComputed?: boolean;
-  isHierarchyid?: boolean;
-  isSpatial?: boolean;
-  isJson?: boolean;
-  enumValues?: string[];
-  setValues?: string[];
-  isVirtual?: boolean;
-}
-
-export type TableDataResponse = 
+export type TableDataResponse =
   | TableDataMeta
   | TableDataRows
   | TableDataDone
@@ -76,7 +59,7 @@ export interface TableDataMeta {
 
 export interface TableDataRows {
   type: 'rows';
-  rows: Record<string, any>[];
+  rows: Record<string, unknown>[];
   nextCursor?: string;
 }
 
@@ -94,7 +77,7 @@ export interface TableDataError {
 export interface TableDataStream {
   streamId: string;
   meta?: TableDataMeta;
-  rows: Record<string, any>[];
+  rows: Record<string, unknown>[];
   error?: TableDataError;
   isComplete: boolean;
   nextCursor?: string;

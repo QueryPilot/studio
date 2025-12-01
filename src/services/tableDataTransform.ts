@@ -1,13 +1,13 @@
 import type {
-  ColumnMeta as BackendColumnMeta,
-  CellValue as BackendCellValue,
+  QueryColumnMeta,
+  RawCellValue,
 } from "./backend";
-import type { ColumnMeta } from "@/types/database";
+import type { ColumnMeta } from "@/types/schema";
 import type { TableDataRow } from "./tableDataTypes";
-import type { CellValue as FrontCellValue } from "@/types/cellValue";
+import type { GridCellValue, GridCellValueType } from "@/types/cellValue";
 
 export function mapBackendColumnsToColumnMeta(
-  columns: BackendColumnMeta[],
+  columns: QueryColumnMeta[],
 ): ColumnMeta[] {
   return columns.map((col, index) => ({
     name: col.name,
@@ -28,9 +28,9 @@ export function mapBackendColumnsToColumnMeta(
 }
 
 export function deriveValueType(
-  rawValue: BackendCellValue | undefined,
+  rawValue: RawCellValue | undefined,
   dbType: string,
-): FrontCellValue["value_type"] {
+): GridCellValueType {
   if (rawValue === null || rawValue === undefined) {
     return "Null";
   }
@@ -85,7 +85,7 @@ export function deriveValueType(
 }
 
 export function normalizeBackendValue(
-  value: BackendCellValue | undefined,
+  value: RawCellValue | undefined,
 ): unknown {
   if (value === null || value === undefined) {
     return value;
@@ -102,7 +102,7 @@ export function normalizeBackendValue(
   if (typeof value === "object") {
     const normalizedEntries = Object.entries(value).map(([key, inner]) => {
       const normalized = normalizeBackendValue(
-        inner as BackendCellValue | undefined,
+        inner as RawCellValue | undefined,
       );
       return [key, normalized];
     });
@@ -114,7 +114,7 @@ export function normalizeBackendValue(
 
 export function mapRowsToTableData(
   columns: ColumnMeta[],
-  rawRows: BackendCellValue[][],
+  rawRows: RawCellValue[][],
 ): TableDataRow[] {
   return rawRows.map((row) => {
     const tableRow: TableDataRow = {};
@@ -129,7 +129,7 @@ export function mapRowsToTableData(
             }
           : undefined;
       const normalizedValue = normalizeBackendValue(rawValue);
-      const cellValue: FrontCellValue = {
+      const cellValue: GridCellValue = {
         value: normalizedValue ?? null,
         db_type: column.db_type,
         value_type: deriveValueType(rawValue, column.db_type),
