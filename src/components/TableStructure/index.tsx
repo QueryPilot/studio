@@ -24,6 +24,7 @@ import {
   createColumnAddCommand,
   createColumnModifyCommand,
   createColumnDropCommand,
+  createColumnRenameCommand,
   generateCommandId,
 } from "./commandFactory";
 import { TableActionsToolbar } from "@/components/shared/TableActionsToolbar";

@@ -19,15 +19,17 @@ export function ConnectionsSection() {
     openConnectionForm('create');
   };
 
-  // IconFilter connections by active env filters
+  // Filter connections by active env filters
   const filteredConnections = useMemo(() => {
-    if (activeEnvFilters.includes('all')) {
+    // Default to 'all' if activeEnvFilters is empty or invalid
+    if (!activeEnvFilters || activeEnvFilters.length === 0 || activeEnvFilters.includes('all')) {
       return connections;
     }
 
-    return connections.filter((conn) =>
-      conn.metadata.tags.some((tag) => activeEnvFilters.includes(tag))
-    );
+    return connections.filter((conn) => {
+      const tags = conn.metadata?.tags ?? [];
+      return tags.some((tag) => activeEnvFilters.includes(tag));
+    });
   }, [connections, activeEnvFilters]);
 
   // Group connections by custom tags (non-env tags)
@@ -36,15 +38,16 @@ export function ConnectionsSection() {
     const ungrouped: StoredConnection[] = [];
 
     filteredConnections.forEach((conn) => {
-      const customTags = conn.metadata.tags.filter(
+      const tags = conn.metadata?.tags ?? [];
+      const customTags = tags.filter(
         (tag) => !ENV_TAGS.includes(tag)
       );
 
-      if (customTags.length === 0) {
+      const groupTag = customTags[0];
+      if (!groupTag) {
         ungrouped.push(conn);
       } else {
         // Add to first custom tag group
-        const groupTag = customTags[0];
         if (!groups[groupTag]) {
           groups[groupTag] = [];
         }

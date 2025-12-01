@@ -150,8 +150,8 @@ export function ConnectionForm() {
     connection?.profile.ssl_mode || SslMode.Disable,
   );
   const [selectedTags, setSelectedTags] = useState<string[]>(() => {
-    if (isEditMode && connection.profile.tags) {
-      return connection.metadata.tags || [];
+    if (isEditMode && connection.metadata.tags) {
+      return connection.metadata.tags;
     }
     return ["local"];
   });
@@ -212,7 +212,7 @@ export function ConnectionForm() {
   );
   const [ssmOAuthProvider, setSsmOAuthProvider] = useState("Microsoft");
   const [ssmOAuthClientId, setSsmOAuthClientId] = useState("");
-  const [ssmOAuthTenantId, setSsmOAuthTenantId] = useState("");
+  const [ssmOAuthTenantId, _setSsmOAuthTenantId] = useState("");
   const [ssmAssumeRoleArn, setSsmAssumeRoleArn] = useState("");
   const [ssmRemoteHost, setSsmRemoteHost] = useState(
     existingAwsSsm?.remote_host || host,
@@ -222,13 +222,13 @@ export function ConnectionForm() {
   );
 
   // SSL certificates state
-  const [sslKeyFile, setSslKeyFile] = useState(
+  const [sslKeyFile, _setSslKeyFile] = useState(
     connection?.profile.ssl_config?.key_file || "",
   );
-  const [sslCertFile, setSslCertFile] = useState(
+  const [sslCertFile, _setSslCertFile] = useState(
     connection?.profile.ssl_config?.cert_file || "",
   );
-  const [sslCAFile, setSslCAFile] = useState(
+  const [sslCAFile, _setSslCAFile] = useState(
     connection?.profile.ssl_config?.ca_file || "",
   );
 

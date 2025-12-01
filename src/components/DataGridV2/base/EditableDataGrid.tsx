@@ -439,13 +439,16 @@ export const EditableDataGrid = forwardRef<
           const currentCell = getCellContent(cell);
 
           // Create new cell with pasted value (preserve the cell kind/type)
+          // Only update if cell has data property (skip loading cells, etc.)
+          const cellWithData = currentCell as GridCell & { data?: Record<string, unknown> };
+          if (!cellWithData.data) continue;
+
+          // Create new cell with updated value using Object.assign to avoid spread type issues
+          const existingData = cellWithData.data;
           const newCell = {
             ...currentCell,
-            data: {
-              ...(currentCell.data as Record<string, unknown>),
-              value: value,
-            },
-          };
+            data: Object.assign({}, existingData, { value }),
+          } as GridCell;
 
           logger.info('[EditableDataGrid] Pasting to cell:', { cell, value, currentCell, newCell });
           handleCellEdited(cell, newCell);

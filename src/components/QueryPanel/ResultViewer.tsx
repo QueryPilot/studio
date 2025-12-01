@@ -18,6 +18,7 @@ interface QueryResult {
   rowCount: number;
   affectedRows?: number;
   executionTime?: number;
+  message?: string;
   error?: string;
 }
 

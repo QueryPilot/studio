@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useStarredItemsStore, type StarredItem } from '../starredItemsStore';
+import { useStarredItemsStore } from '../starredItemsStore';
 
 describe('starredItemsStore', () => {
   beforeEach(() => {
@@ -42,7 +42,7 @@ describe('starredItemsStore', () => {
 
       const state = useStarredItemsStore.getState();
       expect(state.items).toHaveLength(1);
-      expect(state.items[0].name).toBe('users');
+      expect(state.items[0]?.name).toBe('users');
     });
 
     it('should remove item when toggling starred item', () => {
@@ -83,7 +83,7 @@ describe('starredItemsStore', () => {
       });
 
       const state = useStarredItemsStore.getState();
-      expect(state.items[0].id).toBe('conn-1:testdb:public:table:users');
+      expect(state.items[0]?.id).toBe('conn-1:testdb:public:table:users');
     });
 
     it('should set starredAt timestamp', () => {
@@ -101,8 +101,8 @@ describe('starredItemsStore', () => {
       const afterTime = Date.now();
       const state = useStarredItemsStore.getState();
 
-      expect(state.items[0].starredAt).toBeGreaterThanOrEqual(beforeTime);
-      expect(state.items[0].starredAt).toBeLessThanOrEqual(afterTime);
+      expect(state.items[0]?.starredAt).toBeGreaterThanOrEqual(beforeTime);
+      expect(state.items[0]?.starredAt).toBeLessThanOrEqual(afterTime);
     });
   });
 
@@ -318,8 +318,8 @@ describe('starredItemsStore', () => {
         const items = store.getStarredItems('conn-1', 'mydb', 'public');
         if (items.length === 2) {
           // Most recent first
-          expect(items[0].name).toBe('second');
-          expect(items[1].name).toBe('first');
+          expect(items[0]?.name).toBe('second');
+          expect(items[1]?.name).toBe('first');
         }
       });
     });
@@ -368,7 +368,7 @@ describe('starredItemsStore', () => {
 
       const state = useStarredItemsStore.getState();
       expect(state.items).toHaveLength(1);
-      expect(state.items[0].connectionId).toBe('conn-2');
+      expect(state.items[0]?.connectionId).toBe('conn-2');
     });
 
     it('should not affect items from other connections', () => {
@@ -470,7 +470,7 @@ describe('starredItemsStore', () => {
       // User views starred items
       const starred = store.getStarredItems('prod-db', 'analytics', 'public');
       expect(starred).toHaveLength(1);
-      expect(starred[0].name).toBe('user_events');
+      expect(starred[0]?.name).toBe('user_events');
     });
 
     it('should handle connection closure workflow', () => {

@@ -1,4 +1,4 @@
-import type { FilterConfig } from "@/types/filter";
+import type { FilterCondition, FilterConfig } from "@/types/filter";
 
 export type FilterMode = "search" | "where" | "ai";
 

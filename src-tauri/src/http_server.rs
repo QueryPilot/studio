@@ -1,5 +1,5 @@
 use axum::{extract::State, http::StatusCode, response::Json, routing::post, Router};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::sync::Arc;
 use tauri::Manager;
 
@@ -12,14 +12,6 @@ pub struct AppState {
 struct TauriInvokeRequest {
     cmd: String,
     args: serde_json::Value,
-}
-
-#[derive(Serialize)]
-struct TauriInvokeResponse {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    result: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
 }
 
 /// Proxy endpoint that mimics Tauri's invoke mechanism
@@ -159,7 +151,11 @@ async fn proxy_tauri_invoke(
     Ok(Json(result))
 }
 
-// Helper functions to call manager methods directly
+// Helper functions to execute SQL queries for introspection
+// NOTE: These use raw SQL queries instead of adapter methods.
+// The frontend uses IntrospectionService with dialect-specific SQL.
+// This is a simplified version for AI tool access (PostgreSQL only).
+
 async fn invoke_tauri_command(
     app: &tauri::AppHandle,
     _cmd: &str,
@@ -169,19 +165,20 @@ async fn invoke_tauri_command(
     use crate::core::manager::ConnectionManager;
 
     let manager = app.state::<std::sync::Arc<ConnectionManager>>();
-
     let conn = manager
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let tables = conn
-        .adapter
-        .get_tables(&schema)
-        .await
+    let sql = format!(
+        r#"SELECT schemaname as schema, tablename as name, 'regular' as kind
+           FROM pg_tables WHERE schemaname = '{}' ORDER BY tablename"#,
+        schema
+    );
+    let result = conn.adapter.query(&sql).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    serde_json::to_value(&tables).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    serde_json::to_value(&result).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 async fn invoke_get_columns(
@@ -193,19 +190,22 @@ async fn invoke_get_columns(
     use crate::core::manager::ConnectionManager;
 
     let manager = app.state::<std::sync::Arc<ConnectionManager>>();
-
     let conn = manager
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let columns = conn
-        .adapter
-        .get_table_columns(&schema, &table)
-        .await
+    let sql = format!(
+        r#"SELECT column_name as name, data_type as db_type, is_nullable = 'YES' as nullable
+           FROM information_schema.columns
+           WHERE table_schema = '{}' AND table_name = '{}'
+           ORDER BY ordinal_position"#,
+        schema, table
+    );
+    let result = conn.adapter.query(&sql).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    serde_json::to_value(&columns).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    serde_json::to_value(&result).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 async fn invoke_get_constraints(
@@ -216,20 +216,21 @@ async fn invoke_get_constraints(
     use crate::core::manager::ConnectionManager;
 
     let manager = app.state::<std::sync::Arc<ConnectionManager>>();
-
     let conn = manager
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let constraints = conn
-        .adapter
-        .get_constraints(&table)
-        .await
+    let sql = format!(
+        r#"SELECT constraint_name as name, constraint_type
+           FROM information_schema.table_constraints
+           WHERE table_name = '{}'"#,
+        table
+    );
+    let result = conn.adapter.query(&sql).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    serde_json::to_value(&constraints)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    serde_json::to_value(&result).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 async fn invoke_get_indexes(
@@ -240,42 +241,42 @@ async fn invoke_get_indexes(
     use crate::core::manager::ConnectionManager;
 
     let manager = app.state::<std::sync::Arc<ConnectionManager>>();
-
     let conn = manager
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let indexes = conn
-        .adapter
-        .get_indexes(&table)
-        .await
+    let sql = format!(
+        r#"SELECT indexname as name, indexdef as definition
+           FROM pg_indexes WHERE tablename = '{}'"#,
+        table
+    );
+    let result = conn.adapter.query(&sql).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    serde_json::to_value(&indexes).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    serde_json::to_value(&result).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 async fn invoke_get_schemas(
     app: &tauri::AppHandle,
     conn_id: String,
-    database: String,
+    _database: String,
 ) -> Result<serde_json::Value, (StatusCode, String)> {
     use crate::core::manager::ConnectionManager;
 
     let manager = app.state::<std::sync::Arc<ConnectionManager>>();
-
     let conn = manager
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let schemas = conn
-        .adapter
-        .get_schemas(&database)
-        .await
+    let sql = r#"SELECT schema_name as name FROM information_schema.schemata
+                 WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+                 ORDER BY schema_name"#;
+    let result = conn.adapter.query(sql).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    serde_json::to_value(&schemas).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    serde_json::to_value(&result).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 async fn invoke_get_views(
@@ -286,19 +287,20 @@ async fn invoke_get_views(
     use crate::core::manager::ConnectionManager;
 
     let manager = app.state::<std::sync::Arc<ConnectionManager>>();
-
     let conn = manager
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let views = conn
-        .adapter
-        .get_views(&schema)
-        .await
+    let sql = format!(
+        r#"SELECT table_name as name FROM information_schema.views
+           WHERE table_schema = '{}' ORDER BY table_name"#,
+        schema
+    );
+    let result = conn.adapter.query(&sql).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    serde_json::to_value(&views).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    serde_json::to_value(&result).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 async fn invoke_get_table_count(
@@ -310,19 +312,16 @@ async fn invoke_get_table_count(
     use crate::core::manager::ConnectionManager;
 
     let manager = app.state::<std::sync::Arc<ConnectionManager>>();
-
     let conn = manager
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let count = conn
-        .adapter
-        .get_table_count(&schema, &table)
-        .await
+    let sql = format!(r#"SELECT COUNT(*) as count FROM "{}"."{}" "#, schema, table);
+    let result = conn.adapter.query(&sql).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    serde_json::to_value(&count).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    serde_json::to_value(&result).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 async fn invoke_get_triggers(
@@ -334,19 +333,21 @@ async fn invoke_get_triggers(
     use crate::core::manager::ConnectionManager;
 
     let manager = app.state::<std::sync::Arc<ConnectionManager>>();
-
     let conn = manager
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let triggers = conn
-        .adapter
-        .get_triggers(&schema, &table)
-        .await
+    let sql = format!(
+        r#"SELECT trigger_name as name, event_manipulation as event, action_timing as timing
+           FROM information_schema.triggers
+           WHERE trigger_schema = '{}' AND event_object_table = '{}'"#,
+        schema, table
+    );
+    let result = conn.adapter.query(&sql).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    serde_json::to_value(&triggers).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    serde_json::to_value(&result).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 async fn invoke_get_functions(
@@ -357,25 +358,27 @@ async fn invoke_get_functions(
     use crate::core::manager::ConnectionManager;
 
     let manager = app.state::<std::sync::Arc<ConnectionManager>>();
-
     let conn = manager
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let functions = conn
-        .adapter
-        .get_functions(&schema)
-        .await
+    let sql = format!(
+        r#"SELECT routine_name as name, data_type as return_type
+           FROM information_schema.routines
+           WHERE routine_schema = '{}' AND routine_type = 'FUNCTION'"#,
+        schema
+    );
+    let result = conn.adapter.query(&sql).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    serde_json::to_value(&functions).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    serde_json::to_value(&result).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 async fn invoke_get_object_definition(
     app: &tauri::AppHandle,
     conn_id: String,
-    database: String,
+    _database: String,
     schema: String,
     object_name: String,
     object_type: String,
@@ -383,19 +386,29 @@ async fn invoke_get_object_definition(
     use crate::core::manager::ConnectionManager;
 
     let manager = app.state::<std::sync::Arc<ConnectionManager>>();
-
     let conn = manager
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let definition = conn
-        .adapter
-        .get_object_definition(&database, &schema, &object_name, &object_type)
-        .await
+    let sql = match object_type.as_str() {
+        "view" | "materializedview" => format!(
+            "SELECT pg_get_viewdef('{}.{}'::regclass, true) as definition",
+            schema, object_name
+        ),
+        "function" | "procedure" => format!(
+            "SELECT pg_get_functiondef('{}.{}'::regproc) as definition",
+            schema, object_name
+        ),
+        _ => format!(
+            r#"SELECT 'CREATE TABLE ' || quote_ident('{}') || '.' || quote_ident('{}') || ' (...)' as definition"#,
+            schema, object_name
+        ),
+    };
+    let result = conn.adapter.query(&sql).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    serde_json::to_value(&definition).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    serde_json::to_value(&result).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 async fn invoke_get_sample_data(

@@ -17,7 +17,7 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { getDatabaseLogo } from '@/utils/databaseLogos';
-import { type StoredConnection, DbType } from '@/types/connection';
+import { type StoredConnection } from '@/types/connection';
 import { useHomeScreenStore } from '../../store/homeScreenStore';
 import { useConnectionStore } from '@/stores/connectionStoreNew';
 import { windowManager } from '@/services/windowManager';
@@ -50,8 +50,9 @@ export function ConnectionCard({
   const { profile, metadata } = connection;
 
   const envTag = useMemo(() => {
-    return metadata.tags.find((tag) => ENV_TAGS.includes(tag));
-  }, [metadata.tags]);
+    const tags = metadata?.tags ?? [];
+    return tags.find((tag) => ENV_TAGS.includes(tag));
+  }, [metadata?.tags]);
 
   const envColor = envTag ? ENV_COLORS[envTag] : null;
 

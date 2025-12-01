@@ -40,9 +40,10 @@ interface StreamWorkerResponse {
   error?: string;
 }
 
-const ctx: DedicatedWorkerGlobalScope = self as unknown as DedicatedWorkerGlobalScope;
+// Web Worker context
+declare const self: Worker;
 
-ctx.onmessage = (event: MessageEvent<StreamWorkerRequest>) => {
+self.onmessage = (event: MessageEvent<StreamWorkerRequest>) => {
   const message = event.data;
 
   if (!message || typeof message !== "object") {
@@ -50,7 +51,7 @@ ctx.onmessage = (event: MessageEvent<StreamWorkerRequest>) => {
   }
 
   const respond = (response: StreamWorkerResponse) => {
-    ctx.postMessage(response);
+    self.postMessage(response);
   };
 
   try {
@@ -110,14 +111,18 @@ ctx.onmessage = (event: MessageEvent<StreamWorkerRequest>) => {
       return;
     }
 
+    // Fallback for unknown types - use type assertion
+    const unknownMessage = message as StreamWorkerRequest;
     respond({
-      id: message.id,
+      id: unknownMessage.id,
       type: "error",
       error: "Unknown worker request type",
     });
   } catch (error) {
+    // Use type assertion to get id from caught context
+    const errorMessage = message as StreamWorkerRequest;
     respond({
-      id: message.id,
+      id: errorMessage.id,
       type: "error",
       error:
         error instanceof Error

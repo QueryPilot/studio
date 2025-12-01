@@ -41,6 +41,8 @@ export interface GridColumnV2 extends Omit<GridColumn, 'title'> {
   type?: string;
   /** Original database metadata when available */
   meta?: ColumnMeta | null;
+  /** Column width in pixels */
+  width?: number;
   /** Minimum width constraint applied during auto-sizing */
   minWidth?: number;
   /** Maximum width constraint applied during auto-sizing */

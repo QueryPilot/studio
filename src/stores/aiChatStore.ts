@@ -56,7 +56,7 @@ export const useAIChatStore = create<AIChatStoreState>()(
         const providerConfig = providers.find((p) => p.name === provider);
         if (providerConfig && providerConfig.models.length > 0) {
           // Auto-select first model of the new provider
-          set({ selectedModel: providerConfig.models[0] });
+          set({ selectedModel: providerConfig.models[0]?.id ?? null });
         } else {
           set({ selectedModel: null });
         }
@@ -162,27 +162,29 @@ export const useAIChatStore = create<AIChatStoreState>()(
             const firstConfiguredProvider = providers.find((p) =>
               configuredProvidersList.includes(p.name),
             );
-            const providerToUse = firstConfiguredProvider || providers[0];
+            const providerToUse = firstConfiguredProvider ?? providers[0];
 
-            logger.info(
-              "[AIChatStore] Auto-selecting provider:",
-              providerToUse.name,
-            );
+            if (providerToUse) {
+              logger.info(
+                "[AIChatStore] Auto-selecting provider:",
+                providerToUse.name,
+              );
 
-            set({
-              selectedProvider: providerToUse.name,
-              selectedModel:
-                providerToUse.models.length > 0
-                  ? providerToUse.models[0]
-                  : null,
-            });
+              set({
+                selectedProvider: providerToUse.name,
+                selectedModel:
+                  providerToUse.models.length > 0
+                    ? providerToUse.models[0]?.id ?? null
+                    : null,
+              });
+            }
           } else if (selectedProvider && !selectedModel) {
             // If provider is selected but model isn't, select first model
             const providerConfig = providers.find(
               (p) => p.name === selectedProvider,
             );
             if (providerConfig && providerConfig.models.length > 0) {
-              set({ selectedModel: providerConfig.models[0] });
+              set({ selectedModel: providerConfig.models[0]?.id ?? null });
             }
           }
         } catch (error) {

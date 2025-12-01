@@ -5,8 +5,10 @@ import type { TableDataRow } from "./tableDataTypes";
 import type { ColumnMeta } from "@/types/database";
 import type { FilterConfig, SortConfig } from "@/types/filter";
 import { mapBackendColumnsToColumnMeta } from "./tableDataTransform";
-import { BackendAPI, type CellValue } from "./backend";
+import { type CellValue } from "./backend";
 import { getStreamDecodeWorker } from "./streamDecodeWorkerClient";
+import { DialectService } from "./dialectService";
+import { IntrospectionService } from "./introspectionService";
 
 export interface StreamProgress {
   rowsFetched: number;
@@ -47,142 +49,6 @@ export interface StreamEntityPageResult {
 }
 
 const DEFAULT_PAGE_SIZE = 1000;
-
-function quoteIdentifier(identifier: string): string {
-  return `"${identifier.replace(/"/g, '""')}"`;
-}
-
-function buildQualifiedName(schema: string | undefined, name: string): string {
-  if (!schema) {
-    return quoteIdentifier(name);
-  }
-  return `${quoteIdentifier(schema)}.${quoteIdentifier(name)}`;
-}
-
-function buildSelectClause(select?: string[]): string {
-  if (!select || select.length === 0) {
-    return "*";
-  }
-
-  return select.map((col) => quoteIdentifier(col)).join(", ");
-}
-
-function buildOrderBy(sorts?: SortConfig[]): string {
-  if (!sorts || sorts.length === 0) {
-    return "";
-  }
-
-  const clauses = sorts
-    .filter((sort) => sort.column)
-    .map(
-      (sort) =>
-        `${quoteIdentifier(sort.column)} ${
-          sort.direction.toUpperCase() === "DESC" ? "DESC" : "ASC"
-        }`,
-    );
-
-  if (clauses.length === 0) {
-    return "";
-  }
-
-  return ` ORDER BY ${clauses.join(", ")}`;
-}
-
-function buildWhereClause(filters?: FilterConfig): string {
-  if (!filters) {
-    return "";
-  }
-
-  // Use raw WHERE clause if provided (for AI-generated filters)
-  if (filters.rawWhereClause) {
-    return ` WHERE ${filters.rawWhereClause}`;
-  }
-
-  if (!filters.root || filters.root.conditions.length === 0) {
-    return "";
-  }
-
-  const buildCondition = (
-    condition: FilterConfig["root"]["conditions"][number],
-  ): string => {
-    if ("type" in condition && condition.type === "group") {
-      // Nested group
-      const subConditions = condition.conditions
-        .map(buildCondition)
-        .filter(Boolean);
-      if (subConditions.length === 0) return "";
-      return `(${subConditions.join(` ${condition.logical} `)})`;
-    }
-
-    // Simple condition
-    const rawCol = quoteIdentifier(condition.column);
-    // Cast to text if needed (for searching non-text columns)
-    const col = condition.castToText ? `${rawCol}::text` : rawCol;
-    const op = condition.operator.toUpperCase();
-    const val = condition.value;
-
-    // Handle special operators
-    if (op === "IS NULL" || op === "IS NOT NULL") {
-      return `${col} ${op}`;
-    }
-
-    if (op === "IN" && Array.isArray(val)) {
-      const values = val
-        .map((v) =>
-          typeof v === "string" ? `'${v.replace(/'/g, "''")}'` : String(v),
-        )
-        .join(", ");
-      return `${col} IN (${values})`;
-    }
-
-    if (op === "BETWEEN" && Array.isArray(val) && val.length === 2) {
-      const [low, high] = val;
-      const lowStr =
-        typeof low === "string" ? `'${low.replace(/'/g, "''")}'` : String(low);
-      const highStr =
-        typeof high === "string"
-          ? `'${high.replace(/'/g, "''")}'`
-          : String(high);
-      return `${col} BETWEEN ${lowStr} AND ${highStr}`;
-    }
-
-    // Standard comparison
-    let valStr: string;
-    if (val === null || val === undefined) {
-      valStr = "NULL";
-    } else if (typeof val === "string") {
-      valStr = `'${val.replace(/'/g, "''")}'`;
-    } else if (typeof val === "boolean") {
-      valStr = val ? "TRUE" : "FALSE";
-    } else {
-      valStr = String(val);
-    }
-
-    return `${col} ${op} ${valStr}`;
-  };
-
-  const conditions = filters.root.conditions.map(buildCondition).filter(Boolean);
-  if (conditions.length === 0) {
-    return "";
-  }
-
-  return ` WHERE ${conditions.join(` ${filters.root.logical} `)}`;
-}
-
-function buildTableSql(
-  params: StreamEntityPageParams,
-  limit: number,
-  offset: number,
-): string {
-  const { schema, entityName, select, filters, sorts } = params;
-  const base = buildQualifiedName(schema, entityName);
-  const whereClause = buildWhereClause(filters);
-  const orderClause = buildOrderBy(sorts);
-
-  return `SELECT ${buildSelectClause(
-    select,
-  )} FROM ${base}${whereClause}${orderClause} LIMIT ${limit} OFFSET ${offset}`;
-}
 
 export async function streamEntityPage(
   params: StreamEntityPageParams,
@@ -228,7 +94,16 @@ export async function streamEntityPage(
     throw new DOMException("Streaming aborted", "AbortError");
   }
 
-  const sql = buildTableSql(params, fetchLimit, offset);
+  // Use dialect-aware SQL generation for proper quoting per database type
+  const sql = DialectService.buildSelectQuery(connectionId, {
+    schema,
+    table: entityName,
+    columns: params.select,
+    filters: params.filters,
+    sorts: params.sorts,
+    limit: fetchLimit,
+    offset,
+  });
 
   // CRITICAL FIX: Wrap in promise to ensure we only resolve after ALL callbacks complete
   return new Promise<StreamEntityPageResult>((resolve, reject) => {
@@ -252,7 +127,7 @@ export async function streamEntityPage(
     const fetchEstimatedTotal = async () => {
       if (offset === 0 && !estimatedTotal) {
         try {
-          const count = await BackendAPI.getTableCount(
+          const count = await IntrospectionService.getTableCount(
             connectionId,
             schema,
             entityName,

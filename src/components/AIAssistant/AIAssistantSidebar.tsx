@@ -145,7 +145,7 @@ export function AIAssistantSidebar() {
       if (firstConfigured) {
         setProvider(firstConfigured.name);
         if (firstConfigured.models.length > 0) {
-          setModel(firstConfigured.models[0] || "");
+          setModel(firstConfigured.models[0]?.id || "");
         }
       }
     }

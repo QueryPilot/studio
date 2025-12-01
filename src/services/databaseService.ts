@@ -13,8 +13,8 @@ import type {
   ForeignKeyInfo,
   TableStatistics,
 } from "@/types/tableStructure";
-//
 import { ConstraintType } from "@/services/backend";
+import { IntrospectionService } from "./introspectionService";
 
 // Types from API spec
 export interface ConnectionConfig {
@@ -554,7 +554,7 @@ class DatabaseService {
    */
   async listDatabases(connectionId: string): Promise<string[]> {
     try {
-      const databases = await BackendAPI.getDatabases(connectionId);
+      const databases = await IntrospectionService.getDatabases(connectionId);
       return databases.map((db) => db.name);
     } catch (error) {
       logger.error("Failed to list databases:", error);
@@ -570,7 +570,7 @@ class DatabaseService {
     _database: string,
   ): Promise<string[]> {
     try {
-      const schemas = await BackendAPI.getSchemas(connectionId, _database);
+      const schemas = await IntrospectionService.getSchemas(connectionId);
       return schemas.map((s) => s.name);
     } catch (error) {
       logger.error("Failed to list schemas:", error);
@@ -588,8 +588,8 @@ class DatabaseService {
   ): Promise<TableMeta[]> {
     try {
       const [tables, views] = await Promise.all([
-        BackendAPI.getTables(connectionId, schema),
-        BackendAPI.getViews(connectionId, schema),
+        IntrospectionService.getTables(connectionId, schema),
+        IntrospectionService.getViews(connectionId, schema),
       ]);
 
       const tableMetas: TableMeta[] = [
@@ -634,7 +634,7 @@ class DatabaseService {
     schema: string,
   ): Promise<FunctionMeta[]> {
     try {
-      const functions = await BackendAPI.getFunctions(connectionId, schema);
+      const functions = await IntrospectionService.getFunctions(connectionId, schema);
       return functions.map((f) => ({
         schema: f.schema,
         name: f.name,
@@ -657,7 +657,7 @@ class DatabaseService {
     table: string,
   ): Promise<TriggerMeta[]> {
     try {
-      const triggers = await BackendAPI.getTriggers(
+      const triggers = await IntrospectionService.getTriggers(
         connectionId,
         schema,
         table,
@@ -688,7 +688,7 @@ class DatabaseService {
     table: string,
   ): Promise<ColumnMeta[]> {
     try {
-      const columns = await BackendAPI.getColumns(connectionId, schema, table);
+      const columns = await IntrospectionService.getColumns(connectionId, schema, table);
       return columns.map(
         (c, index): ColumnMeta => ({
           name: c.name,
@@ -721,11 +721,11 @@ class DatabaseService {
   async tableIndexes(
     connectionId: string,
     _database: string,
-    _schema: string,
+    schema: string,
     table: string,
   ): Promise<TableIndex[]> {
     try {
-      const indexes = await BackendAPI.getIndexes(connectionId, table);
+      const indexes = await IntrospectionService.getIndexes(connectionId, schema, table);
       // Normalize index definition pieces (method + WHERE) for UI/editing
       const parseIndexDef = (
         def: string,
@@ -792,10 +792,11 @@ class DatabaseService {
    */
   async getIndexUsageStats(
     connectionId: string,
+    schema: string,
     table: string,
   ): Promise<IndexUsageStats[]> {
     try {
-      return await BackendAPI.getIndexUsageStats(connectionId, table);
+      return await IntrospectionService.getIndexUsageStats(connectionId, schema, table);
     } catch (error) {
       logger.error("Failed to get index usage stats:", error);
       throw error;
@@ -816,11 +817,8 @@ class DatabaseService {
         return cached.types;
       }
 
-      // Fetch from backend - database is source of truth
-      const types =
-        (await safeInvoke<string[] | null>("get_supported_index_types", {
-          connId: connectionId,
-        })) ?? [];
+      // Fetch using dialect-aware introspection
+      const types = await IntrospectionService.getSupportedIndexTypes(connectionId);
 
       // Cache the result
       this.indexTypeCache.set(connectionId, {
@@ -861,11 +859,8 @@ class DatabaseService {
         return cached.types;
       }
 
-      // Fetch from backend - database is source of truth
-      const types =
-        (await safeInvoke<string[] | null>("get_supported_column_types", {
-          connId: connectionId,
-        })) ?? [];
+      // Fetch using dialect-aware introspection
+      const types = await IntrospectionService.getSupportedColumnTypes(connectionId);
 
       // Cache the result
       this.columnTypeCache.set(connectionId, {
@@ -953,16 +948,16 @@ class DatabaseService {
 
           // Conditionally fetch other metadata
           includeConstraints
-            ? BackendAPI.getConstraints(connectionId, table)
+            ? IntrospectionService.getConstraints(connectionId, schema, table)
             : Promise.resolve([]),
           includeIndexes
-            ? BackendAPI.getIndexes(connectionId, table)
+            ? IntrospectionService.getIndexes(connectionId, schema, table)
             : Promise.resolve([]),
           includeTriggers
-            ? BackendAPI.getTriggers(connectionId, schema, table)
+            ? IntrospectionService.getTriggers(connectionId, schema, table)
             : Promise.resolve([]),
           includeStatistics
-            ? BackendAPI.getTables(connectionId, schema)
+            ? IntrospectionService.getTables(connectionId, schema)
             : Promise.resolve([]),
         ]);
 
@@ -1079,7 +1074,7 @@ class DatabaseService {
    */
   async getObjectDefinition(
     connectionId: string,
-    database: string,
+    _database: string,
     schema: string,
     objectName: string,
     objectType:
@@ -1090,15 +1085,11 @@ class DatabaseService {
       | "procedure",
   ): Promise<string> {
     try {
-      // Map frontend object type to backend format
-      const backendObjectType = objectType.replace("_", "");
-
-      const definition = await BackendAPI.getObjectDefinition(
+      const definition = await IntrospectionService.getObjectDefinition(
         connectionId,
-        database,
+        objectType,
         schema,
         objectName,
-        backendObjectType,
       );
 
       return definition;

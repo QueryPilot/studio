@@ -136,7 +136,7 @@ class StreamDecodeWorkerManager {
         }
       }, 5000);
 
-      this.pending.set(id, { resolve, reject, timeout });
+      this.pending.set(id, { resolve: resolve as (rows: unknown) => void, reject, timeout });
 
       const transfers: Transferable[] = [];
       if ("buffer" in payload && payload.buffer instanceof ArrayBuffer) {
@@ -187,11 +187,10 @@ export function getStreamDecodeWorker(): StreamDecodeWorkerManager {
 
 export function terminateStreamDecodeWorker(): void {
   if (workerInstance) {
-    // Best effort cleanup
+    // Best effort cleanup - use any cast to call private method
     try {
-      (workerInstance as unknown as StreamDecodeWorkerManager & {
-        terminateWorker: () => void;
-      }).terminateWorker();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (workerInstance as any).terminateWorker();
     } catch (error) {
       logger.warn(
         "stream-decode-worker",

@@ -1,11 +1,11 @@
 pub mod adapter;
 pub mod fast_converter;
-pub mod introspection;
 pub mod parser;
 pub mod pool;
-pub mod query_builder;
 pub mod query_fast;
 pub mod types;
+// NOTE: introspection module removed - frontend now uses IntrospectionService
+// with dialect-specific SQL via commands::query. See: src/services/introspectionService.ts
 
 pub use adapter::PostgresAdapter;
 // Exports for internal use

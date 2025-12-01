@@ -13,12 +13,19 @@ import { logger } from "@/lib/logger";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { parseMutationTables } from "./sqlParser";
 
+// Type for internal store state that includes listeners (not in public interface)
+interface InternalStoreState {
+  invalidations: Map<string, number>;
+  listeners?: Map<string, Set<() => void>>;
+}
+
 export const debugInvalidation = {
   /**
    * Get current state of the invalidation store
    */
   getStatus() {
-    const store = useDataInvalidationStore.getState();
+    const store = useDataInvalidationStore.getState() as unknown as InternalStoreState;
+    const listenersMap = store.listeners;
     return {
       invalidations: Array.from(store.invalidations.entries()).map(
         ([key, timestamp]) => ({
@@ -27,12 +34,14 @@ export const debugInvalidation = {
           timeSinceInvalidation: Date.now() - timestamp,
         }),
       ),
-      listeners: Array.from(store.listeners.entries()).map(([key, set]) => ({
-        tableKey: key,
-        listenerCount: set.size,
-      })),
+      listeners: listenersMap
+        ? Array.from(listenersMap.entries()).map(([key, set]) => ({
+            tableKey: key,
+            listenerCount: set.size,
+          }))
+        : [],
       totalInvalidations: store.invalidations.size,
-      totalListeners: store.listeners.size,
+      totalListeners: listenersMap?.size ?? 0,
     };
   },
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { usePanelStore } from '../panelStore';
 
 describe('panelStore', () => {
@@ -216,7 +216,7 @@ describe('panelStore', () => {
 
       const panelId = store.createPanel('primary');
       const tab1 = store.addTabToPanel(panelId, { title: 'Tab 1' });
-      const tab2 = store.addTabToPanel(panelId, { title: 'Tab 2' });
+      store.addTabToPanel(panelId, { title: 'Tab 2' });
 
       store.setActiveTabInPanel(panelId, tab1);
 
@@ -391,8 +391,8 @@ describe('panelStore', () => {
       expect(primaryPanel?.tabs.size).toBe(1);
 
       const tab = Array.from(primaryPanel!.tabs.values())[0];
-      expect(tab.connectionId).toBe('conn-123');
-      expect(tab.type).toBe('query');
+      expect(tab?.connectionId).toBe('conn-123');
+      expect(tab?.type).toBe('query');
     });
   });
 

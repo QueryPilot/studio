@@ -1,4 +1,4 @@
-import { generateObject, generateText, tool } from "ai";
+import { generateObject, generateText, tool, stepCountIs } from "ai";
 import { z } from "zod";
 import { getCorsHeaders } from "../middleware/cors";
 import { ProviderService } from "../services/provider.service";
@@ -106,33 +106,6 @@ function inferRelationships(columns: ColumnMeta[], currentTable: string): Inferr
   return inferred;
 }
 
-// Static dialect rules - precomputed for performance
-const DIALECT_RULES: Record<string, string> = {
-  postgresql: `PostgreSQL syntax:
-- Case-insensitive: column ILIKE '%value%'
-- Date arithmetic: column >= NOW() - INTERVAL '7 days'
-- Boolean: column = true
-- Subqueries: column IN (SELECT id FROM table WHERE condition)`,
-
-  mysql: `MySQL syntax:
-- Case-insensitive: LOWER(column) LIKE '%value%'
-- Date arithmetic: column >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-- Boolean: column = 1
-- Subqueries: column IN (SELECT id FROM table WHERE condition)`,
-
-  sqlite: `SQLite syntax:
-- Case-insensitive: LOWER(column) LIKE '%value%'
-- Date arithmetic: column >= datetime('now', '-7 days')
-- Boolean: column = 1
-- Subqueries: column IN (SELECT id FROM table WHERE condition)`,
-
-  mssql: `SQL Server syntax:
-- Case-insensitive by default for LIKE
-- Date arithmetic: column >= DATEADD(day, -7, GETDATE())
-- Boolean: column = 1
-- Subqueries: column IN (SELECT id FROM table WHERE condition)`,
-};
-
 // Helper to call Tauri backend via HTTP proxy (with bound context)
 async function callTauri(command: string, args: Record<string, unknown>) {
   const startTime = Date.now();
@@ -171,7 +144,7 @@ function createCrossTableTools(connectionId: string, schema: string) {
   return {
     list_tables: tool({
       description: "Get all tables in the current schema. Returns table names, row counts, and sizes.",
-      parameters: z.object({}),
+      inputSchema: z.object({}),
       execute: async () => {
         try {
           const result = await callTauri("get_tables", { conn_id: connectionId, schema });
@@ -196,7 +169,7 @@ function createCrossTableTools(connectionId: string, schema: string) {
 
     get_table_structure: tool({
       description: "Get columns, data types, and constraints for a specific table.",
-      parameters: z.object({
+      inputSchema: z.object({
         table: z.string().describe("The table name to inspect"),
       }),
       execute: async ({ table }) => {
@@ -229,7 +202,7 @@ function createCrossTableTools(connectionId: string, schema: string) {
 
     get_foreign_keys: tool({
       description: "Get foreign key relationships for a table.",
-      parameters: z.object({
+      inputSchema: z.object({
         table: z.string().describe("The table name to get FKs for"),
       }),
       execute: async ({ table }) => {
@@ -255,7 +228,7 @@ function createCrossTableTools(connectionId: string, schema: string) {
 
     execute_readonly_query: tool({
       description: "Execute a read-only SELECT query to find data. Use this to search for IDs in related tables.",
-      parameters: z.object({
+      inputSchema: z.object({
         sql: z.string().describe("The SELECT query to execute (must start with SELECT or WITH)"),
       }),
       execute: async ({ sql }) => {
@@ -303,7 +276,7 @@ function buildSystemPrompt(
     .map((c) => {
       let desc = `- ${c.name} (${c.dataType}${c.nullable ? ", nullable" : ""})`;
       if (c.enumValues?.length) {
-        desc += ` - values: ${c.enumValues.slice(0, 10).map((v) => `'${v}'`).join(", ")}`;
+        desc += ` [enum: ${c.enumValues.slice(0, 10).map((v) => `'${v}'`).join(", ")}]`;
       }
       if (c.isForeignKey && c.foreignTable) {
         desc += ` [FK → ${c.foreignTable}.${c.foreignColumn}]`;
@@ -315,62 +288,59 @@ function buildSystemPrompt(
   // Infer potential relationships from column naming
   const inferredRels = inferRelationships(columns, tableName);
   const inferredRelText = inferredRels.length > 0
-    ? `\nINFERRED RELATIONSHIPS (from column naming patterns):
-${inferredRels.map(r => `- ${r.column} → likely references: ${r.possibleTables.join(" or ")} (${r.confidence} confidence)`).join("\n")}`
+    ? `\n## Inferred Relationships\n${inferredRels.map(r => `- ${r.column} → ${r.possibleTables.join(" | ")}`).join("\n")}`
     : "";
+
+  // Get dialect-specific syntax hints
+  const dialectHint = dialect === "postgresql"
+    ? "Use ILIKE for case-insensitive, NOW() - INTERVAL '7 days' for dates, column = true for booleans"
+    : dialect === "mysql"
+    ? "Use LOWER(col) LIKE for case-insensitive, DATE_SUB(NOW(), INTERVAL 7 DAY) for dates, column = 1 for booleans"
+    : dialect === "sqlite"
+    ? "Use LOWER(col) LIKE for case-insensitive, datetime('now', '-7 days') for dates, column = 1 for booleans"
+    : "Use standard SQL syntax";
 
   const crossTableInstructions = enableCrossTable
     ? `
-CROSS-TABLE FILTERING:
-When the user references entities from related tables (e.g., "todos by User X", "orders from Org A"):
+## Cross-Table Filtering
 
-STRATEGY:
-1. First check explicit FKs marked with [FK → table.column]
-2. If no explicit FK, use INFERRED RELATIONSHIPS above based on column naming patterns
-3. Use tools to: list_tables (discover tables), get_table_structure (find searchable columns)
-4. Use execute_readonly_query to find matching IDs
-5. Generate a simple IN subquery
+When the user references entities from other tables (e.g., "orders by John", "items in category X"):
 
-OUTPUT FORMAT - Use ONLY simple IN subqueries:
-✅ CORRECT: column IN (SELECT id FROM table WHERE condition)
-❌ WRONG: Complex JOINs, CTEs, or nested subqueries
+### Workflow
+1. Check if column has explicit FK (marked with [FK → table.column])
+2. If not, use inferred relationships or call list_tables to find related table
+3. Call get_table_structure to find searchable columns (name, email, title, etc.)
+4. Call execute_readonly_query: \`SELECT id FROM table WHERE name ILIKE '%search%'\`
+5. Generate WHERE clause with IN subquery
 
-COMMON PATTERNS:
-- user_id, created_by, author_id → users table (search: name, email, username)
-- org_id, organization_id → organizations table (search: name)
-- project_id → projects table (search: name, title)
-- category_id → categories table (search: name)
-- team_id → teams table (search: name)
+### Output Format
+Use simple IN subqueries only:
+- \`user_id IN (SELECT id FROM users WHERE name ILIKE '%John%')\`
+- \`category_id IN (SELECT id FROM categories WHERE name ILIKE '%Electronics%')\`
 
-EXAMPLES:
-"todos by John" → user_id IN (SELECT id FROM users WHERE name ILIKE '%John%')
-"items in Electronics" → category_id IN (SELECT id FROM categories WHERE name ILIKE '%Electronics%')
-"orders from Acme Corp" → org_id IN (SELECT id FROM organizations WHERE name ILIKE '%Acme%')
-
-LIMITATIONS:
-- Only query tables in the same schema
-- For complex multi-table queries, suggest user use the query editor panel`
+Do NOT use JOINs, CTEs, or complex nested queries.`
     : "";
 
-  return `You are a SQL WHERE clause generator.
+  return `# SQL WHERE Clause Generator
 
-Table: ${tableName}
-Database: ${dialect}
+You generate WHERE clause expressions (without the WHERE keyword) for filtering table data.
 
-Available columns:
+## Target Table
+- Table: \`${tableName}\`
+- Dialect: ${dialect}
+
+## Available Columns
 ${columnList}${inferredRelText}
 
-RULES:
-- Return ONLY the WHERE clause expression WITHOUT the "WHERE" keyword
-- ONLY use columns from the list above
-- Keep expressions simple and readable
-${DIALECT_RULES[dialect] || "Use standard SQL syntax"}
+## Syntax Rules
+${dialectHint}
 ${crossTableInstructions}
 
-Examples:
-- "active users" → status = 'active'
-- "orders over 100" → amount > 100
-- "name contains john" → ${dialect === "postgresql" ? "name ILIKE '%john%'" : "LOWER(name) LIKE '%john%'"}`;
+## Examples
+- "active users" → \`status = 'active'\`
+- "orders over 100" → \`amount > 100\`
+- "name contains john" → \`${dialect === "postgresql" ? "name ILIKE '%john%'" : "LOWER(name) LIKE '%john%'"}\`
+- "created this week" → \`${dialect === "postgresql" ? "created_at >= NOW() - INTERVAL '7 days'" : dialect === "mysql" ? "created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)" : "created_at >= datetime('now', '-7 days')"}\``;
 }
 
 // Simple mode - no tools, direct generation
@@ -426,22 +396,22 @@ After exploring, output ONLY the final WHERE clause in this exact format:
 WHERE_CLAUSE: <your where clause here>
 EXPLANATION: <brief explanation>`,
     tools,
-    maxSteps: MAX_TOOL_ROUNDS,
+    stopWhen: stepCountIs(MAX_TOOL_ROUNDS),
     abortSignal: signal,
     onStepFinish: (step) => {
-      console.log(`📍 [Cross-Table] Step finished. stepType: ${step.stepType}, finishReason: ${step.finishReason}`);
+      // v5: stepType was removed, use finishReason and toolResults to determine step type
+      const hasToolResults = step.toolResults && step.toolResults.length > 0;
+      console.log(`📍 [Cross-Table] Step finished. finishReason: ${step.finishReason}, hasToolResults: ${hasToolResults}`);
       if (step.toolCalls && step.toolCalls.length > 0) {
         for (const tc of step.toolCalls) {
-          console.log(`🔧 [Cross-Table] Tool call: ${tc.toolName}`, JSON.stringify(tc.args || {}));
+          // v5: args renamed to input
+          console.log(`🔧 [Cross-Table] Tool call: ${tc.toolName}`, JSON.stringify(tc.input || {}));
         }
       }
       if (step.toolResults && step.toolResults.length > 0) {
         for (const tr of step.toolResults) {
-          // Log full object keys to understand structure
-          console.log(`📦 [Cross-Table] Tool result object keys:`, Object.keys(tr));
-          // Safely handle undefined results - try both 'result' and 'output' properties
-          const resultValue = (tr as Record<string, unknown>).result ?? (tr as Record<string, unknown>).output;
-          const resultStr = resultValue != null ? JSON.stringify(resultValue) : "undefined";
+          // v5: result renamed to output
+          const resultStr = tr.output != null ? JSON.stringify(tr.output) : "undefined";
           const preview = resultStr.slice(0, 300);
           console.log(`📦 [Cross-Table] Tool result (${tr.toolName}): ${preview}${resultStr.length > 300 ? '...' : ''}`);
         }
@@ -463,7 +433,9 @@ EXPLANATION: <brief explanation>`,
   if (result.steps) {
     for (let i = 0; i < result.steps.length; i++) {
       const step = result.steps[i];
-      console.log(`📊 [Cross-Table] Step ${i + 1}: type=${step.stepType}, finish=${step.finishReason}, toolCalls=${step.toolCalls?.length ?? 0}`);
+      // v5: stepType removed, determine type from toolResults presence
+      const stepType = step.toolResults?.length ? "tool-result" : (step.toolCalls?.length ? "tool-call" : "text");
+      console.log(`📊 [Cross-Table] Step ${i + 1}: type=${stepType}, finish=${step.finishReason}, toolCalls=${step.toolCalls?.length ?? 0}`);
     }
   }
 

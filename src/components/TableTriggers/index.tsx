@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { IconAlertCircle, IconBolt } from '@tabler/icons-react';
 import { databaseService, type TriggerMeta } from "@/services/databaseService";
 import { EditableDataGrid } from "@/components/DataGridV2/base/EditableDataGrid";
-import type { GridEditCommitEvent } from "@/components/DataGridV2/types";
+import type { GridEditCommitEvent, GridRowModel } from "@/components/DataGridV2/types";
 import { useColumnSizing } from "@/components/DataGridV2/hooks/useColumnSizing";
 import { TextSingleLineCellRenderer } from "@/components/DataGridV2/renderers/TextCell";
 import { triggerColumns } from "./columns";
@@ -222,7 +222,7 @@ export const TableTriggers = memo(function TableTriggers({
     <div className="h-full flex flex-col">
       <div className="flex-1">
         <EditableDataGrid
-          rows={gridRows}
+          rows={gridRows as unknown as GridRowModel[]}
           columns={sizedColumns}
           getCellContent={getCellContent}
           customRenderers={customRenderers}

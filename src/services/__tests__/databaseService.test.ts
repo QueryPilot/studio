@@ -1,19 +1,57 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { mockTauriCommands, createMockTable, createMockColumn } from '@/test-utils/mockTauri';
-import type { ConnectionProfile } from '@/types/connection';
+import { type ConnectionProfile, DbType } from '@/types/connection';
+
+// Type for mock invoke args (more permissive than InvokeArgs)
+interface MockInvokeArgs {
+  profile?: ConnectionProfile;
+  connection_id?: string;
+  schema?: string;
+  table?: string;
+  sql?: string;
+  id?: string;
+  provider?: string;
+  key?: string;
+  [key: string]: unknown;
+}
+
+// Type for connection response
+interface ConnectionResponse {
+  connection_id: string;
+  server_version: string;
+}
+
+// Type for test connection response
+interface TestConnectionResponse {
+  success: boolean;
+  message?: string;
+  version?: string | null;
+  warnings: string[];
+}
+
+// Type for success response
+interface SuccessResponse {
+  success: boolean;
+}
+
+// Type for sidecar status response
+interface SidecarStatusResponse {
+  running: boolean;
+  port: number;
+}
 
 describe('databaseService with Tauri IPC Mocking', () => {
   const mockProfile: ConnectionProfile = {
     id: 'test-conn',
     name: 'Test Database',
-    db_type: 'Postgres',
+    db_type: DbType.PostgreSQL,
     host: 'localhost',
     port: 5432,
     database: 'testdb',
     username: 'postgres',
     password: 'password',
-    color: '#3b82f6',
+    options: {},
   };
 
   beforeEach(() => {
@@ -27,7 +65,8 @@ describe('databaseService with Tauri IPC Mocking', () => {
       mockTauriCommands((cmd, args) => {
         if (cmd === 'connect_to_database') {
           expect(args).toBeDefined();
-          expect(args?.profile).toMatchObject({
+          const connArgs = args as MockInvokeArgs;
+          expect(connArgs.profile).toMatchObject({
             db_type: mockProfile.db_type,
             host: mockProfile.host,
             port: mockProfile.port,
@@ -37,9 +76,10 @@ describe('databaseService with Tauri IPC Mocking', () => {
             server_version: 'PostgreSQL 15.0',
           };
         }
+        return undefined;
       });
 
-      const response = await invoke('connect_to_database', { profile: mockProfile });
+      const response = await invoke('connect_to_database', { profile: mockProfile }) as ConnectionResponse;
 
       expect(response.connection_id).toBe('conn-123');
       expect(response.server_version).toBe('PostgreSQL 15.0');
@@ -50,9 +90,11 @@ describe('databaseService with Tauri IPC Mocking', () => {
 
       mockTauriCommands((cmd, args) => {
         if (cmd === 'get_databases') {
-          expect(args?.connection_id).toBe('conn-123');
+          const typedArgs = args as MockInvokeArgs;
+          expect(typedArgs.connection_id).toBe('conn-123');
           return mockDatabases;
         }
+        return undefined;
       });
 
       const result = await invoke('get_databases', { connection_id: 'conn-123' });
@@ -67,16 +109,18 @@ describe('databaseService with Tauri IPC Mocking', () => {
 
       mockTauriCommands((cmd, args) => {
         if (cmd === 'get_tables') {
-          expect(args?.connection_id).toBe('conn-123');
-          expect(args?.schema).toBe('public');
+          const typedArgs = args as MockInvokeArgs;
+          expect(typedArgs.connection_id).toBe('conn-123');
+          expect(typedArgs.schema).toBe('public');
           return mockTables;
         }
+        return undefined;
       });
 
       const result = await invoke('get_tables', {
         connection_id: 'conn-123',
         schema: 'public',
-      });
+      }) as unknown[];
 
       expect(result).toEqual(mockTables);
       expect(result).toHaveLength(2);
@@ -90,11 +134,13 @@ describe('databaseService with Tauri IPC Mocking', () => {
 
       mockTauriCommands((cmd, args) => {
         if (cmd === 'get_table_columns') {
-          expect(args?.connection_id).toBe('conn-123');
-          expect(args?.schema).toBe('public');
-          expect(args?.table).toBe('users');
+          const typedArgs = args as MockInvokeArgs;
+          expect(typedArgs.connection_id).toBe('conn-123');
+          expect(typedArgs.schema).toBe('public');
+          expect(typedArgs.table).toBe('users');
           return mockColumns;
         }
+        return undefined;
       });
 
       const result = await invoke('get_table_columns', {
@@ -109,13 +155,15 @@ describe('databaseService with Tauri IPC Mocking', () => {
     it('should call execute_sql command', async () => {
       mockTauriCommands((cmd, args) => {
         if (cmd === 'execute_sql') {
-          expect(args?.connection_id).toBe('conn-123');
-          expect(args?.sql).toBe('DELETE FROM users WHERE id = 1');
+          const typedArgs = args as MockInvokeArgs;
+          expect(typedArgs.connection_id).toBe('conn-123');
+          expect(typedArgs.sql).toBe('DELETE FROM users WHERE id = 1');
           return {
             success: true,
             rows_affected: 1,
           };
         }
+        return undefined;
       });
 
       const result = await invoke('execute_sql', {
@@ -175,7 +223,8 @@ describe('databaseService with Tauri IPC Mocking', () => {
     it('should test connection successfully', async () => {
       mockTauriCommands((cmd, args) => {
         if (cmd === 'test_connection') {
-          expect(args?.profile).toMatchObject({
+          const typedArgs = args as MockInvokeArgs;
+          expect(typedArgs.profile).toMatchObject({
             host: mockProfile.host,
             port: mockProfile.port,
           });
@@ -186,9 +235,10 @@ describe('databaseService with Tauri IPC Mocking', () => {
             warnings: [],
           };
         }
+        return undefined;
       });
 
-      const result = await invoke('test_connection', { profile: mockProfile });
+      const result = await invoke('test_connection', { profile: mockProfile }) as TestConnectionResponse;
 
       expect(result.success).toBe(true);
       expect(result.version).toBe('PostgreSQL 15.0');
@@ -204,9 +254,10 @@ describe('databaseService with Tauri IPC Mocking', () => {
             warnings: [],
           };
         }
+        return undefined;
       });
 
-      const result = await invoke('test_connection', { profile: mockProfile });
+      const result = await invoke('test_connection', { profile: mockProfile }) as TestConnectionResponse;
 
       expect(result.success).toBe(false);
       expect(result.message).toBe('Authentication failed');
@@ -222,9 +273,10 @@ describe('databaseService with Tauri IPC Mocking', () => {
             warnings: ['Server version is outdated'],
           };
         }
+        return undefined;
       });
 
-      const result = await invoke('test_connection', { profile: mockProfile });
+      const result = await invoke('test_connection', { profile: mockProfile }) as TestConnectionResponse;
 
       expect(result.success).toBe(true);
       expect(result.warnings).toHaveLength(1);
@@ -236,14 +288,16 @@ describe('databaseService with Tauri IPC Mocking', () => {
     it('should disconnect from database', async () => {
       mockTauriCommands((cmd, args) => {
         if (cmd === 'disconnect_from_database') {
-          expect(args?.connection_id).toBe('conn-123');
+          const typedArgs = args as MockInvokeArgs;
+          expect(typedArgs.connection_id).toBe('conn-123');
           return { success: true };
         }
+        return undefined;
       });
 
       const result = await invoke('disconnect_from_database', {
         connection_id: 'conn-123',
-      });
+      }) as SuccessResponse;
 
       expect(result.success).toBe(true);
     });
@@ -255,9 +309,11 @@ describe('databaseService with Tauri IPC Mocking', () => {
 
       mockTauriCommands((cmd, args) => {
         if (cmd === 'get_schemas') {
-          expect(args?.connection_id).toBe('conn-123');
+          const typedArgs = args as MockInvokeArgs;
+          expect(typedArgs.connection_id).toBe('conn-123');
           return mockSchemas;
         }
+        return undefined;
       });
 
       const result = await invoke('get_schemas', {
@@ -289,18 +345,20 @@ describe('databaseService with Tauri IPC Mocking', () => {
 
       mockTauriCommands((cmd, args) => {
         if (cmd === 'get_table_indexes') {
-          expect(args?.connection_id).toBe('conn-123');
-          expect(args?.schema).toBe('public');
-          expect(args?.table).toBe('users');
+          const typedArgs = args as MockInvokeArgs;
+          expect(typedArgs.connection_id).toBe('conn-123');
+          expect(typedArgs.schema).toBe('public');
+          expect(typedArgs.table).toBe('users');
           return mockIndexes;
         }
+        return undefined;
       });
 
       const result = await invoke('get_table_indexes', {
         connection_id: 'conn-123',
         schema: 'public',
         table: 'users',
-      });
+      }) as unknown[];
 
       expect(result).toEqual(mockIndexes);
       expect(result).toHaveLength(2);
@@ -324,11 +382,13 @@ describe('databaseService with Tauri IPC Mocking', () => {
 
       mockTauriCommands((cmd, args) => {
         if (cmd === 'get_table_constraints') {
-          expect(args?.connection_id).toBe('conn-123');
-          expect(args?.schema).toBe('public');
-          expect(args?.table).toBe('users');
+          const typedArgs = args as MockInvokeArgs;
+          expect(typedArgs.connection_id).toBe('conn-123');
+          expect(typedArgs.schema).toBe('public');
+          expect(typedArgs.table).toBe('users');
           return mockConstraints;
         }
+        return undefined;
       });
 
       const result = await invoke('get_table_constraints', {
@@ -345,17 +405,19 @@ describe('databaseService with Tauri IPC Mocking', () => {
     it('should save connection profile', async () => {
       mockTauriCommands((cmd, args) => {
         if (cmd === 'save_connection_profile') {
-          expect(args?.profile).toMatchObject({
+          const typedArgs = args as MockInvokeArgs;
+          expect(typedArgs.profile).toMatchObject({
             name: mockProfile.name,
             db_type: mockProfile.db_type,
           });
           return { success: true };
         }
+        return undefined;
       });
 
       const result = await invoke('save_connection_profile', {
         profile: mockProfile,
-      });
+      }) as SuccessResponse;
 
       expect(result.success).toBe(true);
     });
@@ -374,9 +436,10 @@ describe('databaseService with Tauri IPC Mocking', () => {
         if (cmd === 'load_connection_profiles') {
           return mockProfiles;
         }
+        return undefined;
       });
 
-      const result = await invoke('load_connection_profiles');
+      const result = await invoke('load_connection_profiles') as unknown[];
 
       expect(result).toEqual(mockProfiles);
       expect(result).toHaveLength(2);
@@ -385,14 +448,16 @@ describe('databaseService with Tauri IPC Mocking', () => {
     it('should delete connection profile', async () => {
       mockTauriCommands((cmd, args) => {
         if (cmd === 'delete_connection_profile') {
-          expect(args?.id).toBe('test-conn');
+          const typedArgs = args as MockInvokeArgs;
+          expect(typedArgs.id).toBe('test-conn');
           return { success: true };
         }
+        return undefined;
       });
 
       const result = await invoke('delete_connection_profile', {
         id: 'test-conn',
-      });
+      }) as SuccessResponse;
 
       expect(result.success).toBe(true);
     });
@@ -402,9 +467,11 @@ describe('databaseService with Tauri IPC Mocking', () => {
     it('should get AI API key', async () => {
       mockTauriCommands((cmd, args) => {
         if (cmd === 'get_ai_api_key') {
-          expect(args?.provider).toBe('openai');
+          const typedArgs = args as MockInvokeArgs;
+          expect(typedArgs.provider).toBe('openai');
           return 'sk-test-1234';
         }
+        return undefined;
       });
 
       const result = await invoke('get_ai_api_key', {
@@ -415,10 +482,11 @@ describe('databaseService with Tauri IPC Mocking', () => {
     });
 
     it('should return null for missing API key', async () => {
-      mockTauriCommands((cmd, args) => {
-        if (cmd === 'get_ai_api_key') {
+      mockTauriCommands((_cmd) => {
+        if (_cmd === 'get_ai_api_key') {
           return null;
         }
+        return undefined;
       });
 
       const result = await invoke('get_ai_api_key', {
@@ -431,16 +499,18 @@ describe('databaseService with Tauri IPC Mocking', () => {
     it('should set AI API key', async () => {
       mockTauriCommands((cmd, args) => {
         if (cmd === 'set_ai_api_key') {
-          expect(args?.provider).toBe('openai');
-          expect(args?.key).toBe('sk-test-5678');
+          const typedArgs = args as MockInvokeArgs;
+          expect(typedArgs.provider).toBe('openai');
+          expect(typedArgs.key).toBe('sk-test-5678');
           return { success: true };
         }
+        return undefined;
       });
 
       const result = await invoke('set_ai_api_key', {
         provider: 'openai',
         key: 'sk-test-5678',
-      });
+      }) as SuccessResponse;
 
       expect(result.success).toBe(true);
     });
@@ -453,9 +523,10 @@ describe('databaseService with Tauri IPC Mocking', () => {
             port: 3001,
           };
         }
+        return undefined;
       });
 
-      const result = await invoke('get_sidecar_status');
+      const result = await invoke('get_sidecar_status') as SidecarStatusResponse;
 
       expect(result.running).toBe(true);
       expect(result.port).toBe(3001);

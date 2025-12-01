@@ -466,16 +466,14 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
               <div className="flex flex-col gap-2 p-3">
                 {/* Quick action buttons */}
                 <div className="flex items-center gap-2 pb-2 border-b">
-                  {kind !== "time-cell" && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs flex-1"
-                      onClick={handleSetToday}
-                    >
-                      Today
-                    </Button>
-                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs flex-1"
+                    onClick={handleSetToday}
+                  >
+                    Today
+                  </Button>
                   {kind !== "date-cell" && (
                     <Button
                       variant="outline"
@@ -500,27 +498,25 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
                   </div>
                 </div>
 
-                {/* Calendar for date/datetime */}
-                {kind !== "time-cell" && (
-                  <CalendarPicker
-                    mode="single"
-                    selected={selectedDate ?? undefined}
-                    onSelect={handleDateSelect}
-                    captionLayout="dropdown"
-                    className="border-0 p-0"
-                    startMonth={new Date(1900, 0)}
-                    endMonth={new Date(2100, 0)}
-                    defaultMonth={selectedDate ?? new Date()}
-                    autoFocus={false}
-                    onDayClick={(day, modifiers, e) => {
-                      // Ensure single click works by stopping event from being swallowed
-                      e.stopPropagation();
-                      if (!modifiers.disabled) {
-                        handleDateSelect(day);
-                      }
-                    }}
-                  />
-                )}
+                {/* Calendar for date/datetime - always shown since we're in the non-time-cell branch */}
+                <CalendarPicker
+                  mode="single"
+                  selected={selectedDate ?? undefined}
+                  onSelect={handleDateSelect}
+                  captionLayout="dropdown"
+                  className="border-0 p-0"
+                  startMonth={new Date(1900, 0)}
+                  endMonth={new Date(2100, 0)}
+                  defaultMonth={selectedDate ?? new Date()}
+                  autoFocus={false}
+                  onDayClick={(day, modifiers, e) => {
+                    // Ensure single click works by stopping event from being swallowed
+                    e.stopPropagation();
+                    if (!modifiers.disabled) {
+                      handleDateSelect(day);
+                    }
+                  }}
+                />
 
                 {/* Time picker for time/datetime - Collapsible */}
                 {kind !== "date-cell" && (

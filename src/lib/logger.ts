@@ -29,7 +29,7 @@ function emit(
   // Drop non-error logs in production to avoid disk I/O and noise
   if (isProd && level !== "error") return;
 
-  const { namespace, payload } = normalize(namespaceOrMessage, args);
+  const { namespace } = normalize(namespaceOrMessage, args);
   const prefix = `[${namespace}]`;
   const fn =
     level === "debug"

@@ -65,9 +65,9 @@ export const parseDateTime = (
 
   // Create date without timezone conversion by using UTC and then treating as local display
   const dateObj = new Date(
-    parseInt(year, 10),
-    parseInt(month, 10) - 1,
-    parseInt(day, 10),
+    parseInt(year ?? "0", 10),
+    parseInt(month ?? "1", 10) - 1,
+    parseInt(day ?? "1", 10),
   );
 
   return {

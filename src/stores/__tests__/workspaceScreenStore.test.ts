@@ -150,12 +150,12 @@ describe("workspaceScreenStore", () => {
     it("should move active tab to secondary panel on split", () => {
       const store = useWorkspaceScreenStore.getState();
 
-      const primaryPanelId = store.getPanels().values().next().value.id;
+      const primaryPanelId = store.getPanels().values().next().value?.id!;
 
       // Add another tab to primary panel
       store.addTab(primaryPanelId, { title: "Test Tab" });
 
-      const primaryTabCount = store.getPanels().get(primaryPanelId)?.tabs.size || 0;
+      // Add another tab ensures we have tabs to move to secondary panel
 
       store.splitPanel("horizontal");
 
@@ -173,7 +173,7 @@ describe("workspaceScreenStore", () => {
       const store = useWorkspaceScreenStore.getState();
 
       // Clear default tab
-      const primaryPanelId = store.getPanels().values().next().value.id;
+      const primaryPanelId = store.getPanels().values().next().value?.id!;
       const defaultTabId = store.getPanels().get(primaryPanelId)?.activeTabId;
       if (defaultTabId) {
         store.closeTab(defaultTabId, primaryPanelId);
@@ -247,7 +247,7 @@ describe("workspaceScreenStore", () => {
     it("should add tab to panel", () => {
       const store = useWorkspaceScreenStore.getState();
 
-      const panelId = store.getPanels().values().next().value.id;
+      const panelId = store.getPanels().values().next().value?.id!;
       const tabId = store.addTab(panelId, { title: "New Tab", type: "table" });
 
       expect(tabId).toBeTruthy();
@@ -260,7 +260,7 @@ describe("workspaceScreenStore", () => {
     it("should add tab with custom data", () => {
       const store = useWorkspaceScreenStore.getState();
 
-      const panelId = store.getPanels().values().next().value.id;
+      const panelId = store.getPanels().values().next().value?.id!;
       const tabId = store.addTab(panelId, {
         title: "Custom Tab",
         type: "erd",
@@ -278,8 +278,8 @@ describe("workspaceScreenStore", () => {
     it("should set added tab as active", () => {
       const store = useWorkspaceScreenStore.getState();
 
-      const panelId = store.getPanels().values().next().value.id;
-      const tab1 = store.addTab(panelId, { title: "Tab 1" });
+      const panelId = store.getPanels().values().next().value?.id!;
+      store.addTab(panelId, { title: "Tab 1" });
       const tab2 = store.addTab(panelId, { title: "Tab 2" });
 
       const panel = store.getPanels().get(panelId);
@@ -289,7 +289,7 @@ describe("workspaceScreenStore", () => {
     it("should close tab", () => {
       const store = useWorkspaceScreenStore.getState();
 
-      const panelId = store.getPanels().values().next().value.id;
+      const panelId = store.getPanels().values().next().value?.id!;
       const tabId = store.addTab(panelId, { title: "Tab to Close" });
 
       store.closeTab(tabId, panelId);
@@ -301,7 +301,7 @@ describe("workspaceScreenStore", () => {
     it("should update active tab when closing current active", () => {
       const store = useWorkspaceScreenStore.getState();
 
-      const panelId = store.getPanels().values().next().value.id;
+      const panelId = store.getPanels().values().next().value?.id!;
 
       // Close the default tab first so we have a clean slate
       const defaultTabId = store.getPanels().get(panelId)?.activeTabId;
@@ -392,9 +392,9 @@ describe("workspaceScreenStore", () => {
     it("should set active tab", () => {
       const store = useWorkspaceScreenStore.getState();
 
-      const panelId = store.getPanels().values().next().value.id;
+      const panelId = store.getPanels().values().next().value?.id!;
       const tab1 = store.addTab(panelId, { title: "Tab 1" });
-      const tab2 = store.addTab(panelId, { title: "Tab 2" });
+      store.addTab(panelId, { title: "Tab 2" });
 
       store.setActiveTab(panelId, tab1);
 
@@ -405,7 +405,7 @@ describe("workspaceScreenStore", () => {
     it("should not set active tab if tab does not exist", () => {
       const store = useWorkspaceScreenStore.getState();
 
-      const panelId = store.getPanels().values().next().value.id;
+      const panelId = store.getPanels().values().next().value?.id!;
       const currentActive = store.getPanels().get(panelId)?.activeTabId;
 
       store.setActiveTab(panelId, "non-existent");
@@ -417,7 +417,7 @@ describe("workspaceScreenStore", () => {
     it("should update tab", () => {
       const store = useWorkspaceScreenStore.getState();
 
-      const panelId = store.getPanels().values().next().value.id;
+      const panelId = store.getPanels().values().next().value?.id!;
       const tabId = store.addTab(panelId, { title: "Original Title" });
 
       store.updateTab(panelId, tabId, {
@@ -435,7 +435,7 @@ describe("workspaceScreenStore", () => {
     it("should update lastAccessedAt when updating tab", () => {
       const store = useWorkspaceScreenStore.getState();
 
-      const panelId = store.getPanels().values().next().value.id;
+      const panelId = store.getPanels().values().next().value?.id!;
       const tabId = store.addTab(panelId, { title: "Test Tab" });
 
       const beforeUpdate = store.getPanels().get(panelId)?.tabs.get(tabId)?.lastAccessedAt;
@@ -452,7 +452,7 @@ describe("workspaceScreenStore", () => {
     it("should handle updating non-existent tab", () => {
       const store = useWorkspaceScreenStore.getState();
 
-      const panelId = store.getPanels().values().next().value.id;
+      const panelId = store.getPanels().values().next().value?.id!;
       const panelBefore = store.getPanels().get(panelId);
 
       store.updateTab(panelId, "non-existent", { title: "Updated" });

@@ -63,7 +63,6 @@ export interface UseCellHoverIconsResult {
 
 // Icon size and padding
 const ICON_SIZE = 14;
-const ICON_PADDING = 4; // Padding inside button
 const BUTTON_SIZE = 22; // Size of individual clickable area
 const HOVER_DELAY_MS = 150; // Delay before showing icons
 const COPIED_FEEDBACK_MS = 3000; // Duration to show copied checkmark
@@ -244,7 +243,7 @@ export function useCellHoverIcons(
 ): UseCellHoverIconsResult {
   const { columns, rows, onOpenReference, enabled = true, containerRef } = options;
   const [hoveredCell, setHoveredCell] = useState<Item | null>(null);
-  const [hoveredRow, setHoveredRow] = useState<number | null>(null);
+  const [, setHoveredRow] = useState<number | null>(null);
   const [hoveredButton, setHoveredButton] = useState<string | null>(null);
   const [copiedCell, setCopiedCell] = useState<string | null>(null); // Track which cell was just copied
 

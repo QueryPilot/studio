@@ -89,7 +89,7 @@ export function transformStructureToRows(
       },
       db_type: col.dataType || "text",
       nullable: col.nullable ? "YES" : "NO",
-      default: col.defaultValue, // Keep null/undefined as-is
+      default: col.defaultValue != null ? String(col.defaultValue) : null,
       foreign_key: "",
       check_constraint: col.checkExpression ?? "",
       comment: col.comment ?? "",

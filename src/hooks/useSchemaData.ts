@@ -4,7 +4,6 @@ import {
   type TableMeta,
   type FunctionMeta,
 } from "@/services/databaseService";
-import { Backend } from "@/services/backend";
 
 import { type QueryObserverResult, useQuery } from "@tanstack/react-query";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";

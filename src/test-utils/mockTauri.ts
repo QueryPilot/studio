@@ -139,7 +139,10 @@ export function mockTauriCommands(
 
     // Fallback to default mocks
     if (useDefaults && cmd in defaultCommandMocks) {
-      return defaultCommandMocks[cmd](args);
+      const mockFn = defaultCommandMocks[cmd];
+      if (mockFn) {
+        return mockFn(args);
+      }
     }
 
     // Command not found
@@ -188,7 +191,10 @@ export function mockTauriEvents() {
  * ```
  */
 export function mockTauriWindows(...labels: string[]) {
-  mockWindows(...labels);
+  // Call mockWindows with the first label as current, rest as additional
+  if (labels.length > 0) {
+    mockWindows(labels[0] as string, ...labels.slice(1));
+  }
 }
 
 /**

@@ -606,68 +606,6 @@ pub enum StreamEvent {
     },
 }
 
-// Index operation requests
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateIndexRequest {
-    pub name: String,
-    pub columns: Vec<String>,
-    pub unique: bool,
-    pub index_type: String,        // btree, hash, gin, gist, etc.
-    pub condition: Option<String>, // For partial indexes
-}
-
-// Table structure operation requests
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AddColumnRequest {
-    pub name: String,
-    pub data_type: String,
-    pub nullable: bool,
-    pub default_value: Option<String>,
-    pub check_constraint: Option<String>,
-    pub comment: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModifyColumnRequest {
-    pub name: String,
-    pub new_name: Option<String>,
-    pub new_type: Option<String>,
-    pub nullable: Option<bool>,
-    pub default_value: Option<String>,
-    pub drop_default: bool,
-    pub new_check_constraint: Option<String>,
-    pub drop_check_constraint: bool,
-    pub comment: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AddForeignKeyRequest {
-    pub constraint_name: Option<String>,
-    pub column_name: String,
-    pub referenced_table: String,
-    pub referenced_column: String,
-    pub on_update: String, // NO ACTION, CASCADE, SET NULL, SET DEFAULT, RESTRICT
-    pub on_delete: String, // NO ACTION, CASCADE, SET NULL, SET DEFAULT, RESTRICT
-}
-
-// Trigger operation requests
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateTriggerRequest {
-    pub name: String,
-    pub event: Vec<String>,        // INSERT, UPDATE, DELETE, TRUNCATE
-    pub timing: String,            // BEFORE, AFTER, INSTEAD OF
-    pub level: String,             // ROW, STATEMENT
-    pub function_name: String,     // The trigger function to execute
-    pub condition: Option<String>, // WHEN condition for the trigger
-    pub for_each: Option<String>,  // Optional: ROW or STATEMENT (defaults to level)
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EnableDisableTriggerRequest {
-    pub name: String,
-    pub enabled: bool,
-}
-
 // ============================================================================
 // CRUD STAGING TRANSACTION TYPES
 // ============================================================================

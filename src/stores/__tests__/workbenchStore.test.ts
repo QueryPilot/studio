@@ -1,7 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import useWorkbenchStore from "../workbenchStore";
-import { useTabStateStore } from "../tabStateStore";
-import type { GridNode, PanelContent } from "@/types/workbench";
 
 // Create a mock clearQueryState function
 const mockClearQueryState = vi.fn();
@@ -105,7 +103,7 @@ describe("workbenchStore", () => {
 
       store.splitPanelAction({
         targetPanelId: initialPanelId,
-        direction: "horizontal",
+        direction: "right",
         newPanelContent: {
           id: "new-panel",
           type: "editor",
@@ -128,7 +126,7 @@ describe("workbenchStore", () => {
 
       store.splitPanelAction({
         targetPanelId: initialPanelId,
-        direction: "vertical",
+        direction: "down",
         newPanelContent: {
           id: "new-panel",
           type: "editor",
@@ -150,7 +148,7 @@ describe("workbenchStore", () => {
 
       store.splitPanelAction({
         targetPanelId: initialPanelId,
-        direction: "horizontal",
+        direction: "right",
         newPanelContent: {
           id: "new-panel",
           type: "editor",
@@ -169,7 +167,7 @@ describe("workbenchStore", () => {
 
       store.splitPanelAction({
         targetPanelId: "panel-1",
-        direction: "horizontal",
+        direction: "right",
         newPanelContent: {
           id: "new-panel",
           type: "editor",
@@ -221,7 +219,7 @@ describe("workbenchStore", () => {
       // Split to create 2 panels
       store.splitPanelAction({
         targetPanelId: initialPanelId,
-        direction: "horizontal",
+        direction: "right",
         newPanelContent: {
           id: "panel-2",
           type: "editor",
@@ -251,7 +249,7 @@ describe("workbenchStore", () => {
 
       store.closePanelAction(panelId, true);
 
-      expect(useTabStateStore.getState().clearQueryState).toHaveBeenCalledWith(
+      expect(mockClearQueryState).toHaveBeenCalledWith(
         "tab-1",
       );
     });
@@ -267,7 +265,7 @@ describe("workbenchStore", () => {
       // Split to create resizable panels
       store.splitPanelAction({
         targetPanelId: initialPanelId,
-        direction: "horizontal",
+        direction: "right",
         newPanelContent: {
           id: "panel-2",
           type: "editor",
@@ -302,7 +300,7 @@ describe("workbenchStore", () => {
       // Split to create second panel
       store.splitPanelAction({
         targetPanelId: panel1Id,
-        direction: "horizontal",
+        direction: "right",
         newPanelContent: {
           id: "panel-2",
           type: "editor",
@@ -338,7 +336,7 @@ describe("workbenchStore", () => {
 
       store.splitPanelAction({
         targetPanelId: panel1Id,
-        direction: "horizontal",
+        direction: "right",
         newPanelContent: {
           id: "panel-2",
           type: "editor",
@@ -366,7 +364,7 @@ describe("workbenchStore", () => {
 
       store.splitPanelAction({
         targetPanelId: panel1Id,
-        direction: "horizontal",
+        direction: "right",
         newPanelContent: {
           id: "panel-2",
           type: "editor",
@@ -398,7 +396,7 @@ describe("workbenchStore", () => {
 
       store.splitPanelAction({
         targetPanelId: panel1Id,
-        direction: "horizontal",
+        direction: "right",
         newPanelContent: {
           id: "panel-2",
           type: "editor",
@@ -431,7 +429,7 @@ describe("workbenchStore", () => {
 
       store.splitPanelAction({
         targetPanelId: panel1Id,
-        direction: "horizontal",
+        direction: "right",
         newPanelContent: {
           id: "panel-2",
           type: "editor",
@@ -477,7 +475,7 @@ describe("workbenchStore", () => {
 
       store.splitPanelAction({
         targetPanelId: panel1Id,
-        direction: "horizontal",
+        direction: "right",
         newPanelContent: {
           id: "panel-2",
           type: "editor",
@@ -511,31 +509,31 @@ describe("workbenchStore", () => {
       const store = useWorkbenchStore.getState();
 
       store.setDragContext({
-        draggedTab: "tab-1",
+        draggedTab: { id: "tab-1", panelId: "panel-1" },
         draggedPanel: "panel-1",
       });
 
       const state = useWorkbenchStore.getState();
-      expect(state.dragDropContext.draggedTab).toBe("tab-1");
+      expect(state.dragDropContext.draggedTab?.id).toBe("tab-1");
       expect(state.dragDropContext.draggedPanel).toBe("panel-1");
     });
 
     it("should merge drag context", () => {
       const store = useWorkbenchStore.getState();
 
-      store.setDragContext({ draggedTab: "tab-1" });
-      store.setDragContext({ dropTarget: "panel-2" });
+      store.setDragContext({ draggedTab: { id: "tab-1", panelId: "panel-1" } });
+      store.setDragContext({ dropTarget: { panelId: "panel-2" } });
 
       const state = useWorkbenchStore.getState();
-      expect(state.dragDropContext.draggedTab).toBe("tab-1");
-      expect(state.dragDropContext.dropTarget).toBe("panel-2");
+      expect(state.dragDropContext.draggedTab?.id).toBe("tab-1");
+      expect(state.dragDropContext.dropTarget?.panelId).toBe("panel-2");
     });
 
     it("should clear drag context", () => {
       const store = useWorkbenchStore.getState();
 
       store.setDragContext({
-        draggedTab: "tab-1",
+        draggedTab: { id: "tab-1", panelId: "panel-1" },
         draggedPanel: "panel-1",
       });
 
@@ -560,7 +558,7 @@ describe("workbenchStore", () => {
 
       store.splitPanelAction({
         targetPanelId: panelId,
-        direction: "horizontal",
+        direction: "right",
         newPanelContent: {
           id: "panel-2",
           type: "editor",
@@ -580,7 +578,7 @@ describe("workbenchStore", () => {
 
       store.splitPanelAction({
         targetPanelId: panelId,
-        direction: "horizontal",
+        direction: "right",
         newPanelContent: {
           id: "panel-2",
           type: "editor",
@@ -604,7 +602,7 @@ describe("workbenchStore", () => {
 
       store.splitPanelAction({
         targetPanelId: panelId,
-        direction: "horizontal",
+        direction: "right",
         newPanelContent: {
           id: "panel-2",
           type: "editor",
@@ -691,7 +689,7 @@ describe("workbenchStore", () => {
 
       store.splitPanelAction({
         targetPanelId: panelId,
-        direction: "horizontal",
+        direction: "right",
         newPanelContent: {
           id: "panel-2",
           type: "editor",
@@ -783,7 +781,7 @@ describe("workbenchStore", () => {
 
       store.splitPanelAction({
         targetPanelId: panel1Id,
-        direction: "horizontal",
+        direction: "right",
         newPanelContent: {
           id: "panel-2",
           type: "editor",
@@ -814,7 +812,7 @@ describe("workbenchStore", () => {
 
       store.removeTab(panelId, "tab-1");
 
-      expect(useTabStateStore.getState().clearQueryState).toHaveBeenCalledWith(
+      expect(mockClearQueryState).toHaveBeenCalledWith(
         "tab-1",
       );
     });

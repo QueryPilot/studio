@@ -5,7 +5,6 @@ import { cn } from "@/lib/utils";
 import { CodeEditor } from "@/components/CodeEditor";
 import type { SqlDialect } from "@/components/CodeEditor";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
-import { DbType } from "@/types/connection";
 import { detectDialectForObject } from "@/utils/dialectDetector";
 
 interface ObjectDefinitionProps {

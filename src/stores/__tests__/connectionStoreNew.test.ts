@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useConnectionStore } from '../connectionStoreNew';
 import { vaultStorage } from '@/services/vaultStorage';
 import type { StoredConnection, ConnectionProfile } from '@/types/connection';
+import { DbType } from '@/types/connection';
 
 // Mock vaultStorage
 vi.mock('@/services/vaultStorage', () => ({
@@ -19,45 +20,41 @@ vi.mock('@/services/vaultStorage', () => ({
 describe('connectionStoreNew', () => {
   const mockConnections: StoredConnection[] = [
     {
-      id: 'conn-1',
       profile: {
         id: 'conn-1',
         name: 'Production DB',
-        db_type: 'Postgres',
+        db_type: DbType.PostgreSQL,
         host: 'localhost',
         port: 5432,
         database: 'prod',
         username: 'admin',
-        color: '#3b82f6',
+        options: {},
       },
       metadata: {
         is_favorite: true,
         tags: ['production', 'critical'],
         last_used: '2025-01-01T00:00:00Z',
         created_at: '2024-01-01T00:00:00Z',
-        updated_at: '2025-01-01T00:00:00Z',
-        usage_count: 100,
+        use_count: 100,
       },
     },
     {
-      id: 'conn-2',
       profile: {
         id: 'conn-2',
         name: 'Development DB',
-        db_type: 'Postgres',
+        db_type: DbType.PostgreSQL,
         host: 'localhost',
         port: 5433,
         database: 'dev',
         username: 'dev',
-        color: '#10b981',
+        options: {},
       },
       metadata: {
         is_favorite: false,
         tags: ['development'],
         last_used: '2024-12-01T00:00:00Z',
         created_at: '2024-02-01T00:00:00Z',
-        updated_at: '2024-12-01T00:00:00Z',
-        usage_count: 50,
+        use_count: 50,
       },
     },
   ];
@@ -127,27 +124,25 @@ describe('connectionStoreNew', () => {
       const newProfile: ConnectionProfile = {
         id: 'new-conn',
         name: 'Test DB',
-        db_type: 'Postgres',
+        db_type: DbType.PostgreSQL,
         host: 'localhost',
         port: 5434,
         database: 'test',
         username: 'test',
-        color: '#f59e0b',
+        options: {},
       };
 
       vi.mocked(vaultStorage.storeConnection).mockResolvedValue('new-conn');
       vi.mocked(vaultStorage.listConnections).mockResolvedValue([
         ...mockConnections,
         {
-          id: 'new-conn',
           profile: newProfile,
           metadata: {
-            isFavorite: false,
+            is_favorite: false,
             tags: [],
-            lastUsed: new Date().toISOString(),
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            usageCount: 0,
+            last_used: new Date().toISOString(),
+            created_at: new Date().toISOString(),
+            use_count: 0,
           },
         },
       ]);
@@ -165,12 +160,12 @@ describe('connectionStoreNew', () => {
       const newProfile: ConnectionProfile = {
         id: 'new-conn',
         name: 'Test DB',
-        db_type: 'Postgres',
+        db_type: DbType.PostgreSQL,
         host: 'localhost',
         port: 5434,
         database: 'test',
         username: 'test',
-        color: '#f59e0b',
+        options: {},
       };
 
       vi.mocked(vaultStorage.storeConnection).mockResolvedValue('new-conn');
@@ -190,12 +185,12 @@ describe('connectionStoreNew', () => {
       const newProfile: ConnectionProfile = {
         id: 'new-conn',
         name: 'Test DB',
-        db_type: 'Postgres',
+        db_type: DbType.PostgreSQL,
         host: 'localhost',
         port: 5434,
         database: 'test',
         username: 'test',
-        color: '#f59e0b',
+        options: {},
       };
 
       vi.mocked(vaultStorage.storeConnection).mockResolvedValue('new-conn');
@@ -215,12 +210,12 @@ describe('connectionStoreNew', () => {
       const newProfile: ConnectionProfile = {
         id: 'new-conn',
         name: 'Test DB',
-        db_type: 'Postgres',
+        db_type: DbType.PostgreSQL,
         host: 'localhost',
         port: 5434,
         database: 'test',
         username: 'test',
-        color: '#f59e0b',
+        options: {},
       };
 
       const errorMessage = 'Failed to save connection';
@@ -238,7 +233,8 @@ describe('connectionStoreNew', () => {
   describe('deleteConnection', () => {
     it('should delete connection and refetch', async () => {
       vi.mocked(vaultStorage.deleteConnection).mockResolvedValue();
-      vi.mocked(vaultStorage.listConnections).mockResolvedValue([mockConnections[0]]);
+      const firstConnection = mockConnections[0];
+      vi.mocked(vaultStorage.listConnections).mockResolvedValue(firstConnection ? [firstConnection] : []);
 
       const store = useConnectionStore.getState();
       await store.deleteConnection('conn-2');
@@ -298,7 +294,7 @@ describe('connectionStoreNew', () => {
       const favorites = store.getFavoriteConnections();
 
       expect(favorites).toHaveLength(1);
-      expect(favorites[0].id).toBe('conn-1');
+      expect(favorites[0]?.profile.id).toBe('conn-1');
     });
 
     it('should get recent connections sorted by lastUsed', () => {
@@ -306,8 +302,8 @@ describe('connectionStoreNew', () => {
       const recent = store.getRecentConnections();
 
       expect(recent).toHaveLength(2);
-      expect(recent[0].id).toBe('conn-1'); // Most recent
-      expect(recent[1].id).toBe('conn-2');
+      expect(recent[0]?.profile.id).toBe('conn-1'); // Most recent
+      expect(recent[1]?.profile.id).toBe('conn-2');
     });
 
     it('should limit recent connections', () => {
@@ -315,7 +311,7 @@ describe('connectionStoreNew', () => {
       const recent = store.getRecentConnections(1);
 
       expect(recent).toHaveLength(1);
-      expect(recent[0].id).toBe('conn-1');
+      expect(recent[0]?.profile.id).toBe('conn-1');
     });
   });
 
@@ -329,7 +325,7 @@ describe('connectionStoreNew', () => {
       const results = store.searchConnections('Production');
 
       expect(results).toHaveLength(1);
-      expect(results[0].id).toBe('conn-1');
+      expect(results[0]?.profile.id).toBe('conn-1');
     });
 
     it('should search case-insensitively', () => {
@@ -337,7 +333,7 @@ describe('connectionStoreNew', () => {
       const results = store.searchConnections('development');
 
       expect(results).toHaveLength(1);
-      expect(results[0].id).toBe('conn-2');
+      expect(results[0]?.profile.id).toBe('conn-2');
     });
 
     it('should search by database name', () => {
@@ -345,7 +341,7 @@ describe('connectionStoreNew', () => {
       const results = store.searchConnections('prod');
 
       expect(results).toHaveLength(1);
-      expect(results[0].id).toBe('conn-1');
+      expect(results[0]?.profile.id).toBe('conn-1');
     });
 
     it('should search by tags', () => {
@@ -353,7 +349,7 @@ describe('connectionStoreNew', () => {
       const results = store.searchConnections('critical');
 
       expect(results).toHaveLength(1);
-      expect(results[0].id).toBe('conn-1');
+      expect(results[0]?.profile.id).toBe('conn-1');
     });
 
     it('should return empty array when no matches', () => {
