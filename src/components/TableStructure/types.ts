@@ -12,7 +12,7 @@ export interface StructureGridRow {
   };
   db_type: string;
   nullable: string;
-  default: string;
+  default: string | null;
   foreign_key: string;
   check_constraint: string;
   comment: string;

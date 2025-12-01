@@ -57,7 +57,6 @@ class WindowChannelTracker {
     this.broadcastMessage({
       type: "REQUEST_STATUS",
       windowLabel: this.currentWindowLabel,
-      timestamp: Date.now(),
     });
   }
 
@@ -99,7 +98,6 @@ class WindowChannelTracker {
             type: "WINDOW_OPENED",
             windowLabel: this.currentWindowLabel,
             connectionId: this.currentConnectionId,
-            timestamp: Date.now(),
           });
         }
         break;

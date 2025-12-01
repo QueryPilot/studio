@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useErdStore } from '../erdStore';
 
 describe('erdStore', () => {
@@ -47,18 +47,18 @@ describe('erdStore', () => {
       expect(Object.keys(state.views)).toHaveLength(1);
 
       const view = state.views[viewId];
-      expect(view.id).toBe(viewId);
-      expect(view.name).toBe('Test ERD');
-      expect(view.connectionId).toBe('conn-1');
-      expect(view.database).toBe('testdb');
-      expect(view.schema).toBe('public');
-      expect(view.dbml).toBe('');
-      expect(view.tableCount).toBe(0);
-      expect(view.relationshipCount).toBe(0);
-      expect(view.nodePositions).toEqual({});
-      expect(view.layoutDirection).toBe('LR');
-      expect(view.createdAt).toBe('2025-01-15T10:00:00.000Z');
-      expect(view.updatedAt).toBe('2025-01-15T10:00:00.000Z');
+      expect(view?.id).toBe(viewId);
+      expect(view?.name).toBe('Test ERD');
+      expect(view?.connectionId).toBe('conn-1');
+      expect(view?.database).toBe('testdb');
+      expect(view?.schema).toBe('public');
+      expect(view?.dbml).toBe('');
+      expect(view?.tableCount).toBe(0);
+      expect(view?.relationshipCount).toBe(0);
+      expect(view?.nodePositions).toEqual({});
+      expect(view?.layoutDirection).toBe('LR');
+      expect(view?.createdAt).toBe('2025-01-15T10:00:00.000Z');
+      expect(view?.updatedAt).toBe('2025-01-15T10:00:00.000Z');
     });
 
     it('should auto-generate name if not provided', () => {
@@ -71,7 +71,7 @@ describe('erdStore', () => {
       });
 
       const view = useErdStore.getState().views[viewId];
-      expect(view.name).toBe('public @mydb');
+      expect(view?.name).toBe('public @mydb');
     });
 
     it('should create temporary view', () => {
@@ -84,7 +84,7 @@ describe('erdStore', () => {
       });
 
       const view = useErdStore.getState().views[viewId];
-      expect(view.isTemporary).toBe(true);
+      expect(view?.isTemporary).toBe(true);
     });
 
     it('should return existing view if already exists', () => {
@@ -147,10 +147,10 @@ describe('erdStore', () => {
       });
 
       const view = useErdStore.getState().views[viewId];
-      expect(view.dbml).toBe('Table users { id int }');
-      expect(view.tableCount).toBe(1);
-      expect(view.relationshipCount).toBe(0);
-      expect(view.updatedAt).toBe('2025-01-15T11:00:00.000Z');
+      expect(view?.dbml).toBe('Table users { id int }');
+      expect(view?.tableCount).toBe(1);
+      expect(view?.relationshipCount).toBe(0);
+      expect(view?.updatedAt).toBe('2025-01-15T11:00:00.000Z');
     });
 
     it('should update layout direction', () => {
@@ -164,7 +164,7 @@ describe('erdStore', () => {
       store.updateView(viewId, { layoutDirection: 'TB' });
 
       const view = useErdStore.getState().views[viewId];
-      expect(view.layoutDirection).toBe('TB');
+      expect(view?.layoutDirection).toBe('TB');
     });
 
     it('should update node positions', () => {
@@ -183,7 +183,7 @@ describe('erdStore', () => {
       });
 
       const view = useErdStore.getState().views[viewId];
-      expect(view.nodePositions).toEqual({
+      expect(view?.nodePositions).toEqual({
         'node-1': { x: 100, y: 200 },
         'node-2': { x: 300, y: 400 },
       });
@@ -202,7 +202,7 @@ describe('erdStore', () => {
       });
 
       const view = useErdStore.getState().views[viewId];
-      expect(view.viewport).toEqual({ x: 50, y: 75, zoom: 1.5 });
+      expect(view?.viewport).toEqual({ x: 50, y: 75, zoom: 1.5 });
     });
 
     it('should handle non-existent view', () => {
@@ -233,9 +233,9 @@ describe('erdStore', () => {
       });
 
       const view = useErdStore.getState().views[viewId];
-      expect(view.dbml).toBe('Initial DBML');
-      expect(view.tableCount).toBe(5);
-      expect(view.relationshipCount).toBe(3);
+      expect(view?.dbml).toBe('Initial DBML');
+      expect(view?.tableCount).toBe(5);
+      expect(view?.relationshipCount).toBe(3);
     });
   });
 
@@ -332,8 +332,8 @@ describe('erdStore', () => {
       store.renameView(viewId, 'New Name');
 
       const view = useErdStore.getState().views[viewId];
-      expect(view.name).toBe('New Name');
-      expect(view.updatedAt).toBe('2025-01-15T12:00:00.000Z');
+      expect(view?.name).toBe('New Name');
+      expect(view?.updatedAt).toBe('2025-01-15T12:00:00.000Z');
     });
 
     it('should handle renaming non-existent view', () => {
@@ -362,7 +362,7 @@ describe('erdStore', () => {
     it('should clear active view', () => {
       const store = useErdStore.getState();
 
-      const viewId = store.ensureView({
+      store.ensureView({
         connectionId: 'conn-1',
         schema: 'public',
       });
@@ -533,8 +533,8 @@ describe('erdStore', () => {
       store.saveNodePosition(viewId, 'users-table', { x: 150, y: 250 });
 
       const view = useErdStore.getState().views[viewId];
-      expect(view.nodePositions['users-table']).toEqual({ x: 150, y: 250 });
-      expect(view.updatedAt).toBe('2025-01-15T13:00:00.000Z');
+      expect(view?.nodePositions['users-table']).toEqual({ x: 150, y: 250 });
+      expect(view?.updatedAt).toBe('2025-01-15T13:00:00.000Z');
     });
 
     it('should update existing node position', () => {
@@ -549,7 +549,7 @@ describe('erdStore', () => {
       store.saveNodePosition(viewId, 'users-table', { x: 200, y: 200 });
 
       const view = useErdStore.getState().views[viewId];
-      expect(view.nodePositions['users-table']).toEqual({ x: 200, y: 200 });
+      expect(view?.nodePositions['users-table']).toEqual({ x: 200, y: 200 });
     });
 
     it('should handle non-existent view', () => {
@@ -572,8 +572,8 @@ describe('erdStore', () => {
       store.saveNodePosition(viewId, 'node-2', { x: 200, y: 200 });
 
       const view = useErdStore.getState().views[viewId];
-      expect(view.nodePositions['node-1']).toEqual({ x: 100, y: 100 });
-      expect(view.nodePositions['node-2']).toEqual({ x: 200, y: 200 });
+      expect(view?.nodePositions['node-1']).toEqual({ x: 100, y: 100 });
+      expect(view?.nodePositions['node-2']).toEqual({ x: 200, y: 200 });
     });
   });
 
@@ -591,8 +591,8 @@ describe('erdStore', () => {
       store.saveViewport(viewId, { x: 100, y: 150, zoom: 1.2 });
 
       const view = useErdStore.getState().views[viewId];
-      expect(view.viewport).toEqual({ x: 100, y: 150, zoom: 1.2 });
-      expect(view.updatedAt).toBe('2025-01-15T14:00:00.000Z');
+      expect(view?.viewport).toEqual({ x: 100, y: 150, zoom: 1.2 });
+      expect(view?.updatedAt).toBe('2025-01-15T14:00:00.000Z');
     });
 
     it('should update existing viewport', () => {
@@ -607,7 +607,7 @@ describe('erdStore', () => {
       store.saveViewport(viewId, { x: 50, y: 50, zoom: 2 });
 
       const view = useErdStore.getState().views[viewId];
-      expect(view.viewport).toEqual({ x: 50, y: 50, zoom: 2 });
+      expect(view?.viewport).toEqual({ x: 50, y: 50, zoom: 2 });
     });
 
     it('should handle non-existent view', () => {
@@ -702,12 +702,12 @@ describe('erdStore', () => {
       store.updateView(viewId, { layoutDirection: 'TB' });
 
       const view = useErdStore.getState().views[viewId];
-      expect(view.name).toBe('E-commerce ERD');
-      expect(view.tableCount).toBe(5);
-      expect(view.relationshipCount).toBe(3);
-      expect(view.nodePositions).toHaveProperty('users');
-      expect(view.viewport?.zoom).toBe(1.5);
-      expect(view.layoutDirection).toBe('TB');
+      expect(view?.name).toBe('E-commerce ERD');
+      expect(view?.tableCount).toBe(5);
+      expect(view?.relationshipCount).toBe(3);
+      expect(view?.nodePositions).toHaveProperty('users');
+      expect(view?.viewport?.zoom).toBe(1.5);
+      expect(view?.layoutDirection).toBe('TB');
     });
 
     it('should handle multi-schema ERD workspace', () => {
@@ -726,7 +726,7 @@ describe('erdStore', () => {
         schema: 'auth',
       });
 
-      const apiView = store.ensureView({
+      store.ensureView({
         connectionId: 'conn-1',
         database: 'app',
         schema: 'api',

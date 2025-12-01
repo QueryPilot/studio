@@ -61,7 +61,7 @@ async function callTauri(command: string, args: Record<string, any>) {
 export const list_tables = tool({
   description:
     "Get all tables in a database schema. Use this to discover what tables are available.",
-  parameters: z.object({
+  inputSchema: z.object({
     connectionId: connectionIdSchema.describe("The database connection ID"),
     schema: schemaNameSchema.describe(
       'The schema name (e.g., "public" for PostgreSQL)'
@@ -94,7 +94,7 @@ export const list_tables = tool({
 export const get_table_structure = tool({
   description:
     "Get detailed structure of a table including columns, data types, constraints, and keys.",
-  parameters: z.object({
+  inputSchema: z.object({
     connectionId: connectionIdSchema.describe("The database connection ID"),
     schema: schemaNameSchema.describe("The schema name"),
     table: tableSchema.describe("The table name"),
@@ -136,7 +136,7 @@ export const get_table_structure = tool({
 export const get_sample_data = tool({
   description:
     "Get sample rows from a table (up to 10 rows). Useful for understanding the data structure.",
-  parameters: z.object({
+  inputSchema: z.object({
     connectionId: connectionIdSchema.describe("The database connection ID"),
     schema: schemaNameSchema.describe("The schema name"),
     table: tableSchema.describe("The table name"),
@@ -176,7 +176,7 @@ export const get_sample_data = tool({
 export const execute_readonly_query = tool({
   description:
     "Execute a read-only SQL query (SELECT only). Use this to query data from the database.",
-  parameters: z.object({
+  inputSchema: z.object({
     connectionId: z
       .string()
       .min(1, "Connection ID is required")
@@ -278,7 +278,7 @@ export const execute_readonly_query = tool({
 // Extended Tools
 export const get_indexes = tool({
   description: "Get all indexes for a table, including index type and columns.",
-  parameters: z.object({
+  inputSchema: z.object({
     connectionId: connectionIdSchema.describe("The database connection ID"),
     table: tableSchema.describe("The table name"),
   }),
@@ -309,7 +309,7 @@ export const get_indexes = tool({
 
 export const get_triggers = tool({
   description: "Get all triggers defined on a table.",
-  parameters: z.object({
+  inputSchema: z.object({
     connectionId: connectionIdSchema.describe("The database connection ID"),
     schema: schemaNameSchema.describe("The schema name"),
     table: tableSchema.describe("The table name"),
@@ -342,7 +342,7 @@ export const get_triggers = tool({
 
 export const get_foreign_keys = tool({
   description: "Get foreign key relationships for a table.",
-  parameters: z.object({
+  inputSchema: z.object({
     connectionId: connectionIdSchema.describe("The database connection ID"),
     table: tableSchema.describe("The table name"),
   }),
@@ -379,7 +379,7 @@ export const get_foreign_keys = tool({
 
 export const get_table_statistics = tool({
   description: "Get statistics about a table (row count, size, etc.).",
-  parameters: z.object({
+  inputSchema: z.object({
     connectionId: connectionIdSchema.describe("The database connection ID"),
     schema: schemaNameSchema.describe("The schema name"),
     table: tableSchema.optional().describe("The table name"),
@@ -423,7 +423,7 @@ export const get_table_statistics = tool({
 // Full Suite Tools
 export const get_views = tool({
   description: "Get all views in a schema.",
-  parameters: z.object({
+  inputSchema: z.object({
     connectionId: connectionIdSchema.describe("The database connection ID"),
     schema: schemaNameSchema.describe("The schema name"),
   }),
@@ -453,7 +453,7 @@ export const get_views = tool({
 
 export const get_functions = tool({
   description: "Get all functions/stored procedures in a schema.",
-  parameters: z.object({
+  inputSchema: z.object({
     connectionId: connectionIdSchema.describe("The database connection ID"),
     schema: schemaNameSchema.describe("The schema name"),
   }),
@@ -484,7 +484,7 @@ export const get_functions = tool({
 
 export const list_schemas = tool({
   description: "Get all schemas in the database.",
-  parameters: z.object({
+  inputSchema: z.object({
     connectionId: connectionIdSchema.describe("The database connection ID"),
     database: databaseSchema.describe("The database name"),
   }),
@@ -514,7 +514,7 @@ export const list_schemas = tool({
 export const get_object_definition = tool({
   description:
     "Get the SQL definition of a database object (table, view, function, etc.).",
-  parameters: z.object({
+  inputSchema: z.object({
     connectionId: connectionIdSchema.describe("The database connection ID"),
     database: databaseSchema.describe("The database name"),
     schema: schemaNameSchema.describe("The schema name"),
@@ -556,7 +556,7 @@ export const get_object_definition = tool({
 export const explain_query = tool({
   description:
     "Get query execution plan (EXPLAIN) for performance analysis. Helps understand how PostgreSQL will execute a query.",
-  parameters: z.object({
+  inputSchema: z.object({
     connectionId: connectionIdSchema.describe("The database connection ID"),
     sql: z
       .string()
@@ -609,7 +609,7 @@ export const explain_query = tool({
 export const get_relationship_graph = tool({
   description:
     "Get relationship graph between tables via foreign keys. Shows how tables are connected in the database schema.",
-  parameters: z.object({
+  inputSchema: z.object({
     connectionId: connectionIdSchema.describe("The database connection ID"),
     schema: schemaNameSchema.describe("The schema name"),
     depth: z

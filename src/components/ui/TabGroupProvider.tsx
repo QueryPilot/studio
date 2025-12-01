@@ -51,8 +51,8 @@ interface TabGroupProviderProps {
 export function TabGroupProvider({
   children,
   tabGroupId: explicitId,
-  defaultValue,
-  value,
+  defaultValue: _defaultValue,
+  value: _value,
   onValueChange,
   focused: externalFocused,
   enableGlobalShortcuts = false,
@@ -73,9 +73,6 @@ export function TabGroupProvider({
 
   // Track if this tab group has ever been focused
   const hasBeenFocusedRef = useRef(false);
-
-  // Reference to the active tab value for Radix Tabs integration
-  const activeTabValueRef = useRef<string | undefined>(value ?? defaultValue);
 
   // Register with tab group registry
   useEffect(() => {

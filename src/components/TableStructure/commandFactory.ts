@@ -53,32 +53,17 @@ export function createColumnModifyCommand(
   description?: string,
 ): CrudCommand<ColumnModifyPayload> {
   // Build clean definition - only include fields that are actually provided
-  const cleanDefinition: Partial<ColumnDefinitionInput> = {};
-
-  if (newDefinition.name !== undefined) {
-    cleanDefinition.name = newDefinition.name;
-  }
-  if (newDefinition.dataType !== undefined) {
-    cleanDefinition.dataType = newDefinition.dataType;
-  }
-  if (newDefinition.nullable !== undefined) {
-    cleanDefinition.nullable = newDefinition.nullable;
-  }
-  if (newDefinition.defaultValue !== undefined) {
-    cleanDefinition.defaultValue = newDefinition.defaultValue;
-  }
-  if (newDefinition.comment !== undefined) {
-    cleanDefinition.comment = newDefinition.comment;
-  }
-  if (newDefinition.length !== undefined) {
-    cleanDefinition.length = newDefinition.length;
-  }
-  if (newDefinition.precision !== undefined) {
-    cleanDefinition.precision = newDefinition.precision;
-  }
-  if (newDefinition.scale !== undefined) {
-    cleanDefinition.scale = newDefinition.scale;
-  }
+  // Use spread to create a new object without readonly constraints
+  const cleanDefinition = {
+    ...(newDefinition.name !== undefined && { name: newDefinition.name }),
+    ...(newDefinition.dataType !== undefined && { dataType: newDefinition.dataType }),
+    ...(newDefinition.nullable !== undefined && { nullable: newDefinition.nullable }),
+    ...(newDefinition.defaultValue !== undefined && { defaultValue: newDefinition.defaultValue }),
+    ...(newDefinition.comment !== undefined && { comment: newDefinition.comment }),
+    ...(newDefinition.length !== undefined && { length: newDefinition.length }),
+    ...(newDefinition.precision !== undefined && { precision: newDefinition.precision }),
+    ...(newDefinition.scale !== undefined && { scale: newDefinition.scale }),
+  } as ColumnDefinitionInput;
 
   return {
     id: generateCommandId(),

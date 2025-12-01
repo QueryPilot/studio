@@ -55,7 +55,7 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
     const desiredPrimary = ratio * 100;
     const desiredSecondary = 100 - desiredPrimary;
     const layout = ref.getLayout();
-    if (layout.length !== 2) return;
+    if (layout.length !== 2 || layout[0] === undefined || layout[1] === undefined) return;
     const delta =
       Math.abs(layout[0] - desiredPrimary) +
       Math.abs(layout[1] - desiredSecondary);

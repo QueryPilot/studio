@@ -1,6 +1,6 @@
 import { logger } from "@/lib/logger";
 import { useParams, useSearchParams } from "react-router-dom";
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { WorkspaceTitleBar } from "./components/WorkspaceTitleBar";
 import { DatabaseSidebar } from "./components/DatabaseSidebar";
 import { DatabaseSchemaSelector } from "./components/DatabaseSchemaSelector";
@@ -11,7 +11,6 @@ import { usePanelStore } from "@/stores/panelStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { databaseService } from "@/services/databaseService";
-import { Backend as BackendAPI } from "@/services/backend";
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -175,15 +174,6 @@ export function WorkspaceScreen() {
       // Connect to the database with optional database override (using extracted urlDbname)
       void databaseService
         .connectById(connectionId, urlDbname || undefined)
-        .then(() => {
-          // Minimal pre-warming: Prepare tiny queries to "prime" the statement cache
-          // These run in ~15ms total and eliminate cold start on first real query
-          BackendAPI.prewarmQuery(connectionId, "SELECT 1").catch(() => {});
-          BackendAPI.prewarmQuery(
-            connectionId,
-            "SELECT current_database()",
-          ).catch(() => {});
-        })
         .catch((err: unknown) => {
           logger.error("Failed to connect to database:", err);
         })

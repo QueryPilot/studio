@@ -86,14 +86,11 @@ fn main() {
                             let _ = window.show();
                             let _ = window.set_focus();
                             let _ = window.unminimize();
-                        } else {
+                        } else if let Some((_, window)) = app.webview_windows().into_iter().next() {
                             // If no main window, try to get any window
-                            for (_, window) in app.webview_windows() {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                                let _ = window.unminimize();
-                                break;
-                            }
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                            let _ = window.unminimize();
                         }
                     })
             {
@@ -117,27 +114,17 @@ fn main() {
             commands::start_oauth_flow,
             commands::get_oauth_token_status,
             commands::clear_oauth_token,
-            commands::get_databases,
-            commands::get_schemas,
-            commands::get_tables,
-            commands::get_views,
-            commands::get_functions,
-            commands::get_indexes,
-            commands::get_index_usage_stats,
-            commands::get_supported_index_types,
-            commands::get_supported_column_types,
+            // Introspection now uses frontend dialect system via commands::query
+            // See: src/services/introspectionService.ts
             commands::get_type_info,
-            commands::get_constraints,
-            commands::get_columns,
-            commands::get_triggers,
-            commands::get_object_definition,
-            commands::get_table_count,
+            commands::query,
             commands::stream_query,
-            commands::prewarm_query,
-            commands::prewarm_schema_tables,
             commands::get_connection_health,
             commands::ping,
             commands::execute_crud_transaction,
+            // Generic SQL execution (frontend-driven dialect support)
+            commands::execute_sql,
+            commands::execute_sql_batch,
             ai::commands::get_ai_sidecar_url,
             ai::commands::reload_ai_api_keys,
             ai::commands::get_sidecar_status,
@@ -148,22 +135,8 @@ fn main() {
             // Keychain commands (used by TypeScript)
             keychain::get_vault_password,
             keychain::delete_vault_password,
-            // Index operations
-            commands::create_index,
-            commands::drop_index,
-            commands::rename_index,
-            // Column operations
-            commands::alter_table_add_column,
-            commands::alter_table_drop_column,
-            commands::alter_table_modify_column,
-            commands::alter_table_rename_column,
-            // Foreign key operations
-            commands::alter_table_add_foreign_key,
-            commands::alter_table_drop_foreign_key,
-            // Trigger operations
-            commands::create_trigger,
-            commands::drop_trigger,
-            commands::enable_disable_trigger,
+            // DDL operations now use execute_sql with frontend dialect
+            // See: src/dialects/ for TypeScript SQL generation
             // Updater commands (for private repo releases)
             updater::check_for_updates,
             updater::download_update,

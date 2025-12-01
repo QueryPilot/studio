@@ -429,7 +429,7 @@ interface RowChangesCardProps {
 }
 
 function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
-  const { theme, resolvedTheme } = useTheme();
+  const { resolvedTheme } = useTheme();
 
   // Determine the operation type (insert, update, delete, DDL)
   const hasInsert = row.commands.some((cmd) => cmd.type === "data.insert");

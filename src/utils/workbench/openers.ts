@@ -88,15 +88,15 @@ export type CreateObjectType = 'schema' | 'table' | 'view' | 'materializedView' 
 
 interface OpenQueryWithTemplateParams {
   connectionId: string;
-  database: string;
-  schema: string;
+  database: string | null;
+  schema: string | null;
   objectType: CreateObjectType;
 }
 
 interface OpenTableDesignerParams {
   connectionId: string;
-  database: string;
-  schema: string;
+  database: string | null;
+  schema: string | null;
 }
 
 export function openQueryWithTemplate({
@@ -119,7 +119,9 @@ export function openQueryWithTemplate({
 
   if (!targetPanelId) return;
 
-  const template = SQL_TEMPLATES[objectType]?.(schema) || '';
+  // Type assertion for SQL_TEMPLATES access since 'table' is handled differently
+  const templateFn = SQL_TEMPLATES[objectType as keyof typeof SQL_TEMPLATES];
+  const template = templateFn?.(schema ?? 'public') ?? '';
   const tabId = `query-new-${objectType}-${Date.now()}`;
   const titles: Record<CreateObjectType, string> = {
     schema: 'New Schema',
@@ -135,8 +137,8 @@ export function openQueryWithTemplate({
     type: 'query',
     title: titles[objectType],
     connectionId,
-    database,
-    schema,
+    database: database ?? undefined,
+    schema: schema ?? undefined,
     sql: template,
   });
 }
@@ -166,8 +168,8 @@ export function openTableDesigner({
     type: 'design',
     title: 'New Table',
     connectionId,
-    database,
-    schema,
+    database: database ?? undefined,
+    schema: schema ?? undefined,
   });
 }
 

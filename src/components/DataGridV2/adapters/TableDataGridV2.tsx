@@ -627,9 +627,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     hasNextPage,
   } = isTableMode
     ? {
-        // Show loading state when fetching initial data (status pending or fetching without any pages yet)
+        // Show loading state when fetching initial data (status loading or fetching without any pages yet)
         isLoading:
-          tableDataQuery.status === "pending" ||
+          tableDataQuery.status === "loading" ||
           (tableDataQuery.isFetching &&
             !tableDataQuery.isFetchingNextPage &&
             tableDataQuery.rows.length === 0),
@@ -951,25 +951,28 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     if (isResizing) {
       perfMonitor.startFPSMonitoring();
       logger.info("🚀 [DataGrid] Started FPS monitoring during column resize");
-    } else if (!isResizing && perfMonitor) {
-      // Small delay to catch final frames
-      const timer = setTimeout(() => {
-        const metrics = perfMonitor.stopFPSMonitoring();
-        if (metrics.totalFrames > 0) {
-          logger.info("📊 [DataGrid] Column resize performance:", {
-            fps: `${metrics.fps} fps`,
-            avgFrameTime: `${metrics.avgFrameTime}ms`,
-            droppedFrames: `${metrics.droppedFrames}/${metrics.totalFrames}`,
-            efficiency: `${Math.round(
-              (1 - metrics.droppedFrames / metrics.totalFrames) * 100,
-            )}%`,
-          });
-        }
-      }, 100);
-      return () => {
-        clearTimeout(timer);
-      };
+      return; // Cleanup not needed when starting monitoring
     }
+
+    if (!perfMonitor) return;
+
+    // Small delay to catch final frames
+    const timer = setTimeout(() => {
+      const metrics = perfMonitor.stopFPSMonitoring();
+      if (metrics.totalFrames > 0) {
+        logger.info("📊 [DataGrid] Column resize performance:", {
+          fps: `${metrics.fps} fps`,
+          avgFrameTime: `${metrics.avgFrameTime}ms`,
+          droppedFrames: `${metrics.droppedFrames}/${metrics.totalFrames}`,
+          efficiency: `${Math.round(
+            (1 - metrics.droppedFrames / metrics.totalFrames) * 100,
+          )}%`,
+        });
+      }
+    }, 100);
+    return () => {
+      clearTimeout(timer);
+    };
   }, [isResizingColumns]);
 
   const handleColumnVisibilityChange = useCallback(

@@ -24,9 +24,11 @@ describe("crudStore", () => {
 
   const mockCommand: CrudCommand = {
     id: "cmd-1",
+    type: "data.insert",
     target: mockTarget,
-    operation: "insert",
-    payload: { name: "John Doe" },
+    payload: { values: { name: "John Doe" } },
+    metadata: { timestamp: new Date().toISOString() },
+    state: "staged",
   };
 
   const mockTarget2: CrudCommandTarget = {
@@ -38,9 +40,11 @@ describe("crudStore", () => {
 
   const mockCommand2: CrudCommand = {
     id: "cmd-2",
+    type: "data.update",
     target: mockTarget2,
-    operation: "update",
-    payload: { title: "Updated Post" },
+    payload: { column: "title", primaryKeys: { id: 1 }, newValue: "Updated Post" },
+    metadata: { timestamp: new Date().toISOString() },
+    state: "staged",
   };
 
   beforeEach(() => {
@@ -104,7 +108,7 @@ describe("crudStore", () => {
       const commands = state.stagedCommands.get(tableKey);
 
       expect(commands).toHaveLength(1);
-      expect(commands?.[0].payload).toEqual({ name: "Jane Doe" });
+      expect(commands?.[0]?.payload).toEqual({ name: "Jane Doe" });
     });
 
     it("should create history snapshot when staging command", () => {
@@ -433,8 +437,11 @@ describe("crudStore", () => {
         committed: [],
         failures: [
           {
-            command: mockCommand,
-            error: { message: "Constraint violation", code: "23505" },
+            id: mockCommand.id,
+            type: mockCommand.type,
+            target: mockCommand.target,
+            error: { message: "Constraint violation", code: "23505", severity: "error", recoverable: false },
+            rolledBack: true,
           },
         ],
       };

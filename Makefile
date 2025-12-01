@@ -50,7 +50,7 @@ help:
 	@echo ""
 	@echo "Release Management:"
 	@echo "  make release                - AI-powered release with cross-repo publishing"
-	@echo "  make relc V=0.7.1           - Local build, sign, notarize & upload to GitHub"
+	@echo "  make relc [V=0.7.1]         - AI-powered local build, sign, notarize & upload"
 	@echo "  make release-publish V=0.5.0 - Publish built release to studio-app repo"
 	@echo "  make release-manual VERSION=1.2.3  - Manual release with specific version"
 	@echo "  make version VERSION=1.2.3  - Bump version only (no commit)"

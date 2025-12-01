@@ -74,6 +74,7 @@ export function UpdateChecker({ checkOnMount = false }: UpdateCheckerProps) {
       const timer = setTimeout(checkForUpdates, 3000);
       return () => clearTimeout(timer);
     }
+    return undefined;
   }, [checkOnMount, checkForUpdates]);
 
   const handleInstall = async () => {

@@ -16,6 +16,7 @@ export interface QueryResult {
   networkMs?: number;
   conversionMs?: number;
   ipcSendMs?: number;
+  message?: string; // For informational messages (e.g., DDL results, notices)
   error?: string;
 }
 

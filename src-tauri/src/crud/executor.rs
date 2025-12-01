@@ -599,38 +599,58 @@ async fn execute_column_add(adapter: &dyn DbAdapter, command: &CrudCommand) -> R
         .as_ref()
         .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
-    let column_def = crate::types::AddColumnRequest {
-        name: payload
-            .get("name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| AppError::InvalidInput("Missing column name".to_string()))?
-            .to_string(),
-        data_type: payload
-            .get("dataType")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| AppError::InvalidInput("Missing dataType".to_string()))?
-            .to_string(),
-        nullable: payload
-            .get("nullable")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true),
-        default_value: payload
-            .get("defaultValue")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        check_constraint: payload
-            .get("checkExpression")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        comment: payload
-            .get("comment")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-    };
+    let name = payload
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::InvalidInput("Missing column name".to_string()))?;
+    let data_type = payload
+        .get("dataType")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::InvalidInput("Missing dataType".to_string()))?;
+    let nullable = payload
+        .get("nullable")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let default_value = payload.get("defaultValue").and_then(|v| v.as_str());
+    let check_constraint = payload.get("checkExpression").and_then(|v| v.as_str());
+    let comment = payload.get("comment").and_then(|v| v.as_str());
 
-    adapter
-        .alter_table_add_column(schema, table, &column_def)
-        .await?;
+    // Build ADD COLUMN SQL
+    let mut sql = format!(
+        "ALTER TABLE {}.{} ADD COLUMN {} {}",
+        quote_identifier(schema),
+        quote_identifier(table),
+        quote_identifier(name),
+        data_type
+    );
+
+    if !nullable {
+        sql.push_str(" NOT NULL");
+    }
+
+    if let Some(default) = default_value {
+        sql.push_str(&format!(" DEFAULT {}", default));
+    }
+
+    if let Some(check) = check_constraint {
+        sql.push_str(&format!(" CHECK ({})", check));
+    }
+
+    adapter.execute(&sql).await?;
+
+    // Add comment if provided
+    if let Some(cmt) = comment {
+        let escaped = cmt.replace('\'', "''");
+        let comment_sql = format!(
+            "COMMENT ON COLUMN {}.{}.{} IS '{}'",
+            quote_identifier(schema),
+            quote_identifier(table),
+            quote_identifier(name),
+            escaped
+        );
+        adapter.execute(&comment_sql).await?;
+    }
+
     Ok(1)
 }
 
@@ -646,46 +666,152 @@ async fn execute_column_modify(adapter: &dyn DbAdapter, command: &CrudCommand) -
         .as_ref()
         .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
-    let modify_req = crate::types::ModifyColumnRequest {
-        name: payload
-            .get("name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| AppError::InvalidInput("Missing column name".to_string()))?
-            .to_string(),
-        new_name: payload
-            .get("newName")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        new_type: payload
-            .get("newType")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        nullable: payload.get("nullable").and_then(|v| v.as_bool()),
-        default_value: payload
-            .get("defaultValue")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        drop_default: payload
-            .get("dropDefault")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        new_check_constraint: payload
-            .get("checkExpression")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        drop_check_constraint: payload
-            .get("dropCheckConstraint")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        comment: payload
-            .get("comment")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-    };
+    let name = payload
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::InvalidInput("Missing column name".to_string()))?;
+    let new_name = payload.get("newName").and_then(|v| v.as_str());
+    let new_type = payload.get("newType").and_then(|v| v.as_str());
+    let nullable = payload.get("nullable").and_then(|v| v.as_bool());
+    let default_value = payload.get("defaultValue").and_then(|v| v.as_str());
+    let drop_default = payload
+        .get("dropDefault")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let new_check_constraint = payload.get("checkExpression").and_then(|v| v.as_str());
+    let drop_check_constraint = payload
+        .get("dropCheckConstraint")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let comment = payload.get("comment").and_then(|v| v.as_str());
 
-    adapter
-        .alter_table_modify_column(schema, table, &modify_req)
-        .await?;
+    let current_column_name = quote_identifier(name);
+
+    // Handle column rename
+    if let Some(new_n) = new_name {
+        let sql = format!(
+            "ALTER TABLE {}.{} RENAME COLUMN {} TO {}",
+            quote_identifier(schema),
+            quote_identifier(table),
+            current_column_name,
+            quote_identifier(new_n)
+        );
+        adapter.execute(&sql).await?;
+    }
+
+    // Use the new name for subsequent operations if it was renamed
+    let working_column_name = new_name
+        .map(|n| quote_identifier(n))
+        .unwrap_or_else(|| current_column_name.clone());
+
+    // Handle type change
+    if let Some(new_t) = new_type {
+        let sql = format!(
+            "ALTER TABLE {}.{} ALTER COLUMN {} TYPE {} USING {}::{}",
+            quote_identifier(schema),
+            quote_identifier(table),
+            working_column_name,
+            new_t,
+            working_column_name,
+            new_t
+        );
+        adapter.execute(&sql).await?;
+    }
+
+    // Handle nullable change
+    if let Some(is_nullable) = nullable {
+        let sql = if is_nullable {
+            format!(
+                "ALTER TABLE {}.{} ALTER COLUMN {} DROP NOT NULL",
+                quote_identifier(schema),
+                quote_identifier(table),
+                working_column_name
+            )
+        } else {
+            format!(
+                "ALTER TABLE {}.{} ALTER COLUMN {} SET NOT NULL",
+                quote_identifier(schema),
+                quote_identifier(table),
+                working_column_name
+            )
+        };
+        adapter.execute(&sql).await?;
+    }
+
+    // Handle default value
+    if drop_default {
+        let sql = format!(
+            "ALTER TABLE {}.{} ALTER COLUMN {} DROP DEFAULT",
+            quote_identifier(schema),
+            quote_identifier(table),
+            working_column_name
+        );
+        adapter.execute(&sql).await?;
+    } else if let Some(default) = default_value {
+        let sql = format!(
+            "ALTER TABLE {}.{} ALTER COLUMN {} SET DEFAULT {}",
+            quote_identifier(schema),
+            quote_identifier(table),
+            working_column_name,
+            default
+        );
+        adapter.execute(&sql).await?;
+    }
+
+    // Handle CHECK constraint changes
+    if drop_check_constraint {
+        // Find and drop existing check constraints for this column
+        let result = adapter
+            .query(&format!(
+                "SELECT con.conname FROM pg_constraint con \
+                 JOIN pg_class t ON t.oid = con.conrelid \
+                 JOIN pg_namespace n ON n.oid = t.relnamespace \
+                 WHERE n.nspname = '{}' AND t.relname = '{}' AND con.contype = 'c' \
+                 AND pg_get_constraintdef(con.oid) ILIKE '%{}%'",
+                schema,
+                table,
+                working_column_name.trim_matches('"')
+            ))
+            .await?;
+
+        for row in &result.rows {
+            if let Some(conname) = row.first() {
+                let sql = format!(
+                    "ALTER TABLE {}.{} DROP CONSTRAINT IF EXISTS {}",
+                    quote_identifier(schema),
+                    quote_identifier(table),
+                    quote_identifier(&conname.to_string())
+                );
+                let _ = adapter.execute(&sql).await;
+            }
+        }
+    }
+
+    if let Some(check) = new_check_constraint {
+        let conname = format!("chk_{}_{}", table, working_column_name.trim_matches('"'));
+        let sql = format!(
+            "ALTER TABLE {}.{} ADD CONSTRAINT {} CHECK ({}) NOT VALID",
+            quote_identifier(schema),
+            quote_identifier(table),
+            quote_identifier(&conname),
+            check
+        );
+        adapter.execute(&sql).await?;
+    }
+
+    // Update comment
+    if let Some(cmt) = comment {
+        let escaped = cmt.replace('\'', "''");
+        let comment_sql = format!(
+            "COMMENT ON COLUMN {}.{}.{} IS '{}'",
+            quote_identifier(schema),
+            quote_identifier(table),
+            working_column_name,
+            escaped
+        );
+        adapter.execute(&comment_sql).await?;
+    }
+
     Ok(1)
 }
 
@@ -706,9 +832,14 @@ async fn execute_column_drop(adapter: &dyn DbAdapter, command: &CrudCommand) -> 
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::InvalidInput("Missing column name".to_string()))?;
 
-    adapter
-        .alter_table_drop_column(schema, table, column_name)
-        .await?;
+    let sql = format!(
+        "ALTER TABLE {}.{} DROP COLUMN IF EXISTS {}",
+        quote_identifier(schema),
+        quote_identifier(table),
+        quote_identifier(column_name)
+    );
+
+    adapter.execute(&sql).await?;
     Ok(1)
 }
 
@@ -734,9 +865,15 @@ async fn execute_column_rename(adapter: &dyn DbAdapter, command: &CrudCommand) -
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::InvalidInput("Missing newName".to_string()))?;
 
-    adapter
-        .alter_table_rename_column(schema, table, old_name, new_name)
-        .await?;
+    let sql = format!(
+        "ALTER TABLE {}.{} RENAME COLUMN {} TO {}",
+        quote_identifier(schema),
+        quote_identifier(table),
+        quote_identifier(old_name),
+        quote_identifier(new_name)
+    );
+
+    adapter.execute(&sql).await?;
     Ok(1)
 }
 
@@ -758,7 +895,6 @@ async fn execute_index_create(adapter: &dyn DbAdapter, command: &CrudCommand) ->
         .ok_or_else(|| AppError::InvalidInput("Missing or invalid columns array".to_string()))?
         .iter()
         .filter_map(|v| v.as_str())
-        .map(|s| s.to_string())
         .collect::<Vec<_>>();
 
     if columns.is_empty() {
@@ -767,29 +903,58 @@ async fn execute_index_create(adapter: &dyn DbAdapter, command: &CrudCommand) ->
         ));
     }
 
-    let index_req = crate::types::CreateIndexRequest {
-        name: payload
-            .get("name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| AppError::InvalidInput("Missing index name".to_string()))?
-            .to_string(),
-        columns,
-        unique: payload
-            .get("unique")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        index_type: payload
-            .get("indexType")
-            .and_then(|v| v.as_str())
-            .unwrap_or("btree")
-            .to_string(),
-        condition: payload
-            .get("condition")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-    };
+    let name = payload
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::InvalidInput("Missing index name".to_string()))?;
+    let unique = payload
+        .get("unique")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let index_type = payload
+        .get("indexType")
+        .and_then(|v| v.as_str())
+        .unwrap_or("btree");
+    let condition = payload.get("condition").and_then(|v| v.as_str());
 
-    adapter.create_index(schema, table, &index_req).await?;
+    // Format columns (handle opclass syntax like: column gin_trgm_ops)
+    let formatted_columns = columns
+        .iter()
+        .map(|col| {
+            if col.contains('(') {
+                // Expression like lower(col) - use as-is
+                col.to_string()
+            } else {
+                let mut parts = col.split_whitespace();
+                let first = parts.next().unwrap_or(col);
+                let rest: Vec<&str> = parts.collect();
+                if rest.is_empty() {
+                    quote_identifier(first)
+                } else {
+                    format!("{} {}", quote_identifier(first), rest.join(" "))
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let unique_str = if unique { "UNIQUE " } else { "" };
+
+    let mut sql = format!(
+        "CREATE {}INDEX {} ON {}.{} USING {} ({})",
+        unique_str,
+        quote_identifier(name),
+        quote_identifier(schema),
+        quote_identifier(table),
+        index_type,
+        formatted_columns
+    );
+
+    if let Some(cond) = condition {
+        sql.push_str(&format!(" WHERE {}", cond));
+    }
+
+    adapter.execute(&sql).await?;
     Ok(1)
 }
 
@@ -805,7 +970,13 @@ async fn execute_index_drop(adapter: &dyn DbAdapter, command: &CrudCommand) -> R
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::InvalidInput("Missing index name".to_string()))?;
 
-    adapter.drop_index(schema, index_name).await?;
+    let sql = format!(
+        "DROP INDEX IF EXISTS {}.{}",
+        quote_identifier(schema),
+        quote_identifier(index_name)
+    );
+
+    adapter.execute(&sql).await?;
     Ok(1)
 }
 
@@ -826,7 +997,14 @@ async fn execute_index_rename(adapter: &dyn DbAdapter, command: &CrudCommand) ->
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::InvalidInput("Missing newName".to_string()))?;
 
-    adapter.rename_index(schema, old_name, new_name).await?;
+    let sql = format!(
+        "ALTER INDEX {}.{} RENAME TO {}",
+        quote_identifier(schema),
+        quote_identifier(old_name),
+        quote_identifier(new_name)
+    );
+
+    adapter.execute(&sql).await?;
     Ok(1)
 }
 
@@ -843,41 +1021,68 @@ async fn execute_foreign_key_add(adapter: &dyn DbAdapter, command: &CrudCommand)
         .as_ref()
         .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
-    let fk_req = crate::types::AddForeignKeyRequest {
-        constraint_name: payload
-            .get("constraintName")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        column_name: payload
-            .get("columnName")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| AppError::InvalidInput("Missing columnName".to_string()))?
-            .to_string(),
-        referenced_table: payload
-            .get("referencedTable")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| AppError::InvalidInput("Missing referencedTable".to_string()))?
-            .to_string(),
-        referenced_column: payload
-            .get("referencedColumn")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| AppError::InvalidInput("Missing referencedColumn".to_string()))?
-            .to_string(),
-        on_update: payload
-            .get("onUpdate")
-            .and_then(|v| v.as_str())
-            .unwrap_or("NO ACTION")
-            .to_string(),
-        on_delete: payload
-            .get("onDelete")
-            .and_then(|v| v.as_str())
-            .unwrap_or("NO ACTION")
-            .to_string(),
-    };
+    let constraint_name = payload.get("constraintName").and_then(|v| v.as_str());
+    let column_name = payload
+        .get("columnName")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::InvalidInput("Missing columnName".to_string()))?;
+    let referenced_table = payload
+        .get("referencedTable")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::InvalidInput("Missing referencedTable".to_string()))?;
+    let referenced_column = payload
+        .get("referencedColumn")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::InvalidInput("Missing referencedColumn".to_string()))?;
+    let on_update = payload
+        .get("onUpdate")
+        .and_then(|v| v.as_str())
+        .unwrap_or("NO ACTION");
+    let on_delete = payload
+        .get("onDelete")
+        .and_then(|v| v.as_str())
+        .unwrap_or("NO ACTION");
 
-    adapter
-        .alter_table_add_foreign_key(schema, table, &fk_req)
-        .await?;
+    // Check if the column is an array type (cannot have FK)
+    let type_check_sql = format!(
+        "SELECT format_type(a.atttypid, a.atttypmod) as data_type
+         FROM pg_attribute a
+         JOIN pg_class c ON c.oid = a.attrelid
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = '{}' AND c.relname = '{}' AND a.attname = '{}' AND NOT a.attisdropped",
+        schema, table, column_name
+    );
+
+    let result = adapter.query(&type_check_sql).await?;
+    if let Some(row) = result.rows.first() {
+        if let Some(data_type) = row.first() {
+            let type_str = data_type.to_string();
+            if type_str.ends_with("[]") || type_str.starts_with("ARRAY") {
+                return Err(AppError::InvalidInput(format!(
+                    "Cannot create foreign key on array column '{}' (type: {}). PostgreSQL does not support foreign key constraints on array columns.",
+                    column_name, type_str
+                )));
+            }
+        }
+    }
+
+    let final_constraint_name = constraint_name
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("fk_{}_{}_{}", table, column_name, referenced_table));
+
+    let sql = format!(
+        "ALTER TABLE {}.{} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({}) ON UPDATE {} ON DELETE {}",
+        quote_identifier(schema),
+        quote_identifier(table),
+        quote_identifier(&final_constraint_name),
+        quote_identifier(column_name),
+        quote_identifier(referenced_table),
+        quote_identifier(referenced_column),
+        on_update,
+        on_delete
+    );
+
+    adapter.execute(&sql).await?;
     Ok(1)
 }
 
@@ -899,9 +1104,14 @@ async fn execute_foreign_key_drop(adapter: &dyn DbAdapter, command: &CrudCommand
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::InvalidInput("Missing constraintName".to_string()))?;
 
-    adapter
-        .alter_table_drop_foreign_key(schema, table, constraint_name)
-        .await?;
+    let sql = format!(
+        "ALTER TABLE {}.{} DROP CONSTRAINT IF EXISTS {}",
+        quote_identifier(schema),
+        quote_identifier(table),
+        quote_identifier(constraint_name)
+    );
+
+    adapter.execute(&sql).await?;
     Ok(1)
 }
 

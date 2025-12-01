@@ -11,7 +11,6 @@ import {
   IconWorld,
   IconActivity,
 } from "@tabler/icons-react";
-import logo from "@/assets/logo.png";
 
 const categories = [
   {

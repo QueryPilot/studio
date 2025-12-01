@@ -30,7 +30,6 @@ import {
   IconWand,
 } from "@tabler/icons-react";
 import { QueryLimitControl } from "./QueryLimitControl";
-import { KeyboardShortcut } from "@/components/ui/keyboard-shortcut";
 import type { SqlDialect } from "@/components/CodeEditor";
 
 // Dialect display names and descriptions

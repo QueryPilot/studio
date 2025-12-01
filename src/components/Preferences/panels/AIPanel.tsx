@@ -22,21 +22,12 @@ import {
   getSidecarStatus,
   type AIProviderConfig,
 } from "@/services/aiService";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { useAIChatStore } from "@/stores/aiChatStore";
 
 export default function AIPanel() {
   // AI Chat Store
   const {
-    providerDefaultModels,
-    providerEnabledModels,
     setProviderDefaultModel,
     getProviderDefaultModel,
     toggleProviderModel,
@@ -80,7 +71,7 @@ export default function AIPanel() {
         const firstConfigured = providersData.find((p) =>
           statusData?.configuredProviders.includes(p.name),
         );
-        setSelectedProvider(firstConfigured?.name || providersData[0].name);
+        setSelectedProvider(firstConfigured?.name || providersData[0]?.name || "");
       }
     } catch (error) {
       logger.error("Failed to load providers:", error);

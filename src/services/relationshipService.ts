@@ -4,8 +4,9 @@ import type {
   TableRelationshipGraph,
   JoinSuggestion,
 } from "@/types/relationships";
-import { BackendAPI, type Constraint, ConstraintType } from "./backend";
+import { type Constraint, ConstraintType } from "./backend";
 import type { TableMeta } from "./databaseService";
+import { IntrospectionService } from "./introspectionService";
 
 /**
  * Service to manage foreign key relationships and provide smart JOIN suggestions
@@ -80,8 +81,9 @@ class RelationshipService {
     // Fetch constraints for all tables (in parallel with concurrency limit)
     const constraintPromises = tables.map(async (table) => {
       try {
-        const constraints = await BackendAPI.getConstraints(
+        const constraints = await IntrospectionService.getConstraints(
           connectionId,
+          schema,
           table.name,
         );
         return { table: table.name, constraints };

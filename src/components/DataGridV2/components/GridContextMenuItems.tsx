@@ -42,6 +42,7 @@ export interface GridContextMenuItemsProps {
   onPinRows?: (rowKeys: string[]) => void;
   onUnpinRows?: (rowKeys: string[]) => void;
   onAddRow?: () => void;
+  onInsertRowAbove?: () => void;
   onInsertRowBelow?: () => void;
   onDeleteRows?: () => void;
   onPaste?: () => void;
@@ -62,6 +63,7 @@ export function GridContextMenuItems({
   onPinRows,
   onUnpinRows,
   onAddRow,
+  onInsertRowAbove,
   onInsertRowBelow,
   onDeleteRows,
   onPaste,
@@ -389,13 +391,24 @@ export function GridContextMenuItems({
         </>
       )}
 
+      {onInsertRowAbove && (
+        <ContextMenuItem
+          onClick={onInsertRowAbove}
+          className="text-xs py-1 px-2 outline-none"
+        >
+          <IconPlus className="mr-1.5 h-3 w-3 text-foreground" />
+          <span className="flex-1">Insert Row Above</span>
+          {shortcuts.insertAbove}
+        </ContextMenuItem>
+      )}
+
       {onInsertRowBelow && (
         <ContextMenuItem
           onClick={onInsertRowBelow}
           className="text-xs py-1 px-2 outline-none"
         >
           <IconPlus className="mr-1.5 h-3 w-3 text-foreground" />
-          <span className="flex-1">Add Row</span>
+          <span className="flex-1">Insert Row Below</span>
           {shortcuts.insertBelow}
         </ContextMenuItem>
       )}

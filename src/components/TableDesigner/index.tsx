@@ -9,6 +9,7 @@ import {
   type Item,
   type CustomCell,
   type CustomRenderer,
+  type GridCell,
 } from "@glideapps/glide-data-grid";
 import { DataGridBase } from "@/components/DataGridV2/base/DataGridBase";
 import { useColumnSizing } from "@/components/DataGridV2/hooks/useColumnSizing";
@@ -19,7 +20,6 @@ import { TextSingleLineCellRenderer } from "@/components/DataGridV2/renderers/Te
 import { useCrudStore, buildCrudTableKey } from "@/stores/crudStore";
 import {
   createColumnAddCommand,
-  createColumnModifyCommand,
   generateCommandId,
 } from "@/components/TableStructure/commandFactory";
 import type { CrudCommandTarget } from "@/types/crud";
@@ -97,7 +97,6 @@ const designerColumns: GridColumnV2[] = [
   },
 ];
 
-type AnyCell = CustomCell<Record<string, unknown>>;
 
 export const TableDesigner: React.FC<TableDesignerProps> = ({
   connectionId,
@@ -110,7 +109,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
   const [tableName, setTableName] = useState("");
   const tableNameInputRef = useRef<HTMLInputElement>(null);
 
-  const { stagedCommands, stageCommand, unstageCommand, clearTableCommands } =
+  const { stagedCommands, stageCommand, unstageCommand, discardChanges } =
     useCrudStore();
 
   // Use a temporary table key for the new table design
@@ -162,24 +161,28 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
   // Transform commands to grid rows
   const gridRows = useMemo((): DesignerGridRow[] => {
     return pendingCommands
-      .filter((cmd) => cmd.operation === "column_add")
+      .filter((cmd) => cmd.type === "column.add")
       .map((cmd, index) => {
         const payload = cmd.payload as {
-          name: string;
-          dataType: string;
-          nullable: boolean;
-          defaultValue?: string;
+          column: {
+            name: string;
+            dataType: string;
+            nullable: boolean;
+            defaultValue?: string;
+          };
+          tempId: string;
         };
+        const col = payload.column;
         return {
           row_number: index + 1,
-          column_name: payload.name || "",
+          column_name: col.name || "",
           column_meta: {
-            is_pk: payload.dataType?.toUpperCase().includes("SERIAL") || false,
+            is_pk: col.dataType?.toUpperCase().includes("SERIAL") || false,
             is_fk: false,
           },
-          db_type: payload.dataType || "VARCHAR(255)",
-          nullable: payload.nullable ? "YES" : "NO",
-          default: payload.defaultValue || "",
+          db_type: col.dataType || "VARCHAR(255)",
+          nullable: col.nullable ? "YES" : "NO",
+          default: col.defaultValue || "",
           _tempId: cmd.id,
         };
       });
@@ -205,7 +208,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
 
   // Get cell content
   const getCellContent = useCallback(
-    ([col, row]: Item): AnyCell => {
+    ([col, row]: Item): GridCell => {
       const rowData = gridRows[row];
       if (!rowData) {
         return {
@@ -213,7 +216,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
           data: "",
           displayData: "",
           allowOverlay: false,
-        } as AnyCell;
+        };
       }
 
       const column = sizedColumns[col];
@@ -227,7 +230,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
             displayData: String(rowData.row_number),
             allowOverlay: false,
             readonly: true,
-          } as AnyCell;
+          };
 
         case "column_name":
           return {
@@ -235,7 +238,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
             data: rowData.column_name,
             displayData: rowData.column_name,
             allowOverlay: true,
-          } as AnyCell;
+          };
 
         case "db_type":
           return {
@@ -246,7 +249,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
             },
             copyData: rowData.db_type,
             allowOverlay: true,
-          } as AnyCell;
+          };
 
         case "nullable":
           return {
@@ -257,7 +260,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
             },
             copyData: rowData.nullable,
             allowOverlay: true,
-          } as AnyCell;
+          };
 
         case "default":
           return {
@@ -265,7 +268,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
             data: rowData.default,
             displayData: rowData.default,
             allowOverlay: true,
-          } as AnyCell;
+          };
 
         default:
           return {
@@ -273,7 +276,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
             data: "",
             displayData: "",
             allowOverlay: false,
-          } as AnyCell;
+          };
       }
     },
     [gridRows, sizedColumns]
@@ -281,7 +284,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
 
   // Handle cell edit
   const handleCellEdited = useCallback(
-    ([col, row]: Item, newValue: AnyCell) => {
+    ([col, row]: Item, newValue: GridCell) => {
       const rowData = gridRows[row];
       if (!rowData) return;
 
@@ -421,13 +424,13 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
     onSave?.(tableName, sql);
 
     // Clear the staged commands after save
-    clearTableCommands(tableKey);
-  }, [tableName, gridRows, generateSQL, onSave, clearTableCommands, tableKey]);
+    discardChanges(tableKey);
+  }, [tableName, gridRows, generateSQL, onSave, discardChanges, tableKey]);
 
   const handleCancel = useCallback(() => {
-    clearTableCommands(tableKey);
+    discardChanges(tableKey);
     onCancel?.();
-  }, [clearTableCommands, tableKey, onCancel]);
+  }, [discardChanges, tableKey, onCancel]);
 
   return (
     <div className={cn("flex flex-col h-full", className)}>

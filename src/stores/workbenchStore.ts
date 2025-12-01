@@ -18,7 +18,7 @@ import {
   getAdjacentPanel,
   findNodePath,
 } from "@/utils/workbenchTree";
-import { useTabStateStore } from "./tabStateStore";
+// import { useTabStateStore } from "./tabStateStore";
 import { clearTabCache } from "@/lib/cacheManager";
 
 interface WorkbenchStore {
@@ -190,7 +190,8 @@ const useWorkbenchStore = create<WorkbenchStore>()(
     },
 
     closePanelAction: (panelId, preventAutoInit = false) => {
-      const tabStateStore = useTabStateStore.getState();
+      // Note: tabStateStore can be used here for clearing tab state if needed
+      // const tabStateStore = useTabStateStore.getState();
       const panel = get().panelContents.get(panelId);
       const tabsToClear = panel ? [...panel.tabIds] : [];
 

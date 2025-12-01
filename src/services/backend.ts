@@ -340,108 +340,8 @@ export class BackendAPI {
     return streamId;
   }
 
-  // Database introspection
-  static async getDatabases(connId: string): Promise<Database[]> {
-    return invoke("get_databases", { connId });
-  }
-
-  static async getSchemas(connId: string, database: string): Promise<Schema[]> {
-    return invoke("get_schemas", { connId, database });
-  }
-
-  static async getTables(connId: string, schema: string): Promise<Table[]> {
-    return invoke("get_tables", { connId, schema });
-  }
-
-  static async getViews(connId: string, schema: string): Promise<View[]> {
-    return invoke("get_views", { connId, schema });
-  }
-
-  static async getFunctions(
-    connId: string,
-    schema: string,
-  ): Promise<Function[]> {
-    return invoke("get_functions", { connId, schema });
-  }
-
-  static async getIndexes(connId: string, table: string): Promise<Index[]> {
-    return invoke("get_indexes", { connId, table });
-  }
-
-  static async getIndexUsageStats(
-    connId: string,
-    table: string,
-  ): Promise<IndexUsageStats[]> {
-    return invoke("get_index_usage_stats", { connId, table });
-  }
-
-  static async getConstraints(
-    connId: string,
-    table: string,
-  ): Promise<Constraint[]> {
-    return invoke("get_constraints", { connId, table });
-  }
-
-  static async getColumns(
-    connId: string,
-    schema: string,
-    table: string,
-  ): Promise<ColumnMeta[]> {
-    return invoke("get_columns", { connId, schema, table });
-  }
-
-  static async getTriggers(
-    connId: string,
-    schema: string,
-    table: string,
-  ): Promise<Trigger[]> {
-    return invoke("get_triggers", { connId, schema, table });
-  }
-
-  static async getObjectDefinition(
-    connId: string,
-    database: string,
-    schema: string,
-    objectName: string,
-    objectType: string,
-  ): Promise<string> {
-    return invoke("get_object_definition", {
-      connId,
-      database,
-      schema,
-      objectName,
-      objectType,
-    });
-  }
-
-  static async getTableCount(
-    connId: string,
-    schema: string,
-    table: string,
-  ): Promise<number> {
-    return invoke("get_table_count", { connId, schema, table });
-  }
-
-  /**
-   * Pre-warm statement cache by preparing a query in background
-   * Fire-and-forget operation to eliminate cold start delays
-   * Errors are logged but not propagated to caller
-   */
-  static async prewarmQuery(connectionId: string, sql: string): Promise<void> {
-    return invoke("prewarm_query", { connectionId, sql });
-  }
-
-  /**
-   * Pre-warm schema tables after schema loads (smart table pre-warming)
-   * Only pre-warms first 3-5 tables based on schema size
-   */
-  static async prewarmSchemaTables(
-    connectionId: string,
-    schema: string,
-    tables: string[],
-  ): Promise<void> {
-    return invoke("prewarm_schema_tables", { connectionId, schema, tables });
-  }
+  // Database introspection - Use IntrospectionService instead (dialect-aware)
+  // See: src/services/introspectionService.ts
 
   // ============================================================================
   // CRUD TRANSACTION API
@@ -596,6 +496,84 @@ export class BackendAPI {
       })),
     };
   }
+
+  // ============================================================================
+  // Generic SQL Execution (Frontend-Driven Dialect Support)
+  // ============================================================================
+  // These methods allow the frontend to execute SQL directly.
+  // SQL generation is handled by frontend dialects (src/dialects/).
+
+  /**
+   * Execute a single SQL statement and return the number of affected rows.
+   * This is the primary method for DDL operations (CREATE, ALTER, DROP).
+   * Use the dialect system to generate the SQL before calling this method.
+   *
+   * @example
+   * ```typescript
+   * import { getDialect } from '@/dialects';
+   *
+   * const dialect = getDialect(DbType.PostgreSQL);
+   * const sql = dialect.createIndex({ schema: 'public', table: 'users', ... });
+   * const affectedRows = await BackendAPI.executeSql(connectionId, sql);
+   * ```
+   */
+  static async executeSql(connectionId: string, sql: string): Promise<number> {
+    return invoke<number>("execute_sql", {
+      connId: connectionId,
+      sql,
+    });
+  }
+
+  /**
+   * Execute multiple SQL statements in sequence.
+   * Returns an array of affected rows for each statement.
+   * All statements are executed in the same connection context.
+   *
+   * Use this for operations that require multiple statements (e.g., column modification).
+   *
+   * @example
+   * ```typescript
+   * const dialect = getDialect(DbType.PostgreSQL);
+   * const statements = dialect.modifyColumn({ ... }); // Returns string[]
+   * const results = await BackendAPI.executeSqlBatch(connectionId, statements);
+   * ```
+   */
+  static async executeSqlBatch(connectionId: string, statements: string[]): Promise<number[]> {
+    return invoke<number[]>("execute_sql_batch", {
+      connId: connectionId,
+      statements,
+    });
+  }
+
+  /**
+   * Execute a SQL query and return results directly.
+   * Use for introspection queries and small result sets.
+   * For large result sets, use streamQuery instead.
+   *
+   * @example
+   * ```typescript
+   * import { DialectService } from './dialectService';
+   *
+   * const sql = DialectService.getIndexesQuery(connectionId, schema, table);
+   * const result = await BackendAPI.query(connectionId, sql);
+   * // result.columns: ColumnMeta[], result.rows: CellValue[][]
+   * ```
+   */
+  static async query(connectionId: string, sql: string): Promise<RawQueryResult> {
+    return invoke<RawQueryResult>("query", {
+      connId: connectionId,
+      sql,
+    });
+  }
+}
+
+/**
+ * Raw query result from Rust backend
+ * Used for introspection queries executed via BackendAPI.query()
+ */
+export interface RawQueryResult {
+  columns: ColumnMeta[];
+  rows: CellValue[][];
 }
 
 // Alias for convenience (matches naming convention in other parts of codebase)

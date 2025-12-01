@@ -1,8 +1,9 @@
 import type { CustomCell, GridCellKind } from "@glideapps/glide-data-grid";
 import type { TableIndex } from "@/services/databaseService";
 
-// Grid row format
+// Grid row format - index signature required for TableDataRow compatibility
 export interface IndexGridRow {
+  [key: string]: unknown; // Index signature for TableDataRow compatibility
   row_number: number;
   name: string;
   name_meta: {

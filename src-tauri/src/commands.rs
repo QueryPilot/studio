@@ -236,155 +236,9 @@ pub async fn test_connection(
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub async fn get_databases(
-    conn_id: String,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<Vec<Database>, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    conn.adapter
-        .get_databases()
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn get_schemas(
-    conn_id: String,
-    database: String,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<Vec<Schema>, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    conn.adapter
-        .get_schemas(&database)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn get_tables(
-    conn_id: String,
-    schema: String,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<Vec<Table>, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    conn.adapter
-        .get_tables(&schema)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn get_views(
-    conn_id: String,
-    schema: String,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<Vec<View>, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    conn.adapter
-        .get_views(&schema)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn get_functions(
-    conn_id: String,
-    schema: String,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<Vec<Function>, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    conn.adapter
-        .get_functions(&schema)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn get_indexes(
-    conn_id: String,
-    table: String,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<Vec<Index>, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    conn.adapter
-        .get_indexes(&table)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn get_index_usage_stats(
-    conn_id: String,
-    table: String,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<Vec<IndexUsageStats>, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    conn.adapter
-        .get_index_usage_stats(&table)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn get_supported_index_types(
-    conn_id: String,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<Vec<String>, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    conn.adapter
-        .get_supported_index_types()
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn get_supported_column_types(
-    conn_id: String,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<Vec<String>, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    conn.adapter
-        .get_supported_column_types()
-        .await
-        .map_err(|e| e.to_string())
-}
+// NOTE: Introspection commands (get_databases, get_schemas, get_tables, etc.) have been
+// removed. The frontend now uses IntrospectionService which generates dialect-specific SQL
+// and executes via the `query` command. See: src/services/introspectionService.ts
 
 #[derive(Debug, Serialize)]
 pub struct TypeInfo {
@@ -485,95 +339,20 @@ pub async fn get_type_info(
     }
 }
 
+/// Execute a SQL query and return results (for introspection queries)
+/// This is a simpler alternative to stream_query for small result sets
 #[tauri::command]
-pub async fn get_constraints(
+pub async fn query(
     conn_id: String,
-    table: String,
+    sql: String,
     manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<Vec<Constraint>, String> {
+) -> std::result::Result<crate::types::QueryResult, String> {
     let conn = manager
         .get_connection_with_retry(&conn_id, 3)
         .await
         .map_err(|e| e.to_string())?;
 
-    conn.adapter
-        .get_constraints(&table)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn get_columns(
-    conn_id: String,
-    schema: String,
-    table: String,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<Vec<ColumnMeta>, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    conn.adapter
-        .get_table_columns(&schema, &table)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn get_triggers(
-    conn_id: String,
-    schema: String,
-    table: String,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<Vec<Trigger>, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    conn.adapter
-        .get_triggers(&schema, &table)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn get_object_definition(
-    conn_id: String,
-    database: String,
-    schema: String,
-    object_name: String,
-    object_type: String,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<String, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    conn.adapter
-        .get_object_definition(&database, &schema, &object_name, &object_type)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn get_table_count(
-    conn_id: String,
-    schema: String,
-    table: String,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<i64, String> {
-    let conn = manager
-        .get_connection_with_retry(&conn_id, 3)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    conn.adapter
-        .get_table_count(&schema, &table)
-        .await
-        .map_err(|e| e.to_string())
+    conn.adapter.query(&sql).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1217,175 +996,17 @@ pub async fn stream_query(
     execute_single_fetch_stream(&final_sql, &metadata_channel, &data_channel, &conn).await
 }
 
-// Index operation commands
-#[tauri::command]
-pub async fn create_index(
-    conn_id: String,
-    schema: String,
-    table: String,
-    index: CreateIndexRequest,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<(), String> {
-    let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
-
-    // Guard against indefinite hangs: enforce a 30s timeout
-    match timeout(
-        Duration::from_secs(30),
-        conn.adapter.create_index(&schema, &table, &index),
-    )
-    .await
-    {
-        Ok(res) => res.map_err(|e| e.to_string()),
-        Err(_) => Err("Timed out creating index after 30s".to_string()),
-    }
-}
-
-#[tauri::command]
-pub async fn drop_index(
-    conn_id: String,
-    schema: String,
-    index_name: String,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<(), String> {
-    let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
-
-    conn.adapter
-        .drop_index(&schema, &index_name)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn rename_index(
-    conn_id: String,
-    schema: String,
-    old_name: String,
-    new_name: String,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<(), String> {
-    let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
-
-    conn.adapter
-        .rename_index(&schema, &old_name, &new_name)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-// Table structure operation commands
-#[tauri::command]
-pub async fn alter_table_add_column(
-    conn_id: String,
-    schema: String,
-    table: String,
-    column: AddColumnRequest,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<(), String> {
-    let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
-
-    conn.adapter
-        .alter_table_add_column(&schema, &table, &column)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn alter_table_drop_column(
-    conn_id: String,
-    schema: String,
-    table: String,
-    column_name: String,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<(), String> {
-    let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
-
-    conn.adapter
-        .alter_table_drop_column(&schema, &table, &column_name)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn alter_table_modify_column(
-    conn_id: String,
-    schema: String,
-    table: String,
-    column: ModifyColumnRequest,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<(), String> {
-    let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
-
-    conn.adapter
-        .alter_table_modify_column(&schema, &table, &column)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn alter_table_rename_column(
-    conn_id: String,
-    schema: String,
-    table: String,
-    old_name: String,
-    new_name: String,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<(), String> {
-    let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
-
-    conn.adapter
-        .alter_table_rename_column(&schema, &table, &old_name, &new_name)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn alter_table_add_foreign_key(
-    conn_id: String,
-    schema: String,
-    table: String,
-    fk: AddForeignKeyRequest,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<(), String> {
-    let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
-
-    conn.adapter
-        .alter_table_add_foreign_key(&schema, &table, &fk)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn alter_table_drop_foreign_key(
-    conn_id: String,
-    schema: String,
-    table: String,
-    constraint_name: String,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<(), String> {
-    let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
-
-    conn.adapter
-        .alter_table_drop_foreign_key(&schema, &table, &constraint_name)
-        .await
-        .map_err(|e| e.to_string())
-}
+// ============================================================================
+// DDL Commands (DEPRECATED - use execute_sql with frontend dialect instead)
+// ============================================================================
+// The following commands have been removed:
+// - create_index, drop_index, rename_index
+// - alter_table_add_column, alter_table_drop_column, alter_table_modify_column, alter_table_rename_column
+// - alter_table_add_foreign_key, alter_table_drop_foreign_key
+// - create_trigger, drop_trigger, enable_disable_trigger
+//
+// Use the new execute_sql / execute_sql_batch commands with frontend dialect SQL generation instead.
+// See: src/dialects/ for the TypeScript dialect system.
 
 // ============================================================================
 // vault maintenance helpers
@@ -1430,154 +1051,6 @@ pub async fn reset_vault_vault(app_handle: AppHandle) -> std::result::Result<(),
     }
 
     Ok(())
-}
-
-// Trigger operation commands
-#[tauri::command]
-pub async fn create_trigger(
-    conn_id: String,
-    schema: String,
-    table: String,
-    trigger: CreateTriggerRequest,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<(), String> {
-    let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
-
-    conn.adapter
-        .create_trigger(&schema, &table, &trigger)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn drop_trigger(
-    conn_id: String,
-    schema: String,
-    table: String,
-    trigger_name: String,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<(), String> {
-    let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
-
-    conn.adapter
-        .drop_trigger(&schema, &table, &trigger_name)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn enable_disable_trigger(
-    conn_id: String,
-    schema: String,
-    table: String,
-    trigger_name: String,
-    enabled: bool,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<(), String> {
-    let conn = manager
-        .get_connection(&conn_id)
-        .ok_or_else(|| "Connection not found".to_string())?;
-
-    conn.adapter
-        .enable_disable_trigger(&schema, &table, &trigger_name, enabled)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-/// Pre-warm schema tables after schema loads (smart table pre-warming)
-#[tauri::command]
-pub async fn prewarm_schema_tables(
-    connection_id: String,
-    schema: String,
-    tables: Vec<String>,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<(), String> {
-    tracing::debug!(
-        "prewarm_schema_tables called: connection_id={}, schema={}, table_count={}",
-        connection_id,
-        schema,
-        tables.len()
-    );
-
-    let conn = manager.get_connection(&connection_id).ok_or_else(|| {
-        let err = format!("Connection not found: {}", connection_id);
-        tracing::warn!("{}", err);
-        err
-    })?;
-
-    // Try to get PostgresAdapter
-    if let Some(postgres_adapter) = conn
-        .adapter
-        .as_any()
-        .downcast_ref::<crate::adapters::postgres::PostgresAdapter>()
-    {
-        tracing::debug!("Calling prewarm_tables for schema: {}", schema);
-        postgres_adapter
-            .prewarm_tables(&schema, tables)
-            .await
-            .map_err(|e| {
-                let err_msg = format!("Pre-warming failed: {}", e);
-                tracing::warn!("{}", err_msg);
-                err_msg
-            })?;
-    } else {
-        tracing::debug!("Not a PostgreSQL connection, skipping pre-warming");
-    }
-
-    Ok(())
-}
-
-/// Pre-warm statement cache by preparing a query in background
-/// This is fire-and-forget, errors are logged but not returned to caller
-/// Used to eliminate cold start delays on first query execution
-#[tauri::command]
-pub async fn prewarm_query(
-    connection_id: String,
-    sql: String,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<(), String> {
-    // Get connection
-    let conn = manager.get_connection(&connection_id).ok_or_else(|| {
-        tracing::debug!("Pre-warm failed: connection {} not found", connection_id);
-        "Connection not found".to_string()
-    })?;
-
-    // Try to get FastPostgresQueryExecutor (PostgreSQL only)
-    let executor = conn
-        .adapter
-        .as_any()
-        .downcast_ref::<crate::adapters::postgres::PostgresAdapter>()
-        .and_then(|adapter| adapter.get_query_executor())
-        .ok_or_else(|| {
-            tracing::debug!("Pre-warm skipped: fast query executor not available");
-            "Fast query executor not available".to_string()
-        })?;
-
-    // Prepare statement with timeout (10s max)
-    let prepare_result = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        executor.prepare_streaming_query(&sql),
-    )
-    .await;
-
-    match prepare_result {
-        Ok(Ok(_)) => {
-            tracing::info!("✅ Pre-warmed statement: {}", sql);
-            Ok(())
-        }
-        Ok(Err(e)) => {
-            tracing::debug!("Pre-warm failed: {}", e);
-            Err(e.to_string())
-        }
-        Err(_) => {
-            tracing::warn!("Pre-warm timeout after 10s: {}", sql);
-            Err("Statement preparation timeout".to_string())
-        }
-    }
 }
 
 // ============================================================================
@@ -1633,6 +1106,49 @@ pub async fn execute_crud_transaction(
             tracing::error!("❌ CRUD transaction failed: {}", e);
             e.to_string()
         })
+}
+
+// ========================================
+// Generic SQL Execution Commands
+// ========================================
+// These commands allow the frontend to execute SQL directly.
+// SQL generation is handled by frontend dialects (src/dialects/).
+
+/// Execute a single SQL statement and return the number of affected rows.
+/// This is the primary command for DDL operations (CREATE, ALTER, DROP).
+/// The frontend generates dialect-specific SQL and sends it here for execution.
+#[tauri::command]
+pub async fn execute_sql(
+    conn_id: String,
+    sql: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<u64, String> {
+    let conn = manager
+        .get_connection(&conn_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+
+    conn.adapter.execute(&sql).await.map_err(|e| e.to_string())
+}
+
+/// Execute multiple SQL statements in sequence.
+/// Returns the total number of affected rows.
+/// All statements are executed in the same connection context.
+#[tauri::command]
+pub async fn execute_sql_batch(
+    conn_id: String,
+    statements: Vec<String>,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<Vec<u64>, String> {
+    let conn = manager
+        .get_connection(&conn_id)
+        .ok_or_else(|| "Connection not found".to_string())?;
+
+    let mut results = Vec::with_capacity(statements.len());
+    for sql in statements {
+        let affected = conn.adapter.execute(&sql).await.map_err(|e| e.to_string())?;
+        results.push(affected);
+    }
+    Ok(results)
 }
 
 // ========================================
