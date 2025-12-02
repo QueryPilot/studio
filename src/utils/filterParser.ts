@@ -675,6 +675,44 @@ export interface SearchParseResult {
   validation?: SearchValidation;
 }
 
+// LRU cache for parsed search results (performance optimization)
+const PARSE_CACHE_SIZE = 50;
+const parseCache = new Map<string, SearchParseResult>();
+
+// ID counter for filter conditions (avoids string concatenation)
+let idCounter = 0;
+function nextId(): string {
+  return `f${++idCounter}`;
+}
+
+function getCacheKey(text: string, columnNames: string[]): string {
+  return `${text}|${columnNames.join(",")}`;
+}
+
+function getCachedResult(key: string): SearchParseResult | undefined {
+  const result = parseCache.get(key);
+  if (result) {
+    // Move to end (most recently used)
+    parseCache.delete(key);
+    parseCache.set(key, result);
+  }
+  return result;
+}
+
+function setCachedResult(key: string, result: SearchParseResult): void {
+  // Evict oldest if at capacity
+  if (parseCache.size >= PARSE_CACHE_SIZE) {
+    const firstKey = parseCache.keys().next().value;
+    if (firstKey) parseCache.delete(firstKey);
+  }
+  parseCache.set(key, result);
+}
+
+/** Clear parse cache (useful for testing) */
+export function clearParseCache(): void {
+  parseCache.clear();
+}
+
 /**
  * Parse a search query with pattern support.
  * Supports: wildcards (*, _), anchors (^, $), regex (/pattern/), boolean (|, &, -), grouping (())
@@ -690,6 +728,7 @@ export function parseSimpleSearch(
 
 /**
  * Parse a search query with full result including validation.
+ * Results are cached for performance.
  */
 export function parseSearchQuery(
   text: string,
@@ -707,10 +746,19 @@ export function parseSearchQuery(
     return { success: true, filter: createEmptyFilter() };
   }
 
+  // Check cache first
+  const cacheKey = getCacheKey(searchValue, searchableColumns.map(c => c.name));
+  const cached = getCachedResult(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   // Tokenize and parse
   const tokens = tokenizeSearch(searchValue);
   if (tokens.length === 0) {
-    return { success: true, filter: createEmptyFilter() };
+    const result: SearchParseResult = { success: true, filter: createEmptyFilter() };
+    setCachedResult(cacheKey, result);
+    return result;
   }
 
   const ast = parseSearchTokens(tokens);
@@ -727,7 +775,9 @@ export function parseSearchQuery(
   // Convert AST to FilterConfig
   const filter = astToFilterConfig(ast, searchableColumns);
 
-  return { success: true, filter, validation };
+  const result: SearchParseResult = { success: true, filter, validation };
+  setCachedResult(cacheKey, result);
+  return result;
 }
 
 /**
@@ -737,7 +787,7 @@ function astToFilterConfig(
   ast: SearchToken,
   columns: FilterColumnInfo[]
 ): FilterConfig {
-  const root = astNodeToFilterGroup(ast, columns, "root");
+  const root = astNodeToFilterGroup(ast, columns);
   return { root };
 }
 
@@ -746,50 +796,49 @@ function astToFilterConfig(
  */
 function astNodeToFilterGroup(
   node: SearchToken,
-  columns: FilterColumnInfo[],
-  id: string
+  columns: FilterColumnInfo[]
 ): FilterGroup {
   switch (node.type) {
     case "term":
-      return termToFilterGroup(node, columns, id);
+      return termToFilterGroup(node, columns);
 
     case "and":
       return {
-        id,
+        id: nextId(),
         type: "group",
         logical: "AND",
-        conditions: node.children?.map((child, i) =>
-          astNodeToFilterGroup(child, columns, `${id}_${i}`)
+        conditions: node.children?.map((child) =>
+          astNodeToFilterGroup(child, columns)
         ) ?? [],
       };
 
     case "or":
       return {
-        id,
+        id: nextId(),
         type: "group",
         logical: "OR",
-        conditions: node.children?.map((child, i) =>
-          astNodeToFilterGroup(child, columns, `${id}_${i}`)
+        conditions: node.children?.map((child) =>
+          astNodeToFilterGroup(child, columns)
         ) ?? [],
       };
 
     case "not":
       if (node.children?.[0]) {
-        const innerGroup = astNodeToFilterGroup(node.children[0], columns, `${id}_not`);
+        const innerGroup = astNodeToFilterGroup(node.children[0], columns);
         // Mark all conditions in this group as negated
         markGroupNegated(innerGroup);
         return innerGroup;
       }
-      return createEmptyGroup(id);
+      return createEmptyGroup();
 
     case "group":
       if (node.children?.[0]) {
-        return astNodeToFilterGroup(node.children[0], columns, id);
+        return astNodeToFilterGroup(node.children[0], columns);
       }
-      return createEmptyGroup(id);
+      return createEmptyGroup();
 
     default:
-      return createEmptyGroup(id);
+      return createEmptyGroup();
   }
 }
 
@@ -799,8 +848,7 @@ function astNodeToFilterGroup(
  */
 function termToFilterGroup(
   term: SearchToken,
-  columns: FilterColumnInfo[],
-  id: string
+  columns: FilterColumnInfo[]
 ): FilterGroup {
   const { operator, value } = patternToOperatorAndValue(
     term.patternType ?? "contains",
@@ -816,11 +864,11 @@ function termToFilterGroup(
 
     if (targetCol) {
       return {
-        id,
+        id: nextId(),
         type: "group",
         logical: "OR",
         conditions: [{
-          id: `${id}_col0`,
+          id: nextId(),
           column: targetCol.name,
           operator,
           value,
@@ -829,12 +877,12 @@ function termToFilterGroup(
       };
     }
     // Column not found - return empty (will match nothing)
-    return createEmptyGroup(id);
+    return createEmptyGroup();
   }
 
   // No target column - search across all searchable columns
-  const conditions: FilterCondition[] = columns.map((col, i) => ({
-    id: `${id}_col${i}`,
+  const conditions: FilterCondition[] = columns.map((col) => ({
+    id: nextId(),
     column: col.name,
     operator,
     value,
@@ -842,7 +890,7 @@ function termToFilterGroup(
   }));
 
   return {
-    id,
+    id: nextId(),
     type: "group",
     logical: "OR",
     conditions,
@@ -862,8 +910,8 @@ function markGroupNegated(group: FilterGroup): void {
   }
 }
 
-function createEmptyGroup(id: string): FilterGroup {
-  return { id, type: "group", logical: "AND", conditions: [] };
+function createEmptyGroup(): FilterGroup {
+  return { id: nextId(), type: "group", logical: "AND", conditions: [] };
 }
 
 export function parseWhereClause(

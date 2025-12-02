@@ -990,13 +990,14 @@ export const QuickFilter = memo(forwardRef<QuickFilterRef, QuickFilterProps>(
                         editorViewRef.current = view;
                       }}
                       onUpdate={(update) => {
-                        if (update.selectionSet) {
+                        // Only update cursor if selection actually changed AND suggestions are enabled
+                        // This prevents unnecessary state updates during typing
+                        if (update.selectionSet && (mode === "where" || mode === "ai")) {
                           const pos = update.state.selection.main.head;
-                          // Calculate prefix length
+                          // Calculate prefix length for WHERE (?) or AI (#) modes
                           const prefixLen =
                             (value.startsWith("?") && mode === "where") ||
-                            (value.startsWith("#") && mode === "ai") ||
-                            (value.startsWith("!") && mode === "search")
+                            (value.startsWith("#") && mode === "ai")
                               ? 1
                               : 0;
                           setCursorPosition(pos + prefixLen);
