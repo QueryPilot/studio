@@ -67,9 +67,9 @@ const modeConfig: Record<
 > = {
   search: {
     icon: IconSearch,
-    label: "Simple Search",
-    description: "Match any column",
-    placeholder: "Search anything... (! case-sensitive, ? SQL, # AI)",
+    label: "Pattern Search",
+    description: "Wildcards, regex, boolean",
+    placeholder: "john | jane, col:val1|val2, ^starts, /regex/i",
   },
   where: {
     icon: IconCode,
@@ -139,7 +139,7 @@ const ColumnSuggestionItem = memo<ColumnSuggestionItemProps>(({ column, isSelect
 });
 ColumnSuggestionItem.displayName = "ColumnSuggestionItem";
 
-export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
+export const QuickFilter = memo(forwardRef<QuickFilterRef, QuickFilterProps>(
   function QuickFilter(
     {
       columns,
@@ -1074,4 +1074,6 @@ export const QuickFilter = forwardRef<QuickFilterRef, QuickFilterProps>(
       </div>
     );
   },
-);
+));
+
+QuickFilter.displayName = "QuickFilter";

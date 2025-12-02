@@ -66,8 +66,17 @@ export function useQuickFilter({
   // Track the last applied initial filter to detect changes
   const lastAppliedFilterRef = useRef<string | undefined>(undefined);
 
+  // Track previous value to avoid unnecessary state updates
+  const prevValueRef = useRef(value);
+
   // Handle value change with mode detection and UX improvements
   const handleSetValue = useCallback((newValue: string) => {
+    // Skip if value hasn't actually changed (prevents unnecessary re-renders)
+    if (newValue === prevValueRef.current) {
+      return;
+    }
+    prevValueRef.current = newValue;
+
     setValue(newValue);
 
     // Clear errors when user starts typing (better UX)
