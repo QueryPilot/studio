@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useCrudStore } from "@/stores/crudStore";
-import type { CrudCommand } from "@/types/crud";
+import type { CrudCommand } from "@/types";
 import type { GridRowModel, GridColumnV2 } from "../types";
 
 export interface StagedChangesMap {

@@ -29,16 +29,9 @@ import { DataGridStatusBar } from "../components/DataGridStatusBar";
 import { StagingActionsToolbar } from "../components/StagingActionsToolbar";
 import { QuickFilter, type QuickFilterRef } from "../components/QuickFilter";
 import { useAIFilter } from "../hooks/useAIFilter";
-import {
-  parseSimpleSearch,
-  parseWhereClause,
-  sanitizeInput,
-  detectFilterMode,
-  type FilterMode,
-  type FilterColumnInfo,
-} from "@/utils/filterParser";
+import { type FilterColumnInfo } from "@/utils/filterParser";
 import { openTableObject } from "@/utils/workbench/openers";
-import type { FilterConfig, SortConfig } from "@/types/filter";
+import { DbType, type SortConfig, type CellValue as FrontCellValue, type ColumnMeta, type JsonValue } from "@/types";
 import {
   usePersistentViewState,
   useClipboardBridge,
@@ -48,6 +41,7 @@ import {
   isRowPendingInsertion,
   useCellHoverIcons,
   useTableCrud,
+  useQuickFilter,
 } from "../hooks";
 import {
   useGridPreferences,
@@ -77,9 +71,7 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { IconPlus } from "@tabler/icons-react";
-import type { CellValue as FrontCellValue } from "@/types/cellValue";
 import type { CellValue as BackendCellValue } from "@/services/backend";
-import type { ColumnMeta } from "@/types/database";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { cn } from "@/lib/utils";
 import { GridContextMenu } from "../components/GridContextMenu";
@@ -87,13 +79,11 @@ import { useContextKey, useScopedKeybindings } from "@/hooks/useContextKey";
 import { useCommand } from "@/hooks/useCommand";
 import { useCrudStore } from "@/stores/crudStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
-import { DbType } from "@/types/connection";
 import {
   createInsertCommand,
   createCrudTarget,
 } from "../utils/crudHelpers";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
-import type { JsonValue } from "@/types/crud";
 import { deriveValueType, normalizeBackendValue } from "@/services/tableDataTransform";
 
 interface BaseTableDataGridV2Props {
@@ -161,22 +151,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const initialFilter =
     props.mode === "table" ? props.initialFilter : undefined;
   const panelId = props.mode === "table" ? props.panelId : undefined;
-
-  // Quick filter state - initialize with initialFilter if provided
-  const [quickFilterValue, setQuickFilterValue] = useState(() =>
-    initialFilter ? `?${initialFilter}` : "",
-  );
-  const [quickFilterMode, setQuickFilterMode] = useState<FilterMode>(() =>
-    initialFilter ? "where" : "search",
-  );
-  const [quickFilterError, setQuickFilterError] = useState<string | null>(null);
-  const [aiExplanation, setAiExplanation] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<FilterConfig | undefined>(
-    undefined,
-  );
-
-  // Track the last applied initial filter to detect changes
-  const lastAppliedFilterRef = useRef<string | undefined>(undefined);
 
   useContextKey("dataGridFocus", isGridFocused, {
     scopeId,
@@ -299,64 +273,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     return undefined;
   }, [isTableMode, tableStructure?.columns]);
 
-  const tableDataQuery = useTableDataQuery({
-    connectionId,
-    database,
-    schema,
-    entityName: table,
-    entityType,
-    enabled: isTableMode,
-    pageSize: 300,
-    sorts: userSorts ?? defaultSorts,
-    filters: activeFilter,
-  });
-
-  // Convert column metadata for filter parser, enriching with FK info from tableStructure
-  const filterColumns = useMemo<FilterColumnInfo[]>(() => {
-    // Build FK lookup from tableStructure (column -> foreign table/column mapping)
-    const fkMap = new Map<string, { table: string; column: string }>();
-    if (tableStructure?.foreignKeys) {
-      for (const fk of tableStructure.foreignKeys) {
-        // Map each source column to its foreign target
-        for (let i = 0; i < fk.columns.length; i++) {
-          const sourceCol = fk.columns[i];
-          const targetCol = fk.foreignColumns[i];
-          if (sourceCol && targetCol) {
-            fkMap.set(sourceCol, {
-              table: fk.foreignTable,
-              column: targetCol,
-            });
-          }
-        }
-      }
-    }
-
-    // Build PK lookup
-    const pkColumns = new Set<string>();
-    if (tableStructure?.columns) {
-      for (const col of tableStructure.columns) {
-        if (col.is_pk) {
-          pkColumns.add(col.name);
-        }
-      }
-    }
-
-    return tableDataQuery.columns.map((col) => {
-      const fkInfo = fkMap.get(col.name);
-      return {
-        name: col.name,
-        dataType: col.db_type,
-        nullable: col.nullable,
-        enumValues: col.enum_values,
-        isPrimaryKey: pkColumns.has(col.name),
-        isForeignKey: !!fkInfo,
-        foreignTable: fkInfo?.table,
-        foreignColumn: fkInfo?.column,
-      };
-    });
-  }, [tableDataQuery.columns, tableStructure?.foreignKeys, tableStructure?.columns]);
-
-  // Get connection info for dialect detection
+  // Get connection info for dialect detection (moved before filter hooks)
   const storedConnection = useConnectionStore(
     (state) => state.connections.find((c) => c.profile.id === connectionId)
   );
@@ -378,6 +295,43 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     }
   }, [storedConnection?.profile.db_type]);
 
+  // Build filter columns from tableStructure (available before query)
+  // This allows useQuickFilter to be called before tableDataQuery
+  const filterColumns = useMemo<FilterColumnInfo[]>(() => {
+    if (!tableStructure?.columns) return [];
+
+    // Build FK lookup from tableStructure
+    const fkMap = new Map<string, { table: string; column: string }>();
+    if (tableStructure?.foreignKeys) {
+      for (const fk of tableStructure.foreignKeys) {
+        for (let i = 0; i < fk.columns.length; i++) {
+          const sourceCol = fk.columns[i];
+          const targetCol = fk.foreignColumns[i];
+          if (sourceCol && targetCol) {
+            fkMap.set(sourceCol, {
+              table: fk.foreignTable,
+              column: targetCol,
+            });
+          }
+        }
+      }
+    }
+
+    return tableStructure.columns.map((col) => {
+      const fkInfo = fkMap.get(col.name);
+      return {
+        name: col.name,
+        dataType: col.db_type,
+        nullable: col.nullable,
+        enumValues: col.enum_values,
+        isPrimaryKey: col.is_pk,
+        isForeignKey: !!fkInfo,
+        foreignTable: fkInfo?.table,
+        foreignColumn: fkInfo?.column,
+      };
+    });
+  }, [tableStructure?.columns, tableStructure?.foreignKeys]);
+
   // AI filter hook with proper connection context
   const { generateFilter: generateAIFilter, isLoading: isAIFilterLoading } =
     useAIFilter(filterColumns, table, dialect, {
@@ -386,80 +340,35 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       enableCrossTable: true,
     });
 
-  // Handle filter submission
-  const handleFilterSubmit = useCallback(async () => {
-    setQuickFilterError(null);
-    setAiExplanation(null);
+  // Quick filter hook - manages filter state, parsing, and submission
+  // Called before tableDataQuery to provide activeFilter
+  const {
+    value: quickFilterValue,
+    mode: quickFilterMode,
+    error: quickFilterError,
+    aiExplanation,
+    activeFilter,
+    setValue: setQuickFilterValue,
+    setMode: setQuickFilterMode,
+    submit: handleFilterSubmit,
+    clear: clearFilter,
+  } = useQuickFilter({
+    columns: filterColumns,
+    initialFilter,
+    generateAIFilter,
+  });
 
-    const sanitized = sanitizeInput(quickFilterValue, quickFilterMode);
-    if (!sanitized) {
-      setActiveFilter(undefined);
-      return;
-    }
-
-    switch (quickFilterMode) {
-      case "search": {
-        const filter = parseSimpleSearch(sanitized, filterColumns);
-        setActiveFilter(filter.root.conditions.length > 0 ? filter : undefined);
-        break;
-      }
-      case "where": {
-        const result = parseWhereClause(sanitized, filterColumns);
-        if (result.success) {
-          setActiveFilter(result.filter);
-        } else {
-          setQuickFilterError(result.error || "Invalid WHERE clause");
-        }
-        break;
-      }
-      case "ai": {
-        const result = await generateAIFilter(sanitized);
-        if ("error" in result) {
-          setQuickFilterError(result.error);
-        } else {
-          // Use raw WHERE clause directly - don't parse complex AI-generated SQL
-          const filter: FilterConfig = {
-            root: {
-              id: "root",
-              type: "group",
-              logical: "AND",
-              conditions: [],
-            },
-            rawWhereClause: result.clause,
-          };
-          setActiveFilter(filter);
-          // Show AI explanation
-          if (result.explanation) {
-            setAiExplanation(result.explanation);
-          }
-          // Update the input to show the generated clause with ? prefix for WHERE mode
-          setQuickFilterValue(`?${result.clause}`);
-          setQuickFilterMode("where");
-        }
-        break;
-      }
-    }
-  }, [quickFilterValue, quickFilterMode, filterColumns, generateAIFilter]);
-
-  // Apply initial filter on mount or when it changes (for FK reference navigation)
-  useEffect(() => {
-    if (
-      initialFilter &&
-      initialFilter !== lastAppliedFilterRef.current &&
-      filterColumns.length > 0
-    ) {
-      lastAppliedFilterRef.current = initialFilter;
-      // Update the quick filter UI state
-      setQuickFilterValue(`?${initialFilter}`);
-      setQuickFilterMode("where");
-      setQuickFilterError(null);
-      // Parse and apply the filter
-      const result = parseWhereClause(initialFilter, filterColumns);
-      if (result.success) {
-        setActiveFilter(result.filter);
-      }
-    }
-  }, [initialFilter, filterColumns]);
+  const tableDataQuery = useTableDataQuery({
+    connectionId,
+    database,
+    schema,
+    entityName: table,
+    entityType,
+    enabled: isTableMode,
+    pageSize: 300,
+    sorts: userSorts ?? defaultSorts,
+    filters: activeFilter,
+  });
 
   // IconKeyboard shortcuts for focusing quick filter (Cmd+F or /)
   useEffect(() => {
@@ -2180,18 +2089,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
                 columns={filterColumns}
                 value={quickFilterValue}
                 mode={quickFilterMode}
-                onValueChange={(value) => {
-                  setQuickFilterValue(value);
-                  setQuickFilterError(null);
-                  setAiExplanation(null);
-                  const detectedMode = detectFilterMode(value);
-                  if (detectedMode !== quickFilterMode) {
-                    setQuickFilterMode(detectedMode);
-                  }
-                  if (!value.trim()) {
-                    setActiveFilter(undefined);
-                  }
-                }}
+                onValueChange={setQuickFilterValue}
                 onModeChange={setQuickFilterMode}
                 onSubmit={handleFilterSubmit}
                 isLoading={isAIFilterLoading}
@@ -2207,11 +2105,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                setQuickFilterValue("");
-                setActiveFilter(undefined);
-                setQuickFilterError(null);
-              }}
+              onClick={clearFilter}
             >
               Clear IconFilter
             </Button>
@@ -2246,20 +2140,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             columns={filterColumns}
             value={quickFilterValue}
             mode={quickFilterMode}
-            onValueChange={(value) => {
-              setQuickFilterValue(value);
-              setQuickFilterError(null);
-              setAiExplanation(null);
-              // Auto-detect mode from prefix
-              const detectedMode = detectFilterMode(value);
-              if (detectedMode !== quickFilterMode) {
-                setQuickFilterMode(detectedMode);
-              }
-              // Clear filter if input is empty
-              if (!value.trim()) {
-                setActiveFilter(undefined);
-              }
-            }}
+            onValueChange={setQuickFilterValue}
             onModeChange={setQuickFilterMode}
             onSubmit={handleFilterSubmit}
             isLoading={isAIFilterLoading}
