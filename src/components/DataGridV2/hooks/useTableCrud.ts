@@ -14,7 +14,7 @@ import type {
   GridRowAppendEvent,
   GridRowDeleteEvent,
 } from "../types";
-import type { JsonValue } from "@/types/crud";
+import type { JsonValue } from "@/types";
 import type { EditableDataGridRef } from "../base";
 
 /**
