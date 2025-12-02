@@ -4,8 +4,7 @@ import {
   type GridColumn,
   GridCellKind,
 } from "@glideapps/glide-data-grid";
-import type { CellValue } from "@/types/cellValue";
-import type { ColumnMeta as TableColumnMeta } from "@/types/database";
+import type { CellValue, ColumnMeta as TableColumnMeta } from "@/types";
 
 // Create a singleton canvas context for text measurement
 let measurementCanvas: HTMLCanvasElement | null = null;

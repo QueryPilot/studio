@@ -9,7 +9,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import type { GridRowModel, GridColumnV2 } from "../types";
-import type { CellValue as FrontCellValue } from "@/types/cellValue";
+import type { CellValue as FrontCellValue } from "@/types";
 import {
   toDecimal,
   formatDecimalWithLocale,

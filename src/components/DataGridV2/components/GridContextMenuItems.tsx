@@ -9,7 +9,7 @@ import {
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { IconCopy, IconDownload, IconEye, IconPin, IconPinnedOff, IconPlus, IconTrash, IconClipboardText } from '@tabler/icons-react';
 import type { GridColumnV2, GridRowModel } from "../types";
-import type { DatabaseType } from "@/types/database";
+import type { DatabaseType } from "@/types";
 import {
   copyAsJSON,
   copyAsCSV,

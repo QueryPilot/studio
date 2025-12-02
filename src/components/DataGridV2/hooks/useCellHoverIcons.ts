@@ -6,7 +6,7 @@ import type {
   Rectangle,
 } from "@glideapps/glide-data-grid";
 import type { GridColumnV2, GridRowModel } from "../types";
-import type { CellValue } from "@/types/cellValue";
+import type { CellValue } from "@/types";
 import { toast } from "sonner";
 
 // Copy to clipboard with fallback

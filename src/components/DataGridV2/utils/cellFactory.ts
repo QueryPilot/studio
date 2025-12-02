@@ -1,5 +1,5 @@
 import { GridCellKind, type GridCell } from "@glideapps/glide-data-grid";
-import type { CellValue } from "@/types/cellValue";
+import type { CellValue } from "@/types";
 import type { GridColumnV2 } from "../types";
 import { computeArrayStringsFromRaw } from "../utils/arrayFormat";
 import { coerceToHstoreString } from "../renderers/HStoreCell/hstoreFormat";

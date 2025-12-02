@@ -1,4 +1,4 @@
-import type { CellValue, CellValueType } from "@/types/cellValue";
+import type { CellValue, CellValueType } from "@/types";
 
 export const inferValueType = (value: unknown): CellValueType => {
   if (value === null) return "Null";
