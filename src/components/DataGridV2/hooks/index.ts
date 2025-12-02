@@ -72,3 +72,15 @@ export type {
   UseCellHoverIconsOptions,
   UseCellHoverIconsResult,
 } from "./useCellHoverIcons";
+
+export { useTableCrud } from "./useTableCrud";
+export type {
+  UseTableCrudOptions,
+  UseTableCrudResult,
+} from "./useTableCrud";
+
+export { useQuickFilter } from "./useQuickFilter";
+export type {
+  UseQuickFilterOptions,
+  UseQuickFilterResult,
+} from "./useQuickFilter";

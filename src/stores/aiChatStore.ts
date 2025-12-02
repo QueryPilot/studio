@@ -8,6 +8,10 @@ import {
 } from "@/services/aiService";
 
 interface AIChatStoreState {
+  // Sidecar connection state
+  sidecarConnected: boolean;
+  sidecarUrl: string | null;
+
   // Provider and model selection
   selectedProvider: string | null;
   selectedModel: string | null;
@@ -23,7 +27,11 @@ interface AIChatStoreState {
   // Loading state
   isLoadingProviders: boolean;
 
-  // Actions
+  // Sidecar actions
+  setSidecarConnected: (connected: boolean) => void;
+  setSidecarUrl: (url: string | null) => void;
+
+  // Provider/model actions
   setProvider: (provider: string) => void;
   setModel: (model: string) => void;
   setProviderDefaultModel: (provider: string, model: string) => void;
@@ -38,7 +46,11 @@ interface AIChatStoreState {
 export const useAIChatStore = create<AIChatStoreState>()(
   persist(
     (set, get) => ({
-      // Initial state
+      // Initial state - Sidecar connection
+      sidecarConnected: false,
+      sidecarUrl: null,
+
+      // Initial state - Provider/model selection
       selectedProvider: null,
       selectedModel: null,
       availableProviders: [],
@@ -46,6 +58,14 @@ export const useAIChatStore = create<AIChatStoreState>()(
       providerDefaultModels: {},
       providerEnabledModels: {},
       isLoadingProviders: false,
+
+      // Sidecar connection actions
+      setSidecarConnected: (connected: boolean) => {
+        set({ sidecarConnected: connected });
+      },
+      setSidecarUrl: (url: string | null) => {
+        set({ sidecarUrl: url });
+      },
 
       // Set the selected provider
       setProvider: (provider: string) => {

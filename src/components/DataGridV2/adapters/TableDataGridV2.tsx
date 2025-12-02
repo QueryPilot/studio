@@ -15,7 +15,6 @@ import type {
   Rectangle,
 } from "@glideapps/glide-data-grid";
 import { GridCellKind, CompactSelection } from "@glideapps/glide-data-grid";
-import isEqual from "lodash/isEqual";
 import { EditableDataGrid, type EditableDataGridRef } from "../base";
 import type { GridColumnV2, GridRowModel } from "../types";
 import { useTableDataQuery } from "@/hooks/useTableDataQuery";
@@ -48,6 +47,7 @@ import {
   isRowPendingDeletion,
   isRowPendingInsertion,
   useCellHoverIcons,
+  useTableCrud,
 } from "../hooks";
 import {
   useGridPreferences,
@@ -89,43 +89,12 @@ import { useCrudStore } from "@/stores/crudStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { DbType } from "@/types/connection";
 import {
-  createUpdateCommand,
   createInsertCommand,
-  createDeleteCommand,
   createCrudTarget,
 } from "../utils/crudHelpers";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
-import type {
-  GridEditCommitEvent,
-  GridRowAppendEvent,
-  GridRowDeleteEvent,
-} from "../types";
 import type { JsonValue } from "@/types/crud";
 import { deriveValueType, normalizeBackendValue } from "@/services/tableDataTransform";
-
-/**
- * Compare two values for equality, handling null/undefined and type coercion
- * Optimized to avoid JSON.stringify for performance in hot paths
- */
-function areValuesEqual(a: unknown, b: unknown): boolean {
-  // Reference equality (fast path)
-  if (a === b) return true;
-
-  // Handle null/undefined
-  if (a == null && b == null) return true;
-  if (a == null || b == null) return false;
-
-  // Special handling for numeric string coercion (database-specific)
-  if (typeof a === "string" && typeof b === "number") {
-    return Number(a) === b;
-  }
-  if (typeof a === "number" && typeof b === "string") {
-    return a === Number(b);
-  }
-
-  // Use lodash isEqual for deep comparison (handles nested objects, arrays, Date, etc.)
-  return isEqual(a, b);
-}
 
 interface BaseTableDataGridV2Props {
   gridId: string;
@@ -1063,6 +1032,25 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     return result;
   }, [baseColumns2, columnWidths]);
 
+  // CRUD operations hook (handles insert, update, delete staging)
+  const {
+    handleCellEditStart,
+    handleCellEditCancel,
+    handleCellEditCommit,
+    handleRowAppend,
+    handleRowDelete,
+  } = useTableCrud({
+    connectionId,
+    database,
+    schema,
+    table,
+    columns: finalColumns,
+    gridRef,
+    enabled: isTableMode,
+    isEditingCell,
+    onEditingChange: setIsEditingCell,
+  });
+
   // Column sorting
   const { sortColumns, toggleSort, getSortIndex, getSortDirection } =
     useColumnSorting({
@@ -1694,230 +1682,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     table,
     stageCommand,
   ]);
-
-  // Handler: Cell edit commit → Stage update command (or modify INSERT command for new rows)
-  const handleCellEditCommit = useCallback(
-    (event: GridEditCommitEvent) => {
-      // Only handle in table mode
-      if (!isTableMode) {
-        return undefined;
-      }
-
-      try {
-        const target = createCrudTarget(connectionId, database, schema, table);
-        const tableKey = getTableKey({ connectionId, database, schema, table });
-        const commands = stagedCommands.get(tableKey) ?? [];
-
-        // IconCheck if this row is a pending insertion (first N rows where N = number of INSERT commands)
-        const insertCommands = commands.filter(
-          (cmd) => cmd.type === "data.insert",
-        );
-        const isPendingInsert = event.rowIndex < insertCommands.length;
-
-        if (isPendingInsert) {
-          // Editing a pending insert row - update the INSERT command payload
-          const insertCmd = insertCommands[event.rowIndex];
-          if (insertCmd) {
-            const payload = insertCmd.payload as {
-              values?: Record<string, JsonValue>;
-            };
-            const updatedValues = { ...payload.values };
-
-            // Get the old value from the current INSERT command
-            const oldValue = payload.values?.[event.column.field];
-
-            // Extract the new value
-            let newValue: JsonValue = null;
-            if ("data" in event.newValue) {
-              const data = event.newValue.data;
-              if (
-                typeof data === "object" &&
-                data !== null &&
-                "value" in data
-              ) {
-                const extractedValue = data.value;
-
-                // Convert numeric strings to numbers based on column type
-                const columnDbType =
-                  event.column.meta?.db_type.toLowerCase() || "";
-                const isNumericColumn =
-                  columnDbType.includes("int") ||
-                  columnDbType.includes("numeric") ||
-                  columnDbType.includes("decimal") ||
-                  columnDbType.includes("float") ||
-                  columnDbType.includes("double") ||
-                  columnDbType.includes("real") ||
-                  columnDbType.includes("money");
-
-                if (
-                  isNumericColumn &&
-                  typeof extractedValue === "string" &&
-                  extractedValue !== ""
-                ) {
-                  const numValue = Number(extractedValue);
-                  newValue = isNaN(numValue) ? extractedValue : numValue;
-                } else {
-                  newValue = extractedValue as JsonValue;
-                }
-              } else {
-                newValue = data as JsonValue;
-              }
-            }
-
-            // Only update if the value actually changed
-            if (!areValuesEqual(oldValue, newValue)) {
-              updatedValues[event.column.field] = newValue;
-
-              // Update the command (stageCommand will replace in-place if ID matches)
-              const updatedCmd = {
-                ...insertCmd,
-                payload: { ...payload, values: updatedValues },
-              };
-
-              stageCommand(updatedCmd);
-            }
-          }
-        } else {
-          // Editing an existing row - create UPDATE command
-          const command = createUpdateCommand(event, target, finalColumns);
-
-          // Only stage the command if the value actually changed
-          const payload = command.payload as {
-            oldValue: unknown;
-            newValue: unknown;
-          };
-
-          // Compare old and new values (handle null/undefined and type coercion)
-          const oldVal = payload.oldValue;
-          const newVal = payload.newValue;
-
-          // IconCheck if values are actually different
-          const valuesAreDifferent = !areValuesEqual(oldVal, newVal);
-
-          if (valuesAreDifferent) {
-            stageCommand(command);
-          }
-        }
-
-        return undefined; // Don't add to grid history (CRUD store handles history)
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        toast.error("Failed to stage change", {
-          description: message,
-        });
-        return undefined;
-      } finally {
-        // Clear editing state when commit completes
-        setIsEditingCell(false);
-      }
-    },
-    [
-      isTableMode,
-      connectionId,
-      database,
-      schema,
-      table,
-      finalColumns,
-      stageCommand,
-      stagedCommands,
-      getTableKey,
-    ],
-  );
-
-  // Handler: Cell edit start → Track editing state
-  const handleCellEditStart = useCallback(() => {
-    setIsEditingCell(true);
-  }, []);
-
-  // Handler: Cell edit cancel → Clear editing state
-  const handleCellEditCancel = useCallback(() => {
-    setIsEditingCell(false);
-  }, []);
-
-  // Handler: Row append → Stage insert command
-  const handleRowAppend = useCallback(
-    (event: GridRowAppendEvent) => {
-      if (!isTableMode) {
-        return undefined;
-      }
-
-      try {
-        const target = createCrudTarget(connectionId, database, schema, table);
-        const command = createInsertCommand(
-          event.draftRow,
-          target,
-          finalColumns,
-        );
-        stageCommand(command);
-
-        // After staging the insert, focus on the first cell of the new row
-        // Use setTimeout to ensure the grid has re-rendered with the new row
-        setTimeout(() => {
-          if (
-            gridRef.current &&
-            finalColumns.length > 0 &&
-            "setFocus" in gridRef.current
-          ) {
-            // Inserted rows appear at index 0 (top)
-            // Set focus and open editor on the first column
-            (gridRef.current as any).setFocus([0, 0], true);
-          }
-        }, 50);
-
-        return undefined;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        toast.error("Failed to stage row", {
-          description: message,
-        });
-        return undefined;
-      }
-    },
-    [
-      isTableMode,
-      connectionId,
-      database,
-      schema,
-      table,
-      finalColumns,
-      stageCommand,
-    ],
-  );
-
-  // Handler: Row delete → Stage delete command
-  const handleRowDelete = useCallback(
-    (event: GridRowDeleteEvent) => {
-      if (!isTableMode) {
-        return undefined;
-      }
-
-      try {
-        const target = createCrudTarget(connectionId, database, schema, table);
-        const commands = event.rows.map((row) =>
-          createDeleteCommand(row, target, finalColumns),
-        );
-
-        commands.forEach((command) => stageCommand(command));
-
-        return undefined;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        toast.error("Failed to stage deletion", {
-          description: message,
-        });
-        return undefined;
-      }
-    },
-    [
-      isTableMode,
-      connectionId,
-      database,
-      schema,
-      table,
-      finalColumns,
-      stageCommand,
-    ],
-  );
 
   const selectedRowsSet = useMemo(() => {
     const rowsSel = gridSelection ? gridSelection.rows.toArray() : [];
