@@ -5,7 +5,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import type { GridColumnV2, GridRowModel } from "../types";
-import type { DatabaseType } from "@/types/database";
+import type { DatabaseType } from "@/types";
 import { RowDetailsSheet } from "./RowDetailsSheet";
 import { GridContextMenuItems } from "./GridContextMenuItems";
 

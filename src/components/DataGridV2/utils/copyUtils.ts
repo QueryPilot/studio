@@ -1,5 +1,5 @@
 import type { GridColumnV2, GridRowModel } from "../types";
-import type { DatabaseType } from "@/types/database";
+import type { DatabaseType } from "@/types";
 
 /**
  * Format rows as JSON array

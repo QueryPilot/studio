@@ -1,5 +1,5 @@
 import type { Theme, Rectangle } from "@glideapps/glide-data-grid";
-import type { ColumnMeta } from "@/types/database";
+import type { ColumnMeta } from "@/types";
 import { drawColumnIcon, getIconTypeFromMeta } from "./columnTypeIcons";
 
 // Helper to detect if a color is dark (for theme detection)

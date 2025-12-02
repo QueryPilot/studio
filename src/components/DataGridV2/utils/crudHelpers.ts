@@ -7,9 +7,9 @@ import type {
   DataDeletePayload,
   CrudPrimitive,
   JsonValue,
-} from "@/types/crud";
+  CellValue,
+} from "@/types";
 import type { GridRowModel, GridColumnV2, GridEditCommitEvent } from "../types";
-import type { CellValue } from "@/types/cellValue";
 
 /**
  * Extract primary key values from a row

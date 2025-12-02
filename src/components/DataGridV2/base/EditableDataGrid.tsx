@@ -22,7 +22,7 @@ import type {
 } from "../types";
 import { usePasteHandler } from "../hooks/usePasteHandler";
 import type { UseGridHistoryResult } from "../hooks/useGridHistory";
-import type { CellValue } from "@/types/cellValue";
+import type { CellValue } from "@/types";
 import { useDataGridV2Renderers } from "../renderers";
 import { inferValueType } from "../utils/valueHelpers";
 

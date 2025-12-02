@@ -11,8 +11,7 @@ import type {
   ProvideEditorCallback,
 } from "@glideapps/glide-data-grid";
 import type { TableDataRow } from "@/services/tableDataTypes";
-import type { ColumnMeta } from "@/types/database";
-import type { CellValue } from "@/types/cellValue";
+import type { ColumnMeta, CellValue } from "@/types";
 
 export type GridRowModel = TableDataRow;
 export type { Item };
