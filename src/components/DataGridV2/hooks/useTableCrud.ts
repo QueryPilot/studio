@@ -126,7 +126,9 @@ export function useTableCrud({
               values?: Record<string, JsonValue>;
             };
             const updatedValues = { ...payload.values };
-            const oldValue = payload.values?.[event.column.field];
+            // Use column name for SQL, not internal field identifier
+            const columnName = event.column.name ?? event.column.field;
+            const oldValue = payload.values?.[columnName];
 
             // Extract the new value
             let newValue: JsonValue = null;
@@ -168,7 +170,7 @@ export function useTableCrud({
 
             // Only update if the value actually changed
             if (!areValuesEqual(oldValue, newValue)) {
-              updatedValues[event.column.field] = newValue;
+              updatedValues[columnName] = newValue;
               const updatedCmd = {
                 ...insertCmd,
                 payload: { ...payload, values: updatedValues },

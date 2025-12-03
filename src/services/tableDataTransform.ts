@@ -136,7 +136,8 @@ export function mapRowsToTableData(
         is_truncated: false,
         metadata,
       };
-      tableRow[column.name] = cellValue;
+      // Use index-based key to handle duplicate column names in JOINs
+      tableRow[`col_${index}`] = cellValue;
     });
     return tableRow;
   });

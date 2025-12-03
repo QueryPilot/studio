@@ -117,6 +117,7 @@ export const CellEditService = {
 
   /**
    * Get primary key values from a row
+   * Uses index-based field access (col_N) but returns column names as keys
    */
   extractPrimaryKeys: (
     row: Record<string, any>,
@@ -124,11 +125,13 @@ export const CellEditService = {
   ): Record<string, any> => {
     const primaryKeys: Record<string, any> = {};
 
-    columns.forEach((column) => {
+    columns.forEach((column, index) => {
       if (column.is_pk) {
-        const value = row[column.name];
+        // Use index-based key to access row data (handles duplicate column names in JOINs)
+        const value = row[`col_${index}`];
         // Handle both direct values and CellValue objects
         const raw = value?.value !== undefined ? value.value : value;
+        // Use actual column name for SQL WHERE clause
         primaryKeys[column.name] =
           typeof raw === "bigint" ? raw.toString() : raw;
       }

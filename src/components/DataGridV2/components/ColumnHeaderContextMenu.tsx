@@ -7,8 +7,10 @@ import {
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
+  DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
-import { IconArrowsUpDown, IconSortAscendingSmallBig, IconSortDescendingSmallBig, IconEyeOff, IconPin, IconPinnedOff, IconCopy, IconFilter } from '@tabler/icons-react';
+import { IconArrowsUpDown, IconSortAscendingSmallBig, IconSortDescendingSmallBig, IconEyeOff, IconPin, IconPinnedOff, IconCopy, IconFilter, IconColumns, IconEye } from '@tabler/icons-react';
 import type { GridColumnV2 } from "../types";
 
 export interface ColumnHeaderContextMenuProps {
@@ -18,6 +20,8 @@ export interface ColumnHeaderContextMenuProps {
   column: GridColumnV2 | null;
   sortDirection: "asc" | "desc" | null;
   isPinned: boolean;
+  allColumns: GridColumnV2[];
+  columnVisibility: Record<string, boolean>;
   onSortAsc: () => void;
   onSortDesc: () => void;
   onClearSort: () => void;
@@ -26,6 +30,8 @@ export interface ColumnHeaderContextMenuProps {
   onUnpin: () => void;
   onCopyColumnName: () => void;
   onFilterByColumn?: () => void;
+  onToggleColumnVisibility: (columnId: string) => void;
+  onShowAllColumns: () => void;
 }
 
 export function ColumnHeaderContextMenu({
@@ -35,6 +41,8 @@ export function ColumnHeaderContextMenu({
   column,
   sortDirection,
   isPinned,
+  allColumns,
+  columnVisibility,
   onSortAsc,
   onSortDesc,
   onClearSort,
@@ -43,6 +51,8 @@ export function ColumnHeaderContextMenu({
   onUnpin,
   onCopyColumnName,
   onFilterByColumn,
+  onToggleColumnVisibility,
+  onShowAllColumns,
 }: ColumnHeaderContextMenuProps) {
   if (!column) {
     return null;
@@ -51,7 +61,7 @@ export function ColumnHeaderContextMenu({
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
       <DropdownMenuContent
-        className="min-w-48 !text-xs p-1"
+        className="min-w-52 !text-xs p-1.5"
         style={{
           position: "fixed",
           left: position.x,
@@ -59,25 +69,25 @@ export function ColumnHeaderContextMenu({
         }}
       >
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <IconArrowsUpDown className="mr-2 h-4 w-4" />
-            Sort
+          <DropdownMenuSubTrigger className="py-1.5 px-2 flex items-center">
+            <IconArrowsUpDown className="mr-2 h-4 w-4 shrink-0" />
+            <span>Sort</span>
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent
-            className="w-44 !text-xs p-1"
+            className="w-48 !text-xs p-1.5"
             sideOffset={2}
             alignOffset={-5}
           >
-            <DropdownMenuItem onClick={onSortAsc}>
-              <IconSortAscendingSmallBig className="mr-2 h-4 w-4" />
-              Sort Ascending
+            <DropdownMenuItem onClick={onSortAsc} className="py-1.5 px-2 flex items-center">
+              <IconSortAscendingSmallBig className="mr-2 h-4 w-4 shrink-0" />
+              <span className="flex-1">Sort Ascending</span>
               {sortDirection === "asc" && (
                 <span className="ml-auto text-muted-foreground">✓</span>
               )}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={onSortDesc}>
-              <IconSortDescendingSmallBig className="mr-2 h-4 w-4" />
-              Sort Descending
+            <DropdownMenuItem onClick={onSortDesc} className="py-1.5 px-2 flex items-center">
+              <IconSortDescendingSmallBig className="mr-2 h-4 w-4 shrink-0" />
+              <span className="flex-1">Sort Descending</span>
               {sortDirection === "desc" && (
                 <span className="ml-auto text-muted-foreground">✓</span>
               )}
@@ -85,8 +95,8 @@ export function ColumnHeaderContextMenu({
             {sortDirection && (
               <>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={onClearSort}>
-                  Clear Sort
+                <DropdownMenuItem onClick={onClearSort} className="py-1.5 px-2 flex items-center">
+                  <span>Clear Sort</span>
                 </DropdownMenuItem>
               </>
             )}
@@ -96,34 +106,69 @@ export function ColumnHeaderContextMenu({
         <DropdownMenuSeparator />
 
         {isPinned ? (
-          <DropdownMenuItem onClick={onUnpin}>
-            <IconPinnedOff className="mr-2 h-4 w-4" />
-            Unpin Column
+          <DropdownMenuItem onClick={onUnpin} className="py-1.5 px-2 flex items-center">
+            <IconPinnedOff className="mr-2 h-4 w-4 shrink-0" />
+            <span>Unpin Column</span>
           </DropdownMenuItem>
         ) : (
-          <DropdownMenuItem onClick={onPin}>
-            <IconPin className="mr-2 h-4 w-4" />
-            Pin Column
+          <DropdownMenuItem onClick={onPin} className="py-1.5 px-2 flex items-center">
+            <IconPin className="mr-2 h-4 w-4 shrink-0" />
+            <span>Pin Column</span>
           </DropdownMenuItem>
         )}
 
-        <DropdownMenuItem onClick={onHide}>
-          <IconEyeOff className="mr-2 h-4 w-4" />
-          Hide Column
+        <DropdownMenuItem onClick={onHide} className="py-1.5 px-2 flex items-center">
+          <IconEyeOff className="mr-2 h-4 w-4 shrink-0" />
+          <span>Hide Column</span>
         </DropdownMenuItem>
+
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger className="py-1.5 px-2 flex items-center">
+            <IconColumns className="mr-2 h-4 w-4 shrink-0" />
+            <span>Column Visibility</span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent
+            className="max-h-80 overflow-y-auto w-56 !text-xs p-1.5"
+            sideOffset={2}
+            alignOffset={-5}
+          >
+            <DropdownMenuItem onClick={onShowAllColumns} className="py-1.5 px-2 flex items-center">
+              <IconEye className="mr-2 h-4 w-4 shrink-0" />
+              <span>Show All Columns</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-xs text-muted-foreground py-1 px-2">
+              Toggle Columns
+            </DropdownMenuLabel>
+            {allColumns.map((col) => {
+              const isVisible = columnVisibility[col.id] !== false;
+              return (
+                <DropdownMenuCheckboxItem
+                  key={col.id}
+                  checked={isVisible}
+                  onCheckedChange={() => onToggleColumnVisibility(col.id)}
+                  onSelect={(e) => e.preventDefault()}
+                  className="py-1.5"
+                >
+                  <span className="truncate">{col.name ?? col.field}</span>
+                </DropdownMenuCheckboxItem>
+              );
+            })}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
 
         <DropdownMenuSeparator />
 
         {onFilterByColumn && (
-          <DropdownMenuItem onClick={onFilterByColumn}>
-            <IconFilter className="mr-2 h-4 w-4" />
-            Filter by this column
+          <DropdownMenuItem onClick={onFilterByColumn} className="py-1.5 px-2 flex items-center">
+            <IconFilter className="mr-2 h-4 w-4 shrink-0" />
+            <span>Filter by this column</span>
           </DropdownMenuItem>
         )}
 
-        <DropdownMenuItem onClick={onCopyColumnName}>
-          <IconCopy className="mr-2 h-4 w-4" />
-          Copy Column Name
+        <DropdownMenuItem onClick={onCopyColumnName} className="py-1.5 px-2 flex items-center">
+          <IconCopy className="mr-2 h-4 w-4 shrink-0" />
+          <span>Copy Column Name</span>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -134,12 +179,15 @@ export function ColumnHeaderContextMenu({
 export interface UseColumnHeaderContextMenuOptions {
   columns: GridColumnV2[];
   pinnedColumns: string[];
+  columnVisibility: Record<string, boolean>;
   getSortDirection: (columnId: string) => "asc" | "desc" | null;
   onSort: (columnId: string, direction: "asc" | "desc") => void;
   onClearSort: (columnId: string) => void;
   onHide: (columnId: string) => void;
   onPin: (columnId: string) => void;
   onUnpin: (columnId: string) => void;
+  onToggleColumnVisibility: (columnId: string) => void;
+  onShowAllColumns: () => void;
   onFilterByColumn?: (columnId: string) => void;
 }
 
@@ -152,12 +200,15 @@ export interface ColumnHeaderContextMenuState {
 export function useColumnHeaderContextMenu({
   columns,
   pinnedColumns,
+  columnVisibility,
   getSortDirection,
   onSort,
   onClearSort,
   onHide,
   onPin,
   onUnpin,
+  onToggleColumnVisibility,
+  onShowAllColumns,
   onFilterByColumn,
 }: UseColumnHeaderContextMenuOptions) {
   const [menuState, setMenuState] = useState<ColumnHeaderContextMenuState>({
@@ -208,6 +259,8 @@ export function useColumnHeaderContextMenu({
       column: menuState.column,
       sortDirection,
       isPinned,
+      allColumns: columns,
+      columnVisibility,
       onSortAsc: () => {
         onSort(columnId, "asc");
         closeMenu();
@@ -233,7 +286,15 @@ export function useColumnHeaderContextMenu({
         closeMenu();
       },
       onCopyColumnName: () => {
-        navigator.clipboard.writeText(menuState.column?.field ?? columnId);
+        // Use actual column name, not internal field identifier
+        navigator.clipboard.writeText(menuState.column?.name ?? menuState.column?.field ?? columnId);
+        closeMenu();
+      },
+      onToggleColumnVisibility: (colId: string) => {
+        onToggleColumnVisibility(colId);
+      },
+      onShowAllColumns: () => {
+        onShowAllColumns();
         closeMenu();
       },
       onFilterByColumn: onFilterByColumn
@@ -245,6 +306,8 @@ export function useColumnHeaderContextMenu({
     };
   }, [
     menuState.column,
+    columns,
+    columnVisibility,
     getSortDirection,
     pinnedColumns,
     onSort,
@@ -252,6 +315,8 @@ export function useColumnHeaderContextMenu({
     onHide,
     onPin,
     onUnpin,
+    onToggleColumnVisibility,
+    onShowAllColumns,
     onFilterByColumn,
     closeMenu,
   ]);

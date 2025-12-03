@@ -85,7 +85,8 @@ self.onmessage = (event: MessageEvent<StreamWorkerRequest>) => {
         message.columns.forEach((column, index) => {
           const rawValue = row[index];
           const normalizedValue = normalizeBackendValue(rawValue);
-          tableRow[column.name] = {
+          // Use index-based key to handle duplicate column names in JOINs
+          tableRow[`col_${index}`] = {
             value: normalizedValue ?? null,
             db_type: column.db_type,
             value_type: deriveValueType(rawValue, column.db_type),

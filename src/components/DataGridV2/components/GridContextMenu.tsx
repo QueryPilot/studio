@@ -15,6 +15,8 @@ export interface GridContextMenuProps {
   selectedRowKeys: string[];
   allRows: GridRowModel[];
   columns: GridColumnV2[];
+  /** Columns in the current cell selection (for "Copy cells" - subset of columns) */
+  selectedColumns?: GridColumnV2[];
   pinnedRowKeys: string[];
   maxPinnedRows?: number;
   tableName?: string;
@@ -37,6 +39,7 @@ export function GridContextMenu({
   selectedRowKeys,
   allRows: _allRows,
   columns,
+  selectedColumns,
   pinnedRowKeys,
   maxPinnedRows = 5,
   tableName = "table",
@@ -83,11 +86,12 @@ export function GridContextMenu({
         <ContextMenuTrigger className="h-full w-full block">
           {children}
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-48 text-xs p-1">
+        <ContextMenuContent className="w-56 text-xs p-1">
           <GridContextMenuItems
             selectedRows={selectedRows}
             selectedRowKeys={selectedRowKeys}
             columns={columns}
+            selectedColumns={selectedColumns}
             pinnedRowKeys={pinnedRowKeys}
             selectedPinnedKeys={selectedPinnedKeys}
             selectedUnpinnedKeys={selectedUnpinnedKeys}

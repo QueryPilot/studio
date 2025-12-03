@@ -30,7 +30,10 @@ import { normalizeKeybindingLabel } from "@/lib/keyboardDispatch";
 export interface GridContextMenuItemsProps {
   selectedRows: GridRowModel[];
   selectedRowKeys: string[];
+  /** All visible columns (for "Copy rows") */
   columns: GridColumnV2[];
+  /** Columns in the current cell selection (for "Copy cells" - may be subset) */
+  selectedColumns?: GridColumnV2[];
   pinnedRowKeys: string[];
   selectedPinnedKeys: string[];
   selectedUnpinnedKeys: string[];
@@ -52,6 +55,7 @@ export function GridContextMenuItems({
   selectedRows,
   // selectedRowKeys,
   columns,
+  selectedColumns,
   pinnedRowKeys,
   selectedPinnedKeys,
   selectedUnpinnedKeys,
@@ -111,65 +115,103 @@ export function GridContextMenuItems({
     [renderShortcut],
   );
 
-  // IconCopy handlers
-  const handleCopyJSON = useCallback(async () => {
+  // Columns for cell copy (selected columns if available, otherwise all)
+  const cellColumns = selectedColumns ?? columns;
+
+  // Copy cells handlers (uses selected columns only)
+  const handleCopyCellsJSON = useCallback(async () => {
+    try {
+      const content = copyAsJSON(selectedRows, cellColumns);
+      await writeTextToClipboard(content);
+      toast("Copied cells as JSON");
+    } catch (error) {
+      toast.error(
+        `Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    }
+  }, [selectedRows, cellColumns]);
+
+  const handleCopyCellsCSV = useCallback(async () => {
+    try {
+      const content = copyAsCSV(selectedRows, cellColumns);
+      await writeTextToClipboard(content);
+      toast("Copied cells as CSV");
+    } catch (error) {
+      toast.error(
+        `Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    }
+  }, [selectedRows, cellColumns]);
+
+  const handleCopyCellsTSV = useCallback(async () => {
+    try {
+      const content = copyAsTSV(selectedRows, cellColumns);
+      await writeTextToClipboard(content);
+      toast("Copied cells");
+    } catch (error) {
+      toast.error(
+        `Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    }
+  }, [selectedRows, cellColumns]);
+
+  const handleCopyCellsInsert = useCallback(async () => {
+    try {
+      const content = copyAsInsert(selectedRows, cellColumns, tableName, databaseType, schema);
+      await writeTextToClipboard(content);
+      toast("Copied cells as INSERT");
+    } catch (error) {
+      toast.error(
+        `Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    }
+  }, [selectedRows, cellColumns, tableName, databaseType, schema]);
+
+  // Copy rows handlers (uses all visible columns)
+  const handleCopyRowsJSON = useCallback(async () => {
     try {
       const content = copyAsJSON(selectedRows, columns);
       await writeTextToClipboard(content);
-      toast("Copied as JSON");
+      toast("Copied rows as JSON");
     } catch (error) {
       toast.error(
-        `Failed to copy: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
+        `Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
     }
   }, [selectedRows, columns]);
 
-  const handleCopyCSV = useCallback(async () => {
+  const handleCopyRowsCSV = useCallback(async () => {
     try {
       const content = copyAsCSV(selectedRows, columns);
       await writeTextToClipboard(content);
-      toast("Copied as CSV");
+      toast("Copied rows as CSV");
     } catch (error) {
       toast.error(
-        `Failed to copy: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
+        `Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
     }
   }, [selectedRows, columns]);
 
-  const handleCopyTSV = useCallback(async () => {
+  const handleCopyRowsTSV = useCallback(async () => {
     try {
       const content = copyAsTSV(selectedRows, columns);
       await writeTextToClipboard(content);
-      toast("Copied as TSV");
+      toast("Copied rows as TSV");
     } catch (error) {
       toast.error(
-        `Failed to copy: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
+        `Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
     }
   }, [selectedRows, columns]);
 
-  const handleCopyInsert = useCallback(async () => {
+  const handleCopyRowsInsert = useCallback(async () => {
     try {
-      const content = copyAsInsert(
-        selectedRows,
-        columns,
-        tableName,
-        databaseType,
-        schema,
-      );
+      const content = copyAsInsert(selectedRows, columns, tableName, databaseType, schema);
       await writeTextToClipboard(content);
-      toast("Copied as INSERT statement");
+      toast("Copied rows as INSERT");
     } catch (error) {
       toast.error(
-        `Failed to copy: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
+        `Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
     }
   }, [selectedRows, columns, tableName, databaseType, schema]);
@@ -259,7 +301,7 @@ export function GridContextMenuItems({
         {onAddRow && (
           <ContextMenuItem
             onClick={onAddRow}
-            className="text-xs py-1 px-2 outline-none"
+            className="text-xs py-1.5 px-3 outline-none"
           >
             <IconPlus className="mr-1.5 h-3 w-3 text-foreground" />
             <span className="flex-1">Add Row</span>
@@ -268,7 +310,7 @@ export function GridContextMenuItems({
         {onPaste && (
           <ContextMenuItem
             onClick={onPaste}
-            className="text-xs py-1 px-2 outline-none"
+            className="text-xs py-1.5 px-3 outline-none"
           >
             <IconClipboardText className="mr-3.5 h-3 w-3" />
             <span className="flex-1">Paste</span>
@@ -283,7 +325,7 @@ export function GridContextMenuItems({
       {/* View Details */}
       <ContextMenuItem
         onClick={onViewDetails}
-        className="text-xs py-1 px-2 outline-none"
+        className="text-xs py-1.5 px-3 outline-none"
       >
         <IconEye className="mr-1.5 h-3 w-3 text-foreground" />
         <span className="flex-1">View Details</span>
@@ -291,62 +333,63 @@ export function GridContextMenuItems({
 
       <ContextMenuSeparator className="my-1" />
 
-      {/* IconCopy submenu */}
+      {/* Copy submenu */}
       <ContextMenuSub>
-        <ContextMenuSubTrigger className="text-xs py-1 px-2 outline-none">
+        <ContextMenuSubTrigger className="text-xs py-1.5 px-3 outline-none">
           <IconCopy className="mr-3.5 h-3 w-3 text-foreground" />
           <span className="flex-1">Copy</span>
         </ContextMenuSubTrigger>
         <ContextMenuSubContent className="text-xs p-1">
+          {/* Copy cells (selected columns only) */}
           <ContextMenuItem
-            onClick={handleCopyTSV}
-            className="text-xs py-1 px-2 outline-none"
+            onClick={handleCopyCellsTSV}
+            className="text-xs py-1.5 px-3 outline-none"
           >
             <span className="flex-1">Copy cells</span>
             {shortcuts.copy}
           </ContextMenuItem>
           <ContextMenuItem
-            onClick={handleCopyJSON}
-            className="text-xs py-1 px-2 outline-none"
+            onClick={handleCopyCellsJSON}
+            className="text-xs py-1.5 px-3 outline-none"
           >
             <span className="flex-1">Copy cells as JSON</span>
             {shortcuts.copyJson}
           </ContextMenuItem>
           <ContextMenuItem
-            onClick={handleCopyCSV}
-            className="text-xs py-1 px-2 outline-none"
+            onClick={handleCopyCellsCSV}
+            className="text-xs py-1.5 px-3 outline-none"
           >
             <span className="flex-1">Copy cells as CSV</span>
           </ContextMenuItem>
           <ContextMenuItem
-            onClick={handleCopyInsert}
-            className="text-xs py-1 px-2 outline-none"
+            onClick={handleCopyCellsInsert}
+            className="text-xs py-1.5 px-3 outline-none"
           >
             <span className="flex-1">Copy cells as INSERT</span>
           </ContextMenuItem>
           <ContextMenuSeparator className="my-1" />
-          {/* IconCopy rows context menus  */}
+          {/* Copy rows (all visible columns) */}
           <ContextMenuItem
-            onClick={handleCopyTSV}
-            className="text-xs py-1 px-2 outline-none"
+            onClick={handleCopyRowsTSV}
+            className="text-xs py-1.5 px-3 outline-none"
           >
             <span className="flex-1">Copy rows as TSV</span>
           </ContextMenuItem>
           <ContextMenuItem
-            onClick={handleCopyJSON}
-            className="text-xs py-1 px-2 outline-none"
+            onClick={handleCopyRowsJSON}
+            className="text-xs py-1.5 px-3 outline-none"
           >
             <span className="flex-1">Copy rows as JSON</span>
           </ContextMenuItem>
           <ContextMenuItem
-            onClick={handleCopyCSV}
-            className="text-xs py-1 px-2 outline-none"
+            onClick={handleCopyRowsCSV}
+            className="text-xs py-1.5 px-3 outline-none"
           >
             <span className="flex-1">Copy rows as CSV</span>
           </ContextMenuItem>
           <ContextMenuItem
-            onClick={handleCopyInsert}
-            className="text-xs py-1 px-2 outline-none"
+            onClick={handleCopyRowsInsert}
+            className="text-xs py-1.5 px-3 outline-none"
           >
             <span className="flex-1">Copy rows as INSERT</span>
           </ContextMenuItem>
@@ -358,7 +401,7 @@ export function GridContextMenuItems({
         <ContextMenuItem
           onClick={handlePinRows}
           disabled={!canPinMore}
-          className="text-xs py-1 px-2 outline-none"
+          className="text-xs py-1.5 px-3 outline-none"
         >
           <IconPin className="mr-1.5 h-3 w-3 text-foreground" />
           <span className="flex-1">Pin Rows</span>
@@ -370,7 +413,7 @@ export function GridContextMenuItems({
       {selectedPinnedKeys.length > 0 && (
         <ContextMenuItem
           onClick={handleUnpinRows}
-          className="text-xs py-1 px-2 outline-none"
+          className="text-xs py-1.5 px-3 outline-none"
         >
           <IconPinnedOff className="mr-1.5 h-3 w-3 text-foreground" />
           <span className="flex-1">Unpin Rows</span>
@@ -382,7 +425,7 @@ export function GridContextMenuItems({
           <ContextMenuSeparator className="my-1" />
           <ContextMenuItem
             onClick={onPaste}
-            className="text-xs py-1 px-2 outline-none"
+            className="text-xs py-1.5 px-3 outline-none"
           >
             <IconClipboardText className="mr-1.5 h-3 w-3 text-foreground" />
             <span className="flex-1">Paste</span>
@@ -394,7 +437,7 @@ export function GridContextMenuItems({
       {onInsertRowAbove && (
         <ContextMenuItem
           onClick={onInsertRowAbove}
-          className="text-xs py-1 px-2 outline-none"
+          className="text-xs py-1.5 px-3 outline-none"
         >
           <IconPlus className="mr-1.5 h-3 w-3 text-foreground" />
           <span className="flex-1">Insert Row Above</span>
@@ -405,7 +448,7 @@ export function GridContextMenuItems({
       {onInsertRowBelow && (
         <ContextMenuItem
           onClick={onInsertRowBelow}
-          className="text-xs py-1 px-2 outline-none"
+          className="text-xs py-1.5 px-3 outline-none"
         >
           <IconPlus className="mr-1.5 h-3 w-3 text-foreground" />
           <span className="flex-1">Insert Row Below</span>
@@ -415,35 +458,35 @@ export function GridContextMenuItems({
 
       {/* Export submenu */}
       <ContextMenuSub>
-        <ContextMenuSubTrigger className="text-xs py-1 px-2 outline-none">
+        <ContextMenuSubTrigger className="text-xs py-1.5 px-3 outline-none">
           <IconDownload className="mr-3.5 h-3 w-3" />
           <span className="flex-1">Export</span>
         </ContextMenuSubTrigger>
         <ContextMenuSubContent className="text-xs p-1">
           <ContextMenuItem
             onClick={handleExportCSV}
-            className="text-xs py-1 px-2 outline-none"
+            className="text-xs py-1.5 px-3 outline-none"
           >
             <IconDownload className="mr-1.5 h-3 w-3 text-foreground" />
             <span className="flex-1">Export as CSV</span>
           </ContextMenuItem>
           <ContextMenuItem
             onClick={handleExportJSON}
-            className="text-xs py-1 px-2 outline-none"
+            className="text-xs py-1.5 px-3 outline-none"
           >
             <IconDownload className="mr-1.5 h-3 w-3 text-foreground" />
             <span className="flex-1">Export as JSON</span>
           </ContextMenuItem>
           <ContextMenuItem
             onClick={handleExportTSV}
-            className="text-xs py-1 px-2 outline-none"
+            className="text-xs py-1.5 px-3 outline-none"
           >
             <IconDownload className="mr-1.5 h-3 w-3 text-foreground" />
             <span className="flex-1">Export as TSV</span>
           </ContextMenuItem>
           <ContextMenuItem
             onClick={handleExportExcel}
-            className="text-xs py-1 px-2 outline-none"
+            className="text-xs py-1.5 px-3 outline-none"
           >
             <IconDownload className="mr-1.5 h-3 w-3 text-foreground" />
             <span className="flex-1">Export as Excel</span>
@@ -457,7 +500,7 @@ export function GridContextMenuItems({
       <ContextMenuItem
         variant="destructive"
         onClick={onDeleteRows}
-        className="text-xs py-1 px-2 outline-none"
+        className="text-xs py-1.5 px-3 outline-none"
       >
         <IconTrash className="mr-1.5 h-3 w-3 text-destructive" />
         <span className="flex-1">Delete</span>
