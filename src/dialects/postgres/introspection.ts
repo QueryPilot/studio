@@ -256,7 +256,7 @@ ORDER BY con.conname
 export const GET_COLUMNS_QUERY = `
 SELECT
     a.attname as column_name,
-    t.typname as raw_type_name,
+    pg_catalog.format_type(a.atttypid, a.atttypmod) as formatted_type,
     a.atttypid as type_oid,
     NOT a.attnotnull as nullable,
     EXISTS (

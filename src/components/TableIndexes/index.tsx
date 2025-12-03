@@ -8,6 +8,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconAlertCircle } from '@tabler/icons-react';
 import { databaseService, type TableIndex } from "@/services/databaseService";
+import type { IndexUsageStats } from "@/services/backend";
 import { EditableDataGrid } from "@/components/DataGridV2/base/EditableDataGrid";
 import type { GridEditCommitEvent, GridRowModel } from "@/components/DataGridV2/types";
 import { useColumnSizing } from "@/components/DataGridV2/hooks/useColumnSizing";
@@ -35,6 +36,7 @@ export const TableIndexes = memo(function TableIndexes({
   onActionsChange: _onActionsChange,
 }: TableIndexesProps) {
   const [indexes, setIndexes] = useState<TableIndex[]>([]);
+  const [statsMap, setStatsMap] = useState<Map<string, IndexUsageStats>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,13 +44,28 @@ export const TableIndexes = memo(function TableIndexes({
     setIsLoading(true);
     setError(null);
     try {
-      const result = await databaseService.tableIndexes(
-        connectionId,
-        database,
-        schema || "public",
-        table,
-      );
-      setIndexes(result);
+      const [indexResult, statsResult] = await Promise.all([
+        databaseService.tableIndexes(
+          connectionId,
+          database,
+          schema || "public",
+          table,
+        ),
+        databaseService.getIndexUsageStats(
+          connectionId,
+          schema || "public",
+          table,
+        ).catch(() => [] as IndexUsageStats[]), // Silently fail for stats
+      ]);
+
+      setIndexes(indexResult);
+
+      // Build stats map by index name
+      const newStatsMap = new Map<string, IndexUsageStats>();
+      for (const stat of statsResult) {
+        newStatsMap.set(stat.index_name, stat);
+      }
+      setStatsMap(newStatsMap);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load indexes");
     } finally {
@@ -60,8 +77,11 @@ export const TableIndexes = memo(function TableIndexes({
     void loadIndexes();
   }, [loadIndexes]);
 
-  // Transform indexes to grid rows
-  const gridRows = useMemo(() => transformIndexesToRows(indexes), [indexes]);
+  // Transform indexes to grid rows with stats
+  const gridRows = useMemo(
+    () => transformIndexesToRows(indexes, [], statsMap),
+    [indexes, statsMap],
+  );
 
   // Enable column resizing
   const { sizedColumns, handleColumnResize, handleColumnResizeEnd } =
@@ -175,6 +195,25 @@ export const TableIndexes = memo(function TableIndexes({
             baseFontStyle: "400 11px monospace",
             textDark: "#3b82f6", // blue-500
           },
+        } as const;
+      }
+
+      // Statistics cell with color coding
+      if (column.field === "statistics") {
+        const statsValue = String(fieldValue ?? "—");
+        const isUnused = row.stats?.is_unused ?? false;
+        return {
+          kind: GridCellKind.Text,
+          data: statsValue,
+          displayData: statsValue,
+          readonly: true,
+          allowOverlay: false,
+          themeOverride: isUnused
+            ? {
+                bgCell: "rgba(239, 68, 68, 0.1)", // red-500 with 10% opacity
+                textDark: "#dc2626", // red-600
+              }
+            : undefined, // Use default text color
         } as const;
       }
 
