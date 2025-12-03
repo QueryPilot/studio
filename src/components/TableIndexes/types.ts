@@ -1,5 +1,6 @@
 import type { CustomCell, GridCellKind } from "@glideapps/glide-data-grid";
 import type { TableIndex } from "@/services/databaseService";
+import type { IndexUsageStats } from "@/services/backend";
 
 // Grid row format - index signature required for TableDataRow compatibility
 export interface IndexGridRow {
@@ -13,6 +14,8 @@ export interface IndexGridRow {
   columns: string;
   index_type: string;
   unique: string;
+  statistics: string;
+  stats?: IndexUsageStats;
   condition: string;
   _original?: TableIndex; // Keep reference to original data
   _tempId?: string; // For pending index additions
