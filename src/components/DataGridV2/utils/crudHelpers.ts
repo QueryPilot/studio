@@ -13,6 +13,7 @@ import type { GridRowModel, GridColumnV2, GridEditCommitEvent } from "../types";
 
 /**
  * Extract primary key values from a row
+ * Uses col.field for row data access, but col.name for SQL column names
  */
 export function extractPrimaryKeys(
   row: GridRowModel,
@@ -25,8 +26,10 @@ export function extractPrimaryKeys(
 
   const primaryKeys: Record<string, CrudPrimitive> = {};
   pkColumns.forEach((pkCol) => {
+    // Use field (col_N) to access row data, but name for SQL column identifier
     const cellValue = row[pkCol.field] as CellValue | null | undefined;
     const value = cellValue?.value ?? null;
+    const columnName = pkCol.name ?? pkCol.field;
     // Ensure value is a CrudPrimitive (string, number, boolean, or null)
     if (
       typeof value === "string" ||
@@ -34,10 +37,10 @@ export function extractPrimaryKeys(
       typeof value === "boolean" ||
       value === null
     ) {
-      primaryKeys[pkCol.field] = value;
+      primaryKeys[columnName] = value;
     } else {
       // Convert other types to string or null
-      primaryKeys[pkCol.field] = value != null ? String(value) : null;
+      primaryKeys[columnName] = value != null ? String(value) : null;
     }
   });
 
@@ -121,8 +124,11 @@ export function createUpdateCommand(
     }
   }
 
+  // Use actual column name for SQL, not the internal field identifier
+  const columnName = event.column.name ?? event.column.field;
+
   const payload: DataUpdatePayload = {
-    column: event.column.field,
+    column: columnName,
     oldValue,
     newValue,
     primaryKeys,
@@ -156,6 +162,8 @@ export function createInsertCommand(
   columns.forEach((col) => {
     const cellValue = row[col.field] as CellValue | null | undefined;
     const value = cellValue?.value;
+    // Use actual column name for SQL, not the internal field identifier
+    const columnName = col.name ?? col.field;
     // Only include non-null values, ensure they're JsonValue compatible
     if (value !== null && value !== undefined) {
       if (
@@ -163,9 +171,9 @@ export function createInsertCommand(
         typeof value === "number" ||
         typeof value === "boolean"
       ) {
-        values[col.field] = value;
+        values[columnName] = value;
       } else {
-        values[col.field] = String(value);
+        values[columnName] = String(value);
       }
     }
   });

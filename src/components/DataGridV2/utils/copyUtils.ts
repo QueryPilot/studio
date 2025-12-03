@@ -12,7 +12,9 @@ export function copyAsJSON(
     const obj: Record<string, unknown> = {};
     columns.forEach((col) => {
       const cellValue = row[col.field];
-      obj[col.field] =
+      // Use column name for JSON key, not internal field identifier
+      const columnName = col.name ?? col.field;
+      obj[columnName] =
         cellValue && typeof cellValue === "object" && "value" in cellValue
           ? cellValue.value
           : null;
@@ -92,8 +94,9 @@ export function copyAsInsert(
     ? formatTableName(schema, tableName)
     : quoteIdentifier(tableName);
 
+  // Use actual column names for SQL, not internal field identifiers
   const columnNames = columns
-    .map((col) => quoteIdentifier(col.field))
+    .map((col) => quoteIdentifier(col.name ?? col.field))
     .join(", ");
 
   // Generate all value sets

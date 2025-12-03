@@ -111,19 +111,17 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
     }, [activeView, metadata, panelId, tabId, updateTabMetadata]);
 
     // Compute tableGridId unconditionally (before any early returns)
-    // CRITICAL: Include panelId and tabId for proper tab isolation
+    // Key by connection:schema:table so preferences persist across tabs/sessions
     const tableGridId = useMemo(() => {
       if (!metadata || metadata.type !== "table") return undefined;
       const connection: string =
         typeof metadata.connectionId === "string" && metadata.connectionId
           ? metadata.connectionId
           : activeConnectionId || "unknown";
-      const db: string = metadata.database || "";
       const schemaName: string = metadata.schema || "public";
       const tableName: string = metadata.table || "";
-      // Include panelId and tabId to ensure each tab instance has isolated state
-      return `table:${connection}:${db}:${schemaName}:${tableName}:${panelId}:${tabId}`;
-    }, [activeConnectionId, metadata, panelId, tabId]);
+      return `table:${connection}:${schemaName}:${tableName}`;
+    }, [activeConnectionId, metadata]);
 
     if (type === "query") {
       return (

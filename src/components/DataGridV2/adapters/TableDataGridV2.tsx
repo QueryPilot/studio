@@ -232,13 +232,30 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   );
 
   // Convert user sort columns to SortConfig format for backend query
+  // In table mode, columnId is the actual column name
+  // In query mode, columnId is col_N index which needs mapping
   const userSorts = useMemo<SortConfig[] | undefined>(() => {
     if (!userSortColumns || userSortColumns.length === 0) return undefined;
-    return userSortColumns.map((sc) => ({
-      column: sc.columnId,
-      direction: sc.direction,
-    }));
-  }, [userSortColumns]);
+    const cols = tableStructure?.columns;
+    return userSortColumns.map((sc) => {
+      // In table mode, columnId is already the actual column name
+      // In query mode, columnId is col_N, needs mapping to actual name
+      if (isTableMode) {
+        return { column: sc.columnId, direction: sc.direction };
+      }
+      const colIndex = sc.columnId.startsWith("col_")
+        ? parseInt(sc.columnId.slice(4), 10)
+        : -1;
+      const actualName =
+        colIndex >= 0 && cols?.[colIndex]
+          ? cols[colIndex].name
+          : sc.columnId;
+      return {
+        column: actualName,
+        direction: sc.direction,
+      };
+    });
+  }, [userSortColumns, tableStructure?.columns, isTableMode]);
 
   // Determine default sort order: primary key (ASC) > created_at (DESC) > first column (ASC)
   const defaultSorts = useMemo(() => {
@@ -467,13 +484,13 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       // Already in TableDataRow format
       return rows as unknown as GridRowModel[];
     }
-    // Transform raw arrays to objects keyed by column names
+    // Transform raw arrays to objects keyed by index (handles duplicate column names in JOINs)
     return (rows as unknown as BackendCellValue[][]).map((row) => {
       const tableRow: GridRowModel = {};
       columns.forEach((col, index) => {
         const rawValue = row[index];
         const normalizedValue = normalizeBackendValue(rawValue);
-        tableRow[col.name] = {
+        tableRow[`col_${index}`] = {
           value: normalizedValue ?? null,
           db_type: col.db_type,
           value_type: deriveValueType(rawValue, col.db_type),
@@ -744,7 +761,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const baseColumns = useMemo<GridColumnV2[]>(
     () =>
       columnMeta.map((meta, index) => {
-        const id = meta.name || `col_${index}`;
+        // Use index-based field for data access (handles duplicate column names in JOINs)
+        const uniqueField = `col_${index}`;
+        // Use column name as ID for table mode (stable for preferences persistence)
+        // Use index for query mode (may have duplicate column names from JOINs)
+        const columnId = isTableMode ? meta.name : uniqueField;
         const structMeta = structureMetaByName.get(meta.name);
         const fkRef = fkReferenceByColumn.get(meta.name);
         const mergedMeta = structMeta
@@ -761,8 +782,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             })
           : meta;
         return {
-          id,
-          field: meta.name,
+          id: columnId,
+          field: uniqueField,
           title: meta.name,
           name: meta.name,
           width: computeBaseWidth(meta.name, meta.db_type),
@@ -770,7 +791,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           meta: mergedMeta,
         } as GridColumnV2;
       }),
-    [columnMeta, structureMetaByName, fkReferenceByColumn],
+    [columnMeta, structureMetaByName, fkReferenceByColumn, isTableMode],
   );
 
   const reorderedColumns = useMemo(
@@ -960,22 +981,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     onEditingChange: setIsEditingCell,
   });
 
-  // Column sorting
-  const { sortColumns, toggleSort, getSortIndex, getSortDirection } =
+  // Column sorting (header click disabled for performance - use context menu)
+  const { sortColumns, getSortIndex, getSortDirection } =
     useColumnSorting({
       gridId,
       columns: finalColumns,
     });
-
-  // Header click handler for sorting
-  const handleHeaderClicked = useCallback(
-    (colIndex: number, event: { shiftKey: boolean }) => {
-      const column = finalColumns[colIndex];
-      if (!column) return;
-      toggleSort(column.id, event.shiftKey);
-    },
-    [finalColumns, toggleSort],
-  );
 
   // Custom header draw function for sort indicators and column type icons
   const drawHeader = useMemo(
@@ -990,10 +1001,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   );
 
   // Column header context menu
+  // Use reorderedColumns (all columns) for visibility submenu, not finalColumns (only visible)
   const { handleHeaderContextMenu, menuState, closeMenu, getMenuProps } =
     useColumnHeaderContextMenu({
-      columns: finalColumns,
+      columns: reorderedColumns,
       pinnedColumns: columnState.pinned,
+      columnVisibility: columnState.visibility,
       getSortDirection,
       onSort: (columnId, direction) => {
         // Clear existing sort and set new one
@@ -1025,6 +1038,20 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       onUnpin: (columnId) => {
         upsertGridColumnsState(gridId, (draft) => {
           draft.pinned = draft.pinned.filter((id) => id !== columnId);
+        });
+      },
+      onToggleColumnVisibility: (columnId) => {
+        upsertGridColumnsState(gridId, (draft) => {
+          const currentVisible = draft.visibility[columnId] !== false;
+          draft.visibility[columnId] = !currentVisible;
+        });
+      },
+      onShowAllColumns: () => {
+        upsertGridColumnsState(gridId, (draft) => {
+          // Set all columns to visible
+          for (const col of reorderedColumns) {
+            draft.visibility[col.id] = true;
+          }
         });
       },
       onFilterByColumn: isTableMode
@@ -1687,6 +1714,19 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       .filter((key): key is string => Boolean(key));
   }, [selectedRowsSet, getRowKey]);
 
+  // Compute selected columns for cell copy (not full row copy)
+  // This extracts the column indices from the current selection range
+  const selectedColumnsForCopy = useMemo(() => {
+    if (!gridSelection?.current?.range) {
+      // No cell range selection - use all columns
+      return finalColumns;
+    }
+    const range = gridSelection.current.range;
+    const startCol = Math.max(0, range.x);
+    const endCol = Math.min(finalColumns.length, range.x + range.width);
+    return finalColumns.slice(startCol, endCol);
+  }, [gridSelection, finalColumns]);
+
   // Handler: Insert row below selected row
   const handleInsertRowBelow = useCallback(() => {
     if (!isTableMode || selectedRowsSet.size === 0) {
@@ -2170,6 +2210,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             selectedRowKeys={selectedRowKeys}
             allRows={rowsRef.current}
             columns={finalColumns}
+            selectedColumns={selectedColumnsForCopy}
             pinnedRowKeys={pinnedRowIds}
             maxPinnedRows={5}
             tableName={isTableMode ? table : "query"}
@@ -2247,7 +2288,6 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
               freezeColumns={freezeColumns}
               getRowThemeOverride={getRowThemeOverride}
               highlightRegions={cellHighlightRegions}
-              onHeaderClicked={handleHeaderClicked}
               drawHeader={drawHeader}
               onHeaderContextMenu={handleHeaderContextMenu}
               onItemHovered={handleItemHovered}

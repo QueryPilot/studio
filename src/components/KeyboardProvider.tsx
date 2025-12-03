@@ -78,11 +78,6 @@ export function KeyboardProvider({ children }: KeyboardProviderProps): React.JSX
       contextService.setValue('hasMultipleEditors', payload.panelCount > 1);
       // activeEditor should be true if there's at least one panel, even if focusedPanelId is null
       const hasActiveEditor = payload.panelCount > 0 || Boolean(payload.focusedPanelId);
-      logger.info('[KeyboardProvider] Setting activeEditor context:', {
-        panelCount: payload.panelCount,
-        focusedPanelId: payload.focusedPanelId,
-        hasActiveEditor,
-      });
       contextService.setValue('activeEditor', hasActiveEditor);
     };
 

@@ -14,6 +14,7 @@ import CodeMirror, { EditorView } from "@uiw/react-codemirror";
 import { sql, PostgreSQL } from "@codemirror/lang-sql";
 import { keymap } from "@codemirror/view";
 import { Prec } from "@codemirror/state";
+import { history, historyKeymap } from "@codemirror/commands";
 import { getThemeExtensions } from "@/components/CodeEditor/themes";
 import { useTheme } from "@/components/theme-provider";
 import { linter, type Diagnostic } from "@codemirror/lint";
@@ -165,6 +166,8 @@ export const QuickFilter = memo(forwardRef<QuickFilterRef, QuickFilterProps>(
     const [hasLintError, setHasLintError] = useState(false);
     const justAcceptedSuggestion = useRef(false);
     const justSwitchedMode = useRef(false);
+    const autoSubmitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const lastSubmittedValue = useRef<string>("");
 
     // Refs for stable keymap access (avoid keymap recreation on every render)
     const stateRefs = useRef({
@@ -176,9 +179,10 @@ export const QuickFilter = memo(forwardRef<QuickFilterRef, QuickFilterProps>(
       mode: "search" as FilterMode,
       hasLintError: false,
       value: "",
+      cursorPosition: 0,
       columns: [] as FilterColumnInfo[],
     });
-    // Keep refs in sync
+    // Keep refs in sync (critical for stable keymap callbacks)
     stateRefs.current.showSuggestions = showSuggestions;
     stateRefs.current.suggestionType = suggestionType;
     stateRefs.current.suggestions = suggestions;
@@ -187,6 +191,7 @@ export const QuickFilter = memo(forwardRef<QuickFilterRef, QuickFilterProps>(
     stateRefs.current.mode = mode;
     stateRefs.current.hasLintError = hasLintError;
     stateRefs.current.value = value;
+    stateRefs.current.cursorPosition = cursorPosition;
     stateRefs.current.columns = columns;
 
     // Theme for CodeMirror
@@ -220,6 +225,8 @@ export const QuickFilter = memo(forwardRef<QuickFilterRef, QuickFilterProps>(
 
       return [
         sql({ dialect: PostgreSQL }),
+        history(),
+        keymap.of(historyKeymap),
         ...themeExts,
         // Override theme backgrounds - must come after theme extensions
         EditorView.theme(
@@ -303,6 +310,8 @@ export const QuickFilter = memo(forwardRef<QuickFilterRef, QuickFilterProps>(
     const basicExtensions = useMemo(() => {
       const actualTheme = resolvedTheme === "dark" ? "dark" : "light";
       return [
+        history(),
+        keymap.of(historyKeymap),
         ...getThemeExtensions(actualTheme),
         EditorView.theme(
           {
@@ -464,20 +473,67 @@ export const QuickFilter = memo(forwardRef<QuickFilterRef, QuickFilterProps>(
       }
     }, [debouncedValue, debouncedCursor, columns, mode]);
 
+    // Auto-submit after 3s of inactivity (no lint errors, value changed, not loading)
+    useEffect(() => {
+      // Clear any existing timer
+      if (autoSubmitTimer.current) {
+        clearTimeout(autoSubmitTimer.current);
+        autoSubmitTimer.current = null;
+      }
+
+      // Skip if: loading, empty value, suggestions open, same as last submitted, or lint error in WHERE mode
+      const trimmedValue = value.replace(/^[?#]/, "").trim();
+      if (
+        isLoading ||
+        !trimmedValue ||
+        showSuggestions ||
+        value === lastSubmittedValue.current ||
+        (mode === "where" && hasLintError)
+      ) {
+        return;
+      }
+
+      // Start 3s timer for auto-submit
+      autoSubmitTimer.current = setTimeout(() => {
+        lastSubmittedValue.current = value;
+        onSubmit();
+      }, 3000);
+
+      return () => {
+        if (autoSubmitTimer.current) {
+          clearTimeout(autoSubmitTimer.current);
+          autoSubmitTimer.current = null;
+        }
+      };
+    }, [value, isLoading, showSuggestions, mode, hasLintError, onSubmit]);
+
+    // Reset lastSubmittedValue when value is cleared
+    useEffect(() => {
+      if (!value || value === "?" || value === "#") {
+        lastSubmittedValue.current = "";
+      }
+    }, [value]);
+
     const insertSuggestion = useCallback(
       (text: string, isEnum: boolean = false) => {
-        const beforeCursor = value.slice(0, cursorPosition);
-        const afterCursor = value.slice(cursorPosition);
+        // Read from refs for stable callback (prevents keymap recreation on every keystroke)
+        const s = stateRefs.current;
+        const currentValue = s.value;
+        const currentCursor = s.cursorPosition;
+        const currentMode = s.mode;
+
+        const beforeCursor = currentValue.slice(0, currentCursor);
+        const afterCursor = currentValue.slice(currentCursor);
 
         // Find start of current word
         const match = beforeCursor.match(WORD_AT_CURSOR_REGEX);
         const wordStart = match
-          ? cursorPosition - match[0].length
-          : cursorPosition;
+          ? currentCursor - match[0].length
+          : currentCursor;
 
         // For enum values, wrap in quotes
         const insertText = isEnum ? `'${text}'` : text;
-        const newValue = value.slice(0, wordStart) + insertText + afterCursor;
+        const newValue = currentValue.slice(0, wordStart) + insertText + afterCursor;
 
         // Set flag to prevent suggestions from re-appearing
         justAcceptedSuggestion.current = true;
@@ -487,9 +543,9 @@ export const QuickFilter = memo(forwardRef<QuickFilterRef, QuickFilterProps>(
 
         // Calculate cursor position in editor coordinates (without prefix)
         const prefixLen =
-          (newValue.startsWith("?") && mode === "where") ||
-          (newValue.startsWith("#") && mode === "ai") ||
-          (newValue.startsWith("!") && mode === "search")
+          (newValue.startsWith("?") && currentMode === "where") ||
+          (newValue.startsWith("#") && currentMode === "ai") ||
+          (newValue.startsWith("!") && currentMode === "search")
             ? 1
             : 0;
         const editorPos = wordStart + insertText.length - prefixLen;
@@ -522,7 +578,7 @@ export const QuickFilter = memo(forwardRef<QuickFilterRef, QuickFilterProps>(
           justAcceptedSuggestion.current = false;
         });
       },
-      [value, cursorPosition, onValueChange, mode],
+      [onValueChange],  // Stable deps only - value/cursor read from refs
     );
 
     // Memoized keymap extension using refs for stable access
@@ -548,6 +604,22 @@ export const QuickFilter = memo(forwardRef<QuickFilterRef, QuickFilterProps>(
                 }
               }
               if (s.mode === "where" && s.hasLintError) return true;
+              onSubmit();
+              return true;
+            },
+          },
+          {
+            // Block Shift+Enter from inserting newlines (this is a single-line filter)
+            key: "Shift-Enter",
+            run: () => {
+              onSubmit();
+              return true;
+            },
+          },
+          {
+            // Cmd/Ctrl+Enter also submits
+            key: "Mod-Enter",
+            run: () => {
               onSubmit();
               return true;
             },
