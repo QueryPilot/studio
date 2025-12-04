@@ -13,6 +13,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+
+
+## [0.8.0] - 2025-12-04
+
+### New Features
+- Sign in with Azure AD SAML to request AWS roles and open database sessions, including a role selection dialog and automatic STS credential handling.
+- Spin up ephemeral ECS bastion hosts and SSM tunnels on demand for secure, time-limited access to private databases, with automatic cleanup on disconnect.
+- Use powerful pattern search in QuickFilter (regex, boolean logic, column targeting, grouping, anchors, wildcards) to zero in on the rows you need.
+- Control DataGrid columns with a visibility menu, and copy exactly what you need (selected cells vs. full rows) while keeping per-table view preferences.
+- Edit data directly in TableDataGrid with new insert, update, and delete controls backed by the CRUD pipeline and staged change indicators.
+- Get smarter SQL assistance: JOIN condition suggestions from foreign keys and name matching, plus completion that respects table/CTE aliases and JOIN ON context.
+
+### Improvements
+- Text-to-SQL and AI filters now use richer schema metadata, cross-table context, retries, rate limiting, and metrics for more accurate and reliable answers.
+- QuickFilter submits automatically after brief inactivity and skips re-parsing repeated queries thanks to LRU caching for snappier filtering.
+- Column headers gain clearer type icons and updated context menus; preferences persist per connection, schema, and table for consistent layouts.
+- Date/time and text editors feel smoother with better focus handling, accurate sizing, and guarded closing behavior inside the grid.
+- Connection and workspace panels are streamlined for faster setup and clearer navigation, including improved tunnel handling flows.
+
+### Bug Fixes
+- PostgreSQL structure view now shows full data types (e.g., `character varying(10)`) and restores index usage stats with unused-index warnings.
+- QuickFilter keyboard handling works correctly with contenteditable inputs, and empty-value resets keep the intended mode.
+- Copy and SQL export actions use real column names, preventing mismatched headers, and JSON/INSERT exports align with visible columns.
+- Data streaming and table transforms handle raw arrays more reliably, reducing hover glitches and improving row/cell highlighting.
+
+## [0.8.0] - 2025-12-04
+
+### New Features
+- Sign in with Azure AD SAML to assume AWS roles directly from Query Pilot, including a guided role picker for multi-role responses.
+- Spin up ephemeral ECS Fargate bastion tunnels on demand for secure database access; tunnels auto-clean on disconnect.
+- Work faster in DataGrid with built-in insert/update/delete actions, per-connection/schema/table view preferences, and separate “copy cells” vs. “copy rows” options.
+- Apply powerful quick filters with regex, boolean logic, column targeting, wildcards, anchors, and automatic validation limits.
+- Get smarter SQL assistance: JOIN condition suggestions from foreign keys, richer alias-aware completion, and metadata-aware AI text-to-SQL with cross-table context.
+- Browse databases with unified dialect handling and a new Postgres introspection flow for more accurate schemas, relationships, and type metadata.
+
+### Improvements
+- Toggle column visibility from the header menu, and copy/export now uses real column names for JSON/INSERT output.
+- Quick Filter auto-submits after short pauses, caches recent parses, and avoids redundant re-renders for snappier filtering.
+- DataGrid editing feels smoother: better keyboard handling, refined hover states, new column type icons, improved date/time picker behavior, and auto-sized text inputs.
+- AI chat and text-to-SQL add rate limiting, richer metrics, and clearer error feedback to keep responses reliable.
+- Table and schema views now surface PK/FK metadata, healthier index usage stats, and more readable type names.
+- Command Palette and sidebar updates streamline model selection, preferences, and panel/workbench layouts for multi-panel workflows.
+
+### Bug Fixes
+- Postgres column types now display formatted names (e.g., `character varying(10)`) and index usage statistics are restored with unused index warnings.
+- Quick Filter preserves mode prefixes when clearing values and correctly handles contenteditable keyboard events.
+- Table streaming outputs and copy actions use accurate column mappings, preventing mismatched data during export and AI-assisted queries.
+
+
+## [0.8.0] - 2025-12-04
+
+### New Features
+- Sign in with Azure AD SAML to assume AWS roles directly from Query Pilot, including a guided role picker for multi-role responses.
+- Spin up ephemeral ECS Fargate bastion tunnels on demand for secure database access; tunnels auto-clean on disconnect.
+- Work faster in DataGrid with built-in insert/update/delete actions, per-connection/schema/table view preferences, and separate “copy cells” vs. “copy rows” options.
+- Apply powerful quick filters with regex, boolean logic, column targeting, wildcards, anchors, and automatic validation limits.
+- Get smarter SQL assistance: JOIN condition suggestions from foreign keys, richer alias-aware completion, and metadata-aware AI text-to-SQL with cross-table context.
+- Browse databases with unified dialect handling and a new Postgres introspection flow for more accurate schemas, relationships, and type metadata.
+
+### Improvements
+- Toggle column visibility from the header menu, and copy/export now uses real column names for JSON/INSERT output.
+- Quick Filter auto-submits after short pauses, caches recent parses, and avoids redundant re-renders for snappier filtering.
+- DataGrid editing feels smoother: better keyboard handling, refined hover states, new column type icons, improved date/time picker behavior, and auto-sized text inputs.
+- AI chat and text-to-SQL add rate limiting, richer metrics, and clearer error feedback to keep responses reliable.
+- Table and schema views now surface PK/FK metadata, healthier index usage stats, and more readable type names.
+- Command Palette and sidebar updates streamline model selection, preferences, and panel/workbench layouts for multi-panel workflows.
+
+### Bug Fixes
+- Postgres column types now display formatted names (e.g., `character varying(10)`) and index usage statistics are restored with unused index warnings.
+- Quick Filter preserves mode prefixes when clearing values and correctly handles contenteditable keyboard events.
+- Table streaming outputs and copy actions use accurate column mappings, preventing mismatched data during export and AI-assisted queries.
+
 ## [0.7.0] - 2025-11-27
 
 ### New Features
