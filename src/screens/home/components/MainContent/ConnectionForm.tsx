@@ -37,7 +37,13 @@ import {
   IconClipboardText,
   IconClipboardCheck,
   IconArrowLeft,
+  IconInfoCircle,
 } from "@tabler/icons-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useHomeScreenStore } from "../../store/homeScreenStore";
@@ -53,9 +59,16 @@ import {
   type ConnectionProfile,
   type AwsSsmConfig,
   type AwsAuthMethod,
+  type EcsBastionConfig,
+  type AzureAdSamlConfig,
   DbType,
   SslMode,
 } from "@/types/connection";
+import {
+  getCredentialsStatus,
+  clearCredentials,
+  type CredentialsStatus,
+} from "@/services/samlAuthService";
 
 const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
 
@@ -221,6 +234,80 @@ export function ConnectionForm() {
     existingAwsSsm?.remote_port ? existingAwsSsm.remote_port.toString() : port,
   );
 
+  // ECS Bastion state
+  const existingEcsBastion = connection?.profile.bastion
+    ? ((connection.profile.bastion as any).EcsBastion as EcsBastionConfig | undefined)
+    : undefined;
+  const existingAzureAdSaml = existingEcsBastion?.auth
+    ? ((existingEcsBastion.auth as any).AzureAdSaml as AzureAdSamlConfig | undefined)
+    : undefined;
+  const [useEcsBastion, setUseEcsBastion] = useState(!!existingEcsBastion);
+  const [ecsClusterName, setEcsClusterName] = useState(
+    existingEcsBastion?.cluster_name || "",
+  );
+  const [ecsTaskDefinition, setEcsTaskDefinition] = useState(
+    existingEcsBastion?.task_definition || "",
+  );
+  const [ecsRegion, setEcsRegion] = useState(existingEcsBastion?.region || "");
+  const [ecsTenantId, setEcsTenantId] = useState(
+    existingAzureAdSaml?.tenant_id || "",
+  );
+  const [ecsAppIdUri, setEcsAppIdUri] = useState(
+    existingAzureAdSaml?.app_id_uri || "",
+  );
+  const [ecsDefaultRoleArn, setEcsDefaultRoleArn] = useState(
+    existingAzureAdSaml?.default_role_arn || "",
+  );
+  const [ecsDurationHours, setEcsDurationHours] = useState(
+    existingAzureAdSaml?.duration_hours?.toString() || "1",
+  );
+  const [ecsRemoteHost, setEcsRemoteHost] = useState(
+    existingEcsBastion?.remote_host || host,
+  );
+  const [ecsRemotePort, setEcsRemotePort] = useState(
+    existingEcsBastion?.remote_port ? existingEcsBastion.remote_port.toString() : port,
+  );
+  const [ecsSubnetTags, setEcsSubnetTags] = useState(
+    existingEcsBastion?.subnet_tags?.join(", ") || "",
+  );
+  const [ecsSecurityGroupTag, setEcsSecurityGroupTag] = useState(
+    existingEcsBastion?.security_group_tag || "",
+  );
+  const [ecsCredentialsStatus, setEcsCredentialsStatus] = useState<CredentialsStatus | null>(null);
+  const [checkingCredentials, setCheckingCredentials] = useState(false);
+
+  // Check ECS Bastion credentials status when editing an existing connection
+  useEffect(() => {
+    if (connection?.profile.id && useEcsBastion) {
+      const checkCredentials = async () => {
+        setCheckingCredentials(true);
+        try {
+          const status = await getCredentialsStatus(connection.profile.id);
+          setEcsCredentialsStatus(status);
+        } catch (error) {
+          logger.error("Failed to check credentials status", error);
+          setEcsCredentialsStatus(null);
+        } finally {
+          setCheckingCredentials(false);
+        }
+      };
+      void checkCredentials();
+    } else {
+      setEcsCredentialsStatus(null);
+    }
+  }, [connection?.profile.id, useEcsBastion]);
+
+  const handleClearCredentials = async () => {
+    if (!connection?.profile.id) return;
+    try {
+      await clearCredentials(connection.profile.id);
+      setEcsCredentialsStatus(null);
+      toast.success("AWS credentials cleared");
+    } catch (error) {
+      toast.error("Failed to clear credentials");
+    }
+  };
+
   // SSL certificates state
   const [sslKeyFile, _setSslKeyFile] = useState(
     connection?.profile.ssl_config?.key_file || "",
@@ -265,14 +352,23 @@ export function ConnectionForm() {
   useEffect(() => {
     if (useAwsSsm) {
       setUseSSH(false);
+      setUseEcsBastion(false);
     }
   }, [useAwsSsm]);
 
   useEffect(() => {
     if (useSSH) {
       setUseAwsSsm(false);
+      setUseEcsBastion(false);
     }
   }, [useSSH]);
+
+  useEffect(() => {
+    if (useEcsBastion) {
+      setUseSSH(false);
+      setUseAwsSsm(false);
+    }
+  }, [useEcsBastion]);
 
   const handleParseEnv = (text: string) => {
     try {
@@ -503,6 +599,36 @@ export function ConnectionForm() {
           auth,
           remote_host: ssmRemoteHost || profile.host,
           remote_port: parseInt(ssmRemotePort, 10) || profile.port || 5432,
+        },
+      };
+    }
+
+    if (useEcsBastion) {
+      const auth: AwsAuthMethod = {
+        AzureAdSaml: {
+          tenant_id: ecsTenantId,
+          app_id_uri: ecsAppIdUri,
+          default_role_arn: ecsDefaultRoleArn || undefined,
+          duration_hours: parseInt(ecsDurationHours, 10) || 1,
+        },
+      };
+
+      // Parse subnet tags from comma-separated string
+      const subnetTags = ecsSubnetTags
+        .split(",")
+        .map((t) => t.trim())
+        .filter((t) => t.length > 0);
+
+      profile.bastion = {
+        EcsBastion: {
+          cluster_name: ecsClusterName,
+          task_definition: ecsTaskDefinition,
+          region: ecsRegion,
+          auth,
+          remote_host: ecsRemoteHost || profile.host,
+          remote_port: parseInt(ecsRemotePort, 10) || profile.port || 5432,
+          subnet_tags: subnetTags.length > 0 ? subnetTags : undefined,
+          security_group_tag: ecsSecurityGroupTag || undefined,
         },
       };
     }
@@ -1324,6 +1450,337 @@ export function ConnectionForm() {
                         setSsmRemotePort(e.target.value);
                       }}
                       placeholder={getDefaultPort(dbType)}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* ECS Bastion with Azure AD SAML */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="flex items-center gap-1.5 text-xs">
+                <IconServer className="h-3 w-3 text-muted-foreground" />
+                ECS Bastion (Azure AD)
+                <Badge variant="secondary" className="text-[10px] px-1 py-0">
+                  New
+                </Badge>
+              </Label>
+              <Switch checked={useEcsBastion} onCheckedChange={setUseEcsBastion} />
+            </div>
+
+            {useEcsBastion && (
+              <>
+                {/* ECS Configuration */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor="ecs-cluster" className="text-xs flex items-center gap-1">
+                      ECS Cluster *
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[280px]">
+                          <p className="font-medium mb-1">How to find:</p>
+                          <p>AWS Console → ECS → Clusters → Copy the cluster name that runs your bastion task definition.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </Label>
+                    <Input
+                      id="ecs-cluster"
+                      className="mt-1 h-8 text-xs"
+                      value={ecsClusterName}
+                      onChange={(e) => {
+                        setEcsClusterName(e.target.value);
+                      }}
+                      placeholder="ecs-ssm-bastion-cluster"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="ecs-task-def" className="text-xs flex items-center gap-1">
+                      Task Definition *
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[280px]">
+                          <p className="font-medium mb-1">How to find:</p>
+                          <p>AWS Console → ECS → Task definitions → Copy the task definition name (without revision number) that has SSM agent configured.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </Label>
+                    <Input
+                      id="ecs-task-def"
+                      className="mt-1 h-8 text-xs"
+                      value={ecsTaskDefinition}
+                      onChange={(e) => {
+                        setEcsTaskDefinition(e.target.value);
+                      }}
+                      placeholder="ecs-ssm-bastion"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <Label htmlFor="ecs-region" className="text-xs flex items-center gap-1">
+                    AWS Region *
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-[280px]">
+                        <p className="font-medium mb-1">How to find:</p>
+                        <p>The AWS region where your ECS cluster and database are located (e.g., us-east-1, ap-southeast-2).</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </Label>
+                  <Input
+                    id="ecs-region"
+                    className="mt-1 h-8 text-xs"
+                    value={ecsRegion}
+                    onChange={(e) => {
+                      setEcsRegion(e.target.value);
+                    }}
+                    placeholder="ap-southeast-2"
+                  />
+                </div>
+
+                {/* Azure AD SAML Configuration */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-medium">Azure AD SAML Authentication</Label>
+                    {/* Credentials Status Indicator */}
+                    {connection?.profile.id && (
+                      <div className="flex items-center gap-2">
+                        {checkingCredentials ? (
+                          <IconLoader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                        ) : ecsCredentialsStatus?.has_credentials ? (
+                          <div className="flex items-center gap-1.5">
+                            <div
+                              className={cn(
+                                "h-2 w-2 rounded-full",
+                                ecsCredentialsStatus.is_valid
+                                  ? "bg-green-500"
+                                  : "bg-red-500"
+                              )}
+                            />
+                            <span className="text-[10px] text-muted-foreground">
+                              {ecsCredentialsStatus.is_valid
+                                ? `Valid until ${ecsCredentialsStatus.expiration_secs ? new Date(ecsCredentialsStatus.expiration_secs * 1000).toLocaleTimeString() : "unknown"}`
+                                : "Expired"}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-5 px-1 text-[10px]"
+                              onClick={handleClearCredentials}
+                            >
+                              Clear
+                            </Button>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground">
+                            No cached credentials
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label htmlFor="ecs-tenant-id" className="text-xs flex items-center gap-1">
+                        Tenant ID *
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-[280px]">
+                            <p className="font-medium mb-1">How to find:</p>
+                            <p>Azure Portal → Azure Active Directory → Overview → Copy the "Tenant ID" (Directory ID).</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </Label>
+                      <Input
+                        id="ecs-tenant-id"
+                        className="mt-1 h-8 text-xs"
+                        value={ecsTenantId}
+                        onChange={(e) => {
+                          setEcsTenantId(e.target.value);
+                        }}
+                        placeholder="53c4eee7-df48-..."
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="ecs-duration" className="text-xs flex items-center gap-1">
+                        Session Hours
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-[280px]">
+                            <p className="font-medium mb-1">What this means:</p>
+                            <p>How long AWS credentials stay valid (1-12 hours). Longer = fewer re-authentications, but less secure if compromised.</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </Label>
+                      <Input
+                        id="ecs-duration"
+                        className="mt-1 h-8 text-xs"
+                        type="number"
+                        min={1}
+                        max={12}
+                        value={ecsDurationHours}
+                        onChange={(e) => {
+                          setEcsDurationHours(e.target.value);
+                        }}
+                        placeholder="1"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label htmlFor="ecs-app-id-uri" className="text-xs flex items-center gap-1">
+                      App ID URI *
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[280px]">
+                          <p className="font-medium mb-1">How to find:</p>
+                          <p>Azure Portal → Enterprise Applications → Your AWS app → Single sign-on → Copy "Identifier (Entity ID)". Usually https://signin.aws.amazon.com/saml#N</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </Label>
+                    <Input
+                      id="ecs-app-id-uri"
+                      className="mt-1 h-8 text-xs"
+                      value={ecsAppIdUri}
+                      onChange={(e) => {
+                        setEcsAppIdUri(e.target.value);
+                      }}
+                      placeholder="https://signin.aws.amazon.com/saml#2"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="ecs-role-arn" className="text-xs flex items-center gap-1">
+                      Default Role ARN (optional)
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[280px]">
+                          <p className="font-medium mb-1">What this means:</p>
+                          <p>Pre-select a specific IAM role to skip the role picker. AWS Console → IAM → Roles → Copy the Role ARN. Leave empty to choose each time.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </Label>
+                    <Input
+                      id="ecs-role-arn"
+                      className="mt-1 h-8 text-xs"
+                      value={ecsDefaultRoleArn}
+                      onChange={(e) => {
+                        setEcsDefaultRoleArn(e.target.value);
+                      }}
+                      placeholder="arn:aws:iam::123456789012:role/MyRole"
+                    />
+                  </div>
+                </div>
+
+                {/* Network Configuration */}
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium">Network Configuration</Label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label htmlFor="ecs-remote-host" className="text-xs flex items-center gap-1">
+                        Remote Host
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-[280px]">
+                            <p className="font-medium mb-1">What this means:</p>
+                            <p>The database's internal hostname or IP address, accessible from within the VPC. Usually an RDS endpoint or private IP.</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </Label>
+                      <Input
+                        id="ecs-remote-host"
+                        className="mt-1 h-8 text-xs"
+                        value={ecsRemoteHost}
+                        onChange={(e) => {
+                          setEcsRemoteHost(e.target.value);
+                        }}
+                        placeholder={host}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="ecs-remote-port" className="text-xs flex items-center gap-1">
+                        Remote Port
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-[280px]">
+                            <p className="font-medium mb-1">What this means:</p>
+                            <p>The database port (PostgreSQL: 5432, MySQL: 3306, SQL Server: 1433). Check your RDS/database configuration.</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </Label>
+                      <Input
+                        id="ecs-remote-port"
+                        className="mt-1 h-8 text-xs"
+                        value={ecsRemotePort}
+                        onChange={(e) => {
+                          setEcsRemotePort(e.target.value);
+                        }}
+                        placeholder={getDefaultPort(dbType)}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label htmlFor="ecs-subnet-tags" className="text-xs flex items-center gap-1">
+                      Subnet Tags (comma-separated)
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[280px]">
+                          <p className="font-medium mb-1">What this means:</p>
+                          <p>Optional. Filter which subnets the bastion can launch in by Name tag values. Leave empty to use any subnet in the VPC.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </Label>
+                    <Input
+                      id="ecs-subnet-tags"
+                      className="mt-1 h-8 text-xs"
+                      value={ecsSubnetTags}
+                      onChange={(e) => {
+                        setEcsSubnetTags(e.target.value);
+                      }}
+                      placeholder="private-a, private-b"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="ecs-sg-tag" className="text-xs flex items-center gap-1">
+                      Security Group Tag
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[280px]">
+                          <p className="font-medium mb-1">What this means:</p>
+                          <p>Optional. Filter security groups by tag (format: Key=Value). The bastion needs a SG that allows outbound to SSM endpoints and your database.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </Label>
+                    <Input
+                      id="ecs-sg-tag"
+                      className="mt-1 h-8 text-xs"
+                      value={ecsSecurityGroupTag}
+                      onChange={(e) => {
+                        setEcsSecurityGroupTag(e.target.value);
+                      }}
+                      placeholder="Bastion=SSM"
                     />
                   </div>
                 </div>

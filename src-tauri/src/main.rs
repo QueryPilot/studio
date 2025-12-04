@@ -46,6 +46,7 @@ fn main() {
     apply_macos_traffic_light_position(context.config_mut());
 
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_window_state::Builder::new().build())
@@ -58,11 +59,16 @@ fn main() {
         .manage(ai_manager.clone())
         .manage(app_state)
         .setup(|app| {
+            // Set app handle on ConnectionManager for ECS Bastion support
+            let manager = app.state::<std::sync::Arc<core::manager::ConnectionManager>>();
+            let handle_clone = app.handle().clone();
+            tauri::async_runtime::block_on(async {
+                manager.set_app_handle(handle_clone).await;
+            });
+
             // Build and set the application menu
-            let menu = menu::build_menu(&app.handle())
-                .expect("Failed to build menu");
-            app.set_menu(menu)
-                .expect("Failed to set menu");
+            let menu = menu::build_menu(&app.handle()).expect("Failed to build menu");
+            app.set_menu(menu).expect("Failed to set menu");
 
             // Register menu event handler
             let app_handle = app.handle().clone();
@@ -114,6 +120,14 @@ fn main() {
             commands::start_oauth_flow,
             commands::get_oauth_token_status,
             commands::clear_oauth_token,
+            // Azure AD SAML authentication
+            commands::get_azure_ad_login_url,
+            commands::get_aws_saml_endpoints,
+            commands::parse_saml_roles,
+            commands::assume_role_with_saml,
+            commands::get_aws_credentials_status,
+            commands::clear_aws_credentials,
+            commands::open_saml_auth_window,
             // Introspection now uses frontend dialect system via commands::query
             // See: src/services/introspectionService.ts
             commands::get_type_info,
@@ -176,8 +190,12 @@ fn main() {
             tracing::info!("🛑 Application exit requested, cleaning up resources...");
 
             // Run cleanup with overall timeout to prevent hanging
-            let ai_manager_opt = app_handle.try_state::<Arc<AIManager>>().map(|s| s.inner().clone());
-            let conn_manager_opt = app_handle.try_state::<Arc<core::manager::ConnectionManager>>().map(|s| s.inner().clone());
+            let ai_manager_opt = app_handle
+                .try_state::<Arc<AIManager>>()
+                .map(|s| s.inner().clone());
+            let conn_manager_opt = app_handle
+                .try_state::<Arc<core::manager::ConnectionManager>>()
+                .map(|s| s.inner().clone());
 
             tauri::async_runtime::block_on(async move {
                 // Overall 3 second timeout for all cleanup
@@ -199,7 +217,8 @@ fn main() {
                     }
                 };
 
-                match tokio::time::timeout(std::time::Duration::from_secs(3), cleanup_future).await {
+                match tokio::time::timeout(std::time::Duration::from_secs(3), cleanup_future).await
+                {
                     Ok(()) => tracing::info!("✅ Cleanup completed, exiting..."),
                     Err(_) => tracing::warn!("⚠️ Cleanup timed out, forcing exit..."),
                 }

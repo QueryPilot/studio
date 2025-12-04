@@ -99,9 +99,7 @@ pub struct OAuthTokenStatus {
 }
 
 #[tauri::command]
-pub async fn start_oauth_flow(
-    provider: OAuthProvider,
-) -> std::result::Result<String, String> {
+pub async fn start_oauth_flow(provider: OAuthProvider) -> std::result::Result<String, String> {
     // TODO: Implement device code flow
     // For now, return instruction message
     let provider_name = match &provider {
@@ -112,7 +110,7 @@ pub async fn start_oauth_flow(
         OAuthProvider::Keycloak => "Keycloak",
         OAuthProvider::Generic { name, .. } => name.as_str(),
     };
-    
+
     Ok(format!(
         "OAuth flow for {} is not yet implemented. Please configure via AWS CLI for now.",
         provider_name
@@ -124,12 +122,12 @@ pub async fn get_oauth_token_status(
     provider: OAuthProvider,
 ) -> std::result::Result<OAuthTokenStatus, String> {
     use crate::aws::oauth;
-    
+
     let has_token = oauth::get_oauth_token(&provider)
         .await
         .map_err(|e| e.to_string())?
         .is_some();
-    
+
     let provider_name = match &provider {
         OAuthProvider::Microsoft => "Microsoft",
         OAuthProvider::Google => "Google",
@@ -138,7 +136,7 @@ pub async fn get_oauth_token_status(
         OAuthProvider::Keycloak => "Keycloak",
         OAuthProvider::Generic { name, .. } => name.as_str(),
     };
-    
+
     Ok(OAuthTokenStatus {
         has_token,
         provider: provider_name.to_string(),
@@ -146,14 +144,400 @@ pub async fn get_oauth_token_status(
 }
 
 #[tauri::command]
-pub async fn clear_oauth_token(
-    provider: OAuthProvider,
-) -> std::result::Result<(), String> {
+pub async fn clear_oauth_token(provider: OAuthProvider) -> std::result::Result<(), String> {
     use crate::aws::oauth;
-    
+
     oauth::delete_oauth_token(&provider)
         .await
         .map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// AZURE AD SAML AUTHENTICATION COMMANDS
+// ============================================================================
+
+/// Generate Azure AD SAML login URL for federated AWS authentication
+#[tauri::command]
+pub fn get_azure_ad_login_url(config: AzureAdSamlConfig) -> std::result::Result<String, String> {
+    use crate::aws::saml;
+    saml::create_saml_login_url(&config).map_err(|e| e.to_string())
+}
+
+/// Get AWS SAML endpoints for navigation interception
+#[tauri::command]
+pub fn get_aws_saml_endpoints() -> Vec<String> {
+    use crate::aws::saml;
+    saml::get_aws_saml_endpoints()
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+#[derive(Serialize)]
+pub struct SamlRoleInfo {
+    pub role_arn: String,
+    pub principal_arn: String,
+    pub account_id: String,
+    pub role_name: String,
+}
+
+/// Parse SAML response to extract available AWS roles
+#[tauri::command]
+pub fn parse_saml_roles(saml_response: String) -> std::result::Result<Vec<SamlRoleInfo>, String> {
+    use crate::aws::saml;
+
+    let roles = saml::parse_saml_roles(&saml_response).map_err(|e| e.to_string())?;
+
+    Ok(roles
+        .into_iter()
+        .map(|r| {
+            // Extract account ID and role name from ARN
+            // Format: arn:aws:iam::123456789012:role/RoleName
+            let parts: Vec<&str> = r.role_arn.split(':').collect();
+            let account_id = parts.get(4).unwrap_or(&"").to_string();
+            let role_name = r.role_arn.split('/').last().unwrap_or("").to_string();
+
+            SamlRoleInfo {
+                role_arn: r.role_arn,
+                principal_arn: r.principal_arn,
+                account_id,
+                role_name,
+            }
+        })
+        .collect())
+}
+
+#[derive(Serialize)]
+pub struct SamlCredentialsResult {
+    pub access_key_id: String,
+    pub expiration_secs: Option<u64>,
+    pub role_arn: String,
+}
+
+/// Exchange SAML assertion for AWS credentials via STS AssumeRoleWithSAML
+#[tauri::command]
+pub async fn assume_role_with_saml(
+    saml_response: String,
+    role_arn: String,
+    principal_arn: String,
+    duration_hours: Option<u8>,
+    region: String,
+    connection_id: String,
+) -> std::result::Result<SamlCredentialsResult, String> {
+    use crate::aws::{credentials, saml};
+
+    let role = saml::SamlRole {
+        role_arn: role_arn.clone(),
+        principal_arn,
+    };
+
+    let duration = duration_hours.unwrap_or(1);
+
+    let result = saml::assume_role_with_saml(&saml_response, &role, duration, &region)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Cache credentials for this connection
+    let cached = credentials::CachedCredentials::from_aws_credentials(
+        &result.credentials,
+        result.role_arn.clone(),
+        region,
+        result.expiration,
+    );
+
+    credentials::store_credentials(&connection_id, &cached)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(SamlCredentialsResult {
+        access_key_id: cached.access_key_id,
+        expiration_secs: cached.expiration_secs,
+        role_arn: result.role_arn,
+    })
+}
+
+#[derive(Serialize)]
+pub struct CredentialsStatus {
+    pub has_credentials: bool,
+    pub is_valid: bool,
+    pub expiration_secs: Option<u64>,
+    pub seconds_until_expiration: Option<i64>,
+    pub role_arn: Option<String>,
+}
+
+/// Check if valid AWS credentials exist for a connection
+#[tauri::command]
+pub async fn get_aws_credentials_status(
+    connection_id: String,
+) -> std::result::Result<CredentialsStatus, String> {
+    use crate::aws::credentials;
+
+    match credentials::get_credentials(&connection_id).await {
+        Ok(Some(creds)) => {
+            let is_valid = !creds.is_expired_or_expiring();
+            Ok(CredentialsStatus {
+                has_credentials: true,
+                is_valid,
+                expiration_secs: creds.expiration_secs,
+                seconds_until_expiration: creds.seconds_until_expiration(),
+                role_arn: Some(creds.role_arn),
+            })
+        }
+        Ok(None) => Ok(CredentialsStatus {
+            has_credentials: false,
+            is_valid: false,
+            expiration_secs: None,
+            seconds_until_expiration: None,
+            role_arn: None,
+        }),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Clear cached AWS credentials for a connection
+#[tauri::command]
+pub async fn clear_aws_credentials(connection_id: String) -> std::result::Result<(), String> {
+    use crate::aws::credentials;
+    credentials::delete_credentials(&connection_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// JavaScript to inject into SAML auth window for intercepting form submissions
+/// NOTE: window.__TAURI__ is NOT available on external URLs, so we use URL navigation
+/// to pass the SAML response back to the Rust side via on_navigation callback.
+const SAML_INTERCEPT_SCRIPT: &str = r#"
+(function() {
+    // AWS SAML endpoints to intercept
+    const AWS_SAML_ENDPOINTS = [
+        'https://signin.aws.amazon.com/saml',
+        'https://signin.amazonaws-us-gov.com/saml',
+        'https://signin.amazonaws.cn/saml'
+    ];
+
+    // Check if URL is an AWS SAML endpoint
+    function isAwsSamlEndpoint(url) {
+        return AWS_SAML_ENDPOINTS.some(endpoint => url.startsWith(endpoint));
+    }
+
+    // Send SAML response via custom URL navigation (works without Tauri IPC)
+    function sendSamlResponse(samlResponse, relayState) {
+        console.log('[SAML] Captured response, redirecting to callback URL');
+        // URL-encode the base64 SAML response (it may contain + and / characters)
+        const encoded = encodeURIComponent(samlResponse);
+        const relay = encodeURIComponent(relayState || '');
+        // Navigate to custom scheme URL - Rust intercepts this in on_navigation
+        // The querypilot:// scheme is registered via tauri-plugin-deep-link
+        window.location.href = 'querypilot://saml/callback?response=' + encoded + '&relay=' + relay;
+    }
+
+    // Override form.submit() IMMEDIATELY before any scripts run
+    const originalSubmit = HTMLFormElement.prototype.submit;
+    HTMLFormElement.prototype.submit = function() {
+        const action = this.action || window.location.href;
+        if (isAwsSamlEndpoint(action)) {
+            const samlInput = this.querySelector('input[name="SAMLResponse"]');
+            const relayStateInput = this.querySelector('input[name="RelayState"]');
+
+            if (samlInput && samlInput.value) {
+                console.log('[SAML] Intercepted form.submit() to AWS endpoint');
+                sendSamlResponse(samlInput.value, relayStateInput ? relayStateInput.value : '');
+                return; // Don't call original submit
+            }
+        }
+        return originalSubmit.call(this);
+    };
+
+    // Also watch for forms via MutationObserver (catches dynamically added forms)
+    const observer = new MutationObserver(function(mutations) {
+        for (const mutation of mutations) {
+            for (const node of mutation.addedNodes) {
+                if (node.nodeType === Node.ELEMENT_NODE) {
+                    // Check if the added node is a form or contains forms
+                    const forms = node.tagName === 'FORM' ? [node] : node.querySelectorAll ? node.querySelectorAll('form') : [];
+                    for (const form of forms) {
+                        const action = form.action || '';
+                        if (isAwsSamlEndpoint(action)) {
+                            const samlInput = form.querySelector('input[name="SAMLResponse"]');
+                            if (samlInput && samlInput.value) {
+                                console.log('[SAML] Found SAML form via MutationObserver');
+                                const relayStateInput = form.querySelector('input[name="RelayState"]');
+                                sendSamlResponse(samlInput.value, relayStateInput ? relayStateInput.value : '');
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // Start observing as soon as possible
+    if (document.body) {
+        observer.observe(document.body, { childList: true, subtree: true });
+    } else {
+        document.addEventListener('DOMContentLoaded', function() {
+            observer.observe(document.body, { childList: true, subtree: true });
+        });
+    }
+
+    // Intercept form submissions via event listener
+    document.addEventListener('submit', function(e) {
+        const form = e.target;
+        if (form.tagName !== 'FORM') return;
+
+        const action = form.action || window.location.href;
+        if (!isAwsSamlEndpoint(action)) return;
+
+        const samlInput = form.querySelector('input[name="SAMLResponse"]');
+        const relayStateInput = form.querySelector('input[name="RelayState"]');
+
+        if (samlInput && samlInput.value) {
+            console.log('[SAML] Intercepted submit event to AWS endpoint');
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            sendSamlResponse(samlInput.value, relayStateInput ? relayStateInput.value : '');
+            return false;
+        }
+    }, true); // Use capture phase to catch it first
+
+    // Check if there's already a SAML form on the page (in case script loads after form)
+    document.addEventListener('DOMContentLoaded', function() {
+        const forms = document.querySelectorAll('form');
+        for (const form of forms) {
+            const action = form.action || '';
+            if (isAwsSamlEndpoint(action)) {
+                const samlInput = form.querySelector('input[name="SAMLResponse"]');
+                if (samlInput && samlInput.value) {
+                    console.log('[SAML] Found existing SAML form on DOMContentLoaded');
+                    const relayStateInput = form.querySelector('input[name="RelayState"]');
+                    sendSamlResponse(samlInput.value, relayStateInput ? relayStateInput.value : '');
+                    return;
+                }
+            }
+        }
+    });
+
+    console.log('[SAML] Intercept script loaded and ready');
+})();
+"#;
+
+/// Open a SAML authentication window and capture the SAML response
+///
+/// This command creates a webview window that:
+/// 1. Navigates to the Azure AD login URL
+/// 2. Injects JavaScript to intercept form submissions to AWS SAML endpoints
+/// 3. Captures the SAMLResponse via custom URL scheme (devdb-saml://callback)
+/// 4. Emits the response via Tauri events
+#[tauri::command]
+pub async fn open_saml_auth_window(
+    app: AppHandle,
+    config: AzureAdSamlConfig,
+) -> std::result::Result<(), String> {
+    use crate::aws::saml;
+    use oauth2::url::Url;
+    use tauri::Emitter;
+    use tauri::WebviewUrl;
+    use tauri::WebviewWindowBuilder;
+
+    tracing::info!("[SAML] Opening auth window for Azure AD");
+
+    // Generate Azure AD login URL
+    let login_url = saml::create_saml_login_url(&config).map_err(|e| e.to_string())?;
+    tracing::info!("[SAML] Generated login URL");
+
+    // Create unique window label
+    let window_label = format!(
+        "saml-auth-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    );
+
+    // Parse the URL
+    let url: Url = login_url
+        .parse()
+        .map_err(|e: oauth2::url::ParseError| e.to_string())?;
+
+    // Create the webview window with SAML interception
+    // Note: Must run in blocking context due to Windows WebView2 requirements
+    let handle = app.clone();
+    let label_for_close = window_label.clone();
+
+    tokio::task::spawn_blocking(move || {
+        let handle_for_nav = handle.clone();
+        let label_for_nav = label_for_close.clone();
+
+        WebviewWindowBuilder::new(&handle, &label_for_close, WebviewUrl::External(url))
+            .title("Azure AD Sign In")
+            .inner_size(500.0, 700.0)
+            .center()
+            .resizable(true)
+            .minimizable(false)
+            .maximizable(false)
+            .closable(true)
+            .focused(true)
+            // Inject the SAML interception script
+            .initialization_script(SAML_INTERCEPT_SCRIPT)
+            // Intercept navigation to capture SAML callback
+            .on_navigation(move |nav_url| {
+                let url_str = nav_url.as_str();
+
+                // Check for our SAML callback URL (custom scheme registered via deep-link plugin)
+                if url_str.starts_with("querypilot://saml/callback") {
+                    tracing::info!("[SAML] Intercepted callback URL");
+
+                    // Parse the SAML response from URL query params
+                    if let Ok(parsed) = oauth2::url::Url::parse(url_str) {
+                        let mut saml_response: Option<String> = None;
+                        let mut relay_state: Option<String> = None;
+
+                        for (key, value) in parsed.query_pairs() {
+                            match key.as_ref() {
+                                "response" => saml_response = Some(value.to_string()),
+                                "relay" => relay_state = Some(value.to_string()),
+                                _ => {}
+                            }
+                        }
+
+                        if let Some(response) = saml_response {
+                            tracing::info!("[SAML] Extracted SAML response, emitting event");
+
+                            // Emit the SAML response event
+                            let payload = serde_json::json!({
+                                "samlResponse": response,
+                                "relayState": relay_state.unwrap_or_default()
+                            });
+
+                            if let Err(e) = handle_for_nav.emit("saml-response-captured", payload) {
+                                tracing::error!("[SAML] Failed to emit event: {}", e);
+                            }
+
+                            // Close the auth window
+                            if let Some(window) = handle_for_nav.get_webview_window(&label_for_nav)
+                            {
+                                let _ = window.close();
+                            }
+                        }
+                    }
+
+                    // Block navigation to the custom URL
+                    return false;
+                }
+
+                // Allow all other navigation (Azure AD login flow)
+                true
+            })
+            .build()
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))?
+    .map(|_| {
+        tracing::info!("[SAML] Auth window opened successfully");
+    })
 }
 
 #[tauri::command]
@@ -173,28 +557,41 @@ pub async fn switch_database(
     new_database: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<(), String> {
-    tracing::info!("Switching connection {} to database: {}", conn_id, new_database);
+    tracing::info!(
+        "Switching connection {} to database: {}",
+        conn_id,
+        new_database
+    );
 
     // Get current connection profile
-    let mut profile = manager.get_stored_profile(&conn_id)
+    let mut profile = manager
+        .get_stored_profile(&conn_id)
         .ok_or_else(|| format!("Connection {} not found", conn_id))?;
 
     // Disconnect current connection
-    manager.disconnect(&conn_id).await.map_err(|e| e.to_string())?;
+    manager
+        .disconnect(&conn_id)
+        .await
+        .map_err(|e| e.to_string())?;
 
     // Update profile with new database
     profile.database = new_database.clone();
 
     // Reconnect with new database
-    manager.get_or_create_connection(&profile)
+    manager
+        .get_or_create_connection(&profile)
         .await
         .map_err(|e| e.to_string())?;
 
     // Verify we're connected to the correct database
-    let conn = manager.get_connection(&conn_id)
+    let conn = manager
+        .get_connection(&conn_id)
         .ok_or_else(|| "Connection not found after reconnect".to_string())?;
 
-    let result = conn.adapter.query("SELECT current_database()").await
+    let result = conn
+        .adapter
+        .query("SELECT current_database()")
+        .await
         .map_err(|e| e.to_string())?;
 
     if let Some(row) = result.rows.first() {
@@ -460,7 +857,10 @@ fn is_multi_statement_query(sql: &str) -> bool {
 
     // Check for transaction control keywords followed by semicolon
     let sql_upper = trimmed.to_uppercase();
-    if sql_upper.contains("BEGIN;") || sql_upper.contains("COMMIT;") || sql_upper.contains("ROLLBACK;") {
+    if sql_upper.contains("BEGIN;")
+        || sql_upper.contains("COMMIT;")
+        || sql_upper.contains("ROLLBACK;")
+    {
         return true;
     }
 
@@ -529,13 +929,10 @@ async fn execute_single_fetch_stream(
 
         // Use simple_query for multi-statement support (no prepared statements)
         let simple_start = std::time::Instant::now();
-        pool_conn
-            .batch_execute(sql)
-            .await
-            .map_err(|e| {
-                tracing::error!("❌ batch_execute failed: {:?}", e);
-                extract_db_error_message(&e)
-            })?;
+        pool_conn.batch_execute(sql).await.map_err(|e| {
+            tracing::error!("❌ batch_execute failed: {:?}", e);
+            extract_db_error_message(&e)
+        })?;
         let exec_elapsed = simple_start.elapsed().as_millis();
         tracing::info!("  ⏱ Executed multi-statement batch: {}ms", exec_elapsed);
 
@@ -566,16 +963,17 @@ async fn execute_single_fetch_stream(
         tracing::info!("  🔀 Non-SELECT query, using execute() for affected rows count");
 
         let exec_start = std::time::Instant::now();
-        let rows_affected = pool_conn
-            .execute(sql, &[])
-            .await
-            .map_err(|e| {
-                tracing::error!("❌ execute failed: {:?}", e);
-                extract_db_error_message(&e)
-            })?;
+        let rows_affected = pool_conn.execute(sql, &[]).await.map_err(|e| {
+            tracing::error!("❌ execute failed: {:?}", e);
+            extract_db_error_message(&e)
+        })?;
         let exec_elapsed = exec_start.elapsed().as_millis();
 
-        tracing::info!("  ⏱ Executed mutation: {}ms, {} rows affected", exec_elapsed, rows_affected);
+        tracing::info!(
+            "  ⏱ Executed mutation: {}ms, {} rows affected",
+            exec_elapsed,
+            rows_affected
+        );
 
         // Send empty columns (no result set for mutations without RETURNING)
         let _ = metadata_channel.send(StreamMessage::Started {
@@ -599,15 +997,12 @@ async fn execute_single_fetch_stream(
 
     // PREPARE statement - this is where the slowness happens on remote connections!
     let prepare_start = std::time::Instant::now();
-    let stmt = pool_conn
-        .prepare(&sql)
-        .await
-        .map_err(|e| {
-            // Log the full error details for debugging
-            tracing::error!("❌ PREPARE failed: {:?}", e);
-            // Return clean error message
-            extract_db_error_message(&e)
-        })?;
+    let stmt = pool_conn.prepare(&sql).await.map_err(|e| {
+        // Log the full error details for debugging
+        tracing::error!("❌ PREPARE failed: {:?}", e);
+        // Return clean error message
+        extract_db_error_message(&e)
+    })?;
     let prepare_elapsed = prepare_start.elapsed().as_millis();
     tracing::info!("  ⏱ PREPARE statement: {}ms ⚠️", prepare_elapsed);
 
@@ -1145,7 +1540,11 @@ pub async fn execute_sql_batch(
 
     let mut results = Vec::with_capacity(statements.len());
     for sql in statements {
-        let affected = conn.adapter.execute(&sql).await.map_err(|e| e.to_string())?;
+        let affected = conn
+            .adapter
+            .execute(&sql)
+            .await
+            .map_err(|e| e.to_string())?;
         results.push(affected);
     }
     Ok(results)

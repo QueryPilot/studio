@@ -72,6 +72,32 @@ pub enum SshAuthMethod {
 pub enum BastionConfig {
     Ssh(SshTunnelConfig),
     AwsSsm(AwsSsmConfig),
+    EcsBastion(EcsBastionConfig),
+}
+
+/// ECS Bastion configuration for ephemeral Fargate-based bastion hosts
+/// Launches an ECS task that registers with SSM, then SSH tunnels through it
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EcsBastionConfig {
+    /// ECS cluster name (e.g., "ecs-ssm-bastion-cluster")
+    pub cluster_name: String,
+    /// ECS task definition name (e.g., "ecs-ssm-bastion")
+    pub task_definition: String,
+    /// AWS region (e.g., "ap-southeast-2")
+    pub region: String,
+    /// Authentication method for AWS API calls
+    pub auth: AwsAuthMethod,
+    /// Target database host (internal VPC address)
+    pub remote_host: String,
+    /// Target database port
+    pub remote_port: u16,
+    /// Optional: Subnet filter tags (e.g., ["private-a", "private-b"])
+    #[serde(default)]
+    pub subnet_tags: Vec<String>,
+    /// Optional: Security group tag key=value (e.g., "Bastion=SSM")
+    pub security_group_tag: Option<String>,
+    /// Optional: IAM role for the ECS task
+    pub task_role_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,9 +112,30 @@ pub struct AwsSsmConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AwsAuthMethod {
     OAuthFederated(OAuthConfig),
-    AwsProfile { profile_name: String },
-    IamRole { role_arn: String },
-    AccessKey { access_key_id: String },
+    AwsProfile {
+        profile_name: String,
+    },
+    IamRole {
+        role_arn: String,
+    },
+    AccessKey {
+        access_key_id: String,
+    },
+    /// Azure AD SAML authentication (AssumeRoleWithSAML)
+    AzureAdSaml(AzureAdSamlConfig),
+}
+
+/// Azure AD SAML configuration for AWS federated authentication
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AzureAdSamlConfig {
+    /// Azure AD tenant ID (e.g., "53c4eee7-df48-4119-b261-da130f3e1a32")
+    pub tenant_id: String,
+    /// Azure App ID URI (e.g., "https://signin.aws.amazon.com/saml#2")
+    pub app_id_uri: String,
+    /// Optional: Pre-selected IAM role ARN
+    pub default_role_arn: Option<String>,
+    /// Optional: Session duration in hours (1-12, default: 1)
+    pub duration_hours: Option<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

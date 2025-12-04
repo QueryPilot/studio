@@ -8,7 +8,10 @@
 #[cfg(feature = "telemetry")]
 use sentry::{ClientInitGuard, ClientOptions};
 #[cfg(feature = "telemetry")]
-use std::sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex, OnceLock};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex, OnceLock,
+};
 
 #[cfg(feature = "telemetry")]
 static SENTRY_GUARD: OnceLock<Mutex<Option<ClientInitGuard>>> = OnceLock::new();
@@ -38,7 +41,10 @@ pub fn initialize_sentry(sentry_enabled: bool, app_version: &str) -> Option<Clie
     // Check if already initialized
     if let Ok(guard) = guard_mutex.lock() {
         if guard.is_some() {
-            tracing::info!("[Sentry] Already initialized, updated enabled flag to: {}", sentry_enabled);
+            tracing::info!(
+                "[Sentry] Already initialized, updated enabled flag to: {}",
+                sentry_enabled
+            );
             return None;
         }
     }
@@ -63,14 +69,26 @@ pub fn initialize_sentry(sentry_enabled: bool, app_version: &str) -> Option<Clie
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
 
-    tracing::info!("[Sentry] Initializing (version: {}, os: {}, arch: {})", app_version, os, arch);
+    tracing::info!(
+        "[Sentry] Initializing (version: {}, os: {}, arch: {})",
+        app_version,
+        os,
+        arch
+    );
 
     let guard = sentry::init((
         dsn,
         ClientOptions {
             release: Some(format!("query-pilot@{}", app_version).into()),
-            environment: Some(if cfg!(debug_assertions) { "development" } else { "production" }.into()),
-            sample_rate: 1.0, // Capture 100% of errors
+            environment: Some(
+                if cfg!(debug_assertions) {
+                    "development"
+                } else {
+                    "production"
+                }
+                .into(),
+            ),
+            sample_rate: 1.0,        // Capture 100% of errors
             traces_sample_rate: 0.1, // Capture 10% of performance traces
             before_send: Some(Arc::new(|mut event| {
                 // Check if user has enabled Sentry
@@ -131,7 +149,8 @@ fn sanitize_event(event: &mut sentry::protocol::Event<'static>) {
                 || message.to_lowercase().contains("select")
                 || message.to_lowercase().contains("insert")
                 || message.to_lowercase().contains("update")
-                || message.to_lowercase().contains("delete") {
+                || message.to_lowercase().contains("delete")
+            {
                 breadcrumb.message = Some("[REDACTED - sensitive data]".to_string());
             }
         }
@@ -147,7 +166,8 @@ fn sanitize_event(event: &mut sentry::protocol::Event<'static>) {
             || k.to_lowercase().contains("token")
             || k.to_lowercase().contains("secret")
             || k.to_lowercase().contains("key")
-            || k.to_lowercase().contains("credential") {
+            || k.to_lowercase().contains("credential")
+        {
             *v = "[REDACTED]".into();
         }
         true

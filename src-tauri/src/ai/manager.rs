@@ -35,7 +35,14 @@ impl AIManager {
         use std::collections::HashMap;
 
         const KEYCHAIN_SERVICE: &str = "dev.querypilot.studio.ai";
-        let providers = ["openai", "anthropic", "google", "xai", "gateway", "openrouter"];
+        let providers = [
+            "openai",
+            "anthropic",
+            "google",
+            "xai",
+            "gateway",
+            "openrouter",
+        ];
 
         let mut keys = HashMap::new();
 
@@ -66,10 +73,7 @@ impl AIManager {
     }
 
     /// Configure telemetry for both backend and sidecar
-    pub async fn configure_telemetry(
-        &self,
-        sentry_enabled: bool,
-    ) -> anyhow::Result<()> {
+    pub async fn configure_telemetry(&self, sentry_enabled: bool) -> anyhow::Result<()> {
         let sentry_dsn = std::env::var("SENTRY_DSN").ok();
 
         // Reload API keys and send with updated Sentry config
@@ -77,7 +81,14 @@ impl AIManager {
         use std::collections::HashMap;
 
         const KEYCHAIN_SERVICE: &str = "dev.querypilot.studio.ai";
-        let providers = ["openai", "anthropic", "google", "xai", "gateway", "openrouter"];
+        let providers = [
+            "openai",
+            "anthropic",
+            "google",
+            "xai",
+            "gateway",
+            "openrouter",
+        ];
 
         let mut keys = HashMap::new();
 

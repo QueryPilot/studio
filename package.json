@@ -66,6 +66,7 @@
     "@tabler/icons-react": "^3.35.0",
     "@tanstack/react-query": "^5.64.2",
     "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
+    "@tauri-apps/plugin-deep-link": "~2.4.5",
     "@tauri-apps/plugin-dialog": "^2.4.2",
     "@tauri-apps/plugin-global-shortcut": "^2.3.1",
     "@tauri-apps/plugin-opener": "^2.5.2",

@@ -3,7 +3,7 @@ import { isTauri, safeInvoke, safeEmit } from "@/utils/tauri";
 import { vaultStorage } from "@/services/vaultStorage";
 import { BackendAPI, type DbType } from "./backend";
 import type { IndexUsageStats } from "./backend";
-import type { ConnectionProfile } from "@/types/connection";
+import type { ConnectionProfile, AzureAdSamlConfig, EcsBastionConfig } from "@/types/connection";
 import { tableStreamingService } from "./tableStreamingService";
 import { QueryStreamClient } from "./queryStreamClient";
 import type { QueryResult, ColumnMeta } from "@/types/database";
@@ -15,6 +15,10 @@ import type {
 } from "@/types/tableStructure";
 import { ConstraintType } from "@/services/backend";
 import { IntrospectionService } from "./introspectionService";
+import {
+  performSamlAuth,
+  type SamlRole,
+} from "./samlAuthService";
 
 // Types from API spec
 export interface ConnectionConfig {
@@ -89,8 +93,18 @@ class DatabaseService {
     new Map();
   // Track in-flight connect calls to dedupe concurrent attempts
   private inflightConnects: Map<string, Promise<ConnectResponse>> = new Map();
+  // Callback for role selection during SAML authentication
+  private roleSelectionCallback?: (roles: SamlRole[]) => Promise<SamlRole>;
 
   private constructor() {}
+
+  /**
+   * Set the callback for AWS role selection during SAML auth
+   * This allows UI components to provide a role selection dialog
+   */
+  setRoleSelectionCallback(callback: (roles: SamlRole[]) => Promise<SamlRole>): void {
+    this.roleSelectionCallback = callback;
+  }
 
   static getInstance(): DatabaseService {
     if (DatabaseService.instance === null) {
@@ -147,7 +161,7 @@ class DatabaseService {
         );
         logger.info(`[DatabaseService] Frontend connectionId: ${connectionId}, Profile ID: ${stored.profile.id}`);
 
-        // Convert to backend profile type
+        // Convert to backend profile type (include all config including bastion)
         const profile: ConnectionProfile = {
           id: stored.profile.id,
           name: stored.profile.name,
@@ -158,8 +172,32 @@ class DatabaseService {
           username: stored.profile.username,
           password: stored.profile.password,
           ssl_mode: stored.profile.ssl_mode,
+          ssl_config: stored.profile.ssl_config,
+          ssh_tunnel: stored.profile.ssh_tunnel,
+          bastion: stored.profile.bastion,
           options: stored.profile.options,
         };
+
+        // Pre-authentication for ECS Bastion with Azure AD SAML
+        if (profile.bastion && "EcsBastion" in profile.bastion) {
+          const ecsConfig = profile.bastion.EcsBastion as EcsBastionConfig;
+          if (ecsConfig.auth && "AzureAdSaml" in ecsConfig.auth) {
+            const samlConfig = ecsConfig.auth.AzureAdSaml as AzureAdSamlConfig;
+            logger.info(
+              `[DatabaseService] ECS Bastion requires Azure AD SAML authentication`
+            );
+
+            // Perform SAML authentication (will use cached creds if valid)
+            await performSamlAuth(
+              connectionId,
+              samlConfig,
+              ecsConfig.region,
+              this.roleSelectionCallback
+            );
+
+            logger.info(`[DatabaseService] SAML authentication completed`);
+          }
+        }
 
         // Ensure any stale backend connection with same id is cleanly closed before reconnect
         try {

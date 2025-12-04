@@ -1,6 +1,6 @@
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu, AboutMetadata};
-use tauri::{AppHandle, Manager, Wry, Emitter};
-use chrono::{Utc, Datelike};
+use chrono::{Datelike, Utc};
+use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::{AppHandle, Emitter, Manager, Wry};
 
 /// Build the application menu with platform-specific handling
 pub fn build_menu(app: &AppHandle) -> Result<Menu<Wry>, tauri::Error> {
@@ -63,13 +63,25 @@ fn build_app_menu(app: &AppHandle) -> Result<Submenu<Wry>, tauri::Error> {
     submenu.append(&about)?;
 
     // Check for Updates
-    let check_updates = MenuItem::with_id(app, "app_check_updates", "Check for Updates...", true, None::<&str>)?;
+    let check_updates = MenuItem::with_id(
+        app,
+        "app_check_updates",
+        "Check for Updates...",
+        true,
+        None::<&str>,
+    )?;
     submenu.append(&check_updates)?;
 
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
 
     // Preferences
-    let preferences = MenuItem::with_id(app, "app_preferences", "Preferences...", true, Some("CmdOrCtrl+,"))?;
+    let preferences = MenuItem::with_id(
+        app,
+        "app_preferences",
+        "Preferences...",
+        true,
+        Some("CmdOrCtrl+,"),
+    )?;
     submenu.append(&preferences)?;
 
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
@@ -92,11 +104,23 @@ fn build_file_menu(app: &AppHandle) -> Result<Submenu<Wry>, tauri::Error> {
     let submenu = Submenu::new(app, "File", true)?;
 
     // New Connection
-    let new_connection = MenuItem::with_id(app, "file_new_connection", "New Connection", true, Some("CmdOrCtrl+N"))?;
+    let new_connection = MenuItem::with_id(
+        app,
+        "file_new_connection",
+        "New Connection",
+        true,
+        Some("CmdOrCtrl+N"),
+    )?;
     submenu.append(&new_connection)?;
 
     // New Query Tab
-    let new_query = MenuItem::with_id(app, "file_new_query", "New Query Tab", true, Some("CmdOrCtrl+T"))?;
+    let new_query = MenuItem::with_id(
+        app,
+        "file_new_query",
+        "New Query Tab",
+        true,
+        Some("CmdOrCtrl+T"),
+    )?;
     submenu.append(&new_query)?;
 
     // New ERD Workspace
@@ -112,18 +136,36 @@ fn build_file_menu(app: &AppHandle) -> Result<Submenu<Wry>, tauri::Error> {
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
 
     // Close Tab
-    let close_tab = MenuItem::with_id(app, "file_close_tab", "Close Tab", true, Some("CmdOrCtrl+W"))?;
+    let close_tab = MenuItem::with_id(
+        app,
+        "file_close_tab",
+        "Close Tab",
+        true,
+        Some("CmdOrCtrl+W"),
+    )?;
     submenu.append(&close_tab)?;
 
     // Close Window
-    let close_window = MenuItem::with_id(app, "file_close_window", "Close Window", true, Some("CmdOrCtrl+Shift+W"))?;
+    let close_window = MenuItem::with_id(
+        app,
+        "file_close_window",
+        "Close Window",
+        true,
+        Some("CmdOrCtrl+Shift+W"),
+    )?;
     submenu.append(&close_window)?;
 
     // Windows/Linux: Add Preferences and Quit here
     #[cfg(not(target_os = "macos"))]
     {
         submenu.append(&PredefinedMenuItem::separator(app)?)?;
-        let preferences = MenuItem::with_id(app, "file_preferences", "Settings...", true, Some("CmdOrCtrl+,"))?;
+        let preferences = MenuItem::with_id(
+            app,
+            "file_preferences",
+            "Settings...",
+            true,
+            Some("CmdOrCtrl+,"),
+        )?;
         submenu.append(&preferences)?;
 
         submenu.append(&PredefinedMenuItem::separator(app)?)?;
@@ -158,7 +200,13 @@ fn build_edit_menu(app: &AppHandle) -> Result<Submenu<Wry>, tauri::Error> {
     submenu.append(&replace)?;
 
     // Find in Files
-    let find_in_files = MenuItem::with_id(app, "edit_find_in_files", "Find in Files", true, Some("CmdOrCtrl+Shift+F"))?;
+    let find_in_files = MenuItem::with_id(
+        app,
+        "edit_find_in_files",
+        "Find in Files",
+        true,
+        Some("CmdOrCtrl+Shift+F"),
+    )?;
     submenu.append(&find_in_files)?;
 
     Ok(submenu)
@@ -169,15 +217,33 @@ fn build_view_menu(app: &AppHandle) -> Result<Submenu<Wry>, tauri::Error> {
     let submenu = Submenu::new(app, "View", true)?;
 
     // Toggle Sidebar
-    let toggle_sidebar = MenuItem::with_id(app, "view_toggle_sidebar", "Toggle Sidebar", true, Some("CmdOrCtrl+B"))?;
+    let toggle_sidebar = MenuItem::with_id(
+        app,
+        "view_toggle_sidebar",
+        "Toggle Sidebar",
+        true,
+        Some("CmdOrCtrl+B"),
+    )?;
     submenu.append(&toggle_sidebar)?;
 
     // Toggle AI Assistant
-    let toggle_ai = MenuItem::with_id(app, "view_toggle_ai", "Toggle AI Assistant", true, Some("CmdOrCtrl+Shift+A"))?;
+    let toggle_ai = MenuItem::with_id(
+        app,
+        "view_toggle_ai",
+        "Toggle AI Assistant",
+        true,
+        Some("CmdOrCtrl+Shift+A"),
+    )?;
     submenu.append(&toggle_ai)?;
 
     // Toggle Fullscreen
-    let toggle_fullscreen = MenuItem::with_id(app, "view_toggle_fullscreen", "Toggle Fullscreen", true, Some("Ctrl+Cmd+F"))?;
+    let toggle_fullscreen = MenuItem::with_id(
+        app,
+        "view_toggle_fullscreen",
+        "Toggle Fullscreen",
+        true,
+        Some("Ctrl+Cmd+F"),
+    )?;
     submenu.append(&toggle_fullscreen)?;
 
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
@@ -197,7 +263,13 @@ fn build_view_menu(app: &AppHandle) -> Result<Submenu<Wry>, tauri::Error> {
     // Zoom
     let zoom_in = MenuItem::with_id(app, "view_zoom_in", "Zoom In", true, Some("CmdOrCtrl+Plus"))?;
     let zoom_out = MenuItem::with_id(app, "view_zoom_out", "Zoom Out", true, Some("CmdOrCtrl+-"))?;
-    let zoom_reset = MenuItem::with_id(app, "view_zoom_reset", "Reset Zoom", true, Some("CmdOrCtrl+0"))?;
+    let zoom_reset = MenuItem::with_id(
+        app,
+        "view_zoom_reset",
+        "Reset Zoom",
+        true,
+        Some("CmdOrCtrl+0"),
+    )?;
     submenu.append(&zoom_in)?;
     submenu.append(&zoom_out)?;
     submenu.append(&zoom_reset)?;
@@ -214,21 +286,45 @@ fn build_database_menu(app: &AppHandle) -> Result<Submenu<Wry>, tauri::Error> {
     submenu.append(&connect)?;
 
     // Disconnect
-    let disconnect = MenuItem::with_id(app, "db_disconnect", "Disconnect", true, Some("CmdOrCtrl+Shift+K"))?;
+    let disconnect = MenuItem::with_id(
+        app,
+        "db_disconnect",
+        "Disconnect",
+        true,
+        Some("CmdOrCtrl+Shift+K"),
+    )?;
     submenu.append(&disconnect)?;
 
     // Refresh Schema
-    let refresh = MenuItem::with_id(app, "db_refresh", "Refresh Schema", true, Some("CmdOrCtrl+R"))?;
+    let refresh = MenuItem::with_id(
+        app,
+        "db_refresh",
+        "Refresh Schema",
+        true,
+        Some("CmdOrCtrl+R"),
+    )?;
     submenu.append(&refresh)?;
 
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
 
     // Execute Query
-    let execute = MenuItem::with_id(app, "db_execute", "Execute Query", true, Some("CmdOrCtrl+Enter"))?;
+    let execute = MenuItem::with_id(
+        app,
+        "db_execute",
+        "Execute Query",
+        true,
+        Some("CmdOrCtrl+Enter"),
+    )?;
     submenu.append(&execute)?;
 
     // Execute Selection
-    let execute_sel = MenuItem::with_id(app, "db_execute_selection", "Execute Selection", true, Some("CmdOrCtrl+Shift+Enter"))?;
+    let execute_sel = MenuItem::with_id(
+        app,
+        "db_execute_selection",
+        "Execute Selection",
+        true,
+        Some("CmdOrCtrl+Shift+Enter"),
+    )?;
     submenu.append(&execute_sel)?;
 
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
@@ -264,14 +360,21 @@ fn build_window_menu(app: &AppHandle) -> Result<Submenu<Wry>, tauri::Error> {
     #[cfg(target_os = "macos")]
     {
         submenu.append(&PredefinedMenuItem::separator(app)?)?;
-        let bring_all = MenuItem::with_id(app, "window_bring_all", "Bring All to Front", true, None::<&str>)?;
+        let bring_all = MenuItem::with_id(
+            app,
+            "window_bring_all",
+            "Bring All to Front",
+            true,
+            None::<&str>,
+        )?;
         submenu.append(&bring_all)?;
     }
 
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
 
     // Main Window
-    let main_window = MenuItem::with_id(app, "window_main", "Main Window", true, Some("CmdOrCtrl+1"))?;
+    let main_window =
+        MenuItem::with_id(app, "window_main", "Main Window", true, Some("CmdOrCtrl+1"))?;
     submenu.append(&main_window)?;
 
     // Dynamic workspace windows will be added here via update_window_list
@@ -290,7 +393,13 @@ fn build_help_menu(app: &AppHandle) -> Result<Submenu<Wry>, tauri::Error> {
     // Check for Updates (Windows/Linux only)
     #[cfg(not(target_os = "macos"))]
     {
-        let check_updates = MenuItem::with_id(app, "help_check_updates", "Check for Updates...", true, None::<&str>)?;
+        let check_updates = MenuItem::with_id(
+            app,
+            "help_check_updates",
+            "Check for Updates...",
+            true,
+            None::<&str>,
+        )?;
         submenu.append(&check_updates)?;
     }
 
@@ -434,8 +543,14 @@ pub fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
         }
 
         // Database Menu
-        "db_connect" | "db_disconnect" | "db_refresh" | "db_execute" |
-        "db_execute_selection" | "db_export" | "db_import" | "db_erd" => {
+        "db_connect"
+        | "db_disconnect"
+        | "db_refresh"
+        | "db_execute"
+        | "db_execute_selection"
+        | "db_export"
+        | "db_import"
+        | "db_erd" => {
             let action = id.replace("db_", "");
             if let Err(e) = app.emit("menu_action", action) {
                 tracing::error!("Failed to emit database event: {}", e);

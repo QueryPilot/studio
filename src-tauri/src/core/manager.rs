@@ -1,11 +1,13 @@
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tauri::AppHandle;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
 use crate::adapters::postgres::PostgresAdapter;
+use crate::aws::ecs_bastion::EcsBastionTunnel;
 use crate::error::{AppError, Result};
 use crate::ssh::secrets::delete_ssh_passphrase;
 use crate::ssh::SshTunnel;
@@ -13,25 +15,37 @@ use crate::types::*;
 
 enum ManagedTunnel {
     Ssh(SshTunnel),
-    // Future: AwsSsm(SsmTunnel)
+    EcsBastion(EcsBastionTunnel),
 }
 
 impl ManagedTunnel {
     fn local_port(&self) -> u16 {
         match self {
             Self::Ssh(tunnel) => tunnel.local_port(),
+            Self::EcsBastion(tunnel) => tunnel.local_port(),
         }
     }
 
     async fn health_check(&self) -> Result<()> {
         match self {
             Self::Ssh(tunnel) => tunnel.health_check().await,
+            // ECS Bastion health check: check if local port is still listening
+            Self::EcsBastion(tunnel) => {
+                if crate::ssh::is_port_listening(tunnel.local_port()).await {
+                    Ok(())
+                } else {
+                    Err(AppError::SshTunnelError(
+                        "ECS Bastion tunnel port is no longer listening".into(),
+                    ))
+                }
+            }
         }
     }
 
     async fn close(self) -> Result<()> {
         match self {
             Self::Ssh(tunnel) => tunnel.close().await,
+            Self::EcsBastion(tunnel) => tunnel.close().await,
         }
     }
 }
@@ -41,11 +55,16 @@ pub struct ConnectionManager {
     // Store profiles separately so we can reconnect after reaper removes connection
     profiles: Arc<DashMap<String, ConnectionProfile>>,
     tunnels: Arc<DashMap<String, ManagedTunnel>>,
+    /// Track in-flight connection attempts to prevent duplicate tunnel creation
+    pending_connections: Arc<DashSet<String>>,
     #[allow(dead_code)]
     queries: Arc<DashMap<String, QueryHandle>>,
     idle_timeout: Duration,
     reaper_handle: Arc<tokio::sync::Mutex<Option<JoinHandle<()>>>>,
     total_connections: Arc<AtomicUsize>,
+    /// App handle for ECS Bastion tunnel creation (session-manager-plugin resolution)
+    /// Uses RwLock for interior mutability since ConnectionManager is behind Arc
+    app_handle: Arc<RwLock<Option<AppHandle>>>,
 }
 
 pub struct LiveConnection {
@@ -88,11 +107,18 @@ impl ConnectionManager {
             connections: Arc::new(DashMap::new()),
             profiles: Arc::new(DashMap::new()),
             tunnels: Arc::new(DashMap::new()),
+            pending_connections: Arc::new(DashSet::new()),
             queries: Arc::new(DashMap::new()),
             idle_timeout: Duration::from_secs(1800), // 30 minutes
             reaper_handle: Arc::new(tokio::sync::Mutex::new(None)),
             total_connections: Arc::new(AtomicUsize::new(0)),
+            app_handle: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// Set the app handle for ECS Bastion tunnel creation
+    pub async fn set_app_handle(&self, handle: AppHandle) {
+        *self.app_handle.write().await = Some(handle);
     }
 
     async fn ensure_tunnel(
@@ -161,12 +187,49 @@ impl ConnectionManager {
                 self.create_ssh_tunnel(conn_id, profile, ssh_config).await
             }
             BastionConfig::AwsSsm(_ssm_config) => {
-                // TODO: Implement SSM tunnel
+                // Direct SSM tunneling requires target with SSM agent
                 Err(AppError::Unsupported(
-                    "AWS SSM bastion tunnels are not yet fully implemented. Coming soon!".into(),
+                    "Direct AWS SSM tunnels are not yet implemented. Use ECS Bastion instead."
+                        .into(),
                 ))
             }
+            BastionConfig::EcsBastion(ecs_config) => {
+                self.create_ecs_bastion_tunnel(conn_id, ecs_config).await
+            }
         }
+    }
+
+    async fn create_ecs_bastion_tunnel(
+        &self,
+        conn_id: &str,
+        config: &EcsBastionConfig,
+    ) -> Result<TunnelStatus> {
+        use crate::aws::credentials;
+
+        let app_handle_guard = self.app_handle.read().await;
+        let app_handle = app_handle_guard.as_ref().ok_or_else(|| {
+            AppError::Internal("App handle not set for ECS Bastion tunnel creation".into())
+        })?;
+
+        // Get cached credentials for this connection
+        let cached_creds = credentials::get_valid_credentials(conn_id)
+            .await?
+            .ok_or_else(|| {
+                AppError::SshAuthFailed(
+                    "AWS credentials not found or expired. Please authenticate first.".into(),
+                )
+            })?;
+
+        let aws_creds = cached_creds.to_aws_credentials();
+
+        // Create ECS Bastion tunnel
+        let tunnel = EcsBastionTunnel::establish(app_handle, config, aws_creds).await?;
+        let local_port = tunnel.local_port();
+
+        self.tunnels
+            .insert(conn_id.to_string(), ManagedTunnel::EcsBastion(tunnel));
+
+        Ok(TunnelStatus::Created { local_port })
     }
 
     async fn create_ssh_tunnel(
@@ -231,19 +294,70 @@ impl ConnectionManager {
             ));
         }
 
-        let tunnel_status = self.ensure_tunnel(&conn_id, profile).await?;
+        // Prevent duplicate concurrent connection attempts (race condition protection)
+        // If a connection attempt is already in progress, wait for it instead of starting another
+        if self.pending_connections.contains(&conn_id) {
+            tracing::info!(
+                "Connection {} already has an in-flight attempt, waiting...",
+                conn_id
+            );
+            // Wait for the in-flight attempt to complete (poll every 500ms, max 120s)
+            for _ in 0..240 {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                if !self.pending_connections.contains(&conn_id) {
+                    // Check if connection was created
+                    if self.connections.contains_key(&conn_id) {
+                        tracing::info!(
+                            "Connection {} created by another attempt, reusing",
+                            conn_id
+                        );
+                        return Ok(conn_id);
+                    }
+                    break;
+                }
+            }
+            // If still pending after 120s, proceed anyway (might be stuck)
+            if self.pending_connections.contains(&conn_id) {
+                tracing::warn!(
+                    "Connection {} still pending after 120s, forcing new attempt",
+                    conn_id
+                );
+                self.pending_connections.remove(&conn_id);
+            }
+        }
+
+        // Mark this connection as pending
+        self.pending_connections.insert(conn_id.clone());
+
+        // Use a guard to ensure we always remove from pending on exit
+        let result = self
+            .get_or_create_connection_inner(&conn_id, profile)
+            .await;
+
+        // Always remove from pending set
+        self.pending_connections.remove(&conn_id);
+
+        result
+    }
+
+    async fn get_or_create_connection_inner(
+        &self,
+        conn_id: &str,
+        profile: &ConnectionProfile,
+    ) -> Result<String> {
+        let tunnel_status = self.ensure_tunnel(conn_id, profile).await?;
         let effective_profile = Self::build_effective_profile(profile, &tunnel_status);
 
         // Check if connection exists. If it does but the adapter is no longer connected,
         // attempt a transparent reconnect to heal broken sessions after reloads/network hiccups.
-        if let Some((_, mut conn)) = self.connections.remove(&conn_id) {
+        if let Some((_, mut conn)) = self.connections.remove(conn_id) {
             let needs_reconnect =
                 !conn.adapter.is_connected().await || tunnel_status.requires_reconnect();
 
             if needs_reconnect {
                 if let Err(err) = conn.adapter.connect(&effective_profile).await {
                     if tunnel_status.requires_reconnect() {
-                        if let Some((_, tunnel)) = self.tunnels.remove(&conn_id) {
+                        if let Some((_, tunnel)) = self.tunnels.remove(conn_id) {
                             let _ = tunnel.close().await;
                         }
                     }
@@ -253,9 +367,9 @@ impl ConnectionManager {
 
             *conn.last_used.write().await = Instant::now();
             conn.profile = profile.clone();
-            self.connections.insert(conn_id.clone(), conn);
-            self.profiles.insert(conn_id.clone(), profile.clone());
-            return Ok(conn_id);
+            self.connections.insert(conn_id.to_string(), conn);
+            self.profiles.insert(conn_id.to_string(), profile.clone());
+            return Ok(conn_id.to_string());
         }
 
         // Start reaper on first connection if not already running
@@ -267,7 +381,7 @@ impl ConnectionManager {
         let mut adapter = self.create_adapter(profile)?;
         if let Err(err) = adapter.connect(&effective_profile).await {
             if tunnel_status.local_port().is_some() {
-                if let Some((_, tunnel)) = self.tunnels.remove(&conn_id) {
+                if let Some((_, tunnel)) = self.tunnels.remove(conn_id) {
                     let _ = tunnel.close().await;
                 }
             }
@@ -275,7 +389,7 @@ impl ConnectionManager {
         }
 
         let live_conn = LiveConnection {
-            id: conn_id.clone(),
+            id: conn_id.to_string(),
             adapter,
             profile: profile.clone(),
             created_at: Instant::now(),
@@ -284,11 +398,11 @@ impl ConnectionManager {
             active_queries: Arc::new(AtomicUsize::new(0)),
         };
 
-        self.connections.insert(conn_id.clone(), live_conn);
+        self.connections.insert(conn_id.to_string(), live_conn);
         // Store profile separately for reconnection after reaper
-        self.profiles.insert(conn_id.clone(), profile.clone());
+        self.profiles.insert(conn_id.to_string(), profile.clone());
         self.total_connections.fetch_add(1, Ordering::SeqCst);
-        Ok(conn_id)
+        Ok(conn_id.to_string())
     }
 
     pub fn get_connection(
