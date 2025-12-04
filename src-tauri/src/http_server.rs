@@ -123,7 +123,15 @@ async fn proxy_tauri_invoke(
             let object_type: String = serde_json::from_value(args["object_type"].clone())
                 .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
-            invoke_get_object_definition(&state.app_handle, conn_id, database, schema, object_name, object_type).await
+            invoke_get_object_definition(
+                &state.app_handle,
+                conn_id,
+                database,
+                schema,
+                object_name,
+                object_type,
+            )
+            .await
         }
         "get_sample_data" => {
             let conn_id: String = serde_json::from_value(args["conn_id"].clone())
@@ -132,8 +140,9 @@ async fn proxy_tauri_invoke(
                 .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
             let table: String = serde_json::from_value(args["table"].clone())
                 .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-            let limit: u32 = serde_json::from_value(args.get("limit").cloned().unwrap_or(serde_json::json!(10)))
-                .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+            let limit: u32 =
+                serde_json::from_value(args.get("limit").cloned().unwrap_or(serde_json::json!(10)))
+                    .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
             invoke_get_sample_data(&state.app_handle, conn_id, schema, table, limit).await
         }
@@ -175,7 +184,10 @@ async fn invoke_tauri_command(
            FROM pg_tables WHERE schemaname = '{}' ORDER BY tablename"#,
         schema
     );
-    let result = conn.adapter.query(&sql).await
+    let result = conn
+        .adapter
+        .query(&sql)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     serde_json::to_value(&result).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
@@ -202,7 +214,10 @@ async fn invoke_get_columns(
            ORDER BY ordinal_position"#,
         schema, table
     );
-    let result = conn.adapter.query(&sql).await
+    let result = conn
+        .adapter
+        .query(&sql)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     serde_json::to_value(&result).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
@@ -227,7 +242,10 @@ async fn invoke_get_constraints(
            WHERE table_name = '{}'"#,
         table
     );
-    let result = conn.adapter.query(&sql).await
+    let result = conn
+        .adapter
+        .query(&sql)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     serde_json::to_value(&result).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
@@ -251,7 +269,10 @@ async fn invoke_get_indexes(
            FROM pg_indexes WHERE tablename = '{}'"#,
         table
     );
-    let result = conn.adapter.query(&sql).await
+    let result = conn
+        .adapter
+        .query(&sql)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     serde_json::to_value(&result).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
@@ -273,7 +294,10 @@ async fn invoke_get_schemas(
     let sql = r#"SELECT schema_name as name FROM information_schema.schemata
                  WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
                  ORDER BY schema_name"#;
-    let result = conn.adapter.query(sql).await
+    let result = conn
+        .adapter
+        .query(sql)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     serde_json::to_value(&result).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
@@ -297,7 +321,10 @@ async fn invoke_get_views(
            WHERE table_schema = '{}' ORDER BY table_name"#,
         schema
     );
-    let result = conn.adapter.query(&sql).await
+    let result = conn
+        .adapter
+        .query(&sql)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     serde_json::to_value(&result).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
@@ -318,7 +345,10 @@ async fn invoke_get_table_count(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let sql = format!(r#"SELECT COUNT(*) as count FROM "{}"."{}" "#, schema, table);
-    let result = conn.adapter.query(&sql).await
+    let result = conn
+        .adapter
+        .query(&sql)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     serde_json::to_value(&result).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
@@ -344,7 +374,10 @@ async fn invoke_get_triggers(
            WHERE trigger_schema = '{}' AND event_object_table = '{}'"#,
         schema, table
     );
-    let result = conn.adapter.query(&sql).await
+    let result = conn
+        .adapter
+        .query(&sql)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     serde_json::to_value(&result).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
@@ -369,7 +402,10 @@ async fn invoke_get_functions(
            WHERE routine_schema = '{}' AND routine_type = 'FUNCTION'"#,
         schema
     );
-    let result = conn.adapter.query(&sql).await
+    let result = conn
+        .adapter
+        .query(&sql)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     serde_json::to_value(&result).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
@@ -405,7 +441,10 @@ async fn invoke_get_object_definition(
             schema, object_name
         ),
     };
-    let result = conn.adapter.query(&sql).await
+    let result = conn
+        .adapter
+        .query(&sql)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     serde_json::to_value(&result).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
@@ -450,7 +489,10 @@ async fn invoke_get_sample_data(
         .await
         .map_err(|e| {
             if e.to_string().contains("not found") {
-                (StatusCode::NOT_FOUND, format!("Connection '{}' not found", conn_id))
+                (
+                    StatusCode::NOT_FOUND,
+                    format!("Connection '{}' not found", conn_id),
+                )
             } else {
                 (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
             }
@@ -500,15 +542,18 @@ async fn invoke_execute_query(
 
     // Block dangerous keywords (even in subqueries)
     let dangerous_keywords = [
-        "insert", "update", "delete", "drop", "create", "alter",
-        "truncate", "grant", "revoke", "exec", "execute"
+        "insert", "update", "delete", "drop", "create", "alter", "truncate", "grant", "revoke",
+        "exec", "execute",
     ];
 
     for keyword in &dangerous_keywords {
         if trimmed_sql.contains(keyword) {
             return Err((
                 StatusCode::FORBIDDEN,
-                format!("Query contains forbidden keyword: {}", keyword.to_uppercase()),
+                format!(
+                    "Query contains forbidden keyword: {}",
+                    keyword.to_uppercase()
+                ),
             ));
         }
     }
@@ -521,7 +566,10 @@ async fn invoke_execute_query(
         .await
         .map_err(|e| {
             if e.to_string().contains("not found") {
-                (StatusCode::NOT_FOUND, format!("Connection '{}' not found", conn_id))
+                (
+                    StatusCode::NOT_FOUND,
+                    format!("Connection '{}' not found", conn_id),
+                )
             } else {
                 (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
             }
@@ -541,7 +589,8 @@ async fn invoke_execute_query(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // QueryResult already has rows as Vec<Vec<serde_json::Value>>
-    serde_json::to_value(&result.rows).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    serde_json::to_value(&result.rows)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 pub async fn start_http_server(

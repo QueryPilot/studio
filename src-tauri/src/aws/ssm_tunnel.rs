@@ -26,19 +26,20 @@ pub struct SsmTunnel {
 impl SsmTunnel {
     pub async fn establish(app_handle: &AppHandle, config: &AwsSsmConfig) -> Result<Self> {
         let aws_config = load_sdk_config(&config.auth, &config.region).await?;
-        let credentials_provider = aws_config
-            .credentials_provider()
-            .ok_or_else(|| {
-                AppError::SshAuthFailed("AWS credentials provider is not configured.".into())
-            })?;
+        let credentials_provider = aws_config.credentials_provider().ok_or_else(|| {
+            AppError::SshAuthFailed("AWS credentials provider is not configured.".into())
+        })?;
         let credentials = credentials_provider
             .provide_credentials()
             .await
-            .map_err(|err| AppError::SshAuthFailed(format!("Failed to resolve AWS credentials: {err}")))?;
+            .map_err(|err| {
+                AppError::SshAuthFailed(format!("Failed to resolve AWS credentials: {err}"))
+            })?;
 
         let ssm_client = SsmClient::new(&aws_config);
-        let local_port = allocate_local_port()
-            .map_err(|err| AppError::SshTunnelError(format!("Failed to reserve local port: {err}")))?;
+        let local_port = allocate_local_port().map_err(|err| {
+            AppError::SshTunnelError(format!("Failed to reserve local port: {err}"))
+        })?;
 
         let session = ssm_client
             .start_session()
@@ -49,7 +50,9 @@ impl SsmTunnel {
             .parameters("localPortNumber", vec![local_port.to_string()])
             .send()
             .await
-            .map_err(|err| AppError::SshTunnelError(format!("Failed to start SSM session: {err}")))?;
+            .map_err(|err| {
+                AppError::SshTunnelError(format!("Failed to start SSM session: {err}"))
+            })?;
 
         let session_id = session
             .session_id()
@@ -93,9 +96,9 @@ impl SsmTunnel {
         command.env("AWS_DEFAULT_REGION", &config.region);
         command.env("AWS_REGION", &config.region);
 
-        let mut child = command
-            .spawn()
-            .map_err(|err| AppError::SshTunnelError(format!("Failed to launch session-manager-plugin: {err}")))?;
+        let mut child = command.spawn().map_err(|err| {
+            AppError::SshTunnelError(format!("Failed to launch session-manager-plugin: {err}"))
+        })?;
 
         // Wait for the local port to begin listening (max 5 seconds)
         for _ in 0..20 {
@@ -133,7 +136,11 @@ impl SsmTunnel {
             .send()
             .await
         {
-            tracing::warn!("Failed to terminate SSM session {}: {}", self.session_id, err);
+            tracing::warn!(
+                "Failed to terminate SSM session {}: {}",
+                self.session_id,
+                err
+            );
         }
 
         Ok(())
@@ -155,13 +162,13 @@ async fn load_sdk_config(auth: &AwsAuthMethod, region: &str) -> Result<AwsSdkCon
     let region = Region::new(region.to_string());
 
     match auth {
-        AwsAuthMethod::AwsProfile { profile_name } => Ok(
-            aws_config::defaults(BehaviorVersion::latest())
+        AwsAuthMethod::AwsProfile { profile_name } => {
+            Ok(aws_config::defaults(BehaviorVersion::latest())
                 .region(region)
                 .profile_name(profile_name)
                 .load()
-                .await,
-        ),
+                .await)
+        }
         AwsAuthMethod::OAuthFederated(oauth_config) => {
             let token = oauth::get_oauth_token(&oauth_config.provider)
                 .await?
@@ -187,9 +194,9 @@ async fn load_sdk_config(auth: &AwsAuthMethod, region: &str) -> Result<AwsSdkCon
                 .await
                 .map_err(|err| AppError::SshAuthFailed(format!("Failed to assume role: {err}")))?;
 
-            let credentials = assumed
-                .credentials()
-                .ok_or_else(|| AppError::SshAuthFailed("STS response missing credentials.".into()))?;
+            let credentials = assumed.credentials().ok_or_else(|| {
+                AppError::SshAuthFailed("STS response missing credentials.".into())
+            })?;
 
             let access_key = credentials.access_key_id().to_string();
             let secret_key = credentials.secret_access_key().to_string();
@@ -203,7 +210,11 @@ async fn load_sdk_config(auth: &AwsAuthMethod, region: &str) -> Result<AwsSdkCon
             let expiration = if expiration_dt.secs() >= 0 {
                 let secs = expiration_dt.secs() as u64;
                 let nanos = expiration_dt.subsec_nanos() as u64;
-                Some(SystemTime::UNIX_EPOCH + Duration::from_secs(secs) + Duration::from_nanos(nanos))
+                Some(
+                    SystemTime::UNIX_EPOCH
+                        + Duration::from_secs(secs)
+                        + Duration::from_nanos(nanos),
+                )
             } else {
                 None
             };
@@ -216,13 +227,11 @@ async fn load_sdk_config(auth: &AwsAuthMethod, region: &str) -> Result<AwsSdkCon
                 "assume-role-web-identity",
             );
 
-            Ok(
-                aws_config::defaults(BehaviorVersion::latest())
-                    .region(region)
-                    .credentials_provider(provider)
-                    .load()
-                    .await,
-            )
+            Ok(aws_config::defaults(BehaviorVersion::latest())
+                .region(region)
+                .credentials_provider(provider)
+                .load()
+                .await)
         }
         _ => Err(AppError::Unsupported(
             "AWS auth method not yet supported for SSM tunneling.".into(),

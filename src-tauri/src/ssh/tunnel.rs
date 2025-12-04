@@ -28,8 +28,9 @@ impl SshTunnel {
         remote_port: u16,
     ) -> Result<Self> {
         // Allocate local port
-        let local_port = super::allocate_local_port()
-            .map_err(|e| AppError::SshTunnelError(format!("Failed to allocate local port: {}", e)))?;
+        let local_port = super::allocate_local_port().map_err(|e| {
+            AppError::SshTunnelError(format!("Failed to allocate local port: {}", e))
+        })?;
 
         let ssh_host = config.host.trim().to_string();
         let ssh_port = if config.port == 0 { 22 } else { config.port };
@@ -126,7 +127,10 @@ impl Drop for SshTunnel {
 /// Create and configure SSH session
 fn create_ssh_session(host: &str, port: u16) -> Result<Session> {
     let tcp = TcpStream::connect(format!("{}:{}", host, port)).map_err(|e| {
-        AppError::SshTunnelError(format!("Failed to connect to SSH host {}:{}: {}", host, port, e))
+        AppError::SshTunnelError(format!(
+            "Failed to connect to SSH host {}:{}: {}",
+            host, port, e
+        ))
     })?;
 
     tcp.set_read_timeout(Some(Duration::from_secs(30)))
@@ -136,11 +140,11 @@ fn create_ssh_session(host: &str, port: u16) -> Result<Session> {
 
     let mut sess = Session::new()
         .map_err(|e| AppError::SshTunnelError(format!("Failed to create SSH session: {}", e)))?;
-    
+
     sess.set_tcp_stream(tcp);
     sess.set_timeout(30_000); // 30 seconds
     sess.set_compress(true);
-    
+
     sess.handshake()
         .map_err(|e| AppError::SshAuthFailed(format!("SSH handshake failed: {}", e)))?;
 
@@ -165,7 +169,7 @@ fn authenticate_session(sess: &mut Session, user: &str, auth: &SshAuthMethod) ->
             }
 
             let passphrase_str = passphrase.as_deref().unwrap_or("");
-            
+
             sess.userauth_pubkey_file(user, None, key_path, Some(passphrase_str))
                 .map_err(|e| {
                     if passphrase.is_some() && !passphrase_str.is_empty() {
@@ -192,9 +196,7 @@ fn authenticate_session(sess: &mut Session, user: &str, auth: &SshAuthMethod) ->
     }
 
     if !sess.authenticated() {
-        return Err(AppError::SshAuthFailed(
-            "SSH authentication failed".into(),
-        ));
+        return Err(AppError::SshAuthFailed("SSH authentication failed".into()));
     }
 
     Ok(())
@@ -247,7 +249,7 @@ async fn run_port_forward(
         match listener.accept() {
             Ok((client, addr)) => {
                 tracing::debug!("Accepted connection from {}", addr);
-                
+
                 let ssh_host = ssh_host.to_string();
                 let ssh_user = ssh_user.to_string();
                 let auth = auth.clone();
@@ -392,7 +394,7 @@ pub async fn verify_connection(config: &SshTunnelConfig) -> Result<()> {
         let ssh_port = if config.port == 0 { 22 } else { config.port };
         let ssh_user = config.user.trim().to_string();
         let auth = config.auth.clone();
-        
+
         move || -> Result<()> {
             let mut sess = create_ssh_session(&ssh_host, ssh_port)?;
             authenticate_session(&mut sess, &ssh_user, &auth)?;
@@ -404,4 +406,3 @@ pub async fn verify_connection(config: &SshTunnelConfig) -> Result<()> {
 
     Ok(())
 }
-

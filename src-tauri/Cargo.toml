@@ -73,9 +73,20 @@ shellexpand = "3.1"  # For expanding ~ in paths
 aws-config = "1.1"
 aws-sdk-ssm = "1.13"
 aws-sdk-sts = "1.13"
+aws-sdk-ecs = "1.13"          # ECS task management for bastion
+aws-sdk-ec2 = "1.13"          # EC2 for subnet/security group discovery
 aws-credential-types = "1.1"
 aws-types = "1.1"
 oauth2 = "4.4"
+
+# SAML & XML processing
+flate2 = "1.0"                # zlib deflate for SAML request compression
+quick-xml = "0.31"            # XML parsing for SAML response
+urlencoding = "2.1"           # URL encoding for SAML request
+
+# SSH key generation (for ECS bastion)
+ssh-key = { version = "0.6", features = ["ed25519", "rand_core"] }
+openssh-keys = "0.6"          # OpenSSH format for authorized_keys
 
 # Security
 keyring = { version = "3.3", features = ["apple-native", "windows-native", "linux-native"] }
@@ -88,6 +99,7 @@ tauri-plugin-os = "2.3"
 # Telemetry (optional, enabled via telemetry feature flag)
 sentry = { version = "0.34", optional = true, default-features = false, features = ["backtrace", "contexts", "panic", "rustls"] }
 sentry-tracing = { version = "0.34", optional = true }
+tauri-plugin-deep-link = "2"
 
 [features]
 default = ["custom-protocol"]

@@ -53,7 +53,11 @@ impl SidecarManager {
                     if line.contains(&port_str) && line.contains("LISTENING") {
                         if let Some(pid) = line.split_whitespace().last() {
                             if let Ok(pid) = pid.parse::<u32>() {
-                                tracing::info!("Killing existing process on port {}: PID {}", port, pid);
+                                tracing::info!(
+                                    "Killing existing process on port {}: PID {}",
+                                    port,
+                                    pid
+                                );
                                 let _ = tokio::process::Command::new("taskkill")
                                     .args(["/F", "/PID", &pid.to_string()])
                                     .output()
@@ -129,9 +133,16 @@ impl SidecarManager {
             }
             attempts += 1;
             if attempts >= max_attempts {
-                return Err(anyhow!("AI sidecar failed to start after {} attempts", max_attempts));
+                return Err(anyhow!(
+                    "AI sidecar failed to start after {} attempts",
+                    max_attempts
+                ));
             }
-            tracing::debug!("Waiting for AI sidecar to start (attempt {}/{})", attempts, max_attempts);
+            tracing::debug!(
+                "Waiting for AI sidecar to start (attempt {}/{})",
+                attempts,
+                max_attempts
+            );
         }
 
         *self.port.write().await = Some(port);
@@ -227,7 +238,10 @@ impl SidecarManager {
             ));
         }
 
-        tracing::info!("✅ Sidecar configured (API keys + Sentry: {})", sentry_enabled);
+        tracing::info!(
+            "✅ Sidecar configured (API keys + Sentry: {})",
+            sentry_enabled
+        );
         Ok(())
     }
 

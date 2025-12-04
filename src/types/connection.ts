@@ -50,7 +50,33 @@ export type SshAuthMethod =
 
 export type BastionConfig =
   | { Ssh: SshTunnelConfig }
-  | { AwsSsm: AwsSsmConfig };
+  | { AwsSsm: AwsSsmConfig }
+  | { EcsBastion: EcsBastionConfig };
+
+/**
+ * ECS Bastion configuration for ephemeral Fargate-based bastion hosts
+ * Launches an ECS task that registers with SSM, then SSH tunnels through it
+ */
+export interface EcsBastionConfig {
+  /** ECS cluster name (e.g., "ecs-ssm-bastion-cluster") */
+  cluster_name: string;
+  /** ECS task definition name (e.g., "ecs-ssm-bastion") */
+  task_definition: string;
+  /** AWS region (e.g., "ap-southeast-2") */
+  region: string;
+  /** Authentication method for AWS API calls */
+  auth: AwsAuthMethod;
+  /** Target database host (internal VPC address) */
+  remote_host: string;
+  /** Target database port */
+  remote_port: number;
+  /** Optional: Subnet filter tags (e.g., ["private-a", "private-b"]) */
+  subnet_tags?: string[];
+  /** Optional: Security group tag key=value (e.g., "Bastion=SSM") */
+  security_group_tag?: string;
+  /** Optional: IAM role for the ECS task */
+  task_role_name?: string;
+}
 
 export interface AwsSsmConfig {
   target_id: string;
@@ -64,7 +90,22 @@ export type AwsAuthMethod =
   | { OAuthFederated: OAuthConfig }
   | { AwsProfile: { profile_name: string } }
   | { IamRole: { role_arn: string } }
-  | { AccessKey: { access_key_id: string } };
+  | { AccessKey: { access_key_id: string } }
+  | { AzureAdSaml: AzureAdSamlConfig };
+
+/**
+ * Azure AD SAML configuration for AWS federated authentication
+ */
+export interface AzureAdSamlConfig {
+  /** Azure AD tenant ID (e.g., "53c4eee7-df48-4119-b261-da130f3e1a32") */
+  tenant_id: string;
+  /** Azure App ID URI (e.g., "https://signin.aws.amazon.com/saml#2") */
+  app_id_uri: string;
+  /** Optional: Pre-selected IAM role ARN */
+  default_role_arn?: string;
+  /** Optional: Session duration in hours (1-12, default: 1) */
+  duration_hours?: number;
+}
 
 export interface OAuthConfig {
   provider: OAuthProvider;

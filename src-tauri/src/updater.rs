@@ -86,7 +86,9 @@ pub async fn check_for_updates(app: AppHandle) -> Result<Option<ReleaseInfo>, St
 
     // Find latest.json asset
     if let Some(manifest_asset) = release.assets.iter().find(|a| a.name == "latest.json") {
-        if let Ok(manifest) = fetch_manifest(&client, token, &manifest_asset.browser_download_url).await {
+        if let Ok(manifest) =
+            fetch_manifest(&client, token, &manifest_asset.browser_download_url).await
+        {
             if let Some(platform_info) = manifest.platforms.get(&platform) {
                 download_url = platform_info.url.clone();
                 signature = platform_info.signature.clone();
@@ -131,15 +133,14 @@ pub async fn download_update(url: String) -> Result<PathBuf, String> {
         .map_err(|e| format!("Download failed: {}", e))?;
 
     if !response.status().is_success() {
-        return Err(format!("Download failed with status: {}", response.status()));
+        return Err(format!(
+            "Download failed with status: {}",
+            response.status()
+        ));
     }
 
     // Get filename from URL
-    let filename = url
-        .split('/')
-        .last()
-        .unwrap_or("update.dmg")
-        .to_string();
+    let filename = url.split('/').last().unwrap_or("update.dmg").to_string();
 
     // Save to temp directory
     let temp_dir = std::env::temp_dir().join("query-pilot-updates");
@@ -229,11 +230,7 @@ async fn fetch_manifest(
 }
 
 fn is_newer_version(latest: &str, current: &str) -> bool {
-    let parse = |v: &str| -> Vec<u32> {
-        v.split('.')
-            .filter_map(|s| s.parse().ok())
-            .collect()
-    };
+    let parse = |v: &str| -> Vec<u32> { v.split('.').filter_map(|s| s.parse().ok()).collect() };
 
     let latest_parts = parse(latest);
     let current_parts = parse(current);

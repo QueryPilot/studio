@@ -60,10 +60,7 @@ pub fn parse_ssh_config(host: &str) -> Option<SshConfigOverrides> {
 }
 
 /// Apply SSH config overrides to a connection config
-pub fn apply_ssh_config_overrides(
-    config: &mut SshTunnelConfig,
-    overrides: &SshConfigOverrides,
-) {
+pub fn apply_ssh_config_overrides(config: &mut SshTunnelConfig, overrides: &SshConfigOverrides) {
     if let Some(ref host) = overrides.host {
         config.host = host.clone();
     }

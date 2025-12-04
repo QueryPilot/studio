@@ -27,6 +27,7 @@
     "core:window:allow-center",
     "core:window:allow-inner-size",
     "opener:default",
+    "deep-link:default",
     "core:webview:default",
     "core:webview:allow-create-webview-window",
     "core:webview:allow-create-webview",
