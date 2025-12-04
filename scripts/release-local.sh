@@ -102,11 +102,43 @@ analyze_commits() {
 
     if [ -z "$COMMITS" ]; then
         warn "No new commits since last release"
-        echo ""
-        read -p "Create release anyway? (y/N) " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            echo "Aborted."
+        echo "" >&2
+        echo "Options:" >&2
+        echo "  y - Create release anyway" >&2
+        echo "  r - Delete current release (v$CURRENT_VERSION) and redo" >&2
+        echo "  N - Abort" >&2
+        echo "" >&2
+        read -p "Choose option (y/r/N): " -n 1 -r
+        echo >&2
+        if [[ $REPLY =~ ^[Rr]$ ]]; then
+            log "Deleting current release v$CURRENT_VERSION..."
+            # Delete GitHub release if exists
+            if gh release view "v$CURRENT_VERSION" &>/dev/null; then
+                gh release delete "v$CURRENT_VERSION" --yes
+                success "GitHub release deleted"
+            fi
+            # Delete from studio-app repo if exists
+            if gh release view "v$CURRENT_VERSION" --repo QueryPilot/studio-app &>/dev/null 2>&1; then
+                gh release delete "v$CURRENT_VERSION" --repo QueryPilot/studio-app --yes
+                success "GitHub release deleted from studio-app"
+            fi
+            # Delete local and remote tag
+            if git tag -l "v$CURRENT_VERSION" | grep -q .; then
+                git tag -d "v$CURRENT_VERSION"
+                git push origin --delete "v$CURRENT_VERSION" 2>/dev/null || true
+                success "Git tag deleted"
+            fi
+            # Reset commit range to include all commits since previous tag
+            LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+            if [ -n "$LAST_TAG" ]; then
+                COMMIT_RANGE="$LAST_TAG..HEAD"
+            else
+                COMMIT_RANGE="HEAD"
+            fi
+            COMMITS=$(git log $COMMIT_RANGE --pretty=format:"%h|%s|%b" --no-merges 2>/dev/null || echo "")
+            success "Ready to redo release"
+        elif [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Aborted." >&2
             exit 1
         fi
     fi
