@@ -171,7 +171,12 @@ const useWorkbenchStore = create<WorkbenchStore>()(
         newHistory.push(newTree);
 
         const panels = getAllPanels(newTree);
-        const newContents = new Map(panels.map((p) => [p.id, p]));
+        const currentContents = get().panelContents;
+        // Preserve existing panel references to avoid unnecessary re-renders
+        // Only use new content for panels that don't exist yet
+        const newContents = new Map(
+          panels.map((p) => [p.id, currentContents.get(p.id) ?? p]),
+        );
 
         set({
           layoutTree: newTree,
@@ -223,7 +228,11 @@ const useWorkbenchStore = create<WorkbenchStore>()(
         newHistory.push(newTree);
 
         const panels = getAllPanels(newTree);
-        const newContents = new Map(panels.map((p) => [p.id, p]));
+        const currentContents = get().panelContents;
+        // Preserve existing panel references to avoid unnecessary re-renders
+        const newContents = new Map(
+          panels.map((p) => [p.id, currentContents.get(p.id) ?? p]),
+        );
 
         logger.info("✅ [STORE DEBUG] Setting new tree with panels:", {
           panelCount: panels.length,
@@ -428,13 +437,16 @@ const useWorkbenchStore = create<WorkbenchStore>()(
     },
 
     undo: () => {
-      const { layoutHistory, historyIndex } = get();
+      const { layoutHistory, historyIndex, panelContents: currentContents } = get();
       if (historyIndex > 0) {
         const newIndex = historyIndex - 1;
         const tree = layoutHistory[newIndex];
         if (tree) {
           const panels = getAllPanels(tree);
-          const contents = new Map(panels.map((p) => [p.id, p]));
+          // Preserve existing panel references to avoid unnecessary re-renders
+          const contents = new Map(
+            panels.map((p) => [p.id, currentContents.get(p.id) ?? p]),
+          );
 
           set({
             layoutTree: tree,
@@ -446,13 +458,16 @@ const useWorkbenchStore = create<WorkbenchStore>()(
     },
 
     redo: () => {
-      const { layoutHistory, historyIndex } = get();
+      const { layoutHistory, historyIndex, panelContents: currentContents } = get();
       if (historyIndex < layoutHistory.length - 1) {
         const newIndex = historyIndex + 1;
         const tree = layoutHistory[newIndex];
         if (tree) {
           const panels = getAllPanels(tree);
-          const contents = new Map(panels.map((p) => [p.id, p]));
+          // Preserve existing panel references to avoid unnecessary re-renders
+          const contents = new Map(
+            panels.map((p) => [p.id, currentContents.get(p.id) ?? p]),
+          );
 
           set({
             layoutTree: tree,

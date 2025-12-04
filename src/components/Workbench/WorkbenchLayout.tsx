@@ -2,6 +2,7 @@ import { logger } from "@/lib/logger";
 import React, { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { GridRenderer } from "./GridRenderer";
+import { Panel } from "./PanelDnd";
 import { type Direction } from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import {
@@ -14,6 +15,7 @@ import {
   type DragEndEvent,
   type DragOverEvent,
 } from "@dnd-kit/core";
+import { PanelPortalProvider, PanelPortal } from "./PanelPortalContext";
 
 interface WorkbenchLayoutProps {
   className?: string;
@@ -27,11 +29,16 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
 }) => {
   const {
     layoutTree,
+    panelContents,
+    focusedPanelId,
     setConnectionId,
     initializeLayout,
     splitPanelAction,
     moveTab,
   } = useWorkbenchStore();
+
+  // Get stable list of panel IDs for rendering
+  const panelIds = Array.from(panelContents.keys());
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeTabInfo, setActiveTabInfo] = useState<{
@@ -194,24 +201,47 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
     );
   }
 
-  return (
-    <DndContext
-      sensors={sensors}
-      onDragStart={handleDragStart}
-      onDragOver={handleDragOver}
-      onDragEnd={handleDragEnd}
-    >
-      <div className={cn("workbench-layout h-full overflow-hidden", className)}>
-        <GridRenderer node={layoutTree} className="h-full" />
-      </div>
+  // Count total panels for focus border styling
+  const totalPanels = panelIds.length;
 
-      <DragOverlay>
-        {activeId && activeTabInfo && (
-          <div className="px-3 py-1 text-sm rounded-md bg-primary text-primary-foreground shadow-lg">
-            {activeTabInfo.tabId.split("-").pop()}
-          </div>
-        )}
-      </DragOverlay>
-    </DndContext>
+  return (
+    <PanelPortalProvider>
+      <DndContext
+        sensors={sensors}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+      >
+        <div className={cn("workbench-layout h-full overflow-hidden", className)}>
+          <GridRenderer node={layoutTree} className="h-full" />
+        </div>
+
+        {/* Render all panels at a stable position in the tree */}
+        {/* They will be portaled into their containers in GridRenderer */}
+        {panelIds.map((panelId) => {
+          const content = panelContents.get(panelId);
+          if (!content) return null;
+          return (
+            <PanelPortal key={panelId} panelId={panelId}>
+              <Panel
+                content={content}
+                className={cn("h-full rounded-xl overflow-hidden border-[3px]", {
+                  "border-primary/30": totalPanels > 1 && panelId === focusedPanelId,
+                  "border-background": totalPanels <= 1 || panelId !== focusedPanelId,
+                })}
+              />
+            </PanelPortal>
+          );
+        })}
+
+        <DragOverlay>
+          {activeId && activeTabInfo && (
+            <div className="px-3 py-1 text-sm rounded-md bg-primary text-primary-foreground shadow-lg">
+              {activeTabInfo.tabId.split("-").pop()}
+            </div>
+          )}
+        </DragOverlay>
+      </DndContext>
+    </PanelPortalProvider>
   );
 };
