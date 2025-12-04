@@ -15,6 +15,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [0.9.0] - 2025-12-04
+
+### New Features
+- Sign in with Azure AD SAML to request AWS roles and open database sessions, with a role picker and automatic STS credential handling.
+- Spin up ephemeral ECS bastion hosts and SSM tunnels on demand for secure, time-limited access to private databases.
+- Filter tables with advanced pattern search: regex, boolean logic, column targeting, grouping, anchors, and wildcards, plus cached parsing and auto-submit.
+- Control DataGrid columns with a visibility menu, copy either selected cells or full rows, and manage insert/update/delete with staged change indicators.
+- Get smarter SQL help: JOIN condition suggestions from keys or name matching, and completions that respect table/CTE aliases and JOIN ON context.
+- AI text-to-SQL and chat flows now use richer schema metadata and cross-table context, with retries, rate limiting, and metrics for more reliable answers.
+
+### Improvements
+- QuickFilter is memoized and caches parsed queries for snappier re-use; duplicate submissions are skipped automatically.
+- Column headers show clearer type icons and updated context menus; per-table view preferences persist by connection, schema, and table.
+- Data streaming and grid transforms handle raw arrays more reliably, improving hover highlights and reducing UI glitches.
+- Date/time and text editors respond better to content size and focus, reducing accidental closes and improving readability.
+- Connection and workspace panels are streamlined for faster setup, with improved tunnel handling flows.
+- Release helpers and UpdateChecker messaging are clearer for local builds and update checks.
+
+### Bug Fixes
+- PostgreSQL structure view now shows full data types and restores index usage statistics, including unused-index warnings.
+- QuickFilter keyboard handling works correctly with contenteditable inputs; empty-value resets preserve the intended mode.
+- Copy and SQL export actions use real column names, keeping headers aligned with the visible columns.
+- DataGrid hover states, table transforms, and JSON/INSERT exports align with visible data, preventing mismatched selections.
+- Various store and service fixes improve tab state, CRUD flows, and workspace panels stability.
+
 ## [0.8.0] - 2025-12-04
 
 ### New Features
