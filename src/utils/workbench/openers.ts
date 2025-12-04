@@ -1,6 +1,7 @@
 import { type TableMeta, type FunctionMeta } from '@/services/databaseService';
 import useWorkbenchStore from '@/stores/workbenchStore';
 import { usePanelStore } from '@/stores/panelStore';
+import { nanoid } from 'nanoid';
 
 type TableViewType = 'data' | 'structure' | 'indexes';
 
@@ -119,9 +120,11 @@ export function openQueryWithTemplate({
 
   if (!targetPanelId) return;
 
-  // Type assertion for SQL_TEMPLATES access since 'table' is handled differently
-  const templateFn = SQL_TEMPLATES[objectType as keyof typeof SQL_TEMPLATES];
-  const template = templateFn?.(schema ?? 'public') ?? '';
+  // 'table' type uses table designer, so it won't have a SQL template
+  const templateFn = objectType in SQL_TEMPLATES
+    ? SQL_TEMPLATES[objectType as keyof typeof SQL_TEMPLATES]
+    : null;
+  const template = templateFn ? templateFn(schema ?? 'public') : '';
   const tabId = `query-new-${objectType}-${Date.now()}`;
   const titles: Record<CreateObjectType, string> = {
     schema: 'New Schema',
@@ -182,6 +185,19 @@ interface OpenTableParams {
   initialFilter?: string;
   /** Source panel ID - if provided, will try to reuse existing table tab in this panel */
   sourcePanelId?: string;
+}
+
+interface OpenInSplitParams {
+  table: TableMeta;
+  connectionId: string;
+  database: string;
+  viewType?: TableViewType;
+}
+
+interface OpenFunctionInSplitParams {
+  func: FunctionMeta;
+  connectionId: string;
+  database: string;
 }
 
 interface OpenFunctionParams {
@@ -401,4 +417,100 @@ export function openFunctionObject({
       functionName: func.name,
     },
   });
+}
+
+/**
+ * Open a table in a new split panel to the right
+ */
+export function openTableInSplitRight({
+  table,
+  connectionId,
+  database,
+  viewType = 'data',
+}: OpenInSplitParams): void {
+  const { focusedPanelId, splitPanelAction, panelContents, focusPanel } =
+    useWorkbenchStore.getState();
+
+  let targetPanelId = focusedPanelId;
+  if (!targetPanelId && panelContents.size > 0) {
+    targetPanelId = Array.from(panelContents.keys())[0] ?? null;
+  }
+
+  if (!targetPanelId) return;
+
+  const tabId = `table-${table.schema}-${table.name}`;
+  const newPanelId = nanoid(8);
+
+  splitPanelAction({
+    targetPanelId,
+    direction: 'right',
+    newPanelContent: {
+      id: newPanelId,
+      type: 'editor',
+      tabIds: [tabId],
+      activeTabId: tabId,
+      metadata: {
+        [tabId]: {
+          type: 'table',
+          title: table.name,
+          connectionId,
+          database,
+          schema: table.schema,
+          table: table.name,
+          isView: table.kind !== 'Table',
+          kind: table.kind,
+          viewType,
+        },
+      },
+    },
+  });
+
+  // Focus the new panel
+  focusPanel(newPanelId);
+}
+
+/**
+ * Open a function in a new split panel to the right
+ */
+export function openFunctionInSplitRight({
+  func,
+  connectionId,
+  database,
+}: OpenFunctionInSplitParams): void {
+  const { focusedPanelId, splitPanelAction, panelContents, focusPanel } =
+    useWorkbenchStore.getState();
+
+  let targetPanelId = focusedPanelId;
+  if (!targetPanelId && panelContents.size > 0) {
+    targetPanelId = Array.from(panelContents.keys())[0] ?? null;
+  }
+
+  if (!targetPanelId) return;
+
+  const tabId = `function-${func.schema}-${func.name}`;
+  const newPanelId = nanoid(8);
+
+  splitPanelAction({
+    targetPanelId,
+    direction: 'right',
+    newPanelContent: {
+      id: newPanelId,
+      type: 'editor',
+      tabIds: [tabId],
+      activeTabId: tabId,
+      metadata: {
+        [tabId]: {
+          type: 'function',
+          title: func.name,
+          connectionId,
+          database,
+          schema: func.schema,
+          functionName: func.name,
+        },
+      },
+    },
+  });
+
+  // Focus the new panel
+  focusPanel(newPanelId);
 }

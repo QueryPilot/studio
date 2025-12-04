@@ -1,6 +1,5 @@
-import React, { useCallback, useLayoutEffect, useMemo, useRef } from "react";
+import React, { useCallback, useLayoutEffect, useRef } from "react";
 import { type GridNode } from "@/types/workbench";
-import { Panel } from "./PanelDnd";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import {
   ResizablePanelGroup,
@@ -8,8 +7,8 @@ import {
   ResizableHandle,
 } from "@/components/ui/resizable";
 import { cn } from "@/lib/cn";
-import { getAllPanels } from "@/utils/workbenchTree";
 import type { ImperativePanelGroupHandle } from "react-resizable-panels";
+import { PanelContainer } from "./PanelPortalContext";
 
 interface GridRendererProps {
   node: GridNode;
@@ -22,15 +21,9 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
   path = [],
   className,
 }) => {
-  const { resizePanelAction, focusedPanelId, layoutTree } = useWorkbenchStore();
+  const resizePanelAction = useWorkbenchStore((s) => s.resizePanelAction);
   const panelGroupRef = useRef<ImperativePanelGroupHandle | null>(null);
   const isSyncingRef = useRef(false);
-
-  // Count total panels in the workbench
-  const totalPanels = useMemo(() => {
-    if (!layoutTree) return 0;
-    return getAllPanels(layoutTree).length;
-  }, [layoutTree]);
 
   const handlePanelResize = useCallback(
     (sizes: number[]) => {
@@ -76,15 +69,12 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
   }, [node.type, node.splitRatio]);
 
   if (node.type === "leaf") {
-    if (!node.content) return null;
+    // Render a container that the Panel will portal into
+    // This keeps Panel components at a stable position in the React tree
     return (
-      <Panel
-        content={node.content}
-        path={path}
-        className={cn(className, "rounded-xl overflow-hidden border-[3px]", {
-          "border-primary/30": totalPanels > 1 && node.id === focusedPanelId,
-          "border-background": totalPanels <= 1 || node.id !== focusedPanelId,
-        })}
+      <PanelContainer
+        panelId={node.id}
+        className={cn(className, "h-full")}
       />
     );
   }
@@ -106,10 +96,7 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
           defaultSize={defaultSizes[0]}
           minSize={10}
           maxSize={90}
-          className={cn("rounded-xl overflow-hidden bg-transparent", {
-            "border border-primary/20":
-              totalPanels > 1 && node.id === focusedPanelId,
-          })}
+          className="rounded-xl overflow-hidden bg-transparent"
         >
           {node.children[0] && (
             <GridRenderer node={node.children[0]} path={[...path, 0]} />
@@ -120,10 +107,7 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
           defaultSize={defaultSizes[1]}
           minSize={10}
           maxSize={90}
-          className={cn("rounded-xl overflow-hidden bg-transparent", {
-            "border border-primary/20":
-              totalPanels > 1 && node.id === focusedPanelId,
-          })}
+          className="rounded-xl overflow-hidden bg-transparent"
         >
           {node.children[1] && (
             <GridRenderer node={node.children[1]} path={[...path, 1]} />

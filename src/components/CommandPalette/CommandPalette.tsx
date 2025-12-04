@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { IconEye, IconMathFunction, IconLoader2, IconTable } from '@tabler/icons-react';
 import Fuse, { type IFuseOptions } from "fuse.js";
 import { useQueryClient } from "@tanstack/react-query";
@@ -17,7 +17,12 @@ import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
 import { contextService } from "@/services/contextService";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 
-import { openFunctionObject, openTableObject } from "@/utils/workbench/openers";
+import {
+  openFunctionObject,
+  openTableObject,
+  openTableInSplitRight,
+  openFunctionInSplitRight,
+} from "@/utils/workbench/openers";
 import { cn } from "@/lib/utils";
 import {
   useCommands,
@@ -64,6 +69,7 @@ export function CommandPalette(): React.ReactElement {
   const queryClient = useQueryClient();
   const services = useKeyboardServicesOptional();
   const listRef = React.useRef<HTMLDivElement>(null);
+  const [selectedValue, setSelectedValue] = useState<string>("");
 
   const isOpen = useCommandPaletteStore((state) => state.isOpen);
   const mode = useCommandPaletteStore((state) => state.mode);
@@ -278,7 +284,7 @@ export function CommandPalette(): React.ReactElement {
   };
 
   const handleSelect = useCallback(
-    async (value: string) => {
+    async (value: string, openInSplit = false) => {
       if (mode === "command") {
         if (!services) return;
         try {
@@ -301,18 +307,35 @@ export function CommandPalette(): React.ReactElement {
       }
 
       if (item.entityType === "function") {
-        openFunctionObject({
-          func: item.func,
-          connectionId: activeConnectionId,
-          database: selectedDatabase || "#invalid_database",
-        });
+        if (openInSplit) {
+          openFunctionInSplitRight({
+            func: item.func,
+            connectionId: activeConnectionId,
+            database: selectedDatabase || "#invalid_database",
+          });
+        } else {
+          openFunctionObject({
+            func: item.func,
+            connectionId: activeConnectionId,
+            database: selectedDatabase || "#invalid_database",
+          });
+        }
       } else {
-        openTableObject({
-          table: item.table,
-          connectionId: activeConnectionId,
-          database: selectedDatabase || "#invalid_database",
-          viewType: "data",
-        });
+        if (openInSplit) {
+          openTableInSplitRight({
+            table: item.table,
+            connectionId: activeConnectionId,
+            database: selectedDatabase || "#invalid_database",
+            viewType: "data",
+          });
+        } else {
+          openTableObject({
+            table: item.table,
+            connectionId: activeConnectionId,
+            database: selectedDatabase || "#invalid_database",
+            viewType: "data",
+          });
+        }
       }
 
       closePalette();
@@ -325,6 +348,20 @@ export function CommandPalette(): React.ReactElement {
       quickItemsById,
       selectedDatabase,
     ],
+  );
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      // Cmd+Enter (Mac) or Ctrl+Enter (Windows/Linux) opens in split right panel
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (selectedValue && mode === "quickOpen") {
+          void handleSelect(selectedValue, true);
+        }
+      }
+    },
+    [selectedValue, mode, handleSelect],
   );
 
   const placeholder =
@@ -357,7 +394,13 @@ export function CommandPalette(): React.ReactElement {
   }
 
   return (
-    <CommandDialog open={isOpen} onOpenChange={handleOpenChange}>
+    <CommandDialog
+      open={isOpen}
+      onOpenChange={handleOpenChange}
+      onKeyDown={handleKeyDown}
+      value={selectedValue}
+      onValueChange={setSelectedValue}
+    >
       <CommandInput
         placeholder={placeholder}
         value={query}
