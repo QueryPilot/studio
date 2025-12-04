@@ -36,10 +36,10 @@ NC='\033[0m'
 AI_CLI=""
 AI_EXEC=""
 
-log() { echo -e "${BLUE}[relc]${NC} $1"; }
-success() { echo -e "${GREEN}[relc]${NC} $1"; }
-warn() { echo -e "${YELLOW}[relc]${NC} $1"; }
-error() { echo -e "${RED}[relc]${NC} $1"; exit 1; }
+log() { echo -e "${BLUE}[relc]${NC} $1" >&2; }
+success() { echo -e "${GREEN}[relc]${NC} $1" >&2; }
+warn() { echo -e "${YELLOW}[relc]${NC} $1" >&2; }
+error() { echo -e "${RED}[relc]${NC} $1" >&2; exit 1; }
 
 # Check required tools
 check_requirements() {
@@ -182,11 +182,11 @@ $VERSION_PROMPT" | claude -p 2>/dev/null | tail -1 | tr -d '[:space:]' | sed 's/
     fi
 
     success "Suggested version: v$SUGGESTED_VERSION"
-    echo ""
+    echo "" >&2
 
     # Confirm version
     read -p "Use this version? (Y/n) " -n 1 -r
-    echo
+    echo >&2
     if [[ $REPLY =~ ^[Nn]$ ]]; then
         read -p "Enter version: " MANUAL_VERSION
         SUGGESTED_VERSION="${MANUAL_VERSION#v}"
@@ -267,17 +267,17 @@ $CHANGELOG_PROMPT" 2>/dev/null)
 $CHANGELOG_PROMPT" | claude -p 2>/dev/null)
     fi
 
-    echo ""
+    echo "" >&2
     success "Generated changelog:"
-    echo ""
-    echo "$NEW_CHANGELOG"
-    echo ""
+    echo "" >&2
+    echo "$NEW_CHANGELOG" >&2
+    echo "" >&2
 
     # Confirm changelog
     read -p "Use this changelog? (Y/n) " -n 1 -r
-    echo
+    echo >&2
     if [[ $REPLY =~ ^[Nn]$ ]]; then
-        echo ""
+        echo "" >&2
         warn "Opening editor to customize changelog..."
         TEMP_CHANGELOG=$(mktemp)
         echo "$NEW_CHANGELOG" > "$TEMP_CHANGELOG"
