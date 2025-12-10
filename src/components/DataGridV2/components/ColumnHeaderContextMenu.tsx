@@ -177,7 +177,8 @@ export function ColumnHeaderContextMenu({
 
 // Hook to manage column header context menu state
 export interface UseColumnHeaderContextMenuOptions {
-  columns: GridColumnV2[];
+  columns: GridColumnV2[]; // Columns as displayed in grid (for index lookup)
+  allColumnsForVisibility?: GridColumnV2[]; // All columns for visibility submenu (optional, defaults to columns)
   pinnedColumns: string[];
   columnVisibility: Record<string, boolean>;
   getSortDirection: (columnId: string) => "asc" | "desc" | null;
@@ -199,6 +200,7 @@ export interface ColumnHeaderContextMenuState {
 
 export function useColumnHeaderContextMenu({
   columns,
+  allColumnsForVisibility,
   pinnedColumns,
   columnVisibility,
   getSortDirection,
@@ -211,6 +213,8 @@ export function useColumnHeaderContextMenu({
   onShowAllColumns,
   onFilterByColumn,
 }: UseColumnHeaderContextMenuOptions) {
+  // Use allColumnsForVisibility for the visibility submenu, fallback to columns
+  const visibilityColumns = allColumnsForVisibility ?? columns;
   const [menuState, setMenuState] = useState<ColumnHeaderContextMenuState>({
     isOpen: false,
     column: null,
@@ -259,7 +263,7 @@ export function useColumnHeaderContextMenu({
       column: menuState.column,
       sortDirection,
       isPinned,
-      allColumns: columns,
+      allColumns: visibilityColumns,
       columnVisibility,
       onSortAsc: () => {
         onSort(columnId, "asc");
@@ -306,7 +310,7 @@ export function useColumnHeaderContextMenu({
     };
   }, [
     menuState.column,
-    columns,
+    visibilityColumns,
     columnVisibility,
     getSortDirection,
     pinnedColumns,

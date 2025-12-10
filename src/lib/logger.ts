@@ -21,6 +21,36 @@ function normalize(
   };
 }
 
+function getCallerLocation(): string {
+  const stack = new Error().stack;
+  if (!stack) return "";
+
+  const lines = stack.split("\n");
+  // Skip first lines: Error, getCallerLocation, emit, logger.info/debug/etc
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+    // Skip internal logger calls
+    if (line.includes("logger.ts") || line.includes("logger.js")) continue;
+
+    // Chrome: "    at functionName (http://host/path/file.ts:line:col)"
+    // Safari: "functionName@http://host/path/file.ts:line:col"
+    // Firefox: "functionName@http://host/path/file.ts:line:col"
+    const chromeMatch = line.match(/at\s+(?:.*?\s+)?\(?(.+):(\d+):\d+\)?/);
+    const safariMatch = line.match(/@(.+):(\d+):\d+$/);
+    const match = chromeMatch ?? safariMatch;
+
+    if (match?.[1] && match[2]) {
+      let file = match[1];
+      // Handle URLs and file paths
+      if (file.includes("?")) file = file.split("?")[0] ?? file;
+      file = file.split("/").pop() ?? file;
+      return `(${file}:${match[2]})`;
+    }
+  }
+  return "";
+}
+
 function emit(
   level: LogLevel,
   namespaceOrMessage: unknown,
@@ -29,8 +59,9 @@ function emit(
   // Drop non-error logs in production to avoid disk I/O and noise
   if (isProd && level !== "error") return;
 
-  const { namespace } = normalize(namespaceOrMessage, args);
-  const prefix = `[${namespace}]`;
+  const { namespace, payload } = normalize(namespaceOrMessage, args);
+  const caller = getCallerLocation();
+  const prefix = `[${namespace}]${caller ? ` ${caller}` : ""}`;
   const fn =
     level === "debug"
       ? console.debug
@@ -39,7 +70,7 @@ function emit(
       : level === "warn"
       ? console.warn
       : console.error;
-  fn(prefix, ...args);
+  fn(prefix, ...payload);
 }
 
 export const logger = {

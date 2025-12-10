@@ -46,32 +46,54 @@ type ChannelLike = {
 function createIpcChannel(handler: (message: unknown) => void): ChannelLike {
   let nextMessageId = 0;
   const pending = new Map<number, unknown>();
-  const callbackId = transformCallback(
-    ({ message, id }: { message: unknown; id?: number }) => {
-      // Suppress ID warnings - messages are delivered sequentially anyway
-      if (typeof id !== "number") {
-        handler(message);
+  const callbackId = transformCallback((rawMessage: unknown) => {
+    // Tauri channel payloads can arrive in two shapes:
+    // 1) Wrapped: { message, index } (Channel ordering) or { message, id }
+    // 2) Unwrapped: raw payload (large binary batches)
+    let actualMessage: unknown = rawMessage;
+    let id: number | undefined;
+
+    if (rawMessage && typeof rawMessage === "object") {
+      // Channel sends a terminal marker: { end: true, index }
+      if ("end" in (rawMessage as Record<string, unknown>)) {
         return;
       }
 
-      if (id === nextMessageId) {
-        nextMessageId++;
-        handler(message);
-
-        while (pending.has(nextMessageId)) {
-          const next = pending.get(nextMessageId)!;
-          pending.delete(nextMessageId);
-          nextMessageId++;
-          handler(next);
-        }
-      } else if (id > nextMessageId) {
-        pending.set(id, message);
-      } else {
-        // Late arrival; deliver but do not disturb ordering state
-        handler(message);
+      const wrapped = rawMessage as { message?: unknown; index?: number; id?: number };
+      if ("message" in wrapped) {
+        actualMessage = wrapped.message;
       }
-    },
-  );
+      if (typeof wrapped.index === "number") {
+        id = wrapped.index;
+      } else if (typeof wrapped.id === "number") {
+        id = wrapped.id;
+      }
+    }
+
+    // If there's no ordering ID, deliver immediately
+    if (typeof id !== "number") {
+      handler(actualMessage);
+      return;
+    }
+
+    // Process wrapped messages with ordering
+    if (id === nextMessageId) {
+      nextMessageId++;
+      handler(actualMessage);
+
+      while (pending.has(nextMessageId)) {
+        const next = pending.get(nextMessageId)!;
+        pending.delete(nextMessageId);
+        nextMessageId++;
+        handler(next);
+      }
+    } else if (id > nextMessageId) {
+      pending.set(id, actualMessage);
+    } else {
+      // Late arrival; deliver but do not disturb ordering state
+      handler(actualMessage);
+    }
+  });
 
   const serializedId = `__CHANNEL__:${String(callbackId)}`;
   return {
@@ -214,19 +236,85 @@ export class QueryStreamClient {
       let batchCount = 0;
       // Data channel: receives raw MessagePack ArrayBuffers (Response type)
       const dataChannel = createIpcChannel((message: unknown) => {
-        // Type guard: ensure message is an ArrayBuffer
-        if (!(message instanceof ArrayBuffer)) {
-        logger.warn(
-          "query-stream",
-          "Expected ArrayBuffer batch but received",
-          typeof message,
-        );
-        return;
-      }
-        const buffer = message;
         // Decode off the main thread to keep UI responsive
         pendingDecode = pendingDecode
           .then(async () => {
+            if (
+              message &&
+              typeof message === "object" &&
+              "end" in (message as Record<string, unknown>)
+            ) {
+              return;
+            }
+
+            let buffer: ArrayBuffer | null = null;
+
+            // Common cases: ArrayBuffer/Uint8Array
+            if (message instanceof ArrayBuffer) {
+              buffer = message;
+            } else if (message instanceof Uint8Array) {
+              // Preserve the exact slice for subarray views
+              buffer = message.buffer.slice(
+                message.byteOffset,
+                message.byteOffset + message.byteLength,
+              );
+            }
+            // ArrayBuffer-like object (cross-realm)
+            else if (
+              message &&
+              typeof message === "object" &&
+              "byteLength" in message
+            ) {
+              buffer = new Uint8Array(message as ArrayBufferLike).buffer;
+            }
+            // Objects that carry a data/blob payload (tauri::ipc::Response variants)
+            else if (message && typeof message === "object") {
+              const payload = (message as { data?: unknown }).data;
+              if (payload instanceof ArrayBuffer) {
+                buffer = payload;
+              } else if (payload instanceof Uint8Array) {
+                buffer = payload.buffer.slice(
+                  payload.byteOffset,
+                  payload.byteOffset + payload.byteLength,
+                );
+              } else if (Array.isArray(payload)) {
+                buffer = Uint8Array.from(payload as number[]).buffer;
+              } else if (
+                payload &&
+                typeof payload === "object" &&
+                "byteLength" in payload
+              ) {
+                buffer = new Uint8Array(payload as ArrayBufferLike).buffer;
+              }
+            }
+            // Response/Blob-like payloads (tauri::ipc::Response arrives here)
+            else if (
+              message &&
+              typeof message === "object" &&
+              "arrayBuffer" in message &&
+              typeof (message as { arrayBuffer?: unknown }).arrayBuffer ===
+                "function"
+            ) {
+              try {
+                buffer = await (
+                  message as { arrayBuffer: () => Promise<ArrayBuffer> }
+                ).arrayBuffer();
+              } catch (error) {
+                logger.error("query-stream", "Failed to read Response body", error);
+                return;
+              }
+            }
+
+            if (!buffer) {
+              logger.warn(
+                "query-stream",
+                "Expected ArrayBuffer batch but received",
+                typeof message,
+                message,
+              );
+              return;
+            }
+
             // Skip empty buffers (used for cancellation checks)
             if (buffer.byteLength === 0) {
               return;
@@ -261,6 +349,11 @@ export class QueryStreamClient {
             );
             return;
           }
+
+        // Skip terminal markers from the channel transport
+        if ("end" in (message as Record<string, unknown>)) {
+          return;
+        }
 
         const typedMessage = message as StreamMessage;
 

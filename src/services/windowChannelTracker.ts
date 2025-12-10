@@ -24,6 +24,7 @@ class WindowChannelTracker {
   private currentConnectionId: string | null = null;
   private openWindows: Map<string, Set<string>> = new Map(); // connectionId -> Set<windowLabels>
   private heartbeatInterval: NodeJS.Timeout | null = null;
+  private cleanupInterval: NodeJS.Timeout | null = null;
   private statusCallbacks: Set<(statuses: ConnectionStatus[]) => void> = new Set();
   private readonly HEARTBEAT_INTERVAL = 3000; // 3 seconds
   private readonly HEARTBEAT_TIMEOUT = 10000; // 10 seconds - consider window dead if no heartbeat
@@ -49,7 +50,7 @@ class WindowChannelTracker {
     this.startHeartbeat();
 
     // Clean up dead windows periodically
-    setInterval(() => {
+    this.cleanupInterval = setInterval(() => {
       this.cleanupDeadWindows();
     }, this.HEARTBEAT_TIMEOUT);
 
@@ -346,6 +347,12 @@ class WindowChannelTracker {
   destroy(): void {
     this.stopHeartbeat();
     this.unregisterWindow();
+
+    // Clear the cleanup interval to prevent memory leak
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
 
     if (this.channel) {
       this.channel.close();

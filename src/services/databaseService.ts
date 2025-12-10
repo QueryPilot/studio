@@ -1149,9 +1149,14 @@ class DatabaseService {
     this.stopHealthMonitoring(connectionId);
 
     // Monitor health every 5 seconds
-    const monitor = setInterval(async () => {
-      const health = await this.getConnectionHealth(connectionId);
-      this.notifyHealthListeners(connectionId, health);
+    const monitor = setInterval(() => {
+      void this.getConnectionHealth(connectionId)
+        .then((health) => {
+          this.notifyHealthListeners(connectionId, health);
+        })
+        .catch((error: unknown) => {
+          logger.warn("database-service", "Health check failed", { connectionId, error });
+        });
     }, 5000);
 
     this.healthMonitors.set(connectionId, monitor);
@@ -1195,9 +1200,9 @@ class DatabaseService {
     connectionId: string,
     listener: (health: ConnectionHealth) => void,
   ): () => void {
-    const listeners = this.healthListeners.get(connectionId) || [];
-    listeners.push(listener);
-    this.healthListeners.set(connectionId, listeners);
+    // Use immutable pattern to avoid mutation issues with React reconciliation
+    const currentListeners = this.healthListeners.get(connectionId) || [];
+    this.healthListeners.set(connectionId, [...currentListeners, listener]);
 
     // Immediately provide current health if connection is active
     if (this.isConnectionActive(connectionId)) {
@@ -1214,13 +1219,13 @@ class DatabaseService {
         });
     }
 
-    // Return unsubscribe function
+    // Return unsubscribe function (immutable removal)
     return () => {
-      const currentListeners = this.healthListeners.get(connectionId) || [];
-      const index = currentListeners.indexOf(listener);
-      if (index > -1) {
-        currentListeners.splice(index, 1);
-      }
+      const listeners = this.healthListeners.get(connectionId) || [];
+      this.healthListeners.set(
+        connectionId,
+        listeners.filter((l) => l !== listener),
+      );
     };
   }
 

@@ -20,7 +20,8 @@ export interface RowDetailsSheetProps {
 type ViewMode = "summary" | "json";
 
 interface ColumnSummary {
-  columnName: string;
+  columnId: string; // Unique identifier (col.id)
+  columnName: string; // Display name (may have suffix for duplicates)
   columnType: string;
   hasMultipleValues: boolean;
   uniqueCount: number;
@@ -45,9 +46,30 @@ export function RowDetailsSheet({
   const resizeStartX = useRef(0);
   const resizeStartWidth = useRef(0);
 
-  // Calculate column summaries
+  // Calculate column summaries with duplicate name handling
   const columnSummaries = useMemo<ColumnSummary[]>(() => {
+    // Track name occurrences to handle duplicates (e.g., JOIN queries)
+    const nameCount = new Map<string, number>();
+
+    // First pass: count occurrences of each name
+    for (const col of columns) {
+      const name = col.name || col.field;
+      nameCount.set(name, (nameCount.get(name) || 0) + 1);
+    }
+
     return columns.map((col) => {
+      const baseName = col.name || col.field;
+      const count = nameCount.get(baseName) || 1;
+      const tableName = col.meta?.table_name;
+
+      // For duplicates, use table_name.column_name if available, otherwise just column_name
+      let columnName: string;
+      if (count > 1 && tableName) {
+        columnName = `${tableName}.${baseName}`;
+      } else {
+        columnName = baseName;
+      }
+
       const values = rows.map((row) => {
         const cellValue = row[col.field];
         return cellValue &&
@@ -86,7 +108,8 @@ export function RowDetailsSheet({
       }
 
       return {
-        columnName: col.name,
+        columnId: col.id,
+        columnName,
         columnType: col.type || "unknown",
         hasMultipleValues,
         uniqueCount,
@@ -125,13 +148,32 @@ export function RowDetailsSheet({
     });
   }, [columnSummaries, searchQuery]);
 
-  // Format rows as JSON
+  // Format rows as JSON with unique keys for duplicate column names
   const jsonContent = useMemo(() => {
+    // Build unique key map (same logic as columnSummaries)
+    const nameCount = new Map<string, number>();
+
+    for (const col of columns) {
+      const name = col.name || col.field;
+      nameCount.set(name, (nameCount.get(name) || 0) + 1);
+    }
+
+    const uniqueKeys = columns.map((col) => {
+      const baseName = col.name || col.field;
+      const count = nameCount.get(baseName) || 1;
+      const tableName = col.meta?.table_name;
+
+      if (count > 1 && tableName) {
+        return `${tableName}.${baseName}`;
+      }
+      return baseName;
+    });
+
     const data = rows.map((row) => {
       const obj: Record<string, unknown> = {};
-      columns.forEach((col) => {
+      columns.forEach((col, idx) => {
         const cellValue = row[col.field];
-        obj[col.field] =
+        obj[uniqueKeys[idx] ?? col.field] =
           cellValue && typeof cellValue === "object" && "value" in cellValue
             ? cellValue.value
             : null;
@@ -143,11 +185,11 @@ export function RowDetailsSheet({
 
   // IconCopy handler
   const handleCopy = useCallback(
-    (columnName: string, value: string) => {
+    (columnId: string, value: string) => {
       navigator.clipboard
         .writeText(value)
         .then(() => {
-          setCopiedColumn(columnName);
+          setCopiedColumn(columnId);
           toast("Copied to clipboard");
           setTimeout(() => {
             setCopiedColumn(null);
@@ -282,7 +324,7 @@ export function RowDetailsSheet({
               ) : (
                 <div className="space-y-2">
                   {filteredSummaries.map((summary) => (
-                    <div key={summary.columnName} className="space-y-1">
+                    <div key={summary.columnId} className="space-y-1">
                       <div className="flex items-center justify-between px-2">
                         <span className="text-xs font-medium text-muted-foreground">
                           {summary.columnName}
@@ -320,12 +362,12 @@ export function RowDetailsSheet({
                             className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
                             onClick={() => {
                               handleCopy(
-                                summary.columnName,
+                                summary.columnId,
                                 summary.displayValues.join(", "),
                               );
                             }}
                           >
-                            {copiedColumn === summary.columnName ? (
+                            {copiedColumn === summary.columnId ? (
                               <IconCheck className="h-3 w-3 text-green-600" />
                             ) : (
                               <IconCopy className="h-3 w-3" />
@@ -342,10 +384,10 @@ export function RowDetailsSheet({
                             size="icon"
                             className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
                             onClick={() => {
-                              handleCopy(summary.columnName, "NULL");
+                              handleCopy(summary.columnId, "NULL");
                             }}
                           >
-                            {copiedColumn === summary.columnName ? (
+                            {copiedColumn === summary.columnId ? (
                               <IconCheck className="h-3 w-3 text-green-600" />
                             ) : (
                               <IconCopy className="h-3 w-3" />
@@ -363,12 +405,12 @@ export function RowDetailsSheet({
                             className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
                             onClick={() => {
                               handleCopy(
-                                summary.columnName,
+                                summary.columnId,
                                 summary.displayValue ?? "",
                               );
                             }}
                           >
-                            {copiedColumn === summary.columnName ? (
+                            {copiedColumn === summary.columnId ? (
                               <IconCheck className="h-3 w-3 text-green-600" />
                             ) : (
                               <IconCopy className="h-3 w-3" />
@@ -386,12 +428,12 @@ export function RowDetailsSheet({
                             className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
                             onClick={() => {
                               handleCopy(
-                                summary.columnName,
+                                summary.columnId,
                                 summary.displayValue ?? "",
                               );
                             }}
                           >
-                            {copiedColumn === summary.columnName ? (
+                            {copiedColumn === summary.columnId ? (
                               <IconCheck className="h-3 w-3 text-green-600" />
                             ) : (
                               <IconCopy className="h-3 w-3" />

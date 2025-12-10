@@ -49,9 +49,24 @@ export function DatabaseSchemaSelector({
   const [schemaPopoverOpen, setSchemaPopoverOpen] = useState(false);
   const queryClient = useQueryClient();
 
-  // IconCheck if connection is active
-  const isConnectionActive = databaseService.isConnectionActive(connectionId);
+  // Track connection active state reactively
+  const [isConnectionActive, setIsConnectionActive] = useState(() =>
+    databaseService.isConnectionActive(connectionId),
+  );
   const prevActiveRef = useRef(isConnectionActive);
+
+  // Subscribe to connection health changes to update isConnectionActive
+  useEffect(() => {
+    const unsubscribe = databaseService.onHealthChange(connectionId, (health) => {
+      const nowActive = health.status === "ready" || health.status === "degraded";
+      setIsConnectionActive(nowActive);
+    });
+
+    // Also sync on mount in case connection is already active
+    setIsConnectionActive(databaseService.isConnectionActive(connectionId));
+
+    return unsubscribe;
+  }, [connectionId]);
 
   // Get current database from workspace selection store
   const selectedDatabase = useWorkspaceSelectionStore(
@@ -177,6 +192,8 @@ export function DatabaseSchemaSelector({
           logger.info(
             "[DatabaseSchemaSelector] Received reconnection event - refreshing schemas",
           );
+          // Update connection active state to trigger re-render and enable query
+          setIsConnectionActive(databaseService.isConnectionActive(connectionId));
           // Invalidate and refetch schemas
           void queryClient.invalidateQueries({
             queryKey: ["schemas", connectionId],

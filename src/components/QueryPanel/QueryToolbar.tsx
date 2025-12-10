@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -28,6 +29,8 @@ import {
   IconDotsVertical,
   IconHistory,
   IconWand,
+  IconChartTreemap,
+  IconFileText,
 } from "@tabler/icons-react";
 import { QueryLimitControl } from "./QueryLimitControl";
 import type { SqlDialect } from "@/components/CodeEditor";
@@ -55,21 +58,24 @@ interface QueryToolbarProps {
   query: string;
   showHistory: boolean;
   showResults: boolean;
-  viewMode: "table" | "json";
+  viewMode: "table" | "json" | "explain";
   appliedLimit?: number;
   executeHint?: string;
   beautifyHint?: string;
   focused?: boolean;
   dialect?: SqlDialect | "auto";
   detectedDialect?: SqlDialect;
+  isExplainResult?: boolean;
+  showRawOutput?: boolean;
   onExecute: () => void;
   onCancel: () => void;
   onBeautify: () => void;
   onToggleHistory: () => void;
   onToggleResults: () => void;
-  onViewModeChange: (mode: "table" | "json") => void;
+  onViewModeChange: (mode: "table" | "json" | "explain") => void;
   onDialectChange?: (dialect: SqlDialect | "auto") => void;
   onFocusEditor?: () => void;
+  onToggleRawOutput?: () => void;
 }
 
 export const QueryToolbar = memo(function QueryToolbar({
@@ -84,6 +90,8 @@ export const QueryToolbar = memo(function QueryToolbar({
   focused = false,
   dialect = "auto",
   detectedDialect,
+  isExplainResult = false,
+  showRawOutput = true,
   onExecute,
   onCancel,
   onBeautify,
@@ -92,6 +100,7 @@ export const QueryToolbar = memo(function QueryToolbar({
   onViewModeChange,
   onDialectChange,
   onFocusEditor,
+  onToggleRawOutput,
 }: QueryToolbarProps) {
   // Get the display label for the current dialect
   const currentDialectLabel =
@@ -127,7 +136,7 @@ export const QueryToolbar = memo(function QueryToolbar({
             <Tabs
               value={viewMode}
               onValueChange={(value) => {
-                onViewModeChange(value as "table" | "json");
+                onViewModeChange(value as "table" | "json" | "explain");
               }}
               enableShortcuts={true}
               tabGroupId="query-view-mode"
@@ -135,20 +144,51 @@ export const QueryToolbar = memo(function QueryToolbar({
               enableGlobalShortcuts={false}
             >
               <TabsList className="!h-6 !p-0.5">
-                <TabsTrigger
-                  value="table"
-                  className="text-xs !h-5 !px-2"
-                  tabIndex={0}
-                >
-                  Table
-                </TabsTrigger>
-                <TabsTrigger
-                  value="json"
-                  className="text-xs !h-5 !px-2"
-                  tabIndex={1}
-                >
-                  JSON
-                </TabsTrigger>
+                {!isExplainResult && (
+                  <>
+                    <TabsTrigger
+                      value="table"
+                      className="text-xs !h-5 !px-2"
+                      tabIndex={0}
+                    >
+                      Table
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="json"
+                      className="text-xs !h-5 !px-2"
+                      tabIndex={1}
+                    >
+                      JSON
+                    </TabsTrigger>
+                  </>
+                )}
+                {isExplainResult && (
+                  <>
+                    <TabsTrigger
+                      value="explain"
+                      className="text-xs !h-5 !px-2 gap-1"
+                      tabIndex={0}
+                    >
+                      <IconChartTreemap className="h-3 w-3" />
+                      Tree
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="explain"
+                      className={cn(
+                        "text-xs !h-5 !px-2 gap-1",
+                        showRawOutput && "bg-accent"
+                      )}
+                      tabIndex={1}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        onToggleRawOutput?.();
+                      }}
+                    >
+                      <IconFileText className="h-3 w-3" />
+                      Raw
+                    </TabsTrigger>
+                  </>
+                )}
               </TabsList>
             </Tabs>
           )}

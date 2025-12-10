@@ -4,7 +4,7 @@ import * as React from "react";
 import { type DialogProps } from "@radix-ui/react-dialog";
 import { Command as CommandPrimitive } from "cmdk";
 import { cn } from "@/lib/cn";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { MagnifyingGlassIcon } from "@radix-ui/react-icons";
 
 const Command = React.forwardRef<
@@ -43,7 +43,9 @@ const CommandDialog = ({
         showCloseButton={false}
         className="overflow-hidden p-0 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-top-[48%] data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-200 top-[20%] translate-y-0"
         onKeyDown={onKeyDown}
+        aria-describedby={undefined}
       >
+        <DialogTitle className="sr-only">Command Palette</DialogTitle>
         <Command
           value={value}
           onValueChange={onValueChange}

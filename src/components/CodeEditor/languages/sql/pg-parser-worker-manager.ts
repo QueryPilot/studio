@@ -36,6 +36,21 @@ class PgParserWorkerManager {
     if (this.readyPromise) return this.readyPromise;
 
     this.readyPromise = new Promise((resolve, reject) => {
+      let initTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+      const cleanup = () => {
+        if (initTimeoutId) {
+          clearTimeout(initTimeoutId);
+          initTimeoutId = null;
+        }
+      };
+
+      const handleReject = (error: unknown) => {
+        cleanup();
+        this.readyPromise = null; // Allow retry on failure
+        reject(error instanceof Error ? error : new Error(String(error)));
+      };
+
       try {
         // Create worker using Vite's worker import syntax
         this.worker = new Worker(
@@ -43,19 +58,14 @@ class PgParserWorkerManager {
           { type: "module" }
         );
 
-        const onReady = (event: MessageEvent) => {
+        // Single message handler for all messages
+        this.worker.onmessage = (event: MessageEvent) => {
           if (event.data?.type === "ready") {
             this.isReady = true;
-            this.worker?.removeEventListener("message", onReady);
+            cleanup();
             resolve();
+            return;
           }
-        };
-
-        this.worker.addEventListener("message", onReady);
-
-        this.worker.onmessage = (event: MessageEvent) => {
-          // Skip ready message (different type than PgParserResponse)
-          if (event.data?.type === "ready") return;
           this.handleResponse(event.data as PgParserResponse);
         };
 
@@ -66,17 +76,17 @@ class PgParserWorkerManager {
             handlers.reject(new Error("Worker error"));
             this.pendingRequests.delete(id);
           }
-          reject(error);
+          handleReject(error);
         };
 
         // Timeout for initialization
-        setTimeout(() => {
+        initTimeoutId = setTimeout(() => {
           if (!this.isReady) {
-            reject(new Error("Worker initialization timeout"));
+            handleReject(new Error("Worker initialization timeout"));
           }
         }, 10000);
       } catch (error) {
-        reject(error);
+        handleReject(error);
       }
     });
 
@@ -137,7 +147,8 @@ class PgParserWorkerManager {
 
     await this.initialize();
 
-    if (!this.worker) {
+    const worker = this.worker;
+    if (!worker) {
       throw new Error("Worker not initialized");
     }
 
@@ -172,7 +183,7 @@ class PgParserWorkerManager {
         payload: { content },
       };
 
-      this.worker!.postMessage(request);
+      worker.postMessage(request);
     });
   }
 
@@ -197,15 +208,45 @@ class PgParserWorkerManager {
   }
 }
 
-// Singleton instance with reference counting
+// Singleton instance with thread-safe initialization
 let workerManager: PgParserWorkerManager | null = null;
 let refCount = 0;
+let initializationLock: Promise<PgParserWorkerManager> | null = null;
 
 function getWorkerManager(): PgParserWorkerManager {
-  if (!workerManager) {
-    workerManager = new PgParserWorkerManager();
+  if (workerManager) {
+    return workerManager;
   }
+  // Create synchronously to prevent race conditions
+  workerManager = new PgParserWorkerManager();
   return workerManager;
+}
+
+/**
+ * Get worker manager with guaranteed initialization.
+ * Uses a lock to prevent multiple concurrent initializations.
+ */
+async function getInitializedWorkerManager(): Promise<PgParserWorkerManager> {
+  const manager = getWorkerManager();
+
+  // If already initialized, return immediately
+  if (manager["isReady"]) {
+    return manager;
+  }
+
+  // Use initialization lock to prevent race conditions
+  if (!initializationLock) {
+    initializationLock = manager.initialize().then(() => {
+      initializationLock = null; // Clear lock after success
+      return manager;
+    }).catch((error) => {
+      initializationLock = null; // Clear lock on failure to allow retry
+      throw error;
+    });
+  }
+
+  await initializationLock;
+  return manager;
 }
 
 /**
@@ -231,9 +272,10 @@ export function releasePgParserWorker(): void {
 /**
  * Parse SQL content using the pg-parser worker.
  * Returns diagnostics array.
+ * Uses thread-safe initialization to prevent race conditions.
  */
 export async function parseWithWorker(content: string): Promise<Diagnostic[]> {
-  const manager = getWorkerManager();
+  const manager = await getInitializedWorkerManager();
   return manager.parse(content);
 }
 

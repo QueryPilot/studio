@@ -174,6 +174,9 @@ pub struct QueryHandle {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ColumnMeta {
     pub name: String,
+    /// Source table name (for query results with JOINs)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub table_name: Option<String>,
     pub data_type: CellValueType,
     pub nullable: bool,
     pub primary_key: bool,

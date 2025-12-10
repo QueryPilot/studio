@@ -21,11 +21,12 @@ export function isMutationQuery(sql: string): boolean {
 }
 
 /**
- * Detects if a SQL query is a SELECT query
+ * Detects if a SQL query is a SELECT query (or returns rows like EXPLAIN)
  */
 export function isSelectQuery(sql: string): boolean {
   const trimmed = sql.trim().toLowerCase();
-  return trimmed.startsWith("select") || trimmed.startsWith("with");
+  const rowReturningKeywords = ["select", "with", "explain", "table", "values", "show"];
+  return rowReturningKeywords.some((kw) => trimmed.startsWith(kw));
 }
 
 /**
@@ -43,10 +44,11 @@ export function clearConnectionCache(connectionId: string): void {
 
 /**
  * Clear all query caches globally (used for Cmd+R refresh)
+ * Uses resetQueries() to properly reset and refetch active queries
  */
-export function clearAllCaches(): void {
-  // Clear React Query cache
-  queryClient.clear();
+export async function clearAllCaches(): Promise<void> {
+  // Reset all React Query queries - this marks them as stale AND triggers refetch for active ones
+  await queryClient.resetQueries();
 
   // Clear all Zustand tab state
   const tabStateStore = useTabStateStore.getState();

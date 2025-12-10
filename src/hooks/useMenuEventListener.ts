@@ -103,7 +103,9 @@ export function useMenuEventListener() {
     });
 
     return () => {
-      unlisten.then((fn) => fn());
+      unlisten
+        .then((fn) => fn())
+        .catch((err) => logger.error("[useMenuEventListener] Failed to unlisten:", err));
     };
   }, [setTheme, toggleSidebar, openPreferences, openConnectionForm]);
 }

@@ -208,15 +208,45 @@ class LinterWorkerManager {
   }
 }
 
-// Singleton instance with reference counting
+// Singleton instance with thread-safe initialization
 let workerManager: LinterWorkerManager | null = null;
 let refCount = 0;
+let initializationLock: Promise<LinterWorkerManager> | null = null;
 
 const getWorkerManager = (): LinterWorkerManager => {
-  if (!workerManager) {
-    workerManager = new LinterWorkerManager();
+  if (workerManager) {
+    return workerManager;
   }
+  // Create synchronously to prevent race conditions
+  workerManager = new LinterWorkerManager();
   return workerManager;
+};
+
+/**
+ * Get worker manager with guaranteed initialization.
+ * Uses a lock to prevent multiple concurrent initializations.
+ */
+const getInitializedWorkerManager = async (): Promise<LinterWorkerManager> => {
+  const manager = getWorkerManager();
+
+  // If already initialized, return immediately
+  if (manager["isInitialized"]) {
+    return manager;
+  }
+
+  // Use initialization lock to prevent race conditions
+  if (!initializationLock) {
+    initializationLock = manager.initialize().then(() => {
+      initializationLock = null; // Clear lock after success
+      return manager;
+    }).catch((error) => {
+      initializationLock = null; // Clear lock on failure to allow retry
+      throw error;
+    });
+  }
+
+  await initializationLock;
+  return manager;
 };
 
 /**
@@ -241,10 +271,9 @@ export const releaseLinterWorker = (): void => {
 /**
  * Create a high-performance SQL linter that runs in a Web Worker.
  * This prevents UI blocking for large files.
+ * Uses thread-safe initialization to prevent race conditions.
  */
 export const createWorkerLinter = (dialect?: string): Extension => {
-  const manager = getWorkerManager();
-
   return linter(
     async (view) => {
       const content = view.state.doc.toString();
@@ -255,6 +284,8 @@ export const createWorkerLinter = (dialect?: string): Extension => {
       const viewport = view.viewport;
 
       try {
+        // Use thread-safe initialization
+        const manager = await getInitializedWorkerManager();
         return await manager.lint(
           content,
           dialect,

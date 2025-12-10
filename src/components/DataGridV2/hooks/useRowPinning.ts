@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GridRowModel } from "../types";
 
 export interface UseRowPinningOptions {
@@ -35,6 +35,21 @@ export function useRowPinning(
   } = options;
 
   const [pinnedRowIds, setPinnedRowIds] = useState<string[]>(initialPinned);
+  const isInitialMount = useRef(true);
+
+  // Use ref to avoid infinite loops when onChange is not memoized
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  // Call onChange via useEffect to avoid setState-during-render
+  useEffect(() => {
+    // Skip the initial mount to avoid unnecessary onChange call
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    onChangeRef.current?.(pinnedRowIds);
+  }, [pinnedRowIds]);
 
   const rowIdMap = useMemo(() => {
     const map = new Map<string, GridRowModel>();
@@ -80,12 +95,10 @@ export function useRowPinning(
         if (prev.includes(rowId) || prev.length >= maxPinnedRows) {
           return prev;
         }
-        const next = [...prev, rowId];
-        onChange?.(next);
-        return next;
+        return [...prev, rowId];
       });
     },
-    [maxPinnedRows, onChange]
+    [maxPinnedRows]
   );
 
   const unpinRow = useCallback(
@@ -93,11 +106,10 @@ export function useRowPinning(
       setPinnedRowIds(prev => {
         const next = prev.filter(id => id !== rowId);
         if (next.length === prev.length) return prev;
-        onChange?.(next);
         return next;
       });
     },
-    [onChange]
+    []
   );
 
   const togglePinRow = useCallback(
@@ -113,8 +125,7 @@ export function useRowPinning(
 
   const clearPinnedRows = useCallback(() => {
     setPinnedRowIds([]);
-    onChange?.([]);
-  }, [onChange]);
+  }, []);
 
   const canPinMore = pinnedRowIds.length < maxPinnedRows;
 
