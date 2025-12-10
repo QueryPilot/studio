@@ -8,6 +8,55 @@ mkdir -p "$DEST"
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
 
+download_plugin() {
+  local url="$1"
+  local out="$2"
+  local label="$3"
+
+  TMP_DIR="$(mktemp -d)"
+  trap 'rm -rf "$TMP_DIR"' RETURN
+
+  echo "📥 Downloading session-manager-plugin ${VERSION} for ${label}..."
+  curl -sSL "$url" -o "${TMP_DIR}/download"
+
+  if [[ "$url" == *.zip ]]; then
+    unzip -q "${TMP_DIR}/download" -d "${TMP_DIR}/extract"
+    BIN_PATH="$(find "${TMP_DIR}/extract" -name session-manager-plugin -type f | head -n 1)"
+  elif [[ "$url" == *.deb ]]; then
+    dpkg-deb -x "${TMP_DIR}/download" "${TMP_DIR}/extract"
+    BIN_PATH="$(find "${TMP_DIR}/extract" -name session-manager-plugin -type f | head -n 1)"
+  else
+    echo "Unknown archive format: ${url}"
+    return 1
+  fi
+
+  if [[ -z "${BIN_PATH}" || ! -f "${BIN_PATH}" ]]; then
+    echo "Failed to locate session-manager-plugin in downloaded archive."
+    return 1
+  fi
+
+  cp "${BIN_PATH}" "${out}"
+  chmod +x "${out}"
+
+  echo "✅ Installed session-manager-plugin to ${out}"
+}
+
+# If BUILD_ALL is set, download both macOS architectures for universal builds
+if [[ "${BUILD_ALL:-}" == "true" ]] && [[ "$OS" == "darwin" ]]; then
+  echo "🔧 Building SSM plugins for universal macOS build..."
+  download_plugin \
+    "https://s3.amazonaws.com/session-manager-downloads/plugin/${VERSION}/mac_arm64/sessionmanager-bundle.zip" \
+    "${DEST}/session-manager-plugin-aarch64-apple-darwin" \
+    "darwin-arm64"
+  download_plugin \
+    "https://s3.amazonaws.com/session-manager-downloads/plugin/${VERSION}/mac/sessionmanager-bundle.zip" \
+    "${DEST}/session-manager-plugin-x86_64-apple-darwin" \
+    "darwin-x86_64"
+  echo "✅ All macOS SSM plugins downloaded"
+  exit 0
+fi
+
+# Single architecture download
 case "${OS}-${ARCH}" in
   darwin-arm64)
     URL="https://s3.amazonaws.com/session-manager-downloads/plugin/${VERSION}/mac_arm64/sessionmanager-bundle.zip"
@@ -28,30 +77,5 @@ case "${OS}-${ARCH}" in
     ;;
 esac
 
-TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT
-
-echo "📥 Downloading session-manager-plugin ${VERSION} for ${OS}-${ARCH}..."
-curl -sSL "$URL" -o "${TMP_DIR}/download"
-
-if [[ "$URL" == *.zip ]]; then
-  unzip -q "${TMP_DIR}/download" -d "${TMP_DIR}/extract"
-  BIN_PATH="$(find "${TMP_DIR}/extract" -name session-manager-plugin -type f | head -n 1)"
-elif [[ "$URL" == *.deb ]]; then
-  dpkg-deb -x "${TMP_DIR}/download" "${TMP_DIR}/extract"
-  BIN_PATH="$(find "${TMP_DIR}/extract" -name session-manager-plugin -type f | head -n 1)"
-else
-  echo "Unknown archive format: ${URL}"
-  exit 1
-fi
-
-if [[ -z "${BIN_PATH}" || ! -f "${BIN_PATH}" ]]; then
-  echo "Failed to locate session-manager-plugin in downloaded archive."
-  exit 1
-fi
-
-cp "${BIN_PATH}" "${OUT}"
-chmod +x "${OUT}"
-
-echo "✅ Installed session-manager-plugin to ${OUT}"
+download_plugin "$URL" "$OUT" "${OS}-${ARCH}"
 

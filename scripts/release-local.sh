@@ -2,7 +2,8 @@
 set -e
 
 # AI-Powered Local Release Script
-# Builds, signs, notarizes, and uploads to GitHub with AI-assisted versioning and changelog
+# Builds universal macOS binary (Intel + Apple Silicon), signs, notarizes, and uploads to GitHub
+# with AI-assisted versioning and changelog
 # Usage: make relc V=0.7.1  (optional version override)
 
 # Load .env if exists
@@ -20,8 +21,8 @@ if [ -f .env.local ]; then
 fi
 
 VERSION="${1:-}"
-TARGET="${2:-aarch64-apple-darwin}"
-ARCH="${TARGET%%-*}"  # Extract arch from target (aarch64 or x86_64)
+TARGET="${2:-universal-apple-darwin}"
+ARCH="universal"  # Universal build supports both Intel and Apple Silicon
 
 # Colors
 RED='\033[0;31m'
@@ -57,6 +58,16 @@ check_requirements() {
     # Check codesign identity
     if ! security find-identity -v -p codesigning | grep -q "Developer ID Application"; then
         error "No Developer ID Application certificate found in keychain"
+    fi
+
+    # Check Rust targets for universal build
+    if ! rustup target list --installed | grep -q "aarch64-apple-darwin"; then
+        log "Installing aarch64-apple-darwin target..."
+        rustup target add aarch64-apple-darwin
+    fi
+    if ! rustup target list --installed | grep -q "x86_64-apple-darwin"; then
+        log "Installing x86_64-apple-darwin target..."
+        rustup target add x86_64-apple-darwin
     fi
 
     # Check for AI CLI (codex or claude)
@@ -406,19 +417,22 @@ $(echo "$changelog" | sed 's/^## \[.*\] - .*//; s/^### /- /; s/^- $//; /^$/d' | 
 
 # Build AI sidecar
 build_sidecar() {
-    log "Building AI sidecar for $TARGET..."
-    bash scripts/build-ai-sidecar.sh
+    log "Building AI sidecars for universal macOS build..."
+    BUILD_ALL=true bash scripts/build-ai-sidecar.sh
 
-    SIDECAR="src-tauri/sidecars/qp-ai-$TARGET"
-    [ -f "$SIDECAR" ] || error "Sidecar not found: $SIDECAR"
-    success "AI sidecar built"
+    # Verify both architectures for universal build
+    for arch_target in aarch64-apple-darwin x86_64-apple-darwin; do
+        SIDECAR="src-tauri/sidecars/qp-ai-$arch_target"
+        [ -f "$SIDECAR" ] || error "Sidecar not found: $SIDECAR"
+    done
+    success "AI sidecars built for both architectures"
 }
 
 # Download SSM plugin
 download_ssm() {
-    log "Downloading AWS Session Manager plugin..."
-    bash scripts/download-ssm-plugin.sh
-    success "SSM plugin downloaded"
+    log "Downloading AWS Session Manager plugins for universal build..."
+    BUILD_ALL=true bash scripts/download-ssm-plugin.sh
+    success "SSM plugins downloaded for both architectures"
 }
 
 # Build Tauri app with signing
@@ -458,13 +472,14 @@ build_app() {
 prepare_dmg() {
     log "Preparing DMG..."
 
+    # Universal builds output to universal-apple-darwin directory
     DMG_PATH=$(find "src-tauri/target/$TARGET/release/bundle/dmg" -name "*.dmg" | head -n 1)
     [ -n "$DMG_PATH" ] || error "No DMG file found!"
 
-    DMG_NAME="Query-Pilot_${ARCH}.dmg"
-    cp "$DMG_PATH" "$DMG_NAME"
+    # DMG_NAME will be set after version is determined
+    cp "$DMG_PATH" "QueryPilot_v${NEXT_VERSION}.dmg"
 
-    success "DMG ready: $DMG_NAME"
+    success "DMG ready: QueryPilot_v${NEXT_VERSION}.dmg (universal binary)"
 }
 
 # Create GitHub release
@@ -495,7 +510,7 @@ $changelog
 ### Installation
 
 **macOS**
-- Apple Silicon: Download \`Query-Pilot_aarch64.dmg\`
+- Download \`QueryPilot_v$version.dmg\` (works on both Intel and Apple Silicon)
 - Open DMG and drag Query Pilot to Applications
 
 ### Code Signing
@@ -519,7 +534,7 @@ EOF
 # Upload DMG to release
 upload_dmg() {
     local version="$1"
-    local dmg_file="$2"
+    local dmg_file="QueryPilot_v${version}.dmg"
 
     log "Uploading $dmg_file to release..."
     gh release upload "v$version" "$dmg_file" --clobber
@@ -534,6 +549,7 @@ generate_manifest() {
 
     PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     NOTES=$(awk "/^## \[$version\]/,/^## \[[0-9]/" CHANGELOG.md | head -n 10 | sed 's/"/\\"/g' | tr '\n' ' ' || echo "See CHANGELOG.md")
+    DMG_NAME="QueryPilot_v${version}.dmg"
 
     # Check for Tauri signing key
     if [ -n "$TAURI_PRIVATE_KEY" ]; then
@@ -541,19 +557,24 @@ generate_manifest() {
         echo "$TAURI_PRIVATE_KEY" > /tmp/tauri-key
         chmod 600 /tmp/tauri-key
 
-        SIGNATURE=$(pnpm tauri signer sign "Query-Pilot_${ARCH}.dmg" --private-key /tmp/tauri-key --password "${TAURI_KEY_PASSWORD:-}" 2>/dev/null || echo "")
+        SIGNATURE=$(pnpm tauri signer sign "$DMG_NAME" --private-key /tmp/tauri-key --password "${TAURI_KEY_PASSWORD:-}" 2>/dev/null || echo "")
         rm -f /tmp/tauri-key
 
         if [ -n "$SIGNATURE" ]; then
+            # Universal DMG works for both architectures
             cat > latest.json << EOF
 {
   "version": "$version",
   "notes": "$NOTES",
   "pub_date": "$PUB_DATE",
   "platforms": {
-    "darwin-$ARCH": {
+    "darwin-aarch64": {
       "signature": "$SIGNATURE",
-      "url": "https://github.com/QueryPilot/studio-app/releases/download/v$version/Query-Pilot_${ARCH}.dmg"
+      "url": "https://github.com/QueryPilot/studio-app/releases/download/v$version/$DMG_NAME"
+    },
+    "darwin-x86_64": {
+      "signature": "$SIGNATURE",
+      "url": "https://github.com/QueryPilot/studio-app/releases/download/v$version/$DMG_NAME"
     }
   }
 }
@@ -575,15 +596,20 @@ create_unsigned_manifest() {
     local version="$1"
     local notes="$2"
     local pub_date="$3"
+    local dmg_name="QueryPilot_v${version}.dmg"
 
+    # Universal DMG works for both architectures
     cat > latest.json << EOF
 {
   "version": "$version",
   "notes": "$notes",
   "pub_date": "$pub_date",
   "platforms": {
-    "darwin-$ARCH": {
-      "url": "https://github.com/QueryPilot/studio-app/releases/download/v$version/Query-Pilot_${ARCH}.dmg"
+    "darwin-aarch64": {
+      "url": "https://github.com/QueryPilot/studio-app/releases/download/v$version/$dmg_name"
+    },
+    "darwin-x86_64": {
+      "url": "https://github.com/QueryPilot/studio-app/releases/download/v$version/$dmg_name"
     }
   }
 }
@@ -625,7 +651,7 @@ publish_to_app_repo() {
         --title "Query Pilot v$version" \
         --notes-file /tmp/release-notes.md \
         $PRERELEASE \
-        "Query-Pilot_${ARCH}.dmg" \
+        "QueryPilot_v${version}.dmg" \
         latest.json \
         CHANGELOG.md
 
@@ -689,7 +715,7 @@ main() {
     prepare_dmg
 
     create_release "$NEXT_VERSION" "$NEW_CHANGELOG"
-    upload_dmg "$NEXT_VERSION" "Query-Pilot_${ARCH}.dmg"
+    upload_dmg "$NEXT_VERSION"
     generate_manifest "$NEXT_VERSION"
     upload_manifest "$NEXT_VERSION"
     finalize_release "$NEXT_VERSION"

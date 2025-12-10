@@ -73,9 +73,8 @@ jobs:
           ### 📦 Installation
 
           **macOS**
-          - Apple Silicon: Download \`Query-Pilot_aarch64.dmg\`
+          - Download \`QueryPilot_$VERSION.dmg\` (works on both Intel and Apple Silicon)
           - Open DMG and drag Query Pilot to Applications
-          - Note: Intel build temporarily unavailable
 
           ### ⚠️ Code Signing
           - **macOS**: Signed and notarized with Apple Developer ID
@@ -99,15 +98,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-26  # M1 ARM runner - beta, latest tooling
+          - os: macos-14  # M1 ARM runner for universal builds
             platform: macos
-            target: aarch64-apple-darwin
-            arch: aarch64
-          # Temporarily disabled - uncomment to build Intel version
-          # - os: macos-latest
-          #   platform: macos
-          #   target: x86_64-apple-darwin
-          #   arch: x86_64
+            target: universal-apple-darwin
+            arch: universal
 
     steps:
       - name: Checkout code
@@ -118,10 +112,12 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
-      - name: Install macOS Rust target
-        run: rustup target add ${{ matrix.target }}
+      - name: Install macOS Rust targets for universal build
+        run: |
+          rustup target add aarch64-apple-darwin
+          rustup target add x86_64-apple-darwin
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -157,28 +153,31 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build AI sidecar
+      - name: Build AI sidecar for universal build
         run: |
-          echo "Building AI sidecar for ${{ matrix.target }}..."
-          pnpm build:ai-sidecar
+          echo "Building AI sidecars for universal macOS build..."
 
-          # Verify the sidecar was built
-          echo "Checking for built sidecar..."
+          # Build for both architectures
+          BUILD_ALL=true pnpm build:ai-sidecar
+
+          # Verify both sidecars were built
+          echo "Checking for built sidecars..."
           ls -la src-tauri/sidecars/ || echo "Sidecars directory not found!"
 
-          EXPECTED_FILE="src-tauri/sidecars/qp-ai-${{ matrix.target }}"
-          echo "Tauri expects: $EXPECTED_FILE"
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            EXPECTED_FILE="src-tauri/sidecars/qp-ai-$target"
+            echo "Checking: $EXPECTED_FILE"
+            if [ ! -f "$EXPECTED_FILE" ]; then
+              echo "ERROR: Sidecar binary not found for $target!"
+              exit 1
+            fi
+          done
 
-          if [ ! -f "$EXPECTED_FILE" ]; then
-            echo "ERROR: Sidecar binary not found!"
-            exit 1
-          fi
-
-          echo "✅ Sidecar built successfully"
+          echo "✅ All sidecars built successfully"
         shell: bash
 
-      - name: Download AWS Session Manager Plugin
-        run: bash scripts/download-ssm-plugin.sh
+      - name: Download AWS Session Manager Plugin for universal build
+        run: BUILD_ALL=true bash scripts/download-ssm-plugin.sh
 
       # ============================================
       # macOS Code Signing & Notarization Setup
@@ -266,13 +265,14 @@ jobs:
 
           DMG_PATH=$(find src-tauri/target/${{ matrix.target }}/release/bundle/dmg -name "*.dmg" | head -n 1)
           if [ -n "$DMG_PATH" ]; then
-            DMG_NAME="Query-Pilot_${{ matrix.arch }}.dmg"
+            VERSION="${{ needs.create-release.outputs.version }}"
+            DMG_NAME="QueryPilot_${VERSION}.dmg"
             echo "📦 Found DMG: $DMG_PATH"
             echo "📤 Renaming to: $DMG_NAME"
             mv "$DMG_PATH" "$DMG_NAME"
 
-            echo "🚀 Uploading to release: ${{ needs.create-release.outputs.version }}"
-            gh release upload ${{ needs.create-release.outputs.version }} \
+            echo "🚀 Uploading to release: $VERSION"
+            gh release upload "$VERSION" \
               "$DMG_NAME" \
               --clobber
 
@@ -346,6 +346,8 @@ jobs:
             "platforms": {
           EOF
 
+          DMG_NAME="QueryPilot_${VERSION}.dmg"
+
           # Sign DMG files if key is available
           if [ -n "$TAURI_PRIVATE_KEY" ]; then
             echo "🔐 Signing release assets..."
@@ -354,20 +356,24 @@ jobs:
             echo "$TAURI_PRIVATE_KEY" > /tmp/tauri-key
             chmod 600 /tmp/tauri-key
 
-            # Find and sign ARM64 DMG
-            AARCH64_DMG=$(ls *aarch64.dmg 2>/dev/null | head -1)
-            if [ -n "$AARCH64_DMG" ]; then
-              echo "  Signing $AARCH64_DMG..."
-              SIGNATURE=$(pnpm tauri signer sign "$AARCH64_DMG" --private-key /tmp/tauri-key --password "$TAURI_KEY_PASSWORD" 2>/dev/null || echo "")
+            # Find and sign DMG
+            if [ -f "$DMG_NAME" ]; then
+              echo "  Signing $DMG_NAME..."
+              SIGNATURE=$(pnpm tauri signer sign "$DMG_NAME" --private-key /tmp/tauri-key --password "$TAURI_KEY_PASSWORD" 2>/dev/null || echo "")
 
               if [ -n "$SIGNATURE" ]; then
+                # Universal DMG works for both architectures
                 cat >> latest.json << EOF
               "darwin-aarch64": {
                 "signature": "$SIGNATURE",
-                "url": "https://github.com/QueryPilot/studio-app/releases/download/$VERSION/$AARCH64_DMG"
+                "url": "https://github.com/QueryPilot/studio-app/releases/download/$VERSION/$DMG_NAME"
+              },
+              "darwin-x86_64": {
+                "signature": "$SIGNATURE",
+                "url": "https://github.com/QueryPilot/studio-app/releases/download/$VERSION/$DMG_NAME"
               }
           EOF
-                echo "    ✓ Signed darwin-aarch64"
+                echo "    ✓ Signed darwin-aarch64 and darwin-x86_64 (universal)"
               fi
             fi
 
@@ -376,11 +382,13 @@ jobs:
           else
             echo "⚠️  TAURI_PRIVATE_KEY not set, generating unsigned manifest"
 
-            AARCH64_DMG=$(ls *aarch64.dmg 2>/dev/null | head -1)
-            if [ -n "$AARCH64_DMG" ]; then
+            if [ -f "$DMG_NAME" ]; then
               cat >> latest.json << EOF
               "darwin-aarch64": {
-                "url": "https://github.com/QueryPilot/studio-app/releases/download/$VERSION/$AARCH64_DMG"
+                "url": "https://github.com/QueryPilot/studio-app/releases/download/$VERSION/$DMG_NAME"
+              },
+              "darwin-x86_64": {
+                "url": "https://github.com/QueryPilot/studio-app/releases/download/$VERSION/$DMG_NAME"
               }
           EOF
             fi
@@ -444,14 +452,14 @@ jobs:
           awk "/^## \[$VERSION_NUMBER\]/{found=1;next} found && /^## \[/{exit} found" CHANGELOG.md > RELEASE_NOTES.md
 
           # Add footer
-          cat >> RELEASE_NOTES.md << 'EOF'
+          cat >> RELEASE_NOTES.md << EOF
 
           ---
 
           ## Installation
 
           **macOS:**
-          - Download `Query-Pilot_aarch64.dmg` for Apple Silicon
+          - Download \`QueryPilot_${VERSION}.dmg\` (works on both Intel and Apple Silicon Macs)
           - Open DMG and drag Query Pilot to Applications folder
           - On first launch, right-click the app and select "Open" if you see a security warning
 
