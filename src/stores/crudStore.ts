@@ -147,12 +147,71 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
           }
         }
 
-        // Default behavior for all other commands
-        const nextCommands = existing.some((item) => item.id === command.id)
-          ? existing.map((item) => (item.id === command.id ? command : item))
-          : [...existing, command];
-        stagedCommands.set(tableKey, nextCommands);
-        commandIndex.set(command.id, tableKey);
+        // For UPDATE commands on existing rows, check if we're updating the same cell
+        // If so, replace the old UPDATE instead of adding a new one
+        if (command.type === "data.update") {
+          const updatePayload = command.payload as {
+            primaryKeys?: Record<string, unknown>;
+            column?: string;
+            newValue?: unknown;
+          };
+
+          // Find existing UPDATE command for the same cell (same PK + column)
+          const existingUpdateIndex = existing.findIndex((cmd) => {
+            if (cmd.type !== "data.update") return false;
+            const existingPayload = cmd.payload as {
+              primaryKeys?: Record<string, unknown>;
+              column?: string;
+            };
+
+            // Check if it's the same column
+            if (existingPayload.column !== updatePayload.column) return false;
+
+            // Check if it's the same row (by comparing primary keys)
+            if (!existingPayload.primaryKeys || !updatePayload.primaryKeys) return false;
+
+            const existingPKEntries = Object.entries(existingPayload.primaryKeys).sort(
+              ([a], [b]) => a.localeCompare(b),
+            );
+            const newPKEntries = Object.entries(updatePayload.primaryKeys).sort(([a], [b]) =>
+              a.localeCompare(b),
+            );
+
+            // Compare PK signatures
+            const existingPKSig = existingPKEntries
+              .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+              .join("|");
+            const newPKSig = newPKEntries
+              .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+              .join("|");
+
+            return existingPKSig === newPKSig;
+          });
+
+          if (existingUpdateIndex >= 0) {
+            // Replace the existing UPDATE command
+            const oldCommand = existing[existingUpdateIndex];
+            const nextCommands = [...existing];
+            nextCommands[existingUpdateIndex] = command;
+            stagedCommands.set(tableKey, nextCommands);
+            commandIndex.set(command.id, tableKey);
+            if (oldCommand) {
+              commandIndex.delete(oldCommand.id);
+            }
+          } else {
+            // No existing UPDATE for this cell, add new one
+            const nextCommands = [...existing, command];
+            stagedCommands.set(tableKey, nextCommands);
+            commandIndex.set(command.id, tableKey);
+          }
+        } else {
+          // Default behavior for INSERT, DELETE, and other commands
+          const nextCommands = existing.some((item) => item.id === command.id)
+            ? existing.map((item) => (item.id === command.id ? command : item))
+            : [...existing, command];
+          stagedCommands.set(tableKey, nextCommands);
+          commandIndex.set(command.id, tableKey);
+        }
 
         const snapshot = cloneStagedCommands(stagedCommands);
         const { history, historyIndex } = pushHistorySnapshot(

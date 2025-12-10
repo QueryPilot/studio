@@ -31,7 +31,13 @@ import { QuickFilter, type QuickFilterRef } from "../components/QuickFilter";
 import { useAIFilter } from "../hooks/useAIFilter";
 import { type FilterColumnInfo } from "@/utils/filterParser";
 import { openTableObject } from "@/utils/workbench/openers";
-import { DbType, type SortConfig, type CellValue as FrontCellValue, type ColumnMeta, type JsonValue } from "@/types";
+import {
+  DbType,
+  type SortConfig,
+  type CellValue as FrontCellValue,
+  type ColumnMeta,
+  type JsonValue,
+} from "@/types";
 import {
   usePersistentViewState,
   useClipboardBridge,
@@ -79,12 +85,12 @@ import { useContextKey, useScopedKeybindings } from "@/hooks/useContextKey";
 import { useCommand } from "@/hooks/useCommand";
 import { useCrudStore } from "@/stores/crudStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
-import {
-  createInsertCommand,
-  createCrudTarget,
-} from "../utils/crudHelpers";
+import { createInsertCommand, createCrudTarget } from "../utils/crudHelpers";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
-import { deriveValueType, normalizeBackendValue } from "@/services/tableDataTransform";
+import {
+  deriveValueType,
+  normalizeBackendValue,
+} from "@/services/tableDataTransform";
 
 interface BaseTableDataGridV2Props {
   gridId: string;
@@ -168,19 +174,16 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     setIsGridFocused(true);
   }, []);
 
-  const handleBlurCapture = useCallback(
-    (event: FocusEvent<HTMLDivElement>) => {
-      const nextTarget = event.relatedTarget as Node | null;
-      if (!containerRef.current) {
-        setIsGridFocused(false);
-        return;
-      }
-      if (!nextTarget || !containerRef.current.contains(nextTarget)) {
-        setIsGridFocused(false);
-      }
-    },
-    [],
-  );
+  const handleBlurCapture = useCallback((event: FocusEvent<HTMLDivElement>) => {
+    const nextTarget = event.relatedTarget as Node | null;
+    if (!containerRef.current) {
+      setIsGridFocused(false);
+      return;
+    }
+    if (!nextTarget || !containerRef.current.contains(nextTarget)) {
+      setIsGridFocused(false);
+    }
+  }, []);
 
   const isTableMode = props.mode === "table";
   const isQueryMode = props.mode === "query";
@@ -247,9 +250,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         ? parseInt(sc.columnId.slice(4), 10)
         : -1;
       const actualName =
-        colIndex >= 0 && cols?.[colIndex]
-          ? cols[colIndex].name
-          : sc.columnId;
+        colIndex >= 0 && cols?.[colIndex] ? cols[colIndex].name : sc.columnId;
       return {
         column: actualName,
         direction: sc.direction,
@@ -291,8 +292,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   }, [isTableMode, tableStructure?.columns]);
 
   // Get connection info for dialect detection (moved before filter hooks)
-  const storedConnection = useConnectionStore(
-    (state) => state.connections.find((c) => c.profile.id === connectionId)
+  const storedConnection = useConnectionStore((state) =>
+    state.connections.find((c) => c.profile.id === connectionId),
   );
 
   // Map DbType to dialect for AI filter
@@ -638,13 +639,18 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         return cached;
       }
       const parts = primaryKeyColumns.map((columnName) => {
-        const cell = row[columnName];
+        // Map column name to field identifier to access row data via ref
+        const field =
+          columnNameToFieldMapRef.current.get(columnName) ?? columnName;
+        const cell = row[field];
         const value = cell?.value;
         if (value === null || value === undefined) return "__null__";
         if (typeof value !== "object") return String(value);
         // Fast object-to-string for common types (avoids JSON.stringify)
         if (Array.isArray(value)) {
-          return `[${value.map((v) => (v == null ? "null" : String(v))).join(",")}]`;
+          return `[${value
+            .map((v) => (v == null ? "null" : String(v)))
+            .join(",")}]`;
         }
         if (value instanceof Date) {
           return value.toISOString();
@@ -653,7 +659,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
         const keys = Object.keys(value as Record<string, unknown>);
         if (keys.length <= 4) {
           const obj = value as Record<string, unknown>;
-          return `{${keys.map((k) => `${k}:${obj[k] == null ? "null" : String(obj[k])}`).join(",")}}`;
+          return `{${keys
+            .map((k) => `${k}:${obj[k] == null ? "null" : String(obj[k])}`)
+            .join(",")}}`;
         }
         // Fallback for complex objects
         return String(value);
@@ -793,6 +801,20 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       }),
     [columnMeta, structureMetaByName, fkReferenceByColumn, isTableMode],
   );
+
+  // Build a map from column name to field identifier (needed for row key generation and optimistic updates)
+  // Must be defined after baseColumns since it depends on it
+  const columnNameToFieldMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const col of baseColumns) {
+      map.set(col.name, col.field);
+    }
+    return map;
+  }, [baseColumns]);
+
+  // Store columnNameToFieldMap in a ref so getRowKey can access it without adding it to dependencies
+  const columnNameToFieldMapRef = useRef(columnNameToFieldMap);
+  columnNameToFieldMapRef.current = columnNameToFieldMap;
 
   const reorderedColumns = useMemo(
     () => reorderColumns(baseColumns, columnState.order),
@@ -981,12 +1003,24 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     onEditingChange: setIsEditingCell,
   });
 
-  // Column sorting (header click disabled for performance - use context menu)
-  const { sortColumns, getSortIndex, getSortDirection } =
-    useColumnSorting({
-      gridId,
-      columns: finalColumns,
+  // Make sure any active editor commits before opening commit preview
+  const commitActiveEdit = useCallback(async () => {
+    if (!isEditingCell) return;
+
+    const activeElement = document.activeElement as HTMLElement | null;
+    activeElement?.blur();
+
+    // Wait a couple of frames so Glide can fire onFinishedEditing
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
     });
+  }, [isEditingCell]);
+
+  // Column sorting (header click disabled for performance - use context menu)
+  const { sortColumns, getSortIndex, getSortDirection } = useColumnSorting({
+    gridId,
+    columns: finalColumns,
+  });
 
   // Custom header draw function for sort indicators and column type icons
   const drawHeader = useMemo(
@@ -1108,7 +1142,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       const pkEntries = Object.entries(payload.primaryKeys).sort(([a], [b]) =>
         a.localeCompare(b),
       );
-      const pkSig = pkEntries.map(([k, v]) => `${k}=${JSON.stringify(v)}`).join("|");
+      const pkSig = pkEntries
+        .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+        .join("|");
 
       if (!updateCommandsByPK.has(pkSig)) {
         updateCommandsByPK.set(pkSig, []);
@@ -1128,7 +1164,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       const rowPkSignatures = displayRows.map((row) => {
         const pkEntries = primaryKeyColumns
           .map((colName) => {
-            const cell = row[colName];
+            // Map column name to field identifier to access row data
+            const field = columnNameToFieldMap.get(colName);
+            const cell = field ? row[field] : undefined;
             const value =
               cell && typeof cell === "object" && "value" in cell
                 ? cell.value
@@ -1157,14 +1195,16 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
           // Only create new object for rows that actually changed
           const updatedRow = { ...row };
           for (const { column, newValue } of updates) {
-            if (column in updatedRow) {
-              const existingCell = updatedRow[column];
+            // Map column name to field identifier (e.g., "title" -> "col_0")
+            const field = columnNameToFieldMap.get(column);
+            if (field && field in updatedRow) {
+              const existingCell = updatedRow[field];
               if (
                 existingCell &&
                 typeof existingCell === "object" &&
                 "value" in existingCell
               ) {
-                updatedRow[column] = {
+                updatedRow[field] = {
                   ...existingCell,
                   value: newValue,
                 };
@@ -1279,6 +1319,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     finalColumns,
     primaryKeyColumns,
     columnByFieldMap,
+    columnNameToFieldMap,
   ]);
 
   // Auto-select first cell when grid gains focus with no existing selection
@@ -1892,6 +1933,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
               onCommitSuccess={async () => {
                 await tableDataQueryRef.current.refetch();
               }}
+              onBeforeCommitPreview={commitActiveEdit}
             />
           </>
         )}
@@ -1909,6 +1951,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     handleAddRow,
     handleInsertRowBelow,
     selectedRowsSet,
+    commitActiveEdit,
   ]);
 
   const cellHighlightRegions: Array<{ color: string; range: Rectangle }> = [];
@@ -1997,10 +2040,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       });
 
       // Apply cell-level styling for staged changes
+      // Use column.name for checking staged changes (not column.field)
+      // because CRUD commands store changes by actual column name
       const hasPendingChange = hasStagedCellChange(
         stagedChangesRef.current,
         rowIndex,
-        column.field,
+        column.name,
       );
 
       let finalCell = gridCell;
@@ -2143,11 +2188,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
             <p className="text-muted-foreground">
               No results match your filter
             </p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={clearFilter}
-            >
+            <Button variant="outline" size="sm" onClick={clearFilter}>
               Clear IconFilter
             </Button>
           </div>
