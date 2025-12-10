@@ -631,6 +631,14 @@ export const QueryPanel = memo(function QueryPanel({
           dispatch({ type: "SET_IS_EXPLAIN_RESULT", payload: true });
           dispatch({ type: "SET_VIEW_MODE", payload: "explain" });
           logger.info("[QueryPanel] EXPLAIN result detected - switching to explain view");
+        } else {
+          // Reset explain-specific UI when returning to normal results
+          if (isExplainResult) {
+            dispatch({ type: "SET_IS_EXPLAIN_RESULT", payload: false });
+          }
+          if (viewMode === "explain" || viewMode === "raw" || viewMode === "stats") {
+            dispatch({ type: "SET_VIEW_MODE", payload: "table" });
+          }
         }
 
         // Handle mutations and auto-refresh
@@ -760,6 +768,8 @@ export const QueryPanel = memo(function QueryPanel({
       setIsStreaming,
       setResult,
       setAppliedLimit,
+      viewMode,
+      isExplainResult,
     ],
   );
 
