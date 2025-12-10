@@ -14,6 +14,7 @@ import {
   IconStack2,
   IconLayersIntersect,
   IconCopy,
+  IconRocket,
 } from "@tabler/icons-react";
 
 // ============================================================================
@@ -2321,60 +2322,172 @@ export const ExplainViewer = memo(function ExplainViewer({
           parsed.executionTime !== undefined ||
           parsed.triggers?.length ||
           parsed.jit) && (
-          <div className="flex items-center gap-3 px-4 py-1.5 border-b bg-muted/20 text-xs flex-wrap">
-            {(parsed.planningTime !== undefined ||
-              parsed.executionTime !== undefined) && (
-              <>
-                <IconClock className="h-3.5 w-3.5 text-muted-foreground" />
-                {parsed.planningTime !== undefined && (
-                  <span>
-                    Planning:{" "}
-                    <span className="font-mono font-medium">
-                      {parsed.planningTime.toFixed(2)}ms
-                    </span>
-                  </span>
-                )}
-                {parsed.executionTime !== undefined && (
-                  <span>
-                    Execution:{" "}
-                    <span className="font-mono font-medium">
-                      {parsed.executionTime.toFixed(2)}ms
-                    </span>
-                  </span>
-                )}
-              </>
-            )}
-            {parsed.triggers && parsed.triggers.length > 0 && (
-              <span className="text-amber-600 dark:text-amber-400">
-                Triggers:{" "}
-                {parsed.triggers
-                  .map((t) => `${t.name} (${t.time.toFixed(2)}ms)`)
-                  .join(", ")}
-              </span>
-            )}
-            {parsed.jit && (
-              <>
-                <span className="text-muted-foreground">|</span>
-                <span className="text-violet-600 dark:text-violet-400">
-                  JIT:{" "}
-                  <span className="font-mono font-medium">
-                    {parsed.jit.functions} functions
-                  </span>
-                  {parsed.jit.timing?.total !== undefined && (
-                    <span className="font-mono">
-                      {" "}
-                      ({parsed.jit.timing.total.toFixed(2)}ms)
-                    </span>
-                  )}
-                </span>
-                {parsed.jit.options && (
-                  <span className="text-muted-foreground text-[10px]">
-                    [Expr: {parsed.jit.options.expressions ? "✓" : "✗"}, Deform:{" "}
-                    {parsed.jit.options.deforming ? "✓" : "✗"}]
-                  </span>
-                )}
-              </>
-            )}
+          <div className="border-b bg-gradient-to-r from-muted/30 to-muted/10">
+            <div className="px-4 py-3 space-y-2">
+              {/* Timing Section */}
+              {(parsed.planningTime !== undefined ||
+                parsed.executionTime !== undefined) && (
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <IconClock className="h-4 w-4" />
+                    <span className="text-xs font-medium">Query Timing</span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    {parsed.planningTime !== undefined && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground">
+                          Planning:
+                        </span>
+                        <span className="text-xs font-mono font-semibold text-blue-600 dark:text-blue-400">
+                          {parsed.planningTime.toFixed(3)}ms
+                        </span>
+                      </div>
+                    )}
+                    {parsed.executionTime !== undefined && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground">
+                          Execution:
+                        </span>
+                        <span className="text-xs font-mono font-semibold text-green-600 dark:text-green-400">
+                          {parsed.executionTime.toFixed(3)}ms
+                        </span>
+                      </div>
+                    )}
+                    {parsed.planningTime !== undefined &&
+                      parsed.executionTime !== undefined && (
+                        <div className="flex items-center gap-1.5 pl-2 border-l">
+                          <span className="text-xs text-muted-foreground">
+                            Total:
+                          </span>
+                          <span className="text-xs font-mono font-bold text-foreground">
+                            {(
+                              parsed.planningTime + parsed.executionTime
+                            ).toFixed(3)}
+                            ms
+                          </span>
+                        </div>
+                      )}
+                  </div>
+                </div>
+              )}
+
+              {/* JIT Section */}
+              {parsed.jit && (
+                <div className="flex items-start gap-4">
+                  <div className="flex items-center gap-2 text-violet-600 dark:text-violet-400">
+                    <IconRocket className="h-4 w-4" />
+                    <span className="text-xs font-medium">JIT Compilation</span>
+                  </div>
+                  <div className="flex-1 space-y-1.5">
+                    <div className="flex items-center gap-4">
+                      <span className="text-xs text-muted-foreground">
+                        {parsed.jit.functions} function
+                        {parsed.jit.functions !== 1 ? "s" : ""}
+                      </span>
+                      {parsed.jit.timing?.total !== undefined && (
+                        <span className="text-xs font-mono font-semibold text-violet-600 dark:text-violet-400">
+                          {parsed.jit.timing.total.toFixed(3)}ms
+                        </span>
+                      )}
+                      {parsed.jit.options && (
+                        <div className="flex items-center gap-2 text-[11px]">
+                          {[
+                            { key: "inlining", label: "Inlining" },
+                            { key: "optimization", label: "Optimization" },
+                            { key: "expressions", label: "Expressions" },
+                            { key: "deforming", label: "Deforming" },
+                          ].map(({ key, label }) => {
+                            const enabled =
+                              parsed.jit?.options?.[
+                                key as keyof typeof parsed.jit.options
+                              ];
+                            return (
+                              <span
+                                key={key}
+                                className={cn(
+                                  "px-1.5 py-0.5 rounded text-[10px] font-medium",
+                                  enabled
+                                    ? "bg-green-500/20 text-green-700 dark:text-green-300"
+                                    : "bg-muted text-muted-foreground",
+                                )}
+                              >
+                                {label}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                    {parsed.jit.timing && (
+                      <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                        {parsed.jit.timing.generation !== undefined && (
+                          <span>
+                            Gen:{" "}
+                            <span className="font-mono">
+                              {parsed.jit.timing.generation.toFixed(2)}ms
+                            </span>
+                          </span>
+                        )}
+                        {parsed.jit.timing.inlining !== undefined && (
+                          <span>
+                            Inline:{" "}
+                            <span className="font-mono">
+                              {parsed.jit.timing.inlining.toFixed(2)}ms
+                            </span>
+                          </span>
+                        )}
+                        {parsed.jit.timing.optimization !== undefined && (
+                          <span>
+                            Opt:{" "}
+                            <span className="font-mono">
+                              {parsed.jit.timing.optimization.toFixed(2)}ms
+                            </span>
+                          </span>
+                        )}
+                        {parsed.jit.timing.emission !== undefined && (
+                          <span>
+                            Emit:{" "}
+                            <span className="font-mono">
+                              {parsed.jit.timing.emission.toFixed(2)}ms
+                            </span>
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Triggers Section */}
+              {parsed.triggers && parsed.triggers.length > 0 && (
+                <div className="flex items-start gap-4">
+                  <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                    <div className="h-4 w-4 flex items-center justify-center">
+                      <div className="h-2 w-2 rounded-full bg-amber-600 dark:bg-amber-400" />
+                    </div>
+                    <span className="text-xs font-medium">Triggers</span>
+                  </div>
+                  <div className="flex-1 flex flex-wrap gap-3">
+                    {parsed.triggers.map((trigger, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center gap-2 px-2 py-1 rounded bg-amber-500/10 border border-amber-500/20"
+                      >
+                        <span className="text-xs font-mono font-medium text-foreground">
+                          {trigger.name}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground">
+                          {trigger.calls} call{trigger.calls !== 1 ? "s" : ""}
+                        </span>
+                        <span className="text-xs font-mono font-semibold text-amber-600 dark:text-amber-400">
+                          {trigger.time.toFixed(3)}ms
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
