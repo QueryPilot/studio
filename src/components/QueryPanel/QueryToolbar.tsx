@@ -30,6 +30,7 @@ import {
   IconWand,
   IconChartTreemap,
   IconFileText,
+  IconChartBar,
 } from "@tabler/icons-react";
 import { QueryLimitControl } from "./QueryLimitControl";
 import type { SqlDialect } from "@/components/CodeEditor";
@@ -57,7 +58,7 @@ interface QueryToolbarProps {
   query: string;
   showHistory: boolean;
   showResults: boolean;
-  viewMode: "table" | "json" | "explain";
+  viewMode: "table" | "json" | "explain" | "raw" | "stats";
   appliedLimit?: number;
   executeHint?: string;
   beautifyHint?: string;
@@ -65,16 +66,14 @@ interface QueryToolbarProps {
   dialect?: SqlDialect | "auto";
   detectedDialect?: SqlDialect;
   isExplainResult?: boolean;
-  showRawOutput?: boolean;
   onExecute: () => void;
   onCancel: () => void;
   onBeautify: () => void;
   onToggleHistory: () => void;
   onToggleResults: () => void;
-  onViewModeChange: (mode: "table" | "json" | "explain") => void;
+  onViewModeChange: (mode: "table" | "json" | "explain" | "raw" | "stats") => void;
   onDialectChange?: (dialect: SqlDialect | "auto") => void;
   onFocusEditor?: () => void;
-  onToggleRawOutput?: () => void;
 }
 
 export const QueryToolbar = memo(function QueryToolbar({
@@ -90,7 +89,6 @@ export const QueryToolbar = memo(function QueryToolbar({
   dialect = "auto",
   detectedDialect,
   isExplainResult = false,
-  showRawOutput = true,
   onExecute,
   onCancel,
   onBeautify,
@@ -99,7 +97,6 @@ export const QueryToolbar = memo(function QueryToolbar({
   onViewModeChange,
   onDialectChange,
   onFocusEditor,
-  onToggleRawOutput,
 }: QueryToolbarProps) {
   // Get the display label for the current dialect
   const currentDialectLabel =
@@ -135,7 +132,7 @@ export const QueryToolbar = memo(function QueryToolbar({
             <Tabs
               value={viewMode}
               onValueChange={(value) => {
-                onViewModeChange(value as "table" | "json" | "explain");
+                onViewModeChange(value as "table" | "json" | "explain" | "raw" | "stats");
               }}
               enableShortcuts={true}
               tabGroupId="query-view-mode"
@@ -162,31 +159,35 @@ export const QueryToolbar = memo(function QueryToolbar({
                   </>
                 )}
                 {isExplainResult && (
-                  <TabsTrigger
-                    value="explain"
-                    className="text-xs !h-5 !px-2 gap-1"
-                    tabIndex={0}
-                  >
-                    <IconChartTreemap className="h-3 w-3" />
-                    Tree
-                  </TabsTrigger>
+                  <>
+                    <TabsTrigger
+                      value="explain"
+                      className="text-xs !h-5 !px-2 gap-1"
+                      tabIndex={0}
+                    >
+                      <IconChartTreemap className="h-3 w-3" />
+                      Tree
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="stats"
+                      className="text-xs !h-5 !px-2 gap-1"
+                      tabIndex={1}
+                    >
+                      <IconChartBar className="h-3 w-3" />
+                      Stats
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="raw"
+                      className="text-xs !h-5 !px-2 gap-1"
+                      tabIndex={2}
+                    >
+                      <IconFileText className="h-3 w-3" />
+                      Raw
+                    </TabsTrigger>
+                  </>
                 )}
               </TabsList>
             </Tabs>
-          )}
-
-          {/* Raw Output Toggle - separate from tabs */}
-          {showResults && isExplainResult && (
-            <Button
-              size="sm"
-              variant={showRawOutput ? "secondary" : "ghost"}
-              onClick={onToggleRawOutput}
-              className="!h-6 text-xs gap-1 !px-2"
-              title={showRawOutput ? "Hide raw output" : "Show raw output"}
-            >
-              <IconFileText className="h-3 w-3" />
-              Raw
-            </Button>
           )}
 
           <div className="w-px h-4 bg-border hidden @[400px]/toolbar:block" />

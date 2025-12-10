@@ -32,14 +32,13 @@ interface ResultViewerProps {
   database?: string;
   gridId: string;
   isStreaming?: boolean;
-  viewMode: "table" | "json" | "explain";
+  viewMode: "table" | "json" | "explain" | "raw" | "stats";
   cursorSetupMs?: number;
   totalStreamingMs?: number;
   fetchCount?: number;
   networkMs?: number;
   conversionMs?: number;
   ipcSendMs?: number;
-  showRawOutput?: boolean;
 }
 
 export const ResultViewer = memo(function ResultViewer({
@@ -55,7 +54,6 @@ export const ResultViewer = memo(function ResultViewer({
   networkMs,
   conversionMs,
   ipcSendMs,
-  showRawOutput = true,
 }: ResultViewerProps) {
   const jsonContent = useMemo(() => {
     // Skip expensive JSON computation when in table mode
@@ -238,11 +236,11 @@ export const ResultViewer = memo(function ResultViewer({
         </div>
       )}
 
-      {viewMode === "explain" ? (
+      {(viewMode === "explain" || viewMode === "raw" || viewMode === "stats") ? (
         <div className="h-full">
           <ExplainViewer
             result={{ columns: result.columns, rows: result.rows }}
-            showRawOutput={showRawOutput}
+            viewMode={viewMode}
           />
         </div>
       ) : viewMode === "table" ? (

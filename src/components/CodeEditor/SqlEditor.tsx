@@ -168,6 +168,10 @@ const baseTheme = EditorView.theme({
   ".cm-cursor": {
     borderLeftWidth: "2px",
   },
+  // Fix multi-line selection to have consistent left edge
+  ".cm-line": {
+    paddingLeft: "2px",
+  },
 });
 
 export const SqlEditor = memo(
