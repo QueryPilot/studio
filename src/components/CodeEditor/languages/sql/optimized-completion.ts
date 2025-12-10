@@ -433,10 +433,10 @@ async function fetchCompletions(
       return completions;
     }
 
-    // Column context - fetch from all tables and add functions
+    // General context - fetch tables and functions
     const entities = await provider.listEntities();
 
-    // Add table aliases for qualified access
+    // Add tables (without auto-appending dot - user can type it for column access)
     for (const entity of entities) {
       if (entity.type === "table") {
         const usageBoost = getUsageBoost("tables", entity.name);
@@ -445,7 +445,6 @@ async function fetchCompletions(
           type: "class",
           detail: "table",
           boost: 3 + usageBoost,
-          apply: entity.name + ".",
         });
       }
     }

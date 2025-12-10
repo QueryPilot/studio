@@ -18,7 +18,6 @@ import {
   useImperativeHandle,
   useState,
   memo,
-  useCallback,
 } from "react";
 import { EditorState, Compartment, Prec } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightActiveLine, placeholder as placeholderExt } from "@codemirror/view";
@@ -30,6 +29,7 @@ import { sql, PostgreSQL, MySQL, SQLite, MSSQL, PLSQL } from "@codemirror/lang-s
 import { lintGutter } from "@codemirror/lint";
 
 import { useTheme } from "@/components/theme-provider";
+import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import { debounce } from "@/utils/debounce";
 import { detectSqlDialect } from "@/utils/dialectDetector";
 import { getThemeExtensions } from "./themes";
@@ -109,6 +109,7 @@ export interface SqlEditorProps {
 interface EditorCompartments {
   theme: Compartment;
   dialect: Compartment;
+  completion: Compartment;
   readOnly: Compartment;
   placeholder: Compartment;
 }
@@ -117,6 +118,7 @@ function createCompartments(): EditorCompartments {
   return {
     theme: new Compartment(),
     dialect: new Compartment(),
+    completion: new Compartment(),
     readOnly: new Compartment(),
     placeholder: new Compartment(),
   };
@@ -152,7 +154,7 @@ const baseTheme = EditorView.theme({
     overflow: "auto",
     flex: "1",
     fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
-    fontSize: "13px",
+    fontSize: "12px",
     lineHeight: "1.6",
   },
   ".cm-content": {
@@ -197,6 +199,9 @@ export const SqlEditor = memo(
     const onGotoDefinitionRef = useRef(onGotoDefinition);
     const onDialectDetectedRef = useRef(onDialectDetected);
     const { resolvedTheme } = useTheme();
+    const keyboardServices = useKeyboardServicesOptional();
+    const contextServiceRef = useRef(keyboardServices?.contextService);
+    contextServiceRef.current = keyboardServices?.contextService;
     const [currentDialect, setCurrentDialect] = useState<SqlDialect>(() =>
       detectSqlDialect(dbType, initialValue)
     );
@@ -258,9 +263,9 @@ export const SqlEditor = memo(
     const defaultSchema = schema || "public";
 
     // Create completion source - this is the only extension that needs connection context
-    // Memoize with stable callback to prevent unnecessary recreations
-    const completionSource = useCallback(
-      createOptimizedCompletionSource({
+    // Memoize to prevent unnecessary recreations
+    const completionSource = useMemo(
+      () => createOptimizedCompletionSource({
         connectionId,
         database,
         schema: defaultSchema,
@@ -269,21 +274,23 @@ export const SqlEditor = memo(
       [connectionId, database, defaultSchema, effectiveDialect]
     );
 
-    // Create SQL extensions - separated stable parts from dynamic
-    // Only recreates when dialect changes (not on every connection/schema change)
-    const sqlExtensions = useMemo(() => {
+    // SQL language instance - stable reference, only changes with dialect
+    const sqlLang = useMemo(() => {
       const dialectLang = getDialectExtension(effectiveDialect);
-      const provider = createSqlMetadataProvider(connectionId, defaultSchema);
+      return sql({
+        dialect: dialectLang,
+        upperCaseKeywords: true,
+      });
+    }, [effectiveDialect]);
 
+    // Dialect extensions - only recreates when dialect changes (expensive operations)
+    const dialectExtensions = useMemo(() => {
+      const provider = createSqlMetadataProvider(connectionId, defaultSchema);
       return [
-        // SQL language support - only depends on dialect
-        sql({
-          dialect: dialectLang,
-          upperCaseKeywords: true,
-        }),
-        // Optimized autocompletion with memoized source
+        // SQL language support with built-in keyword completion
+        sqlLang,
+        // Autocompletion UI settings (no override - uses language-provided sources)
         autocompletion({
-          override: [completionSource],
           activateOnTyping: true,
           maxRenderedOptions: 30,
           defaultKeymap: true,
@@ -295,7 +302,14 @@ export const SqlEditor = memo(
         // Code actions
         createExpandStarExtension(provider, defaultSchema, effectiveDialect),
       ];
-    }, [connectionId, defaultSchema, effectiveDialect, completionSource]);
+    }, [connectionId, defaultSchema, effectiveDialect, sqlLang]);
+
+    // Completion extension - lightweight, separate compartment for fast updates
+    const completionExtension = useMemo(() => {
+      return sqlLang.language.data.of({
+        autocomplete: completionSource,
+      });
+    }, [sqlLang, completionSource]);
 
     // Imperative handle
     useImperativeHandle(
@@ -384,7 +398,11 @@ export const SqlEditor = memo(
           baseTheme,
           history(),
           bracketMatching(),
-          highlightSelectionMatches(),
+          highlightSelectionMatches({
+            minSelectionLength: 3,
+            maxMatches: 50,
+            wholeWords: false,
+          }),
           indentOnInput(),
           indentUnit.of("  "),
           codeFolding({ placeholderText: "..." }),
@@ -427,8 +445,9 @@ export const SqlEditor = memo(
           compartments.theme.of(getThemeExtensions(actualTheme)),
           compartments.dialect.of([
             ...createDialectLinter(effectiveDialect),
-            ...sqlExtensions,
+            ...dialectExtensions,
           ]),
+          compartments.completion.of(completionExtension),
           compartments.readOnly.of(EditorView.editable.of(!readOnly)),
           compartments.placeholder.of(placeholder ? placeholderExt(placeholder) : []),
 
@@ -459,12 +478,36 @@ export const SqlEditor = memo(
       };
       view.dom.addEventListener("goto-definition", handleGotoDefinition);
 
+      // Track focus state for keyboard shortcuts using CodeMirror's focus tracking
+      // This allows global shortcuts like Cmd+Z to know when editor has focus
+      // Using DOM events on view.dom (not contentDOM) for more reliable focus detection
+      const handleFocus = () => {
+        contextServiceRef.current?.setValue("editorTextFocus", true);
+        contextServiceRef.current?.setValue("queryEditor", true);
+      };
+      const handleBlur = (e: FocusEvent) => {
+        // Only clear focus if focus is leaving the editor entirely
+        // (not moving to another element within the editor like scrollbar)
+        if (!view.dom.contains(e.relatedTarget as Node)) {
+          contextServiceRef.current?.setValue("editorTextFocus", false);
+          contextServiceRef.current?.setValue("queryEditor", false);
+        }
+      };
+      // Use focusin/focusout on the editor container for bubble-phase capture
+      view.dom.addEventListener("focusin", handleFocus);
+      view.dom.addEventListener("focusout", handleBlur);
+
       if (autoFocus) {
         requestAnimationFrame(() => { view.focus(); });
       }
 
       return () => {
         view.dom.removeEventListener("goto-definition", handleGotoDefinition);
+        view.dom.removeEventListener("focusin", handleFocus);
+        view.dom.removeEventListener("focusout", handleBlur);
+        // Reset context on unmount
+        contextServiceRef.current?.setValue("editorTextFocus", false);
+        contextServiceRef.current?.setValue("queryEditor", false);
         view.destroy();
         viewRef.current = null;
       };
@@ -478,15 +521,22 @@ export const SqlEditor = memo(
       });
     }, [resolvedTheme, compartments]);
 
-    // Update dialect and SQL extensions
+    // Update dialect extensions (heavy - only when dialect changes)
     useEffect(() => {
       viewRef.current?.dispatch({
         effects: compartments.dialect.reconfigure([
           ...createDialectLinter(effectiveDialect),
-          ...sqlExtensions,
+          ...dialectExtensions,
         ]),
       });
-    }, [effectiveDialect, sqlExtensions, compartments]);
+    }, [effectiveDialect, dialectExtensions, compartments]);
+
+    // Update completion extension (lightweight - separate from dialect)
+    useEffect(() => {
+      viewRef.current?.dispatch({
+        effects: compartments.completion.reconfigure(completionExtension),
+      });
+    }, [completionExtension, compartments]);
 
     // Update read-only
     useEffect(() => {

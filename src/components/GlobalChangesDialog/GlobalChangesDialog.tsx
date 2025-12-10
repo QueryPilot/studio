@@ -14,7 +14,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { IconPencil, IconPlus, IconTrash, IconCircleCheckFilled, IconX, IconLoader2, IconArrowBackUp } from '@tabler/icons-react';
+import {
+  IconPencil,
+  IconPlus,
+  IconTrash,
+  IconCircleCheckFilled,
+  IconX,
+  IconLoader2,
+  IconArrowBackUp,
+} from "@tabler/icons-react";
 import { toast } from "sonner";
 import ReactDiffViewer from "react-diff-viewer-continued";
 import { useTheme } from "next-themes";
@@ -177,7 +185,10 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
       (c) => c.type === "data.delete",
     ).length;
     totalSummary.ddl += commands.filter(
-      (c) => c.type.startsWith("column.") || c.type.startsWith("index.") || c.type.startsWith("trigger."),
+      (c) =>
+        c.type.startsWith("column.") ||
+        c.type.startsWith("index.") ||
+        c.type.startsWith("trigger."),
     ).length;
     totalSummary.total += commands.length;
   });
@@ -207,7 +218,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         const { invalidateTable } = useDataInvalidationStore.getState();
         invalidateTable(connectionId, database, schema, table);
         logger.info(
-          `[GlobalChangesDialog] Invalidated table after commit: ${database}.${schema ?? "public"}.${table}`,
+          `[GlobalChangesDialog] Invalidated table after commit: ${database}.${
+            schema ?? "public"
+          }.${table}`,
         );
 
         toast.success("Changes committed", {
@@ -233,7 +246,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
           if (connId && db && tbl) {
             invalidateTable(connId, db, sch, tbl);
             logger.info(
-              `[GlobalChangesDialog] Invalidated table after commit: ${db}.${sch ?? "public"}.${tbl}`,
+              `[GlobalChangesDialog] Invalidated table after commit: ${db}.${
+                sch ?? "public"
+              }.${tbl}`,
             );
           }
         });
@@ -287,7 +302,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     const commandCount = commands.length;
     const commandType = commands[0]?.type.split(".")[1] || "change";
     toast.success(`${commandType} change undone`, {
-      description: `Removed ${commandCount} ${commandCount === 1 ? "field" : "fields"}`,
+      description: `Removed ${commandCount} ${
+        commandCount === 1 ? "field" : "fields"
+      }`,
     });
   };
 
@@ -343,7 +360,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
 
           <div className="flex items-center gap-2 rounded-xl border bg-card p-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-red-500/10">
-              <IconTrash className="h-4 w-4 text-red-500" />
+              <IconTrash className="h-4 w-4 text-red-500 select-text" />
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Deletes</p>
@@ -383,7 +400,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
             <Button
               size="xs"
               variant="outline"
-              onClick={() => { onOpenChange(false); }}
+              onClick={() => {
+                onOpenChange(false);
+              }}
               disabled={isCommitting}
             >
               Cancel
@@ -435,10 +454,11 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
   const hasInsert = row.commands.some((cmd) => cmd.type === "data.insert");
   const hasDelete = row.commands.some((cmd) => cmd.type === "data.delete");
   const hasUpdate = row.commands.some((cmd) => cmd.type === "data.update");
-  const hasDDL = row.commands.some((cmd) =>
-    cmd.type.startsWith("column.") ||
-    cmd.type.startsWith("index.") ||
-    cmd.type.startsWith("trigger.")
+  const hasDDL = row.commands.some(
+    (cmd) =>
+      cmd.type.startsWith("column.") ||
+      cmd.type.startsWith("index.") ||
+      cmd.type.startsWith("trigger."),
   );
 
   // Get primary key info
@@ -463,31 +483,41 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
       // Handle DDL commands
       const ddlLines: string[] = [];
       row.commands.forEach((cmd) => {
-        const desc = cmd.metadata?.description || cmd.type;
+        const desc = cmd.metadata.description ?? cmd.type;
         ddlLines.push(desc);
 
         // Show payload details
-        const payload = cmd.payload as any;
-        logger.info('[GlobalChangesDialog] DDL command:', { type: cmd.type, payload });
+        const payload = cmd.payload as Record<string, unknown>;
+        logger.info("[GlobalChangesDialog] DDL command:", {
+          type: cmd.type,
+          payload,
+        });
         if (payload.column) {
           // column.add - show full column definition
           ddlLines.push(`  Column: ${JSON.stringify(payload.column, null, 2)}`);
         } else if (payload.definition) {
           // index/trigger - show definition
-          ddlLines.push(`  Definition: ${JSON.stringify(payload.definition, null, 2)}`);
+          ddlLines.push(
+            `  Definition: ${JSON.stringify(payload.definition, null, 2)}`,
+          );
         } else if (payload.columnName && payload.newDefinition) {
           // column.modify - show what changed
           const name = payload.columnName;
           ddlLines.push(`  Column: ${name}`);
-          const newDef = payload.newDefinition;
+          const newDef = payload.newDefinition as {
+            dataType?: string;
+            nullable?: boolean;
+            defaultValue?: string | null;
+            comment?: string;
+          };
           if (newDef.dataType !== undefined) {
             ddlLines.push(`  Type: ${newDef.dataType}`);
           }
           if (newDef.nullable !== undefined) {
-            ddlLines.push(`  Nullable: ${newDef.nullable ? 'YES' : 'NO'}`);
+            ddlLines.push(`  Nullable: ${newDef.nullable ? "YES" : "NO"}`);
           }
           if (newDef.defaultValue !== undefined) {
-            ddlLines.push(`  Default: ${newDef.defaultValue ?? 'NULL'}`);
+            ddlLines.push(`  Default: ${newDef.defaultValue ?? "NULL"}`);
           }
           if (newDef.comment !== undefined) {
             ddlLines.push(`  Comment: ${newDef.comment}`);
@@ -495,9 +525,14 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
         } else if (payload.newName && payload.columnName) {
           // column.rename - show old → new
           ddlLines.push(`  ${payload.columnName} → ${payload.newName}`);
-        } else if (payload.columnName || payload.indexName || payload.triggerName) {
+        } else if (
+          payload.columnName ||
+          payload.indexName ||
+          payload.triggerName
+        ) {
           // Other DDL operations (drop, etc.)
-          const name = payload.columnName || payload.indexName || payload.triggerName;
+          const name =
+            payload.columnName || payload.indexName || payload.triggerName;
           ddlLines.push(`  Name: ${name}`);
         }
       });
@@ -610,7 +645,7 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
         )}
         {hasDelete && (
           <>
-            <IconTrash className="h-3.5 w-3.5 text-red-500 ml-2" />
+            <IconTrash className="h-3.5 w-3.5 text-red-500 ml-2 select-text" />
             <span className="text-xs font-medium text-red-600 dark:text-red-400">
               Delete
             </span>

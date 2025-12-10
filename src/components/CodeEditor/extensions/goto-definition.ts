@@ -184,6 +184,10 @@ async function gotoDefinition(
   return true;
 }
 
+// Throttle helper for mousemove
+let lastMouseMoveTime = 0;
+const MOUSE_MOVE_THROTTLE = 100; // ms
+
 /**
  * Create goto-definition extension
  */
@@ -205,8 +209,14 @@ export function createGotoDefinitionExtension(
         }
         return false;
       },
-      // Show pointer cursor on Cmd+hover
+      // Show pointer cursor on Cmd+hover (throttled to avoid performance issues)
       mousemove: (event, view) => {
+        const now = Date.now();
+        if (now - lastMouseMoveTime < MOUSE_MOVE_THROTTLE) {
+          return false;
+        }
+        lastMouseMoveTime = now;
+
         if (event.metaKey || event.ctrlKey) {
           const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
           if (pos !== null) {

@@ -318,7 +318,6 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                     ) : (
                       <IconCopy className="h-3 w-3 mr-1" />
                     )}
-                    IconCopy
                   </Button>
                 )}
               </div>

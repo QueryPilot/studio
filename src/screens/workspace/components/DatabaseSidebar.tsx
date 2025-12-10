@@ -102,19 +102,33 @@ export function DatabaseSidebar({
   }, [functions]);
 
   // Pre-compute starred items set for O(1) lookups
-  const starredItemsRaw = getStarredItems(connectionId, selectedDatabase, selectedSchema);
+  const starredItemsRaw = getStarredItems(
+    connectionId,
+    selectedDatabase,
+    selectedSchema,
+  );
   const starredSet = useMemo(() => {
     const set = new Set<string>();
-    starredItemsRaw.forEach((item) => set.add(`${item.type}:${item.schema}.${item.name}`));
+    starredItemsRaw.forEach((item) =>
+      set.add(`${item.type}:${item.schema}.${item.name}`),
+    );
     return set;
   }, [starredItemsRaw]);
 
   // Compute non-starred counts for section headers
-  const nonStarredCounts = useMemo(() => ({
-    tables: tables.filter((t) => !starredSet.has(`table:${t.schema}.${t.name}`)).length,
-    views: views.filter((v) => !starredSet.has(`view:${v.schema}.${v.name}`)).length,
-    functions: functions.filter((f) => !starredSet.has(`function:${f.schema}.${f.name}`)).length,
-  }), [tables, views, functions, starredSet]);
+  const nonStarredCounts = useMemo(
+    () => ({
+      tables: tables.filter(
+        (t) => !starredSet.has(`table:${t.schema}.${t.name}`),
+      ).length,
+      views: views.filter((v) => !starredSet.has(`view:${v.schema}.${v.name}`))
+        .length,
+      functions: functions.filter(
+        (f) => !starredSet.has(`function:${f.schema}.${f.name}`),
+      ).length,
+    }),
+    [tables, views, functions, starredSet],
+  );
 
   // Pre-compute pending changes set for O(1) lookups
   const pendingChangesSet = useMemo(() => {
@@ -534,7 +548,10 @@ export function DatabaseSidebar({
         return false;
       }
       // Apply search filter
-      if (searchQuery && !item.name.toLowerCase().includes(searchQuery.toLowerCase())) {
+      if (
+        searchQuery &&
+        !item.name.toLowerCase().includes(searchQuery.toLowerCase())
+      ) {
         return false;
       }
       return true;
@@ -682,7 +699,7 @@ export function DatabaseSidebar({
       {/* Error Display */}
       {error && (
         <div className="px-2 py-1">
-          <div className="flex items-center gap-2 text-xs text-red-500">
+          <div className="flex items-center gap-2 text-xs text-red-500 select-text">
             <IconAlertCircle className="h-3 w-3" />
             <span>{error}</span>
           </div>
@@ -786,7 +803,8 @@ export function DatabaseSidebar({
                       item.schema,
                     )}
                     hasPendingChanges={
-                      item.type !== "function" && pendingChangesSet.has(`${item.schema}.${item.name}`)
+                      item.type !== "function" &&
+                      pendingChangesSet.has(`${item.schema}.${item.name}`)
                     }
                     actions={
                       item.type !== "function" ? (
@@ -865,9 +883,17 @@ export function DatabaseSidebar({
                     }}
                     isSelected={selectedItems.has(itemKey)}
                     rowCount={table.row_estimate}
-                    isStarred={starredSet.has(`table:${table.schema}.${table.name}`)}
-                    onToggleStar={handleToggleStar("table", table.name, table.schema)}
-                    hasPendingChanges={pendingChangesSet.has(`${table.schema}.${table.name}`)}
+                    isStarred={starredSet.has(
+                      `table:${table.schema}.${table.name}`,
+                    )}
+                    onToggleStar={handleToggleStar(
+                      "table",
+                      table.name,
+                      table.schema,
+                    )}
+                    hasPendingChanges={pendingChangesSet.has(
+                      `${table.schema}.${table.name}`,
+                    )}
                     actions={
                       <>
                         <ActionButton
@@ -943,9 +969,17 @@ export function DatabaseSidebar({
                     }}
                     isSelected={selectedItems.has(itemKey)}
                     className="border-l-2 border-l-transparent"
-                    isStarred={starredSet.has(`view:${view.schema}.${view.name}`)}
-                    onToggleStar={handleToggleStar("view", view.name, view.schema)}
-                    hasPendingChanges={pendingChangesSet.has(`${view.schema}.${view.name}`)}
+                    isStarred={starredSet.has(
+                      `view:${view.schema}.${view.name}`,
+                    )}
+                    onToggleStar={handleToggleStar(
+                      "view",
+                      view.name,
+                      view.schema,
+                    )}
+                    hasPendingChanges={pendingChangesSet.has(
+                      `${view.schema}.${view.name}`,
+                    )}
                     actions={
                       <>
                         <ActionButton
@@ -1014,8 +1048,14 @@ export function DatabaseSidebar({
                       handleContextMenu(itemKey, e);
                     }}
                     isSelected={selectedItems.has(itemKey)}
-                    isStarred={starredSet.has(`function:${func.schema}.${func.name}`)}
-                    onToggleStar={handleToggleStar("function", func.name, func.schema)}
+                    isStarred={starredSet.has(
+                      `function:${func.schema}.${func.name}`,
+                    )}
+                    onToggleStar={handleToggleStar(
+                      "function",
+                      func.name,
+                      func.schema,
+                    )}
                   />
                 );
               })}

@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { IconAlertCircle, IconLoader2, IconRefresh } from '@tabler/icons-react';
+import { IconAlertCircle, IconLoader2, IconRefresh } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import logo from "@/assets/logo.png";
 
@@ -45,7 +45,7 @@ interface DataGridEmptyStateProps {
 
 export const DataGridEmptyState = memo(function DataGridEmptyState({
   title = "Empty table",
-  description = "No rows found in this table. Start adding data to see it displayed here.",
+  description = "No rows found in this table.",
   onReload,
 }: DataGridEmptyStateProps) {
   return (
@@ -60,7 +60,12 @@ export const DataGridEmptyState = memo(function DataGridEmptyState({
         {description}
       </p>
       {onReload && (
-        <Button variant="outline" size="sm" onClick={onReload} className="gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onReload}
+          className="gap-1.5"
+        >
           <IconRefresh className="h-3.5 w-3.5" />
           Reload
         </Button>
