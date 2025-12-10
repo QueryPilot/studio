@@ -28,8 +28,6 @@ interface QueryEditorProps {
   dialectOverride?: SqlDialect;
   /** Callback to report the detected dialect */
   onDialectDetected?: (dialect: SqlDialect) => void;
-  /** Enable vim mode */
-  vimMode?: boolean;
 }
 
 export const QueryEditor = memo(
@@ -47,7 +45,6 @@ export const QueryEditor = memo(
       readOnly = false,
       dialectOverride,
       onDialectDetected,
-      vimMode = false,
     },
     ref,
   ) {
@@ -132,7 +129,6 @@ export const QueryEditor = memo(
           dbType={dbType}
           dialectOverride={dialectOverride}
           onDialectDetected={onDialectDetected}
-          vimMode={vimMode}
           readOnly={readOnly}
           autoFocus={true}
           height={height}

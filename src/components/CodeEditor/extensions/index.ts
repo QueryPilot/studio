@@ -4,9 +4,6 @@
  * Modular extensions for the high-performance SQL editor.
  */
 
-export { createVimExtension } from "./vim";
-export type { VimConfig } from "./vim";
-
 export { createMultiCursorExtension, getCursorCount } from "./multi-cursor";
 
 export { createSnippetExtension, SQL_SNIPPETS, getSnippetByPrefix, getAllSnippets } from "./snippets";
