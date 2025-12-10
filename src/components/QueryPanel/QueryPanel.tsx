@@ -63,12 +63,11 @@ interface QueryPanelState {
   isStreaming: boolean;
   showHistory: boolean;
   appliedLimit: { originalSql: string; limit: number } | null;
-  viewMode: "table" | "json" | "explain";
+  viewMode: "table" | "json" | "explain" | "raw" | "stats";
   selectedDialect: SqlDialect | "auto";
   detectedDialect: SqlDialect;
   showResults: boolean;
   isExplainResult: boolean;
-  showRawOutput: boolean;
 }
 
 type QueryPanelAction =
@@ -78,12 +77,11 @@ type QueryPanelAction =
   | { type: "SET_IS_STREAMING"; payload: boolean }
   | { type: "SET_SHOW_HISTORY"; payload: boolean }
   | { type: "SET_APPLIED_LIMIT"; payload: { originalSql: string; limit: number } | null }
-  | { type: "SET_VIEW_MODE"; payload: "table" | "json" | "explain" }
+  | { type: "SET_VIEW_MODE"; payload: "table" | "json" | "explain" | "raw" | "stats" }
   | { type: "SET_SELECTED_DIALECT"; payload: SqlDialect | "auto" }
   | { type: "SET_DETECTED_DIALECT"; payload: SqlDialect }
   | { type: "SET_SHOW_RESULTS"; payload: boolean }
   | { type: "SET_IS_EXPLAIN_RESULT"; payload: boolean }
-  | { type: "SET_SHOW_RAW_OUTPUT"; payload: boolean }
   | { type: "START_EXECUTION" }
   | { type: "END_EXECUTION"; payload: { result: QueryResult | null; error?: string } }
   | { type: "BATCH_UPDATE"; payload: Partial<QueryPanelState> };
@@ -112,8 +110,6 @@ function queryPanelReducer(state: QueryPanelState, action: QueryPanelAction): Qu
       return { ...state, showResults: action.payload };
     case "SET_IS_EXPLAIN_RESULT":
       return { ...state, isExplainResult: action.payload };
-    case "SET_SHOW_RAW_OUTPUT":
-      return { ...state, showRawOutput: action.payload };
     case "START_EXECUTION":
       return { ...state, isExecuting: true, isStreaming: true, result: null, isExplainResult: false };
     case "END_EXECUTION":
@@ -149,7 +145,6 @@ function createInitialState(
     detectedDialect: "postgresql",
     showResults: globalState?.result !== null,
     isExplainResult: false,
-    showRawOutput: true,
   };
 }
 
@@ -176,7 +171,7 @@ export const QueryPanel = memo(function QueryPanel({
     ({ globalState: gs, initialSql: sql }) => createInitialState(gs, sql)
   );
 
-  const { query, result, isExecuting, isStreaming, showHistory, appliedLimit, viewMode, selectedDialect, detectedDialect, showResults, isExplainResult, showRawOutput } = state;
+  const { query, result, isExecuting, isStreaming, showHistory, appliedLimit, viewMode, selectedDialect, detectedDialect, showResults, isExplainResult } = state;
 
   // AbortController still needs separate state (not serializable)
   const [abortController, setAbortController] = useState<AbortController | null>(null);
@@ -226,7 +221,7 @@ export const QueryPanel = memo(function QueryPanel({
     [],
   );
 
-  const setViewMode = useCallback((value: "table" | "json" | "explain") => {
+  const setViewMode = useCallback((value: "table" | "json" | "explain" | "raw" | "stats") => {
     dispatch({ type: "SET_VIEW_MODE", payload: value });
   }, []);
 
@@ -858,10 +853,6 @@ export const QueryPanel = memo(function QueryPanel({
     dispatch({ type: "SET_SHOW_RESULTS", payload: !showResults });
   }, [showResults]);
 
-  const toggleRawOutput = useCallback(() => {
-    dispatch({ type: "SET_SHOW_RAW_OUTPUT", payload: !showRawOutput });
-  }, [showRawOutput]);
-
   // Auto-show results panel when query execution starts or completes
   useEffect(() => {
     if (isExecuting || result !== null) {
@@ -1011,7 +1002,6 @@ export const QueryPanel = memo(function QueryPanel({
                     dialect={selectedDialect}
                     detectedDialect={detectedDialect}
                     isExplainResult={isExplainResult}
-                    showRawOutput={showRawOutput}
                     onExecute={() => handleExecute()}
                     onCancel={handleCancel}
                     onBeautify={handleBeautify}
@@ -1020,7 +1010,6 @@ export const QueryPanel = memo(function QueryPanel({
                     onViewModeChange={setViewMode}
                     onDialectChange={setSelectedDialect}
                     onFocusEditor={focusEditor}
-                    onToggleRawOutput={toggleRawOutput}
                   />
                 </div>
               </ResizablePanel>
@@ -1051,7 +1040,6 @@ export const QueryPanel = memo(function QueryPanel({
                           networkMs={result?.networkMs}
                           conversionMs={result?.conversionMs}
                           ipcSendMs={result?.ipcSendMs}
-                          showRawOutput={showRawOutput}
                         />
                       </div>
                     </div>
