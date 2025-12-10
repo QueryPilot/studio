@@ -122,7 +122,14 @@ export class PostgresDialect extends BaseDialect {
         return `SELECT pg_get_viewdef('${this.escapeStringLiteral(qualifiedName)}'::regclass, true) as definition`;
       case "function":
       case "procedure":
-        return `SELECT pg_get_functiondef('${this.escapeStringLiteral(qualifiedName)}'::regprocedure) as definition`;
+        // Use OID lookup to handle overloaded functions - returns first match
+        // For multiple overloads with same name, signature should be passed in name param
+        return `SELECT pg_get_functiondef(p.oid) as definition
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = ${this.formatLiteral(schema)}
+  AND p.proname = ${this.formatLiteral(name)}
+LIMIT 1`;
       case "table":
         return introspection.GET_TABLE_DEFINITION_QUERY
           .replace(/\$1/g, this.formatLiteral(schema))

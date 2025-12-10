@@ -1,5 +1,4 @@
 import { memo } from "react";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -163,34 +162,31 @@ export const QueryToolbar = memo(function QueryToolbar({
                   </>
                 )}
                 {isExplainResult && (
-                  <>
-                    <TabsTrigger
-                      value="explain"
-                      className="text-xs !h-5 !px-2 gap-1"
-                      tabIndex={0}
-                    >
-                      <IconChartTreemap className="h-3 w-3" />
-                      Tree
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="explain"
-                      className={cn(
-                        "text-xs !h-5 !px-2 gap-1",
-                        showRawOutput && "bg-accent"
-                      )}
-                      tabIndex={1}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        onToggleRawOutput?.();
-                      }}
-                    >
-                      <IconFileText className="h-3 w-3" />
-                      Raw
-                    </TabsTrigger>
-                  </>
+                  <TabsTrigger
+                    value="explain"
+                    className="text-xs !h-5 !px-2 gap-1"
+                    tabIndex={0}
+                  >
+                    <IconChartTreemap className="h-3 w-3" />
+                    Tree
+                  </TabsTrigger>
                 )}
               </TabsList>
             </Tabs>
+          )}
+
+          {/* Raw Output Toggle - separate from tabs */}
+          {showResults && isExplainResult && (
+            <Button
+              size="sm"
+              variant={showRawOutput ? "secondary" : "ghost"}
+              onClick={onToggleRawOutput}
+              className="!h-6 text-xs gap-1 !px-2"
+              title={showRawOutput ? "Hide raw output" : "Show raw output"}
+            >
+              <IconFileText className="h-3 w-3" />
+              Raw
+            </Button>
           )}
 
           <div className="w-px h-4 bg-border hidden @[400px]/toolbar:block" />

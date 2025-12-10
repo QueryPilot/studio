@@ -412,15 +412,23 @@ function createSemanticHighlightingPlugin() {
 
       update(update: ViewUpdate) {
         if (update.docChanged || update.viewportChanged) {
+          // Clear stale decorations immediately to avoid position errors
+          this.decorations = Decoration.none;
+
           // Debounce updates to avoid blocking on rapid typing
           if (this.pendingUpdate) {
             clearTimeout(this.pendingUpdate);
           }
 
+          // Capture view reference for the timeout
+          const view = update.view;
           this.pendingUpdate = setTimeout(() => {
-            this.decorations = this.analyze(update.view);
-            this.pendingUpdate = null;
-          }, 100);
+            // Re-check view is still valid and document hasn't changed
+            if (view.dom.isConnected) {
+              this.decorations = this.analyze(view);
+              this.pendingUpdate = null;
+            }
+          }, 250);
         }
       }
 

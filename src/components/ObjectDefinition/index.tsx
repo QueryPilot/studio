@@ -34,7 +34,9 @@ export const ObjectDefinition: React.FC<ObjectDefinitionProps> = React.memo(
 
     // Determine database dialect from connection using smart detection
     const dialect = useMemo<SqlDialect>(() => {
-      const profile = connections.find((c) => c.profile.id === connectionId)?.profile;
+      const profile = connections.find(
+        (c) => c.profile.id === connectionId,
+      )?.profile;
       if (!profile) return "plsql";
 
       return detectDialectForObject(profile.db_type, objectType);
@@ -91,7 +93,7 @@ export const ObjectDefinition: React.FC<ObjectDefinitionProps> = React.memo(
         <div
           className={cn("flex items-center justify-center h-full", className)}
         >
-          <div className="text-red-500">Error: {error}</div>
+          <div className="text-red-500 select-text">Error: {error}</div>
         </div>
       );
     }

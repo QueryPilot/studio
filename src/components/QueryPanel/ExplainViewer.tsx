@@ -1,6 +1,8 @@
 import { memo, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { CodeEditor } from "@/components/CodeEditor";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import {
   IconClock,
   IconChevronRight,
@@ -11,6 +13,7 @@ import {
   IconArrowsSort,
   IconStack2,
   IconLayersIntersect,
+  IconCopy,
 } from "@tabler/icons-react";
 import {
   ResizablePanelGroup,
@@ -53,10 +56,21 @@ interface ExplainNode {
   scanDirection?: string;
   // Join
   joinType?: string;
+  innerUnique?: boolean;
   // Parallel
   workersPlanned?: number;
   workersLaunched?: number;
   parallelAware?: boolean;
+  asyncCapable?: boolean;
+  // Per-worker stats
+  workers?: Array<{
+    workerNumber: number;
+    actualTime?: { startup: number; total: number };
+    actualRows?: number;
+    loops?: number;
+    buffers?: ExplainNode["buffers"];
+    wal?: ExplainNode["wal"];
+  }>;
   // Stats
   rowsRemoved?: { type: string; count: number };
   heapFetches?: number;
@@ -66,19 +80,78 @@ interface ExplainNode {
   sortMethod?: string;
   sortSpaceUsed?: number;
   sortSpaceType?: string;
+  // Incremental Sort
+  fullSortGroups?: { count: number; memoryUsed: number; memoryType: string };
+  preSortedGroups?: { count: number; memoryUsed: number; memoryType: string };
+  // Hash details
+  hashBuckets?: number;
+  hashBatches?: number;
+  originalHashBatches?: number;
+  peakMemoryUsage?: number;
+  diskUsage?: number;
+  // Memoize cache stats
+  cacheHits?: number;
+  cacheMisses?: number;
+  cacheEvictions?: number;
+  cacheOverflows?: number;
+  cacheMemoryUsage?: number;
   // Buffers
   buffers?: {
-    shared?: { hit?: number; read?: number; dirtied?: number; written?: number };
+    shared?: {
+      hit?: number;
+      read?: number;
+      dirtied?: number;
+      written?: number;
+    };
     local?: { hit?: number; read?: number; dirtied?: number; written?: number };
     temp?: { read?: number; written?: number };
   };
   ioTiming?: { read?: number; write?: number };
+  // WAL stats
+  wal?: { records?: number; fpi?: number; bytes?: number };
+  // Memory stats (PG17+)
+  memory?: { used?: number; allocated?: number };
+  // Conflict resolution (INSERT ON CONFLICT)
+  conflictResolution?: string;
+  conflictArbiterIndexes?: string[];
+  tuplesInserted?: number;
+  conflictingTuples?: number;
   // CTE/SubPlan
   cteName?: string;
   subplanName?: string;
+  // PG15+ features
+  runCondition?: string;
+  neverExecuted?: boolean;
+  subplansRemoved?: number;
+  // Partitioning
+  partitionsRemoved?: number;
+  plannedPartitions?: number;
+  // Sampling
+  samplingMethod?: string;
+  // Grouping sets
+  groupingSets?: string[];
+  // Parallel aggregate
+  partialMode?: string;
   // Children
   children?: ExplainNode[];
   raw?: string;
+}
+
+interface JitInfo {
+  functions?: number;
+  options?: {
+    inlining?: boolean;
+    optimization?: boolean;
+    expressions?: boolean;
+    deforming?: boolean;
+  };
+  timing?: {
+    generation?: number;
+    inlining?: number;
+    optimization?: number;
+    emission?: number;
+    total?: number;
+  };
 }
 
 interface ParsedExplain {
@@ -86,10 +159,12 @@ interface ParsedExplain {
   planningTime?: number;
   executionTime?: number;
   totalCost: number;
+  totalActualTime?: number; // Root's actual time * loops (for ANALYZE)
   raw: string;
   triggers?: { name: string; time: number; calls: number }[];
   settings?: string[];
   queryIdentifier?: string;
+  jit?: JitInfo;
 }
 
 interface ExplainViewerProps {
@@ -108,41 +183,159 @@ interface ExplainViewerProps {
 // Complete list of PostgreSQL plan node types
 const NODE_TYPES = [
   // Scan nodes
-  "Seq Scan", "Parallel Seq Scan", "Index Scan", "Index Only Scan",
-  "Bitmap Index Scan", "Bitmap Heap Scan", "Tid Scan", "Tid Range Scan",
-  "Subquery Scan", "Function Scan", "Table Function Scan", "Values Scan",
-  "CTE Scan", "Named Tuplestore Scan", "WorkTable Scan", "Foreign Scan",
-  "Custom Scan", "Sample Scan",
+  "Seq Scan",
+  "Parallel Seq Scan",
+  "Index Scan",
+  "Index Only Scan",
+  "Bitmap Index Scan",
+  "Bitmap Heap Scan",
+  "Tid Scan",
+  "Tid Range Scan",
+  "Subquery Scan",
+  "Function Scan",
+  "Table Function Scan",
+  "Values Scan",
+  "CTE Scan",
+  "Named Tuplestore Scan",
+  "WorkTable Scan",
+  "Foreign Scan",
+  "Custom Scan",
+  "Sample Scan",
   // Join nodes
-  "Nested Loop", "Hash Join", "Merge Join",
+  "Nested Loop",
+  "Hash Join",
+  "Merge Join",
   // Materialize
-  "Hash", "Materialize", "Memoize",
+  "Hash",
+  "Materialize",
+  "Memoize",
   // Aggregate
-  "Aggregate", "HashAggregate", "GroupAggregate", "Mixed Aggregate",
+  "Aggregate",
+  "HashAggregate",
+  "GroupAggregate",
+  "Mixed Aggregate",
   // Sort
-  "Sort", "Incremental Sort",
+  "Sort",
+  "Incremental Sort",
   // Set operations
-  "Append", "Merge Append", "Recursive Union", "BitmapAnd", "BitmapOr",
-  "SetOp", "Unique",
+  "Append",
+  "Merge Append",
+  "Recursive Union",
+  "BitmapAnd",
+  "BitmapOr",
+  "SetOp",
+  "Unique",
   // Control
-  "Limit", "LockRows", "ModifyTable", "Result", "ProjectSet", "Group",
+  "Limit",
+  "LockRows",
+  "ModifyTable",
+  "Result",
+  "ProjectSet",
+  "Group",
   // Parallel
-  "Gather", "Gather Merge",
+  "Gather",
+  "Gather Merge",
   // Window
   "WindowAgg",
+  // CTE headers
+  "CTE",
+  "InitPlan",
+  "SubPlan",
 ];
 
 // Attribute line prefixes (these are NOT nodes)
 const ATTRIBUTE_PREFIXES = [
-  "Hash Cond:", "Join Filter:", "Filter:", "Merge Cond:", "Index Cond:",
-  "Recheck Cond:", "TID Cond:", "One-Time Filter:", "Sort Key:", "Group Key:",
-  "Presorted Key:", "Output:", "Buffers:", "I/O Timings:", "Workers Planned:",
-  "Workers Launched:", "Rows Removed by", "Heap Fetches:", "Sort Method:",
-  "Sort Space Used:", "Sort Space Type:", "SubPlan", "InitPlan", "CTE",
-  "Trigger", "Planning:", "Settings:", "Query Identifier:", "Parallel Aware:",
-  "Async Capable:", "Single Copy:", "Inner Unique:", "Relation Name:",
-  "Alias:", "Schema:", "Function Name:", "Function Call:", "Remote SQL:",
-  "Exact Heap Blocks:", "Lossy Heap Blocks:", "Scan Direction:",
+  // Conditions
+  "Hash Cond:",
+  "Join Filter:",
+  "Filter:",
+  "Merge Cond:",
+  "Index Cond:",
+  "Recheck Cond:",
+  "TID Cond:",
+  "One-Time Filter:",
+  // Keys
+  "Sort Key:",
+  "Group Key:",
+  "Presorted Key:",
+  "Output:",
+  // Buffers & I/O
+  "Buffers:",
+  "I/O Timings:",
+  // Parallel
+  "Workers Planned:",
+  "Workers Launched:",
+  "Worker",  // Worker 0:, Worker 1:, etc.
+  "Parallel Aware:",
+  "Async Capable:",
+  "Single Copy:",
+  // Stats
+  "Rows Removed by",
+  "Heap Fetches:",
+  "Exact Heap Blocks:",
+  "Lossy Heap Blocks:",
+  // Sort
+  "Sort Method:",
+  "Sort Space Used:",
+  "Sort Space Type:",
+  // Incremental Sort
+  "Full-sort Groups:",
+  "Pre-sorted Groups:",
+  // Hash
+  "Hash Buckets:",
+  "Hash Batches:",
+  "Original Hash Batches:",
+  "Peak Memory Usage:",
+  "Disk Usage:",
+  // Memoize
+  "Cache Key:",
+  "Cache Mode:",
+  "Hits:",
+  "Misses:",
+  "Evictions:",
+  "Overflows:",
+  "Memory Usage:",
+  // WAL
+  "WAL:",
+  // Memory (PG17+)
+  "Memory:",
+  // Triggers
+  "Trigger",
+  // Settings
+  "Planning:",
+  "Settings:",
+  "Query Identifier:",
+  // Join
+  "Inner Unique:",
+  // Relation info
+  "Relation Name:",
+  "Alias:",
+  "Schema:",
+  "Function Name:",
+  "Function Call:",
+  "Remote SQL:",
+  "Scan Direction:",
+  // Conflict resolution
+  "Conflict Resolution:",
+  "Conflict Arbiter Indexes:",
+  "Tuples Inserted:",
+  "Conflicting Tuples:",
+  // PG15+ features
+  "Run Condition:",
+  "Subplans Removed:",
+  // Partitioning
+  "Partitions Removed:",
+  "Planned Partitions:",
+  // Sampling
+  "Sampling:",
+  "Repeatable:",
+  // Grouping sets
+  "Grouping Sets:",
+  "Group Keys:",
+  // Parallel aggregate
+  "Partial Mode:",
+  // Never executed
+  "never executed",
 ];
 
 // ============================================================================
@@ -153,8 +346,10 @@ let nodeIdCounter = 0;
 
 function isAttributeLine(content: string): boolean {
   const trimmed = content.trim();
-  return ATTRIBUTE_PREFIXES.some(prefix =>
-    trimmed.startsWith(prefix) || trimmed.toLowerCase().startsWith(prefix.toLowerCase())
+  return ATTRIBUTE_PREFIXES.some(
+    (prefix) =>
+      trimmed.startsWith(prefix) ||
+      trimmed.toLowerCase().startsWith(prefix.toLowerCase()),
   );
 }
 
@@ -165,9 +360,10 @@ function isNodeLine(content: string): boolean {
   if (content.includes("actual time=")) return true;
   // Check against known node types
   const trimmed = content.trim();
-  return NODE_TYPES.some(nodeType =>
-    trimmed.startsWith(nodeType) ||
-    trimmed.toLowerCase().startsWith(nodeType.toLowerCase())
+  return NODE_TYPES.some(
+    (nodeType) =>
+      trimmed.startsWith(nodeType) ||
+      trimmed.toLowerCase().startsWith(nodeType.toLowerCase()),
   );
 }
 
@@ -245,11 +441,13 @@ function parseNodeAttributes(node: ExplainNode, content: string): void {
     return;
   }
   // Rows Removed by Filter/Join Filter/Index Recheck
-  const rowsRemovedMatch = trimmed.match(/Rows Removed by (\w+(?:\s+\w+)?):\s*(\d+)/i);
+  const rowsRemovedMatch = trimmed.match(
+    /Rows Removed by (\w+(?:\s+\w+)?):\s*(\d+)/i,
+  );
   if (rowsRemovedMatch) {
     node.rowsRemoved = {
       type: rowsRemovedMatch[1] || "Filter",
-      count: parseInt(rowsRemovedMatch[2] || "0", 10)
+      count: parseInt(rowsRemovedMatch[2] || "0", 10),
     };
     return;
   }
@@ -294,6 +492,194 @@ function parseNodeAttributes(node: ExplainNode, content: string): void {
     node.parallelAware = trimmed.slice(15).trim().toLowerCase() === "true";
     return;
   }
+  // Async Capable
+  if (trimmed.startsWith("Async Capable:")) {
+    node.asyncCapable = trimmed.slice(14).trim().toLowerCase() === "true";
+    return;
+  }
+  // Inner Unique
+  if (trimmed.startsWith("Inner Unique:")) {
+    node.innerUnique = trimmed.slice(13).trim().toLowerCase() === "true";
+    return;
+  }
+  // Full-sort Groups (Incremental Sort)
+  const fullSortMatch = trimmed.match(
+    /Full-sort Groups:\s*(\d+)\s+Sort Methods?:\s*(\w+)\s+(?:Average )?Memory:\s*(\d+)kB/i,
+  );
+  if (fullSortMatch) {
+    node.fullSortGroups = {
+      count: parseInt(fullSortMatch[1] || "0", 10),
+      memoryUsed: parseInt(fullSortMatch[3] || "0", 10),
+      memoryType: fullSortMatch[2] || "unknown",
+    };
+    return;
+  }
+  // Pre-sorted Groups (Incremental Sort)
+  const preSortedMatch = trimmed.match(
+    /Pre-sorted Groups:\s*(\d+)\s+Sort Methods?:\s*(\w+)\s+(?:Average )?Memory:\s*(\d+)kB/i,
+  );
+  if (preSortedMatch) {
+    node.preSortedGroups = {
+      count: parseInt(preSortedMatch[1] || "0", 10),
+      memoryUsed: parseInt(preSortedMatch[3] || "0", 10),
+      memoryType: preSortedMatch[2] || "unknown",
+    };
+    return;
+  }
+  // Hash Buckets
+  if (trimmed.startsWith("Hash Buckets:") || trimmed.startsWith("Buckets:")) {
+    const match = trimmed.match(/(?:Hash )?Buckets:\s*(\d+)/i);
+    if (match) node.hashBuckets = parseInt(match[1] || "0", 10);
+    return;
+  }
+  // Hash Batches
+  if (trimmed.startsWith("Batches:")) {
+    node.hashBatches = parseInt(trimmed.slice(8).trim(), 10);
+    return;
+  }
+  // Original Hash Batches
+  if (trimmed.startsWith("Original Hash Batches:")) {
+    node.originalHashBatches = parseInt(trimmed.slice(22).trim(), 10);
+    return;
+  }
+  // Peak Memory Usage
+  const peakMemMatch = trimmed.match(/Peak Memory Usage:\s*(\d+)\s*kB/i);
+  if (peakMemMatch) {
+    node.peakMemoryUsage = parseInt(peakMemMatch[1] || "0", 10);
+    return;
+  }
+  // Disk Usage (for Hash)
+  const diskUsageMatch = trimmed.match(/Disk Usage:\s*(\d+)\s*kB/i);
+  if (diskUsageMatch) {
+    node.diskUsage = parseInt(diskUsageMatch[1] || "0", 10);
+    return;
+  }
+  // Memoize - Hits
+  if (trimmed.startsWith("Hits:")) {
+    node.cacheHits = parseInt(trimmed.slice(5).trim(), 10);
+    return;
+  }
+  // Memoize - Misses
+  if (trimmed.startsWith("Misses:")) {
+    node.cacheMisses = parseInt(trimmed.slice(7).trim(), 10);
+    return;
+  }
+  // Memoize - Evictions
+  if (trimmed.startsWith("Evictions:")) {
+    node.cacheEvictions = parseInt(trimmed.slice(10).trim(), 10);
+    return;
+  }
+  // Memoize - Overflows
+  if (trimmed.startsWith("Overflows:")) {
+    node.cacheOverflows = parseInt(trimmed.slice(10).trim(), 10);
+    return;
+  }
+  // Memoize - Memory Usage
+  const cacheMemMatch = trimmed.match(/Memory Usage:\s*(\d+)\s*kB/i);
+  if (cacheMemMatch) {
+    node.cacheMemoryUsage = parseInt(cacheMemMatch[1] || "0", 10);
+    return;
+  }
+  // WAL stats
+  const walMatch = trimmed.match(
+    /WAL:\s*records=(\d+)\s+fpi=(\d+)\s+bytes=(\d+)/i,
+  );
+  if (walMatch) {
+    node.wal = {
+      records: parseInt(walMatch[1] || "0", 10),
+      fpi: parseInt(walMatch[2] || "0", 10),
+      bytes: parseInt(walMatch[3] || "0", 10),
+    };
+    return;
+  }
+  // Memory stats (PG17+)
+  const memoryMatch = trimmed.match(
+    /Memory:\s*used=(\d+)kB\s+allocated=(\d+)kB/i,
+  );
+  if (memoryMatch) {
+    node.memory = {
+      used: parseInt(memoryMatch[1] || "0", 10),
+      allocated: parseInt(memoryMatch[2] || "0", 10),
+    };
+    return;
+  }
+  // Conflict Resolution (INSERT ON CONFLICT)
+  if (trimmed.startsWith("Conflict Resolution:")) {
+    node.conflictResolution = trimmed.slice(20).trim();
+    return;
+  }
+  // Conflict Arbiter Indexes
+  if (trimmed.startsWith("Conflict Arbiter Indexes:")) {
+    node.conflictArbiterIndexes = trimmed.slice(25).trim().split(/,\s*/);
+    return;
+  }
+  // Tuples Inserted
+  if (trimmed.startsWith("Tuples Inserted:")) {
+    node.tuplesInserted = parseInt(trimmed.slice(16).trim(), 10);
+    return;
+  }
+  // Conflicting Tuples
+  if (trimmed.startsWith("Conflicting Tuples:")) {
+    node.conflictingTuples = parseInt(trimmed.slice(19).trim(), 10);
+    return;
+  }
+  // Run Condition (PG15+ WindowAgg optimization)
+  if (trimmed.startsWith("Run Condition:")) {
+    node.runCondition = trimmed.slice(14).trim();
+    return;
+  }
+  // Never executed (runtime pruned)
+  if (trimmed.toLowerCase().includes("never executed")) {
+    node.neverExecuted = true;
+    return;
+  }
+  // Subplans Removed (partition pruning)
+  if (trimmed.startsWith("Subplans Removed:")) {
+    node.subplansRemoved = parseInt(trimmed.slice(17).trim(), 10);
+    return;
+  }
+  // Partitions Removed
+  if (trimmed.startsWith("Partitions Removed:")) {
+    node.partitionsRemoved = parseInt(trimmed.slice(19).trim(), 10);
+    return;
+  }
+  // Planned Partitions
+  if (trimmed.startsWith("Planned Partitions:")) {
+    node.plannedPartitions = parseInt(trimmed.slice(19).trim(), 10);
+    return;
+  }
+  // Sampling method
+  if (trimmed.startsWith("Sampling:")) {
+    node.samplingMethod = trimmed.slice(9).trim();
+    return;
+  }
+  // Grouping Sets
+  if (trimmed.startsWith("Grouping Sets:")) {
+    node.groupingSets = trimmed.slice(14).trim().split(/,\s*/);
+    return;
+  }
+  // Partial Mode (parallel aggregate)
+  if (trimmed.startsWith("Partial Mode:")) {
+    node.partialMode = trimmed.slice(13).trim();
+    return;
+  }
+  // Worker N: stats (per-worker)
+  const workerMatch = trimmed.match(
+    /Worker (\d+):\s*actual time=([\d.]+)\.\.([\d.]+)\s+rows=(\d+)\s+loops=(\d+)/i,
+  );
+  if (workerMatch) {
+    if (!node.workers) node.workers = [];
+    node.workers.push({
+      workerNumber: parseInt(workerMatch[1] || "0", 10),
+      actualTime: {
+        startup: parseFloat(workerMatch[2] || "0"),
+        total: parseFloat(workerMatch[3] || "0"),
+      },
+      actualRows: parseInt(workerMatch[4] || "0", 10),
+      loops: parseInt(workerMatch[5] || "0", 10),
+    });
+    return;
+  }
   // Buffers
   if (trimmed.startsWith("Buffers:")) {
     parseBuffersAttribute(node, trimmed.slice(8).trim());
@@ -318,8 +704,12 @@ function parseBuffersAttribute(node: ExplainNode, buffersStr: string): void {
     node.buffers.shared = {
       hit: sharedHit ? parseInt(sharedHit[1] || "0", 10) : undefined,
       read: sharedRead ? parseInt(sharedRead[1] || "0", 10) : undefined,
-      dirtied: sharedDirtied ? parseInt(sharedDirtied[1] || "0", 10) : undefined,
-      written: sharedWritten ? parseInt(sharedWritten[1] || "0", 10) : undefined,
+      dirtied: sharedDirtied
+        ? parseInt(sharedDirtied[1] || "0", 10)
+        : undefined,
+      written: sharedWritten
+        ? parseInt(sharedWritten[1] || "0", 10)
+        : undefined,
     };
   }
 
@@ -372,7 +762,9 @@ function parseNodeLine(content: string): ExplainNode {
 
   // Fallback: extract type from pattern
   if (node.type === "Unknown") {
-    const typeMatch = content.match(/^([A-Za-z][A-Za-z\s]+?)(?:\s+on|\s+using|\s*\(|$)/i);
+    const typeMatch = content.match(
+      /^([A-Za-z][A-Za-z\s]+?)(?:\s+on|\s+using|\s*\(|$)/i,
+    );
     if (typeMatch && typeMatch[1]) {
       node.type = typeMatch[1].trim();
     }
@@ -389,6 +781,16 @@ function parseNodeLine(content: string): ExplainNode {
   const indexMatch = content.match(/\busing\s+(\w+)/i);
   if (indexMatch) {
     node.indexName = indexMatch[1];
+  }
+
+  // CTE/SubPlan/InitPlan name
+  const cteMatch = content.match(/^CTE\s+(\w+)/i);
+  if (cteMatch) {
+    node.cteName = cteMatch[1];
+  }
+  const subplanMatch = content.match(/^(SubPlan|InitPlan)\s+(\d+)/i);
+  if (subplanMatch) {
+    node.subplanName = `${subplanMatch[1]} ${subplanMatch[2]}`;
   }
 
   // Join type (for joins)
@@ -465,6 +867,7 @@ function parsePostgresExplain(rows: unknown[][]): ParsedExplain {
   const triggers: ParsedExplain["triggers"] = [];
   const settings: string[] = [];
   let queryIdentifier: string | undefined;
+  let jit: JitInfo | undefined;
 
   for (const line of lines) {
     const planningMatch = line.match(/Planning Time:\s*([\d.]+)\s*ms/i);
@@ -476,7 +879,9 @@ function parsePostgresExplain(rows: unknown[][]): ParsedExplain {
       executionTime = parseFloat(executionMatch[1] || "0");
     }
     // Trigger info
-    const triggerMatch = line.match(/Trigger\s+(\w+):\s*time=([\d.]+)\s*calls=(\d+)/i);
+    const triggerMatch = line.match(
+      /Trigger\s+(\w+):\s*time=([\d.]+)\s*calls=(\d+)/i,
+    );
     if (triggerMatch) {
       triggers.push({
         name: triggerMatch[1] || "unknown",
@@ -493,6 +898,39 @@ function parsePostgresExplain(rows: unknown[][]): ParsedExplain {
     if (qidMatch) {
       queryIdentifier = qidMatch[1];
     }
+    // JIT Functions
+    const jitFunctionsMatch = line.match(/Functions:\s*(\d+)/i);
+    if (jitFunctionsMatch) {
+      jit = jit || {};
+      jit.functions = parseInt(jitFunctionsMatch[1] || "0", 10);
+    }
+    // JIT Options
+    const jitOptionsMatch = line.match(
+      /Options:\s*Inlining\s*(true|false),?\s*Optimization\s*(true|false),?\s*Expressions\s*(true|false),?\s*Deforming\s*(true|false)/i,
+    );
+    if (jitOptionsMatch) {
+      jit = jit || {};
+      jit.options = {
+        inlining: jitOptionsMatch[1]?.toLowerCase() === "true",
+        optimization: jitOptionsMatch[2]?.toLowerCase() === "true",
+        expressions: jitOptionsMatch[3]?.toLowerCase() === "true",
+        deforming: jitOptionsMatch[4]?.toLowerCase() === "true",
+      };
+    }
+    // JIT Timing
+    const jitTimingMatch = line.match(
+      /Timing:\s*Generation\s*([\d.]+)\s*ms,?\s*Inlining\s*([\d.]+)\s*ms,?\s*Optimization\s*([\d.]+)\s*ms,?\s*Emission\s*([\d.]+)\s*ms,?\s*Total\s*([\d.]+)\s*ms/i,
+    );
+    if (jitTimingMatch) {
+      jit = jit || {};
+      jit.timing = {
+        generation: parseFloat(jitTimingMatch[1] || "0"),
+        inlining: parseFloat(jitTimingMatch[2] || "0"),
+        optimization: parseFloat(jitTimingMatch[3] || "0"),
+        emission: parseFloat(jitTimingMatch[4] || "0"),
+        total: parseFloat(jitTimingMatch[5] || "0"),
+      };
+    }
   }
 
   const nodes: ExplainNode[] = [];
@@ -500,10 +938,17 @@ function parsePostgresExplain(rows: unknown[][]): ParsedExplain {
 
   for (const line of lines) {
     // Skip metadata lines
-    if (line.startsWith("Planning Time:") ||
-        line.startsWith("Execution Time:") ||
-        line.startsWith("Settings:") ||
-        line.match(/^Query Identifier:/)) {
+    const trimmedLine = line.trim();
+    if (
+      line.startsWith("Planning Time:") ||
+      line.startsWith("Execution Time:") ||
+      line.startsWith("Settings:") ||
+      line.match(/^Query Identifier:/) ||
+      trimmedLine === "JIT:" ||
+      trimmedLine.startsWith("Functions:") ||
+      trimmedLine.startsWith("Options:") ||
+      trimmedLine.startsWith("Timing:")
+    ) {
       continue;
     }
 
@@ -561,25 +1006,26 @@ function parsePostgresExplain(rows: unknown[][]): ParsedExplain {
     stack.push({ node, indent });
   }
 
-  // Calculate total cost
-  let totalCost = 0;
-  function sumCost(node: ExplainNode) {
-    if (node.cost?.total) {
-      totalCost = Math.max(totalCost, node.cost.total);
-    }
-    node.children?.forEach(sumCost);
-  }
-  nodes.forEach(sumCost);
+  // Total cost = root node's total cost (represents entire query cost)
+  const totalCost = nodes[0]?.cost?.total || 0;
+
+  // Total actual time = root's actual time * loops (for ANALYZE output)
+  const rootNode = nodes[0];
+  const totalActualTime = rootNode?.actualTime
+    ? rootNode.actualTime.total * (rootNode.loops || 1)
+    : undefined;
 
   return {
     nodes,
     planningTime,
     executionTime,
     totalCost,
+    totalActualTime,
     raw,
     triggers: triggers.length > 0 ? triggers : undefined,
     settings: settings.length > 0 ? settings : undefined,
     queryIdentifier,
+    jit,
   };
 }
 
@@ -590,14 +1036,14 @@ function parsePostgresExplain(rows: unknown[][]): ParsedExplain {
 interface JsonPlanNode {
   "Node Type": string;
   "Relation Name"?: string;
-  "Alias"?: string;
-  "Schema"?: string;
+  Alias?: string;
+  Schema?: string;
   "Index Name"?: string;
   "Scan Direction"?: string;
   "Join Type"?: string;
   "Hash Cond"?: string;
   "Join Filter"?: string;
-  "Filter"?: string;
+  Filter?: string;
   "Merge Cond"?: string;
   "Index Cond"?: string;
   "Recheck Cond"?: string;
@@ -606,7 +1052,7 @@ interface JsonPlanNode {
   "Sort Key"?: string[];
   "Group Key"?: string[];
   "Presorted Key"?: string[];
-  "Output"?: string[];
+  Output?: string[];
   "Startup Cost"?: number;
   "Total Cost"?: number;
   "Plan Rows"?: number;
@@ -641,7 +1087,65 @@ interface JsonPlanNode {
   "I/O Write Time"?: number;
   "CTE Name"?: string;
   "Subplan Name"?: string;
+  // Async
+  "Async Capable"?: boolean;
+  // Inner Unique
+  "Inner Unique"?: boolean;
+  // Hash details
+  "Hash Buckets"?: number;
+  "Hash Batches"?: number;
+  "Original Hash Batches"?: number;
+  "Peak Memory Usage"?: number;
+  // Memoize
+  "Cache Key"?: string;
+  "Cache Mode"?: string;
+  "Cache Hits"?: number;
+  "Cache Misses"?: number;
+  "Cache Evictions"?: number;
+  "Cache Overflows"?: number;
+  // Incremental Sort
+  "Full-sort Groups"?: { "Group Count": number; "Sort Methods Used": string[]; "Sort Space Memory"?: { "Average Sort Space Used": number; "Peak Sort Space Used": number } };
+  "Pre-sorted Groups"?: { "Group Count": number; "Sort Methods Used": string[]; "Sort Space Memory"?: { "Average Sort Space Used": number; "Peak Sort Space Used": number } };
+  // WAL
+  "WAL Records"?: number;
+  "WAL FPI"?: number;
+  "WAL Bytes"?: number;
+  // Memory (PG17+)
+  "Memory Used"?: number;
+  "Memory Allocated"?: number;
+  // Workers
+  Workers?: Array<{
+    "Worker Number": number;
+    "Actual Startup Time"?: number;
+    "Actual Total Time"?: number;
+    "Actual Rows"?: number;
+    "Actual Loops"?: number;
+    "Shared Hit Blocks"?: number;
+    "Shared Read Blocks"?: number;
+  }>;
+  // Conflict resolution
+  "Conflict Resolution"?: string;
+  "Conflict Arbiter Indexes"?: string[];
+  "Tuples Inserted"?: number;
+  "Conflicting Tuples"?: number;
   Plans?: JsonPlanNode[];
+}
+
+interface JsonJitInfo {
+  Functions?: number;
+  Options?: {
+    Inlining?: boolean;
+    Optimization?: boolean;
+    Expressions?: boolean;
+    Deforming?: boolean;
+  };
+  Timing?: {
+    Generation?: number;
+    Inlining?: number;
+    Optimization?: number;
+    Emission?: number;
+    Total?: number;
+  };
 }
 
 interface JsonExplainResult {
@@ -651,9 +1155,13 @@ interface JsonExplainResult {
   Triggers?: { "Trigger Name": string; Time: number; Calls: number }[];
   Settings?: Record<string, string>;
   "Query Identifier"?: string | number;
+  JIT?: JsonJitInfo;
 }
 
-function parseJsonExplain(jsonData: JsonExplainResult[] | JsonExplainResult, raw: string): ParsedExplain {
+function parseJsonExplain(
+  jsonData: JsonExplainResult[] | JsonExplainResult,
+  raw: string,
+): ParsedExplain {
   const data = Array.isArray(jsonData) ? jsonData[0] : jsonData;
 
   if (!data?.Plan) {
@@ -662,7 +1170,7 @@ function parseJsonExplain(jsonData: JsonExplainResult[] | JsonExplainResult, raw
 
   const planningTime = data["Planning Time"];
   const executionTime = data["Execution Time"];
-  const triggers = data.Triggers?.map(t => ({
+  const triggers = data.Triggers?.map((t) => ({
     name: t["Trigger Name"],
     time: t.Time,
     calls: t.Calls,
@@ -671,6 +1179,31 @@ function parseJsonExplain(jsonData: JsonExplainResult[] | JsonExplainResult, raw
     ? Object.entries(data.Settings).map(([k, v]) => `${k}=${v}`)
     : undefined;
   const queryIdentifier = data["Query Identifier"]?.toString();
+
+  // Parse JIT from JSON
+  let jit: JitInfo | undefined;
+  if (data.JIT) {
+    jit = {
+      functions: data.JIT.Functions,
+      options: data.JIT.Options
+        ? {
+            inlining: data.JIT.Options.Inlining,
+            optimization: data.JIT.Options.Optimization,
+            expressions: data.JIT.Options.Expressions,
+            deforming: data.JIT.Options.Deforming,
+          }
+        : undefined,
+      timing: data.JIT.Timing
+        ? {
+            generation: data.JIT.Timing.Generation,
+            inlining: data.JIT.Timing.Inlining,
+            optimization: data.JIT.Timing.Optimization,
+            emission: data.JIT.Timing.Emission,
+            total: data.JIT.Timing.Total,
+          }
+        : undefined,
+    };
+  }
 
   function convertNode(jsonNode: JsonPlanNode): ExplainNode {
     const node: ExplainNode = {
@@ -705,6 +1238,23 @@ function parseJsonExplain(jsonData: JsonExplainResult[] | JsonExplainResult, raw
       sortSpaceType: jsonNode["Sort Space Type"],
       cteName: jsonNode["CTE Name"],
       subplanName: jsonNode["Subplan Name"],
+      asyncCapable: jsonNode["Async Capable"],
+      innerUnique: jsonNode["Inner Unique"],
+      // Hash details
+      hashBuckets: jsonNode["Hash Buckets"],
+      hashBatches: jsonNode["Hash Batches"],
+      originalHashBatches: jsonNode["Original Hash Batches"],
+      peakMemoryUsage: jsonNode["Peak Memory Usage"],
+      // Memoize
+      cacheHits: jsonNode["Cache Hits"],
+      cacheMisses: jsonNode["Cache Misses"],
+      cacheEvictions: jsonNode["Cache Evictions"],
+      cacheOverflows: jsonNode["Cache Overflows"],
+      // Conflict resolution
+      conflictResolution: jsonNode["Conflict Resolution"],
+      conflictArbiterIndexes: jsonNode["Conflict Arbiter Indexes"],
+      tuplesInserted: jsonNode["Tuples Inserted"],
+      conflictingTuples: jsonNode["Conflicting Tuples"],
     };
 
     // Cost
@@ -732,15 +1282,27 @@ function parseJsonExplain(jsonData: JsonExplainResult[] | JsonExplainResult, raw
 
     // Rows removed
     if (jsonNode["Rows Removed by Filter"] !== undefined) {
-      node.rowsRemoved = { type: "Filter", count: jsonNode["Rows Removed by Filter"] };
+      node.rowsRemoved = {
+        type: "Filter",
+        count: jsonNode["Rows Removed by Filter"],
+      };
     } else if (jsonNode["Rows Removed by Join Filter"] !== undefined) {
-      node.rowsRemoved = { type: "Join Filter", count: jsonNode["Rows Removed by Join Filter"] };
+      node.rowsRemoved = {
+        type: "Join Filter",
+        count: jsonNode["Rows Removed by Join Filter"],
+      };
     } else if (jsonNode["Rows Removed by Index Recheck"] !== undefined) {
-      node.rowsRemoved = { type: "Index Recheck", count: jsonNode["Rows Removed by Index Recheck"] };
+      node.rowsRemoved = {
+        type: "Index Recheck",
+        count: jsonNode["Rows Removed by Index Recheck"],
+      };
     }
 
     // Buffers
-    if (jsonNode["Shared Hit Blocks"] !== undefined || jsonNode["Shared Read Blocks"] !== undefined) {
+    if (
+      jsonNode["Shared Hit Blocks"] !== undefined ||
+      jsonNode["Shared Read Blocks"] !== undefined
+    ) {
       node.buffers = {
         shared: {
           hit: jsonNode["Shared Hit Blocks"],
@@ -762,10 +1324,81 @@ function parseJsonExplain(jsonData: JsonExplainResult[] | JsonExplainResult, raw
     }
 
     // I/O Timing
-    if (jsonNode["I/O Read Time"] !== undefined || jsonNode["I/O Write Time"] !== undefined) {
+    if (
+      jsonNode["I/O Read Time"] !== undefined ||
+      jsonNode["I/O Write Time"] !== undefined
+    ) {
       node.ioTiming = {
         read: jsonNode["I/O Read Time"],
         write: jsonNode["I/O Write Time"],
+      };
+    }
+
+    // WAL stats
+    if (
+      jsonNode["WAL Records"] !== undefined ||
+      jsonNode["WAL FPI"] !== undefined ||
+      jsonNode["WAL Bytes"] !== undefined
+    ) {
+      node.wal = {
+        records: jsonNode["WAL Records"],
+        fpi: jsonNode["WAL FPI"],
+        bytes: jsonNode["WAL Bytes"],
+      };
+    }
+
+    // Memory stats (PG17+)
+    if (
+      jsonNode["Memory Used"] !== undefined ||
+      jsonNode["Memory Allocated"] !== undefined
+    ) {
+      node.memory = {
+        used: jsonNode["Memory Used"],
+        allocated: jsonNode["Memory Allocated"],
+      };
+    }
+
+    // Workers (parallel)
+    if (jsonNode.Workers && jsonNode.Workers.length > 0) {
+      node.workers = jsonNode.Workers.map((w) => ({
+        workerNumber: w["Worker Number"],
+        actualTime:
+          w["Actual Total Time"] !== undefined
+            ? {
+                startup: w["Actual Startup Time"] || 0,
+                total: w["Actual Total Time"],
+              }
+            : undefined,
+        actualRows: w["Actual Rows"],
+        loops: w["Actual Loops"],
+        buffers:
+          w["Shared Hit Blocks"] !== undefined ||
+          w["Shared Read Blocks"] !== undefined
+            ? {
+                shared: {
+                  hit: w["Shared Hit Blocks"],
+                  read: w["Shared Read Blocks"],
+                },
+              }
+            : undefined,
+      }));
+    }
+
+    // Incremental Sort groups
+    if (jsonNode["Full-sort Groups"]) {
+      const fg = jsonNode["Full-sort Groups"];
+      node.fullSortGroups = {
+        count: fg["Group Count"],
+        memoryUsed: fg["Sort Space Memory"]?.["Average Sort Space Used"] || 0,
+        memoryType: fg["Sort Methods Used"]?.join(", ") || "unknown",
+      };
+    }
+    if (jsonNode["Pre-sorted Groups"]) {
+      const pg = jsonNode["Pre-sorted Groups"];
+      node.preSortedGroups = {
+        count: pg["Group Count"],
+        memoryUsed: pg["Sort Space Memory"]?.["Average Sort Space Used"] || 0,
+        memoryType: pg["Sort Methods Used"]?.join(", ") || "unknown",
       };
     }
 
@@ -780,25 +1413,25 @@ function parseJsonExplain(jsonData: JsonExplainResult[] | JsonExplainResult, raw
   const rootNode = convertNode(data.Plan);
   const nodes = [rootNode];
 
-  // Calculate total cost
-  let totalCost = 0;
-  function sumCost(node: ExplainNode) {
-    if (node.cost?.total) {
-      totalCost = Math.max(totalCost, node.cost.total);
-    }
-    node.children?.forEach(sumCost);
-  }
-  nodes.forEach(sumCost);
+  // Total cost = root node's total cost (represents entire query cost)
+  const totalCost = rootNode.cost?.total || 0;
+
+  // Total actual time = root's actual time * loops (for ANALYZE output)
+  const totalActualTime = rootNode.actualTime
+    ? rootNode.actualTime.total * (rootNode.loops || 1)
+    : undefined;
 
   return {
     nodes,
     planningTime,
     executionTime,
     totalCost,
+    totalActualTime,
     raw,
     triggers,
     settings,
     queryIdentifier,
+    jit,
   };
 }
 
@@ -813,7 +1446,8 @@ function getNodeColor(type: string): string {
   if (t.includes("bitmap") || t.includes("index")) return "#22c55e"; // green - efficient
   if (t.includes("sort") || t.includes("incremental sort")) return "#3b82f6"; // blue
   if (t.includes("hash")) return "#8b5cf6"; // purple
-  if (t.includes("join") || t.includes("nested") || t.includes("merge")) return "#06b6d4"; // cyan
+  if (t.includes("join") || t.includes("nested") || t.includes("merge"))
+    return "#06b6d4"; // cyan
   if (t.includes("aggregate") || t.includes("group")) return "#ec4899"; // pink
   if (t.includes("gather")) return "#14b8a6"; // teal - parallel
   if (t.includes("limit") || t.includes("result")) return "#6b7280"; // gray
@@ -829,7 +1463,8 @@ function getNodeIcon(type: string) {
   if (t.includes("filter") || t.includes("bitmap")) return IconFilter;
   if (t.includes("sort")) return IconArrowsSort;
   if (t.includes("hash") || t.includes("aggregate")) return IconStack2;
-  if (t.includes("join") || t.includes("nested") || t.includes("merge")) return IconLayersIntersect;
+  if (t.includes("join") || t.includes("nested") || t.includes("merge"))
+    return IconLayersIntersect;
   return IconTable;
 }
 
@@ -840,6 +1475,7 @@ function getNodeIcon(type: string) {
 interface TreeNodeProps {
   node: ExplainNode;
   totalCost: number;
+  totalActualTime?: number;
   depth?: number;
   defaultExpanded?: boolean;
 }
@@ -847,13 +1483,35 @@ interface TreeNodeProps {
 const TreeNode = memo(function TreeNode({
   node,
   totalCost,
+  totalActualTime,
   depth = 0,
   defaultExpanded = true,
 }: TreeNodeProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const hasChildren = node.children && node.children.length > 0;
   const Icon = getNodeIcon(node.type);
-  const costPct = totalCost > 0 ? ((node.cost?.total || 0) / totalCost) * 100 : 0;
+
+  // Calculate EXCLUSIVE time (node's own time, excluding children)
+  // This shows where time is actually spent, not cumulative totals
+  const nodeInclusiveTime = node.actualTime
+    ? node.actualTime.total * (node.loops || 1)
+    : 0;
+  const childrenTotalTime = node.children?.reduce((sum, child) => {
+    const childTime = child.actualTime
+      ? child.actualTime.total * (child.loops || 1)
+      : 0;
+    return sum + childTime;
+  }, 0) || 0;
+  const nodeExclusiveTime = Math.max(0, nodeInclusiveTime - childrenTotalTime);
+
+  // Use exclusive actual time when available (ANALYZE)
+  // Fallback to estimated cost for plain EXPLAIN
+  const costPct =
+    totalActualTime && totalActualTime > 0 && node.actualTime
+      ? (nodeExclusiveTime / totalActualTime) * 100
+      : totalCost > 0
+        ? ((node.cost?.total || 0) / totalCost) * 100
+        : 0;
   const color = getNodeColor(node.type);
 
   return (
@@ -861,7 +1519,7 @@ const TreeNode = memo(function TreeNode({
       <div
         className={cn(
           "flex items-start gap-1.5 py-1 px-2 rounded-md hover:bg-muted/50 cursor-pointer group",
-          depth > 0 && "ml-4"
+          depth > 0 && "ml-4",
         )}
         onClick={() => hasChildren && setExpanded(!expanded)}
       >
@@ -889,10 +1547,21 @@ const TreeNode = memo(function TreeNode({
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-medium text-sm">{node.type}</span>
+            <span className="font-medium text-xs">
+              {node.type}
+              {node.cteName && node.type === "CTE" && (
+                <span className="ml-1 font-mono text-violet-600 dark:text-violet-400">{node.cteName}</span>
+              )}
+              {node.subplanName && (node.type === "SubPlan" || node.type === "InitPlan") && (
+                <span className="ml-1 font-mono text-amber-600 dark:text-amber-400">{node.subplanName.split(" ")[1]}</span>
+              )}
+            </span>
             {node.relation && (
               <span className="text-xs text-muted-foreground">
-                on <span className="font-mono text-foreground">{node.relation}</span>
+                on{" "}
+                <span className="font-mono text-foreground">
+                  {node.relation}
+                </span>
                 {node.alias && node.alias !== node.relation && (
                   <span className="text-muted-foreground"> ({node.alias})</span>
                 )}
@@ -915,7 +1584,14 @@ const TreeNode = memo(function TreeNode({
                 </span>
                 <span
                   className="ml-1 font-medium"
-                  style={{ color: costPct > 50 ? "#ef4444" : costPct > 20 ? "#f97316" : "#22c55e" }}
+                  style={{
+                    color:
+                      costPct > 50
+                        ? "#ef4444"
+                        : costPct > 20
+                        ? "#f97316"
+                        : "#22c55e",
+                  }}
                 >
                   ({costPct.toFixed(1)}%)
                 </span>
@@ -923,27 +1599,42 @@ const TreeNode = memo(function TreeNode({
             )}
             {node.rows !== undefined && (
               <span>
-                Rows: <span className="font-mono">{node.rows.toLocaleString()}</span>
+                Rows:{" "}
+                <span className="font-mono">{node.rows.toLocaleString()}</span>
+              </span>
+            )}
+            {node.width !== undefined && (
+              <span>
+                Width: <span className="font-mono">{node.width}</span>
               </span>
             )}
             {node.actualTime && (
-              <span className="text-blue-600 dark:text-blue-400">
-                Actual: <span className="font-mono">{node.actualTime.total.toFixed(3)}ms</span>
+              <span>
+                Actual:{" "}
+                <span className="font-mono">
+                  {node.actualTime.total.toFixed(3)}ms
+                </span>
               </span>
             )}
             {node.actualRows !== undefined && (
-              <span className="text-green-600 dark:text-green-400">
-                Actual Rows: <span className="font-mono">{node.actualRows.toLocaleString()}</span>
+              <span>
+                Actual Rows:{" "}
+                <span className="font-mono">
+                  {node.actualRows.toLocaleString()}
+                </span>
               </span>
             )}
-            {node.loops && node.loops > 1 && (
-              <span className="text-amber-600 dark:text-amber-400">
+            {node.loops !== undefined && (
+              <span>
                 Loops: <span className="font-mono">{node.loops}</span>
               </span>
             )}
             {node.indexName && (
               <span className="text-green-600 dark:text-green-400">
                 Index: <span className="font-mono">{node.indexName}</span>
+                {node.scanDirection && node.scanDirection !== "Forward" && (
+                  <span className="ml-1 text-amber-500">({node.scanDirection})</span>
+                )}
               </span>
             )}
           </div>
@@ -951,66 +1642,131 @@ const TreeNode = memo(function TreeNode({
           {/* Conditions */}
           {node.hashCond && (
             <div className="text-xs mt-1">
-              <span className="text-purple-600 dark:text-purple-400">Hash Cond: </span>
-              <code className="font-mono text-muted-foreground">{node.hashCond}</code>
+              <span className="text-purple-600 dark:text-purple-400">
+                Hash Cond:{" "}
+              </span>
+              <code className="font-mono text-muted-foreground">
+                {node.hashCond}
+              </code>
             </div>
           )}
           {node.joinFilter && (
             <div className="text-xs mt-1">
-              <span className="text-purple-600 dark:text-purple-400">Join Filter: </span>
-              <code className="font-mono text-muted-foreground">{node.joinFilter}</code>
+              <span className="text-purple-600 dark:text-purple-400">
+                Join Filter:{" "}
+              </span>
+              <code className="font-mono text-muted-foreground">
+                {node.joinFilter}
+              </code>
             </div>
           )}
           {node.filter && (
             <div className="text-xs mt-1">
-              <span className="text-purple-600 dark:text-purple-400">Filter: </span>
-              <code className="font-mono text-muted-foreground">{node.filter}</code>
+              <span className="text-purple-600 dark:text-purple-400">
+                Filter:{" "}
+              </span>
+              <code className="font-mono text-muted-foreground">
+                {node.filter}
+              </code>
             </div>
           )}
           {node.mergeCond && (
             <div className="text-xs mt-1">
-              <span className="text-cyan-600 dark:text-cyan-400">Merge Cond: </span>
-              <code className="font-mono text-muted-foreground">{node.mergeCond}</code>
+              <span className="text-cyan-600 dark:text-cyan-400">
+                Merge Cond:{" "}
+              </span>
+              <code className="font-mono text-muted-foreground">
+                {node.mergeCond}
+              </code>
             </div>
           )}
           {node.indexCond && (
             <div className="text-xs mt-1">
-              <span className="text-green-600 dark:text-green-400">Index Cond: </span>
-              <code className="font-mono text-muted-foreground">{node.indexCond}</code>
+              <span className="text-green-600 dark:text-green-400">
+                Index Cond:{" "}
+              </span>
+              <code className="font-mono text-muted-foreground">
+                {node.indexCond}
+              </code>
             </div>
           )}
           {node.recheckCond && (
             <div className="text-xs mt-1">
-              <span className="text-amber-600 dark:text-amber-400">Recheck Cond: </span>
-              <code className="font-mono text-muted-foreground">{node.recheckCond}</code>
+              <span className="text-amber-600 dark:text-amber-400">
+                Recheck Cond:{" "}
+              </span>
+              <code className="font-mono text-muted-foreground">
+                {node.recheckCond}
+              </code>
+            </div>
+          )}
+          {node.tidCond && (
+            <div className="text-xs mt-1">
+              <span className="text-orange-600 dark:text-orange-400">
+                TID Cond:{" "}
+              </span>
+              <code className="font-mono text-muted-foreground">
+                {node.tidCond}
+              </code>
+            </div>
+          )}
+          {node.oneTimeFilter && (
+            <div className="text-xs mt-1">
+              <span className="text-rose-600 dark:text-rose-400">
+                One-Time Filter:{" "}
+              </span>
+              <code className="font-mono text-muted-foreground">
+                {node.oneTimeFilter}
+              </code>
             </div>
           )}
 
           {/* Sort/Group keys */}
           {node.sortKey && node.sortKey.length > 0 && (
             <div className="text-xs mt-1">
-              <span className="text-blue-600 dark:text-blue-400">Sort Key: </span>
-              <code className="font-mono text-muted-foreground">{node.sortKey.join(", ")}</code>
+              <span className="text-blue-600 dark:text-blue-400">
+                Sort Key:{" "}
+              </span>
+              <code className="font-mono text-muted-foreground">
+                {node.sortKey.join(", ")}
+              </code>
             </div>
           )}
           {node.groupKey && node.groupKey.length > 0 && (
             <div className="text-xs mt-1">
-              <span className="text-pink-600 dark:text-pink-400">Group Key: </span>
-              <code className="font-mono text-muted-foreground">{node.groupKey.join(", ")}</code>
+              <span className="text-pink-600 dark:text-pink-400">
+                Group Key:{" "}
+              </span>
+              <code className="font-mono text-muted-foreground">
+                {node.groupKey.join(", ")}
+              </code>
+            </div>
+          )}
+          {node.presortedKey && node.presortedKey.length > 0 && (
+            <div className="text-xs mt-1">
+              <span className="text-sky-600 dark:text-sky-400">
+                Presorted Key:{" "}
+              </span>
+              <code className="font-mono text-muted-foreground">
+                {node.presortedKey.join(", ")}
+              </code>
             </div>
           )}
 
           {/* Extra stats */}
           {node.rowsRemoved && (
             <div className="text-xs mt-1 text-red-600 dark:text-red-400">
-              Rows Removed by {node.rowsRemoved.type}: {node.rowsRemoved.count.toLocaleString()}
+              Rows Removed by {node.rowsRemoved.type}:{" "}
+              {node.rowsRemoved.count.toLocaleString()}
             </div>
           )}
           {node.buffers?.shared && (
             <div className="text-xs mt-1 text-slate-600 dark:text-slate-400">
               Buffers:
-              {node.buffers.shared.hit !== undefined && ` hit=${node.buffers.shared.hit}`}
-              {node.buffers.shared.read !== undefined && ` read=${node.buffers.shared.read}`}
+              {node.buffers.shared.hit !== undefined &&
+                ` hit=${node.buffers.shared.hit}`}
+              {node.buffers.shared.read !== undefined &&
+                ` read=${node.buffers.shared.read}`}
             </div>
           )}
           {node.sortMethod && (
@@ -1022,6 +1778,75 @@ const TreeNode = memo(function TreeNode({
           {node.workersPlanned !== undefined && (
             <div className="text-xs mt-1 text-teal-600 dark:text-teal-400">
               Workers: {node.workersLaunched ?? 0}/{node.workersPlanned} planned
+            </div>
+          )}
+
+          {/* Hash stats */}
+          {(node.hashBuckets !== undefined || node.hashBatches !== undefined) && (
+            <div className="text-xs mt-1 text-purple-600 dark:text-purple-400">
+              Hash:
+              {node.hashBuckets !== undefined && ` Buckets=${node.hashBuckets}`}
+              {node.hashBatches !== undefined && ` Batches=${node.hashBatches}`}
+              {node.originalHashBatches !== undefined && node.originalHashBatches !== node.hashBatches && ` (orig=${node.originalHashBatches})`}
+              {node.peakMemoryUsage !== undefined && ` Peak=${node.peakMemoryUsage}kB`}
+              {node.diskUsage !== undefined && <span className="text-red-500"> Disk={node.diskUsage}kB</span>}
+            </div>
+          )}
+
+          {/* Memoize cache stats */}
+          {(node.cacheHits !== undefined || node.cacheMisses !== undefined) && (
+            <div className="text-xs mt-1 text-violet-600 dark:text-violet-400">
+              Cache: Hits={node.cacheHits ?? 0} Misses={node.cacheMisses ?? 0}
+              {node.cacheEvictions !== undefined && node.cacheEvictions > 0 && ` Evictions=${node.cacheEvictions}`}
+              {node.cacheOverflows !== undefined && node.cacheOverflows > 0 && <span className="text-red-500"> Overflows={node.cacheOverflows}</span>}
+              {node.cacheMemoryUsage !== undefined && ` (${node.cacheMemoryUsage}kB)`}
+            </div>
+          )}
+
+          {/* Incremental Sort groups */}
+          {node.fullSortGroups && (
+            <div className="text-xs mt-1 text-blue-600 dark:text-blue-400">
+              Full-sort: {node.fullSortGroups.count} groups ({node.fullSortGroups.memoryType}, {node.fullSortGroups.memoryUsed}kB avg)
+            </div>
+          )}
+          {node.preSortedGroups && (
+            <div className="text-xs mt-1 text-blue-600 dark:text-blue-400">
+              Pre-sorted: {node.preSortedGroups.count} groups ({node.preSortedGroups.memoryType}, {node.preSortedGroups.memoryUsed}kB avg)
+            </div>
+          )}
+
+          {/* WAL stats */}
+          {node.wal && (
+            <div className="text-xs mt-1 text-orange-600 dark:text-orange-400">
+              WAL: records={node.wal.records} fpi={node.wal.fpi} bytes={node.wal.bytes?.toLocaleString()}
+            </div>
+          )}
+
+          {/* Memory stats (PG17+) */}
+          {node.memory && (
+            <div className="text-xs mt-1 text-emerald-600 dark:text-emerald-400">
+              Memory: used={node.memory.used}kB allocated={node.memory.allocated}kB
+            </div>
+          )}
+
+          {/* Conflict resolution */}
+          {node.conflictResolution && (
+            <div className="text-xs mt-1 text-amber-600 dark:text-amber-400">
+              Conflict: {node.conflictResolution}
+              {node.tuplesInserted !== undefined && ` Inserted=${node.tuplesInserted}`}
+              {node.conflictingTuples !== undefined && node.conflictingTuples > 0 && ` Conflicts=${node.conflictingTuples}`}
+            </div>
+          )}
+
+          {/* Per-worker stats */}
+          {node.workers && node.workers.length > 0 && (
+            <div className="text-xs mt-1 text-teal-600 dark:text-teal-400 ml-2 border-l pl-2 border-teal-500/30">
+              {node.workers.map((w) => (
+                <div key={w.workerNumber}>
+                  Worker {w.workerNumber}: {w.actualTime?.total.toFixed(3)}ms, {w.actualRows?.toLocaleString()} rows
+                  {w.buffers?.shared?.hit !== undefined && ` (buf hit=${w.buffers.shared.hit})`}
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -1048,6 +1873,7 @@ const TreeNode = memo(function TreeNode({
               key={child.id || idx}
               node={child}
               totalCost={totalCost}
+              totalActualTime={totalActualTime}
               depth={depth + 1}
               defaultExpanded={depth < 3}
             />
@@ -1061,19 +1887,25 @@ const TreeNode = memo(function TreeNode({
 const TreeView = memo(function TreeView({
   nodes,
   totalCost,
+  totalActualTime,
 }: {
   nodes: ExplainNode[];
   totalCost: number;
+  totalActualTime?: number;
 }) {
   return (
     <div className="p-2">
       {nodes.map((node, idx) => (
-        <TreeNode key={node.id || idx} node={node} totalCost={totalCost} />
+        <TreeNode
+          key={node.id || idx}
+          node={node}
+          totalCost={totalCost}
+          totalActualTime={totalActualTime}
+        />
       ))}
     </div>
   );
 });
-
 
 // ============================================================================
 // MAIN COMPONENT
@@ -1084,7 +1916,10 @@ export const ExplainViewer = memo(function ExplainViewer({
   className,
   showRawOutput = true,
 }: ExplainViewerProps) {
-  const parsed = useMemo(() => parsePostgresExplain(result.rows), [result.rows]);
+  const parsed = useMemo(
+    () => parsePostgresExplain(result.rows),
+    [result.rows],
+  );
 
   // Fallback to raw text if parsing failed
   if (parsed.nodes.length === 0) {
@@ -1096,7 +1931,13 @@ export const ExplainViewer = memo(function ExplainViewer({
       .join("\n");
     return (
       <div className={cn("h-full overflow-hidden", className)}>
-        <CodeEditor value={rawText} language="sql" readOnly height="100%" lineNumbers />
+        <CodeEditor
+          value={rawText}
+          language="sql"
+          readOnly
+          height="100%"
+          lineNumbers
+        />
       </div>
     );
   }
@@ -1104,27 +1945,63 @@ export const ExplainViewer = memo(function ExplainViewer({
   return (
     <div className={cn("h-full flex flex-col overflow-hidden", className)}>
       {/* Header with timing info */}
-      {(parsed.planningTime !== undefined || parsed.executionTime !== undefined || (parsed.triggers && parsed.triggers.length > 0)) && (
+      {(parsed.planningTime !== undefined ||
+        parsed.executionTime !== undefined ||
+        parsed.triggers?.length ||
+        parsed.jit) && (
         <div className="flex items-center gap-3 px-4 py-1.5 border-b bg-muted/20 text-xs flex-wrap">
-          {(parsed.planningTime !== undefined || parsed.executionTime !== undefined) && (
+          {(parsed.planningTime !== undefined ||
+            parsed.executionTime !== undefined) && (
             <>
               <IconClock className="h-3.5 w-3.5 text-muted-foreground" />
               {parsed.planningTime !== undefined && (
                 <span>
-                  Planning: <span className="font-mono font-medium">{parsed.planningTime.toFixed(2)}ms</span>
+                  Planning:{" "}
+                  <span className="font-mono font-medium">
+                    {parsed.planningTime.toFixed(2)}ms
+                  </span>
                 </span>
               )}
               {parsed.executionTime !== undefined && (
                 <span>
-                  Execution: <span className="font-mono font-medium">{parsed.executionTime.toFixed(2)}ms</span>
+                  Execution:{" "}
+                  <span className="font-mono font-medium">
+                    {parsed.executionTime.toFixed(2)}ms
+                  </span>
                 </span>
               )}
             </>
           )}
           {parsed.triggers && parsed.triggers.length > 0 && (
             <span className="text-amber-600 dark:text-amber-400">
-              Triggers: {parsed.triggers.map(t => `${t.name} (${t.time.toFixed(2)}ms)`).join(", ")}
+              Triggers:{" "}
+              {parsed.triggers
+                .map((t) => `${t.name} (${t.time.toFixed(2)}ms)`)
+                .join(", ")}
             </span>
+          )}
+          {parsed.jit && (
+            <>
+              <span className="text-muted-foreground">|</span>
+              <span className="text-violet-600 dark:text-violet-400">
+                JIT:{" "}
+                <span className="font-mono font-medium">
+                  {parsed.jit.functions} functions
+                </span>
+                {parsed.jit.timing?.total !== undefined && (
+                  <span className="font-mono">
+                    {" "}
+                    ({parsed.jit.timing.total.toFixed(2)}ms)
+                  </span>
+                )}
+              </span>
+              {parsed.jit.options && (
+                <span className="text-muted-foreground text-[10px]">
+                  [Expr: {parsed.jit.options.expressions ? "✓" : "✗"}, Deform:{" "}
+                  {parsed.jit.options.deforming ? "✓" : "✗"}]
+                </span>
+              )}
+            </>
           )}
         </div>
       )}
@@ -1134,7 +2011,11 @@ export const ExplainViewer = memo(function ExplainViewer({
         {/* Tree View */}
         <ResizablePanel defaultSize={showRawOutput ? 60 : 100} minSize={30}>
           <div className="h-full overflow-auto">
-            <TreeView nodes={parsed.nodes} totalCost={parsed.totalCost} />
+            <TreeView
+              nodes={parsed.nodes}
+              totalCost={parsed.totalCost}
+              totalActualTime={parsed.totalActualTime}
+            />
           </div>
         </ResizablePanel>
 
@@ -1144,11 +2025,27 @@ export const ExplainViewer = memo(function ExplainViewer({
             <ResizableHandle />
             <ResizablePanel defaultSize={40} minSize={20}>
               <div className="h-full flex flex-col border-l bg-muted/10">
-                <div className="flex items-center px-3 py-1.5 border-b bg-muted/30">
-                  <span className="text-xs font-medium text-muted-foreground">Raw Output</span>
+                <div className="flex items-center justify-between px-3 py-1.5 border-b bg-muted/30">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Raw Output
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    onClick={() => {
+                      navigator.clipboard
+                        .writeText(parsed.raw)
+                        .then(() => toast.success("Copied to clipboard"))
+                        .catch(() => toast.error("Failed to copy"));
+                    }}
+                    title="Copy raw output"
+                  >
+                    <IconCopy className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
                 <div className="flex-1 overflow-auto p-3">
-                  <pre className="text-xs font-mono whitespace-pre-wrap text-muted-foreground">
+                  <pre className="text-xs font-mono whitespace-pre-wrap text-muted-foreground select-text">
                     {parsed.raw}
                   </pre>
                 </div>

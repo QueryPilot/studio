@@ -238,18 +238,14 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
           commandIndex.delete(command.id);
         });
 
+        // Reset history after discard - discarded changes should not be recoverable
         const snapshot = cloneStagedCommands(stagedCommands);
-        const { history, historyIndex } = pushHistorySnapshot(
-          state.history,
-          state.historyIndex,
-          snapshot,
-        );
 
         return {
           stagedCommands,
           commandIndex,
-          history,
-          historyIndex,
+          history: [snapshot],
+          historyIndex: 0,
           isDirty: stagedCommands.size > 0,
         };
       });
@@ -261,20 +257,14 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
           return state;
         }
 
-        const stagedCommands = new Map<string, CrudCommand[]>();
-        const commandIndex = new Map<string, string>();
-        const snapshot = cloneStagedCommands(stagedCommands);
-        const { history, historyIndex } = pushHistorySnapshot(
-          state.history,
-          state.historyIndex,
-          snapshot,
-        );
+        // Reset to empty state with fresh history
+        const emptyState = emptySnapshot();
 
         return {
-          stagedCommands,
-          commandIndex,
-          history,
-          historyIndex,
+          stagedCommands: new Map<string, CrudCommand[]>(),
+          commandIndex: new Map<string, string>(),
+          history: [emptyState],
+          historyIndex: 0,
           isDirty: false,
         };
       });
@@ -361,18 +351,15 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
         });
         committingTableKeys.delete(tableKey);
 
+        // Reset history after commit - committed changes should not be undoable
+        // Create a fresh history with current state as the only entry
         const snapshot = cloneStagedCommands(stagedCommands);
-        const { history, historyIndex } = pushHistorySnapshot(
-          state.history,
-          state.historyIndex,
-          snapshot,
-        );
 
         return {
           stagedCommands,
           commandIndex,
-          history,
-          historyIndex,
+          history: [snapshot],
+          historyIndex: 0,
           isDirty: stagedCommands.size > 0,
           committingTableKeys,
         };

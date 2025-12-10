@@ -159,6 +159,7 @@ export function createExpandStarExtension(
   const expandPlugin = ViewPlugin.fromClass(
     class {
       decorations: DecorationSet = Decoration.none;
+      pendingUpdate: ReturnType<typeof setTimeout> | null = null;
 
       constructor(view: EditorView) {
         this.updateDecorations(view);
@@ -166,7 +167,27 @@ export function createExpandStarExtension(
 
       update(update: ViewUpdate) {
         if (update.docChanged || update.viewportChanged) {
-          this.updateDecorations(update.view);
+          // Clear stale decorations immediately to avoid position errors
+          this.decorations = Decoration.none;
+
+          // Debounce to avoid blocking during typing
+          if (this.pendingUpdate) {
+            clearTimeout(this.pendingUpdate);
+          }
+          const view = update.view;
+          this.pendingUpdate = setTimeout(() => {
+            // Re-check view is still valid
+            if (view.dom.isConnected) {
+              this.updateDecorations(view);
+              this.pendingUpdate = null;
+            }
+          }, 500);
+        }
+      }
+
+      destroy() {
+        if (this.pendingUpdate) {
+          clearTimeout(this.pendingUpdate);
         }
       }
 
