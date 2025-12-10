@@ -3,7 +3,6 @@
  *
  * A blazing-fast SQL editor with:
  * - Direct CodeMirror 6 integration (no wrapper overhead)
- * - Vim mode support
  * - Multi-cursor editing
  * - SQL snippets
  * - Parameter hints
@@ -37,7 +36,6 @@ import { getThemeExtensions } from "./themes";
 import { getQueryAtCursor } from "./core";
 
 // Extensions
-import { createVimExtension } from "./extensions/vim";
 import { createMultiCursorExtension } from "./extensions/multi-cursor";
 import { createSnippetExtension } from "./extensions/snippets";
 import { createParameterHintsExtension } from "./extensions/parameter-hints";
@@ -93,8 +91,6 @@ export interface SqlEditorProps {
   dialectOverride?: SqlDialect;
   /** Called when dialect is detected */
   onDialectDetected?: (dialect: SqlDialect) => void;
-  /** Enable vim mode */
-  vimMode?: boolean;
   /** Read-only mode */
   readOnly?: boolean;
   /** Auto-focus on mount */
@@ -114,7 +110,6 @@ interface EditorCompartments {
   theme: Compartment;
   dialect: Compartment;
   readOnly: Compartment;
-  vim: Compartment;
   placeholder: Compartment;
 }
 
@@ -123,7 +118,6 @@ function createCompartments(): EditorCompartments {
     theme: new Compartment(),
     dialect: new Compartment(),
     readOnly: new Compartment(),
-    vim: new Compartment(),
     placeholder: new Compartment(),
   };
 }
@@ -188,7 +182,6 @@ export const SqlEditor = memo(
       dbType = "postgres",
       dialectOverride,
       onDialectDetected,
-      vimMode = false,
       readOnly = false,
       autoFocus = false,
       placeholder = "Enter your SQL query...",
@@ -437,7 +430,6 @@ export const SqlEditor = memo(
             ...sqlExtensions,
           ]),
           compartments.readOnly.of(EditorView.editable.of(!readOnly)),
-          compartments.vim.of(vimMode ? createVimExtension({ enabled: true }) : []),
           compartments.placeholder.of(placeholder ? placeholderExt(placeholder) : []),
 
           // Smart features
@@ -502,15 +494,6 @@ export const SqlEditor = memo(
         effects: compartments.readOnly.reconfigure(EditorView.editable.of(!readOnly)),
       });
     }, [readOnly, compartments]);
-
-    // Update vim mode
-    useEffect(() => {
-      viewRef.current?.dispatch({
-        effects: compartments.vim.reconfigure(
-          vimMode ? createVimExtension({ enabled: true }) : []
-        ),
-      });
-    }, [vimMode, compartments]);
 
     // Update placeholder
     useEffect(() => {
