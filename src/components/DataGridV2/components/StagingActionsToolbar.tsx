@@ -15,10 +15,18 @@ interface StagingActionsToolbarProps {
   schema?: string;
   table: string;
   onCommitSuccess?: () => void;
+  onBeforeCommitPreview?: () => void | Promise<void>;
 }
 
 export function StagingActionsToolbar(props: StagingActionsToolbarProps) {
-  const { connectionId, database, schema, table, onCommitSuccess } = props;
+  const {
+    connectionId,
+    database,
+    schema,
+    table,
+    onCommitSuccess,
+    onBeforeCommitPreview,
+  } = props;
   const {
     stagedCommands,
     getTableKey,
@@ -34,7 +42,11 @@ export function StagingActionsToolbar(props: StagingActionsToolbarProps) {
     discardChanges(tableKey);
   };
 
-  const handleOpenCommitPreview = () => {
+  const handleOpenCommitPreview = async () => {
+    // Ensure any active cell editor commits before showing the preview
+    if (onBeforeCommitPreview) {
+      await onBeforeCommitPreview();
+    }
     setShowCommitPreview(true);
   };
 
