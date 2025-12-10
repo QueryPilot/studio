@@ -202,7 +202,10 @@ fn authenticate_session(sess: &mut Session, user: &str, auth: &SshAuthMethod) ->
     Ok(())
 }
 
-/// Run the port forwarding proxy
+/// Maximum concurrent client connections per tunnel (prevents resource exhaustion)
+const MAX_CONCURRENT_CLIENTS: usize = 50;
+
+/// Run the port forwarding proxy with tracked client handlers
 async fn run_port_forward(
     local_port: u16,
     ssh_host: &str,
@@ -230,6 +233,9 @@ async fn run_port_forward(
         remote_port
     );
 
+    // Track spawned client handlers to prevent memory leak
+    let mut client_handles: Vec<task::JoinHandle<()>> = Vec::new();
+
     loop {
         // Check for shutdown signal
         {
@@ -237,7 +243,14 @@ async fn run_port_forward(
             if let Some(ref mut receiver) = *rx {
                 match receiver.try_recv() {
                     Ok(_) | Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
-                        tracing::info!("SSH tunnel shutting down");
+                        tracing::info!(
+                            "SSH tunnel shutting down, aborting {} client handlers",
+                            client_handles.len()
+                        );
+                        // Abort all client handlers on shutdown
+                        for handle in client_handles.drain(..) {
+                            handle.abort();
+                        }
                         return Ok(());
                     }
                     Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
@@ -245,17 +258,32 @@ async fn run_port_forward(
             }
         }
 
+        // Clean up finished client handlers periodically (every iteration)
+        client_handles.retain(|h| !h.is_finished());
+
         // Accept new connections
         match listener.accept() {
             Ok((client, addr)) => {
-                tracing::debug!("Accepted connection from {}", addr);
+                // Enforce connection limit to prevent DoS
+                if client_handles.len() >= MAX_CONCURRENT_CLIENTS {
+                    tracing::warn!(
+                        "SSH tunnel at max capacity ({}), rejecting connection from {}",
+                        MAX_CONCURRENT_CLIENTS,
+                        addr
+                    );
+                    drop(client); // Close the connection
+                    continue;
+                }
+
+                tracing::debug!("Accepted connection from {} ({}/{})", addr, client_handles.len() + 1, MAX_CONCURRENT_CLIENTS);
 
                 let ssh_host = ssh_host.to_string();
                 let ssh_user = ssh_user.to_string();
                 let auth = auth.clone();
                 let remote_host = remote_host.to_string();
 
-                task::spawn_blocking(move || {
+                // Track the spawned task handle
+                let handle = task::spawn_blocking(move || {
                     if let Err(e) = handle_client(
                         client,
                         &ssh_host,
@@ -268,6 +296,7 @@ async fn run_port_forward(
                         tracing::error!("Client connection error: {}", e);
                     }
                 });
+                client_handles.push(handle);
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 // No connections available, sleep briefly

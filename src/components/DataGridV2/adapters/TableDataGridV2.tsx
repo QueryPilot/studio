@@ -1001,10 +1001,11 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   );
 
   // Column header context menu
-  // Use reorderedColumns (all columns) for visibility submenu, not finalColumns (only visible)
+  // Use finalColumns for column lookup (matches grid index), reorderedColumns for visibility submenu
   const { handleHeaderContextMenu, menuState, closeMenu, getMenuProps } =
     useColumnHeaderContextMenu({
-      columns: reorderedColumns,
+      columns: finalColumns,
+      allColumnsForVisibility: reorderedColumns,
       pinnedColumns: columnState.pinned,
       columnVisibility: columnState.visibility,
       getSortDirection,

@@ -58,6 +58,46 @@ function hashString(str: string): number {
   return hash;
 }
 
+// ============================================================================
+// CONTEXT ANALYSIS CACHE - Avoid re-analyzing on every keystroke
+// ============================================================================
+interface ContextCacheEntry {
+  analysis: SqlContextAnalysis;
+  docHash: number;
+  pos: number;
+  timestamp: number;
+}
+
+// LRU cache for context analysis results
+const contextCache = new Map<string, ContextCacheEntry>();
+const CONTEXT_CACHE_MAX_SIZE = 100;
+const CONTEXT_CACHE_TTL = 5000; // 5 seconds
+
+function getContextCacheKey(docHash: number, pos: number): string {
+  return `${docHash}:${pos}`;
+}
+
+function cleanContextCache(): void {
+  const now = Date.now();
+  for (const [key, entry] of contextCache) {
+    if (now - entry.timestamp > CONTEXT_CACHE_TTL) {
+      contextCache.delete(key);
+    }
+  }
+  // Evict oldest if over size
+  if (contextCache.size > CONTEXT_CACHE_MAX_SIZE) {
+    const entries = [...contextCache.entries()].sort(
+      (a, b) => a[1].timestamp - b[1].timestamp
+    );
+    for (let i = 0; i < entries.length - CONTEXT_CACHE_MAX_SIZE / 2; i++) {
+      const entry = entries[i];
+      if (entry) {
+        contextCache.delete(entry[0]);
+      }
+    }
+  }
+}
+
 /**
  * Find all scope boundaries (queries/subqueries) containing a position using the syntax tree.
  * Returns scopes from innermost to outermost.
@@ -694,6 +734,11 @@ function detectJoinOnContext(
  * Analyze the SQL context at the cursor position.
  * Returns information about what kind of completion is expected
  * and which tables are in scope.
+ *
+ * Performance optimizations:
+ * - Caches results by document hash + position
+ * - Early returns for cached results
+ * - TTL-based cache expiration
  */
 export function analyzeSqlContext(
   context: CompletionContext,
@@ -701,6 +746,26 @@ export function analyzeSqlContext(
 ): SqlContextAnalysis {
   const { state, pos } = context;
   const sql = state.doc.toString();
+
+  // Check cache first - hash based on document content
+  const docHash = hashString(sql);
+  const cacheKey = getContextCacheKey(docHash, pos);
+  const cached = contextCache.get(cacheKey);
+
+  if (cached && Date.now() - cached.timestamp < CONTEXT_CACHE_TTL) {
+    // Return cached result with updated range (word may have changed)
+    const word = context.matchBefore(/[\w$]*$/);
+    return {
+      ...cached.analysis,
+      identifier: word?.text || "",
+      range: word ? { from: word.from, to: word.to } : { from: pos, to: pos },
+    };
+  }
+
+  // Clean old cache entries periodically
+  if (contextCache.size > CONTEXT_CACHE_MAX_SIZE / 2) {
+    cleanContextCache();
+  }
 
   // Get the word being typed
   const word = context.matchBefore(/[\w$]*$/);
@@ -743,7 +808,7 @@ export function analyzeSqlContext(
   // Detect JOIN ON context
   const joinContext = detectJoinOnContext(state, pos);
 
-  return {
+  const analysis: SqlContextAnalysis = {
     intent,
     identifier,
     activeStatementTables: tables,
@@ -758,4 +823,14 @@ export function analyzeSqlContext(
     isJoinOnContext: joinContext.isJoinOnContext,
     joinTargetTable: joinContext.joinTargetTable,
   };
+
+  // Cache the result
+  contextCache.set(cacheKey, {
+    analysis,
+    docHash,
+    pos,
+    timestamp: Date.now(),
+  });
+
+  return analysis;
 }

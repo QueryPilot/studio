@@ -13,6 +13,8 @@
 export interface ColumnMeta {
   /** Column name */
   name: string;
+  /** Source table name (for query results with JOINs) */
+  table_name?: string;
   /** Original database type (e.g., "VARCHAR(255)", "INT", "TIMESTAMP") */
   db_type: string;
   /** Whether the column allows NULL values */

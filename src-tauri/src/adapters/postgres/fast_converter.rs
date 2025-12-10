@@ -144,8 +144,10 @@ impl FastPostgresConverter {
             Type::MACADDR => Self::convert_macaddr(raw, 6),
             Type::MACADDR8 => Self::convert_macaddr(raw, 8),
             Type::PG_LSN => Self::convert_lsn(raw)?,
-            Type::TS_VECTOR => Self::convert_tsvector(raw)?,
-            Type::TSQUERY => Self::convert_tsquery(raw)?,
+            // Safety: some extensions encode these in binary formats that can be malformed.
+            // If parsing hangs or fails, fall back to a safe textual blob.
+            Type::TS_VECTOR => Self::fallback_value(raw),
+            Type::TSQUERY => Self::fallback_value(raw),
             Type::POINT => Self::convert_point(raw)?,
             Type::PATH => Self::convert_path(raw)?,
             Type::BOX => Self::convert_box(raw)?,
@@ -153,7 +155,8 @@ impl FastPostgresConverter {
             Type::LINE => Self::convert_line(raw)?,
             Type::POLYGON => Self::convert_polygon(raw)?,
             _ => match pg_type.name() {
-                "hstore" => Self::convert_hstore(raw)?,
+                // hstore binary parsing can be fragile; use a safe fallback to avoid blocking.
+                "hstore" => Self::fallback_value(raw),
                 "ltree" | "lquery" | "ltxtquery" | "tsquery" => Self::convert_text(raw),
                 _ => Self::fallback_value(raw),
             },

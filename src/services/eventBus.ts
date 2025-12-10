@@ -23,11 +23,27 @@ type Events = {
   "data-grid:insert-row-below": KeyboardEventPayload;
   "data-grid:insert-row-above": KeyboardEventPayload;
   "data-grid:delete-rows": KeyboardEventPayload;
+  "data-grid:export-csv": KeyboardEventPayload;
+  "data-grid:export-json": KeyboardEventPayload;
+  "data-grid:copy-as-insert": KeyboardEventPayload;
 
   // Query Editor events
   "query-editor:format": KeyboardEventPayload;
   "query-editor:toggle-history": KeyboardEventPayload;
   "query-editor:execute": KeyboardEventPayload;
+  "query-editor:find": KeyboardEventPayload;
+  "query-editor:replace": KeyboardEventPayload;
+  "query-editor:go-to-line": KeyboardEventPayload;
+  "query-editor:toggle-word-wrap": KeyboardEventPayload;
+  "query-editor:toggle-comment": KeyboardEventPayload;
+  "query-editor:explain": KeyboardEventPayload;
+  "query-editor:cancel": KeyboardEventPayload;
+  "query-editor:save": KeyboardEventPayload;
+  "query-editor:clear": KeyboardEventPayload;
+
+  // AI events
+  "ai:explain-query": KeyboardEventPayload;
+  "ai:generate-sql": KeyboardEventPayload;
 };
 
 export const eventBus = mitt<Events>();

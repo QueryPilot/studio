@@ -101,12 +101,6 @@ export function WorkspaceScreen() {
     // Set active connection in workspace screen store for sidebar state
     setActiveWorkspace(connectionId ?? null);
     if (connectionId) {
-      // Sync activeConnectionId to connection store (direct state update, no side effects)
-      const connectionStore = useConnectionStore.getState();
-      if (connectionStore.activeConnectionId !== connectionId) {
-        useConnectionStore.setState({ activeConnectionId: connectionId });
-      }
-
       // Check if we have saved state for this connection
       const savedState =
         useWorkspaceSelectionStore.getState().getConnectionState(connectionId);
@@ -229,40 +223,59 @@ export function WorkspaceScreen() {
     if (!isTauri() || !connectionId) return;
 
     let unlisten: (() => void) | null = null;
+    let isDisposed = false;
 
     const setupCloseHandler = async () => {
-      const currentWindow = getCurrentWindow();
-      unlisten = await currentWindow.onCloseRequested(async (event) => {
-        // Check if there are pending changes for this connection
-        const { stagedCommands } = useCrudStore.getState();
-        let hasPendingChanges = false;
-
-        stagedCommands.forEach((commands, tableKey) => {
-          if (tableKey.startsWith(`${connectionId}:`)) {
-            if (commands.length > 0) {
-              hasPendingChanges = true;
-            }
-          }
-        });
-
-        if (hasPendingChanges) {
-          // Prevent close and show confirmation dialog
-          event.preventDefault();
-          
-          const confirmed = await import("@tauri-apps/plugin-dialog").then(
-            (dialog) =>
-              dialog.confirm(
-                "You have unsaved changes. Are you sure you want to close this workspace?",
-                {
-                  title: "Unsaved Changes",
-                  kind: "warning",
-                }
-              )
+      try {
+        const currentWindow = getCurrentWindow();
+        const unlistenFn = await currentWindow.onCloseRequested(async (event) => {
+          // Check if there are pending changes for this connection
+          const { stagedCommands } = useCrudStore.getState();
+          const hasPendingChanges = Array.from(stagedCommands.entries()).some(
+            ([tableKey, commands]) =>
+              tableKey.startsWith(`${connectionId}:`) && commands.length > 0
           );
 
-          if (confirmed) {
-            // User confirmed, disconnect and destroy window
-            logger.info(`[WorkspaceScreen] Closing window with unsaved changes - disconnecting ${connectionId}`);
+          if (hasPendingChanges) {
+            // Prevent close and show confirmation dialog
+            event.preventDefault();
+
+            const confirmed = await import("@tauri-apps/plugin-dialog").then(
+              (dialog) =>
+                dialog.confirm(
+                  "You have unsaved changes. Are you sure you want to close this workspace?",
+                  {
+                    title: "Unsaved Changes",
+                    kind: "warning",
+                  }
+                )
+            );
+
+            if (confirmed) {
+              // User confirmed, disconnect and destroy window
+              logger.info(`[WorkspaceScreen] Closing window with unsaved changes - disconnecting ${connectionId}`);
+              try {
+                if (databaseService.isConnectionActive(connectionId)) {
+                  await databaseService.disconnect(connectionId);
+                  logger.info(`[WorkspaceScreen] Successfully disconnected ${connectionId}`);
+                }
+              } catch (error) {
+                logger.error(`[WorkspaceScreen] Failed to disconnect ${connectionId}:`, error);
+              }
+
+              // Small delay to ensure disconnect completes
+              await new Promise(resolve => setTimeout(resolve, 100));
+
+              // Use destroy() instead of close() - it requires the destroy permission
+              await currentWindow.destroy();
+            }
+          } else {
+            // No pending changes, prevent default and handle cleanup
+            event.preventDefault();
+
+            logger.info(`[WorkspaceScreen] Closing window - disconnecting ${connectionId}`);
+
+            // Disconnect if needed
             try {
               if (databaseService.isConnectionActive(connectionId)) {
                 await databaseService.disconnect(connectionId);
@@ -271,41 +284,31 @@ export function WorkspaceScreen() {
             } catch (error) {
               logger.error(`[WorkspaceScreen] Failed to disconnect ${connectionId}:`, error);
             }
-            
+
             // Small delay to ensure disconnect completes
             await new Promise(resolve => setTimeout(resolve, 100));
-            
-            // Use destroy() instead of close() - it requires the destroy permission
+
+            // Destroy the window
             await currentWindow.destroy();
           }
+        });
+
+        // Only store if not already disposed
+        if (!isDisposed) {
+          unlisten = unlistenFn;
         } else {
-          // No pending changes, prevent default and handle cleanup
-          event.preventDefault();
-          
-          logger.info(`[WorkspaceScreen] Closing window - disconnecting ${connectionId}`);
-          
-          // Disconnect if needed
-          try {
-            if (databaseService.isConnectionActive(connectionId)) {
-              await databaseService.disconnect(connectionId);
-              logger.info(`[WorkspaceScreen] Successfully disconnected ${connectionId}`);
-            }
-          } catch (error) {
-            logger.error(`[WorkspaceScreen] Failed to disconnect ${connectionId}:`, error);
-          }
-          
-          // Small delay to ensure disconnect completes
-          await new Promise(resolve => setTimeout(resolve, 100));
-          
-          // Destroy the window
-          await currentWindow.destroy();
+          // Already disposed, cleanup immediately
+          unlistenFn();
         }
-      });
+      } catch (error) {
+        logger.error("[WorkspaceScreen] Failed to setup close handler:", error);
+      }
     };
 
     void setupCloseHandler();
 
     return () => {
+      isDisposed = true;
       if (unlisten) unlisten();
     };
   }, [connectionId]);

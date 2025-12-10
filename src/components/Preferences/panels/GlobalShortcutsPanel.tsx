@@ -1,5 +1,5 @@
 import { logger } from "@/lib/logger";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,8 +26,22 @@ export function GlobalShortcutsPanel() {
   const [customShortcut, setCustomShortcut] = useState("");
   const [isRegistered, setIsRegistered] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const keydownHandlerRef = useRef<((e: KeyboardEvent) => void) | null>(null);
 
   const manager = getGlobalShortcutManager();
+
+  // Cleanup recording timeout and listener on unmount
+  useEffect(() => {
+    return () => {
+      if (recordingTimeoutRef.current) {
+        clearTimeout(recordingTimeoutRef.current);
+      }
+      if (keydownHandlerRef.current) {
+        window.removeEventListener("keydown", keydownHandlerRef.current, true);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const checkTauri = async () => {
@@ -114,6 +128,14 @@ export function GlobalShortcutsPanel() {
   };
 
   const startRecording = () => {
+    // Clear any existing timeout/listener
+    if (recordingTimeoutRef.current) {
+      clearTimeout(recordingTimeoutRef.current);
+    }
+    if (keydownHandlerRef.current) {
+      window.removeEventListener("keydown", keydownHandlerRef.current, true);
+    }
+
     setIsRecording(true);
     toast.info("Press a key combination...");
 
@@ -133,18 +155,26 @@ export function GlobalShortcutsPanel() {
         setCustomShortcut(shortcut);
         setIsRecording(false);
         window.removeEventListener("keydown", handleKeyDown, true);
+        keydownHandlerRef.current = null;
+        if (recordingTimeoutRef.current) {
+          clearTimeout(recordingTimeoutRef.current);
+          recordingTimeoutRef.current = null;
+        }
       }
     };
 
+    keydownHandlerRef.current = handleKeyDown;
     window.addEventListener("keydown", handleKeyDown, true);
 
     // Auto-cancel after 5 seconds
-    setTimeout(() => {
-      if (isRecording) {
-        setIsRecording(false);
-        window.removeEventListener("keydown", handleKeyDown, true);
-        toast.info("Recording cancelled");
+    recordingTimeoutRef.current = setTimeout(() => {
+      setIsRecording(false);
+      if (keydownHandlerRef.current) {
+        window.removeEventListener("keydown", keydownHandlerRef.current, true);
+        keydownHandlerRef.current = null;
       }
+      recordingTimeoutRef.current = null;
+      toast.info("Recording cancelled");
     }, 5000);
   };
 

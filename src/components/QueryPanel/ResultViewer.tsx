@@ -10,6 +10,7 @@ import { CodeEditor } from "@/components/CodeEditor";
 import { type ColumnMeta } from "@/types/database";
 import type { CellValue as BackendCellValue } from "@/services/backend";
 import { normalizeBackendValue } from "@/services/tableDataTransform";
+import { ExplainViewer } from "./ExplainViewer";
 
 interface QueryResult {
   columns: string[];
@@ -31,13 +32,14 @@ interface ResultViewerProps {
   database?: string;
   gridId: string;
   isStreaming?: boolean;
-  viewMode: "table" | "json";
+  viewMode: "table" | "json" | "explain";
   cursorSetupMs?: number;
   totalStreamingMs?: number;
   fetchCount?: number;
   networkMs?: number;
   conversionMs?: number;
   ipcSendMs?: number;
+  showRawOutput?: boolean;
 }
 
 export const ResultViewer = memo(function ResultViewer({
@@ -53,6 +55,7 @@ export const ResultViewer = memo(function ResultViewer({
   networkMs,
   conversionMs,
   ipcSendMs,
+  showRawOutput = true,
 }: ResultViewerProps) {
   const jsonContent = useMemo(() => {
     // Skip expensive JSON computation when in table mode
@@ -235,7 +238,14 @@ export const ResultViewer = memo(function ResultViewer({
         </div>
       )}
 
-      {viewMode === "table" ? (
+      {viewMode === "explain" ? (
+        <div className="h-full">
+          <ExplainViewer
+            result={{ columns: result.columns, rows: result.rows }}
+            showRawOutput={showRawOutput}
+          />
+        </div>
+      ) : viewMode === "table" ? (
         <div className="h-full px-1 pt-1">
           <TableDataGridV2
             mode="query"

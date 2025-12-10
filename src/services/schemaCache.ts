@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { databaseService, type TableMeta } from "@/services/databaseService";
 import { relationshipService } from "@/services/relationshipService";
 import { type ColumnMeta } from "@/types/database";
@@ -62,6 +63,7 @@ class SchemaCache {
   // Reduced from 2000 to prevent memory bloat in long sessions
   private readonly maxCacheSize = 500;
   private readonly maxAccessPatternSize = 50;
+  private readonly maxAccessPatternKeys = 100; // Global cap on pattern keys
 
   // Connection change handling
   setConnection(connectionId: string) {
@@ -187,8 +189,51 @@ class SchemaCache {
   }
 
   /**
-   * Get enum (or set) values for a specific column, cached and deduped.
+   * Get functions for a schema, cached and deduped
    */
+  async getFunctions(
+    connectionId: string,
+    schema: string,
+  ): Promise<import("@/services/databaseService").FunctionMeta[]> {
+    const key = `functions:${connectionId}:${schema}`;
+    const cached = this.get<import("@/services/databaseService").FunctionMeta[]>(key);
+
+    if (cached) {
+      this.recordAccess(key);
+      return cached.data;
+    }
+
+    // Coalesce concurrent fetches
+    const existing = this.inFlight.get(key) as
+      | Promise<import("@/services/databaseService").FunctionMeta[]>
+      | undefined;
+    if (existing) {
+      return existing;
+    }
+
+    this.metrics.misses++;
+    const promise = databaseService
+      .listFunctions(connectionId, "", schema)
+      .then((functions) => {
+        this.set(key, functions, {
+          ttl: this.ttlConfig.functions,
+          priority: "low", // Functions are accessed less frequently
+          connectionId,
+        });
+        return functions;
+      })
+      .catch(() => {
+        // Return empty array if functions query fails
+        return [];
+      })
+      .finally(() => {
+        this.inFlight.delete(key);
+      });
+
+    this.inFlight.set(key, promise);
+    return promise;
+  }
+
   /**
    * Get relationship graph for a schema (foreign key relationships)
    */
@@ -517,12 +562,22 @@ class SchemaCache {
     let pattern = this.accessPatterns.get(patternKey) || [];
     pattern.unshift(key);
 
-    // Keep only recent patterns
+    // Keep only recent patterns per key
     if (pattern.length > this.maxAccessPatternSize) {
       pattern = pattern.slice(0, this.maxAccessPatternSize);
     }
 
     this.accessPatterns.set(patternKey, pattern);
+
+    // Enforce global cap on pattern keys to prevent unbounded memory growth
+    if (this.accessPatterns.size > this.maxAccessPatternKeys) {
+      // Remove oldest pattern keys (first inserted)
+      const keysToRemove = Array.from(this.accessPatterns.keys()).slice(
+        0,
+        this.accessPatterns.size - this.maxAccessPatternKeys
+      );
+      keysToRemove.forEach((k) => this.accessPatterns.delete(k));
+    }
   }
 
   // Cache management
@@ -666,10 +721,14 @@ class SchemaCache {
         const [type, connectionId, ...rest] = key.split(":");
 
         if (type === "schemas") {
-          void this.getSchemas(connectionId ?? "").catch(() => {});
+          void this.getSchemas(connectionId ?? "").catch((error: unknown) => {
+            logger.warn("schema-cache", "Background refresh failed for schemas", { connectionId, error });
+          });
         } else if (type === "tables") {
           void this.getTables(connectionId ?? "", rest[0] ?? "").catch(
-            () => {},
+            (error: unknown) => {
+              logger.warn("schema-cache", "Background refresh failed for tables", { connectionId, schema: rest[0], error });
+            },
           );
         } else if (type === "columns") {
           const [schema, table] = rest[0]?.split(".") ?? [];
@@ -677,7 +736,9 @@ class SchemaCache {
             connectionId ?? "",
             schema ?? "",
             table ?? "",
-          ).catch(() => {});
+          ).catch((error: unknown) => {
+            logger.warn("schema-cache", "Background refresh failed for columns", { connectionId, schema, table, error });
+          });
         }
       }
     }

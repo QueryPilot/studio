@@ -6,6 +6,7 @@ use std::fs;
 use std::sync::Arc;
 use tokio_postgres::config::{ChannelBinding as PgChannelBinding, SslMode as PgSslMode};
 use tokio_postgres::{Config, NoTls};
+use uuid::Uuid;
 
 use super::pool::PostgresPoolBuilder;
 use super::query_fast::FastPostgresQueryExecutor;
@@ -65,6 +66,99 @@ impl PostgresAdapter {
         }
 
         // Commit transaction
+        transaction
+            .commit()
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to commit transaction: {}", e)))?;
+
+        Ok(results)
+    }
+
+    /// Execute parameterized SQL statements within a transaction (SQL INJECTION SAFE)
+    /// Uses proper $1, $2 placeholders with separate parameter values
+    pub async fn execute_parameterized_transaction(
+        &self,
+        statements: Vec<crate::core::adapter::ParameterizedSql>,
+    ) -> Result<Vec<u64>> {
+        use crate::core::adapter::SqlParam;
+        use tokio_postgres::types::ToSql;
+
+        let pool = self
+            .pool
+            .as_ref()
+            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
+
+        let mut client = pool
+            .get()
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
+
+        let transaction = client
+            .transaction()
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to begin transaction: {}", e)))?;
+
+        let mut results = Vec::new();
+
+        for stmt in statements {
+            // Log the SQL and parameters for debugging
+            tracing::debug!("  Executing parameterized SQL: {}", stmt.sql);
+            tracing::debug!("  Parameters: {:?}", stmt.params);
+            
+            // Convert SqlParam to tokio_postgres compatible types
+            // Note: PostgreSQL is strict about type sizes. Int values that fit in i32
+            // should be sent as i32 to work with int4 columns. This is critical for
+            // parameterized queries where the column type must match exactly.
+            let params: Vec<Box<dyn ToSql + Sync + Send>> = stmt
+                .params
+                .iter()
+                .map(|p| -> Box<dyn ToSql + Sync + Send> {
+                    match p {
+                        SqlParam::Null => Box::new(None::<String>),
+                        SqlParam::Bool(b) => Box::new(*b),
+                        SqlParam::Int(i) => {
+                            // PostgreSQL int4 (serial/integer) expects i32, int8 (bigserial/bigint) expects i64
+                            // Send as i32 if the value fits, otherwise i64
+                            if *i >= i32::MIN as i64 && *i <= i32::MAX as i64 {
+                                tracing::debug!("    Param Int({}) -> i32", i);
+                                Box::new(*i as i32)
+                            } else {
+                                tracing::debug!("    Param Int({}) -> i64 (out of i32 range)", i);
+                                Box::new(*i)
+                            }
+                        }
+                        SqlParam::Float(f) => Box::new(*f),
+                        SqlParam::Text(s) => {
+                            // Try to parse as UUID first - common for ID columns
+                            // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+                            if let Ok(uuid) = Uuid::parse_str(s) {
+                                tracing::debug!("    Param Text('{}') -> UUID", s);
+                                Box::new(uuid)
+                            } else {
+                                tracing::debug!("    Param Text('{}') -> String", s);
+                                Box::new(s.clone())
+                            }
+                        }
+                        SqlParam::Json(v) => Box::new(v.clone()),
+                    }
+                })
+                .collect();
+
+            let param_refs: Vec<&(dyn ToSql + Sync)> =
+                params.iter().map(|p| p.as_ref() as &(dyn ToSql + Sync)).collect();
+
+            let rows_affected = transaction
+                .execute(&stmt.sql, &param_refs)
+                .await
+                .map_err(|e| {
+                    AppError::DatabaseError(format!(
+                        "Transaction failed on SQL '{}': {}",
+                        stmt.sql, e
+                    ))
+                })?;
+            results.push(rows_affected);
+        }
+
         transaction
             .commit()
             .await

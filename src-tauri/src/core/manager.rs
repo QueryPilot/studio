@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
-use tokio::sync::RwLock;
+use tokio::sync::{Notify, RwLock};
 use tokio::task::JoinHandle;
 
 use crate::adapters::postgres::PostgresAdapter;
@@ -57,6 +57,8 @@ pub struct ConnectionManager {
     tunnels: Arc<DashMap<String, ManagedTunnel>>,
     /// Track in-flight connection attempts to prevent duplicate tunnel creation
     pending_connections: Arc<DashSet<String>>,
+    /// Notification for when a connection attempt completes (replaces polling)
+    connection_ready: Arc<Notify>,
     #[allow(dead_code)]
     queries: Arc<DashMap<String, QueryHandle>>,
     idle_timeout: Duration,
@@ -108,6 +110,7 @@ impl ConnectionManager {
             profiles: Arc::new(DashMap::new()),
             tunnels: Arc::new(DashMap::new()),
             pending_connections: Arc::new(DashSet::new()),
+            connection_ready: Arc::new(Notify::new()),
             queries: Arc::new(DashMap::new()),
             idle_timeout: Duration::from_secs(1800), // 30 minutes
             reaper_handle: Arc::new(tokio::sync::Mutex::new(None)),
@@ -295,17 +298,24 @@ impl ConnectionManager {
         }
 
         // Prevent duplicate concurrent connection attempts (race condition protection)
-        // If a connection attempt is already in progress, wait for it instead of starting another
+        // If a connection attempt is already in progress, wait for it using Notify
         if self.pending_connections.contains(&conn_id) {
             tracing::info!(
-                "Connection {} already has an in-flight attempt, waiting...",
+                "Connection {} already has an in-flight attempt, waiting for notification...",
                 conn_id
             );
-            // Wait for the in-flight attempt to complete (poll every 500ms, max 120s)
-            for _ in 0..240 {
-                tokio::time::sleep(Duration::from_millis(500)).await;
-                if !self.pending_connections.contains(&conn_id) {
-                    // Check if connection was created
+
+            // Wait for notification with 120s timeout (uses proper async signaling, not polling)
+            let timeout_duration = Duration::from_secs(120);
+            let wait_result = tokio::time::timeout(
+                timeout_duration,
+                self.wait_for_connection_ready(&conn_id),
+            )
+            .await;
+
+            match wait_result {
+                Ok(()) => {
+                    // Check if connection was created successfully
                     if self.connections.contains_key(&conn_id) {
                         tracing::info!(
                             "Connection {} created by another attempt, reusing",
@@ -313,31 +323,48 @@ impl ConnectionManager {
                         );
                         return Ok(conn_id);
                     }
-                    break;
+                    // Connection attempt finished but failed, fall through to create new attempt
+                    tracing::info!(
+                        "Previous attempt for {} finished but connection not found, creating new",
+                        conn_id
+                    );
                 }
-            }
-            // If still pending after 120s, proceed anyway (might be stuck)
-            if self.pending_connections.contains(&conn_id) {
-                tracing::warn!(
-                    "Connection {} still pending after 120s, forcing new attempt",
-                    conn_id
-                );
-                self.pending_connections.remove(&conn_id);
+                Err(_) => {
+                    // Timeout - force remove stuck pending and proceed
+                    tracing::warn!(
+                        "Connection {} still pending after 120s, forcing new attempt",
+                        conn_id
+                    );
+                    self.pending_connections.remove(&conn_id);
+                }
             }
         }
 
         // Mark this connection as pending
         self.pending_connections.insert(conn_id.clone());
 
-        // Use a guard to ensure we always remove from pending on exit
+        // Execute connection attempt
         let result = self
             .get_or_create_connection_inner(&conn_id, profile)
             .await;
 
-        // Always remove from pending set
+        // Always remove from pending set and notify waiters
         self.pending_connections.remove(&conn_id);
+        self.connection_ready.notify_waiters();
 
         result
+    }
+
+    /// Wait until a specific connection is no longer pending
+    async fn wait_for_connection_ready(&self, conn_id: &str) {
+        loop {
+            // Check if no longer pending
+            if !self.pending_connections.contains(conn_id) {
+                return;
+            }
+            // Wait for any connection to complete
+            self.connection_ready.notified().await;
+        }
     }
 
     async fn get_or_create_connection_inner(

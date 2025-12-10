@@ -421,6 +421,9 @@ describe("crudStore", () => {
         [mockCommand],
       );
 
+      // Commands are kept for optimistic display until clearCommittedChanges is called
+      store.clearCommittedChanges(tableKey);
+
       const state = useCrudStore.getState();
       expect(state.stagedCommands.has(tableKey)).toBe(false);
       expect(state.commandIndex.has(mockCommand.id)).toBe(false);
@@ -498,17 +501,24 @@ describe("crudStore", () => {
       store.stageCommand(mockCommand);
       store.stageCommand(mockCommand2);
 
+      const tableKey1 = store.getTableKey(mockTarget);
+      const tableKey2 = store.getTableKey(mockTarget2);
+
       const results = await store.commitAll();
 
       expect(Object.keys(results)).toHaveLength(2);
       expect(BackendAPI.executeCrudTransaction).toHaveBeenCalledTimes(2);
+
+      // Commands are kept for optimistic display until clearCommittedChanges is called
+      store.clearCommittedChanges(tableKey1);
+      store.clearCommittedChanges(tableKey2);
 
       const state = useCrudStore.getState();
       expect(state.stagedCommands.size).toBe(0);
       expect(state.isDirty).toBe(false);
     });
 
-    it("should create history snapshot after successful commit", async () => {
+    it("should create history snapshot after clearCommittedChanges", async () => {
       const store = useCrudStore.getState();
 
       const mockResult: CommitResult = {
@@ -524,10 +534,13 @@ describe("crudStore", () => {
       );
 
       store.stageCommand(mockCommand);
-      const historyLengthBefore = useCrudStore.getState().history.length;
       const tableKey = store.getTableKey(mockTarget);
 
       await store.commitChanges(tableKey);
+      const historyLengthBefore = useCrudStore.getState().history.length;
+
+      // clearCommittedChanges creates a history snapshot
+      store.clearCommittedChanges(tableKey);
 
       const state = useCrudStore.getState();
       expect(state.history.length).toBe(historyLengthBefore + 1);

@@ -40,7 +40,9 @@ class VaultStorageService {
     if (this.saveScheduled) return;
     this.saveScheduled = true;
     setTimeout(() => {
-      void this.flushPendingChanges();
+      this.flushPendingChanges().catch((err: unknown) => {
+        logger.error("Background save failed", err);
+      });
     }, 250);
   }
 
@@ -92,11 +94,15 @@ class VaultStorageService {
       return;
     }
     this.initPromise = (async () => {
-      await this.preloadAllInternal();
-      this.initialized = true;
+      try {
+        await this.preloadAllInternal();
+        this.initialized = true;
+      } finally {
+        // Always clear initPromise to allow retry on failure
+        this.initPromise = null;
+      }
     })();
     await this.initPromise;
-    this.initPromise = null;
   }
 
   private async ensureInitialized(): Promise<void> {

@@ -154,18 +154,18 @@ export function useTableDataQuery(
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
+      // Store abort handler ref for cleanup
+      let abortHandler: (() => void) | undefined;
+
       if (signal) {
         if (signal.aborted) {
           controller.abort();
-        } else {
-          signal.addEventListener(
-            "abort",
-            () => {
-              controller.abort();
-            },
-            { once: true },
-          );
+          throw new Error("Query aborted");
         }
+        abortHandler = () => {
+          controller.abort();
+        };
+        signal.addEventListener("abort", abortHandler, { once: true });
       }
 
       setProgress({ rowsFetched: 0, started: true });
@@ -197,13 +197,15 @@ export function useTableDataQuery(
         )?.estimatedTotal;
       }
 
+      // Declare outside try block so finally can access it
+      let rafId: number | undefined;
+
       try {
         // Mark as streaming to prevent overlapping page fetches
         isStreamingRef.current = true;
 
         // Progressive loading: update cache as batches arrive
         const accumulatedRows: TableDataRow[] = [];
-        let rafId: number | undefined;
         let updateScheduled = false;
         const MIN_PROGRESSIVE_INTERVAL_MS = 120;
         const MAX_PROGRESSIVE_ROWS = 5000;
@@ -333,9 +335,10 @@ export function useTableDataQuery(
           },
         });
 
-        // Cancel any pending RAF update
+        // Cancel any pending RAF update (also done in finally for error cases)
         if (rafId !== undefined) {
           cancelAnimationFrame(rafId);
+          rafId = undefined;
         }
 
         return {
@@ -348,6 +351,14 @@ export function useTableDataQuery(
           offset: currentOffset,
         };
       } finally {
+        // Cancel any pending RAF update on error/abort
+        if (rafId !== undefined) {
+          cancelAnimationFrame(rafId);
+        }
+        // Clean up abort handler to prevent memory leak
+        if (signal && abortHandler) {
+          signal.removeEventListener("abort", abortHandler);
+        }
         // Mark streaming as complete
         isStreamingRef.current = false;
         abortControllerRef.current = null;

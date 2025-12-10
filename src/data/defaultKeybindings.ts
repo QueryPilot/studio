@@ -7,15 +7,15 @@ export const defaultKeybindings: Keybinding[] = [
   },
   {
     command: 'quickOpen.show',
+    key: 'cmd+k',
+  },
+  {
+    command: 'quickOpen.show',
     key: 'cmd+p',
   },
   {
     command: 'commandPalette.open',
     key: 'f1',
-  },
-  {
-    command: 'commandPalette.toggle',
-    key: 'cmd+k cmd+p',
   },
   {
     command: 'commandPalette.close',
@@ -25,10 +25,6 @@ export const defaultKeybindings: Keybinding[] = [
   {
     command: 'preferences.open',
     key: 'cmd+,',
-  },
-  {
-    command: 'preferences.openKeyboardShortcuts',
-    key: 'cmd+k cmd+s',
   },
   {
     command: 'help.keyboardShortcuts',
@@ -96,6 +92,11 @@ export const defaultKeybindings: Keybinding[] = [
     key: 'alt+h',
   },
   {
+    command: 'query.explain',
+    key: 'alt+e',
+    when: 'editorTextFocus && queryEditor',
+  },
+  {
     command: 'workbench.action.closeActiveTab',
     key: 'cmd+w',
     when: 'activeEditor',
@@ -154,10 +155,6 @@ export const defaultKeybindings: Keybinding[] = [
     command: 'workspace.redo',
     key: 'cmd+shift+z',
     when: '!editorTextFocus && !editingCell',
-  },
-  {
-    command: 'workbench.action.discardAllChanges',
-    key: 'cmd+r',
   },
   {
     command: 'workbench.action.reloadWindow',

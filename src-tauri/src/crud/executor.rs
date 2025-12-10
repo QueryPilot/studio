@@ -1,4 +1,4 @@
-use crate::core::adapter::DbAdapter;
+use crate::core::adapter::{DbAdapter, ParameterizedSql, SqlParam};
 use crate::error::{AppError, Result};
 use crate::types::*;
 use std::collections::HashMap;
@@ -128,7 +128,8 @@ pub async fn execute_crud_transaction(
     })
 }
 
-/// Execute transaction using PostgreSQL's proper transaction API (single connection)
+/// Execute transaction using PostgreSQL's proper transaction API with parameterized queries
+/// SECURITY: Uses $1, $2 placeholders to prevent SQL injection
 async fn execute_postgres_transaction(
     adapter: &crate::adapters::postgres::adapter::PostgresAdapter,
     transaction: CrudTransaction,
@@ -138,12 +139,12 @@ async fn execute_postgres_transaction(
     let mut committed = Vec::new();
     let id_mappings = HashMap::new();
     let warnings = Vec::new();
-    let mut sql_statements = Vec::new();
+    let mut parameterized_statements = Vec::new();
 
-    // Build all SQL statements
+    // Build all parameterized SQL statements
     for (idx, command) in transaction.commands.iter().enumerate() {
         tracing::info!(
-            "  Building SQL for command {}/{}: {} ({})",
+            "  Building parameterized SQL for command {}/{}: {} ({})",
             idx + 1,
             transaction.commands.len(),
             command.operation_type,
@@ -151,9 +152,9 @@ async fn execute_postgres_transaction(
         );
 
         match build_command_sql(command) {
-            Ok(sql) => {
-                tracing::info!("    Generated SQL: {}", sql);
-                sql_statements.push(sql);
+            Ok(stmt) => {
+                tracing::info!("    Generated SQL: {} (with {} params)", stmt.sql, stmt.params.len());
+                parameterized_statements.push(stmt);
 
                 let summary = CommandSummary {
                     id: command.id.clone(),
@@ -196,12 +197,15 @@ async fn execute_postgres_transaction(
         }
     }
 
-    // Execute all statements in a single transaction
+    // Execute all statements in a single transaction with parameterized queries
     tracing::info!(
-        "  Executing {} statements in transaction...",
-        sql_statements.len()
+        "  Executing {} parameterized statements in transaction...",
+        parameterized_statements.len()
     );
-    match adapter.execute_in_transaction(sql_statements).await {
+    match adapter
+        .execute_parameterized_transaction(parameterized_statements)
+        .await
+    {
         Ok(results) => {
             tracing::info!("  ✅ Transaction committed successfully");
             tracing::info!("  Duration: {}ms", start_time.elapsed().as_millis());
@@ -261,12 +265,12 @@ async fn execute_postgres_transaction(
     }
 }
 
-/// Build SQL for a single command
-fn build_command_sql(command: &CrudCommand) -> Result<String> {
+/// Build parameterized SQL for a single command (SQL INJECTION SAFE)
+fn build_command_sql(command: &CrudCommand) -> Result<ParameterizedSql> {
     match command.operation_type.as_str() {
-        "data.update" => build_update_sql(command),
-        "data.insert" => build_insert_sql(command),
-        "data.delete" => build_delete_sql(command),
+        "data.update" => build_update_sql_parameterized(command),
+        "data.insert" => build_insert_sql_parameterized(command),
+        "data.delete" => build_delete_sql_parameterized(command),
         _ => Err(AppError::Unsupported(format!(
             "Operation type {} not yet supported in transactions",
             command.operation_type
@@ -274,8 +278,8 @@ fn build_command_sql(command: &CrudCommand) -> Result<String> {
     }
 }
 
-/// Build UPDATE SQL
-fn build_update_sql(command: &CrudCommand) -> Result<String> {
+/// Build parameterized UPDATE SQL (SQL INJECTION SAFE)
+fn build_update_sql_parameterized(command: &CrudCommand) -> Result<ParameterizedSql> {
     let payload = command.payload.as_object().ok_or_else(|| {
         AppError::InvalidInput("data.update payload must be an object".to_string())
     })?;
@@ -301,24 +305,40 @@ fn build_update_sql(command: &CrudCommand) -> Result<String> {
         .as_ref()
         .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
-    let where_clause = primary_keys
-        .iter()
-        .map(|(k, v)| format!("{} = {}", quote_identifier(k), format_value(v)))
-        .collect::<Vec<_>>()
-        .join(" AND ");
+    // Build parameterized query with $1, $2, etc. placeholders
+    let mut params = Vec::new();
+    let mut param_idx = 1;
 
-    Ok(format!(
-        "UPDATE {}.{} SET {} = {} WHERE {}",
+    // SET clause: column = $1
+    params.push(SqlParam::from_json(new_value));
+    let set_clause = format!("{} = ${}", quote_identifier(column), param_idx);
+    param_idx += 1;
+
+    // WHERE clause: pk1 = $2 AND pk2 = $3 ...
+    let where_parts: Vec<String> = primary_keys
+        .iter()
+        .map(|(k, v)| {
+            params.push(SqlParam::from_json(v));
+            let placeholder = format!("{} = ${}", quote_identifier(k), param_idx);
+            param_idx += 1;
+            placeholder
+        })
+        .collect();
+    let where_clause = where_parts.join(" AND ");
+
+    let sql = format!(
+        "UPDATE {}.{} SET {} WHERE {}",
         quote_identifier(schema),
         quote_identifier(table),
-        quote_identifier(column),
-        format_value(new_value),
+        set_clause,
         where_clause
-    ))
+    );
+
+    Ok(ParameterizedSql::new(sql, params))
 }
 
-/// Build INSERT SQL
-fn build_insert_sql(command: &CrudCommand) -> Result<String> {
+/// Build parameterized INSERT SQL (SQL INJECTION SAFE)
+fn build_insert_sql_parameterized(command: &CrudCommand) -> Result<ParameterizedSql> {
     let payload = command.payload.as_object().ok_or_else(|| {
         AppError::InvalidInput("data.insert payload must be an object".to_string())
     })?;
@@ -335,30 +355,40 @@ fn build_insert_sql(command: &CrudCommand) -> Result<String> {
         .as_ref()
         .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
+    // Build column list and parameterized values
+    let mut params = Vec::new();
     let columns: Vec<&str> = values.keys().map(|s| s.as_str()).collect();
+
     let column_list = columns
         .iter()
         .map(|c| quote_identifier(c))
         .collect::<Vec<_>>()
         .join(", ");
 
-    let value_list = columns
+    // Build $1, $2, $3 ... placeholders
+    let placeholders: Vec<String> = columns
         .iter()
-        .map(|c| format_value(values.get(*c).unwrap()))
-        .collect::<Vec<_>>()
-        .join(", ");
+        .enumerate()
+        .map(|(idx, c)| {
+            params.push(SqlParam::from_json(values.get(*c).unwrap()));
+            format!("${}", idx + 1)
+        })
+        .collect();
+    let placeholder_list = placeholders.join(", ");
 
-    Ok(format!(
+    let sql = format!(
         "INSERT INTO {}.{} ({}) VALUES ({})",
         quote_identifier(schema),
         quote_identifier(table),
         column_list,
-        value_list
-    ))
+        placeholder_list
+    );
+
+    Ok(ParameterizedSql::new(sql, params))
 }
 
-/// Build DELETE SQL
-fn build_delete_sql(command: &CrudCommand) -> Result<String> {
+/// Build parameterized DELETE SQL (SQL INJECTION SAFE)
+fn build_delete_sql_parameterized(command: &CrudCommand) -> Result<ParameterizedSql> {
     let payload = command.payload.as_object().ok_or_else(|| {
         AppError::InvalidInput("data.delete payload must be an object".to_string())
     })?;
@@ -375,18 +405,26 @@ fn build_delete_sql(command: &CrudCommand) -> Result<String> {
         .as_ref()
         .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
-    let where_clause = primary_keys
+    // Build WHERE clause with parameterized values
+    let mut params = Vec::new();
+    let where_parts: Vec<String> = primary_keys
         .iter()
-        .map(|(k, v)| format!("{} = {}", quote_identifier(k), format_value(v)))
-        .collect::<Vec<_>>()
-        .join(" AND ");
+        .enumerate()
+        .map(|(idx, (k, v))| {
+            params.push(SqlParam::from_json(v));
+            format!("{} = ${}", quote_identifier(k), idx + 1)
+        })
+        .collect();
+    let where_clause = where_parts.join(" AND ");
 
-    Ok(format!(
+    let sql = format!(
         "DELETE FROM {}.{} WHERE {}",
         quote_identifier(schema),
         quote_identifier(table),
         where_clause
-    ))
+    );
+
+    Ok(ParameterizedSql::new(sql, params))
 }
 
 /// Execute a single CRUD command

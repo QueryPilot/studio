@@ -12,7 +12,6 @@ import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { tabGroupRegistry } from "@/services/tabGroupRegistry";
 import { clearAllCaches } from "@/lib/cacheManager";
 import { useCrudStore } from "@/stores/crudStore";
-import { queryClient } from "@/lib/react-query-client";
 import { toast } from "sonner";
 import React from "react";
 import { ConfirmationToast } from "@/components/ConfirmationToast";
@@ -311,13 +310,9 @@ export const defaultCommands: Command[] = [
           crudStore.discardAll();
         }
 
-        // Clear all caches (React Query + Zustand)
-        logger.info("[RefreshAll] Clearing all caches");
-        clearAllCaches();
-
-        // Invalidate all queries to trigger refetch
-        logger.info("[RefreshAll] Invalidating queries");
-        await queryClient.invalidateQueries();
+        // Reset all caches and trigger refetch for active queries
+        logger.info("[RefreshAll] Resetting all caches and refetching");
+        await clearAllCaches();
 
         // Show success toast
         logger.info("[RefreshAll] Showing success toast");
@@ -347,13 +342,9 @@ export const defaultCommands: Command[] = [
         logger.info("[DiscardAllChanges] Discarding all changes");
         crudStore.discardAll();
 
-        // Clear all caches
-        logger.info("[DiscardAllChanges] Clearing all caches");
-        clearAllCaches();
-
-        // Invalidate all queries to trigger refetch
-        logger.info("[DiscardAllChanges] Invalidating queries");
-        await queryClient.invalidateQueries();
+        // Reset all caches and trigger refetch for active queries
+        logger.info("[DiscardAllChanges] Resetting all caches and refetching");
+        await clearAllCaches();
 
         // Show success toast
         logger.info("[DiscardAllChanges] Showing success toast");
@@ -487,12 +478,10 @@ export const defaultCommands: Command[] = [
       const tabId = `query-${uuid}`;
 
       const connectionStore = useConnectionStore.getState();
-      const selectedSchema = useWorkspaceSelectionStore.getState().schema;
+      const workspaceSelection = useWorkspaceSelectionStore.getState();
+      const selectedSchema = workspaceSelection.schema;
 
-      const activeConnectionId: string =
-        connectionStore.activeConnectionId ??
-        connectionStore.getActiveConnection()?.id ??
-        "";
+      const activeConnectionId: string = workspaceSelection.connectionId ?? "";
       const connection = activeConnectionId
         ? connectionStore.getConnection(activeConnectionId)
         : null;

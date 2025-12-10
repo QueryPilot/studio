@@ -25,7 +25,7 @@ interface QueryState {
   result: QueryResult | null;
   isExecuting: boolean;
   isStreaming: boolean;
-  viewMode: "table" | "json";
+  viewMode: "table" | "json" | "explain";
   appliedLimit: { originalSql: string; limit: number } | null;
   hasUnsavedChanges: boolean;
   lastExecutedQuery: string;

@@ -65,7 +65,6 @@ describe('connectionStoreNew', () => {
       connections: [],
       loading: false,
       error: null,
-      activeConnectionId: null,
     });
 
     // Reset all mocks
@@ -133,27 +132,19 @@ describe('connectionStoreNew', () => {
       };
 
       vi.mocked(vaultStorage.storeConnection).mockResolvedValue('new-conn');
-      vi.mocked(vaultStorage.listConnections).mockResolvedValue([
-        ...mockConnections,
-        {
-          profile: newProfile,
-          metadata: {
-            is_favorite: false,
-            tags: [],
-            last_used: new Date().toISOString(),
-            created_at: new Date().toISOString(),
-            use_count: 0,
-          },
-        },
-      ]);
+
+      // Set up initial state with mock connections
+      useConnectionStore.setState({ connections: mockConnections });
 
       const store = useConnectionStore.getState();
       const id = await store.saveConnection(newProfile);
 
       expect(id).toBe('new-conn');
       expect(vaultStorage.storeConnection).toHaveBeenCalledWith(newProfile);
-      expect(vaultStorage.listConnections).toHaveBeenCalled();
+      // Store updates local state directly instead of refetching
       expect(useConnectionStore.getState().connections).toHaveLength(3);
+      const newConn = useConnectionStore.getState().connections.find(c => c.profile.id === 'new-conn');
+      expect(newConn?.profile.name).toBe('Test DB');
     });
 
     it('should save connection with tags', async () => {
@@ -231,16 +222,19 @@ describe('connectionStoreNew', () => {
   });
 
   describe('deleteConnection', () => {
-    it('should delete connection and refetch', async () => {
+    it('should delete connection and update local state', async () => {
       vi.mocked(vaultStorage.deleteConnection).mockResolvedValue();
-      const firstConnection = mockConnections[0];
-      vi.mocked(vaultStorage.listConnections).mockResolvedValue(firstConnection ? [firstConnection] : []);
+
+      // Set up initial state with mock connections
+      useConnectionStore.setState({ connections: mockConnections });
 
       const store = useConnectionStore.getState();
       await store.deleteConnection('conn-2');
 
       expect(vaultStorage.deleteConnection).toHaveBeenCalledWith('conn-2');
-      expect(vaultStorage.listConnections).toHaveBeenCalled();
+      // Store updates local state directly instead of refetching
+      expect(useConnectionStore.getState().connections).toHaveLength(1);
+      expect(useConnectionStore.getState().connections[0]?.profile.id).toBe('conn-1');
     });
 
     it('should handle delete errors', async () => {
@@ -257,16 +251,20 @@ describe('connectionStoreNew', () => {
   });
 
   describe('toggleFavorite', () => {
-    it('should toggle favorite status', async () => {
+    it('should toggle favorite status and update local state', async () => {
       vi.mocked(vaultStorage.toggleFavorite).mockResolvedValue(true);
-      vi.mocked(vaultStorage.listConnections).mockResolvedValue(mockConnections);
+
+      // Set up initial state with mock connections
+      useConnectionStore.setState({ connections: mockConnections });
 
       const store = useConnectionStore.getState();
       const isFavorite = await store.toggleFavorite('conn-2');
 
       expect(isFavorite).toBe(true);
       expect(vaultStorage.toggleFavorite).toHaveBeenCalledWith('conn-2');
-      expect(vaultStorage.listConnections).toHaveBeenCalled();
+      // Store updates local state directly instead of refetching
+      const updatedConn = useConnectionStore.getState().connections.find(c => c.profile.id === 'conn-2');
+      expect(updatedConn?.metadata.is_favorite).toBe(true);
     });
   });
 
@@ -360,37 +358,4 @@ describe('connectionStoreNew', () => {
     });
   });
 
-  describe('activeConnection', () => {
-    it('should set active connection', () => {
-      const store = useConnectionStore.getState();
-      store.setActiveConnection('conn-1');
-
-      expect(useConnectionStore.getState().activeConnectionId).toBe('conn-1');
-    });
-
-    it('should clear active connection', () => {
-      useConnectionStore.setState({ activeConnectionId: 'conn-1' });
-
-      const store = useConnectionStore.getState();
-      store.setActiveConnection(null);
-
-      expect(useConnectionStore.getState().activeConnectionId).toBe(null);
-    });
-
-    it('should get active connection', () => {
-      useConnectionStore.setState({ activeConnectionId: 'conn-1' });
-
-      const store = useConnectionStore.getState();
-      const active = store.getActiveConnection();
-
-      expect(active).toEqual({ id: 'conn-1' });
-    });
-
-    it('should return null when no active connection', () => {
-      const store = useConnectionStore.getState();
-      const active = store.getActiveConnection();
-
-      expect(active).toBe(null);
-    });
-  });
 });

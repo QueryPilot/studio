@@ -25,7 +25,7 @@ import { TableIndexes } from "@/components/TableIndexes";
 import { TableTriggers } from "@/components/TableTriggers";
 import { ObjectDefinition } from "@/components/ObjectDefinition";
 import { QueryPanel } from "@/components/QueryPanel";
-import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { Skeleton } from "../ui/skeleton";
 import { type TabMetadata } from "@/types/workbench";
 import { ERDPanel } from "@/components/Erd";
@@ -54,8 +54,8 @@ const TabLoadingSkeleton = () => (
 
 export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
   ({ panelId, tabId, metadata }) => {
-    const activeConnectionId = useConnectionStore(
-      (state) => state.activeConnectionId,
+    const activeConnectionId = useWorkspaceSelectionStore(
+      (state) => state.connectionId,
     );
     const focusedPanelId = useWorkbenchStore((state) => state.focusedPanelId);
     const isPanelFocused = focusedPanelId === panelId;
@@ -64,6 +64,16 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
     const definitionRef = useRef<string>("");
     const [viewActions, setViewActions] = useState<React.ReactNode>(null);
     const [copied, setCopied] = useState(false);
+    const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Cleanup copy timeout on unmount
+    useEffect(() => {
+      return () => {
+        if (copyTimeoutRef.current) {
+          clearTimeout(copyTimeoutRef.current);
+        }
+      };
+    }, []);
 
     const handleDefinitionLoad = useCallback((def: string) => {
       definitionRef.current = def;
@@ -74,7 +84,10 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
         try {
           await navigator.clipboard.writeText(definitionRef.current);
           setCopied(true);
-          setTimeout(() => {
+          if (copyTimeoutRef.current) {
+            clearTimeout(copyTimeoutRef.current);
+          }
+          copyTimeoutRef.current = setTimeout(() => {
             setCopied(false);
           }, 3000);
         } catch (err) {

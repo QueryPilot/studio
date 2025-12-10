@@ -76,8 +76,8 @@ impl SidecarManager {
     /// Start the AI sidecar process
     pub async fn start(&self, app_handle: &tauri::AppHandle) -> Result<u16> {
         // Check if already running in this instance
-        if self.port.read().await.is_some() {
-            return Ok(self.port.read().await.unwrap());
+        if let Some(port) = *self.port.read().await {
+            return Ok(port);
         }
 
         // Use hardcoded port 47856

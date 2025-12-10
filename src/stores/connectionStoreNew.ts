@@ -6,16 +6,17 @@ import {
   type ConnectionProfile,
 } from "@/types/connection";
 
+// Track inflight fetch to deduplicate concurrent calls
+let inflightFetch: Promise<void> | null = null;
+
 interface ConnectionStore {
   // State
   connections: StoredConnection[];
   loading: boolean;
   error: string | null;
-  activeConnectionId: string | null;
 
   // Actions
   fetchConnections: () => Promise<void>;
-  setActiveConnection: (id: string | null) => void;
   saveConnection: (
     profile: ConnectionProfile,
     tags?: string[],
@@ -38,7 +39,6 @@ interface ConnectionStore {
 
   // Getters
   getConnection: (id: string) => StoredConnection | undefined;
-  getActiveConnection: () => { id: string } | null;
   getFavoriteConnections: () => StoredConnection[];
   getRecentConnections: (limit?: number) => StoredConnection[];
 
@@ -60,25 +60,31 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
   connections: [],
   loading: false,
   error: null,
-  activeConnectionId: null,
 
-  // Fetch all connections from backend
+  // Fetch all connections from backend (deduplicated)
   fetchConnections: async () => {
-    set({ loading: true, error: null });
-    try {
-      const connections = await vaultStorage.listConnections();
-      set({ connections, loading: false });
-    } catch (err) {
-      const error =
-        err instanceof Error ? err.message : "Failed to fetch connections";
-      set({ error, loading: false });
-      throw new Error(error);
+    // Return existing fetch if one is in progress
+    if (inflightFetch) {
+      return inflightFetch;
     }
-  },
 
-  // Set active connection (compatibility shim)
-  setActiveConnection: (id: string | null) => {
-    set({ activeConnectionId: id });
+    set({ loading: true, error: null });
+
+    inflightFetch = (async () => {
+      try {
+        const connections = await vaultStorage.listConnections();
+        set({ connections, loading: false });
+      } catch (err) {
+        const error =
+          err instanceof Error ? err.message : "Failed to fetch connections";
+        set({ error, loading: false });
+        throw new Error(error);
+      } finally {
+        inflightFetch = null;
+      }
+    })();
+
+    return inflightFetch;
   },
 
   // Save new connection
@@ -296,12 +302,6 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
   // Get single connection
   getConnection: (id: string) => {
     return get().connections.find((conn) => conn.profile.id === id);
-  },
-
-  // Get active connection info (compatibility shim returning only id)
-  getActiveConnection: () => {
-    const id = get().activeConnectionId;
-    return id ? { id } : null;
   },
 
   // Get favorite connections

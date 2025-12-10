@@ -1,6 +1,12 @@
 use std::fs; // needed for reset_vault_vault
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Instant;
+
+// Precompiled regexes for SQL parsing (compiled once at startup)
+static LIMIT_REGEX: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"(?i)\bLIMIT\s+(\d+)").expect("LIMIT regex is valid"));
+static BLOCK_COMMENT_REGEX: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"/\*.*?\*/").expect("block comment regex is valid"));
 use tauri::{AppHandle, Manager, State};
 use tokio::time::{timeout, Duration};
 
@@ -39,6 +45,20 @@ fn extract_db_error_message(e: &tokio_postgres::Error) -> String {
 
     // Fallback to Display format for non-DB errors
     e.to_string()
+}
+
+/// Cancel a running PostgreSQL query by backend PID
+/// Spawns a background task to avoid blocking the current operation
+fn spawn_cancel_backend_query(pool: deadpool_postgres::Pool, backend_pid: i32) {
+    tokio::spawn(async move {
+        if let Ok(cancel_conn) = pool.get().await {
+            let cancel_sql = format!("SELECT pg_cancel_backend({})", backend_pid);
+            match cancel_conn.execute(&cancel_sql, &[]).await {
+                Ok(_) => tracing::info!("  ✅ Successfully cancelled backend query (PID: {})", backend_pid),
+                Err(e) => tracing::warn!("  ⚠️  Failed to cancel backend PID {}: {}", backend_pid, e),
+            }
+        }
+    });
 }
 
 #[derive(Serialize)]
@@ -645,6 +665,20 @@ pub struct TypeInfo {
     pub base_type: Option<String>,
 }
 
+/// Validate PostgreSQL identifier to prevent SQL injection
+/// Valid identifiers: alphanumeric, underscore, dollar sign, starting with letter or underscore
+fn is_valid_pg_identifier(s: &str) -> bool {
+    if s.is_empty() || s.len() > 128 {
+        return false;
+    }
+    let first = s.chars().next().unwrap();
+    if !first.is_ascii_alphabetic() && first != '_' {
+        return false;
+    }
+    s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+}
+
 #[tauri::command]
 pub async fn get_type_info(
     conn_id: String,
@@ -652,6 +686,15 @@ pub async fn get_type_info(
     schema: Option<String>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<TypeInfo, String> {
+    // Validate inputs to prevent SQL injection
+    if !is_valid_pg_identifier(&type_name) {
+        return Err(format!("Invalid type name: {}", type_name));
+    }
+    let schema = schema.unwrap_or_else(|| "public".to_string());
+    if !is_valid_pg_identifier(&schema) {
+        return Err(format!("Invalid schema name: {}", schema));
+    }
+
     let conn = manager
         .get_connection_with_retry(&conn_id, 3)
         .await
@@ -659,8 +702,7 @@ pub async fn get_type_info(
 
     // For PostgreSQL, query type information
     if matches!(conn.profile.db_type, DbType::PostgreSQL) {
-        let schema = schema.unwrap_or_else(|| "public".to_string());
-
+        // Safe to use format! after validation - identifiers are alphanumeric only
         let query_sql = format!(
             "SELECT \
                 t.typname as type_name, \
@@ -811,16 +853,12 @@ pub async fn ping(
 
 /// Extract LIMIT value from SQL query (simple regex-based parser)
 fn extract_limit_from_sql(sql: &str) -> Option<usize> {
-    use regex::Regex;
-
-    // Match LIMIT clause at end of query (case-insensitive)
-    // Handles: LIMIT 1000, LIMIT 1000;, LIMIT 1000 OFFSET 50
-    let re = Regex::new(r"(?i)\bLIMIT\s+(\d+)").ok()?;
-    let caps = re.captures(sql)?;
+    // Use precompiled LIMIT_REGEX for performance
+    let caps = LIMIT_REGEX.captures(sql)?;
     caps.get(1)?.as_str().parse::<usize>().ok()
 }
 
-/// Check if SQL query is a SELECT statement
+/// Check if SQL query is a SELECT statement (or returns rows like EXPLAIN)
 fn is_select_query(sql: &str) -> bool {
     // Trim whitespace and comments, get first significant SQL keyword
     let trimmed = sql.trim();
@@ -832,9 +870,8 @@ fn is_select_query(sql: &str) -> bool {
         .collect::<Vec<_>>()
         .join("\n");
 
-    // Remove block comments
-    let re = regex::Regex::new(r"/\*.*?\*/").unwrap_or_else(|_| regex::Regex::new(r"a^").unwrap());
-    let cleaned = re.replace_all(&without_comments, "");
+    // Remove block comments (use precompiled regex for performance)
+    let cleaned = BLOCK_COMMENT_REGEX.replace_all(&without_comments, "");
 
     // Get first word (ignoring WITH for CTEs)
     let first_keyword = cleaned
@@ -845,7 +882,10 @@ fn is_select_query(sql: &str) -> bool {
         .to_uppercase();
 
     // Check if it's a SELECT or starts with WITH (CTE that typically ends in SELECT)
-    first_keyword == "SELECT" || first_keyword == "WITH"
+        matches!(
+        first_keyword.as_str(),
+        "SELECT" | "WITH" | "EXPLAIN" | "TABLE" | "VALUES" | "SHOW"
+    )
 }
 
 /// Execute query with TRUE streaming (rows arrive as they're fetched from PostgreSQL)
@@ -1006,7 +1046,34 @@ async fn execute_single_fetch_stream(
     let prepare_elapsed = prepare_start.elapsed().as_millis();
     tracing::info!("  ⏱ PREPARE statement: {}ms ⚠️", prepare_elapsed);
 
-    // Execute query with prepared statement
+    // Extract column metadata from prepared statement BEFORE starting the streaming query
+    // This is critical: we cannot run another query on the same connection while streaming
+    let table_oids: Vec<Option<u32>> = stmt.columns().iter().map(|col| col.table_oid()).collect();
+    let unique_oids: Vec<u32> = table_oids.iter().filter_map(|&oid| oid).collect::<std::collections::HashSet<_>>().into_iter().collect();
+
+    // Resolve table OIDs to table names BEFORE query_raw - connection can only handle one query at a time
+    let table_names: std::collections::HashMap<u32, String> = if !unique_oids.is_empty() {
+        let oid_list = unique_oids.iter().map(|o| o.to_string()).collect::<Vec<_>>().join(",");
+        let resolve_sql = format!(
+            "SELECT oid::int, relname FROM pg_class WHERE oid IN ({})",
+            oid_list
+        );
+        match pool_conn.query(&resolve_sql, &[]).await {
+            Ok(rows) => rows
+                .iter()
+                .filter_map(|row| {
+                    let oid: i32 = row.get(0);
+                    let name: String = row.get(1);
+                    Some((oid as u32, name))
+                })
+                .collect(),
+            Err(_) => std::collections::HashMap::new(),
+        }
+    } else {
+        std::collections::HashMap::new()
+    };
+
+    // Execute query with prepared statement - START STREAMING AFTER resolving table names
     let query_start = std::time::Instant::now();
     let row_stream = pool_conn
         .query_raw(&stmt, std::iter::empty::<i32>())
@@ -1018,25 +1085,31 @@ async fn execute_single_fetch_stream(
     let exec_elapsed = query_start.elapsed().as_millis();
     tracing::info!("  ⏱ Started query_raw: {}ms", exec_elapsed);
 
-    // Extract column metadata from prepared statement
     let columns = stmt
         .columns()
         .iter()
-        .map(|col| crate::types::ColumnMeta {
-            name: col.name().to_string(),
-            data_type: crate::adapters::postgres::types::PostgresTypeConverter::type_to_cell_type(
-                col.type_(),
-            ),
-            nullable: true,
-            primary_key: false,
-            db_type: col.type_().name().to_string(),
-            type_oid: Some(col.type_().oid()),
-            default_value: None,
-            comment: None,
-            enum_values: None,
-            type_category: None,
-            precision: None,
-            scale: None,
+        .enumerate()
+        .map(|(idx, col)| {
+            let table_name = table_oids.get(idx)
+                .and_then(|&oid| oid)
+                .and_then(|oid| table_names.get(&oid).cloned());
+            crate::types::ColumnMeta {
+                name: col.name().to_string(),
+                table_name,
+                data_type: crate::adapters::postgres::types::PostgresTypeConverter::type_to_cell_type(
+                    col.type_(),
+                ),
+                nullable: true,
+                primary_key: false,
+                db_type: col.type_().name().to_string(),
+                type_oid: Some(col.type_().oid()),
+                default_value: None,
+                comment: None,
+                enum_values: None,
+                type_category: None,
+                precision: None,
+                scale: None,
+            }
         })
         .collect::<Vec<_>>();
 
@@ -1047,6 +1120,7 @@ async fn execute_single_fetch_stream(
     });
 
     let mut row_stream = Box::pin(row_stream);
+    let mut last_send_instant = std::time::Instant::now();
 
     tracing::info!("TRUE STREAMING: Query executing, rows will arrive progressively...");
 
@@ -1096,18 +1170,7 @@ async fn execute_single_fetch_stream(
             {
                 tracing::info!("  ⚠️  Channel closed during row fetch (user cancelled early)");
                 tracing::info!("  🛑 Cancelling PostgreSQL backend PID: {}", backend_pid);
-
-                // Cancel the running query in PostgreSQL
-                let cancel_pool = pool.clone();
-                tokio::spawn(async move {
-                    if let Ok(cancel_conn) = cancel_pool.get().await {
-                        let cancel_sql = format!("SELECT pg_cancel_backend({})", backend_pid);
-                        match cancel_conn.execute(&cancel_sql, &[]).await {
-                            Ok(_) => tracing::info!("  ✅ Successfully cancelled backend query"),
-                            Err(e) => tracing::warn!("  ⚠️  Failed to cancel backend: {}", e),
-                        }
-                    }
-                });
+                spawn_cancel_backend_query(pool.clone(), backend_pid);
 
                 let _ = metadata_channel.send(StreamMessage::Interrupted {
                     resumable: false,
@@ -1129,10 +1192,20 @@ async fn execute_single_fetch_stream(
                 row_buffer.push(row);
                 total_rows += 1;
 
-                // Micro-batch: Convert rows in parallel when buffer is full
-                if row_buffer.len() >= MICRO_BATCH_SIZE {
+                // Convert rows eagerly for the first batch so UI renders immediately,
+                // then fall back to the larger micro-batch size for throughput.
+                // This prevents small/limited queries (e.g. LIMIT 300) from waiting
+                // until 500 rows are buffered before anything is sent.
+                let current_threshold = get_send_threshold(rows_sent);
+                let should_convert = row_buffer.len() >= MICRO_BATCH_SIZE
+                    || (json_buffer.is_empty() && row_buffer.len() >= FIRST_BATCH_SIZE);
+
+                if should_convert {
                     let convert_start = std::time::Instant::now();
-                    let converted = crate::adapters::postgres::fast_converter::FastPostgresConverter::rows_to_json(&row_buffer)
+                    let converted =
+                        crate::adapters::postgres::fast_converter::FastPostgresConverter::rows_to_json(
+                            &row_buffer,
+                        )
                         .map_err(|e| e.to_string())?;
                     conversion_time_ms += convert_start.elapsed().as_millis() as u64;
                     json_buffer.extend(converted);
@@ -1140,20 +1213,33 @@ async fn execute_single_fetch_stream(
                 }
 
                 // Send chunk to frontend when output buffer reaches dynamic threshold
-                let current_threshold = get_send_threshold(rows_sent);
-                if json_buffer.len() >= current_threshold {
+                // If we've built up data but haven't sent for a while, force a send to unblock UI.
+                let idle_ms = last_send_instant.elapsed().as_millis();
+                let send_due_to_idle = idle_ms > 500 && !json_buffer.is_empty();
+
+                if json_buffer.len() >= current_threshold || send_due_to_idle {
                     let batch_size = json_buffer.len();
 
                     // Serialize to MessagePack RAW bytes (no base64!)
                     let serialize_start = std::time::Instant::now();
-                    let rows_msgpack =
-                        rmp_serde::to_vec(&json_buffer).unwrap_or_else(|_| Vec::new());
+                    let rows_msgpack = match rmp_serde::to_vec(&json_buffer) {
+                        Ok(bytes) => bytes,
+                        Err(e) => {
+                            tracing::error!("MessagePack serialization failed: {}", e);
+                            let _ = metadata_channel.send(StreamMessage::Error {
+                                code: "SERIALIZATION_ERROR".to_string(),
+                                message: format!("Failed to serialize rows: {}", e),
+                            });
+                            return Err(format!("MessagePack serialization failed: {}", e));
+                        }
+                    };
                     conversion_time_ms += serialize_start.elapsed().as_millis() as u64;
                     json_buffer.clear();
 
                     // Send raw binary via Response (ZERO serialization overhead!)
                     let send_start = std::time::Instant::now();
                     let send_result = data_channel.send(tauri::ipc::Response::new(rows_msgpack));
+                    last_send_instant = std::time::Instant::now();
                     send_time_ms += send_start.elapsed().as_millis() as u64;
                     send_count += 1;
                     rows_sent += batch_size;
@@ -1166,21 +1252,7 @@ async fn execute_single_fetch_stream(
                         tracing::info!("  🛑 Cancelling PostgreSQL backend PID: {}", backend_pid);
 
                         // Cancel the running query in PostgreSQL
-                        let cancel_pool = pool.clone();
-                        tokio::spawn(async move {
-                            if let Ok(cancel_conn) = cancel_pool.get().await {
-                                let cancel_sql =
-                                    format!("SELECT pg_cancel_backend({})", backend_pid);
-                                match cancel_conn.execute(&cancel_sql, &[]).await {
-                                    Ok(_) => {
-                                        tracing::info!("  ✅ Successfully cancelled backend query")
-                                    }
-                                    Err(e) => {
-                                        tracing::warn!("  ⚠️  Failed to cancel backend: {}", e)
-                                    }
-                                }
-                            }
-                        });
+                        spawn_cancel_backend_query(pool.clone(), backend_pid);
 
                         let _ = metadata_channel.send(StreamMessage::Interrupted {
                             resumable: false,
@@ -1219,7 +1291,17 @@ async fn execute_single_fetch_stream(
 
         // Serialize to MessagePack RAW bytes
         let serialize_start = std::time::Instant::now();
-        let rows_msgpack = rmp_serde::to_vec(&json_buffer).unwrap_or_else(|_| Vec::new());
+        let rows_msgpack = match rmp_serde::to_vec(&json_buffer) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                tracing::error!("MessagePack serialization failed for final batch: {}", e);
+                let _ = metadata_channel.send(StreamMessage::Error {
+                    code: "SERIALIZATION_ERROR".to_string(),
+                    message: format!("Failed to serialize rows: {}", e),
+                });
+                return Err(format!("MessagePack serialization failed: {}", e));
+            }
+        };
         conversion_time_ms += serialize_start.elapsed().as_millis() as u64;
 
         // Send raw binary via Response (ZERO serialization overhead!)
@@ -1234,16 +1316,7 @@ async fn execute_single_fetch_stream(
             tracing::info!("  🛑 Cancelling PostgreSQL backend PID: {}", backend_pid);
 
             // Cancel the running query in PostgreSQL
-            let cancel_pool = pool.clone();
-            tokio::spawn(async move {
-                if let Ok(cancel_conn) = cancel_pool.get().await {
-                    let cancel_sql = format!("SELECT pg_cancel_backend({})", backend_pid);
-                    match cancel_conn.execute(&cancel_sql, &[]).await {
-                        Ok(_) => tracing::info!("  ✅ Successfully cancelled backend query"),
-                        Err(e) => tracing::warn!("  ⚠️  Failed to cancel backend: {}", e),
-                    }
-                }
-            });
+            spawn_cancel_backend_query(pool.clone(), backend_pid);
 
             let _ = metadata_channel.send(StreamMessage::Interrupted {
                 resumable: false,
@@ -1309,13 +1382,7 @@ async fn execute_single_fetch_stream(
         tracing::info!("  🛑 Cancelling PostgreSQL backend PID: {}", backend_pid);
 
         // Cancel the running query in PostgreSQL (might already be done, but be safe)
-        let cancel_pool = pool.clone();
-        tokio::spawn(async move {
-            if let Ok(cancel_conn) = cancel_pool.get().await {
-                let cancel_sql = format!("SELECT pg_cancel_backend({})", backend_pid);
-                let _ = cancel_conn.execute(&cancel_sql, &[]).await;
-            }
-        });
+        spawn_cancel_backend_query(pool.clone(), backend_pid);
 
         return Err("Query cancelled by user".to_string());
     }

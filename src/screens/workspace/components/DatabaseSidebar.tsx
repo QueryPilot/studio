@@ -109,6 +109,13 @@ export function DatabaseSidebar({
     return set;
   }, [starredItemsRaw]);
 
+  // Compute non-starred counts for section headers
+  const nonStarredCounts = useMemo(() => ({
+    tables: tables.filter((t) => !starredSet.has(`table:${t.schema}.${t.name}`)).length,
+    views: views.filter((v) => !starredSet.has(`view:${v.schema}.${v.name}`)).length,
+    functions: functions.filter((f) => !starredSet.has(`function:${f.schema}.${f.name}`)).length,
+  }), [tables, views, functions, starredSet]);
+
   // Pre-compute pending changes set for O(1) lookups
   const pendingChangesSet = useMemo(() => {
     const set = new Set<string>();
@@ -140,11 +147,9 @@ export function DatabaseSidebar({
     const setupListener = async () => {
       cleanup = await safeListen("database-reconnected", (event) => {
         const payload = event.payload as { connectionId: string };
-        if (
-          payload.connectionId === connectionId &&
-          selectedSchema &&
-          selectedDatabase
-        ) {
+        // Don't require selectedSchema - it will be auto-selected after schemas load
+        // The refreshSchemaData() will be gated by useSchemaData's enabled condition
+        if (payload.connectionId === connectionId && selectedDatabase) {
           setIsRefreshing(true);
           void refreshSchemaData().finally(() => {
             setIsRefreshing(false);
@@ -158,7 +163,7 @@ export function DatabaseSidebar({
     return () => {
       if (cleanup) cleanup();
     };
-  }, [connectionId, selectedSchema, selectedDatabase, refreshSchemaData]);
+  }, [connectionId, selectedDatabase, refreshSchemaData]);
 
   // Track database/schema changes to show loading state
   useEffect(() => {
@@ -207,21 +212,21 @@ export function DatabaseSidebar({
 
     // Add tables if expanded
     if (expandedNodes.has("tables")) {
-      filterItems(tables).forEach((table) => {
+      filterItems(tables, "table").forEach((table) => {
         allItems.push(getItemKey("table", table.name, table.schema));
       });
     }
 
     // Add views if expanded
     if (expandedNodes.has("views")) {
-      filterItems(views).forEach((view) => {
+      filterItems(views, "view").forEach((view) => {
         allItems.push(getItemKey("view", view.name, view.schema));
       });
     }
 
     // Add functions if expanded
     if (expandedNodes.has("functions")) {
-      filterItems(functions).forEach((func) => {
+      filterItems(functions, "function").forEach((func) => {
         allItems.push(getItemKey("function", func.name, func.schema));
       });
     }
@@ -518,12 +523,22 @@ export function DatabaseSidebar({
   // Use pre-computed starred items
   const starredItems = starredItemsRaw;
 
-  // IconFilter items based on search
-  const filterItems = <T extends { name: string }>(items: T[]): T[] => {
-    if (!searchQuery) return items;
-    return items.filter((item) =>
-      item.name.toLowerCase().includes(searchQuery.toLowerCase()),
-    );
+  // Filter items based on search and exclude starred items from original groups
+  const filterItems = <T extends { name: string; schema: string }>(
+    items: T[],
+    type: "table" | "view" | "function",
+  ): T[] => {
+    return items.filter((item) => {
+      // Exclude starred items from their original group
+      if (starredSet.has(`${type}:${item.schema}.${item.name}`)) {
+        return false;
+      }
+      // Apply search filter
+      if (searchQuery && !item.name.toLowerCase().includes(searchQuery.toLowerCase())) {
+        return false;
+      }
+      return true;
+    });
   };
 
   // IconCheck if a table/view is currently active in the active panel
@@ -812,10 +827,10 @@ export function DatabaseSidebar({
           )}
 
           {/* Tables Section */}
-          {(tables.length > 0 || isLoadingData) && (
+          {(nonStarredCounts.tables > 0 || isLoadingData) && (
             <SidebarSection
               title="Tables"
-              count={tables.length}
+              count={nonStarredCounts.tables}
               isExpanded={expandedNodes.has("tables")}
               onToggle={() => {
                 toggleNode("tables");
@@ -824,7 +839,7 @@ export function DatabaseSidebar({
               onAdd={handleCreateTable}
               addTooltip="Create new table"
             >
-              {filterItems(tables).map((table) => {
+              {filterItems(tables, "table").map((table) => {
                 const itemKey = getItemKey("table", table.name, table.schema);
                 return (
                   <SidebarItem
@@ -884,10 +899,10 @@ export function DatabaseSidebar({
           )}
 
           {/* Views Section */}
-          {views.length > 0 && (
+          {nonStarredCounts.views > 0 && (
             <SidebarSection
               title="Views"
-              count={views.length}
+              count={nonStarredCounts.views}
               isExpanded={expandedNodes.has("views")}
               onToggle={() => {
                 toggleNode("views");
@@ -895,7 +910,7 @@ export function DatabaseSidebar({
               onAdd={handleCreateView}
               addTooltip="Create new view"
             >
-              {filterItems(views).map((view) => {
+              {filterItems(views, "view").map((view) => {
                 const itemKey = getItemKey("view", view.name, view.schema);
                 return (
                   <SidebarItem
@@ -962,10 +977,10 @@ export function DatabaseSidebar({
           )}
 
           {/* Functions Section */}
-          {functions.length > 0 && (
+          {nonStarredCounts.functions > 0 && (
             <SidebarSection
               title="Functions"
-              count={functions.length}
+              count={nonStarredCounts.functions}
               isExpanded={expandedNodes.has("functions")}
               onToggle={() => {
                 toggleNode("functions");
@@ -974,7 +989,7 @@ export function DatabaseSidebar({
               onAdd={handleCreateFunction}
               addTooltip="Create new function"
             >
-              {filterItems(functions).map((func) => {
+              {filterItems(functions, "function").map((func) => {
                 const itemKey = getItemKey("function", func.name, func.schema);
                 return (
                   <SidebarItem
