@@ -80,6 +80,12 @@ export interface DialectIntrospection {
   /** Query to count rows in a table (estimated or exact) */
   getTableCountQuery(schema: string, table: string, exact?: boolean): string;
 
+  /** Query to get stats for a single table (owner, size, row_count, comment) */
+  getTableStatsQuery(schema: string, table: string): string;
+
+  /** Query to get all referenceable columns (PK + unique) for foreign key targets */
+  getForeignKeyTargetsQuery(schema: string): string;
+
   /** Query to get object definition (view, function, etc.) */
   getObjectDefinitionQuery(
     objectType: "table" | "view" | "materialized_view" | "function" | "procedure",

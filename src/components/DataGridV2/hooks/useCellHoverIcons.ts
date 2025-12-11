@@ -53,18 +53,40 @@ export interface UseCellHoverIconsOptions {
   enabled?: boolean;
   /** Ref to the grid container for attaching click listeners */
   containerRef?: React.RefObject<HTMLElement | null>;
+  /** Enable FK preview popover on click instead of navigation */
+  enableFKPreview?: boolean;
+}
+
+export interface FKPreviewState {
+  col: number;
+  row: number;
+  fkReference: {
+    referenced_schema: string;
+    referenced_table: string;
+    referenced_column: string;
+  };
+  fkValue: unknown;
+  cellBounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
 }
 
 export interface UseCellHoverIconsResult {
   hoveredCell: Item | null;
   onItemHovered: (args: GridMouseEventArgs) => void;
   drawCell: DrawCellCallback;
+  fkPreviewState: FKPreviewState | null;
+  clearFkPreview: () => void;
 }
 
 // Icon size and padding
 const ICON_SIZE = 14;
 const BUTTON_SIZE = 22; // Size of individual clickable area
 const HOVER_DELAY_MS = 150; // Delay before showing icons
+const FK_PREVIEW_DELAY_MS = 800; // Delay before showing FK preview popover
 const COPIED_FEEDBACK_MS = 3000; // Duration to show copied checkmark
 
 // Detect dark mode from theme bgCell
@@ -241,14 +263,18 @@ function getFkReference(column: GridColumnV2): { schema: string; table: string; 
 export function useCellHoverIcons(
   options: UseCellHoverIconsOptions
 ): UseCellHoverIconsResult {
-  const { columns, rows, onOpenReference, enabled = true, containerRef } = options;
+  const { columns, rows, onOpenReference, enabled = true, containerRef, enableFKPreview = false } = options;
   const [hoveredCell, setHoveredCell] = useState<Item | null>(null);
   const [, setHoveredRow] = useState<number | null>(null);
   const [hoveredButton, setHoveredButton] = useState<string | null>(null);
   const [copiedCell, setCopiedCell] = useState<string | null>(null); // Track which cell was just copied
+  const [fkPreviewState, setFkPreviewState] = useState<FKPreviewState | null>(null);
 
   // Track icon bounds for click detection
   const iconBoundsRef = useRef<Map<string, { action: string; bounds: Rectangle }[]>>(new Map());
+
+  // Track current hovered cell bounds for FK preview positioning
+  const hoveredCellBoundsRef = useRef<Rectangle | null>(null);
 
   // Timer for hover delay
   const hoverTimerRef = useRef<number | null>(null);
@@ -308,6 +334,11 @@ export function useCellHoverIcons(
     };
   }, []);
 
+  // Clear FK preview state when columns/rows change (table switch)
+  useEffect(() => {
+    setFkPreviewState(null);
+  }, [columns, rows]);
+
   const drawCell: DrawCellCallback = useCallback(
     (args, draw) => {
       // Draw the default cell content first
@@ -323,6 +354,9 @@ export function useCellHoverIcons(
       if (hoveredCell[0] !== col || hoveredCell[1] !== row) {
         return;
       }
+
+      // Store cell bounds for FK preview positioning
+      hoveredCellBoundsRef.current = rect;
 
       const column = columns[col];
       const rowData = rows[row];
@@ -493,9 +527,15 @@ export function useCellHoverIcons(
         window.clearTimeout(hoverTimerRef.current);
         hoverTimerRef.current = null;
       }
+      // Clear any pending FK preview timer
+      if (fkPreviewTimerRef.current !== null) {
+        window.clearTimeout(fkPreviewTimerRef.current);
+        fkPreviewTimerRef.current = null;
+      }
       setHoveredCell(null);
       setHoveredRow(null);
       setHoveredButton(null);
+      setFkPreviewState(null);
     };
 
     container.addEventListener("mouseleave", handleMouseLeave);
@@ -591,7 +631,28 @@ export function useCellHoverIcons(
           if (action === "reference") {
             const fkRef = getFkReference(column);
             if (fkRef && cellValue?.value !== null && cellValue?.value !== undefined) {
-              if (onOpenReference) {
+              // If FK preview is enabled, show popover instead of navigating
+              if (enableFKPreview) {
+                const cellBounds = hoveredCellBoundsRef.current;
+                if (cellBounds) {
+                  setFkPreviewState({
+                    col,
+                    row,
+                    fkReference: {
+                      referenced_schema: fkRef.schema,
+                      referenced_table: fkRef.table,
+                      referenced_column: fkRef.column,
+                    },
+                    fkValue: cellValue.value,
+                    cellBounds: {
+                      x: cellBounds.x,
+                      y: cellBounds.y,
+                      width: cellBounds.width,
+                      height: cellBounds.height,
+                    },
+                  });
+                }
+              } else if (onOpenReference) {
                 onOpenReference(
                   fkRef.schema,
                   fkRef.table,
@@ -703,11 +764,17 @@ export function useCellHoverIcons(
       container.removeEventListener("mousemove", handleMouseMove);
       container.style.cursor = "";
     };
-  }, [enabled, containerRef, hoveredCell, hoveredButton, columns, rows, onOpenReference]);
+  }, [enabled, containerRef, hoveredCell, hoveredButton, columns, rows, onOpenReference, enableFKPreview]);
+
+  const clearFkPreview = useCallback(() => {
+    setFkPreviewState(null);
+  }, []);
 
   return {
     hoveredCell,
     onItemHovered,
     drawCell,
+    fkPreviewState,
+    clearFkPreview,
   };
 }

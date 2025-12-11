@@ -281,22 +281,31 @@ export interface TableDataResult {
   execution_time_ms?: number;
 }
 
-// Channel-based streaming (matches Rust StreamMessage enum)
+// Streaming types
+export type StreamEvent =
+  | { type: "Started"; columns: ColumnMeta[]; estimated_rows?: number }
+  | { type: "Data"; rows: CellValue[][]; row_offset: number }
+  | { type: "Progress"; rows_fetched: number; percentage?: number }
+  | { type: "Completed"; total_rows: number; execution_time_ms: number }
+  | { type: "Error"; message: string; code?: string };
+
+// NEW: Channel-based streaming (matches Rust StreamMessage enum)
 // NOTE: Batch data sent via separate data channel as ArrayBuffer (not in metadata messages)
-// Field names use camelCase to match Rust serde(rename_all = "camelCase")
+// NOTE: Rust uses #[serde(rename_all = "camelCase")] on enum which only affects variant names,
+// NOT struct field names within variants. Field names remain snake_case.
 export type StreamMessage =
-  | { type: "limitApplied"; originalSql: string; appliedLimit: number }
-  | { type: "started"; columns: ColumnMeta[]; estimatedRows?: number }
+  | { type: "limitApplied"; original_sql: string; applied_limit: number }
+  | { type: "started"; columns: ColumnMeta[]; estimated_rows?: number }
   | {
       type: "success";
-      totalRows: number;
-      executionTimeMs: number;
-      cursorSetupMs?: number;
-      totalStreamingMs?: number;
-      fetchCount?: number;
-      networkMs?: number;
-      conversionMs?: number;
-      ipcSendMs?: number;
+      total_rows: number;
+      execution_time_ms: number;
+      cursor_setup_ms?: number;
+      total_streaming_ms?: number;
+      fetch_count?: number;
+      network_ms?: number;
+      conversion_ms?: number;
+      ipc_send_ms?: number;
     }
   | { type: "error"; code: string; message: string }
   | { type: "interrupted"; resumable: boolean; message: string };
@@ -333,7 +342,8 @@ export class BackendAPI {
     return invoke("ping", { connId });
   }
 
-  // NOTE: streamQuery has been removed - use QueryStreamClient.streamWithCallbacks() instead
+  // NOTE: streamQuery was removed - it was incompatible with the Rust backend
+  // (expected channels, returned Result<()> not string). Use QueryStreamClient instead.
   // See: src/services/queryStreamClient.ts
 
   // Database introspection - Use IntrospectionService instead (dialect-aware)

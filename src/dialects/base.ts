@@ -238,6 +238,8 @@ export abstract class BaseDialect implements SqlDialect {
   abstract getSupportedIndexTypesQuery(): string;
   abstract getSupportedColumnTypesQuery(): string;
   abstract getTableCountQuery(schema: string, table: string, exact?: boolean): string;
+  abstract getTableStatsQuery(schema: string, table: string): string;
+  abstract getForeignKeyTargetsQuery(schema: string): string;
   abstract getObjectDefinitionQuery(
     objectType: "table" | "view" | "materialized_view" | "function" | "procedure",
     schema: string,

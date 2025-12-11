@@ -399,6 +399,90 @@ WHERE n.nspname = $1 AND c.relname = $2
 `;
 
 /**
+ * Query to get table statistics for a single table
+ * Parameters: $1 = schema, $2 = table
+ * Returns: owner, size, row_count, comment
+ */
+export const GET_TABLE_STATS_QUERY = `
+SELECT
+    pg_catalog.pg_get_userbyid(c.relowner) as owner,
+    pg_size_pretty(pg_total_relation_size(c.oid)) as size,
+    c.reltuples::bigint as row_count,
+    obj_description(c.oid) as comment
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = $1
+    AND c.relname = $2
+    AND c.relkind IN ('r', 'p', 'f')
+`;
+
+/**
+ * Query to get all referenceable columns in a schema (primary keys and unique columns)
+ * Used for foreign key target selection - single query instead of N+1
+ * Parameters: $1 = schema
+ */
+export const GET_FOREIGN_KEY_TARGETS_QUERY = `
+WITH pk_columns AS (
+    -- Primary key columns
+    SELECT
+        c.relname AS table_name,
+        a.attname AS column_name,
+        pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type
+    FROM pg_constraint con
+    JOIN pg_class c ON c.oid = con.conrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(con.conkey)
+    WHERE n.nspname = $1
+        AND con.contype = 'p'
+        AND c.relkind IN ('r', 'p')
+),
+unique_columns AS (
+    -- Unique constraint columns
+    SELECT
+        c.relname AS table_name,
+        a.attname AS column_name,
+        pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type
+    FROM pg_constraint con
+    JOIN pg_class c ON c.oid = con.conrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(con.conkey)
+    WHERE n.nspname = $1
+        AND con.contype = 'u'
+        AND c.relkind IN ('r', 'p')
+),
+unique_index_columns AS (
+    -- Unique index columns (excluding primary keys and unique constraints)
+    SELECT
+        t.relname AS table_name,
+        a.attname AS column_name,
+        pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type
+    FROM pg_index ix
+    JOIN pg_class t ON t.oid = ix.indrelid
+    JOIN pg_class i ON i.oid = ix.indexrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
+    WHERE n.nspname = $1
+        AND ix.indisunique = true
+        AND ix.indisprimary = false
+        AND t.relkind IN ('r', 'p')
+        AND NOT EXISTS (
+            SELECT 1 FROM pg_constraint con
+            WHERE con.conrelid = t.oid
+                AND con.conindid = i.oid
+        )
+)
+SELECT DISTINCT table_name, column_name, data_type
+FROM (
+    SELECT * FROM pk_columns
+    UNION
+    SELECT * FROM unique_columns
+    UNION
+    SELECT * FROM unique_index_columns
+) combined
+ORDER BY table_name, column_name
+`;
+
+/**
  * Query to get view definition
  */
 export const GET_VIEW_DEFINITION_QUERY = `

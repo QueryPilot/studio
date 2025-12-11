@@ -109,6 +109,19 @@ export class PostgresDialect extends BaseDialect {
       .replace(/\$2/g, this.formatLiteral(table));
   }
 
+  getTableStatsQuery(schema: string, table: string): string {
+    return introspection.GET_TABLE_STATS_QUERY
+      .replace(/\$1/g, this.formatLiteral(schema))
+      .replace(/\$2/g, this.formatLiteral(table));
+  }
+
+  getForeignKeyTargetsQuery(schema: string): string {
+    return introspection.GET_FOREIGN_KEY_TARGETS_QUERY.replace(
+      /\$1/g,
+      this.formatLiteral(schema),
+    );
+  }
+
   getObjectDefinitionQuery(
     objectType: "table" | "view" | "materialized_view" | "function" | "procedure",
     schema: string,
