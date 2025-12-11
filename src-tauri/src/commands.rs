@@ -15,7 +15,6 @@ use crate::ssh;
 use crate::state::AppState;
 use crate::types::*;
 use serde::Serialize;
-use serde_json::Value as JsonValue;
 use tokio_postgres::Row;
 
 /// Extract clean error message from PostgreSQL error
@@ -1125,9 +1124,10 @@ async fn execute_single_fetch_stream(
     tracing::info!("TRUE STREAMING: Query executing, rows will arrive progressively...");
 
     let mut total_rows = 0;
-    let mut json_buffer: Vec<Vec<JsonValue>> = Vec::new(); // Final JSON output buffer
-    let mut row_buffer: Vec<Row> = Vec::new(); // Temporary Row buffer for batch conversion
-    const MICRO_BATCH_SIZE: usize = 500; // Convert this many rows in parallel (optimal for cache)
+    let mut row_buffer: Vec<Row> = Vec::new(); // Row buffer for direct serialization
+    // OPTIMIZATION: Skip intermediate json_buffer - serialize directly to MessagePack
+    // OLD: Row → Vec<Vec<JsonValue>> → MessagePack (double allocation)
+    // NEW: Row → SerializableRows → MessagePack (single pass, zero intermediate allocation)
 
     // Incremental batch sizes: start small for instant feedback, then go big
     const FIRST_BATCH_SIZE: usize = 32; // Ultra-fast first render (~4ms IPC)
@@ -1192,37 +1192,23 @@ async fn execute_single_fetch_stream(
                 row_buffer.push(row);
                 total_rows += 1;
 
-                // Convert rows eagerly for the first batch so UI renders immediately,
-                // then fall back to the larger micro-batch size for throughput.
-                // This prevents small/limited queries (e.g. LIMIT 300) from waiting
-                // until 500 rows are buffered before anything is sent.
+                // Send rows when buffer reaches threshold
+                // Use dynamic thresholds: small first batch for instant feedback, then larger batches
                 let current_threshold = get_send_threshold(rows_sent);
-                let should_convert = row_buffer.len() >= MICRO_BATCH_SIZE
-                    || (json_buffer.is_empty() && row_buffer.len() >= FIRST_BATCH_SIZE);
-
-                if should_convert {
-                    let convert_start = std::time::Instant::now();
-                    let converted =
-                        crate::adapters::postgres::fast_converter::FastPostgresConverter::rows_to_json(
-                            &row_buffer,
-                        )
-                        .map_err(|e| e.to_string())?;
-                    conversion_time_ms += convert_start.elapsed().as_millis() as u64;
-                    json_buffer.extend(converted);
-                    row_buffer.clear();
-                }
-
-                // Send chunk to frontend when output buffer reaches dynamic threshold
-                // If we've built up data but haven't sent for a while, force a send to unblock UI.
+                
+                // Check if we should send: either reached threshold or idle timeout
                 let idle_ms = last_send_instant.elapsed().as_millis();
-                let send_due_to_idle = idle_ms > 500 && !json_buffer.is_empty();
+                let send_due_to_idle = idle_ms > 500 && !row_buffer.is_empty();
+                let should_send = row_buffer.len() >= current_threshold || send_due_to_idle;
 
-                if json_buffer.len() >= current_threshold || send_due_to_idle {
-                    let batch_size = json_buffer.len();
+                if should_send {
+                    let batch_size = row_buffer.len();
 
-                    // Serialize to MessagePack RAW bytes (no base64!)
+                    // OPTIMIZED: Direct serialization to MessagePack (skip intermediate JSON)
+                    // Uses SerializableRows which implements Serialize directly
                     let serialize_start = std::time::Instant::now();
-                    let rows_msgpack = match rmp_serde::to_vec(&json_buffer) {
+                    let serializable = crate::adapters::postgres::direct_serializer::SerializableRows::new(&row_buffer);
+                    let rows_msgpack = match rmp_serde::to_vec(&serializable) {
                         Ok(bytes) => bytes,
                         Err(e) => {
                             tracing::error!("MessagePack serialization failed: {}", e);
@@ -1234,7 +1220,7 @@ async fn execute_single_fetch_stream(
                         }
                     };
                     conversion_time_ms += serialize_start.elapsed().as_millis() as u64;
-                    json_buffer.clear();
+                    row_buffer.clear();
 
                     // Send raw binary via Response (ZERO serialization overhead!)
                     let send_start = std::time::Instant::now();
@@ -1272,26 +1258,15 @@ async fn execute_single_fetch_stream(
         }
     }
 
-    // Convert any remaining rows in row_buffer
+    // Send any remaining rows in row_buffer
     if !row_buffer.is_empty() {
-        let convert_start = std::time::Instant::now();
-        let converted =
-            crate::adapters::postgres::fast_converter::FastPostgresConverter::rows_to_json(
-                &row_buffer,
-            )
-            .map_err(|e| e.to_string())?;
-        conversion_time_ms += convert_start.elapsed().as_millis() as u64;
-        json_buffer.extend(converted);
-    }
-
-    // Send any remaining JSON rows
-    if !json_buffer.is_empty() {
-        let batch_size = json_buffer.len();
+        let batch_size = row_buffer.len();
         let _offset = total_rows - batch_size;
 
-        // Serialize to MessagePack RAW bytes
+        // OPTIMIZED: Direct serialization to MessagePack (skip intermediate JSON)
         let serialize_start = std::time::Instant::now();
-        let rows_msgpack = match rmp_serde::to_vec(&json_buffer) {
+        let serializable = crate::adapters::postgres::direct_serializer::SerializableRows::new(&row_buffer);
+        let rows_msgpack = match rmp_serde::to_vec(&serializable) {
             Ok(bytes) => bytes,
             Err(e) => {
                 tracing::error!("MessagePack serialization failed for final batch: {}", e);
@@ -1353,13 +1328,12 @@ async fn execute_single_fetch_stream(
         (conversion_time_ms as f64 / total_time as f64) * 100.0
     );
     tracing::info!(
-        "  │  IPC: Overlapped/async ({}ms queue, {} batches) - Response bypasses JSON!",
+        "  │  IPC: Overlapped/async ({}ms queue, {} batches)",
         send_time_ms,
         send_count
     );
     tracing::info!(
-        "  └─ Batch sizes: 32→512→4096 (incremental), micro: {} | Format: msgpack",
-        MICRO_BATCH_SIZE
+        "  └─ Batch sizes: 32→512→4096 (incremental) | Direct Row→MsgPack (zero JSON alloc)"
     );
     tracing::info!("==========================================");
 
