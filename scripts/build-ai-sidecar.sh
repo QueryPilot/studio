@@ -66,6 +66,18 @@ if [ "$BUILD_ALL" = "true" ]; then
     build_for_platform "darwin-x64" "x86_64-apple-darwin"
     build_for_platform "linux-x64" "x86_64-unknown-linux-gnu"
     build_for_platform "windows-x64" "x86_64-pc-windows-msvc.exe"
+
+    # Create universal binary for macOS
+    if [[ "$OS" == "Darwin" ]]; then
+        echo ""
+        echo "Creating universal macOS binary..."
+        lipo -create \
+            "../sidecars/qp-ai-aarch64-apple-darwin" \
+            "../sidecars/qp-ai-x86_64-apple-darwin" \
+            -output "../sidecars/qp-ai-universal-apple-darwin"
+        chmod +x "../sidecars/qp-ai-universal-apple-darwin"
+        echo "✅ Created qp-ai-universal-apple-darwin"
+    fi
 fi
 
 echo ""
