@@ -14,6 +14,14 @@ import { UuidCellRenderer } from "./UuidCell";
 import { ReferenceCellRenderer } from "./ReferenceCell";
 import { JSONCellRenderer } from "./JSONCell";
 import { HStoreCellRenderer } from "./HStoreCell";
+// New renderers for extended type support
+import { InetCellRenderer, MacAddrCellRenderer } from "./NetworkCell";
+import { RangeCellRenderer } from "./RangeCell";
+import { IntervalCellRenderer } from "./IntervalCell";
+import { XmlCellRenderer } from "./XmlCell";
+import { BitCellRenderer } from "./BitCell";
+import { ByteaCellRenderer } from "./ByteaCell";
+import { GeometryCellRenderer } from "./GeometryCell";
 
 type AnyCell = CustomCell<Record<string, unknown>>;
 
@@ -34,6 +42,15 @@ export function useDataGridV2Renderers(): {
       TextMultiLineCellRenderer as unknown as CustomRenderer<AnyCell>,
       UuidCellRenderer as unknown as CustomRenderer<AnyCell>,
       ReferenceCellRenderer as unknown as CustomRenderer<AnyCell>,
+      // New renderers for extended type support
+      InetCellRenderer as unknown as CustomRenderer<AnyCell>,
+      MacAddrCellRenderer as unknown as CustomRenderer<AnyCell>,
+      RangeCellRenderer as unknown as CustomRenderer<AnyCell>,
+      IntervalCellRenderer as unknown as CustomRenderer<AnyCell>,
+      XmlCellRenderer as unknown as CustomRenderer<AnyCell>,
+      BitCellRenderer as unknown as CustomRenderer<AnyCell>,
+      ByteaCellRenderer as unknown as CustomRenderer<AnyCell>,
+      GeometryCellRenderer as unknown as CustomRenderer<AnyCell>,
     ],
     [],
   );

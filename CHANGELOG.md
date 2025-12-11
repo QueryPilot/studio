@@ -15,6 +15,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+[?1049h[>4;2m[?1h=[?2004h[?1004h[1;56r[?12h[?12l[22;2t[22;1t[27m[23m[29m[m[H[2J[?25l[56;1H"/var/folders/rk/j3418l211cq817v_2ck0vrjw0000gn/T/tmp.kNtONIq1ms" 18L, 1358B]11;?]10;?[1;1H[4m[34m## [0.11.0] - 2025-12-11[m[4m                                                                            [m[3;1H[34m### New Features[m
+- Write faster with the rebuilt SQL editor powered by CodeMirror 6, bringing multi-cursor editing, ss[5;1Hmarter context-aware autocomplete, and built-in navigation/formatting tools.
+- Choose between table results, raw output, and a new Stats view in the query panel to inspect per-nn[7;1Hode execution costs alongside your plans.
+- The Explain viewer now presents planning/execution timing, JIT breakdowns, and trigger details in  [9;1Ha clearer layout, so bottlenecks are easy to spot.
+- Set a default schema for PostgreSQL and SQL Server connections right from the connection form or ss[11;1Hidebar, keeping browsing, autocomplete, and text-to-SQL anchored to the right schema.
+
+[34m### Improvements[m
+- Autocomplete and highlighting stay responsive while you type, and keyboard shortcuts keep working  [15;1Hreliably when the editor is focused.
+- Money and PostgreSQL decimal columns edit and display accurately in the grid, reducing surprises ff[17;1Hrom rounding or null values.
+- macOS desktop builds ship as universal binaries, giving both Apple silicon and Intel Macs native pp[19;1Herformance.
+
+[34m### Bug Fixes[m
+- Switching back from explain/raw/stats now restores the default results view automatically, so plann[23;1H-specific toggles no longer stick around.
+
+[34m### Breaking Changes[m
+- Vim keybindings have been removed from the SQL editor; standard shortcuts remain.
+[94m~                                                                                                   [28;1H~                                                                                                   [29;1H~                                                                                                   [30;1H~                                                                                                   [31;1H~                                                                                                   [32;1H~                                                                                                   [33;1H~                                                                                                   [34;1H~                                                                                                   [35;1H~                                                                                                   [36;1H~                                                                                                   [37;1H~                                                                                                   [38;1H~                                                                                                   [39;1H~                                                                                                   [40;1H~                                                                                                   [41;1H~                                                                                                   [42;1H~                                                                                                   [43;1H~                                                                                                   [44;1H~                                                                                                   [45;1H~                                                                                                   [46;1H~                                                                                                   [47;1H~                                                                                                   [48;1H~                                                                                                   [49;1H~                                                                                                   [50;1H~                                                                                                   [51;1H~                                                                                                   [52;1H~                                                                                                   [53;1H~                                                                                                   [54;1H~                                                                                                   [55;1H~                                                                                                   [1;1H[?25h[?4m[?25l[m[56;90Hq[1;1H[?25h[?25l[56;90H [1;1H[?25h[56;1H[?2004l[>4;m[23;2t[23;1t[56;1H[K[56;1H[?1004l[?2004l[?1l>[?1049l[>4;m## [0.11.0] - 2025-12-11
+
+### New Features
+- Write faster with the rebuilt SQL editor powered by CodeMirror 6, bringing multi-cursor editing, smarter context-aware autocomplete, and built-in navigation/formatting tools.
+- Choose between table results, raw output, and a new Stats view in the query panel to inspect per-node execution costs alongside your plans.
+- The Explain viewer now presents planning/execution timing, JIT breakdowns, and trigger details in a clearer layout, so bottlenecks are easy to spot.
+- Set a default schema for PostgreSQL and SQL Server connections right from the connection form or sidebar, keeping browsing, autocomplete, and text-to-SQL anchored to the right schema.
+
+### Improvements
+- Autocomplete and highlighting stay responsive while you type, and keyboard shortcuts keep working reliably when the editor is focused.
+- Money and PostgreSQL decimal columns edit and display accurately in the grid, reducing surprises from rounding or null values.
+- macOS desktop builds ship as universal binaries, giving both Apple silicon and Intel Macs native performance.
+
+### Bug Fixes
+- Switching back from explain/raw/stats now restores the default results view automatically, so plan-specific toggles no longer stick around.
+
+### Breaking Changes
+- Vim keybindings have been removed from the SQL editor; standard shortcuts remain.
+
 ## [0.10.0] - 2025-12-11
 
 ### New Features

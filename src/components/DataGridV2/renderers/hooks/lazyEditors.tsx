@@ -27,6 +27,10 @@ const lazyEditorModules = {
   datetime: () => import("../DateTimeCell/DateTimeCellEditor" /* webpackChunkName: "editor-datetime" */),
   datetimeRange: () => import("../DateTimeCell/DateTimeRangeCellEditor" /* webpackChunkName: "editor-datetime-range" */),
   hstore: () => import("../HStoreCell/HStoreCellEditor" /* webpackChunkName: "editor-hstore" */),
+  // New heavy editors
+  xml: () => import("../XmlCell/XmlCellEditor" /* webpackChunkName: "editor-xml" */),
+  bytea: () => import("../ByteaCell/ByteaCellEditor" /* webpackChunkName: "editor-bytea" */),
+  geometry: () => import("../GeometryCell/GeometryCellEditor" /* webpackChunkName: "editor-geometry" */),
 } as const;
 
 type EditorKey = keyof typeof lazyEditorModules;
@@ -66,6 +70,19 @@ const LazyDateTimeRangeCellEditor = React.lazy(() =>
 
 const LazyHStoreCellEditor = React.lazy(() => 
   lazyEditorModules.hstore().then(m => ({ default: m.HStoreCellEditor }))
+);
+
+// New lazy-loaded editors
+const LazyXmlCellEditor = React.lazy(() => 
+  lazyEditorModules.xml().then(m => ({ default: m.XmlCellEditor }))
+);
+
+const LazyByteaCellEditor = React.lazy(() => 
+  lazyEditorModules.bytea().then(m => ({ default: m.ByteaCellEditor }))
+);
+
+const LazyGeometryCellEditor = React.lazy(() => 
+  lazyEditorModules.geometry().then(m => ({ default: m.GeometryCellEditor }))
 );
 
 /**
@@ -121,6 +138,48 @@ export const LazyHStoreCellEditorWithProps: React.FC<any> = (props) => (
 );
 
 Object.assign(LazyHStoreCellEditorWithProps, {
+  disablePadding: true,
+  disableStyling: false,
+});
+
+/**
+ * Lazy-loaded XML Cell Editor with Suspense boundary
+ */
+export const LazyXmlCellEditorWithProps: React.FC<any> = (props) => (
+  <Suspense fallback={<EditorLoadingSkeleton minHeight={250} />}>
+    <LazyXmlCellEditor {...props} />
+  </Suspense>
+);
+
+Object.assign(LazyXmlCellEditorWithProps, {
+  disablePadding: true,
+  disableStyling: false,
+});
+
+/**
+ * Lazy-loaded Bytea Cell Editor with Suspense boundary
+ */
+export const LazyByteaCellEditorWithProps: React.FC<any> = (props) => (
+  <Suspense fallback={<EditorLoadingSkeleton minHeight={280} />}>
+    <LazyByteaCellEditor {...props} />
+  </Suspense>
+);
+
+Object.assign(LazyByteaCellEditorWithProps, {
+  disablePadding: true,
+  disableStyling: false,
+});
+
+/**
+ * Lazy-loaded Geometry Cell Editor with Suspense boundary
+ */
+export const LazyGeometryCellEditorWithProps: React.FC<any> = (props) => (
+  <Suspense fallback={<EditorLoadingSkeleton minHeight={300} />}>
+    <LazyGeometryCellEditor {...props} />
+  </Suspense>
+);
+
+Object.assign(LazyGeometryCellEditorWithProps, {
   disablePadding: true,
   disableStyling: false,
 });

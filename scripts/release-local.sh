@@ -135,8 +135,8 @@ analyze_commits() {
             fi
             # Delete local and remote tag
             if git tag -l "v$CURRENT_VERSION" | grep -q .; then
-                git tag -d "v$CURRENT_VERSION"
-                git push origin --delete "v$CURRENT_VERSION" 2>/dev/null || true
+                git tag -d "v$CURRENT_VERSION" >&2
+                git push origin --delete "v$CURRENT_VERSION" >&2 2>/dev/null || true
                 success "Git tag deleted"
             fi
             # Reset commit range to include all commits since previous tag
