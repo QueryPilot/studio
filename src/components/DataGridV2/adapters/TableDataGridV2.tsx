@@ -76,7 +76,7 @@ import {
 } from "./columnUtils";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { IconPlus } from "@tabler/icons-react";
+import { IconFilterX, IconPlus } from "@tabler/icons-react";
 import type { CellValue as BackendCellValue } from "@/services/backend";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { cn } from "@/lib/utils";
@@ -2189,7 +2189,8 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
               No results match your filter
             </p>
             <Button variant="outline" size="sm" onClick={clearFilter}>
-              Clear IconFilter
+              <IconFilterX className="h-3.5 w-3.5" />
+              <span>Clear</span>
             </Button>
           </div>
         </div>

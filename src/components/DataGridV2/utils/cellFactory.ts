@@ -65,6 +65,16 @@ interface ParsedColumnMeta {
   isCharDbType: boolean;
   isTextDbType: boolean;
   isClobDbType: boolean;
+  // New type flags for extended support
+  isInetDbType: boolean;
+  isCidrDbType: boolean;
+  isMacAddrDbType: boolean;
+  isRangeDbType: boolean;
+  isIntervalDbType: boolean;
+  isXmlDbType: boolean;
+  isBitDbType: boolean;
+  isByteaDbType: boolean;
+  isGeometryDbType: boolean;
 }
 
 const columnMetaCache = new WeakMap<GridColumnV2, ParsedColumnMeta>();
@@ -92,14 +102,27 @@ function getOrParseColumnMeta(column: GridColumnV2): ParsedColumnMeta {
     isJsonDbType: dbType.includes("json"),
     isMoneyDbType: dbType.includes("money"),
     isTimestampDbType: dbType.includes("timestamptz") || dbType.includes("timestamp"),
-    isDateDbType: dbType.includes("date") && !dbType.includes("timestamp"),
+    isDateDbType: dbType.includes("date") && !dbType.includes("timestamp") && !dbType.includes("daterange"),
     isTimeDbType: dbType.includes("time") && !dbType.includes("timestamp") && !dbType.includes("date"),
     isTstzRangeDbType: dbType.includes("tstzrange"),
     isUuidDbType: dbType.includes("uuid"),
     isHstoreDbType: dbType.includes("hstore"),
     isCharDbType: dbType.includes("char") || dbType.includes("varying"),
-    isTextDbType: dbType.includes("text"),
+    isTextDbType: dbType.includes("text") && !dbType.includes("tsvector"),
     isClobDbType: dbType.includes("clob"),
+    // New type flags for extended support
+    isInetDbType: dbType === "inet",
+    isCidrDbType: dbType === "cidr",
+    isMacAddrDbType: dbType.includes("macaddr"),
+    isRangeDbType: (dbType.includes("range") && !dbType.includes("tstzrange")) || 
+      dbType === "int4range" || dbType === "int8range" || dbType === "numrange" || 
+      dbType === "daterange" || dbType === "tsrange",
+    isIntervalDbType: dbType === "interval",
+    isXmlDbType: dbType === "xml",
+    isBitDbType: dbType === "bit" || dbType === "varbit" || dbType.startsWith("bit("),
+    isByteaDbType: dbType === "bytea",
+    isGeometryDbType: dbType === "geometry" || dbType === "geography" || 
+      dbType.includes("geometry") || dbType.includes("geography"),
   };
 
   columnMetaCache.set(column, parsed);
@@ -487,6 +510,181 @@ const buildReferenceCell: CellBuilder = (rawValue, value, column, _meta, readOnl
   });
 };
 
+// Network type builders (INET, CIDR, MACADDR)
+const buildInetCell: CellBuilder = (rawValue, value, column, meta, readOnly) => {
+  const v = rawValue == null ? null : String(rawValue);
+  const isCidr = meta.isCidrDbType;
+  
+  return cacheAndReturn(value, column.id, readOnly, {
+    kind: GridCellKind.Custom,
+    data: {
+      kind: isCidr ? "cidr-cell" : "inet-cell",
+      value: v,
+      nullable: Boolean(column.meta?.nullable),
+      columnName: column.name,
+      isPrimaryKey: Boolean(column.meta?.is_pk),
+      dbType: column.meta?.db_type ?? column.type,
+    },
+    copyData: v ?? "NULL",
+    allowOverlay: true,
+    readonly: false,
+  });
+};
+
+const buildMacAddrCell: CellBuilder = (rawValue, value, column, _meta, readOnly) => {
+  const v = rawValue == null ? null : String(rawValue);
+  
+  return cacheAndReturn(value, column.id, readOnly, {
+    kind: GridCellKind.Custom,
+    data: {
+      kind: "macaddr-cell",
+      value: v,
+      nullable: Boolean(column.meta?.nullable),
+      columnName: column.name,
+      isPrimaryKey: Boolean(column.meta?.is_pk),
+      dbType: column.meta?.db_type ?? column.type,
+    },
+    copyData: v ?? "NULL",
+    allowOverlay: true,
+    readonly: false,
+  });
+};
+
+// Range type builder (INT4RANGE, INT8RANGE, NUMRANGE, DATERANGE, TSRANGE)
+const buildRangeCell: CellBuilder = (rawValue, value, column, meta, readOnly) => {
+  const v = rawValue == null ? null : String(rawValue);
+  
+  // Determine range kind based on db_type
+  let kind: string = "int4range-cell";
+  if (meta.dbType.includes("int8")) kind = "int8range-cell";
+  else if (meta.dbType.includes("num")) kind = "numrange-cell";
+  else if (meta.dbType.includes("date")) kind = "daterange-cell";
+  else if (meta.dbType.includes("ts") && !meta.dbType.includes("tstz")) kind = "tsrange-cell";
+  
+  return cacheAndReturn(value, column.id, readOnly, {
+    kind: GridCellKind.Custom,
+    data: {
+      kind,
+      value: v,
+      nullable: Boolean(column.meta?.nullable),
+      columnName: column.name,
+      isPrimaryKey: Boolean(column.meta?.is_pk),
+      dbType: column.meta?.db_type ?? column.type,
+      precision: column.meta?.precision,
+      scale: column.meta?.scale,
+    },
+    copyData: v ?? "NULL",
+    allowOverlay: true,
+    readonly: false,
+  });
+};
+
+// Interval type builder
+const buildIntervalCell: CellBuilder = (rawValue, value, column, _meta, readOnly) => {
+  const v = rawValue == null ? null : String(rawValue);
+  
+  return cacheAndReturn(value, column.id, readOnly, {
+    kind: GridCellKind.Custom,
+    data: {
+      kind: "interval-cell",
+      value: v,
+      nullable: Boolean(column.meta?.nullable),
+      columnName: column.name,
+      isPrimaryKey: Boolean(column.meta?.is_pk),
+      dbType: column.meta?.db_type ?? column.type,
+    },
+    copyData: v ?? "NULL",
+    allowOverlay: true,
+    readonly: false,
+  });
+};
+
+// XML type builder
+const buildXmlCell: CellBuilder = (rawValue, value, column, _meta, readOnly) => {
+  const v = rawValue == null ? null : String(rawValue);
+  
+  return cacheAndReturn(value, column.id, readOnly, {
+    kind: GridCellKind.Custom,
+    data: {
+      kind: "xml-cell",
+      value: v,
+      nullable: Boolean(column.meta?.nullable),
+      columnName: column.name,
+      isPrimaryKey: Boolean(column.meta?.is_pk),
+      dbType: column.meta?.db_type ?? column.type,
+    },
+    copyData: v ?? "NULL",
+    allowOverlay: true,
+    readonly: false,
+  });
+};
+
+// Bit string type builder (BIT, VARBIT)
+const buildBitCell: CellBuilder = (rawValue, value, column, meta, readOnly) => {
+  const v = rawValue == null ? null : String(rawValue);
+  
+  // Extract length from db_type like "bit(8)"
+  const lengthMatch = meta.dbType.match(/bit\((\d+)\)/);
+  const length = lengthMatch ? parseInt(lengthMatch[1], 10) : undefined;
+  
+  return cacheAndReturn(value, column.id, readOnly, {
+    kind: GridCellKind.Custom,
+    data: {
+      kind: meta.dbType.includes("var") ? "varbit-cell" : "bit-cell",
+      value: v,
+      nullable: Boolean(column.meta?.nullable),
+      length,
+      columnName: column.name,
+      isPrimaryKey: Boolean(column.meta?.is_pk),
+      dbType: column.meta?.db_type ?? column.type,
+    },
+    copyData: v ? `B'${v}'` : "NULL",
+    allowOverlay: true,
+    readonly: false,
+  });
+};
+
+// Bytea (binary) type builder
+const buildByteaCell: CellBuilder = (rawValue, value, column, _meta, readOnly) => {
+  // Bytea comes as base64 encoded string from backend
+  const v = rawValue == null ? null : String(rawValue);
+  
+  return cacheAndReturn(value, column.id, readOnly, {
+    kind: GridCellKind.Custom,
+    data: {
+      kind: "bytea-cell",
+      value: v,
+      nullable: Boolean(column.meta?.nullable),
+      columnName: column.name,
+      isPrimaryKey: Boolean(column.meta?.is_pk),
+      dbType: column.meta?.db_type ?? column.type,
+    },
+    copyData: v ? "[BINARY]" : "NULL",
+    allowOverlay: true,
+    readonly: false,
+  });
+};
+
+// Geometry/Geography type builder (PostGIS)
+const buildGeometryCell: CellBuilder = (rawValue, value, column, meta, readOnly) => {
+  const v = rawValue == null ? null : String(rawValue);
+  
+  return cacheAndReturn(value, column.id, readOnly, {
+    kind: GridCellKind.Custom,
+    data: {
+      kind: meta.dbType.includes("geography") ? "geography-cell" : "geometry-cell",
+      value: v,
+      nullable: Boolean(column.meta?.nullable),
+      columnName: column.name,
+      isPrimaryKey: Boolean(column.meta?.is_pk),
+      dbType: column.meta?.db_type ?? column.type,
+    },
+    copyData: v ?? "NULL",
+    allowOverlay: true,
+    readonly: false,
+  });
+};
+
 const buildTextSingleLineCell: CellBuilder = (rawValue, value, column, meta, readOnly) => {
   const textValue = rawValue == null ? null : String(rawValue);
   const metaWithMaxLen = column.meta as { character_maximum_length?: number | null } | null | undefined;
@@ -660,6 +858,44 @@ export function buildGridCellV2(opts: {
   const metaWithFk = column.meta as { fk_reference?: object } | null | undefined;
   if (column.meta?.is_fk && metaWithFk?.fk_reference) {
     return buildReferenceCell(rawValue, value, column, meta, readOnly);
+  }
+
+  // Network types (INET, CIDR, MACADDR)
+  if (meta.isInetDbType || meta.isCidrDbType) {
+    return buildInetCell(rawValue, value, column, meta, readOnly);
+  }
+  if (meta.isMacAddrDbType) {
+    return buildMacAddrCell(rawValue, value, column, meta, readOnly);
+  }
+
+  // Range types (INT4RANGE, INT8RANGE, NUMRANGE, DATERANGE, TSRANGE)
+  if (meta.isRangeDbType) {
+    return buildRangeCell(rawValue, value, column, meta, readOnly);
+  }
+
+  // Interval type
+  if (meta.isIntervalDbType) {
+    return buildIntervalCell(rawValue, value, column, meta, readOnly);
+  }
+
+  // XML type
+  if (meta.isXmlDbType) {
+    return buildXmlCell(rawValue, value, column, meta, readOnly);
+  }
+
+  // Bit string types (BIT, VARBIT)
+  if (meta.isBitDbType) {
+    return buildBitCell(rawValue, value, column, meta, readOnly);
+  }
+
+  // Bytea (binary) type
+  if (meta.isByteaDbType) {
+    return buildByteaCell(rawValue, value, column, meta, readOnly);
+  }
+
+  // Geometry/Geography types (PostGIS)
+  if (meta.isGeometryDbType) {
+    return buildGeometryCell(rawValue, value, column, meta, readOnly);
   }
 
   // Text cells
