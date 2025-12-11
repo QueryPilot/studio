@@ -34,7 +34,7 @@ export function ConfirmDeleteDialog({
           <AlertDialogDescription>
             {description}
             {entityName && (
-              <span className="block mt-2 font-mono text-sm text-foreground">
+              <span className="block mt-2 font-mono text-xs text-foreground">
                 {entityName}
               </span>
             )}

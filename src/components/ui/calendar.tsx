@@ -1,5 +1,9 @@
 import * as React from "react";
-import { IconChevronDown, IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
+import {
+  IconChevronDown,
+  IconChevronLeft,
+  IconChevronRight,
+} from "@tabler/icons-react";
 import {
   type DayButton,
   DayPicker,
@@ -195,7 +199,7 @@ function CalendarDayButton({
       data-range-middle={modifiers.range_middle}
       className={cn(
         // Base button styles
-        "inline-flex items-center justify-center rounded-full text-sm font-medium transition-colors",
+        "inline-flex items-center justify-center rounded-full text-xs font-medium transition-colors",
         "hover:bg-accent hover:text-accent-foreground",
         "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
         "disabled:pointer-events-none disabled:opacity-50",

@@ -9,7 +9,7 @@ import {
 } from "@glideapps/glide-data-grid";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { Skeleton } from "@/components/ui/skeleton";
-import { IconAlertCircle } from '@tabler/icons-react';
+import { IconAlertCircle } from "@tabler/icons-react";
 import { DataGridBase } from "@/components/DataGridV2/base/DataGridBase";
 import { useColumnSizing } from "@/components/DataGridV2/hooks/useColumnSizing";
 import { TextSingleLineCellRenderer } from "@/components/DataGridV2/renderers/TextCell";
@@ -273,7 +273,10 @@ export const TableStructure = memo(function TableStructure({
 
           if (column.field === "nullable") {
             newDefinition.nullable = extractedValue === "YES";
-            logger.info('[TableStructure] Nullable change:', { extractedValue, nullable: newDefinition.nullable });
+            logger.info("[TableStructure] Nullable change:", {
+              extractedValue,
+              nullable: newDefinition.nullable,
+            });
           } else if (column.field === "default") {
             newDefinition.defaultValue = extractedValue;
           } else if (column.field === "comment") {
@@ -282,13 +285,16 @@ export const TableStructure = memo(function TableStructure({
             newDefinition.dataType = extractedValue;
           }
 
-          logger.info('[TableStructure] Creating modify command:', { columnName: row.column_name, newDefinition });
+          logger.info("[TableStructure] Creating modify command:", {
+            columnName: row.column_name,
+            newDefinition,
+          });
           const modifyCmd = createColumnModifyCommand(
             target,
             row.column_name,
             newDefinition,
           );
-          logger.info('[TableStructure] Modify command created:', modifyCmd);
+          logger.info("[TableStructure] Modify command created:", modifyCmd);
           stageCommand(modifyCmd);
         }
       }
@@ -335,13 +341,13 @@ export const TableStructure = memo(function TableStructure({
             accentLight: "rgba(34, 197, 94, 0.15)",
           }
         : isModified
-          ? {
-              bgCell: "rgba(252, 163, 17, 0.04)", // brand orange for modified columns
-              bgCellMedium: "rgba(252, 163, 17, 0.06)",
-              accentColor: "#FCA311",
-              accentLight: "rgba(252, 163, 17, 0.12)",
-            }
-          : undefined;
+        ? {
+            bgCell: "rgba(252, 163, 17, 0.04)", // brand orange for modified columns
+            bgCellMedium: "rgba(252, 163, 17, 0.06)",
+            accentColor: "#FCA311",
+            accentLight: "rgba(252, 163, 17, 0.12)",
+          }
+        : undefined;
 
       // Actions column - Delete button (text-based for now)
       if (column.field === "actions") {
@@ -514,7 +520,7 @@ export const TableStructure = memo(function TableStructure({
       <div className="flex flex-col items-center justify-center h-full p-8 select-text">
         <IconAlertCircle className="h-12 w-12 text-destructive mb-4" />
         <h3 className="text-lg font-semibold mb-2">Failed to load structure</h3>
-        <p className="text-sm text-muted-foreground max-w-md text-center select-text">
+        <p className="text-xs text-muted-foreground max-w-md text-center select-text">
           {error}
         </p>
       </div>
@@ -524,7 +530,7 @@ export const TableStructure = memo(function TableStructure({
   if (columns.length === 0 && pendingCommands.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-        <p className="text-sm">No columns available for this object.</p>
+        <p className="text-xs">No columns available for this object.</p>
       </div>
     );
   }

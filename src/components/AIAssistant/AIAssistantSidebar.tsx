@@ -221,7 +221,7 @@ export function AIAssistantSidebar() {
 
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center text-muted-foreground space-y-3 max-w-md">
-            <p className="text-sm font-medium">Initializing AI Assistant...</p>
+            <p className="text-xs font-medium">Initializing AI Assistant...</p>
             <p className="text-xs">
               Checking AI service status and loading providers.
             </p>
@@ -251,7 +251,7 @@ export function AIAssistantSidebar() {
 
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center text-muted-foreground space-y-3 max-w-md">
-            <p className="text-sm font-medium">AI Service Unavailable</p>
+            <p className="text-xs font-medium">AI Service Unavailable</p>
             <p className="text-xs">
               The AI sidecar is not running or unreachable. Make sure the
               service is started and configured properly.
@@ -303,7 +303,7 @@ export function AIAssistantSidebar() {
 
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center text-muted-foreground space-y-3 max-w-md">
-            <p className="text-sm font-medium">No AI Provider Configured</p>
+            <p className="text-xs font-medium">No AI Provider Configured</p>
             <p className="text-xs">
               {selectedProvider && !isProviderActuallyConfigured
                 ? `${selectedProvider} is selected but has no API key configured. Configure an API key in settings to start using the AI assistant.`
@@ -347,7 +347,7 @@ export function AIAssistantSidebar() {
             {messages.length === 0 && (
               <div className="flex items-center justify-center h-full p-8">
                 <div className="text-center text-muted-foreground space-y-2 max-w-sm">
-                  <p className="text-sm font-medium">
+                  <p className="text-xs font-medium">
                     Start a conversation with AI
                   </p>
                   <p className="text-xs">
@@ -539,7 +539,9 @@ export function AIAssistantSidebar() {
                           configuredProviders.includes(provider.name),
                         )
                         .map((provider) => {
-                          const enabledModels = getProviderEnabledModels(provider.name);
+                          const enabledModels = getProviderEnabledModels(
+                            provider.name,
+                          );
                           const filteredModels = provider.models.filter((m) =>
                             enabledModels.includes(m.id),
                           );
@@ -563,7 +565,9 @@ export function AIAssistantSidebar() {
                                   }}
                                 >
                                   <ModelSelectorLogo provider={provider.name} />
-                                  <ModelSelectorName>{model.name}</ModelSelectorName>
+                                  <ModelSelectorName>
+                                    {model.name}
+                                  </ModelSelectorName>
                                   {selectedProvider === provider.name &&
                                     selectedModel === model.id && (
                                       <IconCheck className="ml-auto size-4" />

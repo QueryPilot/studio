@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { IconAlertTriangle } from '@tabler/icons-react';
+import { IconAlertTriangle } from "@tabler/icons-react";
 
 interface ConfirmationToastProps {
   title: string;
@@ -23,8 +23,8 @@ export function ConfirmationToast({
       <IconAlertTriangle className="h-5 w-5 text-orange-500 flex-shrink-0 mt-0.5" />
       <div className="flex flex-col gap-3 flex-1">
         <div className="flex flex-col gap-1">
-          <div className="font-semibold text-sm">{title}</div>
-          <div className="text-sm text-muted-foreground">{description}</div>
+          <div className="font-semibold text-xs">{title}</div>
+          <div className="text-xs text-muted-foreground">{description}</div>
         </div>
         <div className="flex gap-2 w-full pt-2">
           <Button

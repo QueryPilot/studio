@@ -178,7 +178,7 @@ export default function GeneralPanel() {
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <Label className="text-base">Font Size</Label>
-            <span className="text-sm font-medium tabular-nums">
+            <span className="text-xs font-medium tabular-nums">
               {preferences.fontSize}px
             </span>
           </div>
@@ -200,7 +200,7 @@ export default function GeneralPanel() {
         <div className="flex items-center justify-between py-3 border rounded-xl px-4">
           <div className="space-y-0.5">
             <Label className="text-base">Sidebar Collapsed</Label>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Keep the sidebar collapsed by default
             </p>
           </div>
@@ -214,12 +214,12 @@ export default function GeneralPanel() {
           <Label className="text-base">Updates</Label>
           <div className="flex items-center justify-between py-3 border rounded-xl px-4">
             <div className="space-y-0.5">
-              <Label className="text-sm font-medium">
+              <Label className="text-xs font-medium">
                 Current Version: {appVersion || "..."}
               </Label>
               {updateMessage && (
                 <p
-                  className={`text-sm ${
+                  className={`text-xs ${
                     updateStatus === "error"
                       ? "text-destructive"
                       : updateStatus === "uptodate"

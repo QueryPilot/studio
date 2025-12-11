@@ -26,7 +26,9 @@ export function GlobalShortcutsPanel() {
   const [customShortcut, setCustomShortcut] = useState("");
   const [isRegistered, setIsRegistered] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const keydownHandlerRef = useRef<((e: KeyboardEvent) => void) | null>(null);
 
   const manager = getGlobalShortcutManager();
@@ -295,7 +297,7 @@ export function GlobalShortcutsPanel() {
           <CardDescription>How to write custom shortcuts</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
-          <div className="text-sm space-y-1">
+          <div className="text-xs space-y-1">
             <p>
               <strong>Modifiers:</strong>
             </p>
@@ -321,7 +323,7 @@ export function GlobalShortcutsPanel() {
             </ul>
           </div>
 
-          <div className="text-sm space-y-1 pt-2">
+          <div className="text-xs space-y-1 pt-2">
             <p>
               <strong>Examples:</strong>
             </p>
@@ -344,7 +346,7 @@ export function GlobalShortcutsPanel() {
             </ul>
           </div>
 
-          <div className="text-sm space-y-1 pt-2">
+          <div className="text-xs space-y-1 pt-2">
             <p className="text-yellow-600 dark:text-yellow-400">
               <strong>⚠️ Important:</strong> Avoid shortcuts already used by
               your operating system or other applications.

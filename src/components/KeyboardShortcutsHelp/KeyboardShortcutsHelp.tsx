@@ -152,7 +152,7 @@ export function KeyboardShortcutsHelp(): React.JSX.Element {
               {grouped.map(({ category, items }) => (
                 <section key={category} className="p-4">
                   <header className="flex items-center justify-between pb-2">
-                    <h3 className="text-sm font-semibold">{category}</h3>
+                    <h3 className="text-xs font-semibold">{category}</h3>
                     <Badge variant="secondary">{items.length}</Badge>
                   </header>
                   <div className="space-y-2">
@@ -162,7 +162,7 @@ export function KeyboardShortcutsHelp(): React.JSX.Element {
                         className="flex items-center justify-between rounded border border-transparent px-2 py-1.5 hover:border-border"
                       >
                         <div className="flex flex-col">
-                          <span className="text-sm font-medium">
+                          <span className="text-xs font-medium">
                             {row.command.label}
                           </span>
                           {row.command.description ? (
@@ -173,12 +173,16 @@ export function KeyboardShortcutsHelp(): React.JSX.Element {
                         </div>
                         {row.keybinding?.resolvedLabel ? (
                           <KbdGroup>
-                            {row.keybinding.resolvedLabel.split('+').map((key, index) => (
-                              <Kbd key={index}>{key.trim()}</Kbd>
-                            ))}
+                            {row.keybinding.resolvedLabel
+                              .split("+")
+                              .map((key, index) => (
+                                <Kbd key={index}>{key.trim()}</Kbd>
+                              ))}
                           </KbdGroup>
                         ) : (
-                          <span className="text-xs text-muted-foreground">Unassigned</span>
+                          <span className="text-xs text-muted-foreground">
+                            Unassigned
+                          </span>
                         )}
                       </div>
                     ))}
@@ -186,7 +190,7 @@ export function KeyboardShortcutsHelp(): React.JSX.Element {
                 </section>
               ))}
               {grouped.length === 0 ? (
-                <div className="flex items-center justify-center p-8 text-sm text-muted-foreground">
+                <div className="flex items-center justify-center p-8 text-xs text-muted-foreground">
                   No commands match this filter.
                 </div>
               ) : null}

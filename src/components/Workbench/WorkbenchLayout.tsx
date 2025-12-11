@@ -212,7 +212,9 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
-        <div className={cn("workbench-layout h-full overflow-hidden", className)}>
+        <div
+          className={cn("workbench-layout h-full overflow-hidden", className)}
+        >
           <GridRenderer node={layoutTree} className="h-full" />
         </div>
 
@@ -225,10 +227,15 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
             <PanelPortal key={panelId} panelId={panelId}>
               <Panel
                 content={content}
-                className={cn("h-full rounded-xl overflow-hidden border-[3px]", {
-                  "border-primary/30": totalPanels > 1 && panelId === focusedPanelId,
-                  "border-background": totalPanels <= 1 || panelId !== focusedPanelId,
-                })}
+                className={cn(
+                  "h-full rounded-xl overflow-hidden border-[3px]",
+                  {
+                    "border-primary/30":
+                      totalPanels > 1 && panelId === focusedPanelId,
+                    "border-background":
+                      totalPanels <= 1 || panelId !== focusedPanelId,
+                  },
+                )}
               />
             </PanelPortal>
           );
@@ -236,7 +243,7 @@ export const WorkbenchLayout: React.FC<WorkbenchLayoutProps> = ({
 
         <DragOverlay>
           {activeId && activeTabInfo && (
-            <div className="px-3 py-1 text-sm rounded-md bg-primary text-primary-foreground shadow-lg">
+            <div className="px-3 py-1 text-xs rounded-md bg-primary text-primary-foreground shadow-lg">
               {activeTabInfo.tabId.split("-").pop()}
             </div>
           )}

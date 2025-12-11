@@ -239,10 +239,14 @@ export function ConnectionForm() {
 
   // ECS Bastion state
   const existingEcsBastion = connection?.profile.bastion
-    ? ((connection.profile.bastion as any).EcsBastion as EcsBastionConfig | undefined)
+    ? ((connection.profile.bastion as any).EcsBastion as
+        | EcsBastionConfig
+        | undefined)
     : undefined;
   const existingAzureAdSaml = existingEcsBastion?.auth
-    ? ((existingEcsBastion.auth as any).AzureAdSaml as AzureAdSamlConfig | undefined)
+    ? ((existingEcsBastion.auth as any).AzureAdSaml as
+        | AzureAdSamlConfig
+        | undefined)
     : undefined;
   const [useEcsBastion, setUseEcsBastion] = useState(!!existingEcsBastion);
   const [ecsClusterName, setEcsClusterName] = useState(
@@ -268,7 +272,9 @@ export function ConnectionForm() {
     existingEcsBastion?.remote_host || host,
   );
   const [ecsRemotePort, setEcsRemotePort] = useState(
-    existingEcsBastion?.remote_port ? existingEcsBastion.remote_port.toString() : port,
+    existingEcsBastion?.remote_port
+      ? existingEcsBastion.remote_port.toString()
+      : port,
   );
   const [ecsSubnetTags, setEcsSubnetTags] = useState(
     existingEcsBastion?.subnet_tags?.join(", ") || "",
@@ -276,7 +282,8 @@ export function ConnectionForm() {
   const [ecsSecurityGroupTag, setEcsSecurityGroupTag] = useState(
     existingEcsBastion?.security_group_tag || "",
   );
-  const [ecsCredentialsStatus, setEcsCredentialsStatus] = useState<CredentialsStatus | null>(null);
+  const [ecsCredentialsStatus, setEcsCredentialsStatus] =
+    useState<CredentialsStatus | null>(null);
   const [checkingCredentials, setCheckingCredentials] = useState(false);
 
   // Check ECS Bastion credentials status when editing an existing connection
@@ -767,7 +774,7 @@ export function ConnectionForm() {
             <IconArrowLeft className="h-4 w-4" />
           </Button>
 
-          <span className="text-sm font-semibold">
+          <span className="text-xs font-semibold">
             {isEditMode
               ? "Edit Connection"
               : formMode === "import"
@@ -1490,7 +1497,10 @@ export function ConnectionForm() {
                   New
                 </Badge>
               </Label>
-              <Switch checked={useEcsBastion} onCheckedChange={setUseEcsBastion} />
+              <Switch
+                checked={useEcsBastion}
+                onCheckedChange={setUseEcsBastion}
+              />
             </div>
 
             {useEcsBastion && (
@@ -1498,7 +1508,10 @@ export function ConnectionForm() {
                 {/* ECS Configuration */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label htmlFor="ecs-cluster" className="text-xs flex items-center gap-1">
+                    <Label
+                      htmlFor="ecs-cluster"
+                      className="text-xs flex items-center gap-1"
+                    >
                       ECS Cluster *
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -1506,7 +1519,10 @@ export function ConnectionForm() {
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-[280px]">
                           <p className="font-medium mb-1">How to find:</p>
-                          <p>AWS Console → ECS → Clusters → Copy the cluster name that runs your bastion task definition.</p>
+                          <p>
+                            AWS Console → ECS → Clusters → Copy the cluster name
+                            that runs your bastion task definition.
+                          </p>
                         </TooltipContent>
                       </Tooltip>
                     </Label>
@@ -1521,7 +1537,10 @@ export function ConnectionForm() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="ecs-task-def" className="text-xs flex items-center gap-1">
+                    <Label
+                      htmlFor="ecs-task-def"
+                      className="text-xs flex items-center gap-1"
+                    >
                       Task Definition *
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -1529,7 +1548,11 @@ export function ConnectionForm() {
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-[280px]">
                           <p className="font-medium mb-1">How to find:</p>
-                          <p>AWS Console → ECS → Task definitions → Copy the task definition name (without revision number) that has SSM agent configured.</p>
+                          <p>
+                            AWS Console → ECS → Task definitions → Copy the task
+                            definition name (without revision number) that has
+                            SSM agent configured.
+                          </p>
                         </TooltipContent>
                       </Tooltip>
                     </Label>
@@ -1546,7 +1569,10 @@ export function ConnectionForm() {
                 </div>
 
                 <div>
-                  <Label htmlFor="ecs-region" className="text-xs flex items-center gap-1">
+                  <Label
+                    htmlFor="ecs-region"
+                    className="text-xs flex items-center gap-1"
+                  >
                     AWS Region *
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -1554,7 +1580,10 @@ export function ConnectionForm() {
                       </TooltipTrigger>
                       <TooltipContent side="top" className="max-w-[280px]">
                         <p className="font-medium mb-1">How to find:</p>
-                        <p>The AWS region where your ECS cluster and database are located (e.g., us-east-1, ap-southeast-2).</p>
+                        <p>
+                          The AWS region where your ECS cluster and database are
+                          located (e.g., us-east-1, ap-southeast-2).
+                        </p>
                       </TooltipContent>
                     </Tooltip>
                   </Label>
@@ -1572,7 +1601,9 @@ export function ConnectionForm() {
                 {/* Azure AD SAML Configuration */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Label className="text-xs font-medium">Azure AD SAML Authentication</Label>
+                    <Label className="text-xs font-medium">
+                      Azure AD SAML Authentication
+                    </Label>
                     {/* Credentials Status Indicator */}
                     {connection?.profile.id && (
                       <div className="flex items-center gap-2">
@@ -1585,12 +1616,19 @@ export function ConnectionForm() {
                                 "h-2 w-2 rounded-full",
                                 ecsCredentialsStatus.is_valid
                                   ? "bg-green-500"
-                                  : "bg-red-500"
+                                  : "bg-red-500",
                               )}
                             />
                             <span className="text-[10px] text-muted-foreground">
                               {ecsCredentialsStatus.is_valid
-                                ? `Valid until ${ecsCredentialsStatus.expiration_secs ? new Date(ecsCredentialsStatus.expiration_secs * 1000).toLocaleTimeString() : "unknown"}`
+                                ? `Valid until ${
+                                    ecsCredentialsStatus.expiration_secs
+                                      ? new Date(
+                                          ecsCredentialsStatus.expiration_secs *
+                                            1000,
+                                        ).toLocaleTimeString()
+                                      : "unknown"
+                                  }`
                                 : "Expired"}
                             </span>
                             <Button
@@ -1612,7 +1650,10 @@ export function ConnectionForm() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <Label htmlFor="ecs-tenant-id" className="text-xs flex items-center gap-1">
+                      <Label
+                        htmlFor="ecs-tenant-id"
+                        className="text-xs flex items-center gap-1"
+                      >
                         Tenant ID *
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -1620,7 +1661,10 @@ export function ConnectionForm() {
                           </TooltipTrigger>
                           <TooltipContent side="top" className="max-w-[280px]">
                             <p className="font-medium mb-1">How to find:</p>
-                            <p>Azure Portal → Azure Active Directory → Overview → Copy the "Tenant ID" (Directory ID).</p>
+                            <p>
+                              Azure Portal → Azure Active Directory → Overview →
+                              Copy the "Tenant ID" (Directory ID).
+                            </p>
                           </TooltipContent>
                         </Tooltip>
                       </Label>
@@ -1635,7 +1679,10 @@ export function ConnectionForm() {
                       />
                     </div>
                     <div>
-                      <Label htmlFor="ecs-duration" className="text-xs flex items-center gap-1">
+                      <Label
+                        htmlFor="ecs-duration"
+                        className="text-xs flex items-center gap-1"
+                      >
                         Session Hours
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -1643,7 +1690,11 @@ export function ConnectionForm() {
                           </TooltipTrigger>
                           <TooltipContent side="top" className="max-w-[280px]">
                             <p className="font-medium mb-1">What this means:</p>
-                            <p>How long AWS credentials stay valid (1-12 hours). Longer = fewer re-authentications, but less secure if compromised.</p>
+                            <p>
+                              How long AWS credentials stay valid (1-12 hours).
+                              Longer = fewer re-authentications, but less secure
+                              if compromised.
+                            </p>
                           </TooltipContent>
                         </Tooltip>
                       </Label>
@@ -1662,7 +1713,10 @@ export function ConnectionForm() {
                     </div>
                   </div>
                   <div>
-                    <Label htmlFor="ecs-app-id-uri" className="text-xs flex items-center gap-1">
+                    <Label
+                      htmlFor="ecs-app-id-uri"
+                      className="text-xs flex items-center gap-1"
+                    >
                       App ID URI *
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -1670,7 +1724,11 @@ export function ConnectionForm() {
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-[280px]">
                           <p className="font-medium mb-1">How to find:</p>
-                          <p>Azure Portal → Enterprise Applications → Your AWS app → Single sign-on → Copy "Identifier (Entity ID)". Usually https://signin.aws.amazon.com/saml#N</p>
+                          <p>
+                            Azure Portal → Enterprise Applications → Your AWS
+                            app → Single sign-on → Copy "Identifier (Entity
+                            ID)". Usually https://signin.aws.amazon.com/saml#N
+                          </p>
                         </TooltipContent>
                       </Tooltip>
                     </Label>
@@ -1685,7 +1743,10 @@ export function ConnectionForm() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="ecs-role-arn" className="text-xs flex items-center gap-1">
+                    <Label
+                      htmlFor="ecs-role-arn"
+                      className="text-xs flex items-center gap-1"
+                    >
                       Default Role ARN (optional)
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -1693,7 +1754,11 @@ export function ConnectionForm() {
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-[280px]">
                           <p className="font-medium mb-1">What this means:</p>
-                          <p>Pre-select a specific IAM role to skip the role picker. AWS Console → IAM → Roles → Copy the Role ARN. Leave empty to choose each time.</p>
+                          <p>
+                            Pre-select a specific IAM role to skip the role
+                            picker. AWS Console → IAM → Roles → Copy the Role
+                            ARN. Leave empty to choose each time.
+                          </p>
                         </TooltipContent>
                       </Tooltip>
                     </Label>
@@ -1711,10 +1776,15 @@ export function ConnectionForm() {
 
                 {/* Network Configuration */}
                 <div className="space-y-2">
-                  <Label className="text-xs font-medium">Network Configuration</Label>
+                  <Label className="text-xs font-medium">
+                    Network Configuration
+                  </Label>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <Label htmlFor="ecs-remote-host" className="text-xs flex items-center gap-1">
+                      <Label
+                        htmlFor="ecs-remote-host"
+                        className="text-xs flex items-center gap-1"
+                      >
                         Remote Host
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -1722,7 +1792,11 @@ export function ConnectionForm() {
                           </TooltipTrigger>
                           <TooltipContent side="top" className="max-w-[280px]">
                             <p className="font-medium mb-1">What this means:</p>
-                            <p>The database's internal hostname or IP address, accessible from within the VPC. Usually an RDS endpoint or private IP.</p>
+                            <p>
+                              The database's internal hostname or IP address,
+                              accessible from within the VPC. Usually an RDS
+                              endpoint or private IP.
+                            </p>
                           </TooltipContent>
                         </Tooltip>
                       </Label>
@@ -1737,7 +1811,10 @@ export function ConnectionForm() {
                       />
                     </div>
                     <div>
-                      <Label htmlFor="ecs-remote-port" className="text-xs flex items-center gap-1">
+                      <Label
+                        htmlFor="ecs-remote-port"
+                        className="text-xs flex items-center gap-1"
+                      >
                         Remote Port
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -1745,7 +1822,11 @@ export function ConnectionForm() {
                           </TooltipTrigger>
                           <TooltipContent side="top" className="max-w-[280px]">
                             <p className="font-medium mb-1">What this means:</p>
-                            <p>The database port (PostgreSQL: 5432, MySQL: 3306, SQL Server: 1433). Check your RDS/database configuration.</p>
+                            <p>
+                              The database port (PostgreSQL: 5432, MySQL: 3306,
+                              SQL Server: 1433). Check your RDS/database
+                              configuration.
+                            </p>
                           </TooltipContent>
                         </Tooltip>
                       </Label>
@@ -1761,7 +1842,10 @@ export function ConnectionForm() {
                     </div>
                   </div>
                   <div>
-                    <Label htmlFor="ecs-subnet-tags" className="text-xs flex items-center gap-1">
+                    <Label
+                      htmlFor="ecs-subnet-tags"
+                      className="text-xs flex items-center gap-1"
+                    >
                       Subnet Tags (comma-separated)
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -1769,7 +1853,11 @@ export function ConnectionForm() {
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-[280px]">
                           <p className="font-medium mb-1">What this means:</p>
-                          <p>Optional. Filter which subnets the bastion can launch in by Name tag values. Leave empty to use any subnet in the VPC.</p>
+                          <p>
+                            Optional. Filter which subnets the bastion can
+                            launch in by Name tag values. Leave empty to use any
+                            subnet in the VPC.
+                          </p>
                         </TooltipContent>
                       </Tooltip>
                     </Label>
@@ -1784,7 +1872,10 @@ export function ConnectionForm() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="ecs-sg-tag" className="text-xs flex items-center gap-1">
+                    <Label
+                      htmlFor="ecs-sg-tag"
+                      className="text-xs flex items-center gap-1"
+                    >
                       Security Group Tag
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -1792,7 +1883,11 @@ export function ConnectionForm() {
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-[280px]">
                           <p className="font-medium mb-1">What this means:</p>
-                          <p>Optional. Filter security groups by tag (format: Key=Value). The bastion needs a SG that allows outbound to SSM endpoints and your database.</p>
+                          <p>
+                            Optional. Filter security groups by tag (format:
+                            Key=Value). The bastion needs a SG that allows
+                            outbound to SSM endpoints and your database.
+                          </p>
                         </TooltipContent>
                       </Tooltip>
                     </Label>

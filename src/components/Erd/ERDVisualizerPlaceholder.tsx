@@ -8,7 +8,9 @@ interface ERDVisualizerPlaceholderProps {
   schema?: string;
 }
 
-export const ERDVisualizerPlaceholder: React.FC<ERDVisualizerPlaceholderProps> = ({
+export const ERDVisualizerPlaceholder: React.FC<
+  ERDVisualizerPlaceholderProps
+> = ({
   loading,
   error,
   tableCount = 0,
@@ -20,7 +22,9 @@ export const ERDVisualizerPlaceholder: React.FC<ERDVisualizerPlaceholderProps> =
       <div className="flex h-full flex-col items-center justify-center gap-3">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         <div className="text-center">
-          <p className="text-sm font-medium text-foreground">Loading schema...</p>
+          <p className="text-xs font-medium text-foreground">
+            Loading schema...
+          </p>
           <p className="text-xs text-muted-foreground mt-1">
             Fetching tables for schema "{schema}"
           </p>
@@ -48,7 +52,9 @@ export const ERDVisualizerPlaceholder: React.FC<ERDVisualizerPlaceholderProps> =
           </svg>
         </div>
         <div className="text-center max-w-md">
-          <p className="text-sm font-semibold text-foreground mb-2">Unable to load ERD</p>
+          <p className="text-xs font-semibold text-foreground mb-2">
+            Unable to load ERD
+          </p>
           <pre className="text-xs text-muted-foreground whitespace-pre-wrap break-words">
             {error}
           </pre>
@@ -76,7 +82,9 @@ export const ERDVisualizerPlaceholder: React.FC<ERDVisualizerPlaceholderProps> =
           </svg>
         </div>
         <div className="text-center">
-          <p className="text-sm font-medium text-foreground mb-1">No tables found</p>
+          <p className="text-xs font-medium text-foreground mb-1">
+            No tables found
+          </p>
           <p className="text-xs text-muted-foreground">
             Schema "{schema}" is empty or contains no tables
           </p>
@@ -88,9 +96,10 @@ export const ERDVisualizerPlaceholder: React.FC<ERDVisualizerPlaceholderProps> =
   // This shouldn't happen anymore since we render the ERDVisualizer when we have tables
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-muted-foreground">
-      <p className="text-sm font-medium">Ready to visualize</p>
+      <p className="text-xs font-medium">Ready to visualize</p>
       <p className="text-xs max-w-xs leading-relaxed">
-        {tableCount} table{tableCount === 1 ? "" : "s"} with {relationshipCount} relationship
+        {tableCount} table{tableCount === 1 ? "" : "s"} with {relationshipCount}{" "}
+        relationship
         {relationshipCount === 1 ? "" : "s"} loaded
       </p>
     </div>

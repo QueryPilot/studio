@@ -6,11 +6,14 @@ import {
   type CustomRenderer,
 } from "@glideapps/glide-data-grid";
 import { Skeleton } from "@/components/ui/skeleton";
-import { IconAlertCircle } from '@tabler/icons-react';
+import { IconAlertCircle } from "@tabler/icons-react";
 import { databaseService, type TableIndex } from "@/services/databaseService";
 import type { IndexUsageStats } from "@/services/backend";
 import { EditableDataGrid } from "@/components/DataGridV2/base/EditableDataGrid";
-import type { GridEditCommitEvent, GridRowModel } from "@/components/DataGridV2/types";
+import type {
+  GridEditCommitEvent,
+  GridRowModel,
+} from "@/components/DataGridV2/types";
 import { useColumnSizing } from "@/components/DataGridV2/hooks/useColumnSizing";
 import { TextSingleLineCellRenderer } from "@/components/DataGridV2/renderers/TextCell";
 import { indexColumns } from "./columns";
@@ -36,7 +39,9 @@ export const TableIndexes = memo(function TableIndexes({
   onActionsChange: _onActionsChange,
 }: TableIndexesProps) {
   const [indexes, setIndexes] = useState<TableIndex[]>([]);
-  const [statsMap, setStatsMap] = useState<Map<string, IndexUsageStats>>(new Map());
+  const [statsMap, setStatsMap] = useState<Map<string, IndexUsageStats>>(
+    new Map(),
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,11 +56,9 @@ export const TableIndexes = memo(function TableIndexes({
           schema || "public",
           table,
         ),
-        databaseService.getIndexUsageStats(
-          connectionId,
-          schema || "public",
-          table,
-        ).catch(() => [] as IndexUsageStats[]), // Silently fail for stats
+        databaseService
+          .getIndexUsageStats(connectionId, schema || "public", table)
+          .catch(() => [] as IndexUsageStats[]), // Silently fail for stats
       ]);
 
       setIndexes(indexResult);
@@ -241,13 +244,10 @@ export const TableIndexes = memo(function TableIndexes({
   );
 
   // Handle cell edit commit (for read-only overlays, just cancel)
-  const handleCellEditCommit = useCallback(
-    (_event: GridEditCommitEvent) => {
-      // Read-only - don't actually save edits
-      return undefined;
-    },
-    [],
-  );
+  const handleCellEditCommit = useCallback((_event: GridEditCommitEvent) => {
+    // Read-only - don't actually save edits
+    return undefined;
+  }, []);
 
   if (isLoading) {
     return <TableIndexesSkeleton />;
@@ -258,7 +258,7 @@ export const TableIndexes = memo(function TableIndexes({
       <div className="flex flex-col items-center justify-center h-full p-8 select-text">
         <IconAlertCircle className="h-12 w-12 text-destructive mb-4" />
         <h3 className="text-lg font-semibold mb-2">Failed to load indexes</h3>
-        <p className="text-sm text-muted-foreground max-w-md text-center select-text">
+        <p className="text-xs text-muted-foreground max-w-md text-center select-text">
           {error}
         </p>
       </div>
@@ -268,7 +268,7 @@ export const TableIndexes = memo(function TableIndexes({
   if (!hasIndexes) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-        <p className="text-sm">No indexes defined for this table.</p>
+        <p className="text-xs">No indexes defined for this table.</p>
       </div>
     );
   }

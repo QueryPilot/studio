@@ -26,7 +26,7 @@ export function StructureDiff({ entries, className }: StructureDiffProps) {
     return (
       <div
         className={cn(
-          "flex h-full items-center justify-center rounded-xl border border-dashed border-muted-foreground/40 p-6 text-sm text-muted-foreground",
+          "flex h-full items-center justify-center rounded-xl border border-dashed border-muted-foreground/40 p-6 text-xs text-muted-foreground",
           className,
         )}
       >
@@ -42,7 +42,7 @@ export function StructureDiff({ entries, className }: StructureDiffProps) {
           key={`${entry.path}-${entry.changeType}`}
           className="rounded-xl border bg-background p-4 shadow-sm"
         >
-          <div className="flex items-center gap-2 text-sm font-medium">
+          <div className="flex items-center gap-2 text-xs font-medium">
             <Badge
               variant={changeVariant(entry.changeType)}
               className="capitalize"
