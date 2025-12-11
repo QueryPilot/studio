@@ -212,27 +212,29 @@ const buildBooleanCell: CellBuilder = (rawValue, value, column, _meta, readOnly)
   });
 };
 
-const buildMoneyCell: CellBuilder = (rawValue, value, column, _meta, readOnly) => {
-  if (rawValue == null) {
-    return cacheAndReturn(value, column.id, readOnly, {
-      kind: GridCellKind.Text,
-      data: "NULL",
-      displayData: "NULL",
-      allowOverlay: false,
-      readonly: false,
-      contentAlign: "right",
-      themeOverride: {
-        textDark: "rgba(127,127,127,0.7)",
-        baseFontStyle: "italic 12px",
-      },
-    });
-  }
-  const num = typeof rawValue === "number" ? rawValue : Number(rawValue);
+const buildMoneyCell: CellBuilder = (rawValue, value, column, meta, readOnly) => {
+  // Use number-cell for money type to enable editing with proper numeric validation
+  const numericString =
+    rawValue === null || rawValue === undefined
+      ? null
+      : typeof rawValue === "number"
+      ? rawValue.toString()
+      : String(rawValue);
+
   return cacheAndReturn(value, column.id, readOnly, {
-    kind: GridCellKind.Text,
-    data: String(rawValue),
-    displayData: isNaN(num) ? String(rawValue) : num.toFixed(2),
-    allowOverlay: false,
+    kind: GridCellKind.Custom,
+    data: {
+      kind: "number-cell",
+      value: numericString,
+      nullable: Boolean(column.meta?.nullable),
+      dbType: meta.dbType,
+      precision: column.meta?.precision,
+      scale: column.meta?.scale ?? 2, // Money typically has 2 decimal places
+      columnName: column.name,
+      isPrimaryKey: Boolean(column.meta?.is_pk),
+    },
+    copyData: numericString ?? "NULL",
+    allowOverlay: true,
     readonly: false,
     contentAlign: "right",
   });
