@@ -160,7 +160,7 @@ jobs:
           # Build for both architectures
           BUILD_ALL=true pnpm build:ai-sidecar
 
-          # Verify both sidecars were built
+          # Verify individual architecture binaries were built
           echo "Checking for built sidecars..."
           ls -la src-tauri/sidecars/ || echo "Sidecars directory not found!"
 
@@ -173,11 +173,39 @@ jobs:
             fi
           done
 
-          echo "✅ All sidecars built successfully"
+          # Verify universal binary was created
+          UNIVERSAL_BINARY="src-tauri/sidecars/qp-ai-universal-apple-darwin"
+          echo "Checking: $UNIVERSAL_BINARY"
+          if [ ! -f "$UNIVERSAL_BINARY" ]; then
+            echo "ERROR: Universal sidecar binary not found!"
+            exit 1
+          fi
+
+          # Verify it's actually a universal binary
+          file "$UNIVERSAL_BINARY"
+          lipo -info "$UNIVERSAL_BINARY"
+
+          echo "✅ All sidecars built successfully (including universal binary)"
         shell: bash
 
       - name: Download AWS Session Manager Plugin for universal build
-        run: BUILD_ALL=true bash scripts/download-ssm-plugin.sh
+        run: |
+          BUILD_ALL=true bash scripts/download-ssm-plugin.sh
+
+          # Verify universal SSM binary was created
+          UNIVERSAL_SSM="src-tauri/sidecars/session-manager-plugin-universal-apple-darwin"
+          echo "Checking: $UNIVERSAL_SSM"
+          if [ ! -f "$UNIVERSAL_SSM" ]; then
+            echo "ERROR: Universal SSM plugin binary not found!"
+            exit 1
+          fi
+
+          # Verify it's actually a universal binary
+          file "$UNIVERSAL_SSM"
+          lipo -info "$UNIVERSAL_SSM"
+
+          echo "✅ Universal SSM plugin verified"
+        shell: bash
 
       # ============================================
       # macOS Code Signing & Notarization Setup

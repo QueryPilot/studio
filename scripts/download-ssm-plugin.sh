@@ -52,6 +52,16 @@ if [[ "${BUILD_ALL:-}" == "true" ]] && [[ "$OS" == "darwin" ]]; then
     "https://s3.amazonaws.com/session-manager-downloads/plugin/${VERSION}/mac/sessionmanager-bundle.zip" \
     "${DEST}/session-manager-plugin-x86_64-apple-darwin" \
     "darwin-x86_64"
+
+  # Create universal binary using lipo
+  echo "🔧 Creating universal binary..."
+  lipo -create \
+    "${DEST}/session-manager-plugin-aarch64-apple-darwin" \
+    "${DEST}/session-manager-plugin-x86_64-apple-darwin" \
+    -output "${DEST}/session-manager-plugin-universal-apple-darwin"
+  chmod +x "${DEST}/session-manager-plugin-universal-apple-darwin"
+  echo "✅ Created session-manager-plugin-universal-apple-darwin"
+
   echo "✅ All macOS SSM plugins downloaded"
   exit 0
 fi
