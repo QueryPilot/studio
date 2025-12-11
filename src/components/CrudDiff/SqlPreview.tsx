@@ -16,7 +16,7 @@ export function SqlPreview({ statements, className }: SqlPreviewProps) {
     return (
       <div
         className={cn(
-          "flex h-full items-center justify-center rounded-xl border border-dashed border-muted-foreground/40 p-6 text-sm text-muted-foreground",
+          "flex h-full items-center justify-center rounded-xl border border-dashed border-muted-foreground/40 p-6 text-xs text-muted-foreground",
           className,
         )}
       >
@@ -66,7 +66,7 @@ function SqlStatementPanel({ statement }: SqlStatementPanelProps) {
           {copied ? "Copied" : "Copy"}
         </Button>
       </header>
-      <pre className="overflow-auto rounded-md bg-muted/60 p-3 text-sm leading-6">
+      <pre className="overflow-auto rounded-md bg-muted/60 p-3 text-xs leading-6">
         <code>{statement.statement}</code>
       </pre>
     </article>

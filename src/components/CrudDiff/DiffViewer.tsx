@@ -33,7 +33,7 @@ export function DiffViewer({
           <p className="text-xs uppercase tracking-wide text-muted-foreground">
             Table Key
           </p>
-          <p className="font-mono text-sm text-foreground">
+          <p className="font-mono text-xs text-foreground">
             {snapshot.tableKey}
           </p>
         </div>

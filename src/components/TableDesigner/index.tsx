@@ -1,4 +1,10 @@
-import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import React, {
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+  useEffect,
+} from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -97,7 +103,6 @@ const designerColumns: GridColumnV2[] = [
   },
 ];
 
-
 export const TableDesigner: React.FC<TableDesignerProps> = ({
   connectionId,
   database,
@@ -121,7 +126,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
         schema,
         table: `__new_table_${Date.now()}`,
       }),
-    [connectionId, database, schema]
+    [connectionId, database, schema],
   );
 
   // Get pending commands for this design session
@@ -152,11 +157,18 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
           dataType: "SERIAL",
           nullable: false,
         },
-        tempId
+        tempId,
       );
       stageCommand(command);
     }
-  }, [connectionId, database, schema, tableKey, pendingCommands.length, stageCommand]);
+  }, [
+    connectionId,
+    database,
+    schema,
+    tableKey,
+    pendingCommands.length,
+    stageCommand,
+  ]);
 
   // Transform commands to grid rows
   const gridRows = useMemo((): DesignerGridRow[] => {
@@ -203,7 +215,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
       DataTypeCellRenderer as unknown as CustomRenderer<CustomCell>,
       TextSingleLineCellRenderer as unknown as CustomRenderer<CustomCell>,
     ],
-    []
+    [],
   );
 
   // Get cell content
@@ -279,7 +291,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
           };
       }
     },
-    [gridRows, sizedColumns]
+    [gridRows, sizedColumns],
   );
 
   // Handle cell edit
@@ -359,7 +371,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
       database,
       schema,
       tableKey,
-    ]
+    ],
   );
 
   // Handle row append
@@ -379,7 +391,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
         dataType: "VARCHAR(255)",
         nullable: true,
       },
-      tempId
+      tempId,
     );
     stageCommand(command);
   }, [connectionId, database, schema, tableKey, stageCommand]);
@@ -455,7 +467,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
           </div>
           <div className="flex-none">
             <Label className="text-xs text-muted-foreground">Schema</Label>
-            <div className="mt-1 px-3 py-2 text-sm bg-muted rounded-md">
+            <div className="mt-1 px-3 py-2 text-xs bg-muted rounded-md">
               {schema}
             </div>
           </div>

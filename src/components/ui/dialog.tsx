@@ -1,6 +1,6 @@
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { IconX } from '@tabler/icons-react';
+import { IconX } from "@tabler/icons-react";
 
 import { cn } from "@/lib/cn";
 
@@ -121,7 +121,7 @@ function DialogDescription({
   return (
     <DialogPrimitive.Description
       data-slot="dialog-description"
-      className={cn("text-muted-foreground text-sm", className)}
+      className={cn("text-muted-foreground text-xs", className)}
       {...props}
     />
   );

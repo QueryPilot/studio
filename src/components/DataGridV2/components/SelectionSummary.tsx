@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { memo, useMemo, useState } from "react";
-import { IconChevronDown } from '@tabler/icons-react';
+import { IconChevronDown } from "@tabler/icons-react";
 import Decimal from "decimal.js";
 import { cn } from "@/lib/utils";
 import {
@@ -262,7 +262,7 @@ export const SelectionSummary = memo(function SelectionSummary({
           <IconChevronDown className="h-3 w-3" />
         </button>
       </PopoverTrigger>
-      <PopoverContent side="top" align="end" className="w-64 p-3 text-sm">
+      <PopoverContent side="top" align="end" className="w-64 p-3 text-xs">
         <div className="space-y-2">
           <div className="flex justify-between items-center pb-2 border-b">
             <span className="font-semibold">Selection Statistics</span>

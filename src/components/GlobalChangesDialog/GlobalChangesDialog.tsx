@@ -316,7 +316,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="!max-w-[80vw] max-h-[80vh] flex flex-col p-4">
         <DialogHeader>
-          <DialogTitle className="text-sm">
+          <DialogTitle className="text-xs">
             {isTableSpecific ? "Commit changes" : "Review All Changes"}
           </DialogTitle>
           <DialogDescription className="text-xs">

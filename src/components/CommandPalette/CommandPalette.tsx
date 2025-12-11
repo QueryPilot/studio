@@ -1,5 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { IconEye, IconMathFunction, IconLoader2, IconTable } from '@tabler/icons-react';
+import {
+  IconEye,
+  IconMathFunction,
+  IconLoader2,
+  IconTable,
+} from "@tabler/icons-react";
 import Fuse, { type IFuseOptions } from "fuse.js";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -436,9 +441,11 @@ export function CommandPalette(): React.ReactElement {
                     </div>
                     {command.keybinding ? (
                       <KbdGroup className="ml-auto">
-                        {command.keybinding.resolvedLabel.split('+').map((key, index) => (
-                          <Kbd key={index}>{key.trim()}</Kbd>
-                        ))}
+                        {command.keybinding.resolvedLabel
+                          .split("+")
+                          .map((key, index) => (
+                            <Kbd key={index}>{key.trim()}</Kbd>
+                          ))}
                       </KbdGroup>
                     ) : null}
                   </CommandItem>
@@ -517,7 +524,7 @@ interface ListSpinnerProps {
 
 function ListSpinner({ message }: ListSpinnerProps) {
   return (
-    <div className="flex items-center justify-center py-6 text-sm text-muted-foreground gap-2">
+    <div className="flex items-center justify-center py-6 text-xs text-muted-foreground gap-2">
       <IconLoader2 className="size-4 animate-spin" />
       {message}
     </div>

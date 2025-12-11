@@ -36,7 +36,7 @@ export default function EditorPanel() {
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <Label className="text-base">Font Size</Label>
-            <span className="text-sm font-medium tabular-nums">
+            <span className="text-xs font-medium tabular-nums">
               {preferences.fontSize}px
             </span>
           </div>

@@ -1,7 +1,12 @@
 import { logger } from "@/lib/logger";
 import { memo, useMemo } from "react";
 import { Button } from "@/components/ui/button";
-import { IconAlertCircle, IconCircleX, IconClipboard, IconCircleCheck } from '@tabler/icons-react';
+import {
+  IconAlertCircle,
+  IconCircleX,
+  IconClipboard,
+  IconCircleCheck,
+} from "@tabler/icons-react";
 import { TableDataGridV2 } from "@/components/DataGridV2";
 import { DataGridSkeleton } from "@/components/DataGridV2/components/DataGridSkeleton";
 import { toast } from "sonner";
@@ -103,7 +108,7 @@ export const ResultViewer = memo(function ResultViewer({
       >
         <div className="flex flex-col items-center space-y-2 text-muted-foreground">
           <IconAlertCircle className="h-8 w-8" />
-          <p className="text-sm">No results to display</p>
+          <p className="text-xs">No results to display</p>
           <p className="text-xs">Execute a query to see results here</p>
         </div>
       </div>
@@ -131,7 +136,7 @@ export const ResultViewer = memo(function ResultViewer({
       >
         <div className="flex flex-col items-center space-y-3 p-6 max-w-2xl w-full">
           <IconCircleX className="h-10 w-10 text-destructive" />
-          <p className="text-sm font-semibold text-destructive">Query Error</p>
+          <p className="text-xs font-semibold text-destructive">Query Error</p>
           <div className="relative w-full">
             <div className="bg-destructive/10 border border-destructive/20 rounded-md p-4 pr-12 overflow-auto max-h-[400px]">
               <pre className="text-xs text-destructive/90 whitespace-pre-wrap break-words font-mono select-text">
@@ -171,7 +176,7 @@ export const ResultViewer = memo(function ResultViewer({
             <IconCircleCheck className="h-6 w-6 text-green-600 dark:text-green-500" />
           </div>
           <div className="text-center space-y-1">
-            <p className="text-sm font-medium text-foreground">
+            <p className="text-xs font-medium text-foreground">
               Query executed successfully
             </p>
             <p className="text-2xl font-bold text-foreground">
@@ -205,7 +210,7 @@ export const ResultViewer = memo(function ResultViewer({
             <IconCircleCheck className="h-6 w-6 text-green-600 dark:text-green-500" />
           </div>
           <div className="text-center space-y-1">
-            <p className="text-sm font-medium text-foreground">
+            <p className="text-xs font-medium text-foreground">
               {result.message}
             </p>
           </div>
@@ -222,7 +227,8 @@ export const ResultViewer = memo(function ResultViewer({
   }
 
   // For RETURNING clause queries: show banner with affected rows count above the data
-  const hasReturningData = result.affectedRows !== undefined && result.rows.length > 0;
+  const hasReturningData =
+    result.affectedRows !== undefined && result.rows.length > 0;
 
   return (
     <div className={cn("overflow-hidden h-full flex flex-col", className)}>
@@ -230,13 +236,13 @@ export const ResultViewer = memo(function ResultViewer({
       {hasReturningData && (
         <div className="px-2 py-1.5 bg-green-500/10 border-b border-green-500/20 flex items-center gap-2">
           <IconCircleCheck className="h-4 w-4 text-green-600 dark:text-green-500 flex-shrink-0" />
-          <span className="text-sm font-medium text-green-700 dark:text-green-400">
+          <span className="text-xs font-medium text-green-700 dark:text-green-400">
             {result.message || `${result.affectedRows} row(s) affected`}
           </span>
         </div>
       )}
 
-      {(viewMode === "explain" || viewMode === "raw" || viewMode === "stats") ? (
+      {viewMode === "explain" || viewMode === "raw" || viewMode === "stats" ? (
         <div className="h-full">
           <ExplainViewer
             result={{ columns: result.columns, rows: result.rows }}

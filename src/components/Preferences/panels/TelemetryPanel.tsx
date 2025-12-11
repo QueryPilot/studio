@@ -2,7 +2,11 @@ import { logger } from "@/lib/logger";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { IconInfoCircle, IconExternalLink, IconAlertCircle } from '@tabler/icons-react';
+import {
+  IconInfoCircle,
+  IconExternalLink,
+  IconAlertCircle,
+} from "@tabler/icons-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { disableSentry, configureTelemetryBackend } from "@/utils/sentry";
 import { useState } from "react";
@@ -50,7 +54,8 @@ export default function TelemetryPanel() {
         // Revert the toggle since it failed
         setTelemetry({ sentryEnabled: false });
         toast.error("Telemetry not available", {
-          description: "Backend was not built with telemetry support. This is normal for development builds.",
+          description:
+            "Backend was not built with telemetry support. This is normal for development builds.",
         });
       }
     }
@@ -59,27 +64,34 @@ export default function TelemetryPanel() {
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
-        <h2 className="text-2xl font-semibold mb-2">Telemetry & Error Reporting</h2>
-        <p className="text-sm text-muted-foreground">
-          Help us improve Query Pilot by sharing anonymous error reports and performance data.
+        <h2 className="text-2xl font-semibold mb-2">
+          Telemetry & Error Reporting
+        </h2>
+        <p className="text-xs text-muted-foreground">
+          Help us improve Query Pilot by sharing anonymous error reports and
+          performance data.
         </p>
       </div>
 
       <Alert>
         <IconInfoCircle className="h-4 w-4" />
         <AlertDescription>
-          <strong>Your privacy matters:</strong> All data is anonymized and we never collect queries,
-          credentials, personal information, or user messages. Only error stack traces and performance
-          metrics are sent.
+          <strong>Your privacy matters:</strong> All data is anonymized and we
+          never collect queries, credentials, personal information, or user
+          messages. Only error stack traces and performance metrics are sent.
         </AlertDescription>
       </Alert>
 
       {needsRestart && (
-        <Alert variant="default" className="border-yellow-500/50 bg-yellow-50/50 dark:bg-yellow-950/20">
+        <Alert
+          variant="default"
+          className="border-yellow-500/50 bg-yellow-50/50 dark:bg-yellow-950/20"
+        >
           <IconAlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-500" />
           <AlertDescription>
-            <strong>Restart required:</strong> Please restart Query Pilot for error tracking to take effect.
-            You can continue using the app, but error tracking won't be active until you restart.
+            <strong>Restart required:</strong> Please restart Query Pilot for
+            error tracking to take effect. You can continue using the app, but
+            error tracking won't be active until you restart.
           </AlertDescription>
         </Alert>
       )}
@@ -90,12 +102,13 @@ export default function TelemetryPanel() {
           <div className="flex-1 space-y-1">
             <Label
               htmlFor="sentry-enabled"
-              className="text-sm font-medium cursor-pointer"
+              className="text-xs font-medium cursor-pointer"
             >
               Enable error tracking
             </Label>
             <p className="text-xs text-muted-foreground">
-              Automatically send error reports when the app crashes. Helps us identify and fix bugs faster.
+              Automatically send error reports when the app crashes. Helps us
+              identify and fix bugs faster.
               {!telemetry.sentryEnabled && (
                 <>
                   <br />
@@ -128,13 +141,13 @@ export default function TelemetryPanel() {
           <div className="flex-1 space-y-1">
             <Label
               htmlFor="performance-monitoring"
-              className="text-sm font-medium cursor-pointer"
+              className="text-xs font-medium cursor-pointer"
             >
               Performance monitoring
             </Label>
             <p className="text-xs text-muted-foreground">
-              Track performance metrics to help us optimize app speed and responsiveness.
-              Only 10% of operations are sampled.
+              Track performance metrics to help us optimize app speed and
+              responsiveness. Only 10% of operations are sampled.
             </p>
           </div>
           <Switch
@@ -152,13 +165,13 @@ export default function TelemetryPanel() {
           <div className="flex-1 space-y-1">
             <Label
               htmlFor="session-replay"
-              className="text-sm font-medium cursor-pointer"
+              className="text-xs font-medium cursor-pointer"
             >
               Session replay on errors
             </Label>
             <p className="text-xs text-muted-foreground">
-              Record anonymized session replays when errors occur. All text and media are masked for privacy.
-              Only 50% of errors are recorded.
+              Record anonymized session replays when errors occur. All text and
+              media are masked for privacy. Only 50% of errors are recorded.
             </p>
           </div>
           <Switch
@@ -174,7 +187,7 @@ export default function TelemetryPanel() {
 
       {/* What We Collect */}
       <div className="space-y-3 pt-4">
-        <h3 className="text-sm font-semibold">What data is collected?</h3>
+        <h3 className="text-xs font-semibold">What data is collected?</h3>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <h4 className="text-xs font-medium text-green-600 dark:text-green-400 mb-2">

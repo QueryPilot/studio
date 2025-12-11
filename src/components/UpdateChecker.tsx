@@ -125,7 +125,7 @@ export function UpdateChecker({ checkOnMount = false }: UpdateCheckerProps) {
         </DialogHeader>
 
         {state.notes && (
-          <div className="max-h-48 overflow-y-auto rounded-md bg-muted p-3 text-sm">
+          <div className="max-h-48 overflow-y-auto rounded-md bg-muted p-3 text-xs">
             <pre className="whitespace-pre-wrap font-sans">{state.notes}</pre>
           </div>
         )}
@@ -133,16 +133,14 @@ export function UpdateChecker({ checkOnMount = false }: UpdateCheckerProps) {
         {state.downloading && (
           <div className="space-y-2">
             <Progress value={state.progress} />
-            <p className="text-center text-sm text-muted-foreground">
-              {state.progress < 100
-                ? "Downloading..."
-                : "Opening installer..."}
+            <p className="text-center text-xs text-muted-foreground">
+              {state.progress < 100 ? "Downloading..." : "Opening installer..."}
             </p>
           </div>
         )}
 
         {state.error && (
-          <p className="text-sm text-destructive">{state.error}</p>
+          <p className="text-xs text-destructive">{state.error}</p>
         )}
 
         <DialogFooter className="gap-2 sm:gap-0">

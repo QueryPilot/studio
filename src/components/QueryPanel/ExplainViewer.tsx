@@ -2152,7 +2152,7 @@ const StatsView = memo(function StatsView({
       >
         {/* Per Node Type Stats */}
         <div className="space-y-2 min-w-0">
-          <h3 className="text-sm font-semibold text-foreground">
+          <h3 className="text-xs font-semibold text-foreground">
             Per node type stats
           </h3>
           <div className="border rounded-lg overflow-hidden">
@@ -2196,7 +2196,7 @@ const StatsView = memo(function StatsView({
         {/* Per Table Stats */}
         {hasTableStats && (
           <div className="space-y-2 min-w-0">
-            <h3 className="text-sm font-semibold text-foreground">
+            <h3 className="text-xs font-semibold text-foreground">
               Per table stats
             </h3>
             <div className="border rounded-lg overflow-hidden">

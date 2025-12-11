@@ -6,10 +6,13 @@ import {
   type CustomRenderer,
 } from "@glideapps/glide-data-grid";
 import { Skeleton } from "@/components/ui/skeleton";
-import { IconAlertCircle, IconBolt } from '@tabler/icons-react';
+import { IconAlertCircle, IconBolt } from "@tabler/icons-react";
 import { databaseService, type TriggerMeta } from "@/services/databaseService";
 import { EditableDataGrid } from "@/components/DataGridV2/base/EditableDataGrid";
-import type { GridEditCommitEvent, GridRowModel } from "@/components/DataGridV2/types";
+import type {
+  GridEditCommitEvent,
+  GridRowModel,
+} from "@/components/DataGridV2/types";
 import { useColumnSizing } from "@/components/DataGridV2/hooks/useColumnSizing";
 import { TextSingleLineCellRenderer } from "@/components/DataGridV2/renderers/TextCell";
 import { triggerColumns } from "./columns";
@@ -65,7 +68,7 @@ export const TableTriggers = memo(function TableTriggers({
   const gridRows = useMemo(() => transformTriggersToRows(triggers), [triggers]);
 
   // Enable column resizing
-  const { sizedColumns, handleColumnResize, handleColumnResizeEnd} =
+  const { sizedColumns, handleColumnResize, handleColumnResizeEnd } =
     useColumnSizing({
       columns: triggerColumns,
       initialWidths: {},
@@ -185,13 +188,10 @@ export const TableTriggers = memo(function TableTriggers({
   );
 
   // Handle cell edit commit (for read-only overlays, just cancel)
-  const handleCellEditCommit = useCallback(
-    (_event: GridEditCommitEvent) => {
-      // Read-only - don't actually save edits
-      return undefined;
-    },
-    [],
-  );
+  const handleCellEditCommit = useCallback((_event: GridEditCommitEvent) => {
+    // Read-only - don't actually save edits
+    return undefined;
+  }, []);
 
   if (isLoading) {
     return <TableTriggersSkeleton />;
@@ -202,7 +202,7 @@ export const TableTriggers = memo(function TableTriggers({
       <div className="flex flex-col items-center justify-center h-full p-8 select-text">
         <IconAlertCircle className="h-12 w-12 text-destructive mb-4" />
         <h3 className="text-lg font-semibold mb-2">Failed to load triggers</h3>
-        <p className="text-sm text-muted-foreground max-w-md text-center select-text">
+        <p className="text-xs text-muted-foreground max-w-md text-center select-text">
           {error}
         </p>
       </div>
@@ -213,7 +213,7 @@ export const TableTriggers = memo(function TableTriggers({
     return (
       <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
         <IconBolt className="h-12 w-12 text-muted-foreground/50 mb-4" />
-        <p className="text-sm">This table has no triggers.</p>
+        <p className="text-xs">This table has no triggers.</p>
       </div>
     );
   }
@@ -269,4 +269,3 @@ const TableTriggersSkeleton = memo(function TableTriggersSkeleton() {
 });
 
 export default TableTriggers;
-

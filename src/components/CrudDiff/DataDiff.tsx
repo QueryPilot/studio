@@ -41,7 +41,7 @@ export function DataDiff({ rows, className }: DataDiffProps) {
     return (
       <div
         className={cn(
-          "flex h-full items-center justify-center rounded-xl border border-dashed border-muted-foreground/40 p-6 text-sm text-muted-foreground",
+          "flex h-full items-center justify-center rounded-xl border border-dashed border-muted-foreground/40 p-6 text-xs text-muted-foreground",
           className,
         )}
       >
@@ -52,7 +52,7 @@ export function DataDiff({ rows, className }: DataDiffProps) {
 
   return (
     <div className={cn("overflow-hidden rounded-xl border", className)}>
-      <table className="min-w-full divide-y divide-border text-sm">
+      <table className="min-w-full divide-y divide-border text-xs">
         <thead className="bg-muted/60">
           <tr>
             <th

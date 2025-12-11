@@ -18,7 +18,7 @@ export const DataGridErrorState = memo(function DataGridErrorState({
     <div className="flex flex-col items-center justify-center h-full p-8 select-text">
       <IconAlertCircle className="h-12 w-12 text-destructive mb-4" />
       <h3 className="text-lg font-semibold mb-2">Failed to load table data</h3>
-      <p className="text-sm text-muted-foreground max-w-md text-center select-text mb-4">
+      <p className="text-xs text-muted-foreground max-w-md text-center select-text mb-4">
         {error}
       </p>
       <div className="flex gap-2">
@@ -56,7 +56,7 @@ export const DataGridEmptyState = memo(function DataGridEmptyState({
         className="w-20 h-20 mb-4 opacity-40 dark:opacity-30"
       />
       <h3 className="text-lg font-semibold mb-2">{title}</h3>
-      <p className="text-sm text-muted-foreground max-w-md text-center select-text mb-4">
+      <p className="text-xs text-muted-foreground max-w-md text-center select-text mb-4">
         {description}
       </p>
       {onReload && (
@@ -128,7 +128,7 @@ export const DataGridEndOfData = memo(function DataGridEndOfData({
 }: DataGridEndOfDataProps) {
   return (
     <div
-      className="absolute bottom-0 left-0 right-0 text-center py-4 text-sm text-muted-foreground border-t bg-muted/20"
+      className="absolute bottom-0 left-0 right-0 text-center py-4 text-xs text-muted-foreground border-t bg-muted/20"
       style={{ width: `${tableWidth}px` }}
     >
       End of data ({rowCount.toLocaleString()} rows total)

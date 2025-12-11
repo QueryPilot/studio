@@ -129,7 +129,7 @@ function ShortcutKeys({
               ))}
             </KbdGroup>
             {chordIndex < chords.length - 1 ? (
-              <span className="text-muted-foreground text-sm font-medium">
+              <span className="text-muted-foreground text-xs font-medium">
                 then
               </span>
             ) : null}
@@ -187,7 +187,7 @@ const DroppableZone: React.FC<DroppableZoneProps> = ({
           : "opacity-50 hover:opacity-100",
       )}
     >
-      <div className="text-primary-foreground font-medium text-sm bg-primary/90 px-3 py-1 rounded shadow-lg group-hover:scale-105 transition-transform pointer-events-none">
+      <div className="text-primary-foreground font-medium text-xs bg-primary/90 px-3 py-1 rounded shadow-lg group-hover:scale-105 transition-transform pointer-events-none">
         {labels[position]}
       </div>
     </div>

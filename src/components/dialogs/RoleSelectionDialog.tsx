@@ -54,7 +54,7 @@ export function RoleSelectionDialog({
   onCancel,
 }: RoleSelectionDialogProps) {
   const [selectedRole, setSelectedRole] = useState<SamlRole | null>(
-    roles.length === 1 ? (roles[0] ?? null) : null
+    roles.length === 1 ? roles[0] ?? null : null,
   );
 
   const handleConfirm = () => {
@@ -64,17 +64,14 @@ export function RoleSelectionDialog({
   };
 
   // Group roles by AWS account
-  const rolesByAccount = roles.reduce(
-    (acc, role) => {
-      const { accountId } = parseRoleArn(role.role_arn);
-      if (!acc[accountId]) {
-        acc[accountId] = [];
-      }
-      acc[accountId].push(role);
-      return acc;
-    },
-    {} as Record<string, SamlRole[]>
-  );
+  const rolesByAccount = roles.reduce((acc, role) => {
+    const { accountId } = parseRoleArn(role.role_arn);
+    if (!acc[accountId]) {
+      acc[accountId] = [];
+    }
+    acc[accountId].push(role);
+    return acc;
+  }, {} as Record<string, SamlRole[]>);
 
   const accountIds = Object.keys(rolesByAccount).sort();
 
@@ -98,43 +95,43 @@ export function RoleSelectionDialog({
             if (!accountRoles) return null;
 
             return (
-            <div key={accountId} className="mb-3 last:mb-0">
-              <div className="text-xs font-medium text-muted-foreground mb-1.5 px-1">
-                Account: {accountId}
-              </div>
-              <div className="space-y-1">
-                {accountRoles.map((role) => {
-                  const { roleName } = parseRoleArn(role.role_arn);
-                  const providerName = parseProviderArn(role.principal_arn);
-                  const isSelected = selectedRole?.role_arn === role.role_arn;
+              <div key={accountId} className="mb-3 last:mb-0">
+                <div className="text-xs font-medium text-muted-foreground mb-1.5 px-1">
+                  Account: {accountId}
+                </div>
+                <div className="space-y-1">
+                  {accountRoles.map((role) => {
+                    const { roleName } = parseRoleArn(role.role_arn);
+                    const providerName = parseProviderArn(role.principal_arn);
+                    const isSelected = selectedRole?.role_arn === role.role_arn;
 
-                  return (
-                    <button
-                      key={role.role_arn}
-                      type="button"
-                      onClick={() => setSelectedRole(role)}
-                      className={cn(
-                        "w-full flex items-center justify-between px-3 py-2 rounded-md text-left transition-colors",
-                        "hover:bg-accent",
-                        isSelected && "bg-accent ring-1 ring-primary"
-                      )}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium text-sm truncate">
-                          {roleName}
+                    return (
+                      <button
+                        key={role.role_arn}
+                        type="button"
+                        onClick={() => setSelectedRole(role)}
+                        className={cn(
+                          "w-full flex items-center justify-between px-3 py-2 rounded-md text-left transition-colors",
+                          "hover:bg-accent",
+                          isSelected && "bg-accent ring-1 ring-primary",
+                        )}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium text-xs truncate">
+                            {roleName}
+                          </div>
+                          <div className="text-xs text-muted-foreground truncate">
+                            Provider: {providerName}
+                          </div>
                         </div>
-                        <div className="text-xs text-muted-foreground truncate">
-                          Provider: {providerName}
-                        </div>
-                      </div>
-                      {isSelected && (
-                        <IconCheck className="h-4 w-4 text-primary flex-shrink-0 ml-2" />
-                      )}
-                    </button>
-                  );
-                })}
+                        {isSelected && (
+                          <IconCheck className="h-4 w-4 text-primary flex-shrink-0 ml-2" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
             );
           })}
         </div>

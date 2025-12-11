@@ -83,7 +83,7 @@ export function PreferencesDialog({
                 }}
               >
                 <IconChevronLeft className="h-4 w-4" />
-                <span className="text-sm">Back</span>
+                <span className="text-xs">Back</span>
               </Button>
             </div>
             <PreferencesSidebar />

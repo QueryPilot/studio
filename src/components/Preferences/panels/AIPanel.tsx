@@ -71,7 +71,9 @@ export default function AIPanel() {
         const firstConfigured = providersData.find((p) =>
           statusData?.configuredProviders.includes(p.name),
         );
-        setSelectedProvider(firstConfigured?.name || providersData[0]?.name || "");
+        setSelectedProvider(
+          firstConfigured?.name || providersData[0]?.name || "",
+        );
       }
     } catch (error) {
       logger.error("Failed to load providers:", error);
@@ -243,7 +245,7 @@ export default function AIPanel() {
           <div className="col-span-5">
             <div className="bg-muted/60 rounded-lg p-3 pb-0 max-h-[calc(100vh-8.8rem)] overflow-y-auto">
               <div className="mb-2">
-                <h3 className="text-sm font-semibold">Available Providers</h3>
+                <h3 className="text-xs font-semibold">Available Providers</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   Select a provider to configure
                 </p>
@@ -329,7 +331,7 @@ export default function AIPanel() {
           <div className="col-span-7">
             <div className="max-h-[calc(100vh-12rem)] overflow-y-auto">
               <div className="mb-2">
-                <h3 className="text-sm font-semibold capitalize">
+                <h3 className="text-xs font-semibold capitalize">
                   {selectedProvider || "Select Provider"}
                 </h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -610,7 +612,7 @@ export default function AIPanel() {
                     </div>
                   </>
                 ) : (
-                  <div className="py-12 text-center text-muted-foreground text-sm">
+                  <div className="py-12 text-center text-muted-foreground text-xs">
                     Select a provider to configure
                   </div>
                 )}
