@@ -320,6 +320,49 @@ export const IntrospectionService = {
   },
 
   /**
+   * Get statistics for a single table (owner, size, row_count, comment)
+   * This is more efficient than getTables() when you only need one table's stats
+   */
+  async getTableStats(
+    connectionId: string,
+    schema: string,
+    table: string
+  ): Promise<{ owner?: string; size?: string; rowCount?: number; comment?: string } | null> {
+    const sql = DialectService.getTableStatsQuery(connectionId, schema, table);
+    const result = await BackendAPI.query(connectionId, sql);
+
+    const row = result.rows[0];
+    if (!row) {
+      return null;
+    }
+
+    return {
+      owner: getString(row[0]) || undefined,
+      size: getString(row[1]) || undefined,
+      rowCount: getNumber(row[2]),
+      comment: getString(row[3]) || undefined,
+    };
+  },
+
+  /**
+   * Get all referenceable columns (primary keys, unique constraints, unique indexes)
+   * for foreign key target selection. Uses single SQL query instead of N+1 pattern.
+   */
+  async getForeignKeyTargets(
+    connectionId: string,
+    schema: string
+  ): Promise<Array<{ table: string; column: string; type: string }>> {
+    const sql = DialectService.getForeignKeyTargetsQuery(connectionId, schema);
+    const result = await BackendAPI.query(connectionId, sql);
+
+    return result.rows.map((row) => ({
+      table: getString(row[0]),
+      column: getString(row[1]),
+      type: getString(row[2]),
+    }));
+  },
+
+  /**
    * Get table row count
    * First tries estimated count (faster), falls back to exact count if estimation returns -1
    */
@@ -362,30 +405,6 @@ export const IntrospectionService = {
       return getString(result.rows[0]?.[0]);
     }
     return "";
-  },
-
-  /**
-   * Get statistics for a single table (row count, size)
-   * More efficient than getTables() when you only need one table's stats
-   */
-  async getTableStats(
-    connectionId: string,
-    schema: string,
-    table: string
-  ): Promise<{ rowCount: number; size: string; owner?: string; comment?: string } | null> {
-    const sql = DialectService.getTableStatsQuery(connectionId, schema, table);
-    const result = await BackendAPI.query(connectionId, sql);
-
-    if (result.rows.length > 0) {
-      const row = result.rows[0];
-      return {
-        rowCount: getNumber(row?.[0]) ?? 0,
-        size: getString(row?.[1]) || "Unknown",
-        owner: getString(row?.[2]) || undefined,
-        comment: getString(row?.[3]) || undefined,
-      };
-    }
-    return null;
   },
 };
 

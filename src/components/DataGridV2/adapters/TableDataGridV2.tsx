@@ -28,6 +28,7 @@ import { DataGridSkeleton } from "../components/DataGridSkeleton";
 import { DataGridStatusBar } from "../components/DataGridStatusBar";
 import { StagingActionsToolbar } from "../components/StagingActionsToolbar";
 import { QuickFilter, type QuickFilterRef } from "../components/QuickFilter";
+import { FKPreviewPopover } from "../components/FKPreviewPopover";
 import { useAIFilter } from "../hooks/useAIFilter";
 import { type FilterColumnInfo } from "@/utils/filterParser";
 import { openTableObject } from "@/utils/workbench/openers";
@@ -1411,59 +1412,21 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
   const stagedChangesRef = useRef(stagedChanges);
   stagedChangesRef.current = stagedChanges;
 
-  // Cell hover icons for quick actions (copy, FK reference)
-  const handleOpenReference = useCallback(
-    (
-      refSchema: string,
-      refTable: string,
-      refColumn: string,
-      value: unknown,
-    ) => {
-      if (!isTableMode) return;
-
-      // Build the WHERE clause filter
-      let filterValue: string;
-      if (value === null) {
-        filterValue = `"${refColumn}" IS NULL`;
-      } else if (typeof value === "string") {
-        // Escape single quotes in string values
-        const escaped = String(value).replace(/'/g, "''");
-        filterValue = `"${refColumn}" = '${escaped}'`;
-      } else if (typeof value === "number" || typeof value === "boolean") {
-        filterValue = `"${refColumn}" = ${value}`;
-      } else {
-        // For complex values, convert to string
-        const escaped = String(value).replace(/'/g, "''");
-        filterValue = `"${refColumn}" = '${escaped}'`;
-      }
-
-      // Open the referenced table with the filter
-      openTableObject({
-        table: {
-          name: refTable,
-          schema: refSchema,
-          kind: "Table",
-        },
-        connectionId,
-        database,
-        viewType: "data",
-        initialFilter: filterValue,
-        sourcePanelId: panelId,
-      });
-    },
-    [isTableMode, connectionId, database, panelId],
-  );
-
   const isLargeDataset = deferredDisplayRows.length > 5000;
 
-  const { onItemHovered: handleItemHovered, drawCell: drawCellWithHoverIcons } =
-    useCellHoverIcons({
-      columns: finalColumns,
-      rows: deferredDisplayRows,
-      onOpenReference: isTableMode ? handleOpenReference : undefined,
-      enabled: !isLargeDataset,
-      containerRef: containerRef,
-    });
+  const {
+    onItemHovered: handleItemHovered,
+    drawCell: drawCellWithHoverIcons,
+    fkPreviewState,
+    clearFkPreview,
+  } = useCellHoverIcons({
+    columns: finalColumns,
+    rows: deferredDisplayRows,
+    onOpenReference: undefined, // Disabled - using FK preview popover instead
+    enabled: !isLargeDataset,
+    containerRef: containerRef,
+    enableFKPreview: isTableMode,
+  });
 
   // Memoize clipboard callbacks to prevent recreation on every render
   const toTextCallback = useCallback(
@@ -2337,6 +2300,52 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
               drawCell={drawCellWithHoverIcons}
             />
           </GridContextMenu>
+        )}
+
+        {/* FK Preview Popover - inside container for correct absolute positioning */}
+        {isTableMode && fkPreviewState && !isEditingCell && (
+          <FKPreviewPopover
+            open={true}
+            onOpenChange={(open) => {
+              if (!open) {
+                clearFkPreview();
+              }
+            }}
+            fkReference={fkPreviewState.fkReference}
+            fkValue={fkPreviewState.fkValue}
+            connectionId={connectionId}
+            database={database}
+            cellBounds={fkPreviewState.cellBounds}
+            onOpenReference={() => {
+              // Build the WHERE clause filter
+              const { fkReference, fkValue } = fkPreviewState;
+              let filterValue: string;
+              if (fkValue === null) {
+                filterValue = `"${fkReference.referenced_column}" IS NULL`;
+              } else if (typeof fkValue === "string") {
+                const escaped = String(fkValue).replace(/'/g, "''");
+                filterValue = `"${fkReference.referenced_column}" = '${escaped}'`;
+              } else if (typeof fkValue === "number" || typeof fkValue === "boolean") {
+                filterValue = `"${fkReference.referenced_column}" = ${fkValue}`;
+              } else {
+                const escaped = String(fkValue).replace(/'/g, "''");
+                filterValue = `"${fkReference.referenced_column}" = '${escaped}'`;
+              }
+
+              openTableObject({
+                table: {
+                  name: fkReference.referenced_table,
+                  schema: fkReference.referenced_schema,
+                  kind: "Table",
+                },
+                connectionId,
+                database,
+                viewType: "data",
+                initialFilter: filterValue,
+                sourcePanelId: panelId,
+              });
+            }}
+          />
         )}
       </div>
 

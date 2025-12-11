@@ -1,10 +1,12 @@
 import { logger } from "@/lib/logger";
 import { isTauri, safeInvoke, safeEmit } from "@/utils/tauri";
 import { vaultStorage } from "@/services/vaultStorage";
+
 import { BackendAPI, type DbType } from "./backend";
 import type { IndexUsageStats } from "./backend";
-import type { ConnectionProfile, AzureAdSamlConfig, EcsBastionConfig } from "@/types/connection";
+import type { ConnectionProfile } from "@/types/connection";
 import { tableStreamingService } from "./tableStreamingService";
+
 import { QueryStreamClient } from "./queryStreamClient";
 import type { QueryResult, ColumnMeta } from "@/types/database";
 import type {
@@ -15,10 +17,7 @@ import type {
 } from "@/types/tableStructure";
 import { ConstraintType } from "@/services/backend";
 import { IntrospectionService } from "./introspectionService";
-import {
-  performSamlAuth,
-  type SamlRole,
-} from "./samlAuthService";
+import { performSamlAuth, type SamlRole } from "./samlAuthService";
 
 // Types from API spec
 export interface ConnectionConfig {
@@ -102,7 +101,9 @@ class DatabaseService {
    * Set the callback for AWS role selection during SAML auth
    * This allows UI components to provide a role selection dialog
    */
-  setRoleSelectionCallback(callback: (roles: SamlRole[]) => Promise<SamlRole>): void {
+  setRoleSelectionCallback(
+    callback: (roles: SamlRole[]) => Promise<SamlRole>,
+  ): void {
     this.roleSelectionCallback = callback;
   }
 
@@ -118,6 +119,7 @@ class DatabaseService {
    * @param connectionId The connection ID
    * @param databaseOverride Optional database name to override the profile default
    */
+
   async connectById(
     connectionId: string,
     databaseOverride?: string,
@@ -159,7 +161,9 @@ class DatabaseService {
         logger.info(
           `[DatabaseService] Connecting to ${stored.profile.name} (ID: ${stored.profile.id}) - database: ${targetDatabase}`,
         );
-        logger.info(`[DatabaseService] Frontend connectionId: ${connectionId}, Profile ID: ${stored.profile.id}`);
+        logger.info(
+          `[DatabaseService] Frontend connectionId: ${connectionId}, Profile ID: ${stored.profile.id}`,
+        );
 
         // Convert to backend profile type (include all config including bastion)
         const profile: ConnectionProfile = {
@@ -180,11 +184,11 @@ class DatabaseService {
 
         // Pre-authentication for ECS Bastion with Azure AD SAML
         if (profile.bastion && "EcsBastion" in profile.bastion) {
-          const ecsConfig = profile.bastion.EcsBastion as EcsBastionConfig;
+          const ecsConfig = profile.bastion.EcsBastion;
           if (ecsConfig.auth && "AzureAdSaml" in ecsConfig.auth) {
-            const samlConfig = ecsConfig.auth.AzureAdSaml as AzureAdSamlConfig;
+            const samlConfig = ecsConfig.auth.AzureAdSaml;
             logger.info(
-              `[DatabaseService] ECS Bastion requires Azure AD SAML authentication`
+              `[DatabaseService] ECS Bastion requires Azure AD SAML authentication`,
             );
 
             // Perform SAML authentication (will use cached creds if valid)
@@ -192,7 +196,7 @@ class DatabaseService {
               connectionId,
               samlConfig,
               ecsConfig.region,
-              this.roleSelectionCallback
+              this.roleSelectionCallback,
             );
 
             logger.info(`[DatabaseService] SAML authentication completed`);
@@ -311,7 +315,6 @@ class DatabaseService {
       }
 
       this.activeConnections.delete(connectionId);
-
     } catch (error) {
       logger.error("Failed to disconnect from database:", error);
       throw error;
@@ -322,16 +325,15 @@ class DatabaseService {
    * Switch to a different database on the same connection.
    * This will disconnect and reconnect with the new database, verifying the switch.
    */
-  async switchDatabase(
-    connectionId: string,
-    database: string,
-  ): Promise<void> {
+  async switchDatabase(connectionId: string, database: string): Promise<void> {
     logger.info(
       `[DatabaseService] Switching connection ${connectionId} to database: ${database}`,
     );
 
     if (!isTauri()) {
-      logger.warn("Database switch requires Tauri runtime - skipping in browser mode");
+      logger.warn(
+        "Database switch requires Tauri runtime - skipping in browser mode",
+      );
       return;
     }
 
@@ -349,7 +351,9 @@ class DatabaseService {
         this.activeConnections.set(connectionId, response);
       }
 
-      logger.info(`[DatabaseService] Successfully switched to database: ${database}`);
+      logger.info(
+        `[DatabaseService] Successfully switched to database: ${database}`,
+      );
     } catch (error) {
       logger.error(`[DatabaseService] Failed to switch database:`, error);
       throw error;
@@ -464,7 +468,7 @@ class DatabaseService {
 
   /**
    * Get available foreign key targets (tables with primary keys or unique constraints)
-   * Uses a single SQL query instead of N+1 queries for performance
+   * Uses a single SQL query instead of N+1 pattern for much better performance
    */
   async getForeignKeyTargets(
     connectionId: string,
@@ -472,70 +476,11 @@ class DatabaseService {
     schema: string,
   ): Promise<Array<{ table: string; column: string; type: string }>> {
     try {
-      // Single query to get all referenceable columns (PK, unique constraints, unique indexes)
-      // This replaces the N+1 pattern of fetching structure for each table
-      const sql = `
-        WITH referenceable_columns AS (
-          -- Primary key columns
-          SELECT DISTINCT
-            tc.table_name,
-            kcu.column_name
-          FROM information_schema.table_constraints tc
-          JOIN information_schema.key_column_usage kcu
-            ON tc.constraint_name = kcu.constraint_name
-            AND tc.table_schema = kcu.table_schema
-            AND tc.table_name = kcu.table_name
-          WHERE tc.constraint_schema = '${this.quoteIdentifier(schema).slice(1, -1)}'
-            AND tc.constraint_type = 'PRIMARY KEY'
-          
-          UNION
-          
-          -- Unique constraint columns
-          SELECT DISTINCT
-            tc.table_name,
-            kcu.column_name
-          FROM information_schema.table_constraints tc
-          JOIN information_schema.key_column_usage kcu
-            ON tc.constraint_name = kcu.constraint_name
-            AND tc.table_schema = kcu.table_schema
-            AND tc.table_name = kcu.table_name
-          WHERE tc.constraint_schema = '${this.quoteIdentifier(schema).slice(1, -1)}'
-            AND tc.constraint_type = 'UNIQUE'
-          
-          UNION
-          
-          -- Unique index columns (for indexes not backed by constraints)
-          SELECT DISTINCT
-            t.relname AS table_name,
-            a.attname AS column_name
-          FROM pg_index i
-          JOIN pg_class t ON t.oid = i.indrelid
-          JOIN pg_namespace n ON n.oid = t.relnamespace
-          JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(i.indkey)
-          WHERE n.nspname = '${this.quoteIdentifier(schema).slice(1, -1)}'
-            AND i.indisunique = true
-            AND NOT i.indisprimary
-            AND t.relkind = 'r'
-        )
-        SELECT 
-          rc.table_name,
-          rc.column_name,
-          c.data_type
-        FROM referenceable_columns rc
-        JOIN information_schema.columns c
-          ON c.table_schema = '${this.quoteIdentifier(schema).slice(1, -1)}'
-          AND c.table_name = rc.table_name
-          AND c.column_name = rc.column_name
-        ORDER BY rc.table_name, rc.column_name
-      `;
-
-      const result = await BackendAPI.query(connectionId, sql);
-      
-      return result.rows.map((row) => ({
-        table: String(row[0] ?? ""),
-        column: String(row[1] ?? ""),
-        type: String(row[2] ?? ""),
-      }));
+      // Use single efficient query via IntrospectionService
+      return await IntrospectionService.getForeignKeyTargets(
+        connectionId,
+        schema,
+      );
     } catch (error) {
       logger.error("Failed to fetch foreign key targets:", error);
       return [];
@@ -635,7 +580,10 @@ class DatabaseService {
     schema: string,
   ): Promise<FunctionMeta[]> {
     try {
-      const functions = await IntrospectionService.getFunctions(connectionId, schema);
+      const functions = await IntrospectionService.getFunctions(
+        connectionId,
+        schema,
+      );
       return functions.map((f) => ({
         schema: f.schema,
         name: f.name,
@@ -689,7 +637,11 @@ class DatabaseService {
     table: string,
   ): Promise<ColumnMeta[]> {
     try {
-      const columns = await IntrospectionService.getColumns(connectionId, schema, table);
+      const columns = await IntrospectionService.getColumns(
+        connectionId,
+        schema,
+        table,
+      );
       return columns.map(
         (c, index): ColumnMeta => ({
           name: c.name,
@@ -726,7 +678,11 @@ class DatabaseService {
     table: string,
   ): Promise<TableIndex[]> {
     try {
-      const indexes = await IntrospectionService.getIndexes(connectionId, schema, table);
+      const indexes = await IntrospectionService.getIndexes(
+        connectionId,
+        schema,
+        table,
+      );
       // Normalize index definition pieces (method + WHERE) for UI/editing
       const parseIndexDef = (
         def: string,
@@ -797,7 +753,11 @@ class DatabaseService {
     table: string,
   ): Promise<IndexUsageStats[]> {
     try {
-      return await IntrospectionService.getIndexUsageStats(connectionId, schema, table);
+      return await IntrospectionService.getIndexUsageStats(
+        connectionId,
+        schema,
+        table,
+      );
     } catch (error) {
       logger.error("Failed to get index usage stats:", error);
       throw error;
@@ -819,7 +779,9 @@ class DatabaseService {
       }
 
       // Fetch using dialect-aware introspection
-      const types = await IntrospectionService.getSupportedIndexTypes(connectionId);
+      const types = await IntrospectionService.getSupportedIndexTypes(
+        connectionId,
+      );
 
       // Cache the result
       this.indexTypeCache.set(connectionId, {
@@ -861,7 +823,9 @@ class DatabaseService {
       }
 
       // Fetch using dialect-aware introspection
-      const types = await IntrospectionService.getSupportedColumnTypes(connectionId);
+      const types = await IntrospectionService.getSupportedColumnTypes(
+        connectionId,
+      );
 
       // Cache the result
       this.columnTypeCache.set(connectionId, {
@@ -942,6 +906,7 @@ class DatabaseService {
 
     try {
       // Fetch all table metadata in parallel for performance
+      // Use targeted getTableStats() instead of fetching ALL tables in the schema
       const [columns, constraints, indexes, triggers, tableStats] =
         await Promise.all([
           // Always fetch columns
@@ -957,14 +922,11 @@ class DatabaseService {
           includeTriggers
             ? IntrospectionService.getTriggers(connectionId, schema, table)
             : Promise.resolve([]),
-          // Use getTableStats for single table instead of getTables (avoids N+1)
+          // Use targeted single-table stats query instead of fetching all tables
           includeStatistics
             ? IntrospectionService.getTableStats(connectionId, schema, table)
             : Promise.resolve(null),
         ]);
-
-      // tableStats is now the stats for this specific table (or null)
-      const tableInfo = tableStats;
 
       // Extract primary keys from constraints
       const primaryKeys = constraints
@@ -1026,12 +988,12 @@ class DatabaseService {
 
       // Build table statistics if available
       const stats: TableStatistics | undefined =
-        includeStatistics && tableInfo
+        includeStatistics && tableStats
           ? {
-              totalRows: tableInfo.rowCount || 0,
-              tableSize: tableInfo.size || "Unknown",
+              totalRows: tableStats.rowCount || 0,
+              tableSize: tableStats.size || "Unknown",
               indexSize: "Unknown", // Would need additional query for this
-              totalSize: tableInfo.size || "Unknown",
+              totalSize: tableStats.size || "Unknown",
             }
           : undefined;
 
@@ -1040,10 +1002,10 @@ class DatabaseService {
         name: table,
         schema,
         database,
-        owner: tableInfo?.owner,
-        comment: tableInfo?.comment,
-        rowCount: tableInfo?.rowCount,
-        size: tableInfo?.size,
+        owner: tableStats?.owner,
+        comment: tableStats?.comment,
+        rowCount: tableStats?.rowCount,
+        size: tableStats?.size,
         columns,
         primaryKeys,
         foreignKeys,
@@ -1119,7 +1081,10 @@ class DatabaseService {
           this.notifyHealthListeners(connectionId, health);
         })
         .catch((error: unknown) => {
-          logger.warn("database-service", "Health check failed", { connectionId, error });
+          logger.warn("database-service", "Health check failed", {
+            connectionId,
+            error,
+          });
         });
     }, 5000);
 
@@ -1291,8 +1256,7 @@ class DatabaseService {
 
     // Detect configuration commands
     const isConfig =
-      sqlUpper.startsWith("SET ") ||
-      sqlUpper.startsWith("RESET ");
+      sqlUpper.startsWith("SET ") || sqlUpper.startsWith("RESET ");
 
     // Detect maintenance commands
     const isMaintenance =
@@ -1325,7 +1289,10 @@ class DatabaseService {
     }
     // For transaction control commands
     else if (isTransaction) {
-      if (sqlUpper.startsWith("BEGIN") || sqlUpper.startsWith("START TRANSACTION")) {
+      if (
+        sqlUpper.startsWith("BEGIN") ||
+        sqlUpper.startsWith("START TRANSACTION")
+      ) {
         queryResult.message = "Transaction started";
       } else if (sqlUpper.startsWith("COMMIT")) {
         queryResult.message = "Transaction committed";
@@ -1767,9 +1734,9 @@ class DatabaseService {
 
     // Then clear frontend book-keeping
     const promises = Array.from(this.activeConnections.keys()).map((id) =>
-      this.disconnect(id).catch((error) =>
-        logger.error("database-service", "Failed to disconnect", error),
-      ),
+      this.disconnect(id).catch((error) => {
+        logger.error("database-service", "Failed to disconnect", error);
+      }),
     );
     await Promise.all(promises);
 
