@@ -128,7 +128,7 @@ export class QueryStreamClient {
           switch (message.type) {
             case "started":
               this.columns = message.columns;
-              this.estimatedRows = message.estimated_rows;
+              this.estimatedRows = message.estimatedRows;
               break;
 
             case "batch":
@@ -141,8 +141,8 @@ export class QueryStreamClient {
             case "success":
               const result: StreamResult = {
                 columns: this.columns || [],
-                totalRows: message.total_rows,
-                executionTimeMs: message.execution_time_ms,
+                totalRows: message.totalRows,
+                executionTimeMs: message.executionTimeMs,
               };
 
               resolve(
@@ -369,31 +369,31 @@ export class QueryStreamClient {
         switch (typedMessage.type) {
           case "limitApplied":
             callbacks.onLimitApplied?.(
-              typedMessage.original_sql,
-              typedMessage.applied_limit,
+              typedMessage.originalSql,
+              typedMessage.appliedLimit,
             );
             break;
 
           case "started":
             this.columns = typedMessage.columns;
-            this.estimatedRows = typedMessage.estimated_rows;
+            this.estimatedRows = typedMessage.estimatedRows;
             callbacks.onStarted?.(
               typedMessage.columns,
-              typedMessage.estimated_rows,
+              typedMessage.estimatedRows,
             );
             break;
 
           case "success": {
             const result: StreamResult = {
               columns: this.columns || [],
-              totalRows: typedMessage.total_rows,
-              executionTimeMs: typedMessage.execution_time_ms,
-              cursorSetupMs: typedMessage.cursor_setup_ms,
-              totalStreamingMs: typedMessage.total_streaming_ms,
-              fetchCount: typedMessage.fetch_count,
-              networkMs: typedMessage.network_ms,
-              conversionMs: typedMessage.conversion_ms,
-              ipcSendMs: typedMessage.ipc_send_ms,
+              totalRows: typedMessage.totalRows,
+              executionTimeMs: typedMessage.executionTimeMs,
+              cursorSetupMs: typedMessage.cursorSetupMs,
+              totalStreamingMs: typedMessage.totalStreamingMs,
+              fetchCount: typedMessage.fetchCount,
+              networkMs: typedMessage.networkMs,
+              conversionMs: typedMessage.conversionMs,
+              ipcSendMs: typedMessage.ipcSendMs,
             };
 
             callbacks.onSuccess?.(result);

@@ -424,6 +424,31 @@ export const DialectService = {
     const dialect = getDialectForConnection(connectionId);
     return dialect.getObjectDefinitionQuery(objectType, schema, name);
   },
+
+  /**
+   * Get the SQL query for single table statistics (row count, size, owner, comment)
+   * More efficient than getTablesQuery when you only need one table's stats
+   */
+  getTableStatsQuery(connectionId: string, schema: string, table: string): string {
+    const dialect = getDialectForConnection(connectionId);
+    // PostgreSQL-specific query for single table stats
+    // Other dialects can override this method if needed
+    const quotedSchema = dialect.formatLiteral(schema);
+    const quotedTable = dialect.formatLiteral(table);
+    
+    return `
+      SELECT 
+        COALESCE(c.reltuples::bigint, 0) AS row_count,
+        pg_size_pretty(pg_total_relation_size(c.oid)) AS size,
+        pg_get_userbyid(c.relowner) AS owner,
+        obj_description(c.oid, 'pg_class') AS comment
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = ${quotedSchema}
+        AND c.relname = ${quotedTable}
+        AND c.relkind IN ('r', 'p')
+    `;
+  },
 };
 
 export default DialectService;

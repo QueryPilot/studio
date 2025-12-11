@@ -464,115 +464,78 @@ class DatabaseService {
 
   /**
    * Get available foreign key targets (tables with primary keys or unique constraints)
+   * Uses a single SQL query instead of N+1 queries for performance
    */
   async getForeignKeyTargets(
     connectionId: string,
-    database: string,
+    _database: string,
     schema: string,
   ): Promise<Array<{ table: string; column: string; type: string }>> {
     try {
-      // Get all tables in the current schema
-      const tables = await this.listTables(connectionId, database, schema);
+      // Single query to get all referenceable columns (PK, unique constraints, unique indexes)
+      // This replaces the N+1 pattern of fetching structure for each table
+      const sql = `
+        WITH referenceable_columns AS (
+          -- Primary key columns
+          SELECT DISTINCT
+            tc.table_name,
+            kcu.column_name
+          FROM information_schema.table_constraints tc
+          JOIN information_schema.key_column_usage kcu
+            ON tc.constraint_name = kcu.constraint_name
+            AND tc.table_schema = kcu.table_schema
+            AND tc.table_name = kcu.table_name
+          WHERE tc.constraint_schema = '${this.quoteIdentifier(schema).slice(1, -1)}'
+            AND tc.constraint_type = 'PRIMARY KEY'
+          
+          UNION
+          
+          -- Unique constraint columns
+          SELECT DISTINCT
+            tc.table_name,
+            kcu.column_name
+          FROM information_schema.table_constraints tc
+          JOIN information_schema.key_column_usage kcu
+            ON tc.constraint_name = kcu.constraint_name
+            AND tc.table_schema = kcu.table_schema
+            AND tc.table_name = kcu.table_name
+          WHERE tc.constraint_schema = '${this.quoteIdentifier(schema).slice(1, -1)}'
+            AND tc.constraint_type = 'UNIQUE'
+          
+          UNION
+          
+          -- Unique index columns (for indexes not backed by constraints)
+          SELECT DISTINCT
+            t.relname AS table_name,
+            a.attname AS column_name
+          FROM pg_index i
+          JOIN pg_class t ON t.oid = i.indrelid
+          JOIN pg_namespace n ON n.oid = t.relnamespace
+          JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(i.indkey)
+          WHERE n.nspname = '${this.quoteIdentifier(schema).slice(1, -1)}'
+            AND i.indisunique = true
+            AND NOT i.indisprimary
+            AND t.relkind = 'r'
+        )
+        SELECT 
+          rc.table_name,
+          rc.column_name,
+          c.data_type
+        FROM referenceable_columns rc
+        JOIN information_schema.columns c
+          ON c.table_schema = '${this.quoteIdentifier(schema).slice(1, -1)}'
+          AND c.table_name = rc.table_name
+          AND c.column_name = rc.column_name
+        ORDER BY rc.table_name, rc.column_name
+      `;
 
-      const targets: Array<{ table: string; column: string; type: string }> =
-        [];
-      const addedTargets = new Set<string>(); // Track added column combinations
-
-      // For each table, get its structure to find referenceable columns
-      for (const table of tables) {
-        try {
-          const structure = await this.getTableStructure(
-            connectionId,
-            database,
-            schema,
-            table.name,
-            {
-              includeIndexes: true,
-              includeConstraints: true,
-            },
-          );
-
-          // Add primary key columns
-          if (structure.primaryKeys.length > 0) {
-            for (const pkColumn of structure.primaryKeys) {
-              const column = structure.columns.find((c) => c.name === pkColumn);
-              if (column) {
-                const key = `${table.name}.${column.name}`;
-                if (!addedTargets.has(key)) {
-                  targets.push({
-                    table: table.name,
-                    column: column.name,
-                    type: column.db_type,
-                  });
-                  addedTargets.add(key);
-                }
-              }
-            }
-          }
-
-          // Add columns with unique constraints
-          for (const constraint of structure.constraints) {
-            const typeUpper = (
-              constraint.constraint_type as unknown as string
-            ).toUpperCase();
-            if (typeUpper === "UNIQUE" || typeUpper === "U") {
-              // Parse the constraint definition to extract column names
-              const match = constraint.definition.match(/\((.*?)\)/);
-              if (match && match[1]) {
-                const list = match[1];
-                const columnNames = list
-                  .split(",")
-                  .map((col) => col.trim().replace(/"/g, ""));
-                for (const colName of columnNames) {
-                  const column = structure.columns.find(
-                    (c) => c.name === colName,
-                  );
-                  if (column) {
-                    const key = `${table.name}.${column.name}`;
-                    if (!addedTargets.has(key)) {
-                      targets.push({
-                        table: table.name,
-                        column: column.name,
-                        type: column.db_type,
-                      });
-                      addedTargets.add(key);
-                    }
-                  }
-                }
-              }
-            }
-          }
-
-          // Add columns with unique indexes
-          for (const index of structure.indexes) {
-            if (index.is_unique) {
-              for (const colName of index.columns) {
-                const column = structure.columns.find(
-                  (c) => c.name === colName,
-                );
-                if (column) {
-                  const key = `${table.name}.${column.name}`;
-                  if (!addedTargets.has(key)) {
-                    targets.push({
-                      table: table.name,
-                      column: column.name,
-                      type: column.db_type,
-                    });
-                    addedTargets.add(key);
-                  }
-                }
-              }
-            }
-          }
-        } catch (err) {
-          logger.error(
-            `Failed to get structure for table ${table.name}:`,
-            err,
-          );
-        }
-      }
-
-      return targets;
+      const result = await BackendAPI.query(connectionId, sql);
+      
+      return result.rows.map((row) => ({
+        table: String(row[0] ?? ""),
+        column: String(row[1] ?? ""),
+        type: String(row[2] ?? ""),
+      }));
     } catch (error) {
       logger.error("Failed to fetch foreign key targets:", error);
       return [];
@@ -979,7 +942,7 @@ class DatabaseService {
 
     try {
       // Fetch all table metadata in parallel for performance
-      const [columns, constraints, indexes, triggers, tables] =
+      const [columns, constraints, indexes, triggers, tableStats] =
         await Promise.all([
           // Always fetch columns
           this.getTableColumns(connectionId, database, schema, table),
@@ -994,13 +957,14 @@ class DatabaseService {
           includeTriggers
             ? IntrospectionService.getTriggers(connectionId, schema, table)
             : Promise.resolve([]),
+          // Use getTableStats for single table instead of getTables (avoids N+1)
           includeStatistics
-            ? IntrospectionService.getTables(connectionId, schema)
-            : Promise.resolve([]),
+            ? IntrospectionService.getTableStats(connectionId, schema, table)
+            : Promise.resolve(null),
         ]);
 
-      // Find this specific table in the list for metadata
-      const tableInfo = tables.find((t) => t.name === table);
+      // tableStats is now the stats for this specific table (or null)
+      const tableInfo = tableStats;
 
       // Extract primary keys from constraints
       const primaryKeys = constraints
@@ -1064,7 +1028,7 @@ class DatabaseService {
       const stats: TableStatistics | undefined =
         includeStatistics && tableInfo
           ? {
-              totalRows: tableInfo.row_count || 0,
+              totalRows: tableInfo.rowCount || 0,
               tableSize: tableInfo.size || "Unknown",
               indexSize: "Unknown", // Would need additional query for this
               totalSize: tableInfo.size || "Unknown",
@@ -1078,7 +1042,7 @@ class DatabaseService {
         database,
         owner: tableInfo?.owner,
         comment: tableInfo?.comment,
-        rowCount: tableInfo?.row_count,
+        rowCount: tableInfo?.rowCount,
         size: tableInfo?.size,
         columns,
         primaryKeys,
