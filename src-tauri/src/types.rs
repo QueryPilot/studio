@@ -762,27 +762,29 @@ pub struct TransactionResult {
 pub enum StreamMessage {
     Started {
         columns: Vec<ColumnMeta>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(skip_serializing_if = "Option::is_none", rename = "estimatedRows")]
         estimated_rows: Option<i64>,
     },
     // NOTE: Batch data now sent via separate data_channel as Response (raw binary)
     // Metadata-only messages below:
     Success {
+        #[serde(rename = "totalRows")]
         total_rows: usize,
+        #[serde(rename = "executionTimeMs")]
         execution_time_ms: u64,
         // Detailed timing metrics
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(skip_serializing_if = "Option::is_none", rename = "cursorSetupMs")]
         cursor_setup_ms: Option<u64>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(skip_serializing_if = "Option::is_none", rename = "totalStreamingMs")]
         total_streaming_ms: Option<u64>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(skip_serializing_if = "Option::is_none", rename = "fetchCount")]
         fetch_count: Option<u64>,
         // Performance breakdown
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(skip_serializing_if = "Option::is_none", rename = "networkMs")]
         network_ms: Option<u64>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(skip_serializing_if = "Option::is_none", rename = "conversionMs")]
         conversion_ms: Option<u64>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(skip_serializing_if = "Option::is_none", rename = "ipcSendMs")]
         ipc_send_ms: Option<u64>,
     },
     Error {
@@ -794,7 +796,9 @@ pub enum StreamMessage {
         message: String,
     },
     LimitApplied {
+        #[serde(rename = "originalSql")]
         original_sql: String,
+        #[serde(rename = "appliedLimit")]
         applied_limit: usize,
     },
 }
