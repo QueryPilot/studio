@@ -15,6 +15,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [0.10.0] - 2025-12-11
+
+### New Features
+- Work faster in the new high-performance SQL editor with smarter autocompletion, semantic highlights, and focus-aware shortcuts.
+- Explore query output in more ways with new “raw” and “stats” views, plus a redesigned explain viewer that surfaces timing, JIT, and trigger details at a glance.
+- Set a default schema for PostgreSQL and SQL Server connections directly in the connection form, and prioritize it in schema selection and toggles.
+
+### Improvements
+- Money and numeric cells validate and edit more reliably, with safer decimal handling for PostgreSQL parameters.
+- Staged grid updates replace older edits for the same cell, reducing accidental overwrites during batch changes.
+- Explain results now reset when you return to the default table view, keeping the panel in sync with your latest query.
+- macOS releases ship as universal builds, so you get a single download that runs natively on both Apple Silicon and Intel.
+
+### Breaking Changes
+- Vim keybindings are no longer available in the SQL editor.
+
 ## [0.9.0] - 2025-12-04
 
 ### New Features
