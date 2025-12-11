@@ -14,6 +14,7 @@ export interface ConnectionProfile {
   bastion?: BastionConfig;
   options: Record<string, string>;
   group?: string; // Optional group name for organizing related connections
+  default_schema?: string; // Default schema for PostgreSQL/SQLServer (e.g., "myschema" instead of "public")
 }
 
 export enum DbType {

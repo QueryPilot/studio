@@ -1,6 +1,6 @@
 import { logger } from "@/lib/logger";
 import { useEffect, useCallback, useRef, useState } from "react";
-import { IconCheck, IconChevronDown, IconPlus, IconTable, IconEye, IconMathFunction, IconBolt, IconDatabase } from '@tabler/icons-react';
+import { IconCheck, IconChevronDown, IconPlus, IconTable, IconEye, IconMathFunction, IconBolt, IconDatabase, IconStar, IconStarFilled } from '@tabler/icons-react';
 import {
   Command,
   CommandEmpty,
@@ -29,6 +29,7 @@ import { safeListen } from "@/utils/tauri";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
 import {
   openQueryWithTemplate,
   openTableDesigner,
@@ -72,6 +73,12 @@ export function DatabaseSchemaSelector({
   const selectedDatabase = useWorkspaceSelectionStore(
     (state) => state.database,
   );
+
+  // Get connection's default schema from profile
+  const connectionDefaultSchema = useConnectionStore(
+    (state) => state.getConnection(connectionId)?.profile.default_schema,
+  );
+  const setDefaultSchema = useConnectionStore((state) => state.setDefaultSchema);
 
   // Query for schemas list
   const {
@@ -164,21 +171,43 @@ export function DatabaseSchemaSelector({
       return;
     }
 
-    // Select default schema (public, dbo, or first available)
+    // Priority: connection default_schema > public > dbo > first available
+    const configuredDefault = connectionDefaultSchema
+      ? schemas.find((s) => s === connectionDefaultSchema)
+      : undefined;
     const publicSchema = schemas.find((s) => s.toLowerCase() === "public");
-    const defaultSchema = schemas.find((s) => s.toLowerCase() === "dbo");
-    const fallback = publicSchema || defaultSchema || schemas[0];
+    const dboSchema = schemas.find((s) => s.toLowerCase() === "dbo");
+    const fallback = configuredDefault || publicSchema || dboSchema || schemas[0];
 
     if (fallback && fallback !== selectedSchema) {
       void selectSchema(fallback);
     }
-  }, [schemas, selectedSchema, isLoadingSchemas, selectSchema]);
+  }, [schemas, selectedSchema, isLoadingSchemas, selectSchema, connectionDefaultSchema]);
 
   const handleSchemaSelect = useCallback(
     (schema: string) => {
       void selectSchema(schema);
     },
     [selectSchema],
+  );
+
+  const handleToggleDefaultSchema = useCallback(
+    async (schema: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      try {
+        const newDefault = connectionDefaultSchema === schema ? undefined : schema;
+        await setDefaultSchema(connectionId, newDefault);
+        toast.success(
+          newDefault
+            ? `Set "${schema}" as default schema`
+            : "Cleared default schema",
+        );
+      } catch (err) {
+        logger.error("Failed to set default schema:", err);
+        toast.error("Failed to set default schema");
+      }
+    },
+    [connectionId, connectionDefaultSchema, setDefaultSchema],
   );
 
   // Listen for database reconnection events and invalidate queries
@@ -318,7 +347,19 @@ export function DatabaseSchemaSelector({
                         selectedSchema === schema ? "opacity-100" : "opacity-0",
                       )}
                     />
-                    {schema}
+                    <span className="flex-1">{schema}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => void handleToggleDefaultSchema(schema, e)}
+                      className="ml-2 p-0.5 rounded hover:bg-muted"
+                      title={connectionDefaultSchema === schema ? "Remove as default" : "Set as default schema"}
+                    >
+                      {connectionDefaultSchema === schema ? (
+                        <IconStarFilled className="h-3 w-3 text-yellow-500" />
+                      ) : (
+                        <IconStar className="h-3 w-3 text-muted-foreground hover:text-yellow-500" />
+                      )}
+                    </button>
                   </CommandItem>
                 ))}
               </CommandGroup>

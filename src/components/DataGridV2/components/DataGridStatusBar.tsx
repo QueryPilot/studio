@@ -277,7 +277,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   return (
     <div
       className={cn(
-        "flex items-center justify-between h-8 border-t bg-background text-xs text-muted-foreground pr-2",
+        "flex items-center justify-between h-8 border-t bg-background text-xs text-muted-foreground pr-2 pt-[3px]",
         className,
       )}
     >

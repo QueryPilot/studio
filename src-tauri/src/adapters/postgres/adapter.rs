@@ -233,6 +233,13 @@ impl PostgresAdapter {
         config.keepalives(true);
         config.keepalives_idle(Duration::from_secs(30));
 
+        // Add default schema as search_path if specified
+        if let Some(schema) = &profile.default_schema {
+            if !schema.is_empty() {
+                runtime_options.push(format!("-c search_path={}", schema));
+            }
+        }
+
         // Add additional runtime options (converted to -c style parameters)
         if !runtime_options.is_empty() {
             config.options(&runtime_options.join(" "));

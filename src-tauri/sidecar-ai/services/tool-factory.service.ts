@@ -463,6 +463,65 @@ export function createTextToSqlTools(ctx: ToolContext) {
     }),
 
     /**
+     * Get distinct values from a column - useful for understanding what values exist
+     * Essential for status columns, enums, booleans to know actual values
+     */
+    get_column_values: tool({
+      description:
+        "Get sample distinct values from a column. ESSENTIAL for status/state columns, booleans, enums. " +
+        "Use this to discover actual values before filtering (e.g., 'done' vs 'completed' vs 'finished').",
+      inputSchema: z.object({
+        table: z.string().describe("The table name"),
+        column: z.string().describe("The column to get values from"),
+        limit: z.number().optional().describe("Max distinct values to return (default: 20)"),
+      }),
+      execute: async ({ table, column, limit = 20 }) => {
+        try {
+          // Escape identifiers
+          const escapedColumn = column.replace(/"/g, '""');
+          const escapedTable = table.replace(/"/g, '""');
+
+          const sql = `SELECT DISTINCT "${escapedColumn}" as value, COUNT(*) as count
+                       FROM ${schema}."${escapedTable}"
+                       WHERE "${escapedColumn}" IS NOT NULL
+                       GROUP BY "${escapedColumn}"
+                       ORDER BY count DESC
+                       LIMIT ${Math.min(limit, 50)}`;
+
+          const rows = (await callTauri("execute_query", {
+            conn_id: connectionId,
+            sql,
+          })) as Array<{ value: unknown; count: number }>;
+
+          // Also check for NULLs
+          const nullCheckSql = `SELECT COUNT(*) as null_count FROM ${schema}."${escapedTable}" WHERE "${escapedColumn}" IS NULL`;
+          const nullResult = (await callTauri("execute_query", {
+            conn_id: connectionId,
+            sql: nullCheckSql,
+          })) as Array<{ null_count: number }>;
+
+          const nullCount = nullResult[0]?.null_count || 0;
+
+          return {
+            success: true,
+            table,
+            column,
+            distinctValues: rows.map((r) => ({ value: r.value, count: Number(r.count) })),
+            hasNulls: nullCount > 0,
+            nullCount: Number(nullCount),
+            totalDistinct: rows.length,
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : "Unknown error",
+            hint: "Column might not exist or have wrong name. Use get_table_structure to verify.",
+          };
+        }
+      },
+    }),
+
+    /**
      * Submit the final WHERE clause - this is the "answer" tool
      * When the AI calls this, we know it has finished and has a result
      */
