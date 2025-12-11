@@ -1045,34 +1045,9 @@ async fn execute_single_fetch_stream(
     let prepare_elapsed = prepare_start.elapsed().as_millis();
     tracing::info!("  ⏱ PREPARE statement: {}ms ⚠️", prepare_elapsed);
 
-    // Extract column metadata from prepared statement BEFORE starting the streaming query
-    // This is critical: we cannot run another query on the same connection while streaming
-    let table_oids: Vec<Option<u32>> = stmt.columns().iter().map(|col| col.table_oid()).collect();
-    let unique_oids: Vec<u32> = table_oids.iter().filter_map(|&oid| oid).collect::<std::collections::HashSet<_>>().into_iter().collect();
-
-    // Resolve table OIDs to table names BEFORE query_raw - connection can only handle one query at a time
-    let table_names: std::collections::HashMap<u32, String> = if !unique_oids.is_empty() {
-        let oid_list = unique_oids.iter().map(|o| o.to_string()).collect::<Vec<_>>().join(",");
-        let resolve_sql = format!(
-            "SELECT oid::int, relname FROM pg_class WHERE oid IN ({})",
-            oid_list
-        );
-        match pool_conn.query(&resolve_sql, &[]).await {
-            Ok(rows) => rows
-                .iter()
-                .filter_map(|row| {
-                    let oid: i32 = row.get(0);
-                    let name: String = row.get(1);
-                    Some((oid as u32, name))
-                })
-                .collect(),
-            Err(_) => std::collections::HashMap::new(),
-        }
-    } else {
-        std::collections::HashMap::new()
-    };
-
-    // Execute query with prepared statement - START STREAMING AFTER resolving table names
+    // Execute query with prepared statement
+    // NOTE: Table name resolution removed for performance - was adding ~100-150ms overhead
+    // Frontend can resolve table names lazily if needed via separate introspection
     let query_start = std::time::Instant::now();
     let row_stream = pool_conn
         .query_raw(&stmt, std::iter::empty::<i32>())
@@ -1087,28 +1062,22 @@ async fn execute_single_fetch_stream(
     let columns = stmt
         .columns()
         .iter()
-        .enumerate()
-        .map(|(idx, col)| {
-            let table_name = table_oids.get(idx)
-                .and_then(|&oid| oid)
-                .and_then(|oid| table_names.get(&oid).cloned());
-            crate::types::ColumnMeta {
-                name: col.name().to_string(),
-                table_name,
-                data_type: crate::adapters::postgres::types::PostgresTypeConverter::type_to_cell_type(
-                    col.type_(),
-                ),
-                nullable: true,
-                primary_key: false,
-                db_type: col.type_().name().to_string(),
-                type_oid: Some(col.type_().oid()),
-                default_value: None,
-                comment: None,
-                enum_values: None,
-                type_category: None,
-                precision: None,
-                scale: None,
-            }
+        .map(|col| crate::types::ColumnMeta {
+            name: col.name().to_string(),
+            table_name: None, // Lazy resolution - avoids blocking pg_class query
+            data_type: crate::adapters::postgres::types::PostgresTypeConverter::type_to_cell_type(
+                col.type_(),
+            ),
+            nullable: true,
+            primary_key: false,
+            db_type: col.type_().name().to_string(),
+            type_oid: Some(col.type_().oid()),
+            default_value: None,
+            comment: None,
+            enum_values: None,
+            type_category: None,
+            precision: None,
+            scale: None,
         })
         .collect::<Vec<_>>();
 
@@ -1192,17 +1161,23 @@ async fn execute_single_fetch_stream(
                 row_buffer.push(row);
                 total_rows += 1;
 
-                // Send rows when buffer reaches threshold
-                // Use dynamic thresholds: small first batch for instant feedback, then larger batches
-                let current_threshold = get_send_threshold(rows_sent);
-                
-                // Check if we should send: either reached threshold or idle timeout
-                let idle_ms = last_send_instant.elapsed().as_millis();
-                let send_due_to_idle = idle_ms > 500 && !row_buffer.is_empty();
-                let should_send = row_buffer.len() >= current_threshold || send_due_to_idle;
+                // Micro-batch: Convert rows in parallel when buffer is full
+                if row_buffer.len() >= MICRO_BATCH_SIZE {
+                    let convert_start = std::time::Instant::now();
+                    let converted =
+                        crate::adapters::postgres::fast_converter::FastPostgresConverter::rows_to_json(
+                            &row_buffer,
+                        )
+                        .map_err(|e| e.to_string())?;
+                    conversion_time_ms += convert_start.elapsed().as_millis() as u64;
+                    json_buffer.extend(converted);
+                    row_buffer.clear();
+                }
 
-                if should_send {
-                    let batch_size = row_buffer.len();
+                // Send chunk to frontend when output buffer reaches dynamic threshold
+                let current_threshold = get_send_threshold(rows_sent);
+                if json_buffer.len() >= current_threshold {
+                    let batch_size = json_buffer.len();
 
                     // OPTIMIZED: Direct serialization to MessagePack (skip intermediate JSON)
                     // Uses SerializableRows which implements Serialize directly
