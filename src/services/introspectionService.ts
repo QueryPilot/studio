@@ -363,6 +363,30 @@ export const IntrospectionService = {
     }
     return "";
   },
+
+  /**
+   * Get statistics for a single table (row count, size)
+   * More efficient than getTables() when you only need one table's stats
+   */
+  async getTableStats(
+    connectionId: string,
+    schema: string,
+    table: string
+  ): Promise<{ rowCount: number; size: string; owner?: string; comment?: string } | null> {
+    const sql = DialectService.getTableStatsQuery(connectionId, schema, table);
+    const result = await BackendAPI.query(connectionId, sql);
+
+    if (result.rows.length > 0) {
+      const row = result.rows[0];
+      return {
+        rowCount: getNumber(row?.[0]) ?? 0,
+        size: getString(row?.[1]) || "Unknown",
+        owner: getString(row?.[2]) || undefined,
+        comment: getString(row?.[3]) || undefined,
+      };
+    }
+    return null;
+  },
 };
 
 export default IntrospectionService;

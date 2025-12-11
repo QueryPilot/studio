@@ -1,6 +1,5 @@
 import { logger } from "@/lib/logger";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import type { ConnectionProfile } from "@/types/connection";
 import type {
   CrudCommand,
@@ -282,29 +281,22 @@ export interface TableDataResult {
   execution_time_ms?: number;
 }
 
-// Streaming types
-export type StreamEvent =
-  | { type: "Started"; columns: ColumnMeta[]; estimated_rows?: number }
-  | { type: "Data"; rows: CellValue[][]; row_offset: number }
-  | { type: "Progress"; rows_fetched: number; percentage?: number }
-  | { type: "Completed"; total_rows: number; execution_time_ms: number }
-  | { type: "Error"; message: string; code?: string };
-
-// NEW: Channel-based streaming (matches Rust StreamMessage enum)
+// Channel-based streaming (matches Rust StreamMessage enum)
 // NOTE: Batch data sent via separate data channel as ArrayBuffer (not in metadata messages)
+// Field names use camelCase to match Rust serde(rename_all = "camelCase")
 export type StreamMessage =
-  | { type: "limitApplied"; original_sql: string; applied_limit: number }
-  | { type: "started"; columns: ColumnMeta[]; estimated_rows?: number }
+  | { type: "limitApplied"; originalSql: string; appliedLimit: number }
+  | { type: "started"; columns: ColumnMeta[]; estimatedRows?: number }
   | {
       type: "success";
-      total_rows: number;
-      execution_time_ms: number;
-      cursor_setup_ms?: number;
-      total_streaming_ms?: number;
-      fetch_count?: number;
-      network_ms?: number;
-      conversion_ms?: number;
-      ipc_send_ms?: number;
+      totalRows: number;
+      executionTimeMs: number;
+      cursorSetupMs?: number;
+      totalStreamingMs?: number;
+      fetchCount?: number;
+      networkMs?: number;
+      conversionMs?: number;
+      ipcSendMs?: number;
     }
   | { type: "error"; code: string; message: string }
   | { type: "interrupted"; resumable: boolean; message: string };
@@ -341,40 +333,8 @@ export class BackendAPI {
     return invoke("ping", { connId });
   }
 
-  // Streaming query
-  // @deprecated This method is not actively used. Use QueryStreamClient instead.
-  static async streamQuery(
-    connId: string,
-    sql: string,
-    pageSize?: number,
-    onEvent?: (event: StreamEvent) => void,
-  ): Promise<string> {
-    const streamId = await invoke<string>("stream_query", {
-      connId,
-      tabId: "legacy-backend-api", // Default tabId for backward compatibility
-      sql,
-      pageSize,
-    });
-
-    if (onEvent) {
-      const unlisten = await listen<StreamEvent>(
-        `query-stream-${streamId}`,
-        (event) => {
-          onEvent(event.payload);
-
-          // Auto cleanup on completion or error
-          if (
-            event.payload.type === "Completed" ||
-            event.payload.type === "Error"
-          ) {
-            unlisten();
-          }
-        },
-      );
-    }
-
-    return streamId;
-  }
+  // NOTE: streamQuery has been removed - use QueryStreamClient.streamWithCallbacks() instead
+  // See: src/services/queryStreamClient.ts
 
   // Database introspection - Use IntrospectionService instead (dialect-aware)
   // See: src/services/introspectionService.ts
