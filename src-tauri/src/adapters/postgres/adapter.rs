@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use deadpool_postgres::Pool;
 use native_tls::{Certificate, TlsConnector};
 use postgres_native_tls::MakeTlsConnector;
+use rust_decimal::Decimal;
 use std::fs;
 use std::sync::Arc;
 use tokio_postgres::config::{ChannelBinding as PgChannelBinding, SslMode as PgSslMode};
@@ -102,8 +103,8 @@ impl PostgresAdapter {
 
         for stmt in statements {
             // Log the SQL and parameters for debugging
-            tracing::debug!("  Executing parameterized SQL: {}", stmt.sql);
-            tracing::debug!("  Parameters: {:?}", stmt.params);
+            tracing::info!("  Executing parameterized SQL: {}", stmt.sql);
+            tracing::info!("  Parameters: {:?}", stmt.params);
             
             // Convert SqlParam to tokio_postgres compatible types
             // Note: PostgreSQL is strict about type sizes. Int values that fit in i32
@@ -127,14 +128,30 @@ impl PostgresAdapter {
                                 Box::new(*i)
                             }
                         }
-                        SqlParam::Float(f) => Box::new(*f),
+                        SqlParam::Float(f) => {
+                            // Convert to Decimal for better PostgreSQL compatibility (money, numeric, decimal)
+                            // f64 doesn't serialize properly to money type
+                            if let Some(decimal) = Decimal::from_f64_retain(*f) {
+                                tracing::info!("    Param Float({}) -> Decimal", f);
+                                Box::new(decimal)
+                            } else {
+                                tracing::info!("    Param Float({}) -> f64 (fallback)", f);
+                                Box::new(*f)
+                            }
+                        }
                         SqlParam::Text(s) => {
                             // Try to parse as UUID first - common for ID columns
                             // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
                             if let Ok(uuid) = Uuid::parse_str(s) {
                                 tracing::debug!("    Param Text('{}') -> UUID", s);
                                 Box::new(uuid)
-                            } else {
+                            } 
+                            // Try to parse as Decimal for precise numeric types (money, numeric, decimal)
+                            else if let Ok(decimal) = s.parse::<rust_decimal::Decimal>() {
+                                tracing::debug!("    Param Text('{}') -> Decimal (numeric string)", s);
+                                Box::new(decimal)
+                            }
+                            else {
                                 tracing::debug!("    Param Text('{}') -> String", s);
                                 Box::new(s.clone())
                             }
