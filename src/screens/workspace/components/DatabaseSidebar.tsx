@@ -15,11 +15,12 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePanelStore } from "@/stores/panelStore";
 import useWorkbenchStore from "@/stores/workbenchStore";
-import { type TableMeta, type FunctionMeta } from "@/services/databaseService";
+import { databaseService, type TableMeta, type FunctionMeta } from "@/services/databaseService";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { safeListen } from "@/utils/tauri";
+import { toast } from "sonner";
 import {
   SidebarSection,
   SidebarItem,
@@ -516,6 +517,26 @@ export function DatabaseSidebar({
     });
   };
 
+  // Handle refresh materialized view
+  const handleRefreshMaterializedView = async (view: TableMeta, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const qualifiedName = `"${view.schema}"."${view.name}"`;
+    try {
+      toast.info(`Refreshing ${view.name}...`);
+      await databaseService.executeQuery(
+        connectionId,
+        `REFRESH MATERIALIZED VIEW ${qualifiedName}`,
+      );
+      toast.success(`Refreshed ${view.name}`);
+      void refreshSchemaData();
+    } catch (err) {
+      logger.error("Failed to refresh materialized view:", err);
+      toast.error(`Failed to refresh ${view.name}`, {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    }
+  };
+
   // Handle star toggle
   const handleToggleStar = (
     type: StarredItemType,
@@ -809,6 +830,18 @@ export function DatabaseSidebar({
                     actions={
                       item.type !== "function" ? (
                         <>
+                          {item.type === "view" &&
+                            (itemData as TableMeta).kind === "MaterializedView" && (
+                              <ActionButton
+                                icon={
+                                  <IconRefresh className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                                }
+                                onClick={(e) =>
+                                  void handleRefreshMaterializedView(itemData as TableMeta, e)
+                                }
+                                title="Refresh Materialized View"
+                              />
+                            )}
                           <ActionButton
                             icon={
                               <IconAssembly className="h-3 w-3 text-muted-foreground hover:text-foreground" />
@@ -982,6 +1015,15 @@ export function DatabaseSidebar({
                     )}
                     actions={
                       <>
+                        {view.kind === "MaterializedView" && (
+                          <ActionButton
+                            icon={
+                              <IconRefresh className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                            }
+                            onClick={(e) => void handleRefreshMaterializedView(view, e)}
+                            title="Refresh Materialized View"
+                          />
+                        )}
                         <ActionButton
                           icon={
                             <IconBolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />

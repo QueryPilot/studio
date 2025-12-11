@@ -21,6 +21,9 @@ pub struct ConnectionProfile {
     pub options: HashMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub group: Option<String>,
+    /// Default schema for PostgreSQL (search_path) or SQL Server (default schema)
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub default_schema: Option<String>,
 }
 
 impl ConnectionProfile {

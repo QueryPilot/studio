@@ -159,6 +159,9 @@ export function ConnectionForm() {
   const [username, setUsername] = useState(connection?.profile.username || "");
   const [password, setPassword] = useState(connection?.profile.password || "");
   const [database, setDatabase] = useState(connection?.profile.database || "");
+  const [defaultSchema, setDefaultSchema] = useState(
+    connection?.profile.default_schema || "",
+  );
   const [sslMode, setSslMode] = useState<SslMode>(
     connection?.profile.ssl_mode || SslMode.Disable,
   );
@@ -549,6 +552,7 @@ export function ConnectionForm() {
       ssh_tunnel: undefined,
       bastion: undefined,
       options: {},
+      default_schema: defaultSchema || undefined,
     };
 
     if (useSSH) {
@@ -1040,20 +1044,39 @@ export function ConnectionForm() {
                 </div>
               </div>
 
-              <div>
-                <Label htmlFor="database" className="text-xs">
-                  IconDatabase
-                </Label>
-                <Input
-                  id="database"
-                  className="mt-1 h-8 text-xs"
-                  value={database}
-                  onChange={(e) => {
-                    setDatabase(e.target.value);
-                  }}
-                  placeholder="database name"
-                  disabled={isTesting}
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="database" className="text-xs">
+                    Database
+                  </Label>
+                  <Input
+                    id="database"
+                    className="mt-1 h-8 text-xs"
+                    value={database}
+                    onChange={(e) => {
+                      setDatabase(e.target.value);
+                    }}
+                    placeholder="database name"
+                    disabled={isTesting}
+                  />
+                </div>
+                {(dbType === "postgresql" || dbType === "mssql") && (
+                  <div>
+                    <Label htmlFor="defaultSchema" className="text-xs">
+                      Default Schema
+                    </Label>
+                    <Input
+                      id="defaultSchema"
+                      className="mt-1 h-8 text-xs"
+                      value={defaultSchema}
+                      onChange={(e) => {
+                        setDefaultSchema(e.target.value);
+                      }}
+                      placeholder={dbType === "postgresql" ? "public" : "dbo"}
+                      disabled={isTesting}
+                    />
+                  </div>
+                )}
               </div>
             </>
           ) : (

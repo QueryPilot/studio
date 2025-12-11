@@ -33,6 +33,7 @@ interface ConnectionStore {
   addTag: (id: string, tag: string) => Promise<void>;
   removeTag: (id: string, tag: string) => Promise<void>;
   markAsUsed: (id: string) => Promise<void>;
+  setDefaultSchema: (id: string, schema: string | undefined) => Promise<void>;
 
   // Search
   searchConnections: (query: string) => StoredConnection[];
@@ -278,6 +279,36 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     } catch (err) {
       const error =
         err instanceof Error ? err.message : "Failed to mark as used";
+      set({ error });
+      throw new Error(error);
+    }
+  },
+
+  // Set default schema for connection
+  setDefaultSchema: async (id: string, schema: string | undefined) => {
+    try {
+      const connection = get().getConnection(id);
+      if (!connection) {
+        throw new Error("Connection not found");
+      }
+
+      const updatedProfile = {
+        ...connection.profile,
+        default_schema: schema || undefined,
+      };
+
+      await vaultStorage.updateConnection(id, updatedProfile);
+
+      set((state) => ({
+        connections: state.connections.map((conn) =>
+          conn.profile.id === id
+            ? { ...conn, profile: updatedProfile }
+            : conn,
+        ),
+      }));
+    } catch (err) {
+      const error =
+        err instanceof Error ? err.message : "Failed to set default schema";
       set({ error });
       throw new Error(error);
     }

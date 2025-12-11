@@ -1,4 +1,4 @@
-import { generateObject, generateText, stepCountIs } from "ai";
+import { generateText, stepCountIs } from "ai";
 import { z } from "zod";
 import { getCorsHeaders } from "../middleware/cors";
 import { ProviderService } from "../services/provider.service";
@@ -121,8 +121,7 @@ function inferRelationships(columns: ColumnMeta[], currentTable: string): Inferr
 function buildSystemPrompt(
   columns: ColumnMeta[],
   tableName: string,
-  dialect: string,
-  enableCrossTable: boolean
+  dialect: string
 ): string {
   // Build column list with explicit FKs marked
   const columnList = columns
@@ -143,7 +142,7 @@ function buildSystemPrompt(
   const inferredRels = inferRelationships(columns, tableName);
   const inferredRelText =
     inferredRels.length > 0
-      ? `\n## Inferred Relationships\n${inferredRels.map((r) => `- ${r.column} → ${r.possibleTables.join(" | ")}`).join("\n")}`
+      ? `\n## Potential Foreign Keys (Inferred)\n${inferredRels.map((r) => `- ${r.column} → ${r.possibleTables.join(" | ")} (VERIFY with get_table_structure!)`).join("\n")}`
       : "";
 
   // Get dialect-specific syntax hints
@@ -184,104 +183,25 @@ function buildSystemPrompt(
 
   const dialectHint = dialectHints[dialect] || "Use standard SQL syntax";
 
-  const crossTableInstructions = enableCrossTable
-    ? `
-## Cross-Table Filtering
+  return `You generate SQL WHERE clauses for table \`${tableName}\` (${dialect}).
 
-When the user references entities from other tables (e.g., "orders by John", "items in category X"):
-
-### Available Tools
-- **list_tables**: Get all tables in the schema
-- **get_table_structure**: Get columns for a specific table (ALWAYS use this to verify column names!)
-- **get_indexes**: Check which columns are indexed (for performance)
-- **get_foreign_keys**: Get FK relationships for a table
-- **search_tables**: Search for a value across multiple tables at once (efficient!)
-- **execute_readonly_query**: Run a SELECT query to find specific IDs
-- **submit_where_clause**: Submit your final answer (REQUIRED!)
-
-### CRITICAL: Verify Column Names
-**NEVER assume column names!** Different databases use different naming conventions:
-- User name might be: \`name\`, \`username\`, \`full_name\`, \`display_name\`, \`email\`
-- User ID reference might be: \`user_id\`, \`owner_id\`, \`created_by\`, \`assigned_to\`
-
-**You MUST call get_table_structure on related tables to discover the actual column names.**
-
-### Workflow (MUST follow in order)
-1. If the filter references another entity (user, category, etc.):
-   a. Call **get_table_structure** on the related table to see its actual columns
-   b. Identify the correct column for the search (don't guess!)
-2. Use the discovered column names in your subquery
-3. Call **submit_where_clause** with your final answer
-
-### Output Format
-Use simple IN subqueries only:
-- \`user_id IN (SELECT id FROM users WHERE username ILIKE '%John%')\`
-- \`category_id IN (SELECT id FROM categories WHERE title ILIKE '%Electronics%')\`
-
-Do NOT use JOINs, CTEs, or complex nested queries.
-
-### IMPORTANT
-- **ALWAYS explore schema first** - call get_table_structure before writing subqueries
-- **ALWAYS call submit_where_clause** with your final WHERE clause
-- Do not just output text - call the tools!`
-    : "";
-
-  return `# SQL WHERE Clause Generator
-
-You generate WHERE clause expressions (without the WHERE keyword) for filtering table data.
-
-## Target Table
-- Table: \`${tableName}\`
-- Dialect: ${dialect}
-
-## Available Columns
+## Columns
 ${columnList}${inferredRelText}
 
-## Syntax Rules
-${dialectHint}
-${crossTableInstructions}
+## Tools Available
+- **get_column_values(table, column)**: Get actual values in a column. USE THIS FIRST for any status/state/type columns!
+- **get_table_structure(table)**: Get columns of another table (for cross-table queries)
+- **execute_readonly_query(sql)**: Run SELECT to find IDs
+- **submit_where_clause(whereClause, explanation)**: Submit your final answer. REQUIRED!
 
-## Examples
+## Rules
+1. NEVER guess column values. Call get_column_values first to see what values exist.
+2. For cross-table filters (e.g., "by user John"), use: \`column IN (SELECT id FROM table WHERE ...)\`
+3. ${dialect === "postgresql" ? "Use ILIKE for case-insensitive text search" : "Use LOWER(col) LIKE for case-insensitive text search"}
+4. You MUST call submit_where_clause with your answer.
 
-### Basic Filters
-- "active users" → \`status = 'active'\`
-- "orders over 100" → \`amount > 100\`
-- "name contains john" → \`${dialect === "postgresql" ? "name ILIKE '%john%'" : dialect === "mssql" ? "name LIKE '%john%'" : "LOWER(name) LIKE '%john%'"}\`
-
-### Date Filters
-- "created this week" → \`${dialect === "postgresql" ? "created_at >= NOW() - INTERVAL '7 days'" : dialect === "mysql" ? "created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)" : dialect === "mssql" ? "created_at >= DATEADD(day, -7, GETDATE())" : "created_at >= datetime('now', '-7 days')"}\`
-- "created in January 2024" → \`${dialect === "postgresql" ? "created_at >= '2024-01-01' AND created_at < '2024-02-01'" : "created_at >= '2024-01-01' AND created_at < '2024-02-01'"}\`
-- "updated between dates" → \`updated_at BETWEEN '2024-01-01' AND '2024-12-31'\`
-
-### Range & List Filters
-- "price between 50 and 100" → \`price BETWEEN 50 AND 100\`
-- "status in pending or approved" → \`status IN ('pending', 'approved')\`
-- "age 18 to 25" → \`age >= 18 AND age <= 25\`
-
-### NULL Handling
-- "missing email" → \`email IS NULL\`
-- "has phone number" → \`phone IS NOT NULL\`
-- "incomplete profiles" → \`(email IS NULL OR name IS NULL)\`
-
-### Combined Filters
-- "active premium users" → \`status = 'active' AND tier = 'premium'\`
-- "orders over 100 or vip" → \`amount > 100 OR customer_type = 'vip'\``;
-}
-
-// Simple mode - no tools, direct generation
-async function generateSimpleWhereClause(
-  aiModel: ReturnType<ReturnType<typeof ProviderService.getProvider>>,
-  systemPrompt: string,
-  prompt: string,
-  signal: AbortSignal
-) {
-  return generateObject({
-    model: aiModel,
-    system: systemPrompt,
-    prompt: `Generate the WHERE clause for: ${prompt}`,
-    schema: responseSchema,
-    abortSignal: signal,
-  });
+## Syntax (${dialect})
+${dialectHint}`;
 }
 
 // Result type from submit_where_clause tool
@@ -293,17 +213,18 @@ interface SubmitWhereClauseResult {
   confidence?: "high" | "medium" | "low";
 }
 
-// Advanced mode - with tools for cross-table exploration
-async function generateCrossTableWhereClause(
+// Agentic mode - always uses tools for schema verification
+async function generateWhereClauseWithTools(
   aiModel: ReturnType<ReturnType<typeof ProviderService.getProvider>>,
   systemPrompt: string,
   prompt: string,
   connectionId: string,
   tableName: string,
   schema: string,
-  signal: AbortSignal
+  signal: AbortSignal,
+  columns: ColumnMeta[]
 ): Promise<{ object: z.infer<typeof responseSchema> }> {
-  console.log(`🔍 [Cross-Table] Starting exploration for: "${prompt}"`);
+  console.log(`🔍 [Text-to-SQL] Starting agentic exploration for: "${prompt}"`);
   console.log(`   Connection: ${connectionId}, Schema: ${schema}, Table: ${tableName}`);
 
   // Create tools with bound context using the tool factory
@@ -313,36 +234,55 @@ async function generateCrossTableWhereClause(
   // Track if submit_where_clause was called
   let submittedResult: SubmitWhereClauseResult | null = null;
 
+  // Identify likely status/state columns that need verification
+  const statusLikeColumns = columns
+    .filter((c) => {
+      const name = c.name.toLowerCase();
+      return (
+        name.includes("status") ||
+        name.includes("state") ||
+        name.includes("done") ||
+        name.includes("complete") ||
+        name.includes("active") ||
+        name.includes("type") ||
+        name.includes("priority") ||
+        name.includes("flag") ||
+        c.dataType.toLowerCase().includes("bool") ||
+        c.dataType.toLowerCase().includes("enum")
+      );
+    })
+    .map((c) => c.name);
+
+  // Build a concise hint about which columns likely need value verification
+  const statusColumnsHint =
+    statusLikeColumns.length > 0
+      ? `\nStatus-like columns detected: ${statusLikeColumns.join(", ")} - call get_column_values on these first!`
+      : "";
+
   const result = await generateText({
     model: aiModel,
     system: systemPrompt,
-    prompt: `Generate the WHERE clause for: ${prompt}
+    prompt: `Filter: "${prompt}"
+Table: ${tableName} (schema: ${schema})
+${statusColumnsHint}
 
-Current table: ${tableName} (in schema: ${schema})
-
-MANDATORY WORKFLOW:
-1. Analyze the filter request
-2. If it references other entities (users, categories, etc.):
-   - FIRST: Call **get_table_structure** on the related table to discover actual column names
-   - NEVER guess column names like "name" or "username" - verify them!
-   - THEN: Build your subquery using the discovered columns
-3. Generate the WHERE clause with correct column names
-4. **CALL submit_where_clause with your final answer**
-
-CRITICAL: You MUST explore the schema before writing subqueries. Do not assume column names!`,
+Steps:
+1. Call get_column_values on any status/state columns to see actual values
+2. Build the WHERE clause using verified column names and values
+3. Call submit_where_clause with your answer`,
     tools,
     stopWhen: stepCountIs(MAX_TOOL_ROUNDS),
     abortSignal: signal,
     onStepFinish: (step) => {
       const hasToolResults = step.toolResults && step.toolResults.length > 0;
       console.log(
-        `📍 [Cross-Table] Step finished. finishReason: ${step.finishReason}, hasToolResults: ${hasToolResults}`
+        `📍 [Text-to-SQL] Step finished. finishReason: ${step.finishReason}, hasToolResults: ${hasToolResults}`
       );
 
       // Log tool calls
       if (step.toolCalls && step.toolCalls.length > 0) {
         for (const tc of step.toolCalls) {
-          console.log(`🔧 [Cross-Table] Tool call: ${tc.toolName}`, JSON.stringify(tc.input || {}));
+          console.log(`🔧 [Text-to-SQL] Tool call: ${tc.toolName}`, JSON.stringify(tc.input || {}));
         }
       }
 
@@ -352,7 +292,7 @@ CRITICAL: You MUST explore the schema before writing subqueries. Do not assume c
           const resultStr = tr.output != null ? JSON.stringify(tr.output) : "undefined";
           const preview = resultStr.slice(0, 300);
           console.log(
-            `📦 [Cross-Table] Tool result (${tr.toolName}): ${preview}${resultStr.length > 300 ? "..." : ""}`
+            `📦 [Text-to-SQL] Tool result (${tr.toolName}): ${preview}${resultStr.length > 300 ? "..." : ""}`
           );
 
           // Capture submit_where_clause result
@@ -360,7 +300,7 @@ CRITICAL: You MUST explore the schema before writing subqueries. Do not assume c
             const output = tr.output as SubmitWhereClauseResult;
             if (output.success && output.whereClause) {
               submittedResult = output;
-              console.log(`✅ [Cross-Table] Captured submit_where_clause: ${output.whereClause}`);
+              console.log(`✅ [Text-to-SQL] Captured submit_where_clause: ${output.whereClause}`);
             }
           }
         }
@@ -368,22 +308,22 @@ CRITICAL: You MUST explore the schema before writing subqueries. Do not assume c
 
       if (step.text) {
         console.log(
-          `📝 [Cross-Table] Step text: ${step.text.slice(0, 200)}${step.text.length > 200 ? "..." : ""}`
+          `📝 [Text-to-SQL] Step text: ${step.text.slice(0, 200)}${step.text.length > 200 ? "..." : ""}`
         );
       }
     },
   });
 
   // Log stats
-  console.log(`📊 [Cross-Table] Steps count: ${result.steps?.length ?? 0}`);
-  console.log(`📊 [Cross-Table] Finish reason: ${result.finishReason}`);
+  console.log(`📊 [Text-to-SQL] Steps count: ${result.steps?.length ?? 0}`);
+  console.log(`📊 [Text-to-SQL] Finish reason: ${result.finishReason}`);
 
   const toolCalls = result.steps?.flatMap((s) => s.toolCalls || []) || [];
-  console.log(`📊 [Cross-Table] Total tool calls: ${toolCalls.length}`);
+  console.log(`📊 [Text-to-SQL] Total tool calls: ${toolCalls.length}`);
 
   // Check if submit_where_clause was called
   if (submittedResult) {
-    console.log(`✅ [Cross-Table] Using submitted WHERE clause: ${submittedResult.whereClause}`);
+    console.log(`✅ [Text-to-SQL] Using submitted WHERE clause: ${submittedResult.whereClause}`);
     return {
       object: {
         whereClause: submittedResult.whereClause,
@@ -399,7 +339,7 @@ CRITICAL: You MUST explore the schema before writing subqueries. Do not assume c
       if (tr.toolName === "submit_where_clause" && tr.output) {
         const output = tr.output as SubmitWhereClauseResult;
         if (output.success && output.whereClause) {
-          console.log(`✅ [Cross-Table] Found in steps: ${output.whereClause}`);
+          console.log(`✅ [Text-to-SQL] Found in steps: ${output.whereClause}`);
           return {
             object: {
               whereClause: output.whereClause,
@@ -412,40 +352,13 @@ CRITICAL: You MUST explore the schema before writing subqueries. Do not assume c
     }
   }
 
-  // Last resort: try to parse from text response
+  // No fallback parsing - if the model didn't call submit_where_clause, it failed
   const text = result.text;
-  console.log(
-    `⚠️ [Cross-Table] submit_where_clause not called, trying text parsing:\n${text.slice(0, 500)}`
-  );
+  console.error(`❌ [Text-to-SQL] submit_where_clause was NOT called. Response:\n${text.slice(0, 1000)}`);
+  console.error(`❌ [Text-to-SQL] Tool calls made: ${toolCalls.map((tc) => tc.toolName).join(", ") || "NONE"}`);
 
-  // Try various text patterns
-  const patterns = [
-    /WHERE_CLAUSE:\s*(.+?)(?:\n|EXPLANATION:|$)/s,
-    /whereClause['":\s]+([^'"}\n]+)/i,
-    /`([^`]+)`/,
-    /```sql?\n?([^`]+)```/,
-  ];
-
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match) {
-      const clause = match[1].trim().replace(/^WHERE\s+/i, "");
-      if (clause.length > 0 && clause.length < 1000) {
-        console.log(`⚠️ [Cross-Table] Fallback parsed: ${clause}`);
-        return {
-          object: {
-            whereClause: clause,
-            explanation: "Generated with cross-table exploration (fallback parsing)",
-            usedSubquery: clause.toLowerCase().includes("select"),
-          },
-        };
-      }
-    }
-  }
-
-  console.error(`❌ [Cross-Table] Could not extract WHERE clause from response:\n${text}`);
   throw new Error(
-    "Could not parse WHERE clause from AI response. The AI may not have found a valid filter or did not call submit_where_clause."
+    "AI did not call submit_where_clause. Please try rephrasing your filter request."
   );
 }
 
@@ -479,11 +392,11 @@ export async function handleTextToSQL(request: Request): Promise<Response> {
       provider,
       model,
       connectionId,
-      enableCrossTable = false,
+      // enableCrossTable is now ignored - always use agentic mode
     } = body;
 
     console.log(
-      `🔤 Text-to-SQL: "${prompt}" for ${tableName} (${dialect}) [${provider}/${model}]${enableCrossTable ? " [cross-table]" : ""}`
+      `🔤 Text-to-SQL: "${prompt}" for ${tableName} (${dialect}) [${provider}/${model}] [agentic]`
     );
 
     // Validation with actionable errors
@@ -499,9 +412,10 @@ export async function handleTextToSQL(request: Request): Promise<Response> {
       return errorResponse(error, corsHeaders);
     }
 
-    if (enableCrossTable && !connectionId) {
+    // connectionId is now required for agentic mode
+    if (!connectionId) {
       const error = createError(ErrorCode.INVALID_CONNECTION, {
-        reason: "connectionId is required for cross-table filtering",
+        reason: "connectionId is required for text-to-SQL (agentic mode requires schema access)",
       });
       metrics.endOperation(metric, false, error.message);
       return errorResponse(error, corsHeaders);
@@ -512,33 +426,27 @@ export async function handleTextToSQL(request: Request): Promise<Response> {
     const aiModel = aiProvider(model);
 
     // Build system prompt
-    const systemPrompt = buildSystemPrompt(columns, tableName, dialect, enableCrossTable);
+    const systemPrompt = buildSystemPrompt(columns, tableName, dialect);
 
     // Setup timeout with cleanup
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
     try {
-      let result: { object: z.infer<typeof responseSchema> };
-
       // Track AI generation with metrics
       const aiMetric = ToolMetrics.textToSql(dialect);
 
-      if (enableCrossTable && connectionId) {
-        // Advanced mode with cross-table tools
-        result = await generateCrossTableWhereClause(
-          aiModel,
-          systemPrompt,
-          prompt,
-          connectionId,
-          tableName,
-          schema,
-          controller.signal
-        );
-      } else {
-        // Simple mode - direct generation
-        result = await generateSimpleWhereClause(aiModel, systemPrompt, prompt, controller.signal);
-      }
+      // Always use agentic mode with tools for schema verification
+      const result = await generateWhereClauseWithTools(
+        aiModel,
+        systemPrompt,
+        prompt,
+        connectionId,
+        tableName,
+        schema,
+        controller.signal,
+        columns
+      );
 
       metrics.endOperation(aiMetric, true);
       console.log(`✅ Generated WHERE: ${result.object.whereClause}`);
