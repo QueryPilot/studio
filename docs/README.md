@@ -1,180 +1,48 @@
-# Documentation Directory
+# Query Pilot Documentation
 
-This directory contains technical documentation for the DevDB Studio project.
+## Setup & Deployment
 
-## Documentation Status Legend
+- [Installation](../INSTALLATION.md) - Dev environment setup
+- [Distribution Guide](../DISTRIBUTION_GUIDE.md) - Building releases
+- [macOS Signing](../MACOS_SIGNING_GUIDE.md) - Code signing for macOS
+- [Database Setup](../README_DATABASES.md) - Docker test containers
+- [Release Process](./RELEASE_GUIDE.md) - Creating releases
+- [Auto-Updater](./UPDATER_QUICKSTART.md) - In-app update system
+- [Studio App Repo](./STUDIO_APP_SETUP.md) - Public distribution repo
 
-- ✅ **Current** - Actively maintained, matches implementation
-- 📋 **Reference** - Historical/research docs, valuable reference material
-- 🔄 **Implementation Status** - Documents with implementation progress tracking
+## User Features
 
-## Core Documentation
+- [SSH & AWS SSM](./ssh-and-ssm-user-guide.md) - Tunnel connections
+- [SSH Troubleshooting](./ssh-and-ssm-troubleshooting.md) - Common issues
+- [Theme System](./theme-usage.md) - Color themes
 
-### Architecture & Research
+## Core Architecture
 
-- **`adr/0001_initial_research.md`** 📋 - Initial tech stack research and decisions
-- **`adr/0002_research.md`** 📋 - Comprehensive architecture research for TablePlus-class database client
+- [API Spec](./api.spec.md) - Tauri backend API
+- [Workbench](./workbench.spec.md) - Layout system
+- [Workspace Screen](./workspace-screen.spec.md) - Main UI
 
-### API & Backend
+## Data Features
 
-- **`api.spec.md`** ✅ - Complete Tauri backend API specification
-  - Database commands (connect, query, introspection)
-  - CellValue structure and type handling
-  - Adapter architecture (PostgreSQL, MySQL, SQLite, SQL Server)
-  - Performance considerations
+- [Data Grid V2](./data-grid-v2.spec.md) - Table viewer
+- [Data Query](./data-query.spec.md) - Query execution
+- [Index Usage](./index_usage.spec.md) - Index stats
+- [Data Invalidation Testing](./data-invalidation-testing-guide.md) - Cache testing
 
-### Feature Documentation
+## ERD & DBML
 
-#### Data Grid
+- [ERD Panel](./erd-panel.spec.md) - ER diagrams
+- [DBML Syntax](./dbml-syntax-support.md) - Language support
+- [DBML Features](./dbml-enhanced-features.md) - Editor enhancements
 
-- **`data-grid-v2.spec.md`** ✅ - DataGridV2 architecture and read-only usage
-  - Focus on virtualization, column personalization, clipboard exports
-  - Read-only adapters for table/query views after CUD removal (Oct 2025)
+## AI Integration
 
-#### Query & Performance
+- [AI Assistant](./ai-assistant.spec.md) - Chat integration
+- [AI Advanced](./ai-advanced.spec.md) - Context-aware features
 
-- **`data-query.spec.md`** 🔄 - Query performance optimization strategy
-  - Performance targets and bottleneck analysis
-  - Streaming architecture redesign
-  - Schema cache invalidation
+## Development
 
-#### ERD & Visualization
+- [CI/CD](./ci.spec.md) - Build pipeline
+- [Sentry](../SENTRY.md) - Error tracking & telemetry
 
-- **`erd-panel.spec.md`** ✅ - ERD panel implementation
-  - DBML service integration
-  - ReactFlow visualization with ELK layout
-  - Dual-mode editing (visual + code)
-
-#### DBML Support
-
-- **`dbml-syntax-support.md`** ✅ - DBML syntax highlighting status
-
-  - Comprehensive feature coverage
-  - CodeMirror integration
-  - Type and relationship support
-
-- **`dbml-enhanced-features.md`** ✅ - Enhanced DBML editor features
-  - Code folding implementation
-  - Smart indentation
-  - Auto-completion
-  - Implementation details and usage
-
-#### Database Features
-
-- **`index_usage.spec.md`** ✅ - Index usage statistics
-  - PostgreSQL implementation (with PG16+ support)
-  - MySQL, SQL Server, SQLite support matrix
-  - Performance metrics and caching
-
-#### AI Assistant
-
-- **`ai-assistant.spec.md`** ✅ - AI assistant implementation
-  - Multi-provider support (OpenAI, Anthropic, Google, Ollama)
-  - Bun HTTP sidecar architecture
-  - Secure keychain API key storage
-  - Cursor-style chat UI with @mentions
-  - Latest October 2025 models
-
-#### Testing & CI/CD
-
-- **`ci.spec.md`** 📋 - Comprehensive testing and CI/CD strategy
-  - Unit, integration, and E2E testing architecture
-  - GitHub Actions workflows for all platforms
-  - Mock strategies for OS-specific features
-  - testcontainers-rs for database integration tests
-  - Phased implementation plan
-
-#### UI Components
-
-- **`workbench.spec.md`** ✅ - VS Code-style workbench layout
-
-  - Binary tree-based layout system
-  - Panel splitting and resizing
-  - Drag-and-drop implementation
-
-- **`workspace-screen.spec.md`** ✅ - Workspace screen architecture
-
-  - Title bar and sidebar components
-  - Tab management
-  - Connection binding
-
-- **`theme-usage.md`** ✅ - Theme system reference
-  - Color palette and CSS classes
-  - Light/dark mode support
-  - Component theming
-
-## File Organization
-
-### Keep These Files
-
-All files currently in the `docs/` directory are actively maintained and provide value:
-
-- Historical research provides context for technical decisions
-- Implementation specs document current features and architecture
-- Reference guides support development and onboarding
-
-### Removed Files (2025-10-30 Cleanup)
-
-The following outdated planning documents were removed:
-
-- ❌ `connection.spec.md` - Outdated connection refactoring plan
-- ❌ `editor-intellisense.spec.md` - Unimplemented SQL autocomplete plan
-- ❌ `dbml-syntax-highlighter.spec.md` - Consolidated into `dbml-syntax-support.md`
-- ❌ `dbml-linter-intellisense.spec.md` - Future work, removed to focus on current state
-- ❌ `central-table-editing-store.spec.md` - Removed after deprecating table editing CUD flows (Oct 2025)
-
-## Contributing to Documentation
-
-When adding new documentation:
-
-1. **Choose the right location**:
-
-   - `adr/` - Architecture Decision Records
-   - Root - Feature specifications and implementation guides
-
-2. **Update this README** with:
-
-   - File name and status (✅/📋/🔄)
-   - Brief description
-   - Key topics covered
-
-3. **Use consistent headers**:
-
-   - Executive Summary / Overview
-   - Architecture / Implementation
-   - Usage / Examples
-   - Status / Implementation Timeline (if applicable)
-
-4. **Mark implementation status**:
-   - ✅ Implemented
-   - 🚧 In Development
-   - 📋 Planned
-
-## Quick Reference
-
-### Finding Information
-
-| Looking for...         | See...                                                 |
-| ---------------------- | ------------------------------------------------------ |
-| Backend API reference  | `api.spec.md`                                          |
-| Data grid usage        | `data-grid-v2.spec.md`                                 |
-| ERD visualization      | `erd-panel.spec.md`                                    |
-| DBML editor features   | `dbml-syntax-support.md`, `dbml-enhanced-features.md`  |
-| Data grid architecture | `data-grid-v2.spec.md`                                 |
-| Index statistics       | `index_usage.spec.md`                                  |
-| AI assistant           | `ai-assistant.spec.md`                                 |
-| Testing & CI/CD        | `ci.spec.md`                                           |
-| Workbench layout       | `workbench.spec.md`                                    |
-| Theme system           | `theme-usage.md`                                       |
-| Architecture decisions | `adr/0001_initial_research.md`, `adr/0002_research.md` |
-
-## Maintenance
-
-This README should be updated when:
-
-- New documentation is added
-- Features are implemented or deprecated
-- Major architectural changes occur
-- Documentation is reorganized
-
-**Last Updated**: 2025-11-08
+**Last Updated**: 2025-12-11

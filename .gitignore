@@ -1,4 +1,7 @@
-# Local development data
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
 
 # Logs
 logs
@@ -9,62 +12,66 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies
 node_modules
 dist
 dist-ssr
 *.local
 
-# Editor directories and files
+# Editor
 .vscode/*
 !.vscode/extensions.json
-!.vscode/settings.json
 .idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+*.swp
+*.swo
+*~
 
-# Tauri
-src-tauri/target/
-src-tauri/WixTools/
-src-tauri/sidecars/qp-ai-*
-!src-tauri/sidecars/.gitkeep
-!src-tauri/sidecars/manifest.json
-
-# Tauri updater signing keys (NEVER commit these!)
-.tauri/
-*.key
-
-# Environment variables
+# Env files
 .env
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*.local
 
-# macOS
-.AppleDouble
-.LSOverride
-
-# Windows
+# OS
 Thumbs.db
 ehthumbs.db
-Desktop.ini
 
-# Linux
-*~
-.directory
-.Trash-*
-DataViewer/
+# Tauri
+src-tauri/target
+.tauri
 
-.env
-sidecars/
-target/
-dist-release
-.DS_Store
-*.zip
+# Build artifacts
+*.dmg
+*.app
+*.deb
+*.AppImage
+*.msi
+*.exe
+*.rpm
+dist/
+build/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+!seeds/**/*.sql
+!seeds/**/*.py
+
+# Test & Coverage
 coverage/
+.nyc_output
+*.lcov
+
+# Misc
+.tmp
+*.zip
+*.tar.gz
 *.bun-build
 **/.cargo/
+
+# Git LFS
+*.psd
+
+# Sidecar binaries (built from scripts)
+src-tauri/sidecars/*
+!src-tauri/sidecars/.gitkeep
