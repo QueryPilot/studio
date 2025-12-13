@@ -2150,10 +2150,10 @@ const StatsView = memo(function StatsView({
             : "grid-cols-1",
         )}
       >
-        {/* Per Node Type Stats */}
+        {/* Node Type Stats */}
         <div className="space-y-2 min-w-0">
           <h3 className="text-xs font-semibold text-foreground">
-            Per node type stats
+            Node type stats
           </h3>
           <div className="border rounded-lg overflow-hidden">
             <table className="w-full text-xs">
@@ -2197,14 +2197,14 @@ const StatsView = memo(function StatsView({
         {hasTableStats && (
           <div className="space-y-2 min-w-0">
             <h3 className="text-xs font-semibold text-foreground">
-              Per table stats
+              Table stats
             </h3>
             <div className="border rounded-lg overflow-hidden">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-muted/50">
                     <th className="text-left px-3 py-2 font-medium text-muted-foreground">
-                      Table name
+                      Name
                     </th>
                     <th className="text-right px-3 py-2 font-medium text-muted-foreground">
                       Scan count
