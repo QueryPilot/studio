@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::ai::sidecar::SidecarManager;
+use crate::ai::{secure_storage, sidecar::SidecarManager};
 
 pub struct AIManager {
     sidecar_manager: Arc<SidecarManager>,
@@ -31,33 +31,13 @@ impl AIManager {
     /// Load API keys from secure storage and send to sidecar
     /// Note: Sentry config is set separately via configure_telemetry command
     async fn load_and_configure_api_keys(&self) -> anyhow::Result<()> {
-        use keyring::Entry;
-        use std::collections::HashMap;
-
-        const KEYCHAIN_SERVICE: &str = "dev.querypilot.studio.ai";
-        let providers = [
-            "openai",
-            "anthropic",
-            "google",
-            "xai",
-            "gateway",
-            "openrouter",
-        ];
-
-        let mut keys = HashMap::new();
-
-        for provider in providers {
-            let service_name = format!("{}.{}", KEYCHAIN_SERVICE, provider);
-            if let Ok(entry) = Entry::new(&service_name, "api_key") {
-                if let Ok(key) = entry.get_password() {
-                    keys.insert(provider.to_string(), key);
-                    tracing::info!("✅ Loaded API key for provider: {}", provider);
-                }
-            }
-        }
-
-        // Check if we have keys before configuring
+        let keys = secure_storage::get_all_ai_api_keys().map_err(anyhow::Error::msg)?;
         let has_keys = !keys.is_empty();
+        let providers: Vec<_> = if has_keys {
+            keys.keys().cloned().collect()
+        } else {
+            Vec::new()
+        };
 
         // Default: Sentry disabled until frontend calls configure_telemetry
         let sentry_dsn = std::env::var("SENTRY_DSN").ok();
@@ -67,6 +47,8 @@ impl AIManager {
 
         if !has_keys {
             tracing::warn!("⚠️ No API keys found in keychain. Please configure in Settings.");
+        } else {
+            tracing::info!("✅ Loaded API keys for providers: {:?}", providers);
         }
 
         Ok(())
@@ -77,29 +59,7 @@ impl AIManager {
         let sentry_dsn = std::env::var("SENTRY_DSN").ok();
 
         // Reload API keys and send with updated Sentry config
-        use keyring::Entry;
-        use std::collections::HashMap;
-
-        const KEYCHAIN_SERVICE: &str = "dev.querypilot.studio.ai";
-        let providers = [
-            "openai",
-            "anthropic",
-            "google",
-            "xai",
-            "gateway",
-            "openrouter",
-        ];
-
-        let mut keys = HashMap::new();
-
-        for provider in providers {
-            let service_name = format!("{}.{}", KEYCHAIN_SERVICE, provider);
-            if let Ok(entry) = Entry::new(&service_name, "api_key") {
-                if let Ok(key) = entry.get_password() {
-                    keys.insert(provider.to_string(), key);
-                }
-            }
-        }
+        let keys = secure_storage::get_all_ai_api_keys().map_err(anyhow::Error::msg)?;
 
         // Send updated config to sidecar
         self.sidecar_manager

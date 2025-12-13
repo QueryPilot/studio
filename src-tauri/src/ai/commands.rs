@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use tauri::State;
 
-use crate::ai::manager::AIManager;
+use crate::ai::{manager::AIManager, secure_storage};
 
 /// Get the AI sidecar URL
 #[tauri::command]
@@ -15,26 +15,13 @@ pub async fn get_ai_sidecar_url(
 /// Reload API keys and send to sidecar (called after user updates keys in settings)
 #[tauri::command]
 pub async fn reload_ai_api_keys(manager: State<'_, Arc<AIManager>>) -> Result<(), String> {
-    use keyring::Entry;
-    use std::collections::HashMap;
-
-    const KEYCHAIN_SERVICE: &str = "dev.querypilot.studio.ai";
-    let providers = ["openai", "anthropic", "google"];
-
-    let mut keys = HashMap::new();
-
-    for provider in providers {
-        let service_name = format!("{}.{}", KEYCHAIN_SERVICE, provider);
-        if let Ok(entry) = Entry::new(&service_name, "api_key") {
-            if let Ok(key) = entry.get_password() {
-                keys.insert(provider.to_string(), key);
-                tracing::info!("✅ Reloaded API key for provider: {}", provider);
-            }
-        }
-    }
+    let keys = secure_storage::get_all_ai_api_keys()?;
 
     if keys.is_empty() {
         tracing::warn!("⚠️ No API keys found during reload");
+    } else {
+        let providers: Vec<_> = keys.keys().cloned().collect();
+        tracing::info!("✅ Reloaded API keys for providers: {:?}", providers);
     }
 
     // Get Sentry DSN from environment
