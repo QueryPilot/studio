@@ -38,6 +38,7 @@ ehthumbs.db
 # Tauri
 src-tauri/target
 .tauri
+target/
 
 # Build artifacts
 *.dmg

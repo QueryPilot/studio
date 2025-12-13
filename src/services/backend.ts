@@ -291,21 +291,20 @@ export type StreamEvent =
 
 // NEW: Channel-based streaming (matches Rust StreamMessage enum)
 // NOTE: Batch data sent via separate data channel as ArrayBuffer (not in metadata messages)
-// NOTE: Rust uses #[serde(rename_all = "camelCase")] on enum which only affects variant names,
-// NOT struct field names within variants. Field names remain snake_case.
+// Rust payloads use camelCase field names (serde renames), reflected here
 export type StreamMessage =
-  | { type: "limitApplied"; original_sql: string; applied_limit: number }
-  | { type: "started"; columns: ColumnMeta[]; estimated_rows?: number }
+  | { type: "limitApplied"; originalSql: string; appliedLimit: number }
+  | { type: "started"; columns: ColumnMeta[]; estimatedRows?: number }
   | {
       type: "success";
-      total_rows: number;
-      execution_time_ms: number;
-      cursor_setup_ms?: number;
-      total_streaming_ms?: number;
-      fetch_count?: number;
-      network_ms?: number;
-      conversion_ms?: number;
-      ipc_send_ms?: number;
+      totalRows: number;
+      executionTimeMs: number;
+      cursorSetupMs?: number;
+      totalStreamingMs?: number;
+      fetchCount?: number;
+      networkMs?: number;
+      conversionMs?: number;
+      ipcSendMs?: number;
     }
   | { type: "error"; code: string; message: string }
   | { type: "interrupted"; resumable: boolean; message: string };
