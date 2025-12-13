@@ -141,6 +141,8 @@ const DEFAULT_COLUMN_STATE = {
   pinned: [] as string[],
 };
 
+const TABLE_PAGE_SIZE = 300;
+
 export const TableDataGridV2 = memo(function TableDataGridV2(
   props: TableDataGridV2Props,
 ) {
@@ -384,7 +386,7 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
     entityName: table,
     entityType,
     enabled: isTableMode,
-    pageSize: 300,
+    pageSize: TABLE_PAGE_SIZE,
     sorts: userSorts ?? defaultSorts,
     filters: activeFilter,
   });
@@ -1680,10 +1682,12 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       // Trigger loading when within 100 rows of the end (or immediately if fewer rows)
       const threshold = Math.max(0, rowsRef.current.length - 100);
       const nearEnd = region.y + region.height >= threshold;
+      const hasFirstPage = rowsRef.current.length >= TABLE_PAGE_SIZE;
 
       // Use both state and ref guards to prevent duplicate fetches
       if (
         nearEnd &&
+        hasFirstPage && // avoid prefetching before the first page finishes streaming
         hasNextPage &&
         !isLoadingMore &&
         !loadingMoreRef.current &&
@@ -1691,7 +1695,9 @@ export const TableDataGridV2 = memo(function TableDataGridV2(
       ) {
         loadingMoreRef.current = true; // Set immediately to prevent duplicates
 
-        void loadMore();
+        void Promise.resolve(loadMore()).finally(() => {
+          loadingMoreRef.current = false;
+        });
       }
     },
     [persistScrollOffset, hasNextPage, isLoadingMore, loadMore],
