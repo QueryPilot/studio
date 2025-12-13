@@ -15,6 +15,7 @@ use crate::ssh;
 use crate::state::AppState;
 use crate::types::*;
 use serde::Serialize;
+use serde_json::Value as JsonValue;
 use tokio_postgres::Row;
 
 /// Extract clean error message from PostgreSQL error
@@ -1088,20 +1089,19 @@ async fn execute_single_fetch_stream(
     });
 
     let mut row_stream = Box::pin(row_stream);
-    let mut last_send_instant = std::time::Instant::now();
 
     tracing::info!("TRUE STREAMING: Query executing, rows will arrive progressively...");
 
     let mut total_rows = 0;
-    let mut row_buffer: Vec<Row> = Vec::new(); // Row buffer for direct serialization
-    // OPTIMIZATION: Skip intermediate json_buffer - serialize directly to MessagePack
-    // OLD: Row → Vec<Vec<JsonValue>> → MessagePack (double allocation)
-    // NEW: Row → SerializableRows → MessagePack (single pass, zero intermediate allocation)
+    let mut row_buffer: Vec<Row> = Vec::new(); // Row buffer for micro-batching
+    let mut json_buffer: Vec<Vec<JsonValue>> = Vec::new(); // Converted rows ready for MsgPack
+    // OPTIMIZATION: Use parallel converter + micro-batches for faster CPU-bound conversion
 
     // Incremental batch sizes: start small for instant feedback, then go big
     const FIRST_BATCH_SIZE: usize = 32; // Ultra-fast first render (~4ms IPC)
     const SECOND_BATCH_SIZE: usize = 512; // Quick second batch (~25ms IPC)
-    const LARGE_BATCH_SIZE: usize = 4096; // Large bulk transfer (~80-100ms IPC but fewer calls)
+    const LARGE_BATCH_SIZE: usize = 3072; // Slightly larger to reduce batch count without big stalls
+    const MICRO_BATCH_SIZE: usize = 256; // Parallel conversion chunk size
 
     let mut first_row_elapsed_ms: Option<u64> = None;
 
@@ -1161,8 +1161,14 @@ async fn execute_single_fetch_stream(
                 row_buffer.push(row);
                 total_rows += 1;
 
-                // Micro-batch: Convert rows in parallel when buffer is full
-                if row_buffer.len() >= MICRO_BATCH_SIZE {
+                // Parallel micro-batch conversion to JSON values.
+                // Convert eagerly when either the micro batch is full OR we're ready to send.
+                let current_threshold = get_send_threshold(rows_sent);
+                let pending_total = json_buffer.len() + row_buffer.len();
+                if !row_buffer.is_empty()
+                    && (row_buffer.len() >= MICRO_BATCH_SIZE
+                        || pending_total >= current_threshold)
+                {
                     let convert_start = std::time::Instant::now();
                     let converted =
                         crate::adapters::postgres::fast_converter::FastPostgresConverter::rows_to_json(
@@ -1175,15 +1181,12 @@ async fn execute_single_fetch_stream(
                 }
 
                 // Send chunk to frontend when output buffer reaches dynamic threshold
-                let current_threshold = get_send_threshold(rows_sent);
                 if json_buffer.len() >= current_threshold {
                     let batch_size = json_buffer.len();
 
-                    // OPTIMIZED: Direct serialization to MessagePack (skip intermediate JSON)
-                    // Uses SerializableRows which implements Serialize directly
+                    // Serialize to MessagePack
                     let serialize_start = std::time::Instant::now();
-                    let serializable = crate::adapters::postgres::direct_serializer::SerializableRows::new(&row_buffer);
-                    let rows_msgpack = match rmp_serde::to_vec(&serializable) {
+                    let rows_msgpack = match rmp_serde::to_vec(&json_buffer) {
                         Ok(bytes) => bytes,
                         Err(e) => {
                             tracing::error!("MessagePack serialization failed: {}", e);
@@ -1195,12 +1198,11 @@ async fn execute_single_fetch_stream(
                         }
                     };
                     conversion_time_ms += serialize_start.elapsed().as_millis() as u64;
-                    row_buffer.clear();
 
-                    // Send raw binary via Response (ZERO serialization overhead!)
+                    // Send raw binary via Response
                     let send_start = std::time::Instant::now();
                     let send_result = data_channel.send(tauri::ipc::Response::new(rows_msgpack));
-                    last_send_instant = std::time::Instant::now();
+                    json_buffer.clear();
                     send_time_ms += send_start.elapsed().as_millis() as u64;
                     send_count += 1;
                     rows_sent += batch_size;
@@ -1233,15 +1235,25 @@ async fn execute_single_fetch_stream(
         }
     }
 
-    // Send any remaining rows in row_buffer
+    // Convert any remaining buffered rows, then send
     if !row_buffer.is_empty() {
-        let batch_size = row_buffer.len();
+        let convert_start = std::time::Instant::now();
+        let converted =
+            crate::adapters::postgres::fast_converter::FastPostgresConverter::rows_to_json(
+                &row_buffer,
+            )
+            .map_err(|e| e.to_string())?;
+        conversion_time_ms += convert_start.elapsed().as_millis() as u64;
+        json_buffer.extend(converted);
+        row_buffer.clear();
+    }
+
+    if !json_buffer.is_empty() {
+        let batch_size = json_buffer.len();
         let _offset = total_rows - batch_size;
 
-        // OPTIMIZED: Direct serialization to MessagePack (skip intermediate JSON)
         let serialize_start = std::time::Instant::now();
-        let serializable = crate::adapters::postgres::direct_serializer::SerializableRows::new(&row_buffer);
-        let rows_msgpack = match rmp_serde::to_vec(&serializable) {
+        let rows_msgpack = match rmp_serde::to_vec(&json_buffer) {
             Ok(bytes) => bytes,
             Err(e) => {
                 tracing::error!("MessagePack serialization failed for final batch: {}", e);
@@ -1281,7 +1293,8 @@ async fn execute_single_fetch_stream(
 
     // NOTE: send_time_ms shows queue time only (channel.send is non-blocking)
     // Real IPC overhead is async/overlapped with conversion & network time
-    let network_time_ms = total_time.saturating_sub(conversion_time_ms);
+    // Exclude send_time_ms from "network" to avoid misattributing IPC queue time
+    let network_time_ms = total_time.saturating_sub(conversion_time_ms + send_time_ms);
 
     tracing::info!("==========================================");
     tracing::info!("TRUE STREAMING COMPLETE: {} rows", total_rows);

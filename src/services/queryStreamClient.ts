@@ -128,7 +128,9 @@ export class QueryStreamClient {
           switch (message.type) {
             case "started":
               this.columns = message.columns;
-              this.estimatedRows = message.estimated_rows;
+              this.estimatedRows =
+                message.estimatedRows ??
+                (message as { estimated_rows?: number }).estimated_rows;
               break;
 
             case "batch":
@@ -141,8 +143,14 @@ export class QueryStreamClient {
             case "success":
               const result: StreamResult = {
                 columns: this.columns || [],
-                totalRows: message.total_rows,
-                executionTimeMs: message.execution_time_ms,
+                totalRows:
+                  message.totalRows ??
+                  (message as { total_rows?: number }).total_rows ??
+                  0,
+                executionTimeMs:
+                  message.executionTimeMs ??
+                  (message as { execution_time_ms?: number }).execution_time_ms ??
+                  0,
               };
 
               resolve(
@@ -367,33 +375,57 @@ export class QueryStreamClient {
         }
 
         switch (typedMessage.type) {
-          case "limitApplied":
+          case "limitApplied": {
+            const legacy = typedMessage as {
+              original_sql?: string;
+              applied_limit?: number;
+            };
             callbacks.onLimitApplied?.(
-              typedMessage.original_sql,
-              typedMessage.applied_limit,
+              typedMessage.originalSql ?? legacy.original_sql ?? "",
+              typedMessage.appliedLimit ?? legacy.applied_limit ?? 0,
             );
             break;
+          }
 
-          case "started":
+          case "started": {
+            const legacy = typedMessage as { estimated_rows?: number };
+            const estimatedRows =
+              typedMessage.estimatedRows ?? legacy.estimated_rows;
             this.columns = typedMessage.columns;
-            this.estimatedRows = typedMessage.estimated_rows;
-            callbacks.onStarted?.(
-              typedMessage.columns,
-              typedMessage.estimated_rows,
-            );
+            this.estimatedRows = estimatedRows;
+            callbacks.onStarted?.(typedMessage.columns, estimatedRows);
             break;
+          }
 
           case "success": {
+            const legacy = typedMessage as {
+              total_rows?: number;
+              execution_time_ms?: number;
+              cursor_setup_ms?: number;
+              total_streaming_ms?: number;
+              fetch_count?: number;
+              network_ms?: number;
+              conversion_ms?: number;
+              ipc_send_ms?: number;
+            };
             const result: StreamResult = {
               columns: this.columns || [],
-              totalRows: typedMessage.total_rows,
-              executionTimeMs: typedMessage.execution_time_ms,
-              cursorSetupMs: typedMessage.cursor_setup_ms,
-              totalStreamingMs: typedMessage.total_streaming_ms,
-              fetchCount: typedMessage.fetch_count,
-              networkMs: typedMessage.network_ms,
-              conversionMs: typedMessage.conversion_ms,
-              ipcSendMs: typedMessage.ipc_send_ms,
+              totalRows:
+                typedMessage.totalRows ?? legacy.total_rows ?? 0,
+              executionTimeMs:
+                typedMessage.executionTimeMs ??
+                legacy.execution_time_ms ??
+                0,
+              cursorSetupMs:
+                typedMessage.cursorSetupMs ?? legacy.cursor_setup_ms,
+              totalStreamingMs:
+                typedMessage.totalStreamingMs ??
+                legacy.total_streaming_ms,
+              fetchCount: typedMessage.fetchCount ?? legacy.fetch_count,
+              networkMs: typedMessage.networkMs ?? legacy.network_ms,
+              conversionMs:
+                typedMessage.conversionMs ?? legacy.conversion_ms,
+              ipcSendMs: typedMessage.ipcSendMs ?? legacy.ipc_send_ms,
             };
 
             callbacks.onSuccess?.(result);
