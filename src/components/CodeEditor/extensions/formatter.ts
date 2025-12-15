@@ -5,7 +5,7 @@
  */
 
 import { EditorView, keymap } from "@codemirror/view";
-import type { Extension } from "@codemirror/state";
+import { Prec, type Extension } from "@codemirror/state";
 import { formatSql } from "@/utils/codeFormatter";
 import type { SqlDialect } from "../types";
 
@@ -63,11 +63,11 @@ function formatDocument(view: EditorView, dialect: SqlDialect): boolean {
 }
 
 /**
- * Create SQL formatter extension
+ * Create SQL formatter extension with high precedence to override other keybindings
  */
 export function createFormatterExtension(dialect: SqlDialect = "postgresql"): Extension[] {
   return [
-    keymap.of([
+    Prec.high(keymap.of([
       {
         key: "Mod-Shift-f",
         run: (view) => formatDocument(view, dialect),
@@ -79,7 +79,7 @@ export function createFormatterExtension(dialect: SqlDialect = "postgresql"): Ex
         run: (view) => formatDocument(view, dialect),
         preventDefault: true,
       },
-    ]),
+    ])),
   ];
 }
 

@@ -6,13 +6,14 @@
  * - PostgreSQL: pg-parser WASM (most accurate for PL/pgSQL)
  * - Other dialects: Web Worker-based validation
  *
+ * Note: lintGutter() is provided separately by run-gutter extension or SqlEditor
+ *
  * Usage:
  *   const linter = createDialectLinter("postgresql");
  *   extensions.push(linter);
  */
 
 import type { Extension } from "@codemirror/state";
-import { lintGutter } from "@codemirror/lint";
 import type { SqlDialect } from "../../types";
 import { createPgParserLinter } from "./pg-parser-linter";
 import { createWorkerLinter } from "./linter-worker-manager";
@@ -57,14 +58,18 @@ const LINTER_STRATEGIES: Record<SqlDialect, LinterStrategy> = {
  * Create the appropriate linter extension for a SQL dialect.
  * This provides a unified interface that abstracts away the implementation details.
  *
+ * Note: lintGutter() is provided separately (by run-gutter extension or SqlEditor)
+ *
  * @param dialect - The SQL dialect to lint for
- * @returns A CodeMirror extension array including lint gutter and dialect-specific linter
+ * @returns A CodeMirror extension array with dialect-specific linter (without gutter)
  */
-export function createDialectLinter(dialect: SqlDialect = "postgresql"): Extension[] {
+export function createDialectLinter(
+  dialect: SqlDialect = "postgresql",
+): Extension[] {
   const strategy = LINTER_STRATEGIES[dialect];
 
   return [
-    lintGutter(),
+    // Note: lintGutter() removed - provided by run-gutter or SqlEditor
     strategy.linter(),
   ];
 }
@@ -83,6 +88,3 @@ export function usesWorkerLinter(dialect: SqlDialect): boolean {
 export function getLinterDescription(dialect: SqlDialect): string {
   return LINTER_STRATEGIES[dialect]?.description ?? "Unknown";
 }
-
-
-
