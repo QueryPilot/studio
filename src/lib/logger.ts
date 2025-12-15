@@ -1,6 +1,10 @@
 type LogLevel = "debug" | "info" | "warn" | "error";
 
 const isProd = import.meta.env.PROD;
+// Enable expensive callsite capture only when explicitly requested.
+// Defaults to off in dev to avoid stack-trace overhead in hot paths.
+const enableCallsiteCapture =
+  !isProd && import.meta.env.VITE_LOG_CALLSITE === "1";
 const namespacePattern = /^[a-z0-9._-]+$/i;
 
 function normalize(
@@ -60,7 +64,9 @@ function emit(
   if (isProd && level !== "error") return;
 
   const { namespace, payload } = normalize(namespaceOrMessage, args);
-  const caller = getCallerLocation();
+  const includeCallsite =
+    enableCallsiteCapture || level === "warn" || level === "error";
+  const caller = includeCallsite ? getCallerLocation() : "";
   const prefix = `[${namespace}]${caller ? ` ${caller}` : ""}`;
   const fn =
     level === "debug"
