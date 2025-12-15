@@ -66,6 +66,7 @@ interface QueryToolbarProps {
   dialect?: SqlDialect | "auto";
   detectedDialect?: SqlDialect;
   isExplainResult?: boolean;
+  hasValidResult?: boolean;
   onExecute: () => void;
   onCancel: () => void;
   onBeautify: () => void;
@@ -89,6 +90,7 @@ export const QueryToolbar = memo(function QueryToolbar({
   dialect = "auto",
   detectedDialect,
   isExplainResult = false,
+  hasValidResult = true,
   onExecute,
   onCancel,
   onBeautify,
@@ -127,8 +129,8 @@ export const QueryToolbar = memo(function QueryToolbar({
             <IconLayoutRows className="h-3.5 w-3.5" />
           </Button>
 
-          {/* View Mode Tabs - always visible when results showing */}
-          {showResults && (
+          {/* View Mode Tabs - only visible when results showing and result is valid */}
+          {showResults && hasValidResult && (
             <Tabs
               value={viewMode}
               onValueChange={(value) => {

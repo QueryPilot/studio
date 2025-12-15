@@ -80,11 +80,12 @@ class VaultStorageService {
       )) {
         this.keychainAccessible = false;
       }
+    } finally {
+      this.dirtyIds.clear();
+      this.deletedIds.clear();
+      this.indexDirty = false;
+      this.saveScheduled = false;
     }
-
-    this.dirtyIds.clear();
-    this.deletedIds.clear();
-    this.indexDirty = false;
   }
 
   async initialize(): Promise<void> {
@@ -153,11 +154,12 @@ class VaultStorageService {
       this.indexDirty = true;
     }
 
-    // Mark as dirty and schedule async save (non-blocking)
+    // Mark as dirty
     this.dirtyIds.add(profileToStore.id);
-    this.scheduleSave();
 
-    // Return immediately without waiting for disk write
+    // CRITICAL: Flush immediately for new connection to prevent data loss
+    await this.flushPendingChanges();
+
     return profileToStore.id;
   }
 
@@ -199,11 +201,11 @@ class VaultStorageService {
     // Immediately update in-memory cache (synchronous)
     this.connectionCache.set(id, { profile: profileToStore, metadata });
 
-    // Mark as dirty and schedule async save (non-blocking)
+    // Mark as dirty
     this.dirtyIds.add(id);
-    this.scheduleSave();
 
-    // Return immediately without waiting for disk write
+    // CRITICAL: Flush immediately for connection profile changes to prevent data loss
+    await this.flushPendingChanges();
   }
 
   async deleteConnection(id: string): Promise<void> {
@@ -220,11 +222,11 @@ class VaultStorageService {
     this.indexDirty = true;
     this.connectionCache.delete(id);
 
-    // Mark as dirty and schedule async save (non-blocking)
+    // Mark as dirty
     this.deletedIds.add(id);
-    this.scheduleSave();
 
-    // Return immediately without waiting for disk write
+    // CRITICAL: Flush immediately for deletion to prevent data loss
+    await this.flushPendingChanges();
   }
 
   private async updateMetadataInternal(
@@ -264,7 +266,9 @@ class VaultStorageService {
       throw new Error(`Connection ${id} not found`);
     }
     conn.metadata.tags = tags;
-    await this.updateMetadata(id, conn.metadata);
+    await this.updateMetadataInternal(id, conn.metadata);
+    // CRITICAL: Flush immediately when updating tags during connection save
+    await this.flushPendingChanges();
   }
 
   async markAsUsed(id: string): Promise<void> {

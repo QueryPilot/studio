@@ -394,11 +394,6 @@ export const QuickFilter = memo(forwardRef<QuickFilterRef, QuickFilterProps>(
 
     // Update suggestions based on input
     useEffect(() => {
-      if (mode !== "where" && mode !== "ai") {
-        setShowSuggestions(false);
-        return;
-      }
-
       // Get word at cursor
       const beforeCursor = debouncedValue.slice(0, debouncedCursor);
       const match = beforeCursor.match(WORD_AT_CURSOR_REGEX);
@@ -1062,9 +1057,8 @@ export const QuickFilter = memo(forwardRef<QuickFilterRef, QuickFilterProps>(
                         editorViewRef.current = view;
                       }}
                       onUpdate={(update) => {
-                        // Only update cursor if selection actually changed AND suggestions are enabled
-                        // This prevents unnecessary state updates during typing
-                        if (update.selectionSet && (mode === "where" || mode === "ai")) {
+                        // Update cursor position when selection changes
+                        if (update.selectionSet) {
                           const pos = update.state.selection.main.head;
                           // Calculate prefix length for WHERE (?) or AI (#) modes
                           const prefixLen =

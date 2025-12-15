@@ -105,11 +105,20 @@ impl PostgresAdapter {
             // Log the SQL and parameters for debugging
             tracing::info!("  Executing parameterized SQL: {}", stmt.sql);
             tracing::info!("  Parameters: {:?}", stmt.params);
-            
+
+            // CRITICAL: Prepare statement FIRST to enable PostgreSQL type inference
+            // This allows PG to infer parameter types from column definitions, fixing ENUM/custom type issues
+            let prepared = transaction
+                .prepare(&stmt.sql)
+                .await
+                .map_err(|e| {
+                    AppError::DatabaseError(format!(
+                        "Failed to prepare statement '{}': {}",
+                        stmt.sql, e
+                    ))
+                })?;
+
             // Convert SqlParam to tokio_postgres compatible types
-            // Note: PostgreSQL is strict about type sizes. Int values that fit in i32
-            // should be sent as i32 to work with int4 columns. This is critical for
-            // parameterized queries where the column type must match exactly.
             let params: Vec<Box<dyn ToSql + Sync + Send>> = stmt
                 .params
                 .iter()
@@ -118,41 +127,26 @@ impl PostgresAdapter {
                         SqlParam::Null => Box::new(None::<String>),
                         SqlParam::Bool(b) => Box::new(*b),
                         SqlParam::Int(i) => {
-                            // PostgreSQL int4 (serial/integer) expects i32, int8 (bigserial/bigint) expects i64
-                            // Send as i32 if the value fits, otherwise i64
                             if *i >= i32::MIN as i64 && *i <= i32::MAX as i64 {
-                                tracing::debug!("    Param Int({}) -> i32", i);
                                 Box::new(*i as i32)
                             } else {
-                                tracing::debug!("    Param Int({}) -> i64 (out of i32 range)", i);
                                 Box::new(*i)
                             }
                         }
                         SqlParam::Float(f) => {
-                            // Convert to Decimal for better PostgreSQL compatibility (money, numeric, decimal)
-                            // f64 doesn't serialize properly to money type
                             if let Some(decimal) = Decimal::from_f64_retain(*f) {
-                                tracing::info!("    Param Float({}) -> Decimal", f);
                                 Box::new(decimal)
                             } else {
-                                tracing::info!("    Param Float({}) -> f64 (fallback)", f);
                                 Box::new(*f)
                             }
                         }
                         SqlParam::Text(s) => {
-                            // Try to parse as UUID first - common for ID columns
-                            // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+                            // With prepared statements, simple String works for ALL types including ENUMs
                             if let Ok(uuid) = Uuid::parse_str(s) {
-                                tracing::debug!("    Param Text('{}') -> UUID", s);
                                 Box::new(uuid)
-                            } 
-                            // Try to parse as Decimal for precise numeric types (money, numeric, decimal)
-                            else if let Ok(decimal) = s.parse::<rust_decimal::Decimal>() {
-                                tracing::debug!("    Param Text('{}') -> Decimal (numeric string)", s);
+                            } else if let Ok(decimal) = s.parse::<rust_decimal::Decimal>() {
                                 Box::new(decimal)
-                            }
-                            else {
-                                tracing::debug!("    Param Text('{}') -> String", s);
+                            } else {
                                 Box::new(s.clone())
                             }
                         }
@@ -165,7 +159,7 @@ impl PostgresAdapter {
                 params.iter().map(|p| p.as_ref() as &(dyn ToSql + Sync)).collect();
 
             let rows_affected = transaction
-                .execute(&stmt.sql, &param_refs)
+                .execute(&prepared, &param_refs)
                 .await
                 .map_err(|e| {
                     AppError::DatabaseError(format!(

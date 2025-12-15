@@ -88,10 +88,20 @@ export function SearchBar({
     }
   };
 
+  // Auto-focus on mount
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
   // Global keyboard shortcut for search
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      // / shortcut (only if not already typing in an input)
+      if (
+        e.key === '/' &&
+        !(e.target instanceof HTMLInputElement) &&
+        !(e.target instanceof HTMLTextAreaElement)
+      ) {
         e.preventDefault();
         inputRef.current?.focus();
       }
@@ -107,7 +117,7 @@ export function SearchBar({
       <Input
         ref={inputRef}
         type="text"
-        placeholder="Search connections... (⌘K)"
+        placeholder="Search connections... (/)"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={handleKeyDown}
