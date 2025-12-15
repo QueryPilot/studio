@@ -9,7 +9,7 @@ import {
 } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { EditorView } from "@codemirror/view";
-import { getQueryAtCursor } from "./core";
+import { getStatementAtPosition } from "./core";
 import { useTheme } from "@/components/theme-provider";
 import { getThemeExtensions } from "./themes";
 import { getEditorExtensions } from "./extensions";
@@ -187,8 +187,24 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
 
             // If we have an editor view, extract query at cursor
             if (!queryArg && editorRef.current) {
-              const extractedQuery = getQueryAtCursor(editorRef.current);
-              handleExecute(extractedQuery);
+              const view = editorRef.current;
+              const selection = view.state.selection.main;
+              const selectedText = selection.from !== selection.to
+                ? view.state.doc.sliceString(selection.from, selection.to).trim()
+                : "";
+
+              if (selectedText) {
+                handleExecute(selectedText);
+                return;
+              }
+
+              const statement = getStatementAtPosition(view.state, selection.head);
+              if (statement?.text) {
+                handleExecute(statement.text);
+                return;
+              }
+
+              // No statement found: do nothing instead of running whole document
               return;
             }
 

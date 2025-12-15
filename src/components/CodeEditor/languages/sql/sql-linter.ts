@@ -2,6 +2,7 @@ import { syntaxTree } from "@codemirror/language";
 import { type Diagnostic, linter } from "@codemirror/lint";
 import type { Extension, EditorState } from "@codemirror/state";
 import type { SyntaxNode } from "@lezer/common";
+import { getStatementAtPosition } from "@/components/CodeEditor/core";
 import type { SqlDialect, MetadataProvider } from "@/components/CodeEditor/types";
 import { getDialectValidator, type SyntaxError } from "./dialect-validators";
 import { analyzeSqlContext, type TableRef } from "./context";
@@ -36,6 +37,68 @@ const SQL_KEYWORDS = [
   "UNION",
   "EXCEPT",
   "INTERSECT",
+  // EXPLAIN / ANALYZE
+  "EXPLAIN",
+  "ANALYZE",
+  "BUFFERS",
+  "COSTS",
+  "FORMAT",
+  "VERBOSE",
+  "SETTINGS",
+  "WAL",
+  "TIMING",
+  "SUMMARY",
+  // Common PostgreSQL extras
+  "TEXT",
+  "JSON",
+  "XML",
+  "YAML",
+  "TRUE",
+  "FALSE",
+  "NULL",
+  "AS",
+  "BY",
+  "IN",
+  "NOT",
+  "AND",
+  "OR",
+  "IS",
+  "LIKE",
+  "ILIKE",
+  "BETWEEN",
+  "EXISTS",
+  "CASE",
+  "WHEN",
+  "THEN",
+  "ELSE",
+  "END",
+  "CAST",
+  "COALESCE",
+  "NULLIF",
+  "ASC",
+  "DESC",
+  "NULLS",
+  "FIRST",
+  "LAST",
+  "ALL",
+  "ANY",
+  "SOME",
+  "INDEX",
+  "TABLE",
+  "VIEW",
+  "SCHEMA",
+  "DATABASE",
+  "COLUMN",
+  "CONSTRAINT",
+  "PRIMARY",
+  "FOREIGN",
+  "KEY",
+  "REFERENCES",
+  "UNIQUE",
+  "CHECK",
+  "DEFAULT",
+  "SET",
+  "INTO",
 ];
 
 const UPPERCASE_IDENTIFIER = /^[A-Z_]+$/;
@@ -593,6 +656,454 @@ const findTypeViolations = async (
 };
 
 /**
+ * Validate columns in SELECT statement (SELECT list, WHERE, GROUP BY, ORDER BY, HAVING)
+ */
+async function validateSelectColumns(
+  state: EditorState,
+  provider: MetadataProvider,
+  tables: TableRef[],
+  defaultSchema?: string
+): Promise<Diagnostic[]> {
+  const diagnostics: Diagnostic[] = [];
+  
+  if (tables.length === 0) return diagnostics;
+
+  // Build column cache for all tables
+  const tableColumnCache = new Map<string, Set<string>>();
+  
+  for (const table of tables) {
+    try {
+      const columns = await provider.listFields(table.name, table.schema || defaultSchema);
+      tableColumnCache.set(
+        table.name.toLowerCase(),
+        new Set(columns.map(c => c.name.toLowerCase()))
+      );
+    } catch {
+      // Skip if table doesn't exist
+    }
+  }
+
+  // Now validate column references synchronously
+  const tree = syntaxTree(state);
+  
+  tree.iterate({
+    enter: (node) => {
+      if (node.name === "SelectStatement") {
+        // Find all column references within this SELECT
+        const selectNode = node.node;
+        const cursor = selectNode.cursor();
+        
+        // Iterate through the SELECT statement's children
+        cursor.firstChild();
+        do {
+          // Check identifiers in various clauses
+          if (cursor.name === "Identifier" || cursor.name === "QuotedIdentifier") {
+            const colRef = parseColumnRef(state, cursor.node);
+            if (!colRef) continue;
+
+            // Skip SQL keywords
+            if (SQL_KEYWORDS.includes(colRef.name.toUpperCase())) continue;
+
+            // Resolve table
+            let tableName: string | undefined;
+            let tableColumns: Set<string> | undefined;
+            
+            if (colRef.qualifier) {
+              const tableMatch = tables.find(
+                (t) =>
+                  t.alias?.toLowerCase() === colRef.qualifier!.toLowerCase() ||
+                  t.name.toLowerCase() === colRef.qualifier!.toLowerCase()
+              );
+              if (tableMatch) {
+                tableName = tableMatch.name;
+                tableColumns = tableColumnCache.get(tableName.toLowerCase());
+              }
+            } else if (tables.length === 1) {
+              tableName = tables[0]?.name;
+              tableColumns = tableName ? tableColumnCache.get(tableName.toLowerCase()) : undefined;
+            } else {
+              // Multiple tables - try to find which one has this column
+              for (const table of tables) {
+                const cols = tableColumnCache.get(table.name.toLowerCase());
+                if (cols?.has(colRef.name.toLowerCase())) {
+                  tableName = table.name;
+                  tableColumns = cols;
+                  break;
+                }
+              }
+            }
+
+            if (!tableName || !tableColumns) continue;
+
+            // Validate column exists
+            const columnExists = tableColumns.has(colRef.name.toLowerCase());
+
+            if (!columnExists) {
+              diagnostics.push({
+                from: colRef.from,
+                to: colRef.to,
+                severity: "error",
+                message: `Column '${colRef.name}' does not exist in table '${tableName}'`,
+              });
+            }
+          }
+        } while (cursor.nextSibling());
+      }
+    },
+  });
+
+  return diagnostics;
+}
+
+/**
+ * Validate columns in INSERT statement
+ */
+async function validateInsertColumns(
+  state: EditorState,
+  provider: MetadataProvider,
+  defaultSchema?: string
+): Promise<Diagnostic[]> {
+  const diagnostics: Diagnostic[] = [];
+  const tree = syntaxTree(state);
+
+  // Collect all INSERT statements first (synchronously)
+  const insertStatements: Array<{ targetTable: string; columnListStart: number; columnListEnd: number }> = [];
+
+  tree.iterate({
+    enter: (node) => {
+      if (node.name === "InsertStatement") {
+        // Find the target table
+        const cursor = node.node.cursor();
+        cursor.firstChild();
+        
+        let targetTable: string | undefined;
+        let columnListStart = -1;
+        let columnListEnd = -1;
+
+        // Find INSERT INTO table_name (columns...)
+        do {
+          if (cursor.name === "Identifier" && !targetTable) {
+            // First identifier after INSERT INTO is the table name
+            const text = state.sliceDoc(cursor.from, cursor.to);
+            const prevText = state.sliceDoc(Math.max(0, cursor.from - 20), cursor.from).toUpperCase();
+            if (prevText.includes("INTO")) {
+              targetTable = text.replace(/["`[\]]/g, "");
+            }
+          }
+          
+          // Find column list in parentheses
+          if (cursor.name === "(" && targetTable && columnListStart === -1) {
+            columnListStart = cursor.from;
+          }
+          if (cursor.name === ")" && targetTable && columnListStart > 0 && columnListEnd === -1) {
+            columnListEnd = cursor.to;
+          }
+        } while (cursor.nextSibling());
+
+        if (targetTable && columnListStart > 0 && columnListEnd > 0) {
+          insertStatements.push({ targetTable, columnListStart, columnListEnd });
+        }
+      }
+    },
+  });
+
+  // Now validate asynchronously
+  for (const stmt of insertStatements) {
+    try {
+      // Get valid columns for this table
+      const validColumns = await provider.listFields(stmt.targetTable, defaultSchema);
+      const validColumnNames = new Set(validColumns.map(c => c.name.toLowerCase()));
+
+      // Validate each column in the INSERT column list
+      const columnListText = state.sliceDoc(stmt.columnListStart, stmt.columnListEnd);
+      const columnNames = columnListText
+        .replace(/[()"`[\]]/g, "")
+        .split(",")
+        .map(c => c.trim())
+        .filter(c => c.length > 0);
+
+      for (const colName of columnNames) {
+        if (!validColumnNames.has(colName.toLowerCase())) {
+          // Find position of this column in the text
+          const colIndex = state.doc.toString().indexOf(colName, stmt.columnListStart);
+          if (colIndex >= 0) {
+            diagnostics.push({
+              from: colIndex,
+              to: colIndex + colName.length,
+              severity: "error",
+              message: `Column '${colName}' does not exist in table '${stmt.targetTable}'`,
+            });
+          }
+        }
+      }
+    } catch {
+      // Skip validation if table doesn't exist
+    }
+  }
+
+  return diagnostics;
+}
+
+/**
+ * Validate columns in UPDATE statement (SET clause, WHERE clause)
+ */
+async function validateUpdateColumns(
+  state: EditorState,
+  provider: MetadataProvider,
+  defaultSchema?: string
+): Promise<Diagnostic[]> {
+  const diagnostics: Diagnostic[] = [];
+  const tree = syntaxTree(state);
+
+  // Collect UPDATE statements synchronously
+  const updateStatements: Array<{ targetTable: string; stmtFrom: number; stmtTo: number }> = [];
+
+  tree.iterate({
+    enter: (node) => {
+      if (node.name === "UpdateStatement") {
+        // Find the target table
+        const cursor = node.node.cursor();
+        cursor.firstChild();
+        
+        let targetTable: string | undefined;
+
+        // Find UPDATE table_name
+        do {
+          if (cursor.name === "Identifier" && !targetTable) {
+            const text = state.sliceDoc(cursor.from, cursor.to);
+            const prevText = state.sliceDoc(Math.max(0, cursor.from - 10), cursor.from).toUpperCase();
+            if (prevText.includes("UPDATE")) {
+              targetTable = text.replace(/["`[\]]/g, "");
+              break;
+            }
+          }
+        } while (cursor.nextSibling());
+
+        if (targetTable) {
+          updateStatements.push({ targetTable, stmtFrom: node.from, stmtTo: node.to });
+        }
+      }
+    },
+  });
+
+  // Validate asynchronously
+  for (const stmt of updateStatements) {
+    try {
+      const validColumns = await provider.listFields(stmt.targetTable, defaultSchema);
+      const validColumnNames = new Set(validColumns.map(c => c.name.toLowerCase()));
+
+      // Re-traverse this statement to find column references
+      const subTree = syntaxTree(state);
+      const cursor = subTree.cursorAt(stmt.stmtFrom);
+      
+      let inSetClause = false;
+      let inWhereClause = false;
+
+      do {
+        if (cursor.from < stmt.stmtFrom || cursor.from > stmt.stmtTo) continue;
+        
+        const text = state.sliceDoc(cursor.from, cursor.to).toUpperCase();
+        
+        if (text === "SET") inSetClause = true;
+        if (text === "WHERE") {
+          inSetClause = false;
+          inWhereClause = true;
+        }
+
+        if ((inSetClause || inWhereClause) && (cursor.name === "Identifier" || cursor.name === "QuotedIdentifier")) {
+          const colName = state.sliceDoc(cursor.from, cursor.to).replace(/["`[\]]/g, "");
+          
+          if (SQL_KEYWORDS.includes(colName.toUpperCase())) continue;
+
+          if (!validColumnNames.has(colName.toLowerCase())) {
+            diagnostics.push({
+              from: cursor.from,
+              to: cursor.to,
+              severity: "error",
+              message: `Column '${colName}' does not exist in table '${stmt.targetTable}'`,
+            });
+          }
+        }
+      } while (cursor.next());
+    } catch {
+      // Skip validation if table doesn't exist
+    }
+  }
+
+  return diagnostics;
+}
+
+/**
+ * Validate columns in DELETE statement (WHERE clause)
+ */
+async function validateDeleteColumns(
+  state: EditorState,
+  provider: MetadataProvider,
+  defaultSchema?: string
+): Promise<Diagnostic[]> {
+  const diagnostics: Diagnostic[] = [];
+  const tree = syntaxTree(state);
+
+  // Collect DELETE statements synchronously
+  const deleteStatements: Array<{ targetTable: string; stmtFrom: number; stmtTo: number }> = [];
+
+  tree.iterate({
+    enter: (node) => {
+      if (node.name === "DeleteStatement") {
+        const cursor = node.node.cursor();
+        cursor.firstChild();
+        
+        let targetTable: string | undefined;
+
+        do {
+          if (cursor.name === "Identifier" && !targetTable) {
+            const text = state.sliceDoc(cursor.from, cursor.to);
+            const prevText = state.sliceDoc(Math.max(0, cursor.from - 15), cursor.from).toUpperCase();
+            if (prevText.includes("FROM")) {
+              targetTable = text.replace(/["`[\]]/g, "");
+              break;
+            }
+          }
+        } while (cursor.nextSibling());
+
+        if (targetTable) {
+          deleteStatements.push({ targetTable, stmtFrom: node.from, stmtTo: node.to });
+        }
+      }
+    },
+  });
+
+  // Validate asynchronously
+  for (const stmt of deleteStatements) {
+    try {
+      const validColumns = await provider.listFields(stmt.targetTable, defaultSchema);
+      const validColumnNames = new Set(validColumns.map(c => c.name.toLowerCase()));
+
+      // Re-traverse to find columns in WHERE clause
+      const subTree = syntaxTree(state);
+      const cursor = subTree.cursorAt(stmt.stmtFrom);
+      
+      let inWhereClause = false;
+
+      do {
+        if (cursor.from < stmt.stmtFrom || cursor.from > stmt.stmtTo) continue;
+        
+        const text = state.sliceDoc(cursor.from, cursor.to).toUpperCase();
+        if (text === "WHERE") inWhereClause = true;
+
+        if (inWhereClause && (cursor.name === "Identifier" || cursor.name === "QuotedIdentifier")) {
+          const colName = state.sliceDoc(cursor.from, cursor.to).replace(/["`[\]]/g, "");
+          
+          if (SQL_KEYWORDS.includes(colName.toUpperCase())) continue;
+
+          if (!validColumnNames.has(colName.toLowerCase())) {
+            diagnostics.push({
+              from: cursor.from,
+              to: cursor.to,
+              severity: "error",
+              message: `Column '${colName}' does not exist in table '${stmt.targetTable}'`,
+            });
+          }
+        }
+      } while (cursor.next());
+    } catch {
+      // Skip validation if table doesn't exist
+    }
+  }
+
+  return diagnostics;
+}
+
+/**
+ * Validate columns in CREATE TABLE and ALTER TABLE statements
+ */
+async function validateDDLColumns(
+  state: EditorState,
+  provider: MetadataProvider,
+  defaultSchema?: string
+): Promise<Diagnostic[]> {
+  const diagnostics: Diagnostic[] = [];
+  const tree = syntaxTree(state);
+
+  // Collect ALTER statements synchronously
+  const alterStatements: Array<{ targetTable: string; stmtFrom: number; stmtTo: number }> = [];
+
+  tree.iterate({
+    enter: (node) => {
+      if (node.name === "AlterStatement") {
+        const cursor = node.node.cursor();
+        cursor.firstChild();
+        
+        let targetTable: string | undefined;
+
+        do {
+          if (cursor.name === "Identifier" && !targetTable) {
+            const text = state.sliceDoc(cursor.from, cursor.to);
+            const prevText = state.sliceDoc(Math.max(0, cursor.from - 20), cursor.from).toUpperCase();
+            if (prevText.includes("TABLE")) {
+              targetTable = text.replace(/["`[\]]/g, "");
+              break;
+            }
+          }
+        } while (cursor.nextSibling());
+
+        if (targetTable) {
+          alterStatements.push({ targetTable, stmtFrom: node.from, stmtTo: node.to });
+        }
+      }
+    },
+  });
+
+  // Validate asynchronously
+  for (const stmt of alterStatements) {
+    try {
+      const validColumns = await provider.listFields(stmt.targetTable, defaultSchema);
+      const validColumnNames = new Set(validColumns.map(c => c.name.toLowerCase()));
+
+      // Re-traverse to find column references in DROP/MODIFY
+      const subTree = syntaxTree(state);
+      const cursor = subTree.cursorAt(stmt.stmtFrom);
+      
+      let inDropColumn = false;
+      let inModifyColumn = false;
+
+      do {
+        if (cursor.from < stmt.stmtFrom || cursor.from > stmt.stmtTo) continue;
+        
+        const text = state.sliceDoc(cursor.from, cursor.to).toUpperCase();
+        
+        if (text === "DROP" || text.includes("DROP")) inDropColumn = true;
+        if (text === "MODIFY" || text === "CHANGE" || text === "ALTER") inModifyColumn = true;
+        if (text === "ADD") {
+          inDropColumn = false;
+          inModifyColumn = false;
+        }
+
+        if ((inDropColumn || inModifyColumn) && (cursor.name === "Identifier" || cursor.name === "QuotedIdentifier")) {
+          const colName = state.sliceDoc(cursor.from, cursor.to).replace(/["`[\]]/g, "");
+          
+          if (SQL_KEYWORDS.includes(colName.toUpperCase())) continue;
+
+          // For DROP/MODIFY, column must exist
+          if (!validColumnNames.has(colName.toLowerCase())) {
+            diagnostics.push({
+              from: cursor.from,
+              to: cursor.to,
+              severity: "error",
+              message: `Column '${colName}' does not exist in table '${stmt.targetTable}'`,
+            });
+          }
+        }
+      } while (cursor.next());
+    } catch {
+      // Table might not exist yet - skip validation
+    }
+  }
+
+  return diagnostics;
+}
+
+/**
  * Collect semantic diagnostics for SQL
  * Validates table/column existence, alias references, and type compatibility
  */
@@ -600,9 +1111,25 @@ const collectSemanticDiagnostics = async (
   state: EditorState,
   provider: MetadataProvider,
   defaultSchema?: string
-): Promise<Diagnostic[]> => {
+) => {
   const diagnostics: Diagnostic[] = [];
   const tree = syntaxTree(state);
+
+  // Run all validation functions in parallel for better performance
+  const validationPromises: Promise<Diagnostic[]>[] = [];
+  const processedStatements = new Set<string>();
+
+  // Validate INSERT statements
+  validationPromises.push(validateInsertColumns(state, provider, defaultSchema));
+
+  // Validate UPDATE statements
+  validationPromises.push(validateUpdateColumns(state, provider, defaultSchema));
+
+  // Validate DELETE statements
+  validationPromises.push(validateDeleteColumns(state, provider, defaultSchema));
+
+  // Validate DDL statements (ALTER TABLE, etc.)
+  validationPromises.push(validateDDLColumns(state, provider, defaultSchema));
 
   // Track checked identifiers to avoid duplicate warnings
   const checkedIdentifiers = new Set<string>();
@@ -703,24 +1230,57 @@ const collectSemanticDiagnostics = async (
         }
       }
 
-      // Collect tables for type validation
+      // Validate SELECT columns if we have active tables
       if (analysis.activeStatementTables.length > 0) {
-        // Add type violation checks for this statement
-        const typeViolations = await findTypeViolations(
-          state,
-          provider,
-          analysis.activeStatementTables,
-          defaultSchema
-        );
-        diagnostics.push(...typeViolations);
-        break; // Only need to check once per statement
+        const statement = getStatementAtPosition(state, identifier.from);
+        const statementKey = statement
+          ? `${statement.from}-${statement.to}`
+          : "unknown";
+
+        if (!processedStatements.has(statementKey)) {
+          processedStatements.add(statementKey);
+
+          // Run SELECT validations once per statement
+          validationPromises.push(
+            validateSelectColumns(
+              state,
+              provider,
+              analysis.activeStatementTables,
+              defaultSchema
+            ),
+            findTypeViolations(
+              state,
+              provider,
+              analysis.activeStatementTables,
+              defaultSchema
+            )
+          );
+        }
       }
     } catch {
       // Skip this identifier if context analysis fails
     }
   }
 
-  return diagnostics;
+  // Wait for all validation promises to complete
+  const allResults = await Promise.all(validationPromises);
+  
+  // Flatten and add all diagnostics
+  for (const result of allResults) {
+    diagnostics.push(...result);
+  }
+
+  // Deduplicate diagnostics
+  const deduped: Diagnostic[] = [];
+  const seen = new Set<string>();
+  for (const diag of diagnostics) {
+    const key = `${diag.from}-${diag.to}-${diag.message}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(diag);
+  }
+
+  return deduped;
 };
 
 /**

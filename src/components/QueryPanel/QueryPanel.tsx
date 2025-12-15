@@ -21,7 +21,7 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from "@/components/ui/resizable";
-import { IconHistory, IconStar } from '@tabler/icons-react';
+import { IconHistory, IconStar } from "@tabler/icons-react";
 import { toast } from "sonner";
 
 import { tableStreamingService } from "@/services/tableStreamingService";
@@ -36,10 +36,19 @@ import { formatSql } from "@/utils/codeFormatter";
 import type { SqlDialect } from "@/components/CodeEditor/types";
 import type { QueryEditorRef } from "./QueryEditor";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
-import { handleMutationCache, isMutationQuery, isSelectQuery } from "@/lib/cacheManager";
+import {
+  handleMutationCache,
+  isMutationQuery,
+  isSelectQuery,
+} from "@/lib/cacheManager";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { parseMutationTables } from "@/utils/sqlParser";
+import {
+  parseSqlStatements,
+  hasMultipleStatements,
+} from "@/utils/sqlStatementParser";
 import { eventBus } from "@/services/eventBus";
+import type { MultiQueryResult } from "@/stores/tabStateStore";
 
 interface QueryPanelProps {
   panelId: string;
@@ -76,22 +85,38 @@ type QueryPanelAction =
   | { type: "SET_IS_EXECUTING"; payload: boolean }
   | { type: "SET_IS_STREAMING"; payload: boolean }
   | { type: "SET_SHOW_HISTORY"; payload: boolean }
-  | { type: "SET_APPLIED_LIMIT"; payload: { originalSql: string; limit: number } | null }
-  | { type: "SET_VIEW_MODE"; payload: "table" | "json" | "explain" | "raw" | "stats" }
+  | {
+      type: "SET_APPLIED_LIMIT";
+      payload: { originalSql: string; limit: number } | null;
+    }
+  | {
+      type: "SET_VIEW_MODE";
+      payload: "table" | "json" | "explain" | "raw" | "stats";
+    }
   | { type: "SET_SELECTED_DIALECT"; payload: SqlDialect | "auto" }
   | { type: "SET_DETECTED_DIALECT"; payload: SqlDialect }
   | { type: "SET_SHOW_RESULTS"; payload: boolean }
   | { type: "SET_IS_EXPLAIN_RESULT"; payload: boolean }
   | { type: "START_EXECUTION" }
-  | { type: "END_EXECUTION"; payload: { result: QueryResult | null; error?: string } }
+  | {
+      type: "END_EXECUTION";
+      payload: { result: QueryResult | null; error?: string };
+    }
   | { type: "BATCH_UPDATE"; payload: Partial<QueryPanelState> };
 
-function queryPanelReducer(state: QueryPanelState, action: QueryPanelAction): QueryPanelState {
+function queryPanelReducer(
+  state: QueryPanelState,
+  action: QueryPanelAction,
+): QueryPanelState {
   switch (action.type) {
     case "SET_QUERY":
       return { ...state, query: action.payload };
     case "SET_RESULT":
-      return { ...state, result: action.payload, showResults: action.payload !== null };
+      return {
+        ...state,
+        result: action.payload,
+        showResults: action.payload !== null,
+      };
     case "SET_IS_EXECUTING":
       return { ...state, isExecuting: action.payload };
     case "SET_IS_STREAMING":
@@ -111,7 +136,13 @@ function queryPanelReducer(state: QueryPanelState, action: QueryPanelAction): Qu
     case "SET_IS_EXPLAIN_RESULT":
       return { ...state, isExplainResult: action.payload };
     case "START_EXECUTION":
-      return { ...state, isExecuting: true, isStreaming: true, result: null, isExplainResult: false };
+      return {
+        ...state,
+        isExecuting: true,
+        isStreaming: true,
+        result: null,
+        isExplainResult: false,
+      };
     case "END_EXECUTION":
       return {
         ...state,
@@ -127,11 +158,15 @@ function queryPanelReducer(state: QueryPanelState, action: QueryPanelAction): Qu
   }
 }
 
-type GlobalQueryState = ReturnType<typeof useTabStateStore.getState>["queryStates"] extends Map<string, infer T> ? T : never;
+type GlobalQueryState = ReturnType<
+  typeof useTabStateStore.getState
+>["queryStates"] extends Map<string, infer T>
+  ? T
+  : never;
 
 function createInitialState(
   globalState: GlobalQueryState | undefined,
-  initialSql: string
+  initialSql: string,
 ): QueryPanelState {
   return {
     query: globalState?.query ?? initialSql,
@@ -168,13 +203,26 @@ export const QueryPanel = memo(function QueryPanel({
   const [state, dispatch] = useReducer(
     queryPanelReducer,
     { globalState, initialSql },
-    ({ globalState: gs, initialSql: sql }) => createInitialState(gs, sql)
+    ({ globalState: gs, initialSql: sql }) => createInitialState(gs, sql),
   );
 
-  const { query, result, isExecuting, isStreaming, showHistory, appliedLimit, viewMode, selectedDialect, detectedDialect, showResults, isExplainResult } = state;
+  const {
+    query,
+    result,
+    isExecuting,
+    isStreaming,
+    showHistory,
+    appliedLimit,
+    viewMode,
+    selectedDialect,
+    detectedDialect,
+    showResults,
+    isExplainResult,
+  } = state;
 
   // AbortController still needs separate state (not serializable)
-  const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const [abortController, setAbortController] =
+    useState<AbortController | null>(null);
 
   // Get transaction state from persisted store
   const inTransaction = globalState?.inTransaction || false;
@@ -195,7 +243,12 @@ export const QueryPanel = memo(function QueryPanel({
   );
 
   const setResult = useCallback(
-    (value: QueryResult | null | ((prev: QueryResult | null) => QueryResult | null)) => {
+    (
+      value:
+        | QueryResult
+        | null
+        | ((prev: QueryResult | null) => QueryResult | null),
+    ) => {
       if (typeof value === "function") {
         // For functional updates, we need to get current state
         dispatch({ type: "SET_RESULT", payload: value(result) });
@@ -221,9 +274,12 @@ export const QueryPanel = memo(function QueryPanel({
     [],
   );
 
-  const setViewMode = useCallback((value: "table" | "json" | "explain" | "raw" | "stats") => {
-    dispatch({ type: "SET_VIEW_MODE", payload: value });
-  }, []);
+  const setViewMode = useCallback(
+    (value: "table" | "json" | "explain" | "raw" | "stats") => {
+      dispatch({ type: "SET_VIEW_MODE", payload: value });
+    },
+    [],
+  );
 
   const setSelectedDialect = useCallback((value: SqlDialect | "auto") => {
     dispatch({ type: "SET_SELECTED_DIALECT", payload: value });
@@ -346,8 +402,220 @@ export const QueryPanel = memo(function QueryPanel({
     };
   }, []);
 
+  /**
+   * Execute multiple SQL statements sequentially.
+   * Shows progress and accumulates results in a tabbed interface.
+   */
+  const handleMultiQueryExecute = useCallback(
+    async (statements: string[]) => {
+      if (statements.length === 0) return;
+
+      logger.info(
+        `[handleMultiQueryExecute] Executing ${statements.length} statements`,
+      );
+
+      setIsExecuting(true);
+      setIsStreaming(false);
+      setResult(null);
+
+      const multiResults: MultiQueryResult[] = [];
+      let hasError = false;
+
+      // Clear any previous multi-results
+      setQueryState(tabId, { multiResults: [], activeResultIndex: 0 });
+
+      for (let i = 0; i < statements.length; i++) {
+        if (hasError) break; // Stop on first error
+
+        const stmt = statements[i];
+        if (!stmt || !stmt.trim()) continue;
+
+        const startTime = Date.now();
+        logger.info(
+          `[handleMultiQueryExecute] Executing statement ${i + 1}/${
+            statements.length
+          }`,
+        );
+
+        // Show progress toast
+        toast.info(`Executing statement ${i + 1} of ${statements.length}...`, {
+          id: `multi-query-progress`,
+          duration: Infinity,
+        });
+
+        try {
+          // Execute statement using existing logic - we'll reuse the streaming service
+          const pageSize = 2500;
+          let currentColumns: string[] = [];
+          let currentColumnMeta: ColumnMeta[] = [];
+          const accumulatedRows: unknown[][] = [];
+
+          const streamPromise = tableStreamingService.streamQuery(
+            effectiveConnectionId,
+            `${tabId}-stmt${i}`,
+            stmt.trim(),
+            pageSize,
+            (progress) => {
+              if (progress.started && progress.columns) {
+                currentColumns = progress.columns.map((c) => c.name);
+                currentColumnMeta = progress.columns as unknown as ColumnMeta[];
+              }
+              if (progress.newRows && progress.newRows.length > 0) {
+                accumulatedRows.push(...progress.newRows);
+              }
+            },
+            (err: unknown) => {
+              logger.error(
+                `[handleMultiQueryExecute] Stream error for statement ${
+                  i + 1
+                }:`,
+                err,
+              );
+            },
+            smartQueryLimit ?? undefined,
+            () => {
+              /* Skip limit callback for multi-query */
+            },
+          );
+
+          const final = await streamPromise;
+          const endTime = Date.now();
+          const executionTime = final.executionTimeMs ?? endTime - startTime;
+
+          // Determine statement type and build appropriate result
+          const sqlUpper = stmt.trim().toUpperCase();
+          const hasReturning = sqlUpper.includes(" RETURNING ");
+          const wasMutation = isMutationQuery(stmt);
+          const isDDL =
+            sqlUpper.startsWith("CREATE ") ||
+            sqlUpper.startsWith("ALTER ") ||
+            sqlUpper.startsWith("DROP ");
+          const isTransaction =
+            sqlUpper === "BEGIN" ||
+            sqlUpper === "COMMIT" ||
+            sqlUpper === "ROLLBACK";
+
+          let affectedRows: number | undefined;
+          let message: string | undefined;
+
+          if (wasMutation && hasReturning && accumulatedRows.length > 0) {
+            affectedRows = final.totalRows ?? accumulatedRows.length;
+            message = `${affectedRows} row(s) affected`;
+          } else if (wasMutation && !hasReturning) {
+            affectedRows = final.totalRows ?? 0;
+          } else if (isDDL && accumulatedRows.length === 0) {
+            message = "Query executed successfully";
+          } else if (isTransaction) {
+            message =
+              sqlUpper === "BEGIN"
+                ? "Transaction started"
+                : sqlUpper === "COMMIT"
+                ? "Transaction committed"
+                : "Transaction rolled back";
+          }
+
+          multiResults.push({
+            statementIndex: i,
+            statement: stmt.trim(),
+            result: {
+              columns: currentColumns,
+              columnMeta: currentColumnMeta,
+              rows: [...accumulatedRows],
+              rowCount: final.totalRows ?? accumulatedRows.length,
+              affectedRows,
+              message,
+              executionTime,
+              cursorSetupMs: final.cursorSetupMs,
+              totalStreamingMs: final.totalStreamingMs,
+              fetchCount: final.fetchCount,
+              networkMs: final.networkMs,
+              conversionMs: final.conversionMs,
+              ipcSendMs: final.ipcSendMs,
+            },
+            startTime,
+            endTime,
+          });
+        } catch (error) {
+          hasError = true;
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+
+          multiResults.push({
+            statementIndex: i,
+            statement: stmt.trim(),
+            result: {
+              columns: [],
+              rows: [],
+              rowCount: 0,
+              error: errorMessage,
+              executionTime: Date.now() - startTime,
+            },
+            startTime,
+            endTime: Date.now(),
+          });
+
+          toast.error(`Error in statement ${i + 1}: ${errorMessage}`, {
+            id: `multi-query-progress`,
+            duration: 5000,
+          });
+
+          logger.error(
+            `[handleMultiQueryExecute] Error in statement ${i + 1}:`,
+            error,
+          );
+        }
+      }
+
+      // Dismiss progress toast
+      toast.dismiss(`multi-query-progress`);
+
+      // Update state with all results
+      setQueryState(tabId, {
+        multiResults,
+        activeResultIndex: 0,
+        hasUnsavedChanges: false,
+        lastExecutedQuery: statements.join(";\n"),
+      });
+
+      setIsExecuting(false);
+
+      // Show completion toast
+      const successCount = multiResults.filter((r) => !r.result.error).length;
+      const errorCount = multiResults.length - successCount;
+
+      if (errorCount === 0) {
+        toast.success(`✓ Executed ${successCount} statement(s) successfully`);
+      } else {
+        toast.warning(
+          `Executed ${successCount} statement(s), ${errorCount} failed`,
+        );
+      }
+
+      logger.info(
+        `[handleMultiQueryExecute] Completed: ${successCount} succeeded, ${errorCount} failed`,
+      );
+    },
+    [
+      setIsExecuting,
+      setIsStreaming,
+      setResult,
+      setQueryState,
+      tabId,
+      effectiveConnectionId,
+      smartQueryLimit,
+    ],
+  );
+
   const handleExecute = useCallback(
     async (queryToExecute?: string) => {
+      console.log("[QueryPanel.handleExecute] ===== EXECUTE CALLED =====");
+      console.log("[QueryPanel.handleExecute] queryToExecute:", queryToExecute);
+      console.log(
+        "[QueryPanel.handleExecute] queryToExecute type:",
+        typeof queryToExecute,
+      );
+      console.log("[QueryPanel.handleExecute] query (fallback):", query);
+
       logger.info("[handleExecute] Called with:", {
         queryToExecute,
         queryToExecuteLength: queryToExecute?.length || 0,
@@ -362,7 +630,44 @@ export const QueryPanel = memo(function QueryPanel({
         sqlLength: sql.length || 0,
       });
 
-      // Clean up the SQL - remove trailing semicolons as they cause issues
+      if (!sql || !sql.trim()) {
+        logger.info("[handleExecute] EMPTY QUERY - Showing error toast");
+        toast.error("Please enter a query to execute");
+        return;
+      }
+
+      // If the editor passed an explicit statement (selection or current block),
+      // treat it as a single statement and SKIP multi-statement detection.
+      // (Use strict type check so empty string still counts as explicit.)
+      const shouldSkipMultiCheck = typeof queryToExecute === "string";
+
+      console.log(
+        "[QueryPanel.handleExecute] shouldSkipMultiCheck:",
+        shouldSkipMultiCheck,
+      );
+      console.log(
+        "[QueryPanel.handleExecute] hasMultipleStatements(sql):",
+        hasMultipleStatements(sql),
+      );
+
+      // Check if this is a multi-statement query (only when not forced single)
+      // Don't trim trailing semicolons yet - we need them for parsing
+      if (!shouldSkipMultiCheck && hasMultipleStatements(sql)) {
+        console.log(
+          "[QueryPanel.handleExecute] ===== MULTI-STATEMENT PATH =====",
+        );
+        const statements = parseSqlStatements(sql).map((s) => s.text);
+        logger.info(
+          `[handleExecute] Multi-statement query detected: ${statements.length} statements`,
+        );
+        await handleMultiQueryExecute(statements);
+        return;
+      }
+
+      console.log(
+        "[QueryPanel.handleExecute] ===== SINGLE-STATEMENT PATH =====",
+      );
+      // Single statement execution - clean up trailing semicolons
       sql = sql.trim().replace(/;\s*$/, "");
 
       logger.info("[handleExecute] After trim and semicolon removal:", {
@@ -376,6 +681,12 @@ export const QueryPanel = memo(function QueryPanel({
         toast.error("Please enter a query to execute");
         return;
       }
+
+      // Clear multi-results for single query execution
+      setQueryState(tabId, {
+        multiResults: undefined,
+        activeResultIndex: undefined,
+      });
 
       setIsExecuting(true);
       setIsStreaming(true);
@@ -544,8 +855,7 @@ export const QueryPanel = memo(function QueryPanel({
           sqlUpper.startsWith("RELEASE SAVEPOINT ") ||
           sqlUpper === "START TRANSACTION";
         const isConfig =
-          sqlUpper.startsWith("SET ") ||
-          sqlUpper.startsWith("RESET ");
+          sqlUpper.startsWith("SET ") || sqlUpper.startsWith("RESET ");
         const isDDL =
           sqlUpper.startsWith("CREATE ") ||
           sqlUpper.startsWith("ALTER ") ||
@@ -573,11 +883,15 @@ export const QueryPanel = memo(function QueryPanel({
         }
         // For transaction control commands
         else if (isTransaction) {
-          if (sqlUpper.startsWith("BEGIN") || sqlUpper.startsWith("START TRANSACTION")) {
+          if (
+            sqlUpper.startsWith("BEGIN") ||
+            sqlUpper.startsWith("START TRANSACTION")
+          ) {
             message = "Transaction started";
             setQueryState(tabId, { inTransaction: true });
             toast.success("Transaction started", {
-              description: "This tab now has an active transaction. All queries in this tab will be part of this transaction until you COMMIT or ROLLBACK.",
+              description:
+                "This tab now has an active transaction. All queries in this tab will be part of this transaction until you COMMIT or ROLLBACK.",
               duration: 5000,
             });
           } else if (sqlUpper.startsWith("COMMIT")) {
@@ -630,13 +944,19 @@ export const QueryPanel = memo(function QueryPanel({
         if (isExplain) {
           dispatch({ type: "SET_IS_EXPLAIN_RESULT", payload: true });
           dispatch({ type: "SET_VIEW_MODE", payload: "explain" });
-          logger.info("[QueryPanel] EXPLAIN result detected - switching to explain view");
+          logger.info(
+            "[QueryPanel] EXPLAIN result detected - switching to explain view",
+          );
         } else {
           // Reset explain-specific UI when returning to normal results
           if (isExplainResult) {
             dispatch({ type: "SET_IS_EXPLAIN_RESULT", payload: false });
           }
-          if (viewMode === "explain" || viewMode === "raw" || viewMode === "stats") {
+          if (
+            viewMode === "explain" ||
+            viewMode === "raw" ||
+            viewMode === "stats"
+          ) {
             dispatch({ type: "SET_VIEW_MODE", payload: "table" });
           }
         }
@@ -654,7 +974,9 @@ export const QueryPanel = memo(function QueryPanel({
               const { invalidateTable } = useDataInvalidationStore.getState();
               affectedTables.forEach(({ schema, table }) => {
                 logger.info(
-                  `[QueryPanel] Invalidating table: ${schema ?? "public"}.${table}`,
+                  `[QueryPanel] Invalidating table: ${
+                    schema ?? "public"
+                  }.${table}`,
                 );
                 invalidateTable(
                   effectiveConnectionId,
@@ -849,7 +1171,11 @@ export const QueryPanel = memo(function QueryPanel({
       explainSql = `EXPLAIN ${sql}`;
     }
 
-    logger.info("[handleExplain] Running:", { explainSql, originalSql: sql, dbType: dbTypeLower });
+    logger.info("[handleExplain] Running:", {
+      explainSql,
+      originalSql: sql,
+      dbType: dbTypeLower,
+    });
 
     // Execute the explain query
     handleExecute(explainSql);
@@ -877,15 +1203,16 @@ export const QueryPanel = memo(function QueryPanel({
   // Subscribe to event bus for keyboard shortcuts
   // Track if this panel is focused using a ref to avoid re-subscribing
   const isFocusedRef = useRef(false);
-  
+
   useEffect(() => {
     // Update focus state
-    isFocusedRef.current = (panelId === useWorkbenchStore.getState().focusedPanelId);
-    
+    isFocusedRef.current =
+      panelId === useWorkbenchStore.getState().focusedPanelId;
+
     const unsubscribe = useWorkbenchStore.subscribe((state) => {
-      isFocusedRef.current = (panelId === state.focusedPanelId);
+      isFocusedRef.current = panelId === state.focusedPanelId;
     });
-    
+
     return unsubscribe;
   }, [panelId]);
 
@@ -997,7 +1324,9 @@ export const QueryPanel = memo(function QueryPanel({
                     onExecute={handleExecute}
                     isExecuting={isExecuting}
                     height="100%"
-                    dialectOverride={selectedDialect === "auto" ? undefined : selectedDialect}
+                    dialectOverride={
+                      selectedDialect === "auto" ? undefined : selectedDialect
+                    }
                     onDialectDetected={setDetectedDialect}
                   />
                   {/* Toolbar */}
@@ -1050,6 +1379,11 @@ export const QueryPanel = memo(function QueryPanel({
                           networkMs={result?.networkMs}
                           conversionMs={result?.conversionMs}
                           ipcSendMs={result?.ipcSendMs}
+                          multiResults={globalState?.multiResults}
+                          activeResultIndex={globalState?.activeResultIndex}
+                          onResultTabChange={(index) => {
+                            setQueryState(tabId, { activeResultIndex: index });
+                          }}
                         />
                       </div>
                     </div>

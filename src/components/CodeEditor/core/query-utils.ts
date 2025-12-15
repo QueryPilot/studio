@@ -27,6 +27,24 @@ function cleanQuery(query: string): string {
 }
 
 /**
+ * Represents a SQL statement boundary in the editor.
+ */
+export interface StatementBoundary {
+  /** Starting position in the document */
+  from: number;
+  /** Ending position in the document */
+  to: number;
+  /** The SQL statement text (trimmed, without trailing semicolon) */
+  text: string;
+  /** Starting line number (1-based) */
+  lineStart: number;
+  /** Ending line number (1-based) */
+  lineEnd: number;
+  /** Type of statement node from the AST */
+  type: string;
+}
+
+/**
  * Extract the SQL query at cursor position using AST-based boundary detection.
  * 
  * Priority:
@@ -105,5 +123,130 @@ export function getQueryAtCursorFromState(state: EditorState): string {
   return cleanQuery(state.doc.toString());
 }
 
+/**
+ * Get all SQL statements in the document using AST-based detection.
+ * Returns boundaries for each statement found.
+ */
+export function getAllStatements(state: EditorState): StatementBoundary[] {
+  const statements: StatementBoundary[] = [];
+  const tree = syntaxTree(state);
+  const doc = state.doc;
+
+  // Find the Script node (root)
+  const cursor = tree.cursor();
+  
+  // Navigate to Script node
+  while (cursor.node.name !== "Script" && cursor.parent()) {
+    // Keep walking up
+  }
+
+  if (cursor.node.name === "Script" && cursor.firstChild()) {
+    // Iterate through all top-level statements
+    do {
+      const typeName = cursor.type.name;
+      const isStatement = STATEMENT_TYPES.has(typeName) || typeName.includes("Statement");
+
+      if (isStatement) {
+        const from = cursor.from;
+        const to = cursor.to;
+        const text = cleanQuery(state.sliceDoc(from, to));
+        
+        // Skip empty statements
+        if (!text) continue;
+
+        const lineStart = doc.lineAt(from).number;
+        const lineEnd = doc.lineAt(to).number;
+
+        statements.push({
+          from,
+          to,
+          text,
+          lineStart,
+          lineEnd,
+          type: typeName,
+        });
+      }
+    } while (cursor.nextSibling());
+  }
+
+  // If no statements found via AST, fallback to semicolon splitting
+  // This handles cases where the AST is incomplete or parsing failed
+  if (statements.length === 0) {
+    const content = doc.toString();
+    if (content.trim()) {
+      // Simple fallback: treat entire document as one statement
+      statements.push({
+        from: 0,
+        to: doc.length,
+        text: cleanQuery(content),
+        lineStart: 1,
+        lineEnd: doc.lines,
+        type: "Statement",
+      });
+    }
+  }
+
+  return statements;
+}
+
+/**
+ * Get the statement boundary at a specific position in the document.
+ * Returns null if no statement is found at that position.
+ */
+export function getStatementAtPosition(
+  state: EditorState,
+  pos: number
+): StatementBoundary | null {
+  const statements = getAllStatements(state);
+
+  if (!statements.length) return null;
+
+  // Find the statement that contains this position
+  for (const stmt of statements) {
+    if (pos >= stmt.from && pos <= stmt.to) {
+      return stmt;
+    }
+  }
+
+  // If cursor is before the first statement, snap to the first
+  if (pos < statements[0].from) {
+    return statements[0];
+  }
+
+  // If cursor is after the last statement, snap to the last
+  const last = statements[statements.length - 1];
+  if (pos > last.to) {
+    return last;
+  }
+
+  // Cursor is between statements; choose the nearest previous statement
+  for (let i = 1; i < statements.length; i++) {
+    const prev = statements[i - 1];
+    const next = statements[i];
+    if (pos > prev.to && pos < next.from) {
+      return prev;
+    }
+  }
+
+  return statements[statements.length - 1];
+}
+
+/**
+ * Get all statements that overlap with a given selection range.
+ * Used for multi-statement execution when user selects across multiple queries.
+ */
+export function getStatementsInRange(
+  state: EditorState,
+  from: number,
+  to: number
+): StatementBoundary[] {
+  const statements = getAllStatements(state);
+  
+  // Filter statements that overlap with the selection
+  return statements.filter((stmt) => {
+    // Statement overlaps if it starts before selection ends and ends after selection starts
+    return stmt.from < to && stmt.to > from;
+  });
+}
 
 

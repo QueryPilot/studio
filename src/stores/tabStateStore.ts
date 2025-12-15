@@ -20,6 +20,14 @@ export interface QueryResult {
   error?: string;
 }
 
+export interface MultiQueryResult {
+  statementIndex: number;
+  statement: string;
+  result: QueryResult;
+  startTime: number;
+  endTime: number;
+}
+
 interface QueryState {
   query: string;
   result: QueryResult | null;
@@ -32,6 +40,10 @@ interface QueryState {
   lastSelectQuery: string | null; // Store last SELECT query for auto-refresh after mutations
   inTransaction: boolean; // Track if this tab has an active transaction
   selectedDialect?: SqlDialect | "auto"; // Selected SQL dialect (auto = auto-detect)
+  
+  // Multi-query execution support
+  multiResults?: MultiQueryResult[]; // Results from multi-statement execution
+  activeResultIndex?: number; // Currently viewed result tab (0-based)
 }
 
 interface TabStateStore {

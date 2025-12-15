@@ -97,12 +97,13 @@ export const QueryEditor = memo(
         }
 
         if (onExecute) {
-          const finalQuery = query || valueRef.current;
+          // Pass the query as-is - DO NOT fall back to valueRef.current
+          // SqlEditor already handles extracting the correct query (selection/cursor/full)
           logger.info("[QueryEditor.handleExecute] Calling onExecute with:", {
-            finalQuery,
-            finalQueryLength: finalQuery?.length || 0,
+            query,
+            queryLength: query?.length || 0,
           });
-          onExecute(finalQuery);
+          onExecute(query);
         }
       },
       [onExecute],

@@ -12,4 +12,12 @@ export type {
   JoinConditionSuggestion,
 } from "./types";
 
-export { getQueryAtCursor, getQueryAtCursorFromState } from "./query-utils";
+export type { StatementBoundary } from "./query-utils";
+
+export {
+  getQueryAtCursor,
+  getQueryAtCursorFromState,
+  getAllStatements,
+  getStatementAtPosition,
+  getStatementsInRange,
+} from "./query-utils";

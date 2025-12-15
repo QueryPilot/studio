@@ -33,7 +33,7 @@ import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import { debounce } from "@/utils/debounce";
 import { detectSqlDialect } from "@/utils/dialectDetector";
 import { getThemeExtensions } from "./themes";
-import { getQueryAtCursor } from "./core";
+import { getQueryAtCursor, getStatementAtPosition } from "./core";
 
 // Extensions
 import { createMultiCursorExtension } from "./extensions/multi-cursor";
@@ -42,6 +42,8 @@ import { createParameterHintsExtension } from "./extensions/parameter-hints";
 import { createFormatterExtension, formatEditorContent } from "./extensions/formatter";
 import { createGotoDefinitionExtension } from "./extensions/goto-definition";
 import { createSemanticHighlightingExtension } from "./extensions/semantic-highlighting";
+import { createStatementHighlightExtension } from "./extensions/statement-highlight";
+import { createRunGutterExtension } from "./extensions/run-gutter";
 
 // SQL language support
 import { createDialectLinter } from "./languages/sql/linter-strategy";
@@ -248,20 +250,49 @@ export const SqlEditor = memo(
 
     // Create execute keymap
     const executeKeymap = useMemo(() => {
+      if (!onExecute) return [];
+      
       return Prec.highest(
         keymap.of([
           {
             key: "Mod-Enter",
             run: (view) => {
-              const query = getQueryAtCursor(view);
-              const finalQuery = query || view.state.doc.toString();
-              onExecuteRef.current?.(finalQuery);
-              return true;
+              const selection = view.state.selection.main;
+              
+              console.log('[SqlEditor.executeKeymap] Cmd+Enter pressed', {
+                hasSelection: selection.from !== selection.to,
+                selectionFrom: selection.from,
+                selectionTo: selection.to,
+                cursorPos: selection.head,
+              });
+              
+              // Priority 1: If text is selected, execute the selection
+              if (selection.from !== selection.to) {
+                const selectedText = view.state.doc.sliceString(selection.from, selection.to).trim();
+                console.log('[SqlEditor.executeKeymap] Executing SELECTION:', selectedText);
+                if (selectedText) {
+                  onExecuteRef.current?.(selectedText);
+                  return true;
+                }
+              }
+
+              // Priority 2: Execute statement at cursor (current active block)
+              const statementAtCursor = getStatementAtPosition(view.state, selection.head);
+              console.log('[SqlEditor.executeKeymap] Statement at cursor:', statementAtCursor);
+              if (statementAtCursor) {
+                console.log('[SqlEditor.executeKeymap] Executing CURRENT BLOCK:', statementAtCursor.text);
+                onExecuteRef.current?.(statementAtCursor.text);
+                return true;
+              }
+
+              // No statement found -> do nothing
+              console.log('[SqlEditor.executeKeymap] No statement found at cursor, skipping execution');
+              return false;
             },
           },
         ])
       );
-    }, []);
+    }, [onExecute]);
 
     // Stable reference for schema
     const defaultSchema = schema || "public";
@@ -400,7 +431,10 @@ export const SqlEditor = memo(
         extensions: [
           // Base setup
           baseTheme,
+          
+          // History MUST come first to ensure undo/redo works properly
           history(),
+          
           bracketMatching(),
           highlightSelectionMatches({
             minSelectionLength: 3,
@@ -416,15 +450,15 @@ export const SqlEditor = memo(
           highlightActiveLineGutter(),
           highlightActiveLine(),
           foldGutter(),
-          lintGutter(),
+          // Note: lintGutter() is added by run-gutter extension if onExecute is provided
 
           // Search
           search({ top: true }),
 
-          // Keymaps
+          // Keymaps - history keymap with high precedence to prevent override
+          Prec.high(keymap.of(historyKeymap)),
           keymap.of([
             ...defaultKeymap,
-            ...historyKeymap,
             ...searchKeymap,
             ...foldKeymap,
           ]),
@@ -462,6 +496,12 @@ export const SqlEditor = memo(
           createFormatterExtension(effectiveDialect),
           createGotoDefinitionExtension(),
           createSemanticHighlightingExtension(),
+
+          // Statement highlighting - highlight active statement block
+          createStatementHighlightExtension(),
+          
+          // Run gutter - play button for each statement (includes lintGutter)
+          ...(onExecute ? [createRunGutterExtension((query) => onExecuteRef.current?.(query))] : [lintGutter()]),
 
           // Update listener
           updateListener,
