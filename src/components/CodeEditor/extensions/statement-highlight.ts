@@ -90,8 +90,14 @@ const inactiveStatementLine = Decoration.line({
  * - Inactive: transparent (invisible but maintains layout)
  */
 function buildStatementDecorations(view: EditorView): DecorationSet {
+  // Don't apply decorations if document is empty or whitespace-only
+  const docContent = view.state.doc.toString();
+  if (!docContent.trim()) {
+    return Decoration.none;
+  }
+
   const statements = getAllStatements(view.state);
-  
+
   // Don't apply decorations if no statements
   if (statements.length === 0) {
     return Decoration.none;

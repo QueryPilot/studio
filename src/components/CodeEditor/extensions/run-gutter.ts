@@ -17,6 +17,9 @@ import { getAllStatements, type StatementBoundary } from "../core/query-utils";
 const statementsField = StateField.define<Map<number, StatementBoundary>>({
   create(state) {
     const map = new Map<number, StatementBoundary>();
+    // Don't track statements if document is empty
+    if (!state.doc.toString().trim()) return map;
+
     const statements = getAllStatements(state);
     statements.forEach(stmt => {
       const lineNum = state.doc.lineAt(stmt.from).number; // 1-based
@@ -27,6 +30,9 @@ const statementsField = StateField.define<Map<number, StatementBoundary>>({
   update(map, tr) {
     if (tr.docChanged) {
       const newMap = new Map<number, StatementBoundary>();
+      // Don't track statements if document is empty
+      if (!tr.state.doc.toString().trim()) return newMap;
+
       const statements = getAllStatements(tr.state);
       statements.forEach(stmt => {
         const lineNum = tr.state.doc.lineAt(stmt.from).number; // 1-based
@@ -82,6 +88,10 @@ function createRunGutterPlugin(onExecute: (query: string) => void) {
       }
 
       updateGutter() {
+        // Don't show play buttons if document is empty or whitespace-only
+        const docContent = this.view.state.doc.toString();
+        if (!docContent.trim()) return;
+
         const statements = this.view.state.field(statementsField, false);
         if (!statements || statements.size === 0) return;
 
@@ -170,11 +180,16 @@ export function createRunGutterExtension(
     
     // Theme for play button
     EditorView.theme({
+      ".cm-gutter-lint": {
+        width: "20px", // Fixed width to prevent layout shift
+        minWidth: "20px",
+      },
       ".cm-gutter-lint .cm-gutterElement": {
         display: "flex",
         alignItems: "center",
-        justifyContent: "flex-start",
-        paddingLeft: "0.2em !important",
+        justifyContent: "center", // Center content in fixed-width gutter
+        width: "20px",
+        padding: "0 !important",
       },
       ".cm-run-gutter-button": {
         display: "inline-flex",
