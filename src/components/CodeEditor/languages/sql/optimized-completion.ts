@@ -20,20 +20,15 @@ import type { EditorState } from "@codemirror/state";
 import { createSqlMetadataProvider } from "./metadataProvider";
 import { searchFunctions } from "./functions";
 import type { SqlDialect } from "../../types";
+import type { TableRef } from "./context";
+import { TABLE_KEYWORDS_SET } from "./constants";
 
 // ============================================================================
 // TABLE ALIAS RESOLUTION - Maps aliases to actual table names
 // ============================================================================
-interface TableRef {
-  name: string;
-  alias?: string;
-  schema?: string;
-}
 
 // Cache for table refs - avoids re-parsing on every keystroke
 let tableRefsCache: { docLen: number; tables: TableRef[] } | null = null;
-
-const TABLE_KEYWORDS = ["from", "join", "update", "into", "table"];
 
 /**
  * Extract table references with aliases from the SQL document.
@@ -61,7 +56,7 @@ function extractTableRefs(state: EditorState): TableRef[] {
       // Check if this identifier follows a table keyword
       if (prevSibling?.type.name === "Keyword") {
         const keyword = state.sliceDoc(prevSibling.from, prevSibling.to).toLowerCase();
-        if (TABLE_KEYWORDS.includes(keyword)) {
+        if (TABLE_KEYWORDS_SET.has(keyword)) {
           const tableName = state.sliceDoc(cursor.from, cursor.to).replace(/["`[\]]/g, "");
 
           if (seen.has(tableName.toLowerCase())) continue;
@@ -308,6 +303,36 @@ const MAX_CACHE_SIZE = 50;
 // In-flight request tracking
 const inflightRequests = new Map<string, Promise<Completion[] | null>>();
 
+// ============================================================================
+// PREFIX-BASED CACHING - Cache raw metadata for fast incremental filtering
+// ============================================================================
+interface MetadataCache {
+  tables: Completion[];
+  columns: Map<string, Completion[]>; // keyed by "table.toLowerCase()"
+  timestamp: number;
+}
+
+const metadataCache = new Map<string, MetadataCache>();
+const METADATA_CACHE_TTL = 30000; // 30 seconds - metadata changes less frequently
+
+function getMetadataCache(connectionId: string): MetadataCache | null {
+  const cached = metadataCache.get(connectionId);
+  if (cached && Date.now() - cached.timestamp < METADATA_CACHE_TTL) {
+    return cached;
+  }
+  return null;
+}
+
+function setMetadataCache(connectionId: string, cache: MetadataCache): void {
+  // Limit total connections cached
+  if (metadataCache.size > 10) {
+    const oldest = [...metadataCache.entries()]
+      .sort((a, b) => a[1].timestamp - b[1].timestamp)[0];
+    if (oldest) metadataCache.delete(oldest[0]);
+  }
+  metadataCache.set(connectionId, cache);
+}
+
 /**
  * Generate a hash for the completion context
  */
@@ -447,7 +472,8 @@ export function createOptimizedCompletionSource(config: CompletionConfig) {
       context,
       analysis.intent,
       defaultSchema,
-      dialect
+      dialect,
+      connectionId
     );
 
     inflightRequests.set(inflightKey, requestPromise);
@@ -483,13 +509,15 @@ export function createOptimizedCompletionSource(config: CompletionConfig) {
 
 /**
  * Fetch completions from provider with fuzzy matching and usage-based ranking
+ * Uses metadata cache for fast incremental filtering
  */
 async function fetchCompletions(
   provider: ReturnType<typeof createSqlMetadataProvider>,
   context: CompletionContext,
   intent: "table" | "column" | "unknown",
   defaultSchema: string,
-  dialect: SqlDialect
+  dialect: SqlDialect,
+  connectionId: string
 ): Promise<Completion[] | null> {
   const completions: Completion[] = [];
   const word = context.matchBefore(/[\w_]+/);
@@ -506,6 +534,15 @@ async function fetchCompletions(
         // Extract table refs to resolve aliases
         const tables = extractTableRefs(context.state);
         const resolved = resolveTableAlias(qualifier, tables);
+        const cacheKey = resolved.tableName.toLowerCase();
+
+        // Try metadata cache first for instant response
+        const cached = getMetadataCache(connectionId);
+        if (cached?.columns.has(cacheKey)) {
+          const cachedColumns = cached.columns.get(cacheKey)!;
+          const columnQuery = dotMatch.text.split(".")[1]?.replace(/["`[\]]/g, "") || "";
+          return columnQuery ? filterByFuzzy(cachedColumns, columnQuery) : cachedColumns;
+        }
 
         // Fetch fields using the resolved table name
         const fields = await provider.listFields(resolved.tableName, resolved.schema || defaultSchema);
@@ -543,6 +580,17 @@ async function fetchCompletions(
             apply: quoteIdentifier(field.name, dialect),
           });
         }
+
+        // Cache column completions for this table
+        if (completions.length > 0) {
+          const existingCache = getMetadataCache(connectionId) || {
+            tables: [],
+            columns: new Map(),
+            timestamp: Date.now(),
+          };
+          existingCache.columns.set(cacheKey, [...completions]);
+          setMetadataCache(connectionId, existingCache);
+        }
       }
 
       // Apply fuzzy filtering for qualified access
@@ -554,7 +602,13 @@ async function fetchCompletions(
     }
 
     if (intent === "table") {
-      // Table context
+      // Try metadata cache first for instant response
+      const cached = getMetadataCache(connectionId);
+      if (cached?.tables.length) {
+        return query ? filterByFuzzy(cached.tables, query) : cached.tables;
+      }
+
+      // Table context - fetch and cache
       const entities = await provider.listEntities();
       for (const entity of entities) {
         const alias = generateAlias(entity.name);
@@ -566,6 +620,18 @@ async function fetchCompletions(
           boost: 5 + usageBoost,
           apply: `${quoteIdentifier(entity.name, dialect)}${alias ? ` ${alias}` : ""}`,
         });
+      }
+
+      // Cache table completions
+      if (completions.length > 0) {
+        const existingCache = getMetadataCache(connectionId) || {
+          tables: [],
+          columns: new Map(),
+          timestamp: Date.now(),
+        };
+        existingCache.tables = [...completions];
+        existingCache.timestamp = Date.now();
+        setMetadataCache(connectionId, existingCache);
       }
 
       // Apply fuzzy filtering
@@ -582,8 +648,14 @@ async function fetchCompletions(
     const tables = extractTableRefs(context.state);
 
     // Add table aliases for quick qualified access (highest priority in column context)
+    // Filter out the current word being typed to avoid self-suggestion
+    const queryLower = query.toLowerCase();
     for (const table of tables) {
       const aliasOrName = table.alias || table.name;
+
+      // Skip if this is exactly what the user is typing (self-suggestion bug)
+      if (aliasOrName.toLowerCase() === queryLower) continue;
+
       const usageBoost = getUsageBoost("tables", table.name);
       completions.push({
         label: aliasOrName,

@@ -147,9 +147,9 @@ export function createExpandStarExtension(
       return Decoration.none;
     },
     update(decorations, tr) {
-      // Always recompute on doc changes
       if (tr.docChanged) {
-        return Decoration.none;
+        // Map existing decorations through changes to keep positions valid
+        return decorations.map(tr.changes);
       }
       return decorations;
     },
@@ -160,28 +160,30 @@ export function createExpandStarExtension(
     class {
       decorations: DecorationSet = Decoration.none;
       pendingUpdate: ReturnType<typeof setTimeout> | null = null;
+      cachedStarPositions: number[] = [];
 
       constructor(view: EditorView) {
         this.updateDecorations(view);
       }
 
       update(update: ViewUpdate) {
-        if (update.docChanged || update.viewportChanged) {
-          // Clear stale decorations immediately to avoid position errors
-          this.decorations = Decoration.none;
+        if (update.docChanged) {
+          // Map decorations through changes to maintain positions
+          this.decorations = this.decorations.map(update.changes);
 
-          // Debounce to avoid blocking during typing
+          // Debounced rebuild to detect new/removed star patterns
           if (this.pendingUpdate) {
             clearTimeout(this.pendingUpdate);
           }
           const view = update.view;
           this.pendingUpdate = setTimeout(() => {
-            // Re-check view is still valid
             if (view.dom.isConnected) {
               this.updateDecorations(view);
               this.pendingUpdate = null;
             }
-          }, 500);
+          }, 300);
+        } else if (update.viewportChanged) {
+          this.updateDecorations(update.view);
         }
       }
 
@@ -193,6 +195,18 @@ export function createExpandStarExtension(
 
       updateDecorations(view: EditorView) {
         const targets = findStarPatterns(view);
+        const newStarPositions = targets.map(t => t.from);
+
+        // Only rebuild if star positions actually changed
+        const positionsChanged =
+          newStarPositions.length !== this.cachedStarPositions.length ||
+          newStarPositions.some((pos, i) => pos !== this.cachedStarPositions[i]);
+
+        if (!positionsChanged && this.decorations !== Decoration.none) {
+          return;
+        }
+
+        this.cachedStarPositions = newStarPositions;
         const decos: Array<{ from: number; value: Decoration }> = [];
 
         for (const target of targets) {

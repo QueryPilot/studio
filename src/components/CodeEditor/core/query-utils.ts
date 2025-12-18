@@ -7,6 +7,31 @@ import type { EditorView } from "@codemirror/view";
 import type { EditorState } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 
+// Memoization cache for getAllStatements - avoids recomputing on every call
+let statementsCache: {
+  docLength: number;
+  docHash: number;
+  treeLength: number;
+  statements: StatementBoundary[];
+} | null = null;
+
+function hashDoc(state: EditorState): number {
+  // Fast hash using first/last chars and length - good enough for change detection
+  const doc = state.doc;
+  const len = doc.length;
+  if (len === 0) return 0;
+  const first = doc.sliceString(0, Math.min(100, len));
+  const last = len > 100 ? doc.sliceString(Math.max(0, len - 100), len) : "";
+  let hash = len;
+  for (let i = 0; i < first.length; i++) {
+    hash = ((hash << 5) - hash + first.charCodeAt(i)) | 0;
+  }
+  for (let i = 0; i < last.length; i++) {
+    hash = ((hash << 5) - hash + last.charCodeAt(i)) | 0;
+  }
+  return hash;
+}
+
 // SQL statement types recognized by the Lezer grammar
 const STATEMENT_TYPES = new Set([
   "Statement",
@@ -126,11 +151,28 @@ export function getQueryAtCursorFromState(state: EditorState): string {
 /**
  * Get all SQL statements in the document using AST-based detection.
  * Returns boundaries for each statement found.
+ *
+ * MEMOIZED: Results are cached based on document content hash.
+ * Safe to call frequently (e.g., on every transaction).
  */
 export function getAllStatements(state: EditorState): StatementBoundary[] {
-  const statements: StatementBoundary[] = [];
   const tree = syntaxTree(state);
   const doc = state.doc;
+  const docLength = doc.length;
+  const treeLength = tree.length;
+  const docHash = hashDoc(state);
+
+  // Return cached result if document unchanged
+  if (
+    statementsCache &&
+    statementsCache.docLength === docLength &&
+    statementsCache.docHash === docHash &&
+    statementsCache.treeLength === treeLength
+  ) {
+    return statementsCache.statements;
+  }
+
+  const statements: StatementBoundary[] = [];
 
   // Find the Script node (root)
   const cursor = tree.cursor();
@@ -185,6 +227,9 @@ export function getAllStatements(state: EditorState): StatementBoundary[] {
       });
     }
   }
+
+  // Cache result for subsequent calls
+  statementsCache = { docLength, docHash, treeLength, statements };
 
   return statements;
 }

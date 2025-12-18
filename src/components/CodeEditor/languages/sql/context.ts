@@ -2,6 +2,7 @@ import { syntaxTree } from "@codemirror/language";
 import type { CompletionContext } from "@codemirror/autocomplete";
 import type { EditorState } from "@codemirror/state";
 import type { SyntaxNode } from "@lezer/common";
+import { isTableKeyword } from "./constants";
 
 export type SqlIntent = "table" | "column" | "keyword" | "function" | "unknown";
 
@@ -178,8 +179,6 @@ const TABLE_CLAUSE_TYPES = [
   "DeleteStatement",
 ];
 
-// Keywords that precede table names
-const TABLE_KEYWORDS = ["from", "join", "update", "into", "table"];
 
 /**
  * Detect if we're in an INSERT or UPDATE context and extract target table
@@ -332,9 +331,7 @@ function extractTablesFromRange(
         parent && TABLE_CLAUSE_TYPES.includes(parent.type.name);
       const followsTableKeyword =
         prevSibling?.type.name === "Keyword" &&
-        TABLE_KEYWORDS.includes(
-          state.sliceDoc(prevSibling.from, prevSibling.to).toLowerCase()
-        );
+        isTableKeyword(state.sliceDoc(prevSibling.from, prevSibling.to));
 
       if (isInTableClause || followsTableKeyword) {
         const tableName = state
@@ -449,9 +446,7 @@ function getScopeTables(
           parent && TABLE_CLAUSE_TYPES.includes(parent.type.name);
         const followsTableKeyword =
           prevSibling?.type.name === "Keyword" &&
-          TABLE_KEYWORDS.includes(
-            state.sliceDoc(prevSibling.from, prevSibling.to).toLowerCase()
-          );
+          isTableKeyword(state.sliceDoc(prevSibling.from, prevSibling.to));
 
         if (isInTableClause || followsTableKeyword) {
           const tableName = state
@@ -577,10 +572,8 @@ function detectIntent(state: EditorState, pos: number): SqlIntent {
   if (lookbackPos > 0) {
     const prevToken = tree.resolveInner(lookbackPos, -1);
     if (prevToken && prevToken.type.name === "Keyword") {
-      const prevText = state
-        .sliceDoc(prevToken.from, prevToken.to)
-        .toLowerCase();
-      if (TABLE_KEYWORDS.includes(prevText)) {
+      const prevText = state.sliceDoc(prevToken.from, prevToken.to);
+      if (isTableKeyword(prevText)) {
         return "table";
       }
     }

@@ -6,100 +6,7 @@ import { getStatementAtPosition } from "@/components/CodeEditor/core";
 import type { SqlDialect, MetadataProvider } from "@/components/CodeEditor/types";
 import { getDialectValidator, type SyntaxError } from "./dialect-validators";
 import { analyzeSqlContext, type TableRef } from "./context";
-
-const SQL_KEYWORDS = [
-  "SELECT",
-  "FROM",
-  "WHERE",
-  "GROUP",
-  "HAVING",
-  "ORDER",
-  "LIMIT",
-  "OFFSET",
-  "JOIN",
-  "INNER",
-  "LEFT",
-  "RIGHT",
-  "FULL",
-  "CROSS",
-  "ON",
-  "INSERT",
-  "UPDATE",
-  "DELETE",
-  "CREATE",
-  "ALTER",
-  "DROP",
-  "TRUNCATE",
-  "VALUES",
-  "RETURNING",
-  "WITH",
-  "DISTINCT",
-  "UNION",
-  "EXCEPT",
-  "INTERSECT",
-  // EXPLAIN / ANALYZE
-  "EXPLAIN",
-  "ANALYZE",
-  "BUFFERS",
-  "COSTS",
-  "FORMAT",
-  "VERBOSE",
-  "SETTINGS",
-  "WAL",
-  "TIMING",
-  "SUMMARY",
-  // Common PostgreSQL extras
-  "TEXT",
-  "JSON",
-  "XML",
-  "YAML",
-  "TRUE",
-  "FALSE",
-  "NULL",
-  "AS",
-  "BY",
-  "IN",
-  "NOT",
-  "AND",
-  "OR",
-  "IS",
-  "LIKE",
-  "ILIKE",
-  "BETWEEN",
-  "EXISTS",
-  "CASE",
-  "WHEN",
-  "THEN",
-  "ELSE",
-  "END",
-  "CAST",
-  "COALESCE",
-  "NULLIF",
-  "ASC",
-  "DESC",
-  "NULLS",
-  "FIRST",
-  "LAST",
-  "ALL",
-  "ANY",
-  "SOME",
-  "INDEX",
-  "TABLE",
-  "VIEW",
-  "SCHEMA",
-  "DATABASE",
-  "COLUMN",
-  "CONSTRAINT",
-  "PRIMARY",
-  "FOREIGN",
-  "KEY",
-  "REFERENCES",
-  "UNIQUE",
-  "CHECK",
-  "DEFAULT",
-  "SET",
-  "INTO",
-];
+import { SQL_KEYWORDS, isSqlKeyword } from "./constants";
 
 const UPPERCASE_IDENTIFIER = /^[A-Z_]+$/;
 
@@ -535,59 +442,49 @@ function getExpressionType(state: EditorState, node: SyntaxNode): 'numeric' | 't
 }
 
 /**
- * Find comparisons in WHERE clauses and validate types using the syntax tree
+ * Find comparisons and validate types using pre-collected comparison nodes
  */
 const findTypeViolations = async (
   state: EditorState,
   provider: MetadataProvider,
   tables: TableRef[],
+  comparisonNodes: Array<{ node: SyntaxNode }>,
   defaultSchema?: string
 ): Promise<Diagnostic[]> => {
   const diagnostics: Diagnostic[] = [];
-  const tree = syntaxTree(state);
 
-  // Find all comparison expressions in the tree
+  if (comparisonNodes.length === 0) return diagnostics;
+
+  // Extract comparison info from pre-collected nodes
   const comparisons: Array<{
     left: SyntaxNode;
     right: SyntaxNode;
     operator: string;
   }> = [];
 
-  tree.iterate({
-    enter: (node) => {
-      // Look for comparison operators
-      if (node.name === "CompareOp" || node.name === "BinaryExpression") {
-        const cursor = node.node.cursor();
-        let left: SyntaxNode | null = null;
-        let right: SyntaxNode | null = null;
-        let operator = "";
+  for (const { node } of comparisonNodes) {
+    const cursor = node.cursor();
+    let left: SyntaxNode | null = null;
+    let right: SyntaxNode | null = null;
+    let operator = "";
 
-        // For BinaryExpression, find left operand, operator, right operand
-        cursor.firstChild();
-        do {
-          if (!left && (cursor.name === "Identifier" || cursor.name === "QuotedIdentifier" ||
-              cursor.name === "Number" || cursor.name === "String" || cursor.name === "Application")) {
-            left = cursor.node;
-          } else if (cursor.name === "CompareOp" || cursor.name === "ArithOp" ||
-                     ["=", "<>", "!=", ">=", "<=", ">", "<"].includes(cursor.name)) {
-            operator = state.sliceDoc(cursor.from, cursor.to);
-          } else if (left && operator && !right) {
-            right = cursor.node;
-          }
-        } while (cursor.nextSibling());
-
-        if (left && right && operator) {
-          comparisons.push({ left, right, operator });
-        }
+    cursor.firstChild();
+    do {
+      if (!left && (cursor.name === "Identifier" || cursor.name === "QuotedIdentifier" ||
+          cursor.name === "Number" || cursor.name === "String" || cursor.name === "Application")) {
+        left = cursor.node;
+      } else if (cursor.name === "CompareOp" || cursor.name === "ArithOp" ||
+                 ["=", "<>", "!=", ">=", "<=", ">", "<"].includes(cursor.name)) {
+        operator = state.sliceDoc(cursor.from, cursor.to);
+      } else if (left && operator && !right) {
+        right = cursor.node;
       }
+    } while (cursor.nextSibling());
 
-      // Also check for IN expressions
-      if (node.name === "InExpression") {
-        // TODO: Handle IN expressions for type checking
-        // For now, we'll skip this
-      }
+    if (left && right && operator) {
+      comparisons.push({ left, right, operator });
     }
-  });
+  }
 
   // Check each comparison
   for (const { left, right } of comparisons) {
@@ -655,22 +552,151 @@ const findTypeViolations = async (
   return diagnostics;
 };
 
+// ============================================================================
+// SINGLE-PASS AST COLLECTOR
+// Collects all nodes in one tree iteration for batch processing
+// ============================================================================
+
+interface CollectedNodes {
+  errors: Array<{ from: number; to: number }>;
+  identifiers: Array<{ from: number; to: number; node: SyntaxNode }>;
+  selectStatements: Array<{ from: number; to: number; node: SyntaxNode }>;
+  insertStatements: Array<{ from: number; to: number; node: SyntaxNode }>;
+  updateStatements: Array<{ from: number; to: number; node: SyntaxNode }>;
+  deleteStatements: Array<{ from: number; to: number; node: SyntaxNode }>;
+  alterStatements: Array<{ from: number; to: number; node: SyntaxNode }>;
+  comparisons: Array<{ node: SyntaxNode }>;
+}
+
 /**
- * Validate columns in SELECT statement (SELECT list, WHERE, GROUP BY, ORDER BY, HAVING)
+ * Single-pass AST traversal that collects all nodes needed for validation.
+ * This replaces 8 separate tree.iterate() calls with one.
+ */
+function collectNodesInSinglePass(state: EditorState): CollectedNodes {
+  const tree = syntaxTree(state);
+  const collected: CollectedNodes = {
+    errors: [],
+    identifiers: [],
+    selectStatements: [],
+    insertStatements: [],
+    updateStatements: [],
+    deleteStatements: [],
+    alterStatements: [],
+    comparisons: [],
+  };
+
+  tree.iterate({
+    enter: (node) => {
+      switch (node.name) {
+        case "⚠": // Error node
+          collected.errors.push({ from: node.from, to: node.to });
+          break;
+
+        case "Identifier":
+        case "QuotedIdentifier":
+          collected.identifiers.push({ from: node.from, to: node.to, node: node.node });
+          break;
+
+        case "SelectStatement":
+          collected.selectStatements.push({ from: node.from, to: node.to, node: node.node });
+          break;
+
+        case "InsertStatement":
+          collected.insertStatements.push({ from: node.from, to: node.to, node: node.node });
+          break;
+
+        case "UpdateStatement":
+          collected.updateStatements.push({ from: node.from, to: node.to, node: node.node });
+          break;
+
+        case "DeleteStatement":
+          collected.deleteStatements.push({ from: node.from, to: node.to, node: node.node });
+          break;
+
+        case "AlterStatement":
+          collected.alterStatements.push({ from: node.from, to: node.to, node: node.node });
+          break;
+
+        case "CompareOp":
+        case "BinaryExpression":
+          collected.comparisons.push({ node: node.node });
+          break;
+      }
+    },
+  });
+
+  return collected;
+}
+
+// Helper to check if an identifier is a table/alias name (not a column)
+function isTableContext(state: EditorState, node: SyntaxNode): boolean {
+  const nextSibling = node.nextSibling;
+
+  // If next sibling is a dot, this is a schema/table qualifier
+  if (nextSibling?.name === ".") return true;
+
+  // Check text immediately before this identifier for FROM/JOIN keywords
+  const textBefore = state.sliceDoc(Math.max(0, node.from - 30), node.from);
+  const trimmedBefore = textBefore.trimEnd().toUpperCase();
+
+  // Check if preceded by table-introducing keywords
+  if (/\b(FROM|JOIN|INTO|UPDATE|TABLE)\s*$/i.test(textBefore)) {
+    return true;
+  }
+
+  // Check for LEFT/RIGHT/INNER/FULL/OUTER/CROSS JOIN pattern
+  if (/\b(LEFT|RIGHT|INNER|FULL|OUTER|CROSS)\s+JOIN\s*$/i.test(textBefore)) {
+    return true;
+  }
+
+  // Check if this is an alias (follows a table name or closing paren)
+  if (/[a-zA-Z0-9_"`\]]\s+$/i.test(textBefore) || /\)\s+$/i.test(textBefore)) {
+    if (!/[,=<>!+\-*/]\s*$/.test(textBefore) && !/\bAND\s*$/i.test(trimmedBefore) && !/\bOR\s*$/i.test(trimmedBefore)) {
+      let parent = node.parent;
+      while (parent) {
+        if (parent.name === "FromClause" || parent.name === "JoinExpression") {
+          const parentText = state.sliceDoc(parent.from, node.from).toUpperCase();
+          if (!parentText.includes(" ON ") && !parentText.includes(" WHERE ")) {
+            return true;
+          }
+        }
+        parent = parent.parent;
+      }
+    }
+  }
+
+  // Check parent context for join expressions before ON
+  let parent = node.parent;
+  while (parent) {
+    if (parent.name === "JoinExpression") {
+      const textBeforeInJoin = state.sliceDoc(parent.from, node.from).toUpperCase();
+      if (!textBeforeInJoin.includes(" ON ")) {
+        return true;
+      }
+    }
+    parent = parent.parent;
+  }
+
+  return false;
+}
+
+/**
+ * Validate columns in SELECT statement using pre-collected nodes
  */
 async function validateSelectColumns(
   state: EditorState,
   provider: MetadataProvider,
   tables: TableRef[],
+  selectNodes: Array<{ from: number; to: number; node: SyntaxNode }>,
   defaultSchema?: string
 ): Promise<Diagnostic[]> {
   const diagnostics: Diagnostic[] = [];
-  
-  if (tables.length === 0) return diagnostics;
+
+  if (tables.length === 0 || selectNodes.length === 0) return diagnostics;
 
   // Build column cache for all tables
   const tableColumnCache = new Map<string, Set<string>>();
-  
+
   for (const table of tables) {
     try {
       const columns = await provider.listFields(table.name, table.schema || defaultSchema);
@@ -683,67 +709,7 @@ async function validateSelectColumns(
     }
   }
 
-  // Now validate column references - deep iterate within SELECT statements
-  const tree = syntaxTree(state);
   const validatedPositions = new Set<number>();
-
-  // Helper to check if an identifier is a table/alias name (not a column)
-  const isTableContext = (node: SyntaxNode): boolean => {
-    const nextSibling = node.nextSibling;
-
-    // If next sibling is a dot, this is a schema/table qualifier
-    if (nextSibling?.name === ".") return true;
-
-    // Check text immediately before this identifier for FROM/JOIN keywords
-    // This is more reliable than sibling checks since there may be whitespace nodes
-    const textBefore = state.sliceDoc(Math.max(0, node.from - 30), node.from);
-    const trimmedBefore = textBefore.trimEnd().toUpperCase();
-
-    // Check if preceded by table-introducing keywords
-    if (/\b(FROM|JOIN|INTO|UPDATE|TABLE)\s*$/i.test(textBefore)) {
-      return true;
-    }
-
-    // Check for LEFT/RIGHT/INNER/FULL/OUTER/CROSS JOIN pattern
-    if (/\b(LEFT|RIGHT|INNER|FULL|OUTER|CROSS)\s+JOIN\s*$/i.test(textBefore)) {
-      return true;
-    }
-
-    // Check if this is an alias (follows a table name or closing paren)
-    // Pattern: table_name alias or (subquery) alias
-    if (/[a-zA-Z0-9_"`\]]\s+$/i.test(textBefore) || /\)\s+$/i.test(textBefore)) {
-      // Could be an alias - check if we're not after a comma or operator
-      if (!/[,=<>!+\-*/]\s*$/.test(textBefore) && !/\bAND\s*$/i.test(trimmedBefore) && !/\bOR\s*$/i.test(trimmedBefore)) {
-        // Check parent context for FROM clause
-        let parent = node.parent;
-        while (parent) {
-          if (parent.name === "FromClause" || parent.name === "JoinExpression") {
-            // Check if we're before ON keyword (table/alias context)
-            const parentText = state.sliceDoc(parent.from, node.from).toUpperCase();
-            if (!parentText.includes(" ON ") && !parentText.includes(" WHERE ")) {
-              return true;
-            }
-          }
-          parent = parent.parent;
-        }
-      }
-    }
-
-    // Check parent context for join expressions before ON
-    let parent = node.parent;
-    while (parent) {
-      if (parent.name === "JoinExpression") {
-        const textBeforeInJoin = state.sliceDoc(parent.from, node.from).toUpperCase();
-        // If no ON keyword yet, this is likely a table name
-        if (!textBeforeInJoin.includes(" ON ")) {
-          return true;
-        }
-      }
-      parent = parent.parent;
-    }
-
-    return false;
-  };
 
   // Validate a single column reference
   const validateColumn = (node: { from: number; to: number; node: SyntaxNode }) => {
@@ -753,13 +719,9 @@ async function validateSelectColumns(
     const colRef = parseColumnRef(state, node.node);
     if (!colRef) return;
 
-    // Skip SQL keywords
-    if (SQL_KEYWORDS.includes(colRef.name.toUpperCase())) return;
+    if (isSqlKeyword(colRef.name)) return;
+    if (isTableContext(state, node.node)) return;
 
-    // Skip table/alias names
-    if (isTableContext(node.node)) return;
-
-    // Resolve table
     let tableName: string | undefined;
     let tableColumns: Set<string> | undefined;
 
@@ -773,14 +735,12 @@ async function validateSelectColumns(
         tableName = tableMatch.name;
         tableColumns = tableColumnCache.get(tableName.toLowerCase());
       } else {
-        // Qualifier doesn't match any known table/alias - skip
         return;
       }
     } else if (tables.length === 1) {
       tableName = tables[0]?.name;
       tableColumns = tableName ? tableColumnCache.get(tableName.toLowerCase()) : undefined;
     } else {
-      // Multiple tables - try to find which one has this column
       for (const table of tables) {
         const cols = tableColumnCache.get(table.name.toLowerCase());
         if (cols?.has(colRef.name.toLowerCase())) {
@@ -789,7 +749,7 @@ async function validateSelectColumns(
           break;
         }
       }
-      if (!tableName) return; // Ambiguous - skip
+      if (!tableName) return;
     }
 
     if (!tableName || !tableColumns) return;
@@ -804,89 +764,72 @@ async function validateSelectColumns(
     }
   };
 
-  // Find SELECT statements and deeply iterate within them
-  tree.iterate({
-    enter: (node) => {
-      if (node.name === "SelectStatement") {
-        // Deep iterate within this SELECT to find all identifiers
-        const selectNode = node.node;
-        selectNode.cursor().iterate((child) => {
-          if (child.name === "Identifier" || child.name === "QuotedIdentifier") {
-            validateColumn(child);
-          }
-        });
+  // Process pre-collected SELECT statements
+  for (const stmt of selectNodes) {
+    stmt.node.cursor().iterate((child) => {
+      if (child.name === "Identifier" || child.name === "QuotedIdentifier") {
+        validateColumn(child);
       }
-    },
-  });
+    });
+  }
 
   return diagnostics;
 }
 
 /**
- * Validate columns in INSERT statement
+ * Validate columns in INSERT statement using pre-collected nodes
  */
 async function validateInsertColumns(
   state: EditorState,
   provider: MetadataProvider,
+  insertNodes: Array<{ from: number; to: number; node: SyntaxNode }>,
   defaultSchema?: string
 ): Promise<Diagnostic[]> {
   const diagnostics: Diagnostic[] = [];
-  const tree = syntaxTree(state);
 
-  // Collect all INSERT statements first (synchronously)
+  if (insertNodes.length === 0) return diagnostics;
+
+  // Extract INSERT info from pre-collected nodes
   const insertStatements: Array<{ targetTable: string; columnListStart: number; columnListEnd: number }> = [];
 
-  tree.iterate({
-    enter: (node) => {
-      if (node.name === "InsertStatement") {
-        // Find the target table
-        const cursor = node.node.cursor();
-        cursor.firstChild();
-        
-        let targetTable: string | undefined;
-        let columnListStart = -1;
-        let columnListEnd = -1;
+  for (const { node } of insertNodes) {
+    const cursor = node.cursor();
+    cursor.firstChild();
 
-        // Find INSERT INTO table_name (columns...)
-        do {
-          if (cursor.name === "Identifier" && !targetTable) {
-            const text = state.sliceDoc(cursor.from, cursor.to);
-            const prevText = state.sliceDoc(Math.max(0, cursor.from - 20), cursor.from).toUpperCase();
-            if (prevText.includes("INTO")) {
-              // Check if this is schema-qualified (schema.table)
-              const nextSibling = cursor.node.nextSibling;
-              if (nextSibling?.name === ".") {
-                // Skip schema, get table name after dot
-                continue;
-              }
-              targetTable = text.replace(/["`[\]]/g, "");
-            }
-          }
-          
-          // Find column list in parentheses
-          if (cursor.name === "(" && targetTable && columnListStart === -1) {
-            columnListStart = cursor.from;
-          }
-          if (cursor.name === ")" && targetTable && columnListStart > 0 && columnListEnd === -1) {
-            columnListEnd = cursor.to;
-          }
-        } while (cursor.nextSibling());
+    let targetTable: string | undefined;
+    let columnListStart = -1;
+    let columnListEnd = -1;
 
-        if (targetTable && columnListStart > 0 && columnListEnd > 0) {
-          insertStatements.push({ targetTable, columnListStart, columnListEnd });
+    do {
+      if (cursor.name === "Identifier" && !targetTable) {
+        const text = state.sliceDoc(cursor.from, cursor.to);
+        const prevText = state.sliceDoc(Math.max(0, cursor.from - 20), cursor.from).toUpperCase();
+        if (prevText.includes("INTO")) {
+          const nextSibling = cursor.node.nextSibling;
+          if (nextSibling?.name === ".") continue;
+          targetTable = text.replace(/["`[\]]/g, "");
         }
       }
-    },
-  });
 
-  // Now validate asynchronously
+      if (cursor.name === "(" && targetTable && columnListStart === -1) {
+        columnListStart = cursor.from;
+      }
+      if (cursor.name === ")" && targetTable && columnListStart > 0 && columnListEnd === -1) {
+        columnListEnd = cursor.to;
+      }
+    } while (cursor.nextSibling());
+
+    if (targetTable && columnListStart > 0 && columnListEnd > 0) {
+      insertStatements.push({ targetTable, columnListStart, columnListEnd });
+    }
+  }
+
+  // Validate asynchronously
   for (const stmt of insertStatements) {
     try {
-      // Get valid columns for this table
       const validColumns = await provider.listFields(stmt.targetTable, defaultSchema);
       const validColumnNames = new Set(validColumns.map(c => c.name.toLowerCase()));
 
-      // Validate each column in the INSERT column list
       const columnListText = state.sliceDoc(stmt.columnListStart, stmt.columnListEnd);
       const columnNames = columnListText
         .replace(/[()"`[\]]/g, "")
@@ -896,7 +839,6 @@ async function validateInsertColumns(
 
       for (const colName of columnNames) {
         if (!validColumnNames.has(colName.toLowerCase())) {
-          // Find position of this column in the text
           const colIndex = state.doc.toString().indexOf(colName, stmt.columnListStart);
           if (colIndex >= 0) {
             diagnostics.push({
@@ -917,52 +859,44 @@ async function validateInsertColumns(
 }
 
 /**
- * Validate columns in UPDATE statement (SET clause, WHERE clause)
+ * Validate columns in UPDATE statement using pre-collected nodes
  */
 async function validateUpdateColumns(
   state: EditorState,
   provider: MetadataProvider,
+  updateNodes: Array<{ from: number; to: number; node: SyntaxNode }>,
   defaultSchema?: string
 ): Promise<Diagnostic[]> {
   const diagnostics: Diagnostic[] = [];
-  const tree = syntaxTree(state);
 
-  // Collect UPDATE statements synchronously
+  if (updateNodes.length === 0) return diagnostics;
+
+  // Extract UPDATE info from pre-collected nodes
   const updateStatements: Array<{ targetTable: string; stmtFrom: number; stmtTo: number }> = [];
 
-  tree.iterate({
-    enter: (node) => {
-      if (node.name === "UpdateStatement") {
-        // Find the target table
-        const cursor = node.node.cursor();
-        cursor.firstChild();
-        
-        let targetTable: string | undefined;
+  for (const { from, to, node } of updateNodes) {
+    const cursor = node.cursor();
+    cursor.firstChild();
 
-        // Find UPDATE table_name
-        do {
-          if (cursor.name === "Identifier" && !targetTable) {
-            const text = state.sliceDoc(cursor.from, cursor.to);
-            const prevText = state.sliceDoc(Math.max(0, cursor.from - 10), cursor.from).toUpperCase();
-            if (prevText.includes("UPDATE")) {
-              // Check if this is schema-qualified (schema.table)
-              const nextSibling = cursor.node.nextSibling;
-              if (nextSibling?.name === ".") {
-                // Skip schema, get table name after dot
-                continue;
-              }
-              targetTable = text.replace(/["`[\]]/g, "");
-              break;
-            }
-          }
-        } while (cursor.nextSibling());
+    let targetTable: string | undefined;
 
-        if (targetTable) {
-          updateStatements.push({ targetTable, stmtFrom: node.from, stmtTo: node.to });
+    do {
+      if (cursor.name === "Identifier" && !targetTable) {
+        const text = state.sliceDoc(cursor.from, cursor.to);
+        const prevText = state.sliceDoc(Math.max(0, cursor.from - 10), cursor.from).toUpperCase();
+        if (prevText.includes("UPDATE")) {
+          const nextSibling = cursor.node.nextSibling;
+          if (nextSibling?.name === ".") continue;
+          targetTable = text.replace(/["`[\]]/g, "");
+          break;
         }
       }
-    },
-  });
+    } while (cursor.nextSibling());
+
+    if (targetTable) {
+      updateStatements.push({ targetTable, stmtFrom: from, stmtTo: to });
+    }
+  }
 
   // Validate asynchronously
   for (const stmt of updateStatements) {
@@ -970,39 +904,37 @@ async function validateUpdateColumns(
       const validColumns = await provider.listFields(stmt.targetTable, defaultSchema);
       const validColumnNames = new Set(validColumns.map(c => c.name.toLowerCase()));
 
-      // Re-traverse this statement to find column references
-      const subTree = syntaxTree(state);
-      const cursor = subTree.cursorAt(stmt.stmtFrom);
-      
+      // Traverse within the statement node directly
+      const stmtNode = updateNodes.find(n => n.from === stmt.stmtFrom)?.node;
+      if (!stmtNode) continue;
+
       let inSetClause = false;
       let inWhereClause = false;
 
-      do {
-        if (cursor.from < stmt.stmtFrom || cursor.from > stmt.stmtTo) continue;
-        
-        const text = state.sliceDoc(cursor.from, cursor.to).toUpperCase();
-        
+      stmtNode.cursor().iterate((child) => {
+        const text = state.sliceDoc(child.from, child.to).toUpperCase();
+
         if (text === "SET") inSetClause = true;
         if (text === "WHERE") {
           inSetClause = false;
           inWhereClause = true;
         }
 
-        if ((inSetClause || inWhereClause) && (cursor.name === "Identifier" || cursor.name === "QuotedIdentifier")) {
-          const colName = state.sliceDoc(cursor.from, cursor.to).replace(/["`[\]]/g, "");
-          
-          if (SQL_KEYWORDS.includes(colName.toUpperCase())) continue;
+        if ((inSetClause || inWhereClause) && (child.name === "Identifier" || child.name === "QuotedIdentifier")) {
+          const colName = state.sliceDoc(child.from, child.to).replace(/["`[\]]/g, "");
+
+          if (isSqlKeyword(colName)) return;
 
           if (!validColumnNames.has(colName.toLowerCase())) {
             diagnostics.push({
-              from: cursor.from,
-              to: cursor.to,
+              from: child.from,
+              to: child.to,
               severity: "error",
               message: `Column '${colName}' does not exist in table '${stmt.targetTable}'`,
             });
           }
         }
-      } while (cursor.next());
+      });
     } catch {
       // Skip validation if table doesn't exist
     }
@@ -1012,50 +944,44 @@ async function validateUpdateColumns(
 }
 
 /**
- * Validate columns in DELETE statement (WHERE clause)
+ * Validate columns in DELETE statement using pre-collected nodes
  */
 async function validateDeleteColumns(
   state: EditorState,
   provider: MetadataProvider,
+  deleteNodes: Array<{ from: number; to: number; node: SyntaxNode }>,
   defaultSchema?: string
 ): Promise<Diagnostic[]> {
   const diagnostics: Diagnostic[] = [];
-  const tree = syntaxTree(state);
 
-  // Collect DELETE statements synchronously
+  if (deleteNodes.length === 0) return diagnostics;
+
+  // Extract DELETE info from pre-collected nodes
   const deleteStatements: Array<{ targetTable: string; stmtFrom: number; stmtTo: number }> = [];
 
-  tree.iterate({
-    enter: (node) => {
-      if (node.name === "DeleteStatement") {
-        const cursor = node.node.cursor();
-        cursor.firstChild();
-        
-        let targetTable: string | undefined;
+  for (const { from, to, node } of deleteNodes) {
+    const cursor = node.cursor();
+    cursor.firstChild();
 
-        do {
-          if (cursor.name === "Identifier" && !targetTable) {
-            const text = state.sliceDoc(cursor.from, cursor.to);
-            const prevText = state.sliceDoc(Math.max(0, cursor.from - 15), cursor.from).toUpperCase();
-            if (prevText.includes("FROM")) {
-              // Check if this is schema-qualified (schema.table)
-              const nextSibling = cursor.node.nextSibling;
-              if (nextSibling?.name === ".") {
-                // Skip schema, get table name after dot
-                continue;
-              }
-              targetTable = text.replace(/["`[\]]/g, "");
-              break;
-            }
-          }
-        } while (cursor.nextSibling());
+    let targetTable: string | undefined;
 
-        if (targetTable) {
-          deleteStatements.push({ targetTable, stmtFrom: node.from, stmtTo: node.to });
+    do {
+      if (cursor.name === "Identifier" && !targetTable) {
+        const text = state.sliceDoc(cursor.from, cursor.to);
+        const prevText = state.sliceDoc(Math.max(0, cursor.from - 15), cursor.from).toUpperCase();
+        if (prevText.includes("FROM")) {
+          const nextSibling = cursor.node.nextSibling;
+          if (nextSibling?.name === ".") continue;
+          targetTable = text.replace(/["`[\]]/g, "");
+          break;
         }
       }
-    },
-  });
+    } while (cursor.nextSibling());
+
+    if (targetTable) {
+      deleteStatements.push({ targetTable, stmtFrom: from, stmtTo: to });
+    }
+  }
 
   // Validate asynchronously
   for (const stmt of deleteStatements) {
@@ -1063,33 +989,30 @@ async function validateDeleteColumns(
       const validColumns = await provider.listFields(stmt.targetTable, defaultSchema);
       const validColumnNames = new Set(validColumns.map(c => c.name.toLowerCase()));
 
-      // Re-traverse to find columns in WHERE clause
-      const subTree = syntaxTree(state);
-      const cursor = subTree.cursorAt(stmt.stmtFrom);
-      
+      const stmtNode = deleteNodes.find(n => n.from === stmt.stmtFrom)?.node;
+      if (!stmtNode) continue;
+
       let inWhereClause = false;
 
-      do {
-        if (cursor.from < stmt.stmtFrom || cursor.from > stmt.stmtTo) continue;
-        
-        const text = state.sliceDoc(cursor.from, cursor.to).toUpperCase();
+      stmtNode.cursor().iterate((child) => {
+        const text = state.sliceDoc(child.from, child.to).toUpperCase();
         if (text === "WHERE") inWhereClause = true;
 
-        if (inWhereClause && (cursor.name === "Identifier" || cursor.name === "QuotedIdentifier")) {
-          const colName = state.sliceDoc(cursor.from, cursor.to).replace(/["`[\]]/g, "");
-          
-          if (SQL_KEYWORDS.includes(colName.toUpperCase())) continue;
+        if (inWhereClause && (child.name === "Identifier" || child.name === "QuotedIdentifier")) {
+          const colName = state.sliceDoc(child.from, child.to).replace(/["`[\]]/g, "");
+
+          if (isSqlKeyword(colName)) return;
 
           if (!validColumnNames.has(colName.toLowerCase())) {
             diagnostics.push({
-              from: cursor.from,
-              to: cursor.to,
+              from: child.from,
+              to: child.to,
               severity: "error",
               message: `Column '${colName}' does not exist in table '${stmt.targetTable}'`,
             });
           }
         }
-      } while (cursor.next());
+      });
     } catch {
       // Skip validation if table doesn't exist
     }
@@ -1099,50 +1022,44 @@ async function validateDeleteColumns(
 }
 
 /**
- * Validate columns in CREATE TABLE and ALTER TABLE statements
+ * Validate columns in ALTER TABLE statements using pre-collected nodes
  */
 async function validateDDLColumns(
   state: EditorState,
   provider: MetadataProvider,
+  alterNodes: Array<{ from: number; to: number; node: SyntaxNode }>,
   defaultSchema?: string
 ): Promise<Diagnostic[]> {
   const diagnostics: Diagnostic[] = [];
-  const tree = syntaxTree(state);
 
-  // Collect ALTER statements synchronously
+  if (alterNodes.length === 0) return diagnostics;
+
+  // Extract ALTER info from pre-collected nodes
   const alterStatements: Array<{ targetTable: string; stmtFrom: number; stmtTo: number }> = [];
 
-  tree.iterate({
-    enter: (node) => {
-      if (node.name === "AlterStatement") {
-        const cursor = node.node.cursor();
-        cursor.firstChild();
-        
-        let targetTable: string | undefined;
+  for (const { from, to, node } of alterNodes) {
+    const cursor = node.cursor();
+    cursor.firstChild();
 
-        do {
-          if (cursor.name === "Identifier" && !targetTable) {
-            const text = state.sliceDoc(cursor.from, cursor.to);
-            const prevText = state.sliceDoc(Math.max(0, cursor.from - 20), cursor.from).toUpperCase();
-            if (prevText.includes("TABLE")) {
-              // Check if this is schema-qualified (schema.table)
-              const nextSibling = cursor.node.nextSibling;
-              if (nextSibling?.name === ".") {
-                // Skip schema, get table name after dot
-                continue;
-              }
-              targetTable = text.replace(/["`[\]]/g, "");
-              break;
-            }
-          }
-        } while (cursor.nextSibling());
+    let targetTable: string | undefined;
 
-        if (targetTable) {
-          alterStatements.push({ targetTable, stmtFrom: node.from, stmtTo: node.to });
+    do {
+      if (cursor.name === "Identifier" && !targetTable) {
+        const text = state.sliceDoc(cursor.from, cursor.to);
+        const prevText = state.sliceDoc(Math.max(0, cursor.from - 20), cursor.from).toUpperCase();
+        if (prevText.includes("TABLE")) {
+          const nextSibling = cursor.node.nextSibling;
+          if (nextSibling?.name === ".") continue;
+          targetTable = text.replace(/["`[\]]/g, "");
+          break;
         }
       }
-    },
-  });
+    } while (cursor.nextSibling());
+
+    if (targetTable) {
+      alterStatements.push({ targetTable, stmtFrom: from, stmtTo: to });
+    }
+  }
 
   // Validate asynchronously
   for (const stmt of alterStatements) {
@@ -1150,18 +1067,15 @@ async function validateDDLColumns(
       const validColumns = await provider.listFields(stmt.targetTable, defaultSchema);
       const validColumnNames = new Set(validColumns.map(c => c.name.toLowerCase()));
 
-      // Re-traverse to find column references in DROP/MODIFY
-      const subTree = syntaxTree(state);
-      const cursor = subTree.cursorAt(stmt.stmtFrom);
-      
+      const stmtNode = alterNodes.find(n => n.from === stmt.stmtFrom)?.node;
+      if (!stmtNode) continue;
+
       let inDropColumn = false;
       let inModifyColumn = false;
 
-      do {
-        if (cursor.from < stmt.stmtFrom || cursor.from > stmt.stmtTo) continue;
-        
-        const text = state.sliceDoc(cursor.from, cursor.to).toUpperCase();
-        
+      stmtNode.cursor().iterate((child) => {
+        const text = state.sliceDoc(child.from, child.to).toUpperCase();
+
         if (text === "DROP" || text.includes("DROP")) inDropColumn = true;
         if (text === "MODIFY" || text === "CHANGE" || text === "ALTER") inModifyColumn = true;
         if (text === "ADD") {
@@ -1169,22 +1083,21 @@ async function validateDDLColumns(
           inModifyColumn = false;
         }
 
-        if ((inDropColumn || inModifyColumn) && (cursor.name === "Identifier" || cursor.name === "QuotedIdentifier")) {
-          const colName = state.sliceDoc(cursor.from, cursor.to).replace(/["`[\]]/g, "");
-          
-          if (SQL_KEYWORDS.includes(colName.toUpperCase())) continue;
+        if ((inDropColumn || inModifyColumn) && (child.name === "Identifier" || child.name === "QuotedIdentifier")) {
+          const colName = state.sliceDoc(child.from, child.to).replace(/["`[\]]/g, "");
 
-          // For DROP/MODIFY, column must exist
+          if (isSqlKeyword(colName)) return;
+
           if (!validColumnNames.has(colName.toLowerCase())) {
             diagnostics.push({
-              from: cursor.from,
-              to: cursor.to,
+              from: child.from,
+              to: child.to,
               severity: "error",
               message: `Column '${colName}' does not exist in table '${stmt.targetTable}'`,
             });
           }
         }
-      } while (cursor.next());
+      });
     } catch {
       // Table might not exist yet - skip validation
     }
@@ -1194,7 +1107,7 @@ async function validateDDLColumns(
 }
 
 /**
- * Collect semantic diagnostics for SQL
+ * Collect semantic diagnostics for SQL using single-pass AST collection
  * Validates table/column existence, alias references, and type compatibility
  */
 const collectSemanticDiagnostics = async (
@@ -1203,28 +1116,22 @@ const collectSemanticDiagnostics = async (
   defaultSchema?: string
 ) => {
   const diagnostics: Diagnostic[] = [];
-  const tree = syntaxTree(state);
 
-  // Run all validation functions in parallel for better performance
+  // SINGLE-PASS: Collect all nodes we need in one tree iteration
+  const collected = collectNodesInSinglePass(state);
+
+  // Run all validation functions in parallel using pre-collected nodes
   const validationPromises: Promise<Diagnostic[]>[] = [];
   const processedStatements = new Set<string>();
 
-  // Validate INSERT statements
-  validationPromises.push(validateInsertColumns(state, provider, defaultSchema));
+  // Validate DML statements using pre-collected nodes
+  validationPromises.push(validateInsertColumns(state, provider, collected.insertStatements, defaultSchema));
+  validationPromises.push(validateUpdateColumns(state, provider, collected.updateStatements, defaultSchema));
+  validationPromises.push(validateDeleteColumns(state, provider, collected.deleteStatements, defaultSchema));
+  validationPromises.push(validateDDLColumns(state, provider, collected.alterStatements, defaultSchema));
 
-  // Validate UPDATE statements
-  validationPromises.push(validateUpdateColumns(state, provider, defaultSchema));
-
-  // Validate DELETE statements
-  validationPromises.push(validateDeleteColumns(state, provider, defaultSchema));
-
-  // Validate DDL statements (ALTER TABLE, etc.)
-  validationPromises.push(validateDDLColumns(state, provider, defaultSchema));
-
-  // Track checked identifiers to avoid duplicate warnings
+  // Process pre-collected identifiers
   const checkedIdentifiers = new Set<string>();
-
-  // Find all identifier nodes that could be table or column references
   const identifiersToCheck: Array<{
     from: number;
     to: number;
@@ -1233,57 +1140,36 @@ const collectSemanticDiagnostics = async (
     qualifier?: string;
   }> = [];
 
-  tree.iterate({
-    enter: (node) => {
-      if (node.name === "Identifier" || node.name === "QuotedIdentifier") {
-        const text = state.doc.sliceString(node.from, node.to).replace(/["`[\]]/g, "");
+  for (const { from, to, node } of collected.identifiers) {
+    const text = state.doc.sliceString(from, to).replace(/["`[\]]/g, "");
 
-        // Skip SQL keywords
-        const upperText = text.toUpperCase();
-        if (SQL_KEYWORDS.includes(upperText)) return;
+    if (isSqlKeyword(text)) continue;
+    if (text.length < 2) continue;
 
-        // Skip short identifiers (likely aliases)
-        if (text.length < 2) return;
+    const prevSibling = node.prevSibling;
+    const isQualified = prevSibling?.type.name === ".";
 
-        // Check if this is qualified (has a dot before it)
-        const prevSibling = node.node.prevSibling;
-        const isQualified = prevSibling?.type.name === ".";
+    const nextSibling = node.nextSibling;
+    const isSchemaQualifier = nextSibling?.type.name === ".";
 
-        // Check if this is a schema qualifier (has a dot after it)
-        const nextSibling = node.node.nextSibling;
-        const isSchemaQualifier = nextSibling?.type.name === ".";
+    if (isSchemaQualifier) continue;
 
-        // Skip schema qualifiers - they're not table names
-        if (isSchemaQualifier) {
-          return;
-        }
+    let qualifier: string | undefined;
+    if (isQualified && prevSibling?.prevSibling) {
+      qualifier = state.doc
+        .sliceString(prevSibling.prevSibling.from, prevSibling.prevSibling.to)
+        .replace(/["`[\]]/g, "");
+    }
 
-        let qualifier: string | undefined;
-        if (isQualified && prevSibling?.prevSibling) {
-          qualifier = state.doc
-            .sliceString(prevSibling.prevSibling.from, prevSibling.prevSibling.to)
-            .replace(/["`[\]]/g, "");
-        }
+    const key = `${from}-${text}`;
+    if (checkedIdentifiers.has(key)) continue;
+    checkedIdentifiers.add(key);
 
-        // Skip if already checked
-        const key = `${node.from}-${text}`;
-        if (checkedIdentifiers.has(key)) return;
-        checkedIdentifiers.add(key);
-
-        identifiersToCheck.push({
-          from: node.from,
-          to: node.to,
-          text,
-          isQualified,
-          qualifier,
-        });
-      }
-    },
-  });
+    identifiersToCheck.push({ from, to, text, isQualified, qualifier });
+  }
 
   // Batch check identifiers
   for (const identifier of identifiersToCheck) {
-    // Get context at this position to understand intent
     const mockContext = {
       state,
       pos: identifier.from,
@@ -1298,7 +1184,6 @@ const collectSemanticDiagnostics = async (
     try {
       const analysis = analyzeSqlContext(mockContext as any, defaultSchema);
 
-      // If qualified, check if the qualifier (alias/table) exists in scope
       if (identifier.isQualified && identifier.qualifier) {
         const aliasExists = analysis.activeStatementTables.some(
           (t: TableRef) =>
@@ -1316,7 +1201,6 @@ const collectSemanticDiagnostics = async (
         }
       }
 
-      // If intent is "table", check if the table exists
       if (analysis.intent === "table" && !identifier.isQualified) {
         const exists = await checkEntityExists(provider, identifier.text, defaultSchema);
         if (!exists) {
@@ -1329,7 +1213,6 @@ const collectSemanticDiagnostics = async (
         }
       }
 
-      // Validate SELECT columns if we have active tables
       if (analysis.activeStatementTables.length > 0) {
         const statement = getStatementAtPosition(state, identifier.from);
         const statementKey = statement
@@ -1339,18 +1222,20 @@ const collectSemanticDiagnostics = async (
         if (!processedStatements.has(statementKey)) {
           processedStatements.add(statementKey);
 
-          // Run SELECT validations once per statement
+          // Use pre-collected SELECT and comparison nodes
           validationPromises.push(
             validateSelectColumns(
               state,
               provider,
               analysis.activeStatementTables,
+              collected.selectStatements,
               defaultSchema
             ),
             findTypeViolations(
               state,
               provider,
               analysis.activeStatementTables,
+              collected.comparisons,
               defaultSchema
             )
           );
@@ -1361,10 +1246,8 @@ const collectSemanticDiagnostics = async (
     }
   }
 
-  // Wait for all validation promises to complete
   const allResults = await Promise.all(validationPromises);
-  
-  // Flatten and add all diagnostics
+
   for (const result of allResults) {
     diagnostics.push(...result);
   }
