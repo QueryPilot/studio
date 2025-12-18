@@ -1,7 +1,7 @@
 # Data Invalidation System - Testing Guide
 
 ## Overview
-The Data Invalidation System ensures that all components displaying table data automatically refresh when that data is modified, regardless of where the modification originated (QueryPanel or DataGridV2).
+The Data Invalidation System ensures that all components displaying table data automatically refresh when that data is modified, regardless of where the modification originated (QueryPanel or DataGrid).
 
 ## Architecture
 
@@ -28,10 +28,10 @@ UI Updates with Fresh Data
 
 ## Test Cases
 
-### Test Case 1: QueryPanel Mutation → DataGridV2 Refresh
+### Test Case 1: QueryPanel Mutation → DataGrid Refresh
 
 **Setup:**
-1. Open a DataGridV2 panel showing the `users` table
+1. Open a DataGrid panel showing the `users` table
 2. Note a specific row's data (e.g., user with id=1, name="John")
 
 **Action:**
@@ -41,33 +41,33 @@ UI Updates with Fresh Data
 **Expected Result:**
 - ✅ Console shows: `[QueryPanel] Invalidating table: public.users`
 - ✅ Console shows: `[DataInvalidation] Notifying X listener(s)`
-- ✅ Console shows: `[TableDataGridV2] Data invalidated - refetching`
-- ✅ DataGridV2 automatically refreshes and displays "Jane Updated"
+- ✅ Console shows: `[TableDataGrid] Data invalidated - refetching`
+- ✅ DataGrid automatically refreshes and displays "Jane Updated"
 - ✅ No page refresh needed
 - ✅ Toast notification shows "Data modified - Refreshing results..."
 
 **Failure Indicators:**
-- ❌ DataGridV2 still shows "John"
+- ❌ DataGrid still shows "John"
 - ❌ No console logs about invalidation
 - ❌ Manual refresh needed to see changes
 
 ---
 
-### Test Case 2: DataGridV2 Commit → QueryPanel Refresh
+### Test Case 2: DataGrid Commit → QueryPanel Refresh
 
 **Setup:**
 1. Open QueryPanel with: `SELECT * FROM users ORDER BY id`
 2. Execute the query and note results
-3. Open a DataGridV2 panel for the `users` table
+3. Open a DataGrid panel for the `users` table
 
 **Action:**
-4. In DataGridV2, edit a cell (e.g., change name from "Alice" to "Alice Modified")
+4. In DataGrid, edit a cell (e.g., change name from "Alice" to "Alice Modified")
 5. Click "Commit" button
 
 **Expected Result:**
 - ✅ Console shows: `[GlobalChangesModal] Invalidated table after commit`
 - ✅ Toast shows "Changes committed"
-- ✅ DataGridV2 refreshes (already had this functionality)
+- ✅ DataGrid refreshes (already had this functionality)
 - ✅ QueryPanel result table automatically updates to show "Alice Modified"
 
 **Failure Indicators:**
@@ -76,13 +76,13 @@ UI Updates with Fresh Data
 
 ---
 
-### Test Case 3: Multiple DataGridV2 Panels (Same Table)
+### Test Case 3: Multiple DataGrid Panels (Same Table)
 
 **Setup:**
 1. Split workspace into 3 panels
-2. Open DataGridV2 for `orders` table in Panel 1
-3. Open DataGridV2 for `orders` table in Panel 2
-4. Open DataGridV2 for `orders` table in Panel 3
+2. Open DataGrid for `orders` table in Panel 1
+3. Open DataGrid for `orders` table in Panel 2
+4. Open DataGrid for `orders` table in Panel 3
 
 **Action:**
 5. In Panel 1, edit a row and commit changes
@@ -101,16 +101,16 @@ UI Updates with Fresh Data
 ### Test Case 4: Selective Invalidation (Different Tables)
 
 **Setup:**
-1. Open DataGridV2 for `users` table
-2. Open DataGridV2 for `orders` table
+1. Open DataGrid for `users` table
+2. Open DataGrid for `orders` table
 3. Open QueryPanel
 
 **Action:**
 4. In QueryPanel, execute: `DELETE FROM users WHERE id = 999`
 
 **Expected Result:**
-- ✅ Only `users` DataGridV2 refreshes
-- ✅ `orders` DataGridV2 remains unchanged (no unnecessary refresh)
+- ✅ Only `users` DataGrid refreshes
+- ✅ `orders` DataGrid remains unchanged (no unnecessary refresh)
 - ✅ Console shows invalidation only for `users` table
 
 **Failure Indicators:**
@@ -122,8 +122,8 @@ UI Updates with Fresh Data
 ### Test Case 5: Complex SQL with Multiple Tables
 
 **Setup:**
-1. Open DataGridV2 for `users` table
-2. Open DataGridV2 for `audit_logs` table
+1. Open DataGrid for `users` table
+2. Open DataGrid for `audit_logs` table
 3. Open QueryPanel
 
 **Action:**
@@ -136,7 +136,7 @@ INSERT INTO audit_logs (user_id, action) VALUES (1, 'login');
 **Expected Result:**
 - ✅ SQL parser detects both `users` and `audit_logs`
 - ✅ Console shows: `[SQLParser] Parsed 2 unique table(s)`
-- ✅ Both DataGridV2 panels refresh
+- ✅ Both DataGrid panels refresh
 - ✅ Each table only receives one invalidation
 
 **Failure Indicators:**
@@ -148,7 +148,7 @@ INSERT INTO audit_logs (user_id, action) VALUES (1, 'login');
 ### Test Case 6: Schema-Qualified Tables
 
 **Setup:**
-1. Open DataGridV2 for `public.employees` table
+1. Open DataGrid for `public.employees` table
 2. Open QueryPanel
 
 **Action:**
@@ -157,18 +157,18 @@ INSERT INTO audit_logs (user_id, action) VALUES (1, 'login');
 **Expected Result:**
 - ✅ SQL parser correctly extracts schema and table
 - ✅ Console shows: `[QueryPanel] Invalidating table: public.employees`
-- ✅ DataGridV2 refreshes
+- ✅ DataGrid refreshes
 
 **Failure Indicators:**
 - ❌ Parser fails to match schema-qualified name
-- ❌ DataGridV2 doesn't refresh
+- ❌ DataGrid doesn't refresh
 
 ---
 
 ### Test Case 7: Quoted Identifiers
 
 **Setup:**
-1. Open DataGridV2 for a table with special characters (e.g., `"User Profiles"`)
+1. Open DataGrid for a table with special characters (e.g., `"User Profiles"`)
 2. Open QueryPanel
 
 **Action:**
@@ -176,7 +176,7 @@ INSERT INTO audit_logs (user_id, action) VALUES (1, 'login');
 
 **Expected Result:**
 - ✅ SQL parser handles quoted identifiers
-- ✅ DataGridV2 refreshes correctly
+- ✅ DataGrid refreshes correctly
 
 **Failure Indicators:**
 - ❌ Parser fails to extract table name
@@ -187,7 +187,7 @@ INSERT INTO audit_logs (user_id, action) VALUES (1, 'login');
 ### Test Case 8: Error Resilience
 
 **Setup:**
-1. Open DataGridV2 for `products` table
+1. Open DataGrid for `products` table
 2. Open QueryPanel
 
 **Action:**
@@ -208,7 +208,7 @@ INSERT INTO audit_logs (user_id, action) VALUES (1, 'login');
 ### Test Case 9: Performance (Large Table)
 
 **Setup:**
-1. Open DataGridV2 for a large table (10,000+ rows)
+1. Open DataGrid for a large table (10,000+ rows)
 2. Open QueryPanel
 
 **Action:**
@@ -216,7 +216,7 @@ INSERT INTO audit_logs (user_id, action) VALUES (1, 'login');
 
 **Expected Result:**
 - ✅ Invalidation broadcast takes <50ms
-- ✅ DataGridV2 starts refetch immediately
+- ✅ DataGrid starts refetch immediately
 - ✅ UI remains responsive during refetch
 - ✅ No memory leaks
 
@@ -230,16 +230,16 @@ INSERT INTO audit_logs (user_id, action) VALUES (1, 'login');
 ### Test Case 10: Component Lifecycle (Unmount/Remount)
 
 **Setup:**
-1. Open DataGridV2 for `customers` table
+1. Open DataGrid for `customers` table
 2. Note the subscription in console
 
 **Action:**
-3. Close the DataGridV2 panel
-4. Reopen DataGridV2 for the same table
+3. Close the DataGrid panel
+4. Reopen DataGrid for the same table
 
 **Expected Result:**
-- ✅ Console shows: `[TableDataGridV2] Unsubscribing from invalidations`
-- ✅ Console shows: `[TableDataGridV2] Subscribing to invalidations`
+- ✅ Console shows: `[TableDataGrid] Unsubscribing from invalidations`
+- ✅ Console shows: `[TableDataGrid] Subscribing to invalidations`
 - ✅ New subscription works correctly
 - ✅ No duplicate listeners
 
@@ -260,8 +260,8 @@ INSERT INTO audit_logs (user_id, action) VALUES (1, 'login');
 [QueryPanel] Invalidating table: public.users
 [DataInvalidation] Invalidating table: conn123:mydb:public:users at 1234567890
 [DataInvalidation] Notifying 2 listener(s) for table: conn123:mydb:public:users
-[TableDataGridV2] Data invalidated for mydb.public.users - refetching
-[TableDataGridV2] Data invalidated for mydb.public.users - refetching
+[TableDataGrid] Data invalidated for mydb.public.users - refetching
+[TableDataGrid] Data invalidated for mydb.public.users - refetching
 ```
 
 ### Expected Log Sequence for Commit Flow
@@ -270,7 +270,7 @@ INSERT INTO audit_logs (user_id, action) VALUES (1, 'login');
 [GlobalChangesModal] Invalidated table after commit: mydb.public.users
 [DataInvalidation] Invalidating table: conn123:mydb:public:users at 1234567891
 [DataInvalidation] Notifying 1 listener(s) for table: conn123:mydb:public:users
-[TableDataGridV2] Data invalidated for mydb.public.users - refetching
+[TableDataGrid] Data invalidated for mydb.public.users - refetching
 ```
 
 ---
@@ -288,7 +288,7 @@ Filter by:
 - `[DataInvalidation]` - Store events
 - `[SQLParser]` - SQL parsing
 - `[QueryPanel]` - Query execution
-- `[TableDataGridV2]` - Grid refresh events
+- `[TableDataGrid]` - Grid refresh events
 - `[GlobalChangesModal]` - Commit events
 
 ### Common Issues and Solutions
@@ -299,7 +299,7 @@ Filter by:
 - Check if SQL has syntax errors
 
 **Issue: Logs show invalidation but no refresh**
-- Verify DataGridV2 subscription was registered
+- Verify DataGrid subscription was registered
 - Check if tableKey matches between broadcaster and subscriber
 - Ensure schema names match (e.g., "public" vs undefined)
 
@@ -394,7 +394,7 @@ If issues are discovered in production:
    - Components will still work with manual refresh
 
 2. **Disable auto-refresh** (safer):
-   - Comment out subscription in TableDataGridV2.tsx
+   - Comment out subscription in TableDataGrid.tsx
    - Users can manually refresh using existing mechanisms
 
 3. **Full rollback**:
@@ -402,7 +402,7 @@ If issues are discovered in production:
      - dataInvalidationStore.ts (delete file)
      - sqlParser.ts (delete file)
      - QueryPanel.tsx (revert changes)
-     - TableDataGridV2.tsx (revert changes)
+     - TableDataGrid.tsx (revert changes)
      - GlobalChangesModal.tsx (revert changes)
 
 ---

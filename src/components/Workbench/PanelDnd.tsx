@@ -396,19 +396,20 @@ export const Panel: React.FC<PanelProps> = ({ content, className }) => {
         <div className="flex items-center gap-1 pr-1">
           <Button
             variant="ghost"
-            size="icon"
-            className="h-6 w-6"
+            size="icon-sm"
             onClick={handleNewQueryTab}
             title="New query tab"
           >
-            <IconPlus className="h-3 w-3" />
+            <IconPlus />
           </Button>
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-6 w-6">
-                <IconLayoutGrid className="h-3 w-3" />
-              </Button>
-            </DropdownMenuTrigger>
+            <DropdownMenuTrigger
+              render={
+                <Button variant="ghost" size="icon-sm">
+                  <IconLayoutGrid />
+                </Button>
+              }
+            />
             <DropdownMenuContent align="end" className="w-48 text-xs">
               <DropdownMenuItem
                 onClick={() => {

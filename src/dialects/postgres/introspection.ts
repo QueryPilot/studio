@@ -498,10 +498,44 @@ SELECT pg_get_functiondef($1::regprocedure) as definition
 
 /**
  * Query to get table DDL (comprehensive)
- * This generates CREATE TABLE statement
+ * This generates CREATE TABLE statement with custom type definitions
  */
 export const GET_TABLE_DEFINITION_QUERY = `
-WITH columns AS (
+WITH custom_types AS (
+    -- Get custom types used by columns in this table
+    SELECT DISTINCT
+        t.oid as type_oid,
+        t.typname as type_name,
+        tn.nspname as type_schema,
+        t.typtype,
+        CASE t.typtype
+            WHEN 'e' THEN -- ENUM
+                'CREATE TYPE ' || quote_ident(tn.nspname) || '.' || quote_ident(t.typname) || ' AS ENUM (' ||
+                (SELECT string_agg(quote_literal(e.enumlabel), ', ' ORDER BY e.enumsortorder)
+                 FROM pg_enum e WHERE e.enumtypid = t.oid) || ');'
+            WHEN 'd' THEN -- DOMAIN
+                'CREATE DOMAIN ' || quote_ident(tn.nspname) || '.' || quote_ident(t.typname) || ' AS ' ||
+                pg_catalog.format_type(t.typbasetype, t.typtypmod) ||
+                COALESCE(' ' || (SELECT string_agg(pg_get_constraintdef(con.oid), ' ')
+                                 FROM pg_constraint con WHERE con.contypid = t.oid), '') || ';'
+            WHEN 'c' THEN -- COMPOSITE
+                'CREATE TYPE ' || quote_ident(tn.nspname) || '.' || quote_ident(t.typname) || ' AS (' ||
+                (SELECT string_agg(quote_ident(a.attname) || ' ' || pg_catalog.format_type(a.atttypid, a.atttypmod), ', ' ORDER BY a.attnum)
+                 FROM pg_attribute a WHERE a.attrelid = t.typrelid AND a.attnum > 0 AND NOT a.attisdropped) || ');'
+        END as type_def
+    FROM pg_attribute a
+    JOIN pg_class c ON c.oid = a.attrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_type t ON t.oid = a.atttypid
+    JOIN pg_namespace tn ON tn.oid = t.typnamespace
+    WHERE n.nspname = $1
+        AND c.relname = $2
+        AND a.attnum > 0
+        AND NOT a.attisdropped
+        AND t.typtype IN ('e', 'd', 'c')  -- enum, domain, composite
+        AND tn.nspname NOT IN ('pg_catalog', 'information_schema')
+),
+columns AS (
     SELECT
         a.attname as name,
         pg_catalog.format_type(a.atttypid, a.atttypmod) as type,
@@ -527,8 +561,14 @@ pk AS (
     WHERE n.nspname = $1
         AND c.relname = $2
         AND con.contype = 'p'
+),
+type_defs AS (
+    SELECT string_agg(type_def, E'\\n\\n' ORDER BY type_name) as all_types
+    FROM custom_types
+    WHERE type_def IS NOT NULL
 )
 SELECT
+    COALESCE(td.all_types || E'\\n\\n', '') ||
     'CREATE TABLE ' || quote_ident($1) || '.' || quote_ident($2) || ' (' || E'\\n' ||
     string_agg(
         '    ' || quote_ident(c.name) || ' ' || c.type ||
@@ -544,5 +584,6 @@ SELECT
     E'\\n);' as definition
 FROM columns c
 CROSS JOIN pk
-GROUP BY pk.columns
+CROSS JOIN type_defs td
+GROUP BY pk.columns, td.all_types
 `;

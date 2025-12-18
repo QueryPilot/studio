@@ -89,7 +89,7 @@ export const debugInvalidation = {
       );
     } else {
       logger.warn(
-        "⚠️  No listeners found for this table. DataGridV2 may not be open for this table.",
+        "⚠️  No listeners found for this table. DataGrid may not be open for this table.",
       );
     }
 

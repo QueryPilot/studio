@@ -15,9 +15,123 @@ import {
   type CompletionContext,
   type CompletionResult,
 } from "@codemirror/autocomplete";
+import { syntaxTree } from "@codemirror/language";
+import type { EditorState } from "@codemirror/state";
 import { createSqlMetadataProvider } from "./metadataProvider";
 import { searchFunctions } from "./functions";
 import type { SqlDialect } from "../../types";
+
+// ============================================================================
+// TABLE ALIAS RESOLUTION - Maps aliases to actual table names
+// ============================================================================
+interface TableRef {
+  name: string;
+  alias?: string;
+  schema?: string;
+}
+
+// Cache for table refs - avoids re-parsing on every keystroke
+let tableRefsCache: { docLen: number; tables: TableRef[] } | null = null;
+
+const TABLE_KEYWORDS = ["from", "join", "update", "into", "table"];
+
+/**
+ * Extract table references with aliases from the SQL document.
+ * Uses the Lezer syntax tree for accurate parsing.
+ * Results are cached based on document length (fast invalidation check).
+ */
+function extractTableRefs(state: EditorState): TableRef[] {
+  const docLen = state.doc.length;
+
+  // Return cached result if document length matches (cheap check)
+  // This catches most typing scenarios where tables haven't changed
+  if (tableRefsCache && tableRefsCache.docLen === docLen) {
+    return tableRefsCache.tables;
+  }
+
+  const tables: TableRef[] = [];
+  const seen = new Set<string>();
+  const tree = syntaxTree(state);
+  const cursor = tree.cursor();
+
+  do {
+    if (cursor.name === "Identifier" || cursor.name === "QuotedIdentifier") {
+      const prevSibling = cursor.node.prevSibling;
+
+      // Check if this identifier follows a table keyword
+      if (prevSibling?.type.name === "Keyword") {
+        const keyword = state.sliceDoc(prevSibling.from, prevSibling.to).toLowerCase();
+        if (TABLE_KEYWORDS.includes(keyword)) {
+          const tableName = state.sliceDoc(cursor.from, cursor.to).replace(/["`[\]]/g, "");
+
+          if (seen.has(tableName.toLowerCase())) continue;
+          seen.add(tableName.toLowerCase());
+
+          // Check for schema.table notation
+          let schema: string | undefined;
+          if (prevSibling.prevSibling?.type.name === ".") {
+            const schemaNode = prevSibling.prevSibling.prevSibling;
+            if (schemaNode) {
+              schema = state.sliceDoc(schemaNode.from, schemaNode.to).replace(/["`[\]]/g, "");
+            }
+          }
+
+          // Check for alias
+          let alias: string | undefined;
+          let nextNode = cursor.node.nextSibling;
+
+          // Skip AS keyword if present
+          if (nextNode?.type.name === "Keyword") {
+            const kw = state.sliceDoc(nextNode.from, nextNode.to).toLowerCase();
+            if (kw === "as") {
+              nextNode = nextNode.nextSibling;
+            }
+          }
+
+          // Check if next is an identifier (alias)
+          if (nextNode && (nextNode.type.name === "Identifier" || nextNode.type.name === "QuotedIdentifier")) {
+            const nextText = state.sliceDoc(nextNode.from, nextNode.to);
+            // Make sure it's not a keyword
+            const normalized = nextText.toUpperCase();
+            if (!["ON", "LEFT", "RIGHT", "INNER", "OUTER", "CROSS", "JOIN", "WHERE", "SET", "VALUES"].includes(normalized)) {
+              alias = nextText.replace(/["`[\]]/g, "");
+              seen.add(alias.toLowerCase());
+            }
+          }
+
+          tables.push({ name: tableName, alias, schema });
+        }
+      }
+    }
+  } while (cursor.next());
+
+  // Cache the result
+  tableRefsCache = { docLen, tables };
+
+  return tables;
+}
+
+/**
+ * Resolve an alias or table name to the actual table name.
+ * Returns the resolved table name or the original qualifier if not found.
+ */
+function resolveTableAlias(qualifier: string, tables: TableRef[]): { tableName: string; schema?: string } {
+  const q = qualifier.toLowerCase();
+
+  for (const table of tables) {
+    // Match by alias
+    if (table.alias?.toLowerCase() === q) {
+      return { tableName: table.name, schema: table.schema };
+    }
+    // Match by table name
+    if (table.name.toLowerCase() === q) {
+      return { tableName: table.name, schema: table.schema };
+    }
+  }
+
+  // Not found - return original (might be a schema name or unrecognized table)
+  return { tableName: qualifier };
+}
 
 interface CompletionConfig {
   connectionId: string;
@@ -374,7 +488,7 @@ async function fetchCompletions(
   provider: ReturnType<typeof createSqlMetadataProvider>,
   context: CompletionContext,
   intent: "table" | "column" | "unknown",
-  _defaultSchema: string,
+  defaultSchema: string,
   dialect: SqlDialect
 ): Promise<Completion[] | null> {
   const completions: Completion[] = [];
@@ -382,14 +496,42 @@ async function fetchCompletions(
   const query = word?.text || "";
 
   try {
-    // Check for qualified access (e.g., table.column)
+    // Check for qualified access (e.g., table.column or alias.column)
     const dotMatch = context.matchBefore(/([a-zA-Z0-9_"`[\]]+)\.\s*[\w_]*$/);
 
     if (dotMatch) {
-      // Qualified column access
+      // Qualified column access - need to resolve alias to table name
       const qualifier = dotMatch.text.split(".")[0]?.replace(/["`[\]]/g, "");
       if (qualifier) {
-        const fields = await provider.listFields(qualifier);
+        // Extract table refs to resolve aliases
+        const tables = extractTableRefs(context.state);
+        const resolved = resolveTableAlias(qualifier, tables);
+
+        // Fetch fields using the resolved table name
+        const fields = await provider.listFields(resolved.tableName, resolved.schema || defaultSchema);
+
+        // If no fields found with resolved name, try qualifier as schema
+        if (fields.length === 0) {
+          const entities = await provider.listEntities(qualifier);
+          if (entities.length > 0) {
+            for (const entity of entities) {
+              const usageBoost = getUsageBoost("tables", entity.name);
+              completions.push({
+                label: entity.name,
+                type: entity.type === "table" ? "class" : "constant",
+                detail: entity.type,
+                boost: 5 + usageBoost,
+                apply: quoteIdentifier(entity.name, dialect),
+              });
+            }
+            const columnQuery = dotMatch.text.split(".")[1]?.replace(/["`[\]]/g, "") || "";
+            if (columnQuery) {
+              return filterByFuzzy(completions, columnQuery);
+            }
+            return completions;
+          }
+        }
+
         for (const field of fields) {
           const usageBoost = getUsageBoost("columns", field.name);
           completions.push({
@@ -436,9 +578,32 @@ async function fetchCompletions(
     // General context - fetch tables and functions
     const entities = await provider.listEntities();
 
+    // Extract table refs to show aliases with higher priority
+    const tables = extractTableRefs(context.state);
+
+    // Add table aliases for quick qualified access (highest priority in column context)
+    for (const table of tables) {
+      const aliasOrName = table.alias || table.name;
+      const usageBoost = getUsageBoost("tables", table.name);
+      completions.push({
+        label: aliasOrName,
+        type: "class",
+        detail: table.alias ? `alias → ${table.name}` : "table",
+        boost: 8 + usageBoost, // Higher than regular tables
+        apply: `${aliasOrName}.`, // Add dot for immediate column access
+      });
+    }
+
     // Add tables (without auto-appending dot - user can type it for column access)
     for (const entity of entities) {
       if (entity.type === "table") {
+        // Skip if already added as an alias
+        const alreadyAdded = tables.some(
+          t => t.name.toLowerCase() === entity.name.toLowerCase() ||
+               t.alias?.toLowerCase() === entity.name.toLowerCase()
+        );
+        if (alreadyAdded) continue;
+
         const usageBoost = getUsageBoost("tables", entity.name);
         completions.push({
           label: entity.name,

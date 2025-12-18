@@ -209,13 +209,14 @@ export function getStatementAtPosition(
   }
 
   // If cursor is before the first statement, snap to the first
-  if (pos < statements[0].from) {
-    return statements[0];
+  const first = statements[0];
+  if (first && pos < first.from) {
+    return first;
   }
 
   // If cursor is after the last statement, snap to the last
   const last = statements[statements.length - 1];
-  if (pos > last.to) {
+  if (last && pos > last.to) {
     return last;
   }
 
@@ -223,12 +224,12 @@ export function getStatementAtPosition(
   for (let i = 1; i < statements.length; i++) {
     const prev = statements[i - 1];
     const next = statements[i];
-    if (pos > prev.to && pos < next.from) {
+    if (prev && next && pos > prev.to && pos < next.from) {
       return prev;
     }
   }
 
-  return statements[statements.length - 1];
+  return statements[statements.length - 1] ?? null;
 }
 
 /**

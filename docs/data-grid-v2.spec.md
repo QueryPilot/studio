@@ -5,7 +5,7 @@
 
 ## Overview
 
-DataGridV2 is the shared grid layer for DevDB Studio. As of October 2025 the application operates in **read-only mode**: the grid focuses on fast rendering, streaming results, column personalization, and clipboard export. All create/update/delete workflows and the table-edit store were removed pending a redesign.
+DataGrid is the shared grid layer for DevDB Studio. As of October 2025 the application operates in **read-only mode**: the grid focuses on fast rendering, streaming results, column personalization, and clipboard export. All create/update/delete workflows and the table-edit store were removed pending a redesign.
 
 ## Current Responsibilities
 
@@ -26,9 +26,9 @@ DataGridV2 is the shared grid layer for DevDB Studio. As of October 2025 the app
 ## Folder Snapshot
 
 ```
-src/components/DataGridV2/
+src/components/DataGrid/
 ├── adapters/
-│   └── TableDataGridV2.tsx           # Read-only adapter for tables & queries
+│   └── TableDataGrid.tsx           # Read-only adapter for tables & queries
 ├── base/                             # Glide wrapper components
 ├── components/                       # Status bar, context menus, skeletons
 ├── hooks/                            # Clipboard, pinning, sizing, view state
@@ -60,7 +60,7 @@ src/components/DataGridV2/
 ## Future Work
 
 - Produce a replacement spec once the redesigned CUD workflow is defined (placeholder: `table-editing-redesign.md`).
-- Audit hooks/components under `src/components/DataGridV2/hooks/` to prune editing-specific utilities when safe.
+- Audit hooks/components under `src/components/DataGrid/hooks/` to prune editing-specific utilities when safe.
 - Evaluate re-introducing editors after the new architecture is approved.
 
 ## Related Documents

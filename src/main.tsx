@@ -3,6 +3,7 @@ import "./styles/globals.css";
 import App from "./App";
 import { ThemeProvider } from "./components/theme-provider";
 import { Toaster } from "./components/ui/sonner";
+import { TooltipProvider } from "./components/ui/tooltip";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./lib/react-query-client";
 import { enableMapSet } from "immer";
@@ -63,9 +64,11 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
             enableSystem
             storageKey="query-pilot-theme"
           >
-            <App />
-            <Toaster richColors closeButton />
-            <CommandPalette />
+            <TooltipProvider delay={300}>
+              <App />
+              <Toaster richColors closeButton />
+              <CommandPalette />
+            </TooltipProvider>
           </ThemeProvider>
         </QueryClientProvider>
       </KeyboardProvider>

@@ -38,18 +38,19 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
     <div className="flex items-center justify-between p-1.5">
       <div className="flex items-center gap-1.5">
         <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant={isCodeVisible ? "secondary" : "ghost"}
-              size="icon"
-              className="h-7 w-7"
-              aria-pressed={isCodeVisible}
-              onClick={onToggleCodePanel}
-            >
-              <IconLayoutSidebar className="h-3.5 w-3.5" />
-            </Button>
-          </TooltipTrigger>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant={isCodeVisible ? "secondary" : "ghost"}
+                size="icon"
+                aria-pressed={isCodeVisible}
+                onClick={onToggleCodePanel}
+              >
+                <IconLayoutSidebar />
+              </Button>
+            }
+          />
           <TooltipContent>
             {isCodeVisible ? "Hide IconCode Editor" : "Show IconCode Editor"}
           </TooltipContent>
@@ -58,83 +59,88 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
       <div className="flex items-center gap-1">
         {/* Zoom Controls */}
         <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => {
-                onZoomIn?.();
-              }}
-            >
-              <IconZoomIn className="h-3.5 w-3.5" />
-            </Button>
-          </TooltipTrigger>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  onZoomIn?.();
+                }}
+              >
+                <IconZoomIn />
+              </Button>
+            }
+          />
           <TooltipContent>Zoom In</TooltipContent>
         </Tooltip>
         <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => {
-                onZoomOut?.();
-              }}
-            >
-              <IconZoomOut className="h-3.5 w-3.5" />
-            </Button>
-          </TooltipTrigger>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  onZoomOut?.();
+                }}
+              >
+                <IconZoomOut />
+              </Button>
+            }
+          />
           <TooltipContent>Zoom Out</TooltipContent>
         </Tooltip>
         <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => {
-                onFitView?.();
-              }}
-            >
-              <IconMaximize className="h-3.5 w-3.5" />
-            </Button>
-          </TooltipTrigger>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  onFitView?.();
+                }}
+              >
+                <IconMaximize />
+              </Button>
+            }
+          />
           <TooltipContent>Fit View</TooltipContent>
         </Tooltip>
         <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => {
-                onAutoArrange?.();
-              }}
-            >
-              <IconArrowsShuffle className="h-3.5 w-3.5" />
-            </Button>
-          </TooltipTrigger>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  onAutoArrange?.();
+                }}
+              >
+                <IconArrowsShuffle />
+              </Button>
+            }
+          />
           <TooltipContent>Auto Arrange</TooltipContent>
         </Tooltip>
         <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => {
-                onRefresh?.();
-              }}
-            >
-              <IconRefresh className="h-3.5 w-3.5" />
-            </Button>
-          </TooltipTrigger>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  onRefresh?.();
+                }}
+              >
+                <IconRefresh />
+              </Button>
+            }
+          />
           <TooltipContent>Refresh</TooltipContent>
         </Tooltip>
         {/* Divider */}
@@ -142,35 +148,37 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
 
         {/* Layout Direction Controls */}
         <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant={layoutDirection === "TB" ? "secondary" : "ghost"}
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => {
-                onLayoutDirectionChange?.("TB");
-              }}
-            >
-              <IconArrowsUpDown className="h-3.5 w-3.5" />
-            </Button>
-          </TooltipTrigger>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant={layoutDirection === "TB" ? "secondary" : "ghost"}
+                size="icon"
+                onClick={() => {
+                  onLayoutDirectionChange?.("TB");
+                }}
+              >
+                <IconArrowsUpDown />
+              </Button>
+            }
+          />
           <TooltipContent>Vertical Layout</TooltipContent>
         </Tooltip>
         <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant={layoutDirection === "LR" ? "secondary" : "ghost"}
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => {
-                onLayoutDirectionChange?.("LR");
-              }}
-            >
-              <IconArrowsRightLeft className="h-3.5 w-3.5" />
-            </Button>
-          </TooltipTrigger>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant={layoutDirection === "LR" ? "secondary" : "ghost"}
+                size="icon"
+                onClick={() => {
+                  onLayoutDirectionChange?.("LR");
+                }}
+              >
+                <IconArrowsRightLeft />
+              </Button>
+            }
+          />
           <TooltipContent>Horizontal Layout</TooltipContent>
         </Tooltip>
         {/* Divider */}
@@ -178,19 +186,20 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
 
         {/* Other Controls */}
         <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => {
-                onCreateView?.();
-              }}
-            >
-              <IconPlus className="h-3.5 w-3.5" />
-            </Button>
-          </TooltipTrigger>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  onCreateView?.();
+                }}
+              >
+                <IconPlus />
+              </Button>
+            }
+          />
           <TooltipContent>New View</TooltipContent>
         </Tooltip>
       </div>

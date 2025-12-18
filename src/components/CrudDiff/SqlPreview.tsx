@@ -62,7 +62,7 @@ function SqlStatementPanel({ statement }: SqlStatementPanelProps) {
           <span className="font-medium text-foreground">Command</span>:{" "}
           {statement.commandId}
         </div>
-        <Button variant="ghost" size="xs" onClick={handleCopy}>
+        <Button variant="ghost" onClick={handleCopy}>
           {copied ? "Copied" : "Copy"}
         </Button>
       </header>

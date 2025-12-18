@@ -24,7 +24,7 @@ import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightAc
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { bracketMatching, indentOnInput, indentUnit, foldGutter, codeFolding, foldKeymap } from "@codemirror/language";
 import { searchKeymap, highlightSelectionMatches, search } from "@codemirror/search";
-import { autocompletion, acceptCompletion } from "@codemirror/autocomplete";
+import { autocompletion, acceptCompletion, completionKeymap } from "@codemirror/autocomplete";
 import { sql, PostgreSQL, MySQL, SQLite, MSSQL, PLSQL } from "@codemirror/lang-sql";
 import { lintGutter } from "@codemirror/lint";
 
@@ -153,7 +153,8 @@ const baseTheme = EditorView.theme({
     height: "100%",
   },
   ".cm-scroller": {
-    overflow: "auto",
+    overflowX: "hidden", // Prevent horizontal scroll shift when autocomplete opens/closes
+    overflowY: "auto",
     flex: "1",
     fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
     fontSize: "12px",
@@ -171,8 +172,10 @@ const baseTheme = EditorView.theme({
     borderLeftWidth: "2px",
   },
   // Fix multi-line selection to have consistent left edge
+  // Reserve space for statement highlight border to prevent layout shift
   ".cm-line": {
-    paddingLeft: "2px",
+    paddingLeft: "4px",
+    borderLeft: "2px solid transparent",
   },
 });
 
@@ -458,6 +461,7 @@ export const SqlEditor = memo(
           // Keymaps - history keymap with high precedence to prevent override
           Prec.high(keymap.of(historyKeymap)),
           keymap.of([
+            ...completionKeymap,
             ...defaultKeymap,
             ...searchKeymap,
             ...foldKeymap,

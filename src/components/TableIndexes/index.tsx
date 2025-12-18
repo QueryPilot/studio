@@ -9,13 +9,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { IconAlertCircle } from "@tabler/icons-react";
 import { databaseService, type TableIndex } from "@/services/databaseService";
 import type { IndexUsageStats } from "@/services/backend";
-import { EditableDataGrid } from "@/components/DataGridV2/base/EditableDataGrid";
+import { EditableDataGrid } from "@/components/DataGrid/base/EditableDataGrid";
 import type {
   GridEditCommitEvent,
   GridRowModel,
-} from "@/components/DataGridV2/types";
-import { useColumnSizing } from "@/components/DataGridV2/hooks/useColumnSizing";
-import { TextSingleLineCellRenderer } from "@/components/DataGridV2/renderers/TextCell";
+} from "@/components/DataGrid/types";
+import { useColumnSizing } from "@/components/DataGrid/hooks/useColumnSizing";
+import { TextSingleLineCellRenderer } from "@/components/DataGrid/renderers/TextCell";
 import { indexColumns } from "./columns";
 import { transformIndexesToRows } from "./utils";
 import IndexNameCellRenderer from "./IndexNameCellRenderer";

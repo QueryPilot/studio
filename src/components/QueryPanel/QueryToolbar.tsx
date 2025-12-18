@@ -72,7 +72,9 @@ interface QueryToolbarProps {
   onBeautify: () => void;
   onToggleHistory: () => void;
   onToggleResults: () => void;
-  onViewModeChange: (mode: "table" | "json" | "explain" | "raw" | "stats") => void;
+  onViewModeChange: (
+    mode: "table" | "json" | "explain" | "raw" | "stats",
+  ) => void;
   onDialectChange?: (dialect: SqlDialect | "auto") => void;
   onFocusEditor?: () => void;
 }
@@ -88,7 +90,7 @@ export const QueryToolbar = memo(function QueryToolbar({
   beautifyHint: _beautifyHint,
   focused = false,
   dialect = "auto",
-  detectedDialect,
+  detectedDialect: _detectedDialect,
   isExplainResult = false,
   hasValidResult = true,
   onExecute,
@@ -100,19 +102,6 @@ export const QueryToolbar = memo(function QueryToolbar({
   onDialectChange,
   onFocusEditor,
 }: QueryToolbarProps) {
-  // Get the display label for the current dialect
-  const currentDialectLabel =
-    dialect === "auto"
-      ? `Auto${
-          detectedDialect
-            ? ` (${
-                DIALECT_OPTIONS.find((d) => d.value === detectedDialect)
-                  ?.label || detectedDialect
-              })`
-            : ""
-        }`
-      : DIALECT_OPTIONS.find((d) => d.value === dialect)?.label || dialect;
-
   return (
     <div className="@container/toolbar flex-shrink-0">
       <div className="flex items-center justify-between gap-1.5 px-1.5 py-1 bg-muted/20">
@@ -120,13 +109,12 @@ export const QueryToolbar = memo(function QueryToolbar({
         <div className="flex items-center gap-1.5">
           {/* Toggle Results Panel */}
           <Button
-            size="sm"
+            size="icon-sm"
             variant={showResults ? "secondary" : "ghost"}
             onClick={onToggleResults}
-            className="!h-6 !w-6 !p-0"
             title={showResults ? "Hide results (⌥R)" : "Show results (⌥R)"}
           >
-            <IconLayoutRows className="h-3.5 w-3.5" />
+            <IconLayoutRows />
           </Button>
 
           {/* View Mode Tabs - only visible when results showing and result is valid */}
@@ -134,26 +122,26 @@ export const QueryToolbar = memo(function QueryToolbar({
             <Tabs
               value={viewMode}
               onValueChange={(value) => {
-                onViewModeChange(value as "table" | "json" | "explain" | "raw" | "stats");
+                onViewModeChange(
+                  value as "table" | "json" | "explain" | "raw" | "stats",
+                );
               }}
               enableShortcuts={true}
               tabGroupId="query-view-mode"
               focused={focused}
               enableGlobalShortcuts={false}
             >
-              <TabsList className="!h-6 !p-0.5">
+              <TabsList>
                 {!isExplainResult && (
                   <>
                     <TabsTrigger
                       value="table"
-                      className="text-xs !h-5 !px-2"
                       tabIndex={0}
                     >
                       Table
                     </TabsTrigger>
                     <TabsTrigger
                       value="json"
-                      className="text-xs !h-5 !px-2"
                       tabIndex={1}
                     >
                       JSON
@@ -164,26 +152,23 @@ export const QueryToolbar = memo(function QueryToolbar({
                   <>
                     <TabsTrigger
                       value="explain"
-                      className="text-xs !h-5 !px-2 gap-1"
                       tabIndex={0}
                     >
-                      <IconChartTreemap className="h-3 w-3" />
+                      <IconChartTreemap />
                       Tree
                     </TabsTrigger>
                     <TabsTrigger
                       value="stats"
-                      className="text-xs !h-5 !px-2 gap-1"
                       tabIndex={1}
                     >
-                      <IconChartBar className="h-3 w-3" />
+                      <IconChartBar />
                       Stats
                     </TabsTrigger>
                     <TabsTrigger
                       value="raw"
-                      className="text-xs !h-5 !px-2 gap-1"
                       tabIndex={2}
                     >
-                      <IconFileText className="h-3 w-3" />
+                      <IconFileText />
                       Raw
                     </TabsTrigger>
                   </>
@@ -201,12 +186,9 @@ export const QueryToolbar = memo(function QueryToolbar({
               onDialectChange?.(value as SqlDialect | "auto")
             }
           >
-            <SelectTrigger
-              className="!h-6 w-auto min-w-[80px] text-xs gap-1 border-none bg-transparent hover:bg-accent hidden @[400px]/toolbar:flex !px-2"
-              title={`SQL Dialect: ${currentDialectLabel}`}
-            >
+            <SelectTrigger>
               <IconCode className="h-3 w-3 text-muted-foreground" />
-              <SelectValue placeholder="Dialect" className="text-xs" />
+              <SelectValue>Dialect</SelectValue>
             </SelectTrigger>
             <SelectContent>
               {DIALECT_OPTIONS.map((option) => (
@@ -238,10 +220,10 @@ export const QueryToolbar = memo(function QueryToolbar({
             size="sm"
             variant={showHistory ? "secondary" : "ghost"}
             onClick={onToggleHistory}
-            className="!h-6 text-xs gap-1 hidden @[500px]/toolbar:flex !px-2"
+            className="hidden @[500px]/toolbar:flex"
             title="Toggle history panel (⌥H)"
           >
-            <IconHistory className="h-3 w-3" />
+            <IconHistory />
             <span>History</span>
           </Button>
 
@@ -251,25 +233,27 @@ export const QueryToolbar = memo(function QueryToolbar({
             variant="ghost"
             onClick={onBeautify}
             disabled={isExecuting || !query.trim()}
-            className="!h-6 text-xs gap-1 hidden @[500px]/toolbar:flex !px-2"
+            className="hidden @[500px]/toolbar:flex"
             title="Format SQL (⌥F)"
           >
-            <IconWand className="h-3 w-3" />
+            <IconWand />
             <span>Format</span>
           </Button>
 
           {/* Overflow Menu - visible on narrow containers */}
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="!h-6 !w-6 !p-0 @[500px]/toolbar:hidden"
-                title="More options"
-              >
-                <IconDotsVertical className="h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  className="@[500px]/toolbar:hidden"
+                  title="More options"
+                >
+                  <IconDotsVertical />
+                </Button>
+              }
+            />
             <DropdownMenuContent align="end" className="w-44">
               {/* Dialect Selector */}
               <DropdownMenuSub>
@@ -324,7 +308,6 @@ export const QueryToolbar = memo(function QueryToolbar({
             variant={isExecuting ? "destructive" : "default"}
             onClick={isExecuting ? onCancel : onExecute}
             disabled={!query.trim() && !isExecuting}
-            className="!h-6 text-xs gap-1 !px-2.5"
             title={
               isExecuting
                 ? "Cancel execution"
@@ -335,12 +318,12 @@ export const QueryToolbar = memo(function QueryToolbar({
           >
             {isExecuting ? (
               <>
-                <IconPlayerStop className="h-3.5 w-3.5" />
+                <IconPlayerStop />
                 <span>Stop</span>
               </>
             ) : (
               <>
-                <IconPlayerPlay className="h-3.5 w-3.5" />
+                <IconPlayerPlay />
                 <span>Run</span>
               </>
             )}

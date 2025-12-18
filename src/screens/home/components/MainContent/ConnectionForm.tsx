@@ -789,7 +789,7 @@ export function ConnectionForm() {
             setDbType(v as DatabaseType);
           }}
         >
-          <SelectTrigger className="w-auto h-7 gap-2 text-xs border-none shadow-none px-2">
+          <SelectTrigger>
             <div className="flex items-center gap-2">
               <img
                 src={currentDbType?.logo}
@@ -798,6 +798,7 @@ export function ConnectionForm() {
               />
               <span>{currentDbType?.label}</span>
             </div>
+            <SelectValue>{currentDbType?.label}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {dbTypeOptions.map((opt) => (
@@ -837,43 +838,33 @@ export function ConnectionForm() {
                 Tags
               </Label>
               <Popover open={tagsCommandOpen} onOpenChange={setTagsCommandOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="w-full justify-between mt-1 h-8 text-xs"
-                    disabled={isTesting}
-                  >
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      {selectedTags.length > 0 ? (
-                        selectedTags.map((tag) => {
-                          const isGroup = groupTags.some((g) => g.name === tag);
-                          const tagColor = getTagColor(tag, isGroup);
-                          return (
-                            <div
-                              key={tag}
-                              className="flex items-center gap-1.5"
-                            >
-                              <div
-                                className={cn(
-                                  "w-2 h-2 rounded-full flex-shrink-0",
-                                  tagColor.bg,
-                                )}
-                              />
-                              <span className="text-xs truncate max-w-[80px]">
-                                {tag}
-                              </span>
-                            </div>
-                          );
-                        })
-                      ) : (
-                        <span className="text-muted-foreground text-xs">
-                          Select tags...
-                        </span>
-                      )}
-                    </div>
-                    <IconChevronDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
+                <PopoverTrigger
+                  render={
+                    <Button
+                      variant="outline"
+                      className="w-full justify-between mt-1 h-8 text-xs"
+                      disabled={isTesting}
+                    >
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        {selectedTags.length > 0 ? (
+                          selectedTags.map((tag) => {
+                            const isGroup = groupTags.some((g) => g.name === tag);
+                            const tagColor = getTagColor(tag, isGroup);
+                            return (
+                              <div key={tag} className="flex items-center gap-1.5">
+                                <div className={cn("w-2 h-2 rounded-full flex-shrink-0", tagColor.bg)} />
+                                <span className="text-xs truncate max-w-[80px]">{tag}</span>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <span className="text-muted-foreground text-xs">Select tags...</span>
+                        )}
+                      </div>
+                      <IconChevronDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+                    </Button>
+                  }
+                />
                 <PopoverContent className="w-[300px] p-0">
                   <Command>
                     <CommandInput
@@ -1112,15 +1103,17 @@ export function ConnectionForm() {
                 SSL Mode
               </Label>
               <Popover open={sslModeOpen} onOpenChange={setSslModeOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="w-full justify-between mt-1 h-8 text-xs"
-                  >
-                    <span className="capitalize">{sslMode}</span>
-                    <IconChevronDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
+                <PopoverTrigger
+                  render={
+                    <Button
+                      variant="outline"
+                      className="w-full justify-between mt-1 h-8 text-xs"
+                    >
+                      <span className="capitalize">{sslMode}</span>
+                      <IconChevronDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+                    </Button>
+                  }
+                />
                 <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-1">
                   <div className="flex flex-col">
                     {[
@@ -1309,9 +1302,7 @@ export function ConnectionForm() {
               <Label className="flex items-center gap-1.5 text-xs">
                 <IconServer className="h-3 w-3 text-muted-foreground" />
                 AWS SSM Bastion
-                <Badge variant="secondary" className="text-[10px] px-1 py-0">
-                  Beta
-                </Badge>
+                <Badge variant="secondary">Beta</Badge>
               </Label>
               <Switch checked={useAwsSsm} onCheckedChange={setUseAwsSsm} />
             </div>
@@ -1404,10 +1395,12 @@ export function ConnectionForm() {
                       </Label>
                       <Select
                         value={ssmOAuthProvider}
-                        onValueChange={setSsmOAuthProvider}
+                        onValueChange={(value) => {
+                          setSsmOAuthProvider(value ?? "");
+                        }}
                       >
-                        <SelectTrigger className="mt-1 h-8 text-xs">
-                          <SelectValue placeholder="Select SSO provider" />
+                        <SelectTrigger>
+                          <SelectValue>Select SSO provider</SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="Microsoft">
@@ -1493,9 +1486,7 @@ export function ConnectionForm() {
               <Label className="flex items-center gap-1.5 text-xs">
                 <IconServer className="h-3 w-3 text-muted-foreground" />
                 ECS Bastion (Azure AD)
-                <Badge variant="secondary" className="text-[10px] px-1 py-0">
-                  New
-                </Badge>
+                <Badge variant="secondary">New</Badge>
               </Label>
               <Switch
                 checked={useEcsBastion}
@@ -1514,9 +1505,7 @@ export function ConnectionForm() {
                     >
                       ECS Cluster *
                       <Tooltip>
-                        <TooltipTrigger asChild>
-                          <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
-                        </TooltipTrigger>
+                        <TooltipTrigger render={<IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />} />
                         <TooltipContent side="top" className="max-w-[280px]">
                           <p className="font-medium mb-1">How to find:</p>
                           <p>
@@ -1543,9 +1532,7 @@ export function ConnectionForm() {
                     >
                       Task Definition *
                       <Tooltip>
-                        <TooltipTrigger asChild>
-                          <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
-                        </TooltipTrigger>
+                        <TooltipTrigger render={<IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />} />
                         <TooltipContent side="top" className="max-w-[280px]">
                           <p className="font-medium mb-1">How to find:</p>
                           <p>
@@ -1575,9 +1562,7 @@ export function ConnectionForm() {
                   >
                     AWS Region *
                     <Tooltip>
-                      <TooltipTrigger asChild>
-                        <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
-                      </TooltipTrigger>
+                      <TooltipTrigger render={<IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />} />
                       <TooltipContent side="top" className="max-w-[280px]">
                         <p className="font-medium mb-1">How to find:</p>
                         <p>
@@ -1656,9 +1641,7 @@ export function ConnectionForm() {
                       >
                         Tenant ID *
                         <Tooltip>
-                          <TooltipTrigger asChild>
-                            <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
-                          </TooltipTrigger>
+                          <TooltipTrigger render={<IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />} />
                           <TooltipContent side="top" className="max-w-[280px]">
                             <p className="font-medium mb-1">How to find:</p>
                             <p>
@@ -1685,9 +1668,7 @@ export function ConnectionForm() {
                       >
                         Session Hours
                         <Tooltip>
-                          <TooltipTrigger asChild>
-                            <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
-                          </TooltipTrigger>
+                          <TooltipTrigger render={<IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />} />
                           <TooltipContent side="top" className="max-w-[280px]">
                             <p className="font-medium mb-1">What this means:</p>
                             <p>
@@ -1719,9 +1700,7 @@ export function ConnectionForm() {
                     >
                       App ID URI *
                       <Tooltip>
-                        <TooltipTrigger asChild>
-                          <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
-                        </TooltipTrigger>
+                        <TooltipTrigger render={<IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />} />
                         <TooltipContent side="top" className="max-w-[280px]">
                           <p className="font-medium mb-1">How to find:</p>
                           <p>
@@ -1749,9 +1728,7 @@ export function ConnectionForm() {
                     >
                       Default Role ARN (optional)
                       <Tooltip>
-                        <TooltipTrigger asChild>
-                          <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
-                        </TooltipTrigger>
+                        <TooltipTrigger render={<IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />} />
                         <TooltipContent side="top" className="max-w-[280px]">
                           <p className="font-medium mb-1">What this means:</p>
                           <p>
@@ -1787,9 +1764,7 @@ export function ConnectionForm() {
                       >
                         Remote Host
                         <Tooltip>
-                          <TooltipTrigger asChild>
-                            <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
-                          </TooltipTrigger>
+                          <TooltipTrigger render={<IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />} />
                           <TooltipContent side="top" className="max-w-[280px]">
                             <p className="font-medium mb-1">What this means:</p>
                             <p>
@@ -1817,9 +1792,7 @@ export function ConnectionForm() {
                       >
                         Remote Port
                         <Tooltip>
-                          <TooltipTrigger asChild>
-                            <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
-                          </TooltipTrigger>
+                          <TooltipTrigger render={<IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />} />
                           <TooltipContent side="top" className="max-w-[280px]">
                             <p className="font-medium mb-1">What this means:</p>
                             <p>
@@ -1848,9 +1821,7 @@ export function ConnectionForm() {
                     >
                       Subnet Tags (comma-separated)
                       <Tooltip>
-                        <TooltipTrigger asChild>
-                          <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
-                        </TooltipTrigger>
+                        <TooltipTrigger render={<IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />} />
                         <TooltipContent side="top" className="max-w-[280px]">
                           <p className="font-medium mb-1">What this means:</p>
                           <p>
@@ -1878,9 +1849,7 @@ export function ConnectionForm() {
                     >
                       Security Group Tag
                       <Tooltip>
-                        <TooltipTrigger asChild>
-                          <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
-                        </TooltipTrigger>
+                        <TooltipTrigger render={<IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />} />
                         <TooltipContent side="top" className="max-w-[280px]">
                           <p className="font-medium mb-1">What this means:</p>
                           <p>

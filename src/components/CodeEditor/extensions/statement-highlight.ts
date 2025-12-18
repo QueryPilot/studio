@@ -146,19 +146,17 @@ const statementHighlightPlugin = ViewPlugin.fromClass(
 
 /**
  * Theme for statement highlighting
- * 
- * Border is always present (2px) to maintain consistent layout:
- * - Active: primary color
- * - Inactive: transparent (invisible but space preserved)
+ *
+ * Only changes border COLOR - base .cm-line already has border space reserved
+ * to prevent layout shift when decorations are added/removed during typing.
  */
 const statementHighlightTheme = EditorView.theme({
   ".cm-active-statement-line": {
-    borderLeft: "2px solid hsl(var(--primary))",
-    paddingLeft: "4px",
+    borderLeftColor: "hsl(var(--primary))",
   },
   ".cm-inactive-statement-line": {
-    borderLeft: "2px solid transparent",
-    paddingLeft: "4px",
+    // Inherits transparent border from base .cm-line
+    // No change needed - keeps consistent layout
   },
 });
 

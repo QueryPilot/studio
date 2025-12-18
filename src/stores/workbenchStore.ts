@@ -631,13 +631,19 @@ const useWorkbenchStore = create<WorkbenchStore>()(
       const panel = panelContents.get(panelId);
       if (!panel || !panel.tabIds.includes(tabId)) return;
 
-      const newContents = new Map(panelContents);
-      newContents.set(panelId, {
-        ...panel,
-        activeTabId: tabId,
-      });
+      // Skip update if activeTab is already set to this tab
+      if (panel.activeTabId === tabId) return;
 
-      const updatedTree = updatePanelContents(layoutTree, newContents);
+      // Create updated panel content
+      const updatedPanel = { ...panel, activeTabId: tabId };
+
+      // Update only the changed panel in the Map - reuse existing Map reference
+      // by mutating then creating new ref only for the single changed entry
+      const newContents = new Map(panelContents);
+      newContents.set(panelId, updatedPanel);
+
+      // Update only the affected leaf node in the tree, not full rebuild
+      const updatedTree = updateSinglePanel(layoutTree, panelId, updatedPanel);
 
       set({
         layoutTree: updatedTree,
@@ -755,6 +761,40 @@ function updatePanelContents(
         updatePanelContents(child, contents),
       ),
     };
+  }
+
+  return tree;
+}
+
+// Optimized: Update only a single panel in the tree without rebuilding unchanged nodes
+function updateSinglePanel(
+  tree: GridNode,
+  panelId: string,
+  updatedContent: PanelContent,
+): GridNode {
+  if (tree.type === "leaf") {
+    // Only create new object if this is the panel we're updating
+    if (tree.content?.id === panelId) {
+      return { ...tree, content: updatedContent };
+    }
+    // Return same reference if not the target panel
+    return tree;
+  }
+
+  if (tree.type === "branch" && tree.children) {
+    // Check if any child needs updating (avoid creating new array if unchanged)
+    const updatedChildren = tree.children.map((child) =>
+      updateSinglePanel(child, panelId, updatedContent),
+    );
+
+    // Only create new branch if children actually changed (reference comparison)
+    const hasChanges = updatedChildren.some(
+      (child, i) => child !== tree.children![i],
+    );
+
+    if (hasChanges) {
+      return { ...tree, children: updatedChildren };
+    }
   }
 
   return tree;

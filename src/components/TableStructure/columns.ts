@@ -1,4 +1,4 @@
-import type { GridColumnV2 } from "@/components/DataGridV2/types";
+import type { GridColumnV2 } from "@/components/DataGrid/types";
 
 export const structureColumns: GridColumnV2[] = [
   {

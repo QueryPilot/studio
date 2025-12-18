@@ -282,114 +282,65 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
             const showTargetHandles = columnHandles.target.has(column.name);
             return (
               <Tooltip key={column.name} delayDuration={200}>
-                <TooltipTrigger asChild>
-                  <li
-                    className="group relative flex items-center gap-2 rounded px-1.5 py-0.5 transition hover:bg-muted cursor-pointer"
-                    onMouseEnter={() => {
-                      onColumnHover?.(column.name);
-                    }}
-                    onMouseLeave={() => {
-                      onColumnLeave?.();
-                    }}
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      onColumnDoubleClick?.(table.name, column.name);
-                    }}
-                  >
-                    {/* Left side handles - hidden by default, shown on row hover */}
-                    {showTargetHandles ? (
-                      <Handle
-                        type="target"
-                        position={Position.Left}
-                        id={makeHandleId(column.name, "target", "left")}
-                        className="absolute left-0 top-1/2 opacity-0 group-hover:opacity-100"
-                        style={{
-                          width: 8,
-                          height: 8,
-                          border: "none",
-                          background: "transparent",
-                          pointerEvents: "all",
-                          transform: "translate(-8px, -50%)",
-                        }}
-                      />
-                    ) : null}
-                    {showSourceHandles ? (
-                      <Handle
-                        type="source"
-                        position={Position.Left}
-                        id={makeHandleId(column.name, "source", "left")}
-                        className="absolute left-0 top-1/2 opacity-0 group-hover:opacity-100"
-                        style={{
-                          width: 8,
-                          height: 8,
-                          border: "none",
-                          background: "transparent",
-                          pointerEvents: "all",
-                          transform: "translate(-8px, -50%)",
-                        }}
-                      />
-                    ) : null}
-                    <div className="flex flex-1 items-center gap-2 min-w-0 text-xs">
-                      <div className="flex-1 inline-flex items-center gap-2">
-                        <span className="font-medium text-foreground truncate max-w-[160px]">
-                          {column.name}
-                        </span>
-                        {renderColumnIcons(column)}
+                <TooltipTrigger
+                  render={
+                    <li
+                      className="group relative flex items-center gap-2 rounded px-1.5 py-0.5 transition hover:bg-muted cursor-pointer"
+                      onMouseEnter={() => { onColumnHover?.(column.name); }}
+                      onMouseLeave={() => { onColumnLeave?.(); }}
+                      onDoubleClick={(e) => { e.stopPropagation(); onColumnDoubleClick?.(table.name, column.name); }}
+                    >
+                      {showTargetHandles && (
+                        <Handle
+                          type="target"
+                          position={Position.Left}
+                          id={makeHandleId(column.name, "target", "left")}
+                          className="absolute left-0 top-1/2 opacity-0 group-hover:opacity-100"
+                          style={{ width: 8, height: 8, border: "none", background: "transparent", pointerEvents: "all", transform: "translate(-8px, -50%)" }}
+                        />
+                      )}
+                      {showSourceHandles && (
+                        <Handle
+                          type="source"
+                          position={Position.Left}
+                          id={makeHandleId(column.name, "source", "left")}
+                          className="absolute left-0 top-1/2 opacity-0 group-hover:opacity-100"
+                          style={{ width: 8, height: 8, border: "none", background: "transparent", pointerEvents: "all", transform: "translate(-8px, -50%)" }}
+                        />
+                      )}
+                      <div className="flex flex-1 items-center gap-2 min-w-0 text-xs">
+                        <div className="flex-1 inline-flex items-center gap-2">
+                          <span className="font-medium text-foreground truncate max-w-[160px]">{column.name}</span>
+                          {renderColumnIcons(column)}
+                        </div>
+                        <div className="flex items-center gap-2 min-w-0 flex-shrink-0">
+                          {constraints.length > 0 && (
+                            <span className="text-xs text-orange-500 font-semibold flex-shrink-0">{constraints.join(",")}</span>
+                          )}
+                          <span className="text-xs text-muted-foreground truncate max-w-[80px]" title={type}>{type}</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 min-w-0 flex-shrink-0">
-                        {constraints.length > 0 && (
-                          <span className="text-xs text-orange-500 font-semibold flex-shrink-0">
-                            {constraints.join(",")}
-                          </span>
-                        )}
-                        <span className="text-xs text-muted-foreground truncate max-w-[80px]" title={type}>
-                          {type}
-                        </span>
-                      </div>
-                    </div>
-                    {/* Right side handles - hidden by default, shown on row hover */}
-                    {showTargetHandles ? (
-                      <Handle
-                        type="target"
-                        position={Position.Right}
-                        id={makeHandleId(
-                          column.name,
-                          "target",
-                          "right",
-                        )}
-                        className="absolute right-0 top-1/2 opacity-0 group-hover:opacity-100"
-                        style={{
-                          width: 8,
-                          height: 8,
-                          border: "none",
-                          background: "transparent",
-                          pointerEvents: "all",
-                          transform: "translate(8px, -50%)",
-                        }}
-                      />
-                    ) : null}
-                    {showSourceHandles ? (
-                      <Handle
-                        type="source"
-                        position={Position.Right}
-                        id={makeHandleId(
-                          column.name,
-                          "source",
-                          "right",
-                        )}
-                        className="absolute right-0 top-1/2 opacity-0 group-hover:opacity-100"
-                        style={{
-                          width: 8,
-                          height: 8,
-                          border: "none",
-                          background: "transparent",
-                          pointerEvents: "all",
-                          transform: "translate(8px, -50%)",
-                        }}
-                      />
-                    ) : null}
-                  </li>
-                </TooltipTrigger>
+                      {showTargetHandles && (
+                        <Handle
+                          type="target"
+                          position={Position.Right}
+                          id={makeHandleId(column.name, "target", "right")}
+                          className="absolute right-0 top-1/2 opacity-0 group-hover:opacity-100"
+                          style={{ width: 8, height: 8, border: "none", background: "transparent", pointerEvents: "all", transform: "translate(8px, -50%)" }}
+                        />
+                      )}
+                      {showSourceHandles && (
+                        <Handle
+                          type="source"
+                          position={Position.Right}
+                          id={makeHandleId(column.name, "source", "right")}
+                          className="absolute right-0 top-1/2 opacity-0 group-hover:opacity-100"
+                          style={{ width: 8, height: 8, border: "none", background: "transparent", pointerEvents: "all", transform: "translate(8px, -50%)" }}
+                        />
+                      )}
+                    </li>
+                  }
+                />
                 {(column.default || column.comment) && (
                   <TooltipContent side="right" sideOffset={5}>
                     <div className="space-y-1">

@@ -1,0 +1,169 @@
+import React, { useEffect, useRef, useState } from "react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { IconKey } from "@tabler/icons-react";
+import { type BooleanCustomCell } from "./types";
+
+interface BooleanCellEditorProps {
+  value: BooleanCustomCell;
+  onFinishedEditing: (
+    newValue?: BooleanCustomCell,
+    movement?: readonly [-1 | 0 | 1, -1 | 0 | 1],
+  ) => void;
+}
+
+export const BooleanCellEditor: React.FC<BooleanCellEditorProps> = ({
+  value,
+  onFinishedEditing,
+}) => {
+  const initialValue = value.data.value;
+  const initialStringValue =
+    initialValue == null ? "null" : initialValue.toString();
+
+  const [open, setOpen] = useState(false);
+  const finishedRef = useRef(false);
+
+  // Extract column metadata for header
+  const { columnName, isPrimaryKey, dbType } = value.data;
+
+  // Auto-open the dropdown when editor mounts (double-click activated)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setOpen(true);
+    }, 0);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, []);
+
+  const handleValueChange = async (newValue: string) => {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
+
+    let boolValue: boolean | null;
+    switch (newValue) {
+      case "true":
+        boolValue = true;
+        break;
+      case "false":
+        boolValue = false;
+        break;
+      default:
+        boolValue = null;
+    }
+
+    const newCell: BooleanCustomCell = {
+      kind: value.kind,
+      data: {
+        ...value.data,
+        value: boolValue,
+      },
+      copyData: boolValue === null ? "NULL" : String(boolValue),
+      allowOverlay: value.allowOverlay,
+      readonly: value.readonly,
+    };
+
+    // Close the dropdown
+    setOpen(false);
+
+    // Wait for next frame before finishing
+    await new Promise((r) => window.requestAnimationFrame(r));
+    onFinishedEditing(newCell);
+  };
+
+  const handleOpenChange = (isOpen: boolean) => {
+    setOpen(isOpen);
+
+    // If user closes the dropdown without selecting, cancel the edit
+    if (!isOpen && !finishedRef.current) {
+      setTimeout(() => {
+        if (!finishedRef.current) {
+          finishedRef.current = true;
+          onFinishedEditing(value);
+        }
+      }, 100);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (finishedRef.current) return;
+
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      finishedRef.current = true;
+      setOpen(false);
+      onFinishedEditing(undefined);
+    } else if (e.key === "Tab") {
+      e.preventDefault();
+      e.stopPropagation();
+      finishedRef.current = true;
+      setOpen(false);
+      const movement: readonly [-1 | 0 | 1, -1 | 0 | 1] = e.shiftKey
+        ? [-1, 0]
+        : [1, 0];
+      onFinishedEditing(value, movement);
+    }
+  };
+
+  return (
+    <div className="w-full h-full flex flex-col relative click-outside-ignore z-50">
+      {/* Header with column info */}
+      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
+        {isPrimaryKey && (
+          <IconKey className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
+        )}
+        <span className="text-[10px] font-medium text-foreground/80">
+          {columnName}
+        </span>
+        {dbType && (
+          <span className="text-[9px] text-muted-foreground ml-auto">
+            {dbType}
+          </span>
+        )}
+      </div>
+
+      {/* Select dropdown */}
+      <div className="flex items-center flex-1 px-2" onKeyDown={handleKeyDown}>
+        <Select
+          value={initialStringValue}
+          onValueChange={(value) => {
+            void handleValueChange(value as string);
+          }}
+          open={open}
+          onOpenChange={handleOpenChange}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="min-w-[100px] click-outside-ignore z-50">
+            <SelectItem value="null" className="text-xs ring-0 outline-none">
+              <span className="text-muted-foreground">NULL</span>
+            </SelectItem>
+            <SelectItem value="true" className="text-xs ring-0 outline-none">
+              <span className="text-green-600 dark:text-green-400 font-medium">
+                TRUE
+              </span>
+            </SelectItem>
+            <SelectItem value="false" className="text-xs ring-0 outline-none">
+              <span className="text-red-600 dark:text-red-400 font-medium">
+                FALSE
+              </span>
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+};
+
+// Extend the component with static properties
+export const BooleanCellEditorWithProps = Object.assign(BooleanCellEditor, {
+  disablePadding: true,
+  disableStyling: false,
+});

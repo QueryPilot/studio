@@ -7,9 +7,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { cn } from "@/lib/cn";
-import { IconBookmark } from '@tabler/icons-react';
-import type { IconProps } from '@tabler/icons-react';
+import { cn } from "@/lib/utils";
+import { BookmarkIcon, type LucideProps } from "lucide-react";
 import type { ComponentProps, HTMLAttributes } from "react";
 
 export type CheckpointProps = HTMLAttributes<HTMLDivElement>;
@@ -28,7 +27,7 @@ export const Checkpoint = ({
   </div>
 );
 
-export type CheckpointIconProps = IconProps;
+export type CheckpointIconProps = LucideProps;
 
 export const CheckpointIcon = ({
   className,
@@ -36,7 +35,7 @@ export const CheckpointIcon = ({
   ...props
 }: CheckpointIconProps) =>
   children ?? (
-    <IconBookmark className={cn("size-4 shrink-0", className)} {...props} />
+    <BookmarkIcon className={cn("size-4 shrink-0", className)} {...props} />
   );
 
 export type CheckpointTriggerProps = ComponentProps<typeof Button> & {
@@ -53,11 +52,7 @@ export const CheckpointTrigger = ({
 }: CheckpointTriggerProps) =>
   tooltip ? (
     <Tooltip>
-      <TooltipTrigger asChild>
-        <Button size={size} type="button" variant={variant} {...props}>
-          {children}
-        </Button>
-      </TooltipTrigger>
+      <TooltipTrigger render={<Button size={size} type="button" variant={variant} {...props} />}>{children}</TooltipTrigger>
       <TooltipContent align="start" side="bottom">
         {tooltip}
       </TooltipContent>

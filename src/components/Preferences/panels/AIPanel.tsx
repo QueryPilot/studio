@@ -194,37 +194,37 @@ export default function AIPanel() {
           {/* Sidecar Status */}
           <div className="flex items-center gap-3">
             {sidecarStatus === "checking" && (
-              <Badge variant="secondary" className="gap-1.5 h-8">
-                <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+              <Badge variant="secondary" size="xl" className="gap-1.5">
+                <IconLoader2 className="animate-spin" />
                 Checking...
               </Badge>
             )}
             {sidecarStatus === "online" && (
               <Badge
                 variant="default"
-                className="gap-1.5 h-8 bg-green-600 hover:bg-green-700"
+                size="xl"
+                className="gap-1.5 bg-green-600 hover:bg-green-700"
               >
-                <div className="w-2 h-2 bg-white rounded-full" />
+                <div className="size-2 bg-white rounded-full" />
                 QP AI Server Online
               </Badge>
             )}
             {sidecarStatus === "offline" && (
-              <Badge variant="destructive" className="gap-1.5 h-8">
-                <IconCircleX className="h-3.5 w-3.5" />
+              <Badge variant="destructive" size="xl" className="gap-1.5">
+                <IconCircleX />
                 QP AI Server Offline
               </Badge>
             )}
             <Button
               variant="outline"
-              size="icon"
+              size="icon-lg"
               onClick={() => {
                 void checkSidecarStatus();
                 void loadProviders();
               }}
               disabled={sidecarStatus === "checking"}
-              className="h-8 w-8"
             >
-              <IconRefresh className="h-4 w-4" />
+              <IconRefresh />
             </Button>
           </div>
         </div>
@@ -291,10 +291,7 @@ export default function AIPanel() {
                           </p>
                           {defaultModelInfo && (
                             <div className="flex items-center gap-1 mt-0.5">
-                              <Badge
-                                variant="outline"
-                                className="text-[10px] font-mono px-1 py-0 h-3.5"
-                              >
+                              <Badge variant="outline" className="font-mono">
                                 {defaultModelInfo.name}
                               </Badge>
                             </div>
@@ -303,7 +300,7 @@ export default function AIPanel() {
                         {provider.requiresApiKey && (
                           <Badge
                             variant={isConfigured ? "default" : "secondary"}
-                            className="text-[10px] shrink-0"
+                            className="shrink-0"
                           >
                             {isConfigured ? "Configured" : "API Key Required"}
                           </Badge>
@@ -317,10 +314,11 @@ export default function AIPanel() {
               <div className="sticky bottom-0 bg-muted p-3 -mx-3 px-3">
                 <Button
                   variant="outline"
-                  className="w-full border-dashed text-xs h-8"
+                  size="sm"
+                  className="w-full border-dashed"
                   disabled
                 >
-                  <IconSparkles className="h-3.5 w-3.5 mr-2" />
+                  <IconSparkles />
                   Add Custom Provider
                 </Button>
               </div>

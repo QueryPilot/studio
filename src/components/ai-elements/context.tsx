@@ -7,7 +7,7 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
 import { Progress } from "@/components/ui/progress";
-import { cn } from "@/lib/cn";
+import { cn } from "@/lib/utils";
 import type { LanguageModelUsage } from "ai";
 import { type ComponentProps, createContext, useContext } from "react";
 import { getUsage } from "tokenlens";
@@ -111,18 +111,21 @@ export const ContextTrigger = ({ children, ...props }: ContextTriggerProps) => {
     maximumFractionDigits: 1,
   }).format(usedPercent);
 
-  return (
-    <HoverCardTrigger asChild>
-      {children ?? (
-        <Button type="button" variant="ghost" {...props}>
-          <span className="font-medium text-muted-foreground">
-            {renderedPercent}
-          </span>
-          <ContextIcon />
-        </Button>
-      )}
-    </HoverCardTrigger>
+  const defaultTrigger = (
+    <Button type="button" variant="ghost" {...props}>
+      <span className="font-medium text-muted-foreground">
+        {renderedPercent}
+      </span>
+      <ContextIcon />
+    </Button>
   );
+
+  // Use render prop to avoid nested buttons when using default trigger
+  if (children) {
+    return <HoverCardTrigger>{children}</HoverCardTrigger>;
+  }
+
+  return <HoverCardTrigger render={defaultTrigger} />;
 };
 
 export type ContextContentProps = ComponentProps<typeof HoverCardContent>;
