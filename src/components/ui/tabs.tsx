@@ -1,269 +1,120 @@
-import { logger } from "@/lib/logger";
-import * as React from "react";
-import * as TabsPrimitive from "@radix-ui/react-tabs";
+import { Tabs as TabsPrimitive } from "@base-ui/react/tabs"
+import { cva, type VariantProps } from "class-variance-authority"
 
-import { cn } from "@/lib/cn";
-import { TabGroupProvider, useTabGroup } from "./TabGroupProvider";
-import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
-import { KeyboardShortcut } from "./keyboard-shortcut";
+import { cn } from "@/lib/utils"
 
-interface TabsProps
-  extends React.ComponentPropsWithoutRef<typeof TabsPrimitive.Root> {
-  /**
-   * Enable keyboard shortcut display (Cmd/Ctrl + number)
-   */
-  enableShortcuts?: boolean;
-  /**
-   * Optional explicit ID for this tab group
-   */
-  tabGroupId?: string;
-  /**
-   * External focus control - when true, this tab group is focused
-   * Use this to sync with panel/sheet/dialog focus state
-   */
-  focused?: boolean;
-  /**
-   * Enable global keyboard shortcuts (Cmd+1, Cmd+2, etc.) for this tab group
-   * CRITICAL: Only ONE tab group per panel should have this enabled
-   * to avoid race conditions when multiple tab groups exist
-   * Requires enableShortcuts to be true
-   * Default: true (when enableShortcuts is true)
-   */
-  enableGlobalShortcuts?: boolean;
+// Extended props for backwards compatibility with custom shortcut features
+type TabsProps = TabsPrimitive.Root.Props & {
+  enableShortcuts?: boolean
+  tabGroupId?: string
+  focused?: boolean
+  enableGlobalShortcuts?: boolean
 }
 
-const Tabs = React.forwardRef<
-  React.ComponentRef<typeof TabsPrimitive.Root>,
-  TabsProps
->(
-  (
-    {
-      enableShortcuts = false,
-      tabGroupId,
-      focused,
-      enableGlobalShortcuts = true,
-      children,
-      ...props
-    },
-    ref,
-  ) => {
-    if (!enableShortcuts) {
-      // If shortcuts are disabled, render without TabGroupProvider
-      return (
-        <TabsPrimitive.Root ref={ref} activationMode="manual" {...props}>
-          {children}
-        </TabsPrimitive.Root>
-      );
-    }
-
-    // Wrap with TabGroupProvider when shortcuts are enabled
-    return (
-      <TabGroupProvider
-        tabGroupId={tabGroupId}
-        defaultValue={props.defaultValue}
-        value={props.value}
-        onValueChange={props.onValueChange}
-        focused={focused}
-        enableGlobalShortcuts={enableGlobalShortcuts}
-      >
-        <TabsPrimitive.Root ref={ref} activationMode="manual" {...props}>
-          {children}
-        </TabsPrimitive.Root>
-      </TabGroupProvider>
-    );
-  },
-);
-Tabs.displayName = "Tabs";
-
-const TabsList = React.forwardRef<
-  React.ComponentRef<typeof TabsPrimitive.List>,
-  React.ComponentPropsWithoutRef<typeof TabsPrimitive.List>
->(({ className, ...props }, ref) => {
-  const tabGroup = useTabGroup();
-
-  // Handle clicks - this DOES bubble unlike focus events
-  const handleClick = () => {
-    if (tabGroup) {
-      logger.info("[TabsList] Click - setting focused:", tabGroup.tabGroupId);
-      tabGroup.setFocused(true);
-    }
-  };
-
-  // Use capture phase to catch focus events before they reach children
-  const handleFocusCapture = () => {
-    if (tabGroup) {
-      logger.info(
-        "[TabsList] Focus capture - setting focused:",
-        tabGroup.tabGroupId,
-      );
-      tabGroup.setFocused(true);
-    }
-  };
-
-  // REMOVED: Aggressive blur handler that was unfocusing when clicking grid cells
-  // Focus should be managed at the Panel/Sheet level, not the TabsList level
-
+function Tabs({
+  className,
+  orientation = "horizontal",
+  // Extract legacy props so they don't get passed to Base-UI
+  enableShortcuts: _enableShortcuts,
+  tabGroupId: _tabGroupId,
+  focused: _focused,
+  enableGlobalShortcuts: _enableGlobalShortcuts,
+  ...props
+}: TabsProps) {
   return (
-    <TabsPrimitive.List
-      ref={ref}
+    <TabsPrimitive.Root
+      data-slot="tabs"
+      data-orientation={orientation}
       className={cn(
-        "inline-flex items-center justify-center rounded-xl bg-muted p-1 text-muted-foreground",
-        className,
+        "gap-2 group/tabs flex data-[orientation=horizontal]:flex-col",
+        className
       )}
-      onClick={handleClick}
-      onFocusCapture={handleFocusCapture}
       {...props}
     />
-  );
-});
-TabsList.displayName = TabsPrimitive.List.displayName;
-
-interface TabsTriggerProps
-  extends React.ComponentPropsWithoutRef<typeof TabsPrimitive.Trigger> {
-  /**
-   * The index of this tab (0-based). Used for keyboard shortcuts.
-   */
-  tabIndex?: number;
-  /**
-   * Override to hide shortcut for this specific tab
-   */
-  hideShortcut?: boolean;
+  )
 }
 
-const TabsTrigger = React.forwardRef<
-  React.ComponentRef<typeof TabsPrimitive.Trigger>,
-  TabsTriggerProps
->(
-  (
-    { className, children, tabIndex, hideShortcut = false, value, ...props },
-    ref,
-  ) => {
-    const tabGroup = useTabGroup();
-    const keyboardServices = useKeyboardServicesOptional();
+const tabsListVariants = cva(
+  "rounded-lg data-[variant=line]:rounded-none group/tabs-list text-muted-foreground inline-flex w-fit items-center justify-center group-data-[orientation=vertical]/tabs:h-fit group-data-[orientation=vertical]/tabs:flex-col",
+  {
+    variants: {
+      variant: {
+        default: "bg-muted",
+        line: "gap-1 bg-transparent",
+      },
+      size: {
+        default: "p-[3px] group-data-horizontal/tabs:h-8",
+        sm: "p-0.5 group-data-horizontal/tabs:h-6",
+        xs: "p-0.5 group-data-horizontal/tabs:h-5",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  }
+)
 
-    // Track modifier key state with local state
-    const [isModifierHeld, setIsModifierHeld] = React.useState(false);
+function TabsList({
+  className,
+  variant = "default",
+  size = "default",
+  ...props
+}: TabsPrimitive.List.Props & VariantProps<typeof tabsListVariants>) {
+  return (
+    <TabsPrimitive.List
+      data-slot="tabs-list"
+      data-variant={variant}
+      data-size={size}
+      className={cn(tabsListVariants({ variant, size }), className)}
+      {...props}
+    />
+  )
+}
 
-    // Subscribe to modifier key changes from context
-    React.useEffect(() => {
-      if (!keyboardServices?.contextService) {
-        logger.info("[TabsTrigger] No contextService available");
-        return;
-      }
+const tabsTriggerVariants = cva(
+  [
+    "gap-1.5 rounded-md border border-transparent text-xs font-medium group-data-vertical/tabs:py-[calc(--spacing(1.25))] [&_svg:not([class*='size-'])]:size-3.5 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:outline-ring text-foreground/60 hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center whitespace-nowrap transition-[color,background-color,border-color,box-shadow] duration-150 group-data-[orientation=vertical]/tabs:w-full group-data-[orientation=vertical]/tabs:justify-start focus-visible:ring-[3px] focus-visible:outline-1 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+    "group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent",
+    "data-active:bg-background dark:data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 data-active:text-foreground",
+    "after:bg-foreground after:absolute after:opacity-0 after:transition-opacity after:duration-150 group-data-[orientation=horizontal]/tabs:after:inset-x-0 group-data-[orientation=horizontal]/tabs:after:bottom-[-5px] group-data-[orientation=horizontal]/tabs:after:h-0.5 group-data-[orientation=vertical]/tabs:after:inset-y-0 group-data-[orientation=vertical]/tabs:after:-right-1 group-data-[orientation=vertical]/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100",
+  ],
+  {
+    variants: {
+      size: {
+        default: "px-1.5 py-0.5",
+        sm: "px-2 py-0.5",
+        xs: "px-1.5 py-0",
+      },
+    },
+    defaultVariants: {
+      size: "default",
+    },
+  }
+)
 
-      const checkModifierState = () => {
-        const value =
-          keyboardServices.contextService.getValue("modifierKeyHeld");
-        const newValue = Boolean(value);
-        if (newValue !== isModifierHeld) {
-          logger.info("[TabsTrigger] Modifier key changed:", {
-            value,
-            newValue,
-            tabIndex,
-            tabValue: value,
-            groupFocused: tabGroup?.isFocused,
-          });
-        }
-        setIsModifierHeld(newValue);
-      };
+function TabsTrigger({
+  className,
+  size,
+  ...props
+}: TabsPrimitive.Tab.Props & VariantProps<typeof tabsTriggerVariants>) {
+  return (
+    <TabsPrimitive.Tab
+      data-slot="tabs-trigger"
+      className={cn(tabsTriggerVariants({ size }), className)}
+      {...props}
+    />
+  )
+}
 
-      // Check initial state
-      checkModifierState();
+function TabsContent({ className, ...props }: TabsPrimitive.Panel.Props) {
+  return (
+    <TabsPrimitive.Panel
+      data-slot="tabs-content"
+      className={cn("text-xs/relaxed flex-1 outline-none", className)}
+      {...props}
+    />
+  )
+}
 
-      // Poll for changes (60fps) - context service doesn't have event emitter
-      const interval = setInterval(checkModifierState, 16);
-
-      return () => {
-        clearInterval(interval);
-      };
-    }, [keyboardServices, isModifierHeld, tabIndex, tabGroup]);
-
-    // Register this tab value with the group
-    React.useEffect(() => {
-      if (tabGroup && value) {
-        tabGroup.registerTab(value);
-      }
-    }, [tabGroup, value]);
-
-    // Only show shortcut if:
-    // 1. TabGroup is available (shortcuts enabled)
-    // 2. This tab group is focused
-    // 3. Modifier key is held
-    // 4. Tab index is valid (0-8, corresponding to shortcuts 1-9)
-    // 5. Not explicitly hidden
-    const shouldShowShortcut =
-      tabGroup &&
-      tabGroup.isFocused &&
-      isModifierHeld &&
-      tabIndex !== undefined &&
-      tabIndex >= 0 &&
-      tabIndex <= 8 &&
-      !hideShortcut;
-
-    // Debug logging for shortcut display
-    React.useEffect(() => {
-      if (isModifierHeld && tabIndex !== undefined && tabIndex <= 8) {
-        logger.info("[TabsTrigger] Shortcut check:", {
-          tabIndex,
-          value,
-          hasTabGroup: !!tabGroup,
-          isFocused: tabGroup?.isFocused,
-          isModifierHeld,
-          shouldShow: shouldShowShortcut,
-          hideShortcut,
-        });
-      }
-    }, [
-      isModifierHeld,
-      tabIndex,
-      value,
-      tabGroup,
-      shouldShowShortcut,
-      hideShortcut,
-    ]);
-
-    const shortcutNumber = tabIndex !== undefined ? tabIndex + 1 : undefined;
-
-    return (
-      <TabsPrimitive.Trigger
-        ref={ref}
-        value={value}
-        className={cn(
-          "relative inline-flex items-center justify-center whitespace-nowrap rounded-xl px-3 py-1 text-xs font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow",
-          shouldShowShortcut && "gap-2",
-          className,
-        )}
-        {...props}
-      >
-        <span className="flex items-center gap-1.5">{children}</span>
-        {shouldShowShortcut && shortcutNumber && (
-          <div className="absolute right-0">
-            <KeyboardShortcut
-              keys={[shortcutNumber.toString()]}
-              variant="ghost"
-              className="ml-auto opacity-70 transition-opacity"
-            />
-          </div>
-        )}
-      </TabsPrimitive.Trigger>
-    );
-  },
-);
-TabsTrigger.displayName = TabsPrimitive.Trigger.displayName;
-
-const TabsContent = React.forwardRef<
-  React.ComponentRef<typeof TabsPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof TabsPrimitive.Content>
->(({ className, ...props }, ref) => (
-  <TabsPrimitive.Content
-    ref={ref}
-    className={cn(
-      "mt-2 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-      className,
-    )}
-    {...props}
-  />
-));
-TabsContent.displayName = TabsPrimitive.Content.displayName;
-
-export { Tabs, TabsList, TabsTrigger, TabsContent };
+export { Tabs, TabsList, TabsTrigger, TabsContent, tabsListVariants, tabsTriggerVariants }

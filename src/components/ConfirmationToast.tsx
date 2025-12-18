@@ -27,20 +27,10 @@ export function ConfirmationToast({
           <div className="text-xs text-muted-foreground">{description}</div>
         </div>
         <div className="flex gap-2 w-full pt-2">
-          <Button
-            variant="outline"
-            size="xs"
-            className="flex-1"
-            onClick={onCancel}
-          >
+          <Button variant="outline" className="flex-1" onClick={onCancel}>
             {cancelLabel}
           </Button>
-          <Button
-            variant="destructive"
-            size="xs"
-            className="flex-1"
-            onClick={onConfirm}
-          >
+          <Button variant="destructive" className="flex-1" onClick={onConfirm}>
             {confirmLabel}
           </Button>
         </div>

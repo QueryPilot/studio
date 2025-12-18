@@ -311,20 +311,20 @@ export function DatabaseSchemaSelector({
     <div className="flex items-center justify-between w-full">
       {/* Schema Selector */}
       <Popover open={schemaPopoverOpen} onOpenChange={setSchemaPopoverOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            variant="ghost"
-            role="combobox"
-            aria-expanded={schemaPopoverOpen}
-            disabled={isSwitchingSchema}
-            className="text-xs min-w-[100px] max-w-[160px] justify-between border-0 !bg-background hover:bg-muted/50 h-8 px-3"
-          >
-            <span className="truncate">
-              {selectedSchema || "Select schema"}
-            </span>
-            <IconChevronDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
-          </Button>
-        </PopoverTrigger>
+        <PopoverTrigger
+          render={
+            <Button
+              variant="ghost"
+              role="combobox"
+              aria-expanded={schemaPopoverOpen}
+              disabled={isSwitchingSchema}
+              className="text-xs min-w-[100px] max-w-[160px] justify-between border-0 !bg-background hover:bg-muted/50 h-8 px-3"
+            >
+              <span className="truncate">{selectedSchema || "Select schema"}</span>
+              <IconChevronDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+            </Button>
+          }
+        />
         <PopoverContent className="w-[200px] p-0" align="start">
           <Command>
             <CommandInput placeholder="Search schemas..." className="h-9" />
@@ -380,16 +380,18 @@ export function DatabaseSchemaSelector({
 
       {/* Create Object Dropdown */}
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-            title="Create new object"
-          >
-            <IconPlus className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground"
+              title="Create new object"
+            >
+              <IconPlus />
+            </Button>
+          }
+        />
         <DropdownMenuContent align="start" className="w-48">
           <DropdownMenuItem onClick={handleCreateTable} className="text-xs">
             <IconTable className="mr-2 h-3.5 w-3.5 text-primary" />

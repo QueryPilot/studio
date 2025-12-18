@@ -1409,14 +1409,13 @@ export const QueryPanel = memo(function QueryPanel({
                   <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger
                       value="history"
-                      className="text-xs"
                       tabIndex={0}
                     >
-                      <IconHistory className="h-3 w-3 mr-1" />
+                      <IconHistory className="mr-1" />
                       IconHistory
                     </TabsTrigger>
-                    <TabsTrigger value="saved" className="text-xs" tabIndex={1}>
-                      <IconStar className="h-3 w-3 mr-1" />
+                    <TabsTrigger value="saved" tabIndex={1}>
+                      <IconStar className="mr-1" />
                       Saved
                     </TabsTrigger>
                   </TabsList>

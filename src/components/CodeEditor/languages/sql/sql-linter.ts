@@ -299,7 +299,7 @@ export const createSqlLinter = (dialect?: SqlDialect): Extension =>
     if (view.state.doc.length < 10) return [];
     return collectDiagnostics(view.state, dialect);
   }, {
-    delay: 750, // Increased from 200ms - reduces blocking during typing
+    delay: 1000, // Increased delay - reduces blocking during typing
     needsRefresh: (update) => update.docChanged,
   });
 
@@ -683,71 +683,138 @@ async function validateSelectColumns(
     }
   }
 
-  // Now validate column references synchronously
+  // Now validate column references - deep iterate within SELECT statements
   const tree = syntaxTree(state);
-  
+  const validatedPositions = new Set<number>();
+
+  // Helper to check if an identifier is a table/alias name (not a column)
+  const isTableContext = (node: SyntaxNode): boolean => {
+    const nextSibling = node.nextSibling;
+
+    // If next sibling is a dot, this is a schema/table qualifier
+    if (nextSibling?.name === ".") return true;
+
+    // Check text immediately before this identifier for FROM/JOIN keywords
+    // This is more reliable than sibling checks since there may be whitespace nodes
+    const textBefore = state.sliceDoc(Math.max(0, node.from - 30), node.from);
+    const trimmedBefore = textBefore.trimEnd().toUpperCase();
+
+    // Check if preceded by table-introducing keywords
+    if (/\b(FROM|JOIN|INTO|UPDATE|TABLE)\s*$/i.test(textBefore)) {
+      return true;
+    }
+
+    // Check for LEFT/RIGHT/INNER/FULL/OUTER/CROSS JOIN pattern
+    if (/\b(LEFT|RIGHT|INNER|FULL|OUTER|CROSS)\s+JOIN\s*$/i.test(textBefore)) {
+      return true;
+    }
+
+    // Check if this is an alias (follows a table name or closing paren)
+    // Pattern: table_name alias or (subquery) alias
+    if (/[a-zA-Z0-9_"`\]]\s+$/i.test(textBefore) || /\)\s+$/i.test(textBefore)) {
+      // Could be an alias - check if we're not after a comma or operator
+      if (!/[,=<>!+\-*/]\s*$/.test(textBefore) && !/\bAND\s*$/i.test(trimmedBefore) && !/\bOR\s*$/i.test(trimmedBefore)) {
+        // Check parent context for FROM clause
+        let parent = node.parent;
+        while (parent) {
+          if (parent.name === "FromClause" || parent.name === "JoinExpression") {
+            // Check if we're before ON keyword (table/alias context)
+            const parentText = state.sliceDoc(parent.from, node.from).toUpperCase();
+            if (!parentText.includes(" ON ") && !parentText.includes(" WHERE ")) {
+              return true;
+            }
+          }
+          parent = parent.parent;
+        }
+      }
+    }
+
+    // Check parent context for join expressions before ON
+    let parent = node.parent;
+    while (parent) {
+      if (parent.name === "JoinExpression") {
+        const textBeforeInJoin = state.sliceDoc(parent.from, node.from).toUpperCase();
+        // If no ON keyword yet, this is likely a table name
+        if (!textBeforeInJoin.includes(" ON ")) {
+          return true;
+        }
+      }
+      parent = parent.parent;
+    }
+
+    return false;
+  };
+
+  // Validate a single column reference
+  const validateColumn = (node: { from: number; to: number; node: SyntaxNode }) => {
+    if (validatedPositions.has(node.from)) return;
+    validatedPositions.add(node.from);
+
+    const colRef = parseColumnRef(state, node.node);
+    if (!colRef) return;
+
+    // Skip SQL keywords
+    if (SQL_KEYWORDS.includes(colRef.name.toUpperCase())) return;
+
+    // Skip table/alias names
+    if (isTableContext(node.node)) return;
+
+    // Resolve table
+    let tableName: string | undefined;
+    let tableColumns: Set<string> | undefined;
+
+    if (colRef.qualifier) {
+      const tableMatch = tables.find(
+        (t) =>
+          t.alias?.toLowerCase() === colRef.qualifier!.toLowerCase() ||
+          t.name.toLowerCase() === colRef.qualifier!.toLowerCase()
+      );
+      if (tableMatch) {
+        tableName = tableMatch.name;
+        tableColumns = tableColumnCache.get(tableName.toLowerCase());
+      } else {
+        // Qualifier doesn't match any known table/alias - skip
+        return;
+      }
+    } else if (tables.length === 1) {
+      tableName = tables[0]?.name;
+      tableColumns = tableName ? tableColumnCache.get(tableName.toLowerCase()) : undefined;
+    } else {
+      // Multiple tables - try to find which one has this column
+      for (const table of tables) {
+        const cols = tableColumnCache.get(table.name.toLowerCase());
+        if (cols?.has(colRef.name.toLowerCase())) {
+          tableName = table.name;
+          tableColumns = cols;
+          break;
+        }
+      }
+      if (!tableName) return; // Ambiguous - skip
+    }
+
+    if (!tableName || !tableColumns) return;
+
+    if (!tableColumns.has(colRef.name.toLowerCase())) {
+      diagnostics.push({
+        from: colRef.from,
+        to: colRef.to,
+        severity: "error",
+        message: `Column '${colRef.name}' does not exist in table '${tableName}'`,
+      });
+    }
+  };
+
+  // Find SELECT statements and deeply iterate within them
   tree.iterate({
     enter: (node) => {
       if (node.name === "SelectStatement") {
-        // Find all column references within this SELECT
+        // Deep iterate within this SELECT to find all identifiers
         const selectNode = node.node;
-        const cursor = selectNode.cursor();
-        
-        // Iterate through the SELECT statement's children
-        cursor.firstChild();
-        do {
-          // Check identifiers in various clauses
-          if (cursor.name === "Identifier" || cursor.name === "QuotedIdentifier") {
-            const colRef = parseColumnRef(state, cursor.node);
-            if (!colRef) continue;
-
-            // Skip SQL keywords
-            if (SQL_KEYWORDS.includes(colRef.name.toUpperCase())) continue;
-
-            // Resolve table
-            let tableName: string | undefined;
-            let tableColumns: Set<string> | undefined;
-            
-            if (colRef.qualifier) {
-              const tableMatch = tables.find(
-                (t) =>
-                  t.alias?.toLowerCase() === colRef.qualifier!.toLowerCase() ||
-                  t.name.toLowerCase() === colRef.qualifier!.toLowerCase()
-              );
-              if (tableMatch) {
-                tableName = tableMatch.name;
-                tableColumns = tableColumnCache.get(tableName.toLowerCase());
-              }
-            } else if (tables.length === 1) {
-              tableName = tables[0]?.name;
-              tableColumns = tableName ? tableColumnCache.get(tableName.toLowerCase()) : undefined;
-            } else {
-              // Multiple tables - try to find which one has this column
-              for (const table of tables) {
-                const cols = tableColumnCache.get(table.name.toLowerCase());
-                if (cols?.has(colRef.name.toLowerCase())) {
-                  tableName = table.name;
-                  tableColumns = cols;
-                  break;
-                }
-              }
-            }
-
-            if (!tableName || !tableColumns) continue;
-
-            // Validate column exists
-            const columnExists = tableColumns.has(colRef.name.toLowerCase());
-
-            if (!columnExists) {
-              diagnostics.push({
-                from: colRef.from,
-                to: colRef.to,
-                severity: "error",
-                message: `Column '${colRef.name}' does not exist in table '${tableName}'`,
-              });
-            }
+        selectNode.cursor().iterate((child) => {
+          if (child.name === "Identifier" || child.name === "QuotedIdentifier") {
+            validateColumn(child);
           }
-        } while (cursor.nextSibling());
+        });
       }
     },
   });
@@ -783,10 +850,15 @@ async function validateInsertColumns(
         // Find INSERT INTO table_name (columns...)
         do {
           if (cursor.name === "Identifier" && !targetTable) {
-            // First identifier after INSERT INTO is the table name
             const text = state.sliceDoc(cursor.from, cursor.to);
             const prevText = state.sliceDoc(Math.max(0, cursor.from - 20), cursor.from).toUpperCase();
             if (prevText.includes("INTO")) {
+              // Check if this is schema-qualified (schema.table)
+              const nextSibling = cursor.node.nextSibling;
+              if (nextSibling?.name === ".") {
+                // Skip schema, get table name after dot
+                continue;
+              }
               targetTable = text.replace(/["`[\]]/g, "");
             }
           }
@@ -873,6 +945,12 @@ async function validateUpdateColumns(
             const text = state.sliceDoc(cursor.from, cursor.to);
             const prevText = state.sliceDoc(Math.max(0, cursor.from - 10), cursor.from).toUpperCase();
             if (prevText.includes("UPDATE")) {
+              // Check if this is schema-qualified (schema.table)
+              const nextSibling = cursor.node.nextSibling;
+              if (nextSibling?.name === ".") {
+                // Skip schema, get table name after dot
+                continue;
+              }
               targetTable = text.replace(/["`[\]]/g, "");
               break;
             }
@@ -960,6 +1038,12 @@ async function validateDeleteColumns(
             const text = state.sliceDoc(cursor.from, cursor.to);
             const prevText = state.sliceDoc(Math.max(0, cursor.from - 15), cursor.from).toUpperCase();
             if (prevText.includes("FROM")) {
+              // Check if this is schema-qualified (schema.table)
+              const nextSibling = cursor.node.nextSibling;
+              if (nextSibling?.name === ".") {
+                // Skip schema, get table name after dot
+                continue;
+              }
               targetTable = text.replace(/["`[\]]/g, "");
               break;
             }
@@ -1041,6 +1125,12 @@ async function validateDDLColumns(
             const text = state.sliceDoc(cursor.from, cursor.to);
             const prevText = state.sliceDoc(Math.max(0, cursor.from - 20), cursor.from).toUpperCase();
             if (prevText.includes("TABLE")) {
+              // Check if this is schema-qualified (schema.table)
+              const nextSibling = cursor.node.nextSibling;
+              if (nextSibling?.name === ".") {
+                // Skip schema, get table name after dot
+                continue;
+              }
               targetTable = text.replace(/["`[\]]/g, "");
               break;
             }
@@ -1158,6 +1248,15 @@ const collectSemanticDiagnostics = async (
         // Check if this is qualified (has a dot before it)
         const prevSibling = node.node.prevSibling;
         const isQualified = prevSibling?.type.name === ".";
+
+        // Check if this is a schema qualifier (has a dot after it)
+        const nextSibling = node.node.nextSibling;
+        const isSchemaQualifier = nextSibling?.type.name === ".";
+
+        // Skip schema qualifiers - they're not table names
+        if (isSchemaQualifier) {
+          return;
+        }
 
         let qualifier: string | undefined;
         if (isQualified && prevSibling?.prevSibling) {
@@ -1300,7 +1399,7 @@ export const createSemanticLinter = (
       return collectSemanticDiagnostics(view.state, provider, defaultSchema);
     },
     {
-      delay: 1500, // Increased from 500ms - semantic linting is expensive
+      delay: 2500, // Higher delay - semantic linting is expensive and not time-critical
       needsRefresh: (update) => update.docChanged,
     }
   );

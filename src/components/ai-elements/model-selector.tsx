@@ -7,6 +7,7 @@ import {
   CommandItem,
   CommandList,
   CommandSeparator,
+  CommandShortcut,
 } from "@/components/ui/command";
 import {
   Dialog,
@@ -14,8 +15,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { cn } from "@/lib/cn";
-import type { ReactNode, ComponentProps } from "react";
+import { cn } from "@/lib/utils";
+import type { ComponentProps, ReactNode } from "react";
 
 export type ModelSelectorProps = ComponentProps<typeof Dialog>;
 
@@ -84,6 +85,12 @@ export type ModelSelectorItemProps = ComponentProps<typeof CommandItem>;
 
 export const ModelSelectorItem = (props: ModelSelectorItemProps) => (
   <CommandItem {...props} />
+);
+
+export type ModelSelectorShortcutProps = ComponentProps<typeof CommandShortcut>;
+
+export const ModelSelectorShortcut = (props: ModelSelectorShortcutProps) => (
+  <CommandShortcut {...props} />
 );
 
 export type ModelSelectorSeparatorProps = ComponentProps<
@@ -166,7 +173,7 @@ export const ModelSelectorLogo = ({
   <img
     {...props}
     alt={`${provider} logo`}
-    className={cn("size-3", className)}
+    className={cn("size-3 dark:invert", className)}
     height={12}
     src={`https://models.dev/logos/${provider}.svg`}
     width={12}
@@ -181,7 +188,7 @@ export const ModelSelectorLogoGroup = ({
 }: ModelSelectorLogoGroupProps) => (
   <div
     className={cn(
-      "-space-x-1 flex shrink-0 items-center [&>img]:rounded-full [&>img]:bg-background [&>img]:p-px [&>img]:ring-1 [&>img]:ring-border",
+      "-space-x-1 flex shrink-0 items-center [&>img]:rounded-full [&>img]:bg-background [&>img]:p-px [&>img]:ring-1 dark:[&>img]:bg-foreground",
       className
     )}
     {...props}

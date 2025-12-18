@@ -518,16 +518,18 @@ export function AIAssistantSidebar() {
                   onOpenChange={setModelSelectorOpen}
                   open={modelSelectorOpen}
                 >
-                  <ModelSelectorTrigger asChild>
-                    <PromptInputButton>
-                      {selectedProvider && (
-                        <ModelSelectorLogo provider={selectedProvider} />
-                      )}
-                      {selectedModel && (
-                        <ModelSelectorName>{selectedModel}</ModelSelectorName>
-                      )}
-                    </PromptInputButton>
-                  </ModelSelectorTrigger>
+                  <ModelSelectorTrigger
+                    render={
+                      <PromptInputButton>
+                        {selectedProvider && (
+                          <ModelSelectorLogo provider={selectedProvider} />
+                        )}
+                        {selectedModel && (
+                          <ModelSelectorName>{selectedModel}</ModelSelectorName>
+                        )}
+                      </PromptInputButton>
+                    }
+                  />
 
                   <ModelSelectorContent>
                     <ModelSelectorInput placeholder="Search models..." />

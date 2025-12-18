@@ -427,14 +427,13 @@ export function CommandPalette(): React.ReactElement {
                     key={command.id}
                     value={command.id}
                     onSelect={handleSelect}
-                    className="!text-xs !py-2"
                   >
                     <div className="flex justify-between items-center w-full">
-                      <div className="text-xs font-medium flex-1 truncate">
+                      <div className="font-medium flex-1 truncate">
                         {command.label}
                       </div>
                       {command.description ? (
-                        <div className="text-xs text-muted-foreground text-right max-w-1/3 truncate">
+                        <div className="text-muted-foreground text-right max-w-1/3 truncate">
                           {command.description}
                         </div>
                       ) : null}
@@ -464,23 +463,22 @@ export function CommandPalette(): React.ReactElement {
                     key={item.id}
                     value={item.id}
                     onSelect={handleSelect}
-                    className="!text-xs !py-2"
                   >
                     <div className="flex justify-between items-center w-full">
                       <div className="text-xs font-medium flex items-center gap-2 flex-1 truncate">
                         {item.entityType === "function" ? (
-                          <IconMathFunction className="!h-3.5 !w-3.5 text-purple-500" />
+                          <IconMathFunction className="text-purple-500" />
                         ) : item.entityType === "materializedView" ||
                           item.entityType === "view" ? (
                           <IconEye
-                            className={cn("!h-3.5 !w-3.5", {
+                            className={cn({
                               "text-green-500": item.entityType === "view",
                               "text-blue-500":
                                 item.entityType === "materializedView",
                             })}
                           />
                         ) : (
-                          <IconTable className="!h-3.5 !w-3.5 text-primary" />
+                          <IconTable className="text-primary" />
                         )}
                         {item.name}
                       </div>

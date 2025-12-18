@@ -66,8 +66,6 @@ export function DiffViewer({
       <Tabs
         defaultValue={defaultTab}
         className="flex-1"
-        enableShortcuts={true}
-        tabGroupId="diff-viewer"
       >
         <TabsList className="w-full justify-start">
           {TABS.map((tab, index) => (

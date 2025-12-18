@@ -565,7 +565,6 @@ export function WorkspaceTitleBar({
         className={cn(
           "h-2 w-2 fill-current",
           getStatusColor(),
-          connectionHealth?.status === "ready" && "animate-pulse",
         )}
       />
     );
@@ -776,31 +775,28 @@ export function WorkspaceTitleBar({
       <div className="flex items-center gap-2 pl-20">
         <Button
           variant="ghost"
-          size="sm"
-          className="h-7 w-7 p-0"
+          size="icon"
           onClick={handleGoHome}
           title="Go to home"
         >
-          <IconHome className="h-3.5 w-3.5" />
+          <IconHome />
         </Button>
 
         <Button
           variant="ghost"
-          size="sm"
-          className="h-7 w-7 p-0"
+          size="icon"
           onClick={handleReload}
           title="Reload workspace"
         >
-          <IconRefresh className="h-3.5 w-3.5" />
+          <IconRefresh />
         </Button>
 
         <Button
           variant="ghost"
-          size="sm"
-          className="h-7 w-7 p-0"
+          size="icon"
           title="Connection security"
         >
-          <IconLock className="h-3.5 w-3.5" />
+          <IconLock />
         </Button>
 
         <Popover
@@ -810,17 +806,18 @@ export function WorkspaceTitleBar({
             if (!isOpen) setSearchQuery(""); // Clear search on close
           }}
         >
-          <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              title="Select database"
-              disabled={isLoadingDatabases}
-            >
-              <IconDatabase className="h-3.5 w-3.5" />
-            </Button>
-          </PopoverTrigger>
+          <PopoverTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Select database"
+                disabled={isLoadingDatabases}
+              >
+                <IconDatabase />
+              </Button>
+            }
+          />
           <PopoverContent className="w-80 p-0" align="start">
             <Command
               className="[&_[cmdk-input]]:outline-none [&_[cmdk-input]]:focus:outline-none"
@@ -991,36 +988,38 @@ export function WorkspaceTitleBar({
             />
             {/* Undo/Redo buttons */}
             <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-5 w-5 p-0"
-                  onClick={undo}
-                  disabled={!canUndo}
-                  title="Undo"
-                >
-                  <IconArrowBackUp className="h-3 w-3" />
-                </Button>
-              </TooltipTrigger>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={undo}
+                    disabled={!canUndo}
+                    title="Undo"
+                  >
+                    <IconArrowBackUp />
+                  </Button>
+                }
+              />
               <TooltipContent>
                 <p className="text-xs">Undo (Cmd+Z)</p>
               </TooltipContent>
             </Tooltip>
 
             <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-5 w-5 p-0"
-                  onClick={redo}
-                  disabled={!canRedo}
-                  title="Redo"
-                >
-                  <IconArrowForwardUp className="h-3 w-3" />
-                </Button>
-              </TooltipTrigger>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={redo}
+                    disabled={!canRedo}
+                    title="Redo"
+                  >
+                    <IconArrowForwardUp />
+                  </Button>
+                }
+              />
               <TooltipContent>
                 <p className="text-xs">Redo (Cmd+Shift+Z)</p>
               </TooltipContent>
@@ -1120,50 +1119,48 @@ export function WorkspaceTitleBar({
       <div className="flex items-center gap-2 pr-3">
         <Button
           variant="ghost"
-          size="sm"
-          className="h-7 w-7 p-0"
+          size="icon"
           onClick={handleOpenErd}
           title="Open ERD"
         >
-          <IconSitemap className="h-3.5 w-3.5" />
+          <IconSitemap />
         </Button>
 
         <Button
           variant="ghost"
-          size="sm"
-          className="h-7 w-7 p-0"
+          size="icon"
           onClick={() => {
             onToggleSidebar("left");
           }}
           title="Toggle left sidebar"
         >
-          <IconLayoutSidebar className={cn("h-3.5 w-3.5")} />
+          <IconLayoutSidebar />
         </Button>
 
         <Button
           variant="ghost"
-          size="sm"
-          className="h-7 w-7 p-0"
+          size="icon"
           onClick={() => {
             onToggleSidebar("right");
           }}
           title="Toggle right sidebar"
         >
-          <IconRobot className="h-3.5 w-3.5" />
+          <IconRobot />
         </Button>
 
         {/* IconSettings Dropdown - Now at the far right */}
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              title="Settings"
-            >
-              <IconSettings className="h-3.5 w-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Settings"
+              >
+                <IconSettings />
+              </Button>
+            }
+          />
           <DropdownMenuContent align="end" className="w-48">
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>

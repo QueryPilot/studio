@@ -611,7 +611,7 @@ export const defaultCommands: Command[] = [
     category: "Data Grid",
     when: "dataGridFocus && !selectionEmpty && !editingCell",
     handler: () => {
-      // Actual handler registered in TableDataGridV2 component
+      // Actual handler registered in TableDataGrid component
     },
   },
   // Query Editor Commands (Event-Driven)

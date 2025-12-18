@@ -1,0 +1,37 @@
+/* DataGrid smooth scrolling optimizations */
+.dvn-scroller {
+  scroll-behavior: auto !important; /* Don't use CSS smooth scrolling, let the grid handle it */
+  -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+  will-change: transform; /* Optimize for animations */
+}
+
+/* Optimize canvas rendering */
+.dvn-underlay-canvas,
+.dvn-overlay-canvas {
+  image-rendering: optimizeSpeed;
+  image-rendering: -webkit-optimize-contrast;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+}
+
+/* Reduce repaints during scroll */
+.dvn-scroll-inner {
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+/* Prevent layout thrashing */
+.dvn-container {
+  contain: layout style paint;
+}
+
+.gdg-style {
+  @apply z-10 max-w-full;
+}
+
+/* Reduce expensive paints while resizing columns */
+.gdg-style .dvn-resizing,
+.gdg-style .dvn-header,
+.gdg-style .dvn-scroll-inner {
+  will-change: transform;
+}

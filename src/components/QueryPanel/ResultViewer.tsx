@@ -10,8 +10,8 @@ import {
   IconCopy,
   IconClipboardCheck,
 } from "@tabler/icons-react";
-import { TableDataGridV2 } from "@/components/DataGridV2";
-import { DataGridSkeleton } from "@/components/DataGridV2/components/DataGridSkeleton";
+import { TableDataGrid } from "@/components/DataGrid";
+import { DataGridSkeleton } from "@/components/DataGrid/components/DataGridSkeleton";
 
 import { cn } from "@/lib/utils";
 import { CodeEditor } from "@/components/CodeEditor";
@@ -344,7 +344,7 @@ const SingleResultView = memo(function SingleResultView({
         </div>
       ) : viewMode === "table" ? (
         <div className="h-full px-1 pt-1">
-          <TableDataGridV2
+          <TableDataGrid
             mode="query"
             gridId={gridId}
             data={
@@ -417,6 +417,8 @@ function parsePostgresError(error: string): ParsedError {
 
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
+    if (!line) continue;
+
     if (line.startsWith("Detail: ") || line.startsWith("DETAIL: ")) {
       const detailText = line.substring(line.indexOf(":") + 1).trim();
 

@@ -310,15 +310,9 @@ fn build_update_sql_parameterized(command: &CrudCommand) -> Result<Parameterized
     let mut param_idx = 1;
 
     // SET clause: column = $1
-    // For text values, explicitly cast to TEXT first to allow PostgreSQL to handle
-    // conversion to target type (including ENUMs, domains, etc.)
+    // Let PostgreSQL handle type conversion from parameter binding
     params.push(SqlParam::from_json(new_value));
-    let set_clause = if matches!(params[0], SqlParam::Text(_)) {
-        // Use CAST to force text type, then let PostgreSQL convert to column type
-        format!("{} = CAST(${} AS text)", quote_identifier(column), param_idx)
-    } else {
-        format!("{} = ${}", quote_identifier(column), param_idx)
-    };
+    let set_clause = format!("{} = ${}", quote_identifier(column), param_idx);
     param_idx += 1;
 
     // WHERE clause: pk1 = $2 AND pk2 = $3 ...

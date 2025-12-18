@@ -207,7 +207,7 @@ export function useTableDataQuery(
         // Progressive loading: update cache as batches arrive
         const accumulatedRows: TableDataRow[] = [];
         let updateScheduled = false;
-        const MIN_PROGRESSIVE_INTERVAL_MS = 120;
+        const MIN_PROGRESSIVE_INTERVAL_MS = 300; // Increased from 120ms to reduce UI flicker during streaming
         const MAX_PROGRESSIVE_ROWS = 5000;
         let lastProgressiveUpdate = 0;
 

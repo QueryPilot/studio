@@ -17,7 +17,7 @@ Target: < 100ms (10x faster, match/beat TablePlus)
 
 ## Non-Goals
 - Supporting legacy adapters other than the actively maintained ones (PostgreSQL first; additional engines follow once the pattern is proven).
-- Rewriting DataGridV2’s rendering logic—only the data plumbing and value adapters change.
+- Rewriting DataGrid’s rendering logic—only the data plumbing and value adapters change.
 - Introducing caching layers or pagination UX changes beyond what falls out of the new streaming pathway.
 
 ## Pain Points Today
@@ -78,10 +78,10 @@ Frontend must wait for `Success` or `Error` before displaying results.
 7. **Adapter Contract Preservation**: `ConnectionManager` still dispatches through `conn.adapter.stream_query(sql, options)` (new trait method). Each adapter (Postgres, MySQL, future document/graph engines) implements its own streaming cursor -> JSON batch conversion but returns the shared `StreamMessage`. We keep adapters authoritative for connection semantics while the runtime only orchestrates transport.
 8. **Multi-Engine Support Path**: extend non-Postgres adapters with the same trait (cursor to `Vec<Value>`). For document/graph databases, adapters emit per-batch metadata describing structural columns (e.g., `_id`, nested fields) so the frontend can render hierarchical data. The channel protocol remains engine-agnostic.
 
-### 2. Frontend (TypeScript, `src/services`, `src/components/DataGridV2`)
+### 2. Frontend (TypeScript, `src/services`, `src/components/DataGrid`)
 1. **Channel Client** (`src/services/queryStreamClient.ts`): wrap `invoke("stream_query")` to obtain a `Channel` and expose an `AsyncIterable<QueryBatch>` interface. Bridge the channel messages into React via `ReadableStream` or callback.
 2. **Shared Column Model**: extend `schemaCache`/`@/types/database` to surface `type_oid`, `db_type`, nullability, etc. `TableDataService` consumes this metadata and no longer performs per-cell normalization—simply stores raw values.
-3. **Data Grid Binding**: update the DataGridV2 data source adapter to expect `QueryBatch` objects with `columns: ColumnMeta` and `rows: JsonValue[][]`. Rendering components read `column.db_type` to choose formatters (number localisation, JSON pretty print, binary badges, etc.). Introduce per-database formatters (Postgres, MySQL, MongoDB, Neo4j) encapsulated in a lookup keyed by `db_type` so new engines can register their own format rules without touching transport.
+3. **Data Grid Binding**: update the DataGrid data source adapter to expect `QueryBatch` objects with `columns: ColumnMeta` and `rows: JsonValue[][]`. Rendering components read `column.db_type` to choose formatters (number localisation, JSON pretty print, binary badges, etc.). Introduce per-database formatters (Postgres, MySQL, MongoDB, Neo4j) encapsulated in a lookup keyed by `db_type` so new engines can register their own format rules without touching transport.
 4. **Hook Updates** (`useTableDataQuery`, query panel stores): collapse duplicated parsing code; wire them to the new stream client so rows append as batches arrive. Introduce lightweight formatting utilities (pure TS) that operate only at render time, not during transport.
 5. **UI Mapping & Cleanup Plan**: map every consumer (table preview, query results, saved query playback) to the new stream client. During rollout, add a cleanup checklist removing legacy managers (`QueryManager`, `streamingTableService`, redundant DTOs) once the new pipeline is wired. Track progress in a dedicated chore issue.
 6. **Worker Offload**: introduce a shared query-stream worker that receives channel batches, performs optional lightweight parsing, and posts transferable `ArrayBuffer`s to the React layer. The grid subscribes to the worker via `BroadcastChannel`/`MessagePort` so main-thread rendering stays smooth under heavy streams.
@@ -211,7 +211,7 @@ Frontend must wait for `Success` or `Error` before displaying results.
    };
    ```
 
-2. **UPDATE DataGridV2** to use lazy formatting:
+2. **UPDATE DataGrid** to use lazy formatting:
    - Call `formatCell()` only in render function
    - Cache formatted values per cell using `useMemo` keyed by row/column ID
    - Defer formatting until cell scrolls into viewport
@@ -293,7 +293,7 @@ Frontend must wait for `Success` or `Error` before displaying results.
 - **Minimal-copy buffers**: reuse `BytesMut`/`Vec<u8>` slabs inside adapters; convert to `serde_bytes::ByteBuf` without cloning. Where JSON parsing is required (e.g., jsonb), forward the raw bytes and let the frontend lazy-parse on demand.
 - **Chunk sizing heuristics**: start at 4–8 KB batches (~256 rows for narrow schemas) and auto-tune based on observed serialization cost; expose adapter hints so heavy columns (large JSON/BLOB) shrink batch size to protect frame time.
 - **Worker handoff in the UI**: hydrate streaming batches inside a dedicated Web Worker (or SharedWorker) that feeds the React store via transferable `ArrayBuffer`s. This keeps the main thread free for rendering and ensures progressive paint beats TablePlus under large result sets.
-- **Viewport virtualization**: ensure DataGridV2 stays in row-virtualized mode with column-level virtualization for wide payloads. Defer expensive formatters until cells enter the viewport; cache formatter output keyed by `(rowId, columnId, revision)` to avoid recompute while scrolling.
+- **Viewport virtualization**: ensure DataGrid stays in row-virtualized mode with column-level virtualization for wide payloads. Defer expensive formatters until cells enter the viewport; cache formatter output keyed by `(rowId, columnId, revision)` to avoid recompute while scrolling.
 - **Back-pressure policy**: use bounded channels (`Channel::bounded(4)`) plus cooperative `await` on the sender. If the UI cannot drain fast enough, adapters pause fetches to prevent memory blow-up while still beating TablePlus’s eager buffering approach.
 - **TablePlus comparison plan**: capture benchmarks on identical hardware using `SELECT *` against tables with varying row counts (13k, 100k, 1M rows) and deep JSON documents. Measure:
   - **Time-to-first-row**: How quickly first batch appears (target: <50ms)
@@ -362,7 +362,7 @@ Frontend must wait for `Success` or `Error` before displaying results.
 - [ ] Create `queryStreamClient.ts` with AsyncGenerator interface
 - [ ] Update `tableDataService.ts` to use stream client
 - [ ] Create formatter registry in `src/utils/formatters.ts`
-- [ ] Update DataGridV2 to format cells lazily
+- [ ] Update DataGrid to format cells lazily
 
 ### Day 5-7: Binary Protocol
 - [ ] Switch from `query()` to `query_raw()` in Postgres adapter

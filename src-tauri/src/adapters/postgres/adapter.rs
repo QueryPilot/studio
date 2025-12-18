@@ -141,12 +141,26 @@ impl PostgresAdapter {
                             }
                         }
                         SqlParam::Text(s) => {
-                            // With prepared statements, simple String works for ALL types including ENUMs
+                            // Try UUID first
                             if let Ok(uuid) = Uuid::parse_str(s) {
                                 Box::new(uuid)
-                            } else if let Ok(decimal) = s.parse::<rust_decimal::Decimal>() {
+                            }
+                            // Try date formats (DATE, TIMESTAMP)
+                            else if let Ok(date) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+                                Box::new(date)
+                            }
+                            else if let Ok(datetime) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
+                                Box::new(datetime)
+                            }
+                            else if let Ok(datetime) = s.parse::<chrono::DateTime<chrono::Utc>>() {
+                                Box::new(datetime)
+                            }
+                            // Try decimal
+                            else if let Ok(decimal) = s.parse::<rust_decimal::Decimal>() {
                                 Box::new(decimal)
-                            } else {
+                            }
+                            // Fallback to String for ENUMs and other text types
+                            else {
                                 Box::new(s.clone())
                             }
                         }

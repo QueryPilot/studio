@@ -17,12 +17,12 @@ import {
   type CustomRenderer,
   type GridCell,
 } from "@glideapps/glide-data-grid";
-import { DataGridBase } from "@/components/DataGridV2/base/DataGridBase";
-import { useColumnSizing } from "@/components/DataGridV2/hooks/useColumnSizing";
-import type { GridColumnV2 } from "@/components/DataGridV2/types";
+import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
+import { useColumnSizing } from "@/components/DataGrid/hooks/useColumnSizing";
+import type { GridColumnV2 } from "@/components/DataGrid/types";
 import { NullableCellRenderer } from "@/components/TableStructure/NullableCellRenderer";
 import { DataTypeCellRenderer } from "@/components/TableStructure/DataTypeCellRenderer";
-import { TextSingleLineCellRenderer } from "@/components/DataGridV2/renderers/TextCell";
+import { TextSingleLineCellRenderer } from "@/components/DataGrid/renderers/TextCell";
 import { useCrudStore, buildCrudTableKey } from "@/stores/crudStore";
 import {
   createColumnAddCommand,

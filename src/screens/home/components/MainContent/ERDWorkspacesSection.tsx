@@ -1,13 +1,13 @@
 import { logger } from "@/lib/logger";
-import { IconSitemap, IconPlus } from '@tabler/icons-react';
-import { Button } from '@/components/ui/button';
+import { IconSitemap, IconPlus } from "@tabler/icons-react";
+import { Button } from "@/components/ui/button";
 
 export function ERDWorkspacesSection() {
   // TODO: Load ERD workspaces from store
 
   const handleCreateWorkspace = () => {
     // TODO: Implement ERD workspace creation
-    logger.info('Create ERD workspace');
+    logger.info("Create ERD workspace");
   };
 
   return (
@@ -19,13 +19,8 @@ export function ERDWorkspacesSection() {
             ERD Workspaces
           </h2>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 px-2 text-xs"
-          onClick={handleCreateWorkspace}
-        >
-          <IconPlus className="h-3 w-3 mr-1" />
+        <Button variant="ghost" onClick={handleCreateWorkspace}>
+          <IconPlus />
           New
         </Button>
       </div>
@@ -35,8 +30,7 @@ export function ERDWorkspacesSection() {
         <br />
         <Button
           variant="link"
-          size="sm"
-          className="h-auto p-0 text-xs text-amber-500"
+          className="text-amber-500"
           onClick={handleCreateWorkspace}
         >
           Create your first workspace

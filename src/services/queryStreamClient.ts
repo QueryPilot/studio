@@ -262,10 +262,12 @@ export class QueryStreamClient {
               buffer = message;
             } else if (message instanceof Uint8Array) {
               // Preserve the exact slice for subarray views
-              buffer = message.buffer.slice(
+              // Copy to ensure ArrayBuffer (not SharedArrayBuffer)
+              buffer = new Uint8Array(
+                message.buffer,
                 message.byteOffset,
-                message.byteOffset + message.byteLength,
-              );
+                message.byteLength,
+              ).slice().buffer as ArrayBuffer;
             }
             // ArrayBuffer-like object (cross-realm)
             else if (
@@ -273,7 +275,7 @@ export class QueryStreamClient {
               typeof message === "object" &&
               "byteLength" in message
             ) {
-              buffer = new Uint8Array(message as ArrayBufferLike).buffer;
+              buffer = new Uint8Array(message as ArrayBufferLike).slice().buffer as ArrayBuffer;
             }
             // Objects that carry a data/blob payload (tauri::ipc::Response variants)
             else if (message && typeof message === "object") {
@@ -281,18 +283,20 @@ export class QueryStreamClient {
               if (payload instanceof ArrayBuffer) {
                 buffer = payload;
               } else if (payload instanceof Uint8Array) {
-                buffer = payload.buffer.slice(
+                // Copy to ensure ArrayBuffer (not SharedArrayBuffer)
+                buffer = new Uint8Array(
+                  payload.buffer,
                   payload.byteOffset,
-                  payload.byteOffset + payload.byteLength,
-                );
+                  payload.byteLength,
+                ).slice().buffer as ArrayBuffer;
               } else if (Array.isArray(payload)) {
-                buffer = Uint8Array.from(payload as number[]).buffer;
+                buffer = Uint8Array.from(payload as number[]).buffer as ArrayBuffer;
               } else if (
                 payload &&
                 typeof payload === "object" &&
                 "byteLength" in payload
               ) {
-                buffer = new Uint8Array(payload as ArrayBufferLike).buffer;
+                buffer = new Uint8Array(payload as ArrayBufferLike).slice().buffer as ArrayBuffer;
               }
             }
             // Response/Blob-like payloads (tauri::ipc::Response arrives here)

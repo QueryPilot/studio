@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { IconDownload, IconCopy, IconFileText, IconTrash, IconEye, IconStack2, IconChevronRight, IconStar, IconEraser } from '@tabler/icons-react';
 
@@ -90,7 +91,8 @@ export function DatabaseSidebarContextMenu({
   const hasOnlyTables = selectedTypes.tables > 0 && selectedTypes.views === 0 && selectedTypes.functions === 0;
   const hasTablesOrViews = selectedTypes.tables > 0 || selectedTypes.views > 0;
 
-  return (
+  // Portal to body to escape overflow:hidden containers
+  return createPortal(
     <div
       ref={menuRef}
       className="fixed z-50 min-w-[200px] bg-popover border border-border rounded-md shadow-lg py-1"
@@ -203,7 +205,8 @@ export function DatabaseSidebarContextMenu({
         }}
         destructive
       />
-    </div>
+    </div>,
+    document.body
   );
 }
 

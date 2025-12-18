@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import { fileURLToPath, URL } from "node:url";
 import { createRequire } from "node:module";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
+import tailwindcss from "@tailwindcss/vite";
 
 const host = process.env.TAURI_DEV_HOST;
 const disableSourcemaps = process.env.VITE_DISABLE_SOURCEMAPS === "true";
@@ -26,6 +27,7 @@ const antlr4BrowserEntry = (() => {
 export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
+    tailwindcss(),
     // Only upload source maps in production builds when SENTRY_AUTH_TOKEN is set
     ...(mode === "production" &&
     !disableSourcemaps &&
@@ -33,7 +35,8 @@ export default defineConfig(({ mode }) => ({
       ? [
           sentryVitePlugin({
             org: process.env.SENTRY_ORG || "query-pilot",
-            project: process.env.SENTRY_PROJECT_FRONTEND || "query-pilot-frontend",
+            project:
+              process.env.SENTRY_PROJECT_FRONTEND || "query-pilot-frontend",
             authToken: process.env.SENTRY_AUTH_TOKEN,
             telemetry: false, // Disable Sentry CLI telemetry
             sourcemaps: {

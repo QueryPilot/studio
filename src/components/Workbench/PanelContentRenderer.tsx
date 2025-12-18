@@ -19,7 +19,7 @@ import {
   IconClipboardCheck,
   IconAssembly,
 } from "@tabler/icons-react";
-import { TableDataGridV2 } from "@/components/DataGridV2";
+import { TableDataGrid } from "@/components/DataGrid";
 import { TableStructure } from "@/components/TableStructure";
 import { TableIndexes } from "@/components/TableIndexes";
 import { TableTriggers } from "@/components/TableTriggers";
@@ -101,9 +101,14 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       setViewActions(actions);
     }, []);
 
+    // Track if we're updating from external source to prevent loops
+    const isExternalUpdate = useRef(false);
+    const updateTabMetadata = useWorkbenchStore((s) => s.updateTabMetadata);
+
     // Keep local activeView in sync with metadata.viewType updates from outside (e.g., sidebar quick actions)
     useEffect(() => {
       if (metadata?.viewType && metadata.viewType !== activeView) {
+        isExternalUpdate.current = true;
         setActiveView(metadata.viewType);
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -115,9 +120,13 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
     }, [activeView]);
 
     // Persist activeView changes back to metadata so other components can react
-    const updateTabMetadata = useWorkbenchStore((s) => s.updateTabMetadata);
     useEffect(() => {
       if (!metadata) return;
+      // Skip if this was an external update (from metadata -> activeView sync)
+      if (isExternalUpdate.current) {
+        isExternalUpdate.current = false;
+        return;
+      }
       if (metadata.viewType !== activeView) {
         updateTabMetadata(panelId, tabId, { viewType: activeView });
       }
@@ -217,21 +226,19 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                 tabGroupId={`table-views-${tabId}`}
                 focused={isPanelFocused}
               >
-                <TabsList className="p-0.5">
+                <TabsList>
                   <TabsTrigger
                     value="data"
-                    className="flex items-center gap-1 text-xs px-2"
                     tabIndex={0}
                   >
-                    <IconTable className="h-3 w-3" />
+                    <IconTable />
                     <span>Data</span>
                   </TabsTrigger>
                   <TabsTrigger
                     value="structure"
-                    className="flex items-center gap-1 text-xs px-2"
                     tabIndex={1}
                   >
-                    <IconAssembly className="h-3 w-3" />
+                    <IconAssembly />
                     <span>Structure</span>
                   </TabsTrigger>
 
@@ -239,10 +246,9 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                   {isRegularView && (
                     <TabsTrigger
                       value="definition"
-                      className="flex items-center gap-1 text-xs px-2"
                       tabIndex={2}
                     >
-                      <IconCode className="h-3 w-3" />
+                      <IconCode />
                       <span>Definition</span>
                     </TabsTrigger>
                   )}
@@ -252,26 +258,23 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                     <>
                       <TabsTrigger
                         value="indexes"
-                        className="flex items-center gap-1 text-xs px-2"
                         tabIndex={2}
                       >
-                        <IconBookmark className="h-3 w-3" />
+                        <IconBookmark />
                         <span>Indexes</span>
                       </TabsTrigger>
                       <TabsTrigger
                         value="triggers"
-                        className="flex items-center gap-1 text-xs px-2"
                         tabIndex={3}
                       >
-                        <IconBolt className="h-3 w-3" />
+                        <IconBolt />
                         <span>Triggers</span>
                       </TabsTrigger>
                       <TabsTrigger
                         value="definition"
-                        className="flex items-center gap-1 text-xs px-2"
                         tabIndex={4}
                       >
-                        <IconCode className="h-3 w-3" />
+                        <IconCode />
                         <span>Definition</span>
                       </TabsTrigger>
                     </>
@@ -281,10 +284,9 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                   {isMaterializedView && (
                     <TabsTrigger
                       value="indexes"
-                      className="flex items-center gap-1 text-xs px-2"
                       tabIndex={2}
                     >
-                      <IconBookmark className="h-3 w-3" />
+                      <IconBookmark />
                       <span>Indexes</span>
                     </TabsTrigger>
                   )}
@@ -293,10 +295,9 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                   {isMaterializedView && (
                     <TabsTrigger
                       value="definition"
-                      className="flex items-center gap-1 text-xs px-2"
                       tabIndex={3}
                     >
-                      <IconCode className="h-3 w-3" />
+                      <IconCode />
                       Definition
                     </TabsTrigger>
                   )}
@@ -329,7 +330,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
             <Suspense fallback={<TabLoadingSkeleton />}>
               <div className="absolute inset-0 px-1">
                 {activeView === "data" && (
-                  <TableDataGridV2
+                  <TableDataGrid
                     mode="table"
                     gridId={tableGridId ?? `table:${tabId}`}
                     connectionId={

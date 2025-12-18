@@ -10,9 +10,9 @@ import {
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconAlertCircle } from "@tabler/icons-react";
-import { DataGridBase } from "@/components/DataGridV2/base/DataGridBase";
-import { useColumnSizing } from "@/components/DataGridV2/hooks/useColumnSizing";
-import { TextSingleLineCellRenderer } from "@/components/DataGridV2/renderers/TextCell";
+import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
+import { useColumnSizing } from "@/components/DataGrid/hooks/useColumnSizing";
+import { TextSingleLineCellRenderer } from "@/components/DataGrid/renderers/TextCell";
 import { NullableCellRenderer } from "./NullableCellRenderer";
 import { DataTypeCellRenderer } from "./DataTypeCellRenderer";
 import { structureColumns } from "./columns";
@@ -332,7 +332,7 @@ export const TableStructure = memo(function TableStructure({
       const isPending = row._isPending ?? false;
       const isModified = row._isModified ?? false;
 
-      // Row background - match TableDataGridV2 colors
+      // Row background - match TableDataGrid colors
       const rowTheme = isPending
         ? {
             bgCell: "rgba(34, 197, 94, 0.06)", // green-500 for new columns

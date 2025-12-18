@@ -1,6 +1,11 @@
 import { logger } from "@/lib/logger";
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import { IconAlertCircle, IconRefresh, IconCopy, IconCheck } from '@tabler/icons-react';
+import {
+  IconAlertCircle,
+  IconRefresh,
+  IconCopy,
+  IconCheck,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { captureException } from "@/utils/sentry";
@@ -151,20 +156,12 @@ export class ErrorBoundary extends Component<Props, State> {
                 )}
 
                 <div className="flex items-center gap-3 pt-2">
-                  <Button
-                    onClick={this.handleReload}
-                    variant="default"
-                    size="xs"
-                  >
+                  <Button onClick={this.handleReload} variant="default">
                     <IconRefresh className="h-4 w-4 mr-2" />
                     Reload App
                   </Button>
                   {process.env.NODE_ENV === "development" && (
-                    <Button
-                      onClick={this.handleCopyError}
-                      variant="outline"
-                      size="xs"
-                    >
+                    <Button onClick={this.handleCopyError} variant="outline">
                       {this.state.copied ? (
                         <IconCheck className="h-4 w-4 mr-2" />
                       ) : (

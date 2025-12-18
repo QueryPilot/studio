@@ -398,7 +398,6 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         <DialogFooter className="flex justify-end gap-2">
           {!isTableSpecific && (
             <Button
-              size="xs"
               variant="outline"
               onClick={() => {
                 onOpenChange(false);
@@ -409,7 +408,6 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
             </Button>
           )}
           <Button
-            size="xs"
             variant={isTableSpecific ? "destructive" : "outline"}
             onClick={handleDiscardAll}
             disabled={isCommitting}
@@ -417,7 +415,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
             <IconX className="h-3.5 w-3.5 mr-1.5" />
             {isTableSpecific ? "Discard" : "Discard All"}
           </Button>
-          <Button size="xs" onClick={handleCommitAll} disabled={isCommitting}>
+          <Button onClick={handleCommitAll} disabled={isCommitting}>
             {isCommitting ? (
               <>
                 <IconLoader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
@@ -688,7 +686,6 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
 
         {/* Undo Button */}
         <Button
-          size="xs"
           variant="ghost"
           className="ml-auto h-6 px-2 text-xs hover:bg-destructive/10 hover:text-destructive"
           onClick={(e) => {
