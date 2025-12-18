@@ -1,0 +1,121 @@
+/**
+ * DataGrid CSS Variables
+ *
+ * Defines theme-aware colors for grid row states and cell highlights.
+ * These are converted to actual values at runtime for Glide Data Grid.
+ */
+
+:root {
+  /* ============================================
+   * Row State Backgrounds
+   * ============================================ */
+
+  /* Deleted row - red tint */
+  --grid-row-deleted-bg: rgba(239, 68, 68, 0.06);
+  --grid-row-deleted-bg-medium: rgba(239, 68, 68, 0.08);
+  --grid-row-deleted-accent: rgba(239, 68, 68, 0.4);
+  --grid-row-deleted-accent-light: rgba(239, 68, 68, 0.15);
+
+  /* Inserted row - green tint */
+  --grid-row-inserted-bg: rgba(34, 197, 94, 0.06);
+  --grid-row-inserted-bg-medium: rgba(34, 197, 94, 0.08);
+  --grid-row-inserted-accent: rgba(34, 197, 94, 0.4);
+  --grid-row-inserted-accent-light: rgba(34, 197, 94, 0.15);
+
+  /* Updated row - blue tint */
+  --grid-row-updated-bg: rgba(59, 130, 246, 0.08);
+  --grid-row-updated-bg-medium: rgba(59, 130, 246, 0.10);
+
+  /* Pinned row - brand orange tint */
+  --grid-row-pinned-bg: rgba(252, 163, 17, 0.04);
+  --grid-row-pinned-bg-medium: rgba(252, 163, 17, 0.06);
+  --grid-row-pinned-accent-light: rgba(252, 163, 17, 0.12);
+
+  /* Pinned + staged row - stronger orange */
+  --grid-row-pinned-staged-bg: rgba(252, 163, 17, 0.10);
+  --grid-row-pinned-staged-bg-medium: rgba(252, 163, 17, 0.12);
+
+  /* ============================================
+   * Cell State Backgrounds
+   * ============================================ */
+
+  /* Modified cell highlight */
+  --grid-cell-modified-bg: rgba(59, 130, 246, 0.15);
+
+  /* Error cell highlight */
+  --grid-cell-error-bg: rgba(239, 68, 68, 0.15);
+
+  /* FK reference highlight */
+  --grid-cell-fk-highlight: rgba(251, 146, 60, 0.15);
+  --grid-cell-fk-accent-light: rgba(251, 146, 60, 0.2);
+
+  /* ============================================
+   * Text Colors
+   * ============================================ */
+
+  /* NULL value text */
+  --grid-null-text: rgba(127, 127, 127, 0.7);
+
+  /* Text opacity variants */
+  --grid-text-medium: rgba(0, 0, 0, 0.7);
+  --grid-text-light: rgba(0, 0, 0, 0.5);
+
+  /* ============================================
+   * Borders & Accents
+   * ============================================ */
+
+  --grid-border: rgba(0, 0, 0, 0.1);
+  --grid-border-light: rgba(0, 0, 0, 0.05);
+  --grid-drilldown-border: rgba(0, 0, 0, 0.2);
+
+  /* Brand accent */
+  --grid-accent: #fca311;
+  --grid-accent-light: rgba(252, 163, 17, 0.1);
+
+  /* Search result highlight */
+  --grid-search-result-bg: rgba(252, 163, 17, 0.2);
+
+  /* ============================================
+   * Hover & Selection
+   * ============================================ */
+
+  --grid-hover-icon-bg: rgba(0, 0, 0, 0.1);
+  --grid-row-stripe: rgba(0, 0, 0, 0.03);
+}
+
+/* Dark mode overrides */
+.dark {
+  /* Row states - slightly stronger in dark mode */
+  --grid-row-deleted-bg: rgba(239, 68, 68, 0.08);
+  --grid-row-deleted-bg-medium: rgba(239, 68, 68, 0.12);
+
+  --grid-row-inserted-bg: rgba(34, 197, 94, 0.08);
+  --grid-row-inserted-bg-medium: rgba(34, 197, 94, 0.12);
+
+  --grid-row-updated-bg: rgba(59, 130, 246, 0.10);
+  --grid-row-updated-bg-medium: rgba(59, 130, 246, 0.14);
+
+  --grid-row-pinned-bg: rgba(252, 163, 17, 0.06);
+  --grid-row-pinned-bg-medium: rgba(252, 163, 17, 0.08);
+
+  --grid-row-pinned-staged-bg: rgba(252, 163, 17, 0.12);
+  --grid-row-pinned-staged-bg-medium: rgba(252, 163, 17, 0.15);
+
+  /* Cell states */
+  --grid-cell-modified-bg: rgba(59, 130, 246, 0.20);
+  --grid-cell-error-bg: rgba(239, 68, 68, 0.20);
+  --grid-cell-fk-highlight: rgba(251, 146, 60, 0.20);
+
+  /* Text colors */
+  --grid-text-medium: rgba(229, 229, 229, 0.7);
+  --grid-text-light: rgba(229, 229, 229, 0.5);
+
+  /* Borders */
+  --grid-border: rgba(229, 229, 229, 0.1);
+  --grid-border-light: rgba(229, 229, 229, 0.05);
+  --grid-drilldown-border: rgba(229, 229, 229, 0.2);
+
+  /* Hover & Selection */
+  --grid-hover-icon-bg: rgba(255, 255, 255, 0.15);
+  --grid-row-stripe: rgba(255, 255, 255, 0.04);
+}
