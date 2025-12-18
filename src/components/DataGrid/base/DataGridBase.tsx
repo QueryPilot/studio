@@ -6,6 +6,7 @@ import DataEditor, {
 } from "@glideapps/glide-data-grid";
 import "@glideapps/glide-data-grid/dist/index.css";
 import "../styles/datagrid-overrides.css";
+import "../styles/datagrid-variables.css";
 import { cn } from "@/lib/utils";
 import { useTheme } from "next-themes";
 import { createDataGridTheme } from "../theme/gridTheme";

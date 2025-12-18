@@ -37,6 +37,31 @@ export {
   setCachedTruncation,
   clearAllRenderCaches,
   getRenderCacheStats,
+  type CachedThemeValues,
 } from "./renderCache";
 
 export { truncateTextToWidth, truncateTextMiddleToWidth, preWarmTruncationCache } from "./textUtils";
+
+export {
+  createMatcher,
+  drawNull,
+  drawNullWithTheme,
+  drawText,
+  drawTextOrNull,
+  drawNumber,
+  drawMonospace,
+  drawBadge,
+  drawIcon,
+  createEditorProvider,
+} from "./rendererUtils";
+
+export {
+  getNextCell,
+  createCellSelection,
+  navigateToCell,
+  handleTabNavigation,
+  handleF2Key,
+  createGridKeyboardHandler,
+  type Movement,
+  type NavigationBounds,
+} from "./keyboardNavigation";

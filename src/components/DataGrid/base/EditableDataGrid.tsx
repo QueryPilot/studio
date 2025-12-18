@@ -7,7 +7,6 @@ import type {
   GridSelection,
   Item,
 } from "@glideapps/glide-data-grid";
-import { CompactSelection } from "@glideapps/glide-data-grid";
 import { DataGridBase, type DataGridBaseProps } from "./DataGridBase";
 import type {
   GridColumnV2,
@@ -25,6 +24,7 @@ import type { UseGridHistoryResult } from "../hooks/useGridHistory";
 import type { CellValue } from "@/types";
 import { useDataGridRenderers } from "../renderers";
 import { inferValueType } from "../utils/valueHelpers";
+import { navigateToCell, type NavigationBounds } from "../utils/keyboardNavigation";
 
 const isPromise = <T,>(value: unknown): value is Promise<T> =>
   typeof value === "object" &&
@@ -287,11 +287,16 @@ export const EditableDataGrid = forwardRef<
               const nextRow = currentRow + rowOffset;
 
               // Ensure the target cell is within bounds
+              const bounds: NavigationBounds = {
+                maxCol: columns.length,
+                maxRow: rows.length,
+              };
+
               if (
                 nextCol >= 0 &&
-                nextCol < columns.length &&
+                nextCol < bounds.maxCol &&
                 nextRow >= 0 &&
-                nextRow < rows.length
+                nextRow < bounds.maxRow
               ) {
                 const nextCell: Item = [nextCol, nextRow];
                 logger.info("🔵 Moving to next cell and opening editor:", {
@@ -299,54 +304,10 @@ export const EditableDataGrid = forwardRef<
                   to: nextCell,
                 });
 
-                // Schedule the next cell selection and editor activation
-                // Use requestAnimationFrame for smoother transition
-                requestAnimationFrame(() => {
-                  requestAnimationFrame(() => {
-                    // Update selection to the next cell
-                    const newSelection: GridSelection = {
-                      columns: CompactSelection.empty(),
-                      rows: CompactSelection.empty(),
-                      current: {
-                        cell: nextCell,
-                        range: {
-                          x: nextCell[0],
-                          y: nextCell[1],
-                          width: 1,
-                          height: 1,
-                        },
-                        rangeStack: [],
-                      },
-                    };
-
-                    onGridSelectionChange?.(newSelection);
-
-                    // Focus the grid and trigger edit mode on the next frame
-                    requestAnimationFrame(() => {
-                      if (gridRef.current) {
-                        gridRef.current.focus();
-
-                        // Dispatch Enter key to the grid canvas to trigger edit mode
-                        requestAnimationFrame(() => {
-                          const canvas = document.querySelector(
-                            ".dvn-scroller canvas",
-                          ) as HTMLCanvasElement;
-                          if (canvas) {
-                            canvas.dispatchEvent(
-                              new KeyboardEvent("keydown", {
-                                key: "Enter",
-                                code: "Enter",
-                                keyCode: 13,
-                                which: 13,
-                                bubbles: true,
-                                cancelable: true,
-                              }),
-                            );
-                          }
-                        });
-                      }
-                    });
-                  });
+                // Use unified navigation utility instead of nested RAFs
+                navigateToCell(gridRef, nextCell, onGridSelectionChange, {
+                  openEditor: true,
+                  scrollToCell: true,
                 });
               }
             }
@@ -365,9 +326,9 @@ export const EditableDataGrid = forwardRef<
       getCoordinates,
       onCellEditCancel,
       handleCellEdited,
-      handleCellActivated,
       columns.length,
       rows.length,
+      onGridSelectionChange,
     ],
   );
 

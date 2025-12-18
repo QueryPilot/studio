@@ -55,7 +55,7 @@ export function getCachedItalicFont(baseFontStyle: string, family: string = DEFA
 // Theme Value Cache
 // ============================================================================
 
-interface CachedThemeValues {
+export interface CachedThemeValues {
   // Common colors
   textDark: string;
   textMedium: string;
