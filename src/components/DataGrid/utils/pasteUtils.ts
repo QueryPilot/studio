@@ -245,3 +245,242 @@ function coerceValue(value: unknown): string | number | boolean | null {
   // Return as string
   return str;
 }
+
+// ============================================================================
+// Smart Paste - Type-Aware Value Coercion
+// ============================================================================
+
+/**
+ * Column type hint for smart paste
+ */
+export interface ColumnTypeHint {
+  /** Database type (e.g., "integer", "uuid", "timestamp") */
+  dbType: string;
+  /** Whether column is nullable */
+  nullable?: boolean;
+}
+
+/**
+ * Coerce value based on target column type
+ */
+export function coerceToColumnType(
+  value: unknown,
+  hint: ColumnTypeHint
+): string | number | boolean | null {
+  // Handle null/undefined
+  if (value === null || value === undefined) {
+    return hint.nullable !== false ? null : "";
+  }
+
+  const str = typeof value === "string" ? value.trim() : String(value);
+  const dbType = hint.dbType.toLowerCase();
+
+  // Empty string handling
+  if (str === "" || str.toLowerCase() === "null" || str === "\\N") {
+    return hint.nullable !== false ? null : "";
+  }
+
+  // Integer types
+  if (
+    dbType.includes("int") ||
+    dbType === "serial" ||
+    dbType === "bigserial" ||
+    dbType === "smallserial"
+  ) {
+    const num = parseInt(str, 10);
+    return Number.isNaN(num) ? str : num;
+  }
+
+  // Float/decimal types
+  if (
+    dbType.includes("numeric") ||
+    dbType.includes("decimal") ||
+    dbType.includes("float") ||
+    dbType.includes("double") ||
+    dbType.includes("real") ||
+    dbType === "money"
+  ) {
+    // Remove currency symbols and commas
+    const cleaned = str.replace(/[$€£¥,]/g, "");
+    const num = parseFloat(cleaned);
+    return Number.isNaN(num) ? str : num;
+  }
+
+  // Boolean types
+  if (dbType === "boolean" || dbType === "bool") {
+    const lower = str.toLowerCase();
+    if (["true", "t", "yes", "y", "1", "on"].includes(lower)) return true;
+    if (["false", "f", "no", "n", "0", "off"].includes(lower)) return false;
+    return str;
+  }
+
+  // UUID - validate format
+  if (dbType === "uuid") {
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidRegex.test(str)) return str.toLowerCase();
+    // Try to format as UUID if it's 32 hex chars
+    const hex = str.replace(/[^0-9a-f]/gi, "");
+    if (hex.length === 32) {
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`.toLowerCase();
+    }
+    return str;
+  }
+
+  // JSON types
+  if (dbType === "json" || dbType === "jsonb") {
+    // Already valid JSON string
+    if (str.startsWith("{") || str.startsWith("[")) {
+      try {
+        JSON.parse(str);
+        return str;
+      } catch {
+        // Not valid JSON, wrap as string
+        return JSON.stringify(str);
+      }
+    }
+    return str;
+  }
+
+  // Date types - try to parse and format
+  if (dbType === "date") {
+    const date = new Date(str);
+    if (!Number.isNaN(date.getTime())) {
+      return date.toISOString().split("T")[0] ?? str;
+    }
+    return str;
+  }
+
+  // Timestamp types
+  if (dbType.includes("timestamp")) {
+    const date = new Date(str);
+    if (!Number.isNaN(date.getTime())) {
+      return date.toISOString();
+    }
+    return str;
+  }
+
+  // Array types - try to parse
+  if (dbType.endsWith("[]") || dbType.startsWith("_")) {
+    // If it looks like a PostgreSQL array literal, return as-is
+    if (str.startsWith("{") && str.endsWith("}")) {
+      return str;
+    }
+    // If it's JSON array, convert to PostgreSQL format
+    if (str.startsWith("[")) {
+      try {
+        const arr = JSON.parse(str);
+        if (Array.isArray(arr)) {
+          return `{${arr.map((v) => JSON.stringify(v)).join(",")}}`;
+        }
+      } catch {
+        // Not valid JSON array
+      }
+    }
+    return str;
+  }
+
+  // Default: return as string
+  return str;
+}
+
+/**
+ * Smart paste - coerce all values based on target column types
+ */
+export function smartPasteCoerce(
+  rows: (string | number | boolean | null)[][],
+  columnHints: ColumnTypeHint[]
+): (string | number | boolean | null)[][] {
+  return rows.map((row) =>
+    row.map((value, colIndex) => {
+      const hint = columnHints[colIndex];
+      if (!hint) return value;
+      return coerceToColumnType(value, hint);
+    })
+  );
+}
+
+/**
+ * Validate paste data against column types
+ * Returns validation errors if any
+ */
+export interface PasteValidationError {
+  row: number;
+  column: number;
+  value: unknown;
+  error: string;
+}
+
+export function validatePasteData(
+  rows: (string | number | boolean | null)[][],
+  columnHints: ColumnTypeHint[]
+): PasteValidationError[] {
+  const errors: PasteValidationError[] = [];
+
+  rows.forEach((row, rowIndex) => {
+    row.forEach((value, colIndex) => {
+      const hint = columnHints[colIndex];
+      if (!hint) return;
+
+      // Check nullable constraint
+      if (value === null && hint.nullable === false) {
+        errors.push({
+          row: rowIndex,
+          column: colIndex,
+          value,
+          error: "Value cannot be null",
+        });
+        return;
+      }
+
+      // Type-specific validation
+      const dbType = hint.dbType.toLowerCase();
+
+      if (value !== null) {
+        // UUID validation
+        if (dbType === "uuid") {
+          const uuidRegex =
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          const str = String(value);
+          if (!uuidRegex.test(str)) {
+            errors.push({
+              row: rowIndex,
+              column: colIndex,
+              value,
+              error: "Invalid UUID format",
+            });
+          }
+        }
+
+        // Integer validation
+        if (dbType.includes("int") && typeof value === "string") {
+          const num = parseInt(value, 10);
+          if (Number.isNaN(num)) {
+            errors.push({
+              row: rowIndex,
+              column: colIndex,
+              value,
+              error: "Invalid integer",
+            });
+          }
+        }
+
+        // JSON validation
+        if ((dbType === "json" || dbType === "jsonb") && typeof value === "string") {
+          try {
+            JSON.parse(value);
+          } catch {
+            errors.push({
+              row: rowIndex,
+              column: colIndex,
+              value,
+              error: "Invalid JSON",
+            });
+          }
+        }
+      }
+    });
+  });
+
+  return errors;
+}

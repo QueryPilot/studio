@@ -17,6 +17,8 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import {
   Collapsible,
@@ -296,7 +298,9 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
   };
 
   const handleDateSelect = useCallback((date: Date | undefined) => {
-    setSelectedDate(date ?? null);
+    if (date) {
+      setSelectedDate(date);
+    }
     setManualDirty(false); // Let sync effect update the text
   }, []);
 
@@ -481,14 +485,6 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
                     startMonth={new Date(1900, 0)}
                     endMonth={new Date(2100, 0)}
                     defaultMonth={selectedDate ?? new Date()}
-                    autoFocus={false}
-                    onDayClick={(day, modifiers, e) => {
-                      // Ensure single click works by stopping event from being swallowed
-                      e.stopPropagation();
-                      if (!modifiers.disabled) {
-                        handleDateSelect(day);
-                      }
-                    }}
                   />
 
                   {/* Time picker for time/datetime - Collapsible */}
@@ -563,10 +559,14 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
                               handleTimezoneChange(value as string);
                             }}
                           >
+                            <SelectTrigger className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
                             <SelectContent
                               className="click-outside-ignore z-[110] max-h-64"
                               sideOffset={4}
                             >
+                              <SelectItem value="none">No timezone</SelectItem>
                               <SelectItem value="Z">UTC (Z)</SelectItem>
                               <SelectItem value="+00:00">+00:00</SelectItem>
                               <SelectItem value="+01:00">+01:00</SelectItem>

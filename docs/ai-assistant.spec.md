@@ -124,8 +124,8 @@ Model: gpt-5-2025-08-07 [openai] ▼
 │   ├── claude-sonnet-4-5
 │   └── claude-haiku-4-5
 └── Google
-    ├── gemini-2.5-pro
-    └── gemini-2.5-flash
+    ├── gemini-3-pro
+    └── gemini-3-flash
 ```
 
 #### AutoResizeTextarea (`src/components/AIAssistant/AutoResizeTextarea.tsx`)
@@ -180,7 +180,7 @@ interface AIStoreState {
 {
   openai: "gpt-5-2025-08-07",
   anthropic: "claude-sonnet-4-5",
-  google: "gemini-2.5-pro",
+  google: "gemini-3-pro",
   ollama: "llama3.1"
 }
 ```
@@ -225,11 +225,11 @@ interface AIStoreState {
 
 ### Google Gemini (Latest - June 2025)
 
-| Model                 | ID                      | Context   | Description               |
-| --------------------- | ----------------------- | --------- | ------------------------- |
-| Gemini 2.5 Pro        | `gemini-2.5-pro`        | 1M tokens | State-of-the-art thinking |
-| Gemini 2.5 Flash      | `gemini-2.5-flash`      | 1M tokens | Best price-performance    |
-| Gemini 2.5 Flash-Lite | `gemini-2.5-flash-lite` | 1M tokens | Ultra-fast                |
+| Model                 | ID                    | Context   | Description               |
+| --------------------- | --------------------- | --------- | ------------------------- |
+| Gemini 2.5 Pro        | `gemini-3-pro`        | 1M tokens | State-of-the-art thinking |
+| Gemini 2.5 Flash      | `gemini-3-flash`      | 1M tokens | Best price-performance    |
+| Gemini 2.5 Flash-Lite | `gemini-3-flash-lite` | 1M tokens | Ultra-fast                |
 
 **Legacy Models:**
 
@@ -387,7 +387,7 @@ useEffect(() => {
 
 1. **User chatting with GPT-5**
 2. **Clicks model selector** → Dropdown shows all configured models
-3. **Selects Gemini 2.5 Pro** → Toast: "Switched to gemini-2.5-pro (google)"
+3. **Selects Gemini 2.5 Pro** → Toast: "Switched to gemini-3-pro (google)"
 4. **Next message uses Gemini** → Provider auto-updated ✅
 5. **Previous messages remain** → Context preserved
 

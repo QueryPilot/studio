@@ -17,14 +17,20 @@ export const JsonCellEditor: React.FC<JsonCellEditorProps> = ({
   value,
   onFinishedEditing,
 }) => {
-  // Format JSON by default for editing
-  const formatJson = (jsonString: string | null): string => {
-    if (!jsonString?.trim()) return "";
+  // Format JSON by default for editing (handle both string and object values)
+  const formatJson = (jsonValue: string | object | null): string => {
+    if (jsonValue === null || jsonValue === undefined) return "";
+    // If already an object from DB, stringify directly
+    if (typeof jsonValue === "object") {
+      return JSON.stringify(jsonValue, null, 2);
+    }
+    const str = String(jsonValue);
+    if (!str.trim()) return "";
     try {
-      const parsed = JSON.parse(jsonString);
+      const parsed = JSON.parse(str);
       return JSON.stringify(parsed, null, 2);
     } catch {
-      return jsonString;
+      return str;
     }
   };
 
@@ -46,7 +52,23 @@ export const JsonCellEditor: React.FC<JsonCellEditorProps> = ({
   const finishedRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 400, height: 300 });
-  const originalValueRef = useRef(value.data.value); // Store original value for change detection
+  // Normalize original value to minified JSON string for comparison
+  // This handles both object values from DB and string values
+  const getOriginalMinified = (): string | null => {
+    const val = value.data.value;
+    if (val === null || val === undefined) return null;
+    if (typeof val === "object") {
+      return JSON.stringify(val); // Already minified
+    }
+    // For string values, parse and re-stringify to normalize formatting
+    try {
+      const parsed = JSON.parse(String(val));
+      return JSON.stringify(parsed);
+    } catch {
+      return String(val); // Keep as-is if not valid JSON
+    }
+  };
+  const originalValueRef = useRef<string | null>(getOriginalMinified());
 
   // Extract column metadata for header
   const { columnName, isPrimaryKey, dbType } = value.data;
@@ -103,12 +125,12 @@ export const JsonCellEditor: React.FC<JsonCellEditorProps> = ({
   const commitCurrentText = useCallback(() => {
     const trimmed = text.trim();
 
-    // Minify both for comparison
+    // Minify current value for comparison
+    // originalValueRef.current is already normalized/minified
     const currentMinified = trimmed ? minifyJson(trimmed) : null;
-    const originalMinified = originalValueRef.current ? minifyJson(originalValueRef.current) : null;
 
-    // IconCheck if value actually changed
-    const hasChanged = currentMinified !== originalMinified;
+    // Check if value actually changed
+    const hasChanged = currentMinified !== originalValueRef.current;
 
     // If no changes were made, cancel the edit
     if (!hasChanged) {
@@ -122,6 +144,10 @@ export const JsonCellEditor: React.FC<JsonCellEditorProps> = ({
       commit(null);
     } else if (isValid) {
       commit(trimmed);
+    } else {
+      // Invalid JSON - don't commit, but mark as finished to avoid re-triggering
+      finishedRef.current = true;
+      onFinishedEditing(undefined);
     }
   }, [commit, isValid, text, value.data.nullable, onFinishedEditing]);
 

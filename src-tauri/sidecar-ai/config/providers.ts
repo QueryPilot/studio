@@ -65,19 +65,19 @@ export const SUPPORTED_PROVIDERS: AIProviderConfig[] = [
     name: "google",
     models: [
       {
-        id: "gemini-2.5-pro",
+        id: "gemini-3-pro",
         name: "Gemini 2.5 Pro",
         contextWindow: 1000000,
         pricing: { input: 1.25, output: 5 },
       },
       {
-        id: "gemini-2.5-flash",
+        id: "gemini-3-flash",
         name: "Gemini 2.5 Flash",
         contextWindow: 1000000,
         pricing: { input: 0.075, output: 0.3 },
       },
       {
-        id: "gemini-2.5-flash-lite",
+        id: "gemini-3-flash-lite",
         name: "Gemini 2.5 Flash Lite",
         contextWindow: 1000000,
         pricing: { input: 0.0375, output: 0.15 },
@@ -161,7 +161,7 @@ export const SUPPORTED_PROVIDERS: AIProviderConfig[] = [
         pricing: { input: 15, output: 75 },
       },
       {
-        id: "google/gemini-2.5-pro",
+        id: "google/gemini-3-pro",
         name: "Gemini 2.5 Pro (Gateway)",
         contextWindow: 1000000,
         pricing: { input: 1.25, output: 5 },
@@ -203,7 +203,7 @@ export const SUPPORTED_PROVIDERS: AIProviderConfig[] = [
         pricing: { input: 2.5, output: 10 },
       },
       {
-        id: "google/gemini-2.5-pro-preview",
+        id: "google/gemini-3-pro-preview",
         name: "Gemini 2.5 Pro Preview",
         contextWindow: 1000000,
         pricing: { input: 1.25, output: 5 },

@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import React from "react";
 import { ConfirmationToast } from "@/components/ConfirmationToast";
 import { eventBus } from "@/services/eventBus";
-//
+import { windowManager } from "@/services/windowManager";
 
 const commandPaletteStore = useCommandPaletteStore.getState();
 const dialogStore = useDialogStore.getState();
@@ -202,7 +202,13 @@ export const defaultCommands: Command[] = [
       }
 
       const activeTabId = panel.activeTabId || panel.tabIds[0];
-      if (!activeTabId) return;
+
+      // Only 1 panel: if no tabs or closing the last tab, close the window
+      if (!activeTabId || panel.tabIds.length <= 1) {
+        void windowManager.closeCurrentWindow();
+        return;
+      }
+
       store.removeTab(panelId, activeTabId);
     },
   },
