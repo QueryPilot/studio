@@ -19,8 +19,13 @@ export {
   parseJSON,
   parseTSV,
   parseCSV,
+  coerceToColumnType,
+  smartPasteCoerce,
+  validatePasteData,
   type PasteFormat,
   type ParsedPasteData,
+  type ColumnTypeHint,
+  type PasteValidationError,
 } from "./pasteUtils";
 
 export { perfMonitor } from "./performanceMonitor";
@@ -65,3 +70,30 @@ export {
   type Movement,
   type NavigationBounds,
 } from "./keyboardNavigation";
+
+export {
+  classifyErrorSeverity,
+  isRecoverableError,
+  createCellEditError,
+  withRetry,
+  executeBulkOperation,
+  batchItems,
+  executeBatchedOperation,
+  formatErrorForDisplay,
+  groupErrorsByColumn,
+  createErrorSummary,
+  type ErrorSeverity,
+  type CellEditError,
+  type BulkOperationResult,
+  type RetryConfig,
+} from "./errorRecovery";
+
+export {
+  processBulkPaste,
+  estimatePasteProcessingTime,
+  createPasteChunks,
+  applyPasteChunks,
+  type BulkPasteOptions,
+  type BulkPasteProgress,
+  type BulkPasteResult,
+} from "./bulkPaste";

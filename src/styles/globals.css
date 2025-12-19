@@ -454,6 +454,15 @@
   margin-top: -2px !important;
 }
 
+.ͼ1 .cm-gutter-lint {
+  width: 20px;
+  min-width: 20px;
+}
+
 .ͼ1 .cm-gutter-lint .cm-gutterElement {
-  padding: 0 0 0 0.2em;
+  width: 20px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }

@@ -84,3 +84,20 @@ export type {
   UseQuickFilterOptions,
   UseQuickFilterResult,
 } from "./useQuickFilter";
+
+export { useOptimisticRows } from "./useOptimisticRows";
+export type { UseOptimisticRowsOptions } from "./useOptimisticRows";
+
+export { useFKAutocomplete } from "./useFKAutocomplete";
+export type {
+  FKReference,
+  FKLookupValue,
+  FKLookupResult,
+  UseFKAutocompleteOptions,
+} from "./useFKAutocomplete";
+
+export { useColumnStatistics, formatColumnStatsTooltip } from "./useColumnStatistics";
+export type {
+  ColumnStats,
+  UseColumnStatisticsOptions,
+} from "./useColumnStatistics";

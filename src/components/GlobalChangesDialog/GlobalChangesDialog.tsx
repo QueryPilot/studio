@@ -59,12 +59,12 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
 
   const [isCommitting, setIsCommitting] = useState(false);
 
-  // IconCheck if this is table-specific or workspace-wide
+  // Check if this is table-specific or workspace-wide
   const isTableSpecific = database !== undefined && table !== undefined;
 
-  // IconFilter commands based on scope
-  const connectionCommands = Array.from(stagedCommands.entries()).filter(
-    ([tableKey]) => {
+  // Filter commands based on scope - memoize to prevent unnecessary recalculations
+  const connectionCommands = useMemo(() => {
+    return Array.from(stagedCommands.entries()).filter(([tableKey]) => {
       if (isTableSpecific) {
         const specificTableKey = getTableKey({
           connectionId,
@@ -74,26 +74,24 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         });
         return tableKey === specificTableKey;
       }
-      return tableKey.startsWith(`${connectionId}:`);
-    },
-  );
+      // In workspace-wide mode: if connectionId is provided, filter by it
+      // Otherwise show all staged commands
+      if (connectionId) {
+        return tableKey.startsWith(`${connectionId}:`);
+      }
+      return true;
+    });
+  }, [stagedCommands, isTableSpecific, connectionId, database, schema, table, getTableKey]);
 
   // Group commands by row ID only, preserving user edit order
   const groupedByRow = useMemo(() => {
-    const result: Array<{
-      rowKey: string;
-      tableName: string;
-      commands: CrudCommand[];
-    }> = [];
-
-    // Collect all commands in order they were added
+    // Collect all commands with metadata
     const allCommands: Array<{
-      tableKey: string;
       tableName: string;
       command: CrudCommand;
     }> = [];
 
-    connectionCommands.forEach(([tableKey, commands]) => {
+    for (const [tableKey, commands] of connectionCommands) {
       const parts = tableKey.split(":");
       const tableName = parts[parts.length - 1];
       const schemaName = parts.length > 3 ? parts[2] : undefined;
@@ -101,33 +99,24 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         ? `${schemaName}.${tableName}`
         : tableName || "";
 
-      commands.forEach((cmd) => {
+      for (const cmd of commands) {
         allCommands.push({
-          tableKey,
           tableName: displayName,
           command: cmd,
         });
-      });
-    });
+      }
+    }
 
     // Group by row key while preserving order
-    const rowMap = new Map<
-      string,
-      {
-        rowKey: string;
-        tableName: string;
-        commands: CrudCommand[];
-      }
-    >();
+    const rowMap = new Map<string, CrudCommand[]>();
+    const rowOrder: Array<{ rowKey: string; tableName: string }> = [];
 
-    allCommands.forEach(({ tableName, command }) => {
+    for (const { tableName, command } of allCommands) {
       let rowKey: string;
 
       if (command.type === "data.insert") {
-        // For inserts, use command ID as row key
         rowKey = `insert-${command.id}`;
       } else if (command.type === "data.update") {
-        // For updates, use primary keys
         const payload = command.payload as {
           primaryKeys?: Record<string, unknown>;
         };
@@ -135,7 +124,6 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
           ? JSON.stringify(payload.primaryKeys)
           : `update-${command.id}`;
       } else if (command.type === "data.delete") {
-        // For deletes, use primary keys
         const payload = command.payload as {
           primaryKeys?: Record<string, unknown>;
         };
@@ -147,19 +135,24 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
       }
 
       if (!rowMap.has(rowKey)) {
-        const row = {
-          rowKey,
-          tableName,
-          commands: [],
-        };
-        rowMap.set(rowKey, row);
-        result.push(row);
+        rowMap.set(rowKey, []);
+        rowOrder.push({ rowKey, tableName });
       }
 
-      const row = rowMap.get(rowKey);
-      if (row) {
-        row.commands.push(command);
-      }
+      rowMap.get(rowKey)!.push(command);
+    }
+
+    // Build final result array
+    const result = rowOrder.map(({ rowKey, tableName }) => ({
+      rowKey,
+      tableName,
+      commands: rowMap.get(rowKey) ?? [],
+    }));
+
+    logger.info("[GlobalChangesDialog] groupedByRow computed:", {
+      connectionCommandsCount: connectionCommands.length,
+      allCommandsCount: allCommands.length,
+      resultCount: result.length,
     });
 
     return result;
@@ -380,16 +373,22 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         </div>
 
         {/* Changes List - Grouped by Row ID */}
-        <ScrollArea className="flex-1 -mx-4 px-4 max-h-[60vh] overflow-scroll">
+        <ScrollArea className="flex-1 -mx-4 px-4 min-h-[100px] max-h-[60vh]">
           <div className="space-y-2">
-            {groupedByRow.map((row, index) => (
-              <RowChangesCard
-                key={row.rowKey}
-                row={row}
-                index={index}
-                onUndo={handleUndoRow}
-              />
-            ))}
+            {groupedByRow.length === 0 ? (
+              <div className="text-sm text-muted-foreground text-center py-8">
+                No changes to display
+              </div>
+            ) : (
+              groupedByRow.map((row, index) => (
+                <RowChangesCard
+                  key={row.rowKey}
+                  row={row}
+                  index={index}
+                  onUndo={handleUndoRow}
+                />
+              ))
+            )}
           </div>
         </ScrollArea>
 
@@ -762,13 +761,16 @@ function formatValue(value: unknown): string {
   if (typeof value === "boolean") {
     return value ? "true" : "false";
   }
-  if (typeof value === "object") {
-    return JSON.stringify(value, null, 2);
+  if (typeof value === "bigint") {
+    return String(value);
   }
   if (typeof value === "number") {
     return String(value);
   }
-  return "";
+  if (typeof value === "object") {
+    return JSON.stringify(value, null, 2);
+  }
+  return String(value);
 }
 
 /**

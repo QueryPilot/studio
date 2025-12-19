@@ -3,17 +3,18 @@ import type { CompletionContext } from "@codemirror/autocomplete";
 import type { EditorState } from "@codemirror/state";
 import type { SyntaxNode } from "@lezer/common";
 import { isTableKeyword } from "./constants";
+import {
+  hashString,
+  extractTablesFromRange as sharedExtractTablesFromRange,
+  parseCTEs,
+  TABLE_CLAUSE_TYPES,
+  type TableRef,
+} from "./shared";
 
 export type SqlIntent = "table" | "column" | "keyword" | "function" | "unknown";
 
-export interface TableRef {
-  schema?: string;
-  name: string;
-  alias?: string;
-  isCTE?: boolean;
-  cteColumns?: string[]; // Columns exposed by CTE (if parsed)
-  cteSourceTable?: string; // Source table for CTE (for SELECT * handling)
-}
+// Re-export TableRef for consumers
+export type { TableRef };
 
 export interface SqlContextAnalysis {
   intent: SqlIntent;
@@ -43,21 +44,6 @@ const SCOPE_NODES = new Set([
   "Subquery",
   "ParenthesizedExpression",
 ]);
-
-// ============================================================================
-// CTE PARSING CACHE - Avoid re-parsing CTEs on every completion request
-// ============================================================================
-let cachedCTEs: { sql: string; hash: number; ctes: TableRef[] } | null = null;
-
-function hashString(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return hash;
-}
 
 // ============================================================================
 // CONTEXT ANALYSIS CACHE - Avoid re-analyzing on every keystroke
@@ -170,16 +156,6 @@ function getSubqueryScopeAtPosition(
   return null;
 }
 
-// SQL keywords that introduce table references
-const TABLE_CLAUSE_TYPES = [
-  "FromClause",
-  "JoinExpression",
-  "UpdateStatement",
-  "InsertStatement",
-  "DeleteStatement",
-];
-
-
 /**
  * Detect if we're in an INSERT or UPDATE context and extract target table
  */
@@ -212,98 +188,8 @@ function detectMutationContext(sql: string): {
 }
 
 /**
- * Parse CTEs from SQL text and extract their column information
- * Uses caching to avoid re-parsing on every completion request
- */
-function parseCTEs(sql: string): TableRef[] {
-  // Check cache first
-  const hash = hashString(sql);
-  if (cachedCTEs && cachedCTEs.hash === hash && cachedCTEs.sql === sql) {
-    return cachedCTEs.ctes;
-  }
-
-  const ctes: TableRef[] = [];
-
-  // Match WITH clause CTEs: WITH name AS (SELECT ...)
-  const withMatch = sql.match(/\bWITH\s+/i);
-  if (!withMatch) {
-    cachedCTEs = { sql, hash, ctes };
-    return ctes;
-  }
-
-  // Extract everything after WITH until the main SELECT/INSERT/UPDATE/DELETE
-  const afterWith = sql.slice(withMatch.index! + withMatch[0].length);
-
-  // Split by top-level commas (not inside parens) to get each CTE
-  // Simple approach: match "name AS (...)"
-  const ctePattern = /(\w+)\s+AS\s*\(/gi;
-  let match;
-
-  while ((match = ctePattern.exec(afterWith)) !== null) {
-    const cteName = match[1];
-    if (!cteName) continue;
-    const startParen = match.index + match[0].length - 1;
-
-    // Find matching closing paren
-    let depth = 1;
-    let endParen = startParen + 1;
-    while (depth > 0 && endParen < afterWith.length) {
-      if (afterWith[endParen] === '(') depth++;
-      if (afterWith[endParen] === ')') depth--;
-      endParen++;
-    }
-
-    const cteBody = afterWith.slice(startParen + 1, endParen - 1);
-
-    // Parse the SELECT to get columns
-    const selectMatch = cteBody.match(/^\s*SELECT\s+([\s\S]*?)\s+FROM\s+(\w+)/i);
-    if (selectMatch && selectMatch[1] && selectMatch[2]) {
-      const columnsPart = selectMatch[1].trim();
-      const sourceTable = selectMatch[2];
-
-      let cteColumns: string[] | undefined;
-
-      if (columnsPart === '*') {
-        // SELECT * - columns come from source table
-        cteColumns = undefined; // Will need to fetch from source
-      } else {
-        // Parse explicit columns
-        cteColumns = columnsPart
-          .split(',')
-          .map(col => {
-            // Handle "col AS alias" or just "col"
-            const parts = col.trim().split(/\s+(?:AS\s+)?/i);
-            const lastPart = parts[parts.length - 1];
-            if (!lastPart) return '';
-            const name = lastPart.replace(/["`[\]]/g, '');
-            // Extract just the column name, not table prefix
-            if (name.includes('.')) {
-              const dotParts = name.split('.');
-              return dotParts[dotParts.length - 1] || '';
-            }
-            return name;
-          })
-          .filter((col): col is string => Boolean(col));
-      }
-
-      ctes.push({
-        name: cteName,
-        alias: cteName,
-        isCTE: true,
-        cteColumns,
-        cteSourceTable: sourceTable,
-      });
-    }
-  }
-
-  // Cache the result
-  cachedCTEs = { sql, hash, ctes };
-  return ctes;
-}
-
-/**
  * Extract table references from a specific SQL range.
- * Used for both full statement and subquery scope parsing.
+ * Uses shared implementation for consistency.
  */
 function extractTablesFromRange(
   state: EditorState,
@@ -311,74 +197,12 @@ function extractTablesFromRange(
   to: number,
   seen: Set<string>
 ): TableRef[] {
-  const tables: TableRef[] = [];
-  const tree = syntaxTree(state);
-
-  // Walk the tree within the range
-  const cursor = tree.cursor();
-
-  while (cursor.next()) {
-    // Skip nodes outside our range
-    if (cursor.to < from || cursor.from > to) continue;
-
-    // Look for Identifier nodes that could be table names
-    if (cursor.name === "Identifier" || cursor.name === "QuotedIdentifier") {
-      const parent = cursor.node.parent;
-      const prevSibling = cursor.node.prevSibling;
-
-      // Check if this identifier is in a table position
-      const isInTableClause =
-        parent && TABLE_CLAUSE_TYPES.includes(parent.type.name);
-      const followsTableKeyword =
-        prevSibling?.type.name === "Keyword" &&
-        isTableKeyword(state.sliceDoc(prevSibling.from, prevSibling.to));
-
-      if (isInTableClause || followsTableKeyword) {
-        const tableName = state
-          .sliceDoc(cursor.from, cursor.to)
-          .replace(/["`[\]]/g, "");
-
-        // Skip if already seen
-        if (seen.has(tableName.toLowerCase())) continue;
-
-        // Check for alias
-        let alias: string | undefined;
-        let nextNode = cursor.node.nextSibling;
-
-        if (nextNode?.type.name === "Keyword") {
-          const keyword = state
-            .sliceDoc(nextNode.from, nextNode.to)
-            .toLowerCase();
-          if (keyword === "as") {
-            nextNode = nextNode.nextSibling;
-          }
-        }
-
-        if (
-          nextNode &&
-          (nextNode.type.name === "Identifier" ||
-            nextNode.type.name === "QuotedIdentifier")
-        ) {
-          alias = state
-            .sliceDoc(nextNode.from, nextNode.to)
-            .replace(/["`[\]]/g, "");
-        }
-
-        // Handle schema.table notation
-        let schema: string | undefined;
-        if (prevSibling?.type.name === "." && prevSibling.prevSibling) {
-          schema = state
-            .sliceDoc(prevSibling.prevSibling.from, prevSibling.prevSibling.to)
-            .replace(/["`[\]]/g, "");
-        }
-
-        tables.push({ schema, name: tableName, alias });
-        seen.add(tableName.toLowerCase());
-        if (alias) seen.add(alias.toLowerCase());
-      }
-    }
+  const tables = sharedExtractTablesFromRange(state, from, to, seen);
+  // Add any newly found tables/aliases to seen set
+  for (const table of tables) {
+    seen.add(table.name.toLowerCase());
+    if (table.alias) seen.add(table.alias.toLowerCase());
   }
-
   return tables;
 }
 

@@ -15,118 +15,11 @@ import {
   type CompletionContext,
   type CompletionResult,
 } from "@codemirror/autocomplete";
-import { syntaxTree } from "@codemirror/language";
-import type { EditorState } from "@codemirror/state";
 import { createSqlMetadataProvider } from "./metadataProvider";
 import { searchFunctions } from "./functions";
 import type { SqlDialect } from "../../types";
-import type { TableRef } from "./context";
-import { TABLE_KEYWORDS_SET } from "./constants";
-
-// ============================================================================
-// TABLE ALIAS RESOLUTION - Maps aliases to actual table names
-// ============================================================================
-
-// Cache for table refs - avoids re-parsing on every keystroke
-let tableRefsCache: { docLen: number; tables: TableRef[] } | null = null;
-
-/**
- * Extract table references with aliases from the SQL document.
- * Uses the Lezer syntax tree for accurate parsing.
- * Results are cached based on document length (fast invalidation check).
- */
-function extractTableRefs(state: EditorState): TableRef[] {
-  const docLen = state.doc.length;
-
-  // Return cached result if document length matches (cheap check)
-  // This catches most typing scenarios where tables haven't changed
-  if (tableRefsCache && tableRefsCache.docLen === docLen) {
-    return tableRefsCache.tables;
-  }
-
-  const tables: TableRef[] = [];
-  const seen = new Set<string>();
-  const tree = syntaxTree(state);
-  const cursor = tree.cursor();
-
-  do {
-    if (cursor.name === "Identifier" || cursor.name === "QuotedIdentifier") {
-      const prevSibling = cursor.node.prevSibling;
-
-      // Check if this identifier follows a table keyword
-      if (prevSibling?.type.name === "Keyword") {
-        const keyword = state.sliceDoc(prevSibling.from, prevSibling.to).toLowerCase();
-        if (TABLE_KEYWORDS_SET.has(keyword)) {
-          const tableName = state.sliceDoc(cursor.from, cursor.to).replace(/["`[\]]/g, "");
-
-          if (seen.has(tableName.toLowerCase())) continue;
-          seen.add(tableName.toLowerCase());
-
-          // Check for schema.table notation
-          let schema: string | undefined;
-          if (prevSibling.prevSibling?.type.name === ".") {
-            const schemaNode = prevSibling.prevSibling.prevSibling;
-            if (schemaNode) {
-              schema = state.sliceDoc(schemaNode.from, schemaNode.to).replace(/["`[\]]/g, "");
-            }
-          }
-
-          // Check for alias
-          let alias: string | undefined;
-          let nextNode = cursor.node.nextSibling;
-
-          // Skip AS keyword if present
-          if (nextNode?.type.name === "Keyword") {
-            const kw = state.sliceDoc(nextNode.from, nextNode.to).toLowerCase();
-            if (kw === "as") {
-              nextNode = nextNode.nextSibling;
-            }
-          }
-
-          // Check if next is an identifier (alias)
-          if (nextNode && (nextNode.type.name === "Identifier" || nextNode.type.name === "QuotedIdentifier")) {
-            const nextText = state.sliceDoc(nextNode.from, nextNode.to);
-            // Make sure it's not a keyword
-            const normalized = nextText.toUpperCase();
-            if (!["ON", "LEFT", "RIGHT", "INNER", "OUTER", "CROSS", "JOIN", "WHERE", "SET", "VALUES"].includes(normalized)) {
-              alias = nextText.replace(/["`[\]]/g, "");
-              seen.add(alias.toLowerCase());
-            }
-          }
-
-          tables.push({ name: tableName, alias, schema });
-        }
-      }
-    }
-  } while (cursor.next());
-
-  // Cache the result
-  tableRefsCache = { docLen, tables };
-
-  return tables;
-}
-
-/**
- * Resolve an alias or table name to the actual table name.
- * Returns the resolved table name or the original qualifier if not found.
- */
-function resolveTableAlias(qualifier: string, tables: TableRef[]): { tableName: string; schema?: string } {
-  const q = qualifier.toLowerCase();
-
-  for (const table of tables) {
-    // Match by alias
-    if (table.alias?.toLowerCase() === q) {
-      return { tableName: table.name, schema: table.schema };
-    }
-    // Match by table name
-    if (table.name.toLowerCase() === q) {
-      return { tableName: table.name, schema: table.schema };
-    }
-  }
-
-  // Not found - return original (might be a schema name or unrecognized table)
-  return { tableName: qualifier };
-}
+import { extractTableRefs, resolveTableAlias } from "./shared";
+import { analyzeSqlContext } from "./context";
 
 interface CompletionConfig {
   connectionId: string;
@@ -524,6 +417,40 @@ async function fetchCompletions(
   const query = word?.text || "";
 
   try {
+    // Check for JOIN ON context - suggest FK relationships
+    const sqlContext = analyzeSqlContext(context);
+    if (sqlContext.isJoinOnContext && sqlContext.joinTargetTable && provider.getJoinConditions) {
+      const tablesInScope = sqlContext.activeStatementTables
+        .filter(t => t.name.toLowerCase() !== sqlContext.joinTargetTable?.name.toLowerCase())
+        .map(t => ({ name: t.name, alias: t.alias, schema: t.schema }));
+
+      if (tablesInScope.length > 0) {
+        const joinConditions = await provider.getJoinConditions(
+          tablesInScope,
+          {
+            name: sqlContext.joinTargetTable.name,
+            alias: sqlContext.joinTargetTable.alias,
+            schema: sqlContext.joinTargetTable.schema,
+          },
+          defaultSchema
+        );
+
+        for (const suggestion of joinConditions) {
+          completions.push({
+            label: suggestion.condition,
+            type: suggestion.source === "fk" ? "method" : "text",
+            detail: suggestion.description,
+            boost: suggestion.score + (suggestion.source === "fk" ? 20 : 10),
+            apply: suggestion.condition,
+          });
+        }
+
+        if (completions.length > 0) {
+          return query ? filterByFuzzy(completions, query) : completions;
+        }
+      }
+    }
+
     // Check for qualified access (e.g., table.column or alias.column)
     const dotMatch = context.matchBefore(/([a-zA-Z0-9_"`[\]]+)\.\s*[\w_]*$/);
 
@@ -531,10 +458,48 @@ async function fetchCompletions(
       // Qualified column access - need to resolve alias to table name
       const qualifier = dotMatch.text.split(".")[0]?.replace(/["`[\]]/g, "");
       if (qualifier) {
-        // Extract table refs to resolve aliases
-        const tables = extractTableRefs(context.state);
+        // Extract table refs to resolve aliases (using connectionId for instance-scoped caching)
+        const tables = extractTableRefs(context.state, connectionId);
         const resolved = resolveTableAlias(qualifier, tables);
         const cacheKey = resolved.tableName.toLowerCase();
+
+        // Check if this is a CTE with defined columns
+        const cteRef = tables.find(t =>
+          t.isCTE && (t.name.toLowerCase() === qualifier.toLowerCase() || t.alias?.toLowerCase() === qualifier.toLowerCase())
+        );
+
+        if (cteRef?.cteColumns && cteRef.cteColumns.length > 0) {
+          // CTE with explicit columns - suggest them directly
+          for (const colName of cteRef.cteColumns) {
+            completions.push({
+              label: colName,
+              type: "property",
+              detail: "CTE column",
+              boost: 12, // Higher than regular columns
+              apply: quoteIdentifier(colName, dialect),
+            });
+          }
+          const columnQuery = dotMatch.text.split(".")[1]?.replace(/["`[\]]/g, "") || "";
+          return columnQuery ? filterByFuzzy(completions, columnQuery) : completions;
+        }
+
+        if (cteRef?.cteSourceTable) {
+          // CTE with SELECT * - fetch columns from source table
+          const sourceFields = await provider.listFields(cteRef.cteSourceTable, defaultSchema);
+          for (const field of sourceFields) {
+            completions.push({
+              label: field.name,
+              type: "property",
+              detail: `${field.dataType} (from ${cteRef.cteSourceTable})`,
+              boost: 12,
+              apply: quoteIdentifier(field.name, dialect),
+            });
+          }
+          if (completions.length > 0) {
+            const columnQuery = dotMatch.text.split(".")[1]?.replace(/["`[\]]/g, "") || "";
+            return columnQuery ? filterByFuzzy(completions, columnQuery) : completions;
+          }
+        }
 
         // Try metadata cache first for instant response
         const cached = getMetadataCache(connectionId);
@@ -645,7 +610,7 @@ async function fetchCompletions(
     const entities = await provider.listEntities();
 
     // Extract table refs to show aliases with higher priority
-    const tables = extractTableRefs(context.state);
+    const tables = extractTableRefs(context.state, connectionId);
 
     // Add table aliases for quick qualified access (highest priority in column context)
     // Filter out the current word being typed to avoid self-suggestion

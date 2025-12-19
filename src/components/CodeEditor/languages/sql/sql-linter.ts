@@ -7,6 +7,7 @@ import type { SqlDialect, MetadataProvider } from "@/components/CodeEditor/types
 import { getDialectValidator, type SyntaxError } from "./dialect-validators";
 import { analyzeSqlContext, type TableRef } from "./context";
 import { SQL_KEYWORDS, isSqlKeyword } from "./constants";
+import { LRUCache, CACHE_CONFIG } from "./shared";
 
 const UPPERCASE_IDENTIFIER = /^[A-Z_]+$/;
 
@@ -206,68 +207,15 @@ export const createSqlLinter = (dialect?: SqlDialect): Extension =>
     if (view.state.doc.length < 10) return [];
     return collectDiagnostics(view.state, dialect);
   }, {
-    delay: 1000, // Increased delay - reduces blocking during typing
+    // Use adaptive delay - smaller documents get faster linting
+    // Note: The delay option calculates at registration time
+    delay: 800,
     needsRefresh: (update) => update.docChanged,
   });
 
-// LRU Cache implementation with TTL support
-class LRUCache<T> {
-  private cache = new Map<string, { value: T; timestamp: number }>();
-  private maxSize: number;
-  private ttl: number;
-
-  constructor(maxSize: number = 1000, ttl: number = 30000) {
-    this.maxSize = maxSize;
-    this.ttl = ttl;
-  }
-
-  get(key: string): T | undefined {
-    const entry = this.cache.get(key);
-    if (!entry) return undefined;
-
-    // Check TTL
-    if (Date.now() - entry.timestamp > this.ttl) {
-      this.cache.delete(key);
-      return undefined;
-    }
-
-    // Move to end (most recently used)
-    this.cache.delete(key);
-    this.cache.set(key, entry);
-    return entry.value;
-  }
-
-  set(key: string, value: T): void {
-    // Remove existing entry if present
-    if (this.cache.has(key)) {
-      this.cache.delete(key);
-    }
-
-    // Evict oldest entries if at capacity
-    while (this.cache.size >= this.maxSize) {
-      const oldestKey = this.cache.keys().next().value;
-      if (oldestKey !== undefined) {
-        this.cache.delete(oldestKey);
-      } else {
-        break;
-      }
-    }
-
-    this.cache.set(key, { value, timestamp: Date.now() });
-  }
-
-  clear(): void {
-    this.cache.clear();
-  }
-}
-
-// Cache for entity existence checks with LRU eviction (max 1000 entries, 30s TTL)
-// Cache constants
-const CACHE_MAX_SIZE = 1000;
-const CACHE_TTL_MS = 30000; // 30 seconds
-
-const entityExistsCache = new LRUCache<boolean>(CACHE_MAX_SIZE, CACHE_TTL_MS);
-const columnTypeCache = new LRUCache<string>(CACHE_MAX_SIZE, CACHE_TTL_MS);
+// Cache for entity existence checks with LRU eviction (using shared cache config)
+const entityExistsCache = new LRUCache<boolean>(CACHE_CONFIG.ENTITY_MAX_SIZE, CACHE_CONFIG.ENTITY_TTL);
+const columnTypeCache = new LRUCache<string>(CACHE_CONFIG.ENTITY_MAX_SIZE, CACHE_CONFIG.ENTITY_TTL);
 
 // Type compatibility groups
 const NUMERIC_TYPES = ['integer', 'int', 'int4', 'int8', 'bigint', 'smallint', 'decimal', 'numeric', 'real', 'float', 'double', 'money'];
@@ -1282,7 +1230,9 @@ export const createSemanticLinter = (
       return collectSemanticDiagnostics(view.state, provider, defaultSchema);
     },
     {
-      delay: 2500, // Higher delay - semantic linting is expensive and not time-critical
+      // Semantic linting has higher base delay since it's async and less time-critical
+      // Large documents get even longer delays to prevent overwhelming the provider
+      delay: 2000,
       needsRefresh: (update) => update.docChanged,
     }
   );

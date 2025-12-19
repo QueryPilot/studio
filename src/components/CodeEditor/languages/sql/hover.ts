@@ -4,27 +4,12 @@ import { syntaxTree } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
 import type { MetadataProvider, FieldMeta, EntityDetails } from "../../types";
 import { isSqlKeyword } from "./constants";
+import { getQualifiedInfo } from "./shared";
 
 interface ColumnHoverInfo {
   tableName: string;
   columnName: string;
   field: FieldMeta;
-}
-
-/**
- * Check if identifier is qualified (table.column pattern)
- */
-function getQualifiedInfo(
-  state: { sliceDoc: (from: number, to: number) => string },
-  node: { from: number; to: number; prevSibling: { name: string; prevSibling?: { from: number; to: number } | null } | null }
-): { qualifier: string; name: string } | null {
-  const prevSibling = node.prevSibling;
-  if (prevSibling?.name === "." && prevSibling.prevSibling) {
-    const qualifier = state.sliceDoc(prevSibling.prevSibling.from, prevSibling.prevSibling.to).replace(/["`[\]]/g, "");
-    const name = state.sliceDoc(node.from, node.to).replace(/["`[\]]/g, "");
-    return { qualifier, name };
-  }
-  return null;
 }
 
 /**
