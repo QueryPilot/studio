@@ -183,3 +183,5 @@ export type CustomCellRenderer<T extends CustomCell> = {
   draw: (args: DrawArgs, cell: T) => boolean;
   provideEditor: ProvideEditorCallback<T>;
 };
+
+export * from './cellState';
