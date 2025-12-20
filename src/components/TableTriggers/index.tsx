@@ -222,6 +222,7 @@ export const TableTriggers = memo(function TableTriggers({
     <div className="h-full flex flex-col">
       <div className="flex-1">
         <EditableDataGrid
+          tableKey={`${connectionId}:${database}:${schema ?? 'public'}:${table}:triggers`}
           rows={gridRows as unknown as GridRowModel[]}
           columns={sizedColumns}
           getCellContent={getCellContent}
