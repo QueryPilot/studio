@@ -2,6 +2,7 @@ export * from "./base";
 export * from "./types";
 export * from "./hooks";
 export * from "./stores";
+export * from "./styles";
 export * from "./utils";
 export * from "./adapters";
 export * from "./validation";

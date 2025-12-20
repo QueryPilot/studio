@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useValidationStore } from './validationStore';
+import { useValidationStore } from '../validationStore';
 
 describe('validationStore', () => {
   beforeEach(() => {
@@ -72,8 +72,8 @@ describe('validationStore', () => {
 
       const errors = getTableErrors('table');
       expect(errors).toHaveLength(2);
-      expect(errors.map(e => e.cellKey)).toContain('table:0:name');
-      expect(errors.map(e => e.cellKey)).toContain('table:1:email');
+      expect(errors.map((e) => e.cellKey)).toContain('table:0:name');
+      expect(errors.map((e) => e.cellKey)).toContain('table:1:email');
     });
   });
 
