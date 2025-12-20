@@ -277,6 +277,7 @@ export const TableIndexes = memo(function TableIndexes({
     <div className="h-full flex flex-col">
       <div className="flex-1">
         <EditableDataGrid
+          tableKey={`${connectionId}:${database}:${schema ?? 'public'}:${table}:indexes`}
           rows={gridRows as unknown as GridRowModel[]}
           columns={sizedColumns}
           getCellContent={getCellContent}
