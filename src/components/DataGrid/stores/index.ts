@@ -12,3 +12,5 @@ export {
   clearAllGridPreferences,
 } from "./gridPreferencesSelectors";
 export * from './cellStateStore';
+export { useNavigationStore, navigationSelectors } from './navigationStore';
+export type { NavigationBounds } from './navigationStore';
