@@ -107,3 +107,9 @@ export type {
   CellIndicator,
   UseCellStateIndicatorResult,
 } from "./useCellStateIndicator";
+
+export { useKeyboardNavigation } from './useKeyboardNavigation';
+export type {
+  UseKeyboardNavigationOptions,
+  UseKeyboardNavigationResult,
+} from './useKeyboardNavigation';
