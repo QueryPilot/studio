@@ -1,5 +1,5 @@
 import { logger } from "@/lib/logger";
-import { forwardRef, useCallback, useRef, useImperativeHandle } from "react";
+import { forwardRef, useCallback, useRef, useImperativeHandle, useMemo } from "react";
 import type {
   DataEditorProps,
   DataEditorRef,
@@ -25,6 +25,7 @@ import type { CellValue } from "@/types";
 import { useDataGridRenderers } from "../renderers";
 import { inferValueType } from "../utils/valueHelpers";
 import { navigateToCell, type NavigationBounds } from "../utils/keyboardNavigation";
+import { useKeyboardNavigation } from "../hooks/useKeyboardNavigation";
 
 const isPromise = <T,>(value: unknown): value is Promise<T> =>
   typeof value === "object" &&
@@ -94,6 +95,8 @@ export interface EditableDataGridProps
     | "onRowAppended"
     | "onPaste"
   > {
+  /** Unique key for this table instance (used for navigation state) */
+  tableKey: string;
   rows: GridRowModel[];
   columns: GridColumnV2[];
   getCellContent: DataEditorProps["getCellContent"];
@@ -139,6 +142,7 @@ export const EditableDataGrid = forwardRef<
   EditableDataGridProps
 >((props, ref) => {
   const {
+    tableKey,
     rows,
     columns,
     getCellContent,
@@ -174,6 +178,15 @@ export const EditableDataGrid = forwardRef<
   const customRenderers = customRenderersProp ?? defaultRenderers;
 
   const editingCellRef = useRef<Item | null>(null);
+
+  // Internal grid ref - must be declared early for use in callbacks
+  const gridRef = useRef<DataEditorRef>(null);
+
+  // Navigation bounds based on grid dimensions
+  const navigationBounds = useMemo<NavigationBounds>(() => ({
+    maxCol: columns.length,
+    maxRow: rows.length,
+  }), [columns.length, rows.length]);
 
   const getCoordinates = useCallback(
     (cell: Item): GridEditCoordinates | null => {
@@ -214,6 +227,63 @@ export const EditableDataGrid = forwardRef<
     [history, onRowInsert],
   );
 
+  // Handle clear cell (Delete/Backspace in selected mode)
+  const handleClearCell = useCallback(
+    (cell: Item, columnField: string) => {
+      if (!onCellEditCommit) return;
+
+      const [columnIndex, rowIndex] = cell;
+      const column = columns[columnIndex];
+      const row = rows[rowIndex];
+      if (!column || !row) return;
+
+      const currentCell = getCellContent(cell);
+      const cellWithData = currentCell as GridCell & { data?: Record<string, unknown> };
+      if (!cellWithData.data) return;
+
+      // Create cell with null value
+      const newCell: GridCell = {
+        ...currentCell,
+        data: Object.assign({}, cellWithData.data, { value: null }),
+      } as GridCell;
+
+      const previous = row[columnField] as CellValue | null | undefined;
+      const event: GridEditCommitEvent = {
+        cell,
+        columnIndex,
+        rowIndex,
+        column,
+        row,
+        newValue: newCell,
+        previousValue: previous ?? null,
+      };
+
+      const action = onCellEditCommit(event);
+      processResult(action);
+    },
+    [columns, rows, getCellContent, onCellEditCommit, processResult],
+  );
+
+  // Keyboard navigation hook
+  const {
+    handleKeyDown: navHandleKeyDown,
+    handleCellClick: navHandleCellClick,
+    handleCellDoubleClick: navHandleCellDoubleClick,
+    mode: navMode,
+    selectedCell: navSelectedCell,
+  } = useKeyboardNavigation({
+    tableKey,
+    gridRef,
+    bounds: navigationBounds,
+    columns: columns.map((c) => ({ field: c.field })),
+    onClearCell: handleClearCell,
+    enabled: true,
+  });
+
+  // Suppress unused variable warnings - these are reserved for future use
+  void navMode;
+  void navSelectedCell;
+
   const handleCellActivated = useCallback(
     (cell: Item) => {
       const coords = getCoordinates(cell);
@@ -223,11 +293,15 @@ export const EditableDataGrid = forwardRef<
         coords,
         column: coords.column.field,
       });
+
+      // Update navigation state - cell is now being edited
+      navHandleCellDoubleClick(cell);
+
       editingCellRef.current = cell;
       onCellEditStart?.(coords);
       onActiveCellChange?.(cell);
     },
-    [getCoordinates, onActiveCellChange, onCellEditStart],
+    [getCoordinates, onActiveCellChange, onCellEditStart, navHandleCellDoubleClick],
   );
 
   const handleCellEdited = useCallback(
@@ -444,9 +518,6 @@ export const EditableDataGrid = forwardRef<
     },
   });
 
-  // Internal grid ref
-  const gridRef = useRef<DataEditorRef>(null);
-
   // Expose methods via ref
   useImperativeHandle(
     ref,
@@ -471,38 +542,62 @@ export const EditableDataGrid = forwardRef<
     [onSelectionChange, onGridSelectionChange],
   );
 
+  // Handle cell click - update navigation state
+  const handleCellClickInternal = useCallback<NonNullable<DataEditorProps['onCellClicked']>>(
+    (cell, event) => {
+      navHandleCellClick(cell);
+      onCellClicked?.(cell, event);
+    },
+    [navHandleCellClick, onCellClicked],
+  );
+
+  // Handle keyboard events at container level
+  const handleContainerKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      // Let the navigation handler process the event first
+      navHandleKeyDown(e);
+    },
+    [navHandleKeyDown],
+  );
+
   return (
-    <DataGridBase
-      {...rest}
-      containerClassName={containerClassName}
-      className={className}
-      ref={gridRef}
-      columns={columns}
-      rowCount={rows.length}
-      getCellContent={getCellContent}
-      customRenderers={customRenderers}
-      onCellActivated={handleCellActivated}
-      onCellEdited={handleCellEdited}
-      onFinishedEditing={handleFinishedEditing}
-      onRowAppended={undefined} // Disabled - use button instead
-      onDelete={handleDelete}
-      onPaste={handleDataEditorPaste}
-      gridSelection={gridSelection}
-      onGridSelectionChange={handleSelectionChange}
-      getRowThemeOverride={getRowThemeOverride}
-      highlightRegions={highlightRegions}
-      onHeaderClicked={onHeaderClicked}
-      drawHeader={drawHeader}
-      onHeaderContextMenu={onHeaderContextMenu}
-      onItemHovered={onItemHovered}
-      drawCell={drawCell}
-      onCellClicked={onCellClicked}
-      drawFocusRing
-      rangeSelect="rect"
-      columnSelect="multi"
-      rowSelect="multi"
-      scaleToRem={false}
-    />
+    <div
+      className="h-full w-full outline-none"
+      tabIndex={0}
+      onKeyDown={handleContainerKeyDown}
+    >
+      <DataGridBase
+        {...rest}
+        containerClassName={containerClassName}
+        className={className}
+        ref={gridRef}
+        columns={columns}
+        rowCount={rows.length}
+        getCellContent={getCellContent}
+        customRenderers={customRenderers}
+        onCellActivated={handleCellActivated}
+        onCellEdited={handleCellEdited}
+        onFinishedEditing={handleFinishedEditing}
+        onRowAppended={undefined} // Disabled - use button instead
+        onDelete={handleDelete}
+        onPaste={handleDataEditorPaste}
+        gridSelection={gridSelection}
+        onGridSelectionChange={handleSelectionChange}
+        getRowThemeOverride={getRowThemeOverride}
+        highlightRegions={highlightRegions}
+        onHeaderClicked={onHeaderClicked}
+        drawHeader={drawHeader}
+        onHeaderContextMenu={onHeaderContextMenu}
+        onItemHovered={onItemHovered}
+        drawCell={drawCell}
+        onCellClicked={handleCellClickInternal}
+        drawFocusRing
+        rangeSelect="rect"
+        columnSelect="multi"
+        rowSelect="multi"
+        scaleToRem={false}
+      />
+    </div>
   );
 });
 

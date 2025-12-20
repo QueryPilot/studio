@@ -2046,6 +2046,7 @@ export const TableDataGrid = memo(function TableDataGrid(
           >
             <EditableDataGrid
               ref={gridRef}
+              tableKey={gridId}
               containerClassName={cn("h-full", className)}
               rows={deferredDisplayRows}
               columns={finalColumns}
