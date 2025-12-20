@@ -153,9 +153,9 @@ export const IntervalCellEditor: React.FC<IntervalCellEditorProps> = ({
                 "w-full bg-transparent text-xs font-mono outline-none px-1 py-0.5 border rounded border-border/50",
               )}
               value={parts.years}
-              onChange={(e) =>
-                updatePart("years", Math.max(0, parseInt(e.target.value) || 0))
-              }
+              onChange={(e) => {
+                updatePart("years", Math.max(0, parseInt(e.target.value) || 0));
+              }}
               onKeyDown={handleKeyDown}
             />
           </div>
@@ -169,12 +169,12 @@ export const IntervalCellEditor: React.FC<IntervalCellEditorProps> = ({
                 "w-full bg-transparent text-xs font-mono outline-none px-1 py-0.5 border rounded border-border/50",
               )}
               value={parts.months}
-              onChange={(e) =>
+              onChange={(e) => {
                 updatePart(
                   "months",
                   Math.max(0, Math.min(11, parseInt(e.target.value) || 0)),
-                )
-              }
+                );
+              }}
               onKeyDown={handleKeyDown}
             />
           </div>
@@ -187,9 +187,9 @@ export const IntervalCellEditor: React.FC<IntervalCellEditorProps> = ({
                 "w-full bg-transparent text-xs font-mono outline-none px-1 py-0.5 border rounded border-border/50",
               )}
               value={parts.days}
-              onChange={(e) =>
-                updatePart("days", Math.max(0, parseInt(e.target.value) || 0))
-              }
+              onChange={(e) => {
+                updatePart("days", Math.max(0, parseInt(e.target.value) || 0));
+              }}
               onKeyDown={handleKeyDown}
               autoFocus
             />
@@ -213,12 +213,12 @@ export const IntervalCellEditor: React.FC<IntervalCellEditorProps> = ({
                 "w-full bg-transparent text-xs font-mono outline-none px-1 py-0.5 border rounded border-border/50",
               )}
               value={parts.hours}
-              onChange={(e) =>
+              onChange={(e) => {
                 updatePart(
                   "hours",
                   Math.max(0, Math.min(23, parseInt(e.target.value) || 0)),
-                )
-              }
+                );
+              }}
               onKeyDown={handleKeyDown}
             />
           </div>
@@ -232,12 +232,12 @@ export const IntervalCellEditor: React.FC<IntervalCellEditorProps> = ({
                 "w-full bg-transparent text-xs font-mono outline-none px-1 py-0.5 border rounded border-border/50",
               )}
               value={parts.minutes}
-              onChange={(e) =>
+              onChange={(e) => {
                 updatePart(
                   "minutes",
                   Math.max(0, Math.min(59, parseInt(e.target.value) || 0)),
-                )
-              }
+                );
+              }}
               onKeyDown={handleKeyDown}
             />
           </div>
@@ -252,12 +252,15 @@ export const IntervalCellEditor: React.FC<IntervalCellEditorProps> = ({
                 "w-full bg-transparent text-xs font-mono outline-none px-1 py-0.5 border rounded border-border/50",
               )}
               value={parts.seconds}
-              onChange={(e) =>
+              onChange={(e) => {
                 updatePart(
                   "seconds",
-                  Math.max(0, Math.min(59.999999, parseFloat(e.target.value) || 0)),
-                )
-              }
+                  Math.max(
+                    0,
+                    Math.min(59.999999, parseFloat(e.target.value) || 0),
+                  ),
+                );
+              }}
               onKeyDown={handleKeyDown}
             />
           </div>
@@ -269,7 +272,9 @@ export const IntervalCellEditor: React.FC<IntervalCellEditorProps> = ({
         <Switch
           id="negative"
           checked={parts.negative}
-          onCheckedChange={(checked) => updatePart("negative", checked)}
+          onCheckedChange={(checked) => {
+            updatePart("negative", checked);
+          }}
           className="h-4 w-7"
         />
         <Label htmlFor="negative" className="text-[10px]">
@@ -289,7 +294,9 @@ export const IntervalCellEditor: React.FC<IntervalCellEditorProps> = ({
               variant="outline"
               size="sm"
               className="h-5 text-[10px] px-1.5"
-              onClick={() => handlePreset(preset.value)}
+              onClick={() => {
+                handlePreset(preset.value);
+              }}
             >
               {preset.label}
             </Button>
@@ -330,4 +337,3 @@ export const IntervalCellEditorWithProps = Object.assign(IntervalCellEditor, {
   disablePadding: true,
   disableStyling: false,
 });
-

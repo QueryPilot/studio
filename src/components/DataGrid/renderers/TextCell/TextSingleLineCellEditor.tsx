@@ -1,14 +1,9 @@
-import React, { useRef, useCallback, useState, useLayoutEffect } from "react";
+import React, { useRef, useCallback } from "react";
 import type { TextSingleLineCustomCell } from "./types";
 import { Button } from "@/components/ui/button";
-import { IconTrash, IconKey, IconLink } from '@tabler/icons-react';
+import { IconTrash, IconKey, IconLink } from "@tabler/icons-react";
 import { cn } from "@/lib/cn";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
-
-// Constants for layout
-const MIN_WIDTH = 200;
-const MAX_WIDTH = 500;
-const PADDING = 48; // Extra padding for clear button, icons, etc.
 
 interface TextSingleLineCellEditorProps {
   value: TextSingleLineCustomCell;
@@ -24,27 +19,11 @@ export const TextSingleLineCellEditor: React.FC<
   const initialValue = value.data.value ?? "";
   const finishedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const measureRef = useRef<HTMLSpanElement>(null);
   // Store the original value to properly detect changes including null
   const originalValueRef = useRef(value.data.value);
 
   // Extract column metadata for header
   const { columnName, isPrimaryKey, isForeignKey, dbType } = value.data;
-
-  // Measure text width
-  const measureTextWidth = useCallback((text: string) => {
-    if (!measureRef.current) return MIN_WIDTH;
-    measureRef.current.textContent = text || " ";
-    const width = measureRef.current.offsetWidth + PADDING;
-    return Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, width));
-  }, []);
-
-  const [width, setWidth] = useState(() => measureTextWidth(initialValue));
-
-  // Measure on mount
-  useLayoutEffect(() => {
-    setWidth(measureTextWidth(initialValue));
-  }, [initialValue, measureTextWidth]);
 
   const commit = useCallback(
     (nextValue: string | null) => {
@@ -143,19 +122,9 @@ export const TextSingleLineCellEditor: React.FC<
   };
 
   return (
-    <div
-      className="flex flex-col relative click-outside-ignore z-50 bg-popover border border-border rounded-lg shadow-lg"
-      style={{ width: `${width}px` }}
-    >
-      {/* Hidden span for measuring text width */}
-      <span
-        ref={measureRef}
-        className="absolute invisible whitespace-pre text-xs font-mono px-2"
-        aria-hidden="true"
-      />
-
+    <div className="flex flex-col click-outside-ignore z-50 bg-popover border shadow-lg min-w-[200px] max-w-[500px] w-max">
       {/* Header with column info */}
-      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50 rounded-t-lg">
+      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
         {isPrimaryKey && (
           <IconKey className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
         )}
@@ -179,11 +148,12 @@ export const TextSingleLineCellEditor: React.FC<
           type="text"
           defaultValue={initialValue}
           autoFocus
-          onFocus={(e) => e.target.select()}
+          onFocus={(e) => {
+            e.target.select();
+          }}
           onKeyDown={handleKeyDown}
           onChange={(e) => {
             originalValueRef.current = e.target.value;
-            setWidth(measureTextWidth(e.target.value));
           }}
           maxLength={value.data.maxLength}
           className={cn(
