@@ -1,5 +1,6 @@
 import { useCallback, useRef } from 'react';
-import type { Item } from '@glideapps/glide-data-grid';
+import type { GridSelection, Item } from '@glideapps/glide-data-grid';
+import { CompactSelection } from '@glideapps/glide-data-grid';
 import { useNavigationStore, type NavigationBounds } from '../stores/navigationStore';
 import { useCellStateStore } from '../stores/cellStateStore';
 import { createCellKey } from '../types/cellState';
@@ -7,7 +8,6 @@ import {
   isPrintableKey,
   isNavigationKey,
   keyToDirection,
-  isClearKey,
 } from '../types/navigationState';
 
 export interface UseKeyboardNavigationOptions {
@@ -16,6 +16,7 @@ export interface UseKeyboardNavigationOptions {
   bounds: NavigationBounds;
   columns: { field: string }[];
   onClearCell?: (cell: Item, columnField: string) => void;
+  onGridSelectionChange?: (selection: GridSelection) => void;
   enabled?: boolean;
 }
 
@@ -30,6 +31,19 @@ export interface UseKeyboardNavigationResult {
   editTrigger: string | null;
 }
 
+// Helper to create a GridSelection for a single cell
+function createCellSelection(cell: Item): GridSelection {
+  return {
+    columns: CompactSelection.empty(),
+    rows: CompactSelection.empty(),
+    current: {
+      cell,
+      range: { x: cell[0], y: cell[1], width: 1, height: 1 },
+      rangeStack: [],
+    },
+  };
+}
+
 export function useKeyboardNavigation(
   options: UseKeyboardNavigationOptions
 ): UseKeyboardNavigationResult {
@@ -39,6 +53,7 @@ export function useKeyboardNavigation(
     bounds,
     columns,
     onClearCell,
+    onGridSelectionChange,
     enabled = true,
   } = options;
 
@@ -134,6 +149,8 @@ export function useKeyboardNavigation(
             if (newCell) {
               const cellKey = createCellKey(tableKey, newCell[1], getColumnField(newCell[0]));
               focus(cellKey);
+              // Sync grid selection so Delete/Backspace targets the correct cell
+              onGridSelectionChange?.(createCellSelection(newCell));
             }
           }
           return true;
@@ -153,13 +170,8 @@ export function useKeyboardNavigation(
           return true;
         }
 
-        // Delete/Backspace - clear cell
-        if (isClearKey(e.key)) {
-          e.preventDefault();
-          const columnField = getColumnField(selectedCell[0]);
-          onClearCell?.(selectedCell, columnField);
-          return true;
-        }
+        // Delete/Backspace - let Glide handle via onDelete for cell clearing
+        // Cmd+Delete is handled at document level in EditableDataGrid
 
         // Escape - clear selection
         if (e.key === 'Escape') {
@@ -178,6 +190,8 @@ export function useKeyboardNavigation(
           if (newCell) {
             const cellKey = createCellKey(tableKey, newCell[1], getColumnField(newCell[0]));
             focus(cellKey);
+            // Sync grid selection so Delete/Backspace targets the correct cell
+            onGridSelectionChange?.(createCellSelection(newCell));
           }
           return true;
         }
@@ -215,6 +229,7 @@ export function useKeyboardNavigation(
       tableKey,
       getColumnField,
       onClearCell,
+      onGridSelectionChange,
     ]
   );
 

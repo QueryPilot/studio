@@ -62,6 +62,7 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newText = e.target.value;
+    originalValueRef.current = newText;
     setIsValid(!newText || isValidUuid(newText));
   };
 
@@ -96,6 +97,7 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
     if (inputRef.current) {
       inputRef.current.value = newUuid;
     }
+    originalValueRef.current = newUuid;
     setIsValid(true);
     setSelectedVersion(versionToUse);
   };
@@ -123,10 +125,11 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
   );
 
   const commitCurrentText = useCallback(() => {
-    const text = inputRef.current?.value ?? "";
+    // Use originalValueRef instead of inputRef to avoid reading null during unmount
+    const text = originalValueRef.current ?? "";
 
-    // IconCheck if value actually changed
-    const hasChanged = text !== (originalValueRef.current || "");
+    // Check if value actually changed (compare with original value)
+    const hasChanged = text !== (value.data.value ?? "");
 
     // If no changes were made, cancel the edit
     if (!hasChanged) {
@@ -142,13 +145,10 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
     } else if (isValid) {
       commit(trimmed);
     }
-  }, [commit, isValid, value.data.nullable, initialValue, onFinishedEditing]);
+  }, [commit, isValid, value.data.nullable, value.data.value, onFinishedEditing]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (finishedRef.current) return;
-
-    // Update the ref with current input value before processing keyboard events
-    originalValueRef.current = inputRef.current?.value ?? "";
 
     if (e.key === "Escape") {
       e.preventDefault();
@@ -167,8 +167,8 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
         : [1, 0];
       finishedRef.current = true;
 
-      // Commit the current text value before moving
-      const text = inputRef.current?.value ?? "";
+      // Commit the current text value before moving (use originalValueRef for consistency)
+      const text = originalValueRef.current ?? "";
       const trimmed = text.trim();
       const committedValue: string | null =
         !trimmed && value.data.nullable ? null : isValid ? trimmed : null;

@@ -1,5 +1,5 @@
 import { logger } from "@/lib/logger";
-import { forwardRef, useCallback, useRef, useImperativeHandle, useMemo } from "react";
+import { forwardRef, useCallback, useRef, useImperativeHandle, useMemo, useEffect } from "react";
 import type {
   DataEditorProps,
   DataEditorRef,
@@ -182,6 +182,9 @@ export const EditableDataGrid = forwardRef<
   // Internal grid ref - must be declared early for use in callbacks
   const gridRef = useRef<DataEditorRef>(null);
 
+  // Wrapper div ref for keyboard focus management
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
   // Navigation bounds based on grid dimensions
   const navigationBounds = useMemo<NavigationBounds>(() => ({
     maxCol: columns.length,
@@ -277,12 +280,54 @@ export const EditableDataGrid = forwardRef<
     bounds: navigationBounds,
     columns: columns.map((c) => ({ field: c.field })),
     onClearCell: handleClearCell,
+    onGridSelectionChange,
     enabled: true,
   });
 
   // Suppress unused variable warnings - these are reserved for future use
   void navMode;
   void navSelectedCell;
+
+  // Document-level listener for cmd+delete row deletion
+  // Uses gridSelection prop directly to avoid stale navigation store state
+  useEffect(() => {
+    const handleCmdDelete = (e: KeyboardEvent) => {
+      // Only handle cmd+delete or cmd+backspace
+      if (!e.metaKey || (e.key !== 'Delete' && e.key !== 'Backspace')) return;
+
+      // Check if focus is within our grid
+      if (!wrapperRef.current?.contains(document.activeElement) &&
+          document.activeElement !== wrapperRef.current) {
+        return;
+      }
+
+      // Get current selection from grid (most reliable source)
+      const currentCell = gridSelection?.current?.cell;
+      if (!currentCell) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const rowIndex = currentCell[1];
+      if (!onRowDelete) return;
+
+      const row = rows[rowIndex];
+      if (!row) return;
+
+      const result = onRowDelete({
+        selection: {
+          columns: { toArray: () => [] as number[] },
+          rows: { toArray: () => [rowIndex] },
+        } as GridSelection,
+        rowIndexes: [rowIndex],
+        rows: [row],
+      });
+      processResult(result);
+    };
+
+    document.addEventListener('keydown', handleCmdDelete);
+    return () => document.removeEventListener('keydown', handleCmdDelete);
+  }, [gridSelection, onRowDelete, rows, processResult]);
 
   const handleCellActivated = useCallback(
     (cell: Item) => {
@@ -418,21 +463,34 @@ export const EditableDataGrid = forwardRef<
 
   const handleDelete = useCallback<NonNullable<DataEditorProps["onDelete"]>>(
     (selection: GridSelection) => {
-      if (!onRowDelete) {
-        return selection;
-      }
       const rowIndexes = selection.rows.toArray();
-      if (rowIndexes.length === 0) {
+
+      // If rows are selected, delete rows
+      if (rowIndexes.length > 0) {
+        if (!onRowDelete) {
+          return selection;
+        }
+        const rowsToDelete = rowIndexes
+          .map((index) => rows[index])
+          .filter((row): row is GridRowModel => Boolean(row));
+        const result = onRowDelete({ selection, rowIndexes, rows: rowsToDelete });
+        processResult(result);
         return false;
       }
-      const rowsToDelete = rowIndexes
-        .map((index) => rows[index])
-        .filter((row): row is GridRowModel => Boolean(row));
-      const result = onRowDelete({ selection, rowIndexes, rows: rowsToDelete });
-      processResult(result);
+
+      // If a single cell is selected, clear the cell value
+      if (selection.current?.cell) {
+        const cell = selection.current.cell;
+        const columnField = columns[cell[0]]?.field;
+        if (columnField) {
+          handleClearCell(cell, columnField);
+        }
+        return false;
+      }
+
       return false;
     },
-    [onRowDelete, processResult, rows],
+    [onRowDelete, processResult, rows, columns, handleClearCell],
   );
 
   const { handleDataEditorPaste } = usePasteHandler({
@@ -542,11 +600,13 @@ export const EditableDataGrid = forwardRef<
     [onSelectionChange, onGridSelectionChange],
   );
 
-  // Handle cell click - update navigation state
+  // Handle cell click - update navigation state and focus wrapper for keyboard events
   const handleCellClickInternal = useCallback<NonNullable<DataEditorProps['onCellClicked']>>(
     (cell, event) => {
       navHandleCellClick(cell);
       onCellClicked?.(cell, event);
+      // Focus wrapper div so keyboard events (Delete/Backspace) work
+      wrapperRef.current?.focus();
     },
     [navHandleCellClick, onCellClicked],
   );
@@ -562,6 +622,7 @@ export const EditableDataGrid = forwardRef<
 
   return (
     <div
+      ref={wrapperRef}
       className="h-full w-full outline-none"
       tabIndex={0}
       onKeyDown={handleContainerKeyDown}
