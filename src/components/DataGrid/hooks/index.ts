@@ -101,3 +101,9 @@ export type {
   ColumnStats,
   UseColumnStatisticsOptions,
 } from "./useColumnStatistics";
+
+export { useCellStateIndicator } from "./useCellStateIndicator";
+export type {
+  CellIndicator,
+  UseCellStateIndicatorResult,
+} from "./useCellStateIndicator";
