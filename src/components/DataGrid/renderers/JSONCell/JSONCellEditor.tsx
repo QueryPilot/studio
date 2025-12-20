@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import type { JsonCustomCell } from "./types";
 import { CodeEditor } from "@/components/CodeEditor";
 import { Button } from "@/components/ui/button";
-import { IconTrash, IconKey } from '@tabler/icons-react';
+import { IconTrash, IconKey } from "@tabler/icons-react";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
 interface JsonCellEditorProps {
@@ -18,19 +18,22 @@ export const JsonCellEditor: React.FC<JsonCellEditorProps> = ({
   onFinishedEditing,
 }) => {
   // Format JSON by default for editing (handle both string and object values)
-  const formatJson = (jsonValue: string | object | null): string => {
-    if (jsonValue === null || jsonValue === undefined) return "";
+  const formatJson = (jsonValue: string | object | number | null): string => {
+    if (jsonValue == null) return "";
     // If already an object from DB, stringify directly
     if (typeof jsonValue === "object") {
       return JSON.stringify(jsonValue, null, 2);
     }
-    const str = String(jsonValue);
-    if (!str.trim()) return "";
+    if (typeof jsonValue === "number") {
+      return jsonValue.toString();
+    }
+
+    if (!jsonValue.trim()) return "";
     try {
-      const parsed = JSON.parse(str);
+      const parsed = JSON.parse(jsonValue);
       return JSON.stringify(parsed, null, 2);
     } catch {
-      return str;
+      return jsonValue;
     }
   };
 
@@ -56,16 +59,16 @@ export const JsonCellEditor: React.FC<JsonCellEditorProps> = ({
   // This handles both object values from DB and string values
   const getOriginalMinified = (): string | null => {
     const val = value.data.value;
-    if (val === null || val === undefined) return null;
+    if (val == null) return null;
     if (typeof val === "object") {
       return JSON.stringify(val); // Already minified
     }
     // For string values, parse and re-stringify to normalize formatting
     try {
-      const parsed = JSON.parse(String(val));
+      const parsed = JSON.parse(val);
       return JSON.stringify(parsed);
     } catch {
-      return String(val); // Keep as-is if not valid JSON
+      return val; // Keep as-is if not valid JSON
     }
   };
   const originalValueRef = useRef<string | null>(getOriginalMinified());
@@ -231,7 +234,7 @@ export const JsonCellEditor: React.FC<JsonCellEditorProps> = ({
   return (
     <div
       ref={containerRef}
-      className="flex flex-col bg-popover border border-border rounded-xl shadow-lg click-outside-ignore"
+      className="flex flex-col bg-popover shadow-lg click-outside-ignore"
       style={{
         width: `${size.width}px`,
         height: `${size.height}px`,

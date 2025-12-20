@@ -1,19 +1,10 @@
-import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
+import React, { useRef, useCallback } from "react";
 import type { TextMultiLineCustomCell } from "./types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
-import { IconTrash, IconKey } from '@tabler/icons-react';
+import { IconTrash, IconKey } from "@tabler/icons-react";
 import { computeArrayStringsFromText } from "../../utils/arrayFormat";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
-
-// Constants for layout
-const HEADER_HEIGHT = 32; // Header with column info
-const FOOTER_HEIGHT = 36; // Footer with instructions
-const CONTENT_PADDING = 16; // p-2 top + bottom
-const MIN_TEXTAREA_HEIGHT = 60;
-const MAX_TEXTAREA_HEIGHT = 400;
-const MIN_CONTAINER_WIDTH = 300;
-const MAX_CONTAINER_WIDTH = 600;
 
 interface TextMultiLineCellEditorProps {
   value: TextMultiLineCustomCell;
@@ -23,180 +14,33 @@ interface TextMultiLineCellEditorProps {
   ) => void;
 }
 
-export const TextMultiLineCellEditor: React.FC<
-  TextMultiLineCellEditorProps
-> = ({ value, onFinishedEditing }) => {
-  const initialValue = value.data.value || "";
-  const finishedRef = useRef(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const initialValueRef = useRef(value.data.value);
-  const [isManuallyResized, setIsManuallyResized] = useState(false);
+export const TextMultiLineCellEditor: React.FC<TextMultiLineCellEditorProps> =
+  ({ value, onFinishedEditing }) => {
+    const initialValue = value.data.value || "";
+    const finishedRef = useRef(false);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const initialValueRef = useRef(value.data.value);
 
-  // Extract column metadata for header
-  const { columnName, isPrimaryKey, dbType } = value.data;
+    // Extract column metadata for header
+    const { columnName, isPrimaryKey, dbType } = value.data;
 
-  // Calculate textarea height from content
-  const measureTextareaHeight = useCallback((textarea: HTMLTextAreaElement) => {
-    // Temporarily reset height to measure actual content
-    const prevHeight = textarea.style.height;
-    textarea.style.height = "0";
-    const scrollHeight = textarea.scrollHeight;
-    textarea.style.height = prevHeight;
-    return Math.max(MIN_TEXTAREA_HEIGHT, Math.min(MAX_TEXTAREA_HEIGHT, scrollHeight));
-  }, []);
-
-  const [size, setSize] = useState(() => {
-    // Estimate initial height based on content length and line count
-    const lineCount = (initialValue.match(/\n/g) || []).length + 1;
-    const estimatedLineHeight = 20; // Approximate line height for text-xs mono
-    const estimatedTextareaHeight = Math.max(
-      MIN_TEXTAREA_HEIGHT,
-      Math.min(MAX_TEXTAREA_HEIGHT, lineCount * estimatedLineHeight + 8)
+    const handleTextareaChange = useCallback(
+      (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        initialValueRef.current = e.target.value;
+      },
+      [],
     );
 
-    return {
-      width: 400,
-      textareaHeight: estimatedTextareaHeight,
-    };
-  });
-
-  // Adjust height on mount after textarea is rendered
-  useLayoutEffect(() => {
-    if (isManuallyResized) return;
-
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-
-    // Measure actual content height
-    const textareaHeight = measureTextareaHeight(textarea);
-    textarea.style.height = `${textareaHeight}px`;
-
-    setSize((prev) => ({
-      ...prev,
-      textareaHeight,
-    }));
-  }, [isManuallyResized, measureTextareaHeight]);
-
-  // Handle input changes to auto-resize
-  const handleTextareaChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    initialValueRef.current = e.target.value;
-
-    if (isManuallyResized) return;
-
-    const textarea = e.target;
-    const textareaHeight = measureTextareaHeight(textarea);
-    textarea.style.height = `${textareaHeight}px`;
-
-    setSize((prev) => ({
-      ...prev,
-      textareaHeight,
-    }));
-  }, [isManuallyResized, measureTextareaHeight]);
-
-  const commit = useCallback(
-    (nextValue: string | null) => {
-      if (finishedRef.current) return;
-      finishedRef.current = true;
-
-      let formattedValue = nextValue;
-      let displayValue = value.data.displayValue;
-
-      if (value.data.formatDisplayMode === "array-inline") {
-        const { pretty, inline } = computeArrayStringsFromText(nextValue);
-        formattedValue = pretty;
-        displayValue = inline;
-      }
-
-      const copyPayload =
-        formattedValue == null || formattedValue.length === 0
-          ? "NULL"
-          : displayValue ?? formattedValue;
-
-      const newCell: TextMultiLineCustomCell = {
-        kind: value.kind,
-        data: {
-          ...value.data,
-          value: formattedValue,
-          displayValue,
-        },
-        copyData: copyPayload,
-        allowOverlay: value.allowOverlay,
-        readonly: value.readonly,
-      };
-
-      onFinishedEditing(newCell);
-    },
-    [onFinishedEditing, value],
-  );
-
-  const commitCurrentText = useCallback(() => {
-    const text = initialValueRef.current;
-
-    // IconCheck if value actually changed (compare with original value)
-    const hasChanged = initialValueRef.current !== (initialValue || "");
-
-    // If no changes were made, cancel the edit
-    if (!hasChanged) {
-      finishedRef.current = true;
-      onFinishedEditing(undefined);
-      return;
-    }
-
-    // Commit the changed value
-    const trimmed = text?.trim();
-    if (!trimmed && value.data.nullable) {
-      commit(null);
-    } else {
-      commit(trimmed ?? text ?? null);
-    }
-  }, [initialValue, value.data.nullable, onFinishedEditing, commit]);
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (finishedRef.current) return;
-
-      // Update the ref with current textarea value before processing keyboard events
-      initialValueRef.current = textareaRef.current?.value ?? "";
-
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        finishedRef.current = true;
-        onFinishedEditing(undefined);
-      } else if (e.key === "Enter" && !e.shiftKey) {
-        // Enter or Cmd/Ctrl+Enter saves, Shift+Enter adds newline
-        e.preventDefault();
-        e.stopPropagation();
-        commitCurrentText();
-      } else if (e.key === "Tab") {
-        e.preventDefault();
-        e.stopPropagation();
-        const movement: readonly [-1 | 0 | 1, -1 | 0 | 1] = e.shiftKey
-          ? [-1, 0]
-          : [1, 0];
+    const commit = useCallback(
+      (nextValue: string | null) => {
+        if (finishedRef.current) return;
         finishedRef.current = true;
 
-        // IconCheck if value actually changed
-        const hasChanged = initialValueRef.current !== (initialValue || "");
-
-        // If no changes, cancel and move
-        if (!hasChanged) {
-          onFinishedEditing(undefined, movement);
-          return;
-        }
-
-        // Commit the current text value before moving
-        const trimmed = initialValueRef.current.trim();
-        const committedValue: string | null =
-          !trimmed && value.data.nullable ? null : initialValueRef.current;
-
-        let formattedValue = committedValue;
+        let formattedValue = nextValue;
         let displayValue = value.data.displayValue;
 
         if (value.data.formatDisplayMode === "array-inline") {
-          const { pretty, inline } =
-            computeArrayStringsFromText(committedValue);
+          const { pretty, inline } = computeArrayStringsFromText(nextValue);
           formattedValue = pretty;
           displayValue = inline;
         }
@@ -218,167 +62,180 @@ export const TextMultiLineCellEditor: React.FC<
           readonly: value.readonly,
         };
 
-        onFinishedEditing(newCell, movement);
+        onFinishedEditing(newCell);
+      },
+      [onFinishedEditing, value],
+    );
+
+    const commitCurrentText = useCallback(() => {
+      const text = initialValueRef.current;
+
+      // Check if value actually changed (compare with original value)
+      const hasChanged = initialValueRef.current !== (initialValue || "");
+
+      // If no changes were made, cancel the edit
+      if (!hasChanged) {
+        finishedRef.current = true;
+        onFinishedEditing(undefined);
+        return;
       }
-    },
-    [
-      onFinishedEditing,
-      commitCurrentText,
-      initialValue,
-      value.data,
-      value.kind,
-      value.allowOverlay,
-      value.readonly,
-    ],
-  );
 
-  useCommitOnUnmount(finishedRef, commitCurrentText);
-
-  const handleClear = useCallback(() => {
-    if (value.data.nullable) {
-      commit(null);
-    }
-  }, [value.data.nullable, commit]);
-
-  // Resize handling
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    let isResizing = false;
-    let startX = 0;
-    let startY = 0;
-    let startWidth = 0;
-    let startHeight = 0;
-
-    const handleMouseDown = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.classList.contains("resize-handle")) {
-        isResizing = true;
-        setIsManuallyResized(true); // Mark as manually resized
-        startX = e.clientX;
-        startY = e.clientY;
-        startWidth = container.offsetWidth;
-        startHeight = container.offsetHeight;
-        e.preventDefault();
+      // Commit the changed value
+      const trimmed = text?.trim();
+      if (!trimmed && value.data.nullable) {
+        commit(null);
+      } else {
+        commit(trimmed ?? text ?? null);
       }
-    };
+    }, [initialValue, value.data.nullable, onFinishedEditing, commit]);
 
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing) return;
+    const handleKeyDown = useCallback(
+      (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (finishedRef.current) return;
 
-      const deltaX = e.clientX - startX;
-      const deltaY = e.clientY - startY;
+        // Update the ref with current textarea value before processing keyboard events
+        initialValueRef.current = textareaRef.current?.value ?? "";
 
-      const newWidth = Math.max(MIN_CONTAINER_WIDTH, Math.min(MAX_CONTAINER_WIDTH, startWidth + deltaX));
-      const newTextareaHeight = Math.max(
-        MIN_TEXTAREA_HEIGHT,
-        Math.min(MAX_TEXTAREA_HEIGHT, startHeight - HEADER_HEIGHT - FOOTER_HEIGHT - CONTENT_PADDING + deltaY)
-      );
+        if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          finishedRef.current = true;
+          onFinishedEditing(undefined);
+        } else if (e.key === "Enter" && !e.shiftKey) {
+          // Enter saves, Shift+Enter adds newline
+          e.preventDefault();
+          e.stopPropagation();
+          commitCurrentText();
+        } else if (e.key === "Tab") {
+          e.preventDefault();
+          e.stopPropagation();
+          const movement: readonly [-1 | 0 | 1, -1 | 0 | 1] = e.shiftKey
+            ? [-1, 0]
+            : [1, 0];
+          finishedRef.current = true;
 
-      setSize({ width: newWidth, textareaHeight: newTextareaHeight });
-    };
+          // Check if value actually changed
+          const hasChanged = initialValueRef.current !== (initialValue || "");
 
-    const handleMouseUp = () => {
-      isResizing = false;
-    };
+          // If no changes, cancel and move
+          if (!hasChanged) {
+            onFinishedEditing(undefined, movement);
+            return;
+          }
 
-    container.addEventListener("mousedown", handleMouseDown);
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
+          // Commit the current text value before moving
+          const trimmed = initialValueRef.current.trim();
+          const committedValue: string | null =
+            !trimmed && value.data.nullable ? null : initialValueRef.current;
 
-    return () => {
-      container.removeEventListener("mousedown", handleMouseDown);
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, []);
+          let formattedValue = committedValue;
+          let displayValue = value.data.displayValue;
 
-  // Calculate total container height
-  const containerHeight = size.textareaHeight + HEADER_HEIGHT + FOOTER_HEIGHT + CONTENT_PADDING;
+          if (value.data.formatDisplayMode === "array-inline") {
+            const { pretty, inline } =
+              computeArrayStringsFromText(committedValue);
+            formattedValue = pretty;
+            displayValue = inline;
+          }
 
-  return (
-    <div
-      ref={containerRef}
-      className="flex flex-col bg-popover border border-border rounded-xl shadow-lg click-outside-ignore"
-      style={{
-        width: `${size.width}px`,
-        height: `${containerHeight}px`,
-        position: "relative",
-      }}
-    >
-      {/* Header with column info */}
-      <div
-        className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50 shrink-0"
-        style={{ height: `${HEADER_HEIGHT}px` }}
-      >
-        {isPrimaryKey && (
-          <IconKey className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
-        )}
-        <span className="text-[10px] font-medium text-foreground/80">
-          {columnName}
-        </span>
-        {dbType && (
-          <span className="text-[9px] text-muted-foreground ml-auto">
-            {dbType}
-          </span>
-        )}
-      </div>
+          const copyPayload =
+            formattedValue == null || formattedValue.length === 0
+              ? "NULL"
+              : displayValue ?? formattedValue;
 
-      <div className="p-2 shrink-0">
-        <textarea
-          ref={textareaRef}
-          defaultValue={initialValue}
-          autoFocus
-          autoComplete="off"
-          autoCorrect="off"
-          spellCheck={false}
-          onKeyDown={handleKeyDown}
-          onFocus={(e) => {
-            e.target.select();
-          }}
-          onChange={handleTextareaChange}
-          className={cn(
-            "w-full text-xs font-mono bg-transparent resize-none outline-none",
+          const newCell: TextMultiLineCustomCell = {
+            kind: value.kind,
+            data: {
+              ...value.data,
+              value: formattedValue,
+              displayValue,
+            },
+            copyData: copyPayload,
+            allowOverlay: value.allowOverlay,
+            readonly: value.readonly,
+          };
+
+          onFinishedEditing(newCell, movement);
+        }
+      },
+      [
+        onFinishedEditing,
+        commitCurrentText,
+        initialValue,
+        value.data,
+        value.kind,
+        value.allowOverlay,
+        value.readonly,
+      ],
+    );
+
+    useCommitOnUnmount(finishedRef, commitCurrentText);
+
+    const handleClear = useCallback(() => {
+      if (value.data.nullable) {
+        commit(null);
+      }
+    }, [value.data.nullable, commit]);
+
+    return (
+      <div className="flex flex-col bg-popover shadow-lg click-outside-ignore min-w-[300px] max-w-[600px] w-max">
+        {/* Header with column info */}
+        <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50 shrink-0">
+          {isPrimaryKey && (
+            <IconKey className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
           )}
-          style={{ height: `${size.textareaHeight}px` }}
-          placeholder={value.data.nullable ? "NULL" : ""}
-        />
-      </div>
-
-      <div
-        className="flex items-center justify-between text-xs text-muted-foreground px-2 py-1 shrink-0 bg-popover border-t border-border/50"
-        style={{ height: `${FOOTER_HEIGHT}px` }}
-      >
-        <div className="flex-1">
-          Enter to save, Shift+Enter for new line, Esc to cancel
+          <span className="text-[10px] font-medium text-foreground/80">
+            {columnName}
+          </span>
+          {dbType && (
+            <span className="text-[9px] text-muted-foreground ml-auto">
+              {dbType}
+            </span>
+          )}
         </div>
-        {value.data.nullable && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 px-2 text-xs"
-            onClick={handleClear}
-            title="Clear (NULL)"
-          >
-            <IconTrash className="h-3 w-3 mr-1" />
-            Clear
-          </Button>
-        )}
-      </div>
 
-      {/* Resize handle */}
-      <div
-        className="resize-handle absolute bottom-0 right-0 w-4 h-4 cursor-se-resize"
-        style={{
-          background:
-            "linear-gradient(135deg, transparent 50%, currentColor 50%)",
-          opacity: 0.3,
-        }}
-      />
-    </div>
-  );
-};
+        <div className="p-2">
+          <textarea
+            ref={textareaRef}
+            defaultValue={initialValue}
+            autoFocus
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            onKeyDown={handleKeyDown}
+            onFocus={(e) => {
+              e.target.select();
+            }}
+            onChange={handleTextareaChange}
+            className={cn(
+              "w-full text-xs font-mono bg-transparent resize outline-none",
+              "min-h-[60px] max-h-[400px]",
+            )}
+            rows={Math.min(10, Math.max(3, initialValue.split("\n").length))}
+            placeholder={value.data.nullable ? "NULL" : ""}
+          />
+        </div>
+
+        <div className="flex items-center justify-between text-xs text-muted-foreground px-2 py-1 shrink-0 bg-popover border-t border-border/50">
+          <div className="flex-1">
+            Enter to save, Shift+Enter for new line, Esc to cancel
+          </div>
+          {value.data.nullable && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs"
+              onClick={handleClear}
+              title="Clear (NULL)"
+            >
+              <IconTrash className="h-3 w-3 mr-1" />
+              Clear
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  };
 
 export const TextMultiLineCellEditorWithProps = Object.assign(
   TextMultiLineCellEditor,
