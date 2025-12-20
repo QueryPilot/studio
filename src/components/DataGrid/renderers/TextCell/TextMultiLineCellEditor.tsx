@@ -1,10 +1,11 @@
-import React, { useRef, useCallback } from "react";
+import React, { useRef, useCallback, useEffect } from "react";
 import type { TextMultiLineCustomCell } from "./types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { IconTrash, IconKey } from "@tabler/icons-react";
 import { computeArrayStringsFromText } from "../../utils/arrayFormat";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
+import { useNavigationStore } from "../../stores/navigationStore";
 
 interface TextMultiLineCellEditorProps {
   value: TextMultiLineCustomCell;
@@ -16,13 +17,28 @@ interface TextMultiLineCellEditorProps {
 
 export const TextMultiLineCellEditor: React.FC<TextMultiLineCellEditorProps> =
   ({ value, onFinishedEditing }) => {
-    const initialValue = value.data.value || "";
+    // Get navigation state for type-to-edit support
+    const editTrigger = useNavigationStore((s) => s.editTrigger);
+    const initialChar = useNavigationStore((s) => s.initialChar);
+
+    // Determine initial value based on edit trigger
+    const isTypeReplace = editTrigger === 'type-replace' && initialChar;
+    const initialValue = isTypeReplace ? initialChar : (value.data.value || "");
+
     const finishedRef = useRef(false);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
-    const initialValueRef = useRef(value.data.value);
+    const initialValueRef = useRef(isTypeReplace ? initialChar : value.data.value);
 
     // Extract column metadata for header
     const { columnName, isPrimaryKey, dbType } = value.data;
+
+    // Position cursor at end for type-to-edit mode
+    useEffect(() => {
+      if (isTypeReplace && textareaRef.current) {
+        const len = initialChar.length;
+        textareaRef.current.setSelectionRange(len, len);
+      }
+    }, [isTypeReplace, initialChar]);
 
     const handleTextareaChange = useCallback(
       (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -204,7 +220,10 @@ export const TextMultiLineCellEditor: React.FC<TextMultiLineCellEditorProps> =
             spellCheck={false}
             onKeyDown={handleKeyDown}
             onFocus={(e) => {
-              e.target.select();
+              // Don't select all in type-replace mode - cursor already positioned
+              if (!isTypeReplace) {
+                e.target.select();
+              }
             }}
             onChange={handleTextareaChange}
             className={cn(

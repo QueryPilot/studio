@@ -9,13 +9,11 @@
 
 import type { DataEditorRef, GridSelection, Item } from "@glideapps/glide-data-grid";
 import { CompactSelection } from "@glideapps/glide-data-grid";
+import type { NavigationBounds } from "../stores/navigationStore";
 
 export type Movement = readonly [-1 | 0 | 1, -1 | 0 | 1];
 
-export interface NavigationBounds {
-  maxCol: number;
-  maxRow: number;
-}
+export type { NavigationBounds };
 
 /**
  * Calculate next cell position based on movement direction
