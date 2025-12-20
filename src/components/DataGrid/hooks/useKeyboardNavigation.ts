@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react';
-import type { DataEditorRef, Item } from '@glideapps/glide-data-grid';
+import type { Item } from '@glideapps/glide-data-grid';
 import { useNavigationStore, type NavigationBounds } from '../stores/navigationStore';
 import { useCellStateStore } from '../stores/cellStateStore';
 import { createCellKey } from '../types/cellState';
@@ -12,7 +12,7 @@ import {
 
 export interface UseKeyboardNavigationOptions {
   tableKey: string;
-  gridRef: React.RefObject<DataEditorRef | null>;
+  gridRef: React.RefObject<unknown>;
   bounds: NavigationBounds;
   columns: { field: string }[];
   onClearCell?: (cell: Item, columnField: string) => void;
@@ -35,7 +35,7 @@ export function useKeyboardNavigation(
 ): UseKeyboardNavigationResult {
   const {
     tableKey,
-    gridRef,
+    gridRef: _gridRef, // Reserved for future grid scrolling/activation
     bounds,
     columns,
     onClearCell,
@@ -82,11 +82,9 @@ export function useKeyboardNavigation(
 
       selectCell(cell);
       enterEdit('double-click');
-
-      const cellKey = createCellKey(tableKey, cell[1], getColumnField(cell[0]));
       startEdit(null);
     },
-    [enabled, selectCell, enterEdit, startEdit, tableKey, getColumnField]
+    [enabled, selectCell, enterEdit, startEdit]
   );
 
   const handleEditComplete = useCallback(

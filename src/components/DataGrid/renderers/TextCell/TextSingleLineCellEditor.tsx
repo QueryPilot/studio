@@ -1,9 +1,10 @@
-import React, { useRef, useCallback } from "react";
+import React, { useRef, useCallback, useEffect } from "react";
 import type { TextSingleLineCustomCell } from "./types";
 import { Button } from "@/components/ui/button";
 import { IconTrash, IconKey, IconLink } from "@tabler/icons-react";
 import { cn } from "@/lib/cn";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
+import { useNavigationStore } from "../../stores/navigationStore";
 
 interface TextSingleLineCellEditorProps {
   value: TextSingleLineCustomCell;
@@ -16,14 +17,29 @@ interface TextSingleLineCellEditorProps {
 export const TextSingleLineCellEditor: React.FC<
   TextSingleLineCellEditorProps
 > = ({ value, onFinishedEditing }) => {
-  const initialValue = value.data.value ?? "";
+  // Get navigation state for type-to-edit support
+  const editTrigger = useNavigationStore((s) => s.editTrigger);
+  const initialChar = useNavigationStore((s) => s.initialChar);
+
+  // Determine initial value based on edit trigger
+  const isTypeReplace = editTrigger === 'type-replace' && initialChar;
+  const initialValue = isTypeReplace ? initialChar : (value.data.value ?? "");
+
   const finishedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
   // Store the original value to properly detect changes including null
-  const originalValueRef = useRef(value.data.value);
+  const originalValueRef = useRef(isTypeReplace ? initialChar : value.data.value);
 
   // Extract column metadata for header
   const { columnName, isPrimaryKey, isForeignKey, dbType } = value.data;
+
+  // Position cursor at end for type-to-edit mode
+  useEffect(() => {
+    if (isTypeReplace && inputRef.current) {
+      const len = initialChar.length;
+      inputRef.current.setSelectionRange(len, len);
+    }
+  }, [isTypeReplace, initialChar]);
 
   const commit = useCallback(
     (nextValue: string | null) => {
@@ -149,7 +165,10 @@ export const TextSingleLineCellEditor: React.FC<
           defaultValue={initialValue}
           autoFocus
           onFocus={(e) => {
-            e.target.select();
+            // Don't select all in type-replace mode - cursor already positioned
+            if (!isTypeReplace) {
+              e.target.select();
+            }
           }}
           onKeyDown={handleKeyDown}
           onChange={(e) => {
