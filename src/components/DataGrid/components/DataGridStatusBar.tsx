@@ -103,6 +103,18 @@ const StreamingSpinner = memo(function StreamingSpinner() {
 });
 
 /**
+ * Processing indicator for batch/paste operations
+ */
+const ProcessingIndicator = memo(function ProcessingIndicator() {
+  return (
+    <div className="flex items-center gap-1.5 px-2 py-0.5 bg-primary/10 text-primary rounded-lg border border-primary/20">
+      <IconLoader2 className="h-3 w-3 animate-spin" />
+      <span className="font-medium">Processing...</span>
+    </div>
+  );
+});
+
+/**
  * Execution time with performance breakdown tooltip
  */
 const ExecutionTimeDisplay = memo(function ExecutionTimeDisplay({
@@ -244,6 +256,8 @@ interface DataGridStatusBarProps {
   networkMs?: number;
   conversionMs?: number;
   isStreaming?: boolean;
+  /** Whether a batch/paste operation is in progress */
+  isProcessing?: boolean;
   onViewDetails?: () => void;
   readOnlyReason?: string;
 }
@@ -263,6 +277,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   networkMs,
   conversionMs,
   isStreaming = false,
+  isProcessing = false,
   onViewDetails,
   readOnlyReason,
   className,
@@ -285,8 +300,9 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
         className,
       )}
     >
-      {/* Left side: Read-only badge and selection info */}
+      {/* Left side: Read-only badge, processing indicator, and selection info */}
       <div className="flex items-center gap-3">
+        {isProcessing && <ProcessingIndicator />}
         {readOnlyReason && <ReadOnlyBadge reason={readOnlyReason} />}
 
         {selectedRows > 0 && (

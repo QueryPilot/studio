@@ -1,5 +1,5 @@
 import { logger } from "@/lib/logger";
-import { forwardRef, useCallback, useRef, useImperativeHandle, useMemo, useEffect } from "react";
+import { forwardRef, useCallback, useRef, useImperativeHandle, useMemo, useEffect, useTransition } from "react";
 import type {
   DataEditorProps,
   DataEditorRef,
@@ -136,6 +136,8 @@ export interface EditableDataGridProps
   onPasteValidationErrors?: (errors: PasteValidationError[]) => void;
   /** Callback for batch clear operations (Delete on range selection) */
   onBatchClear?: (cells: Item[]) => void;
+  /** Callback when pending state changes (paste/batch operations in progress) */
+  onPendingChange?: (isPending: boolean) => void;
 }
 
 export interface EditableDataGridRef extends DataEditorRef {
@@ -176,10 +178,19 @@ export const EditableDataGrid = forwardRef<
     onCellClicked,
     onPasteValidationErrors,
     onBatchClear,
+    onPendingChange,
     containerClassName,
     className,
     ...rest
   } = props;
+
+  // Non-blocking paste operations via useTransition
+  const [isPastePending, startPasteTransition] = useTransition();
+
+  // Notify parent when pending state changes
+  useEffect(() => {
+    onPendingChange?.(isPastePending);
+  }, [isPastePending, onPendingChange]);
 
   const { customRenderers: defaultRenderers } = useDataGridRenderers();
   const customRenderers = customRenderersProp ?? defaultRenderers;
@@ -556,45 +567,49 @@ export const EditableDataGrid = forwardRef<
       }
 
       // Apply paste by calling handleCellEdited for each cell
+      // Wrap in useTransition for non-blocking UI during large paste operations
       logger.info('[EditableDataGrid] Applying paste to cells...');
       const [colStart, rowStart] = event.target;
 
-      for (let rowOffset = 0; rowOffset < event.values.length; rowOffset++) {
-        const rowIndex = rowStart + rowOffset;
-        if (rowIndex >= rows.length) break; // Don't paste beyond existing rows
+      // Use startPasteTransition for non-blocking paste on large selections
+      startPasteTransition(() => {
+        for (let rowOffset = 0; rowOffset < event.values.length; rowOffset++) {
+          const rowIndex = rowStart + rowOffset;
+          if (rowIndex >= rows.length) break; // Don't paste beyond existing rows
 
-        const rowValues = event.values[rowOffset];
-        if (!rowValues) continue;
+          const rowValues = event.values[rowOffset];
+          if (!rowValues) continue;
 
-        for (let colOffset = 0; colOffset < rowValues.length; colOffset++) {
-          const colIndex = colStart + colOffset;
-          if (colIndex >= columns.length) break; // Don't paste beyond existing columns
+          for (let colOffset = 0; colOffset < rowValues.length; colOffset++) {
+            const colIndex = colStart + colOffset;
+            if (colIndex >= columns.length) break; // Don't paste beyond existing columns
 
-          const value = rowValues[colOffset];
-          const column = columns[colIndex];
-          if (!column) continue;
+            const value = rowValues[colOffset];
+            const column = columns[colIndex];
+            if (!column) continue;
 
-          const cell: Item = [colIndex, rowIndex];
+            const cell: Item = [colIndex, rowIndex];
 
-          // Get the current cell content to preserve cell type
-          const currentCell = getCellContent(cell);
+            // Get the current cell content to preserve cell type
+            const currentCell = getCellContent(cell);
 
-          // Create new cell with pasted value (preserve the cell kind/type)
-          // Only update if cell has data property (skip loading cells, etc.)
-          const cellWithData = currentCell as GridCell & { data?: Record<string, unknown> };
-          if (!cellWithData.data) continue;
+            // Create new cell with pasted value (preserve the cell kind/type)
+            // Only update if cell has data property (skip loading cells, etc.)
+            const cellWithData = currentCell as GridCell & { data?: Record<string, unknown> };
+            if (!cellWithData.data) continue;
 
-          // Create new cell with updated value using Object.assign to avoid spread type issues
-          const existingData = cellWithData.data;
-          const newCell = {
-            ...currentCell,
-            data: Object.assign({}, existingData, { value }),
-          } as GridCell;
+            // Create new cell with updated value using Object.assign to avoid spread type issues
+            const existingData = cellWithData.data;
+            const newCell = {
+              ...currentCell,
+              data: Object.assign({}, existingData, { value }),
+            } as GridCell;
 
-          logger.info('[EditableDataGrid] Pasting to cell:', { cell, value, currentCell, newCell });
-          handleCellEdited(cell, newCell);
+            logger.info('[EditableDataGrid] Pasting to cell:', { cell, value, currentCell, newCell });
+            handleCellEdited(cell, newCell);
+          }
         }
-      }
+      });
 
       return false; // Prevent default - we handled it
     },
