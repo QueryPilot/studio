@@ -56,8 +56,8 @@ export const TextMultiLineCellEditor: React.FC<TextMultiLineCellEditorProps> =
         let displayValue = value.data.displayValue;
 
         if (value.data.formatDisplayMode === "array-inline") {
-          const { pretty, inline } = computeArrayStringsFromText(nextValue);
-          formattedValue = pretty;
+          const { inline } = computeArrayStringsFromText(nextValue);
+          formattedValue = inline;
           displayValue = inline;
         }
 
@@ -148,9 +148,8 @@ export const TextMultiLineCellEditor: React.FC<TextMultiLineCellEditorProps> =
           let displayValue = value.data.displayValue;
 
           if (value.data.formatDisplayMode === "array-inline") {
-            const { pretty, inline } =
-              computeArrayStringsFromText(committedValue);
-            formattedValue = pretty;
+            const { inline } = computeArrayStringsFromText(committedValue);
+            formattedValue = inline;
             displayValue = inline;
           }
 

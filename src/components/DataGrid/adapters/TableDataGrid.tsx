@@ -154,6 +154,7 @@ export const TableDataGrid = memo(function TableDataGrid(
   const quickFilterRef = useRef<QuickFilterRef>(null);
   const [isGridFocused, setIsGridFocused] = useState(false);
   const [isEditingCell, setIsEditingCell] = useState(false);
+  const [isPastePending, setIsPastePending] = useState(false);
   const scopeId = useScopedKeybindings(gridId);
   const [showDetailsSheet, setShowDetailsSheet] = useState(false);
 
@@ -989,6 +990,7 @@ export const TableDataGrid = memo(function TableDataGrid(
     handleRowAppend,
     handleRowDelete,
     handleBatchEdit,
+    isBatchPending,
   } = useTableCrud({
     connectionId,
     database,
@@ -2125,6 +2127,7 @@ export const TableDataGrid = memo(function TableDataGrid(
               onRowAppend={handleRowAppend}
               onRowDelete={handleRowDelete}
               onBatchClear={isTableMode ? onBatchClearCallback : undefined}
+              onPendingChange={setIsPastePending}
               overscrollX={0}
               overscrollY={24}
               // Avoid rendering very tall buffers on large datasets
@@ -2221,6 +2224,7 @@ export const TableDataGrid = memo(function TableDataGrid(
         estimatedTotal={estimatedTotal ?? undefined}
         hasMore={hasNextPage}
         isStreaming={isLoadingMore}
+        isProcessing={isPastePending || isBatchPending}
         selectedRows={selectedRowCount}
         selectedRowsData={selectedRows}
         selectedRowIndices={selectedRowsSet}

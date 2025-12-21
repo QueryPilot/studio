@@ -32,6 +32,8 @@ import {
   IconList,
   IconCopy,
   IconCheck,
+  IconRefresh,
+  IconShieldCheck,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 import ReactDiffViewer from "react-diff-viewer-continued";
@@ -70,6 +72,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
   const [isCommitting, setIsCommitting] = useState(false);
   const [viewMode, setViewMode] = useState<"changes" | "sql">("changes");
   const [copiedSql, setCopiedSql] = useState(false);
+  const [conflictError, setConflictError] = useState<string | null>(null);
 
   // Get connection for database type
   const { getConnection } = useConnectionStore();
@@ -352,14 +355,139 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
       }
     } catch (error) {
       logger.error("❌ Commit failed:", error);
-      toast.error("Commit failed", {
-        description:
-          error instanceof Error ? error.message : "Unknown error occurred",
-      });
+      const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+
+      // Check for conflict detection error - show inline alert instead of toast
+      if (errorMessage.includes("modified by another user") || errorMessage.includes("CONFLICT")) {
+        setConflictError(errorMessage);
+        // Don't close dialog - let user choose Override or Refresh
+      } else {
+        toast.error("Commit failed", {
+          description: errorMessage,
+        });
+      }
       setIsCommitting(false);
     } finally {
       setIsCommitting(false);
     }
+  };
+
+  // Force commit - strips oldValue from UPDATE commands to bypass conflict check
+  const handleForceCommit = async () => {
+    setIsCommitting(true);
+    setConflictError(null);
+
+    try {
+      // Get current staged commands and create NEW commands without oldValue
+      const tableKey = isTableSpecific
+        ? getTableKey({ connectionId, database: database!, schema, table: table! })
+        : null;
+
+      // Helper to strip oldValue from a command (creates new object)
+      const stripOldValue = (cmd: CrudCommand): CrudCommand => {
+        if (cmd.type !== "data.update") return cmd;
+
+        const payload = cmd.payload as Record<string, unknown>;
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { oldValue, ...payloadWithoutOldValue } = payload;
+
+        return {
+          ...cmd,
+          payload: payloadWithoutOldValue,
+        } as CrudCommand;
+      };
+
+      // Update staged commands in store with oldValue removed
+      const { stageCommands, discardChanges: discardTableChanges } = useCrudStore.getState();
+
+      if (isTableSpecific && tableKey) {
+        const originalCommands = stagedCommands.get(tableKey) ?? [];
+        const strippedCommands = originalCommands.map(stripOldValue);
+
+        // Clear existing commands and re-stage without oldValue
+        discardTableChanges(tableKey);
+        stageCommands(strippedCommands);
+
+        // Now commit
+        const result = await commitChanges(tableKey);
+
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        const { invalidateTable } = useDataInvalidationStore.getState();
+        invalidateTable(connectionId, database!, schema, table!);
+
+        toast.success("Changes force-committed", {
+          description: `Overwrote with your changes (${result.committed.length} change${result.committed.length === 1 ? "" : "s"})`,
+        });
+      } else {
+        // For workspace-wide, process each table
+        for (const [tk, commands] of connectionCommands) {
+          const strippedCommands = commands.map(stripOldValue);
+          discardTableChanges(tk);
+          stageCommands(strippedCommands);
+        }
+
+        const results = await commitAll();
+        const totalCommitted = Object.values(results).reduce(
+          (sum, result) => sum + result.committed.length,
+          0,
+        );
+
+        const { invalidateTable } = useDataInvalidationStore.getState();
+        connectionCommands.forEach(([tk]) => {
+          const parts = tk.split(":");
+          const [connId, db, sch, tbl] = parts;
+          if (connId && db && tbl) {
+            invalidateTable(connId, db, sch, tbl);
+          }
+        });
+
+        toast.success("All changes force-committed", {
+          description: `Overwrote with your changes (${totalCommitted} total)`,
+        });
+      }
+
+      onOpenChange(false);
+      onCommitSuccess?.();
+    } catch (error) {
+      logger.error("❌ Force commit failed:", error);
+      toast.error("Force commit failed", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    } finally {
+      setIsCommitting(false);
+    }
+  };
+
+  // Refresh - discard changes and refresh table data
+  const handleRefreshAndDiscard = () => {
+    // Discard staged changes
+    if (isTableSpecific) {
+      const tableKey = getTableKey({ connectionId, database: database!, schema, table: table! });
+      discardChanges(tableKey);
+    } else {
+      discardAll();
+    }
+
+    // Invalidate to trigger refetch
+    const { invalidateTable } = useDataInvalidationStore.getState();
+    if (isTableSpecific) {
+      invalidateTable(connectionId, database!, schema, table!);
+    } else {
+      connectionCommands.forEach(([tk]) => {
+        const parts = tk.split(":");
+        const [connId, db, sch, tbl] = parts;
+        if (connId && db && tbl) {
+          invalidateTable(connId, db, sch, tbl);
+        }
+      });
+    }
+
+    setConflictError(null);
+    onOpenChange(false);
+    toast.success("Changes discarded", {
+      description: "Table refreshed with latest data from database",
+    });
   };
 
   const handleDiscardAll = () => {
@@ -410,6 +538,46 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
               : "Review and commit all pending changes across all tables"}
           </DialogDescription>
         </DialogHeader>
+
+        {/* Conflict Alert */}
+        {conflictError && (
+          <Alert variant="destructive" className="border-destructive/50 bg-destructive/10">
+            <IconAlertTriangle className="h-4 w-4" />
+            <AlertTitle className="text-sm font-semibold">Conflict Detected</AlertTitle>
+            <AlertDescription className="text-xs">
+              <p className="mb-3">
+                The row was modified by another user or process since you started editing.
+                You can either override with your changes or refresh to see the latest data.
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={handleForceCommit}
+                  disabled={isCommitting}
+                  className="h-7 text-xs"
+                >
+                  {isCommitting ? (
+                    <IconLoader2 className="mr-1 h-3 w-3 animate-spin" />
+                  ) : (
+                    <IconShieldCheck className="mr-1 h-3 w-3" />
+                  )}
+                  Override with My Changes
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleRefreshAndDiscard}
+                  disabled={isCommitting}
+                  className="h-7 text-xs"
+                >
+                  <IconRefresh className="mr-1 h-3 w-3" />
+                  Discard & Refresh
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Debug info */}
         {process.env.NODE_ENV === "development" && (
