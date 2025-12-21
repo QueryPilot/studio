@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import isEqual from "lodash/isEqual";
 import { useCrudStore } from "@/stores/crudStore";
+import type { Item } from "@glideapps/glide-data-grid";
 import {
   createUpdateCommand,
   createInsertCommand,
@@ -14,7 +15,7 @@ import type {
   GridRowAppendEvent,
   GridRowDeleteEvent,
 } from "../types";
-import type { JsonValue } from "@/types";
+import type { JsonValue, CellValue } from "@/types";
 import type { EditableDataGridRef } from "../base";
 
 /**
@@ -50,6 +51,11 @@ export interface UseTableCrudOptions {
   onEditingChange?: (editing: boolean) => void;
 }
 
+export interface BatchEditItem {
+  cell: Item;
+  value: unknown;
+}
+
 export interface UseTableCrudResult {
   // State
   isEditingCell: boolean;
@@ -62,6 +68,8 @@ export interface UseTableCrudResult {
   handleCellEditCommit: (event: GridEditCommitEvent) => undefined;
   handleRowAppend: (event: GridRowAppendEvent) => undefined;
   handleRowDelete: (event: GridRowDeleteEvent) => undefined;
+  /** Handle batch edits with single history entry (for fill operations) */
+  handleBatchEdit: (edits: BatchEditItem[], rows: GridRowModel[]) => void;
 
   // Actions
   insertRow: (draftRow: GridRowModel) => void;
@@ -87,7 +95,7 @@ export function useTableCrud({
   const isEditingCell = externalIsEditingCell ?? internalIsEditingCell;
   const setIsEditingCell = onEditingChange ?? setInternalIsEditingCell;
 
-  const { stageCommand, getTableKey, stagedCommands } = useCrudStore();
+  const { stageCommand, stageBatchWithSingleHistoryEntry, getTableKey, stagedCommands } = useCrudStore();
 
   const tableKey = enabled
     ? getTableKey({ connectionId, database, schema, table })
@@ -249,6 +257,50 @@ export function useTableCrud({
     [enabled, target, columns, stageCommand]
   );
 
+  // Handler: Batch edit (for fill operations) with single history entry
+  const handleBatchEdit = useCallback(
+    (edits: BatchEditItem[], rows: GridRowModel[]): void => {
+      if (!enabled || edits.length === 0) return;
+
+      try {
+        const commands = edits.map(({ cell, value }) => {
+          const [columnIndex, rowIndex] = cell;
+          const column = columns[columnIndex];
+          const row = rows[rowIndex];
+          if (!column || !row) return null;
+
+          const columnName = column.name ?? column.field;
+          const previousValue = row[columnName] as CellValue | undefined;
+
+          // Skip if value hasn't changed
+          if (areValuesEqual(previousValue, value)) return null;
+
+          // Create UPDATE command
+          const event: GridEditCommitEvent = {
+            cell,
+            columnIndex,
+            rowIndex,
+            column,
+            row,
+            newValue: { kind: "text", data: value, displayData: String(value ?? "") } as any,
+            previousValue: previousValue ?? null,
+          };
+
+          return createUpdateCommand(event, target, columns);
+        }).filter((cmd): cmd is NonNullable<typeof cmd> => cmd !== null);
+
+        if (commands.length > 0) {
+          stageBatchWithSingleHistoryEntry(commands);
+          toast.success(`Applied ${commands.length} cell${commands.length === 1 ? "" : "s"}`);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        toast.error("Failed to apply batch edit", { description: message });
+      }
+    },
+    [enabled, target, columns, stageBatchWithSingleHistoryEntry]
+  );
+
   // Action: Insert a new row programmatically
   const insertRow = useCallback(
     (draftRow: GridRowModel) => {
@@ -274,6 +326,7 @@ export function useTableCrud({
     handleCellEditCommit,
     handleRowAppend,
     handleRowDelete,
+    handleBatchEdit,
     insertRow,
   };
 }

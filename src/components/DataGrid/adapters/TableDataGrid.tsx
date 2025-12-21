@@ -49,6 +49,7 @@ import {
   useTableCrud,
   useQuickFilter,
   useOptimisticRows,
+  useFillOperations,
 } from "../hooks";
 import {
   useGridPreferences,
@@ -987,6 +988,7 @@ export const TableDataGrid = memo(function TableDataGrid(
     handleCellEditCommit,
     handleRowAppend,
     handleRowDelete,
+    handleBatchEdit,
   } = useTableCrud({
     connectionId,
     database,
@@ -1851,6 +1853,72 @@ export const TableDataGrid = memo(function TableDataGrid(
     [isQueryMode],
   );
 
+  // Fill operations hook for Ctrl+D (fill down) and Ctrl+R (fill right)
+  const onBatchEditCallback = useCallback(
+    (edits: Array<{ cell: Item; value: unknown }>) => {
+      handleBatchEdit(edits, rowsRef.current);
+    },
+    [handleBatchEdit]
+  );
+
+  // Batch clear callback for Delete on range selection
+  const onBatchClearCallback = useCallback(
+    (cells: Item[]) => {
+      if (!isTableMode || cells.length === 0) return;
+      const edits = cells.map((cell) => ({ cell, value: null }));
+      handleBatchEdit(edits, rowsRef.current);
+    },
+    [isTableMode, handleBatchEdit]
+  );
+
+  const { fillDown, fillRight } = useFillOperations({
+    getCellContent,
+    onBatchEdit: isTableMode ? onBatchEditCallback : undefined,
+    columnCount: finalColumns.length,
+    rowCount: deferredDisplayRows.length,
+  });
+
+  // Keyboard shortcuts for fill operations (Ctrl+D and Ctrl+R)
+  useEffect(() => {
+    if (!isTableMode) return;
+
+    const handleFillKeyDown = (e: KeyboardEvent) => {
+      // Only handle if this panel has focus
+      const hasFocus =
+        wrapperRef.current?.contains(document.activeElement) ||
+        document.activeElement === wrapperRef.current;
+      if (!hasFocus) return;
+
+      // Don't handle if user is editing a cell
+      if (isEditingCell) return;
+
+      // Ctrl+D: Fill down
+      if (e.ctrlKey && !e.metaKey && e.key === "d") {
+        e.preventDefault();
+        const success = fillDown(gridSelection);
+        if (!success) {
+          toast.info("Select cells to fill down (at least 2 rows)");
+        }
+        return;
+      }
+
+      // Ctrl+R: Fill right
+      if (e.ctrlKey && !e.metaKey && e.key === "r") {
+        e.preventDefault();
+        const success = fillRight(gridSelection);
+        if (!success) {
+          toast.info("Select cells to fill right (at least 2 columns)");
+        }
+        return;
+      }
+    };
+
+    window.addEventListener("keydown", handleFillKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleFillKeyDown);
+    };
+  }, [isTableMode, isEditingCell, fillDown, fillRight, gridSelection]);
+
   useContextKey("selectionEmpty", !hasSelection, {
     scopeId,
     resetOnUnmount: true,
@@ -2056,6 +2124,7 @@ export const TableDataGrid = memo(function TableDataGrid(
               onCellEditCancel={handleCellEditCancel}
               onRowAppend={handleRowAppend}
               onRowDelete={handleRowDelete}
+              onBatchClear={isTableMode ? onBatchClearCallback : undefined}
               overscrollX={0}
               overscrollY={24}
               // Avoid rendering very tall buffers on large datasets

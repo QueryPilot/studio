@@ -63,7 +63,9 @@ export interface CrudStoreState {
 
   stageCommand: (command: CrudCommand) => StageCommandResult;
   stageCommands: (commands: CrudCommand[]) => StageCommandResult[];
+  stageBatchWithSingleHistoryEntry: (commands: CrudCommand[]) => StageCommandResult[];
   unstageCommand: (commandId: string) => void;
+  unstageCommands: (commandIds: string[]) => void;
   discardChanges: (tableKey: string) => void;
   discardAll: () => void;
   commitChanges: (tableKey: string) => Promise<CommitResult>;
@@ -235,6 +237,133 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
 
     stageCommands: (commands) => commands.map((command) => get().stageCommand(command)),
 
+    stageBatchWithSingleHistoryEntry: (commands) => {
+      const results: StageCommandResult[] = [];
+
+      set((state) => {
+        const stagedCommands = cloneStagedCommands(state.stagedCommands);
+        const commandIndex = new Map(state.commandIndex);
+
+        for (const command of commands) {
+          const tableKey = createTableKey(command.target);
+          const existing = stagedCommands.get(tableKey) ?? [];
+
+          // Handle UPDATE commands on inserted rows
+          if (command.type === "data.update") {
+            const updatePayload = command.payload as { tempId?: string; column?: string; newValue?: unknown };
+            if (updatePayload.tempId) {
+              const insertCommand = existing.find((cmd) => {
+                if (cmd.type !== "data.insert") return false;
+                const insertPayload = cmd.payload as { tempId?: string };
+                return insertPayload.tempId === updatePayload.tempId;
+              });
+
+              if (insertCommand && updatePayload.column) {
+                const insertPayload = insertCommand.payload as { values?: Record<string, unknown>; tempId?: string };
+                const updatedInsertCommand = {
+                  ...insertCommand,
+                  payload: {
+                    ...insertPayload,
+                    values: {
+                      ...(insertPayload.values ?? {}),
+                      [updatePayload.column]: updatePayload.newValue,
+                    },
+                  },
+                };
+
+                const nextCommands = existing.map((item) =>
+                  item.id === insertCommand.id ? updatedInsertCommand : item
+                );
+                stagedCommands.set(tableKey, nextCommands);
+                results.push({ command: updatedInsertCommand });
+                continue;
+              }
+            }
+          }
+
+          // Handle UPDATE commands on existing rows - replace same cell updates
+          if (command.type === "data.update") {
+            const updatePayload = command.payload as {
+              primaryKeys?: Record<string, unknown>;
+              column?: string;
+              newValue?: unknown;
+            };
+
+            const currentCommands = stagedCommands.get(tableKey) ?? [];
+            const existingUpdateIndex = currentCommands.findIndex((cmd) => {
+              if (cmd.type !== "data.update") return false;
+              const existingPayload = cmd.payload as {
+                primaryKeys?: Record<string, unknown>;
+                column?: string;
+              };
+
+              if (existingPayload.column !== updatePayload.column) return false;
+              if (!existingPayload.primaryKeys || !updatePayload.primaryKeys) return false;
+
+              const existingPKEntries = Object.entries(existingPayload.primaryKeys).sort(
+                ([a], [b]) => a.localeCompare(b),
+              );
+              const newPKEntries = Object.entries(updatePayload.primaryKeys).sort(([a], [b]) =>
+                a.localeCompare(b),
+              );
+
+              const existingPKSig = existingPKEntries
+                .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+                .join("|");
+              const newPKSig = newPKEntries
+                .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+                .join("|");
+
+              return existingPKSig === newPKSig;
+            });
+
+            if (existingUpdateIndex >= 0) {
+              const oldCommand = currentCommands[existingUpdateIndex];
+              const nextCommands = [...currentCommands];
+              nextCommands[existingUpdateIndex] = command;
+              stagedCommands.set(tableKey, nextCommands);
+              commandIndex.set(command.id, tableKey);
+              if (oldCommand) {
+                commandIndex.delete(oldCommand.id);
+              }
+            } else {
+              const nextCommands = [...currentCommands, command];
+              stagedCommands.set(tableKey, nextCommands);
+              commandIndex.set(command.id, tableKey);
+            }
+          } else {
+            // Default behavior for INSERT, DELETE, and other commands
+            const currentCommands = stagedCommands.get(tableKey) ?? [];
+            const nextCommands = currentCommands.some((item) => item.id === command.id)
+              ? currentCommands.map((item) => (item.id === command.id ? command : item))
+              : [...currentCommands, command];
+            stagedCommands.set(tableKey, nextCommands);
+            commandIndex.set(command.id, tableKey);
+          }
+
+          results.push({ command });
+        }
+
+        // Push only ONE history snapshot for the entire batch
+        const snapshot = cloneStagedCommands(stagedCommands);
+        const { history, historyIndex } = pushHistorySnapshot(
+          state.history,
+          state.historyIndex,
+          snapshot,
+        );
+
+        return {
+          stagedCommands,
+          commandIndex,
+          history,
+          historyIndex,
+          isDirty: stagedCommands.size > 0,
+        };
+      });
+
+      return results;
+    },
+
     unstageCommand: (commandId) => {
       set((state) => {
         const tableKey = state.commandIndex.get(commandId);
@@ -265,6 +394,50 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
         }
         commandIndex.delete(commandId);
 
+        const snapshot = cloneStagedCommands(stagedCommands);
+        const { history, historyIndex } = pushHistorySnapshot(
+          state.history,
+          state.historyIndex,
+          snapshot,
+        );
+
+        return {
+          stagedCommands,
+          commandIndex,
+          history,
+          historyIndex,
+          isDirty: stagedCommands.size > 0,
+        };
+      });
+    },
+
+    unstageCommands: (commandIds) => {
+      if (commandIds.length === 0) return;
+
+      set((state) => {
+        const stagedCommands = cloneStagedCommands(state.stagedCommands);
+        const commandIndex = new Map(state.commandIndex);
+
+        for (const commandId of commandIds) {
+          const tableKey = commandIndex.get(commandId);
+          if (!tableKey) continue;
+
+          const existing = stagedCommands.get(tableKey);
+          if (!existing) {
+            commandIndex.delete(commandId);
+            continue;
+          }
+
+          const filtered = existing.filter((command) => command.id !== commandId);
+          if (filtered.length > 0) {
+            stagedCommands.set(tableKey, filtered);
+          } else {
+            stagedCommands.delete(tableKey);
+          }
+          commandIndex.delete(commandId);
+        }
+
+        // Push only ONE history snapshot for the entire batch
         const snapshot = cloneStagedCommands(stagedCommands);
         const { history, historyIndex } = pushHistorySnapshot(
           state.history,

@@ -20,6 +20,7 @@ import type {
   GridRowModel,
 } from "../types";
 import { usePasteHandler } from "../hooks/usePasteHandler";
+import type { ColumnTypeHint, PasteValidationError } from "../utils/pasteUtils";
 import type { UseGridHistoryResult } from "../hooks/useGridHistory";
 import type { CellValue } from "@/types";
 import { useDataGridRenderers } from "../renderers";
@@ -131,6 +132,10 @@ export interface EditableDataGridProps
   onItemHovered?: DataEditorProps["onItemHovered"];
   drawCell?: DataEditorProps["drawCell"];
   onCellClicked?: DataEditorProps["onCellClicked"];
+  /** Callback when paste has validation errors */
+  onPasteValidationErrors?: (errors: PasteValidationError[]) => void;
+  /** Callback for batch clear operations (Delete on range selection) */
+  onBatchClear?: (cells: Item[]) => void;
 }
 
 export interface EditableDataGridRef extends DataEditorRef {
@@ -169,6 +174,8 @@ export const EditableDataGrid = forwardRef<
     onItemHovered,
     drawCell,
     onCellClicked,
+    onPasteValidationErrors,
+    onBatchClear,
     containerClassName,
     className,
     ...rest
@@ -190,6 +197,15 @@ export const EditableDataGrid = forwardRef<
     maxCol: columns.length,
     maxRow: rows.length,
   }), [columns.length, rows.length]);
+
+  // Build column type hints for smart paste
+  const columnHints = useMemo<ColumnTypeHint[]>(() =>
+    columns.map((col) => ({
+      dbType: col.meta?.db_type ?? col.type ?? "text",
+      nullable: col.meta?.nullable ?? true,
+    })),
+    [columns]
+  );
 
   const getCoordinates = useCallback(
     (cell: Item): GridEditCoordinates | null => {
@@ -478,6 +494,36 @@ export const EditableDataGrid = forwardRef<
         return false;
       }
 
+      // If a rectangular range is selected, batch clear all cells
+      if (selection.current?.range) {
+        const { x: startCol, y: startRow, width, height } = selection.current.range;
+        const endCol = Math.min(startCol + width, columns.length);
+        const endRow = Math.min(startRow + height, rows.length);
+
+        const cellsToClear: Item[] = [];
+        for (let row = startRow; row < endRow; row++) {
+          for (let col = startCol; col < endCol; col++) {
+            cellsToClear.push([col, row]);
+          }
+        }
+
+        if (cellsToClear.length > 0) {
+          if (onBatchClear) {
+            // Use batch clear for single undo
+            onBatchClear(cellsToClear);
+          } else {
+            // Fall back to individual clears
+            for (const cell of cellsToClear) {
+              const columnField = columns[cell[0]]?.field;
+              if (columnField) {
+                handleClearCell(cell, columnField);
+              }
+            }
+          }
+        }
+        return false;
+      }
+
       // If a single cell is selected, clear the cell value
       if (selection.current?.cell) {
         const cell = selection.current.cell;
@@ -490,12 +536,14 @@ export const EditableDataGrid = forwardRef<
 
       return false;
     },
-    [onRowDelete, processResult, rows, columns, handleClearCell],
+    [onRowDelete, processResult, rows, columns, handleClearCell, onBatchClear],
   );
 
   const { handleDataEditorPaste } = usePasteHandler({
     coerceValue: coerceValue,
     allowGridFallback: false, // We handle paste ourselves
+    columnHints,
+    onValidationErrors: onPasteValidationErrors,
     onPaste: (event) => {
       logger.info('[EditableDataGrid] Paste event received:', event);
 

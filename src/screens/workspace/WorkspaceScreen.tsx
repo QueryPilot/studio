@@ -218,7 +218,35 @@ export function WorkspaceScreen() {
     };
   }, []);
 
-  // Handle window close with pending changes check
+  // Handle browser beforeunload for pending changes (web dev mode)
+  useEffect(() => {
+    if (!connectionId) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      // Check if there are pending changes for this connection
+      const { stagedCommands } = useCrudStore.getState();
+      const hasPendingChanges = Array.from(stagedCommands.entries()).some(
+        ([tableKey, commands]) =>
+          tableKey.startsWith(`${connectionId}:`) && commands.length > 0
+      );
+
+      if (hasPendingChanges) {
+        // Standard way to trigger "unsaved changes" dialog
+        event.preventDefault();
+        // Chrome requires returnValue to be set
+        event.returnValue = "You have unsaved changes. Are you sure you want to leave?";
+        return event.returnValue;
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [connectionId]);
+
+  // Handle Tauri window close with pending changes check
   useEffect(() => {
     if (!isTauri() || !connectionId) return;
 
