@@ -1,8 +1,12 @@
 import { logger } from "@/lib/logger";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useCrudStore } from "@/stores/crudStore";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
 import type { CrudCommand } from "@/types/crud";
+import type { DatabaseType } from "@/types";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
+import { useValidationStore } from "@/stores/validationStore";
+import { stagedCommandsToSQL } from "@/utils/sqlGenerator";
 import {
   Dialog,
   DialogContent,
@@ -14,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import {
   IconPencil,
   IconPlus,
@@ -22,6 +27,11 @@ import {
   IconX,
   IconLoader2,
   IconArrowBackUp,
+  IconAlertTriangle,
+  IconCode,
+  IconList,
+  IconCopy,
+  IconCheck,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 import ReactDiffViewer from "react-diff-viewer-continued";
@@ -58,6 +68,23 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
   } = useCrudStore();
 
   const [isCommitting, setIsCommitting] = useState(false);
+  const [viewMode, setViewMode] = useState<"changes" | "sql">("changes");
+  const [copiedSql, setCopiedSql] = useState(false);
+
+  // Get connection for database type
+  const { getConnection } = useConnectionStore();
+  const connection = getConnection(connectionId);
+  // Map DbType enum to DatabaseType string
+  const dbTypeMap: Record<string, DatabaseType> = {
+    PostgreSQL: "postgresql",
+    MySQL: "mysql",
+    SQLite: "sqlite",
+    SQLServer: "mssql",
+  };
+  const dbType: DatabaseType = dbTypeMap[connection?.profile?.db_type ?? ""] ?? "postgresql";
+
+  // Validation store for checking errors
+  const { canCommit } = useValidationStore();
 
   // Check if this is table-specific or workspace-wide
   const isTableSpecific = database !== undefined && table !== undefined;
@@ -185,6 +212,71 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     ).length;
     totalSummary.total += commands.length;
   });
+
+  // Calculate validation errors across all tables in scope
+  const validationStatus = useMemo(() => {
+    const tableKeys = connectionCommands.map(([tableKey]) => tableKey);
+    let totalErrors = 0;
+    const tableErrorMap: Record<string, number> = {};
+
+    for (const tableKey of tableKeys) {
+      const { allowed, errorCount } = canCommit(tableKey);
+      if (!allowed) {
+        totalErrors += errorCount;
+        const parts = tableKey.split(":");
+        const tableName = parts[parts.length - 1] ?? "unknown";
+        const schemaName = parts.length > 3 ? parts[2] : undefined;
+        const displayName = schemaName
+          ? `${schemaName}.${tableName}`
+          : tableName;
+        tableErrorMap[displayName] = errorCount;
+      }
+    }
+
+    return {
+      canCommitAll: totalErrors === 0,
+      totalErrors,
+      tableErrors: tableErrorMap,
+    };
+  }, [connectionCommands, canCommit]);
+
+  // Generate SQL from staged commands
+  const generatedSQL = useMemo(() => {
+    const commandsMap = new Map(connectionCommands);
+    const sql = stagedCommandsToSQL(commandsMap, dbType);
+    logger.info("[GlobalChangesDialog] Generated SQL:", {
+      connectionCommandsCount: connectionCommands.length,
+      dbType,
+      sqlLength: sql.length,
+      sqlPreview: sql.slice(0, 200),
+    });
+    return sql;
+  }, [connectionCommands, dbType]);
+
+  // Debug: Log grouped data
+  logger.info("[GlobalChangesDialog] Render state:", {
+    connectionId,
+    database,
+    schema,
+    table,
+    isTableSpecific,
+    connectionCommandsLength: connectionCommands.length,
+    groupedByRowLength: groupedByRow.length,
+    totalSummary,
+    viewMode,
+  });
+
+  // Copy SQL to clipboard
+  const handleCopySQL = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(generatedSQL);
+      setCopiedSql(true);
+      toast.success("SQL copied to clipboard");
+      setTimeout(() => setCopiedSql(false), 2000);
+    } catch {
+      toast.error("Failed to copy SQL");
+    }
+  }, [generatedSQL]);
 
   const handleCommitAll = async () => {
     setIsCommitting(true);
@@ -319,6 +411,16 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
           </DialogDescription>
         </DialogHeader>
 
+        {/* Debug info */}
+        {process.env.NODE_ENV === "development" && (
+          <div className="text-[10px] text-muted-foreground bg-muted/30 p-2 rounded font-mono">
+            Tables: {connectionCommands.length} |
+            Rows: {groupedByRow.length} |
+            Total: {totalSummary.total} |
+            SQL: {generatedSQL.length} chars
+          </div>
+        )}
+
         {/* Summary Statistics */}
         <div className="grid grid-cols-5 gap-3">
           <div className="flex items-center gap-2 rounded-xl border bg-card p-3">
@@ -372,27 +474,129 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
           </div>
         </div>
 
-        {/* Changes List - Grouped by Row ID */}
-        <ScrollArea className="flex-1 -mx-4 px-4 min-h-[100px] max-h-[60vh]">
-          <div className="space-y-2">
-            {groupedByRow.length === 0 ? (
-              <div className="text-sm text-muted-foreground text-center py-8">
-                No changes to display
-              </div>
-            ) : (
-              groupedByRow.map((row, index) => (
-                <RowChangesCard
-                  key={row.rowKey}
-                  row={row}
-                  index={index}
-                  onUndo={handleUndoRow}
-                />
-              ))
-            )}
+        {/* View Mode Toggle */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1 rounded-lg border bg-muted/50 p-1">
+            <Button
+              variant={viewMode === "changes" ? "default" : "ghost"}
+              size="sm"
+              className="h-7 px-3 text-xs"
+              onClick={() => setViewMode("changes")}
+            >
+              <IconList className="h-3.5 w-3.5 mr-1.5" />
+              Changes
+            </Button>
+            <Button
+              variant={viewMode === "sql" ? "default" : "ghost"}
+              size="sm"
+              className="h-7 px-3 text-xs"
+              onClick={() => setViewMode("sql")}
+            >
+              <IconCode className="h-3.5 w-3.5 mr-1.5" />
+              SQL
+            </Button>
           </div>
-        </ScrollArea>
+
+          {viewMode === "sql" && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={handleCopySQL}
+            >
+              {copiedSql ? (
+                <>
+                  <IconCheck className="h-3.5 w-3.5 mr-1.5 text-green-500" />
+                  Copied
+                </>
+              ) : (
+                <>
+                  <IconCopy className="h-3.5 w-3.5 mr-1.5" />
+                  Copy SQL
+                </>
+              )}
+            </Button>
+          )}
+        </div>
+
+        {/* Changes List - Grouped by Row ID */}
+        {viewMode === "changes" && (
+          <ScrollArea className="flex-1 min-h-[200px] max-h-[50vh]">
+            <div className="space-y-2 px-1">
+              {groupedByRow.length === 0 ? (
+                <div className="text-sm text-muted-foreground text-center py-8">
+                  No changes to display
+                </div>
+              ) : (
+                groupedByRow.map((row, index) => (
+                  <RowChangesCard
+                    key={row.rowKey}
+                    row={row}
+                    index={index}
+                    onUndo={handleUndoRow}
+                  />
+                ))
+              )}
+            </div>
+          </ScrollArea>
+        )}
+
+        {/* SQL Preview */}
+        {viewMode === "sql" && (
+          <ScrollArea className="flex-1 min-h-[200px] max-h-[50vh]">
+            <div className="rounded-lg border bg-muted/30 overflow-hidden mx-1">
+              <pre className="p-4 text-xs font-mono whitespace-pre-wrap break-words text-foreground leading-relaxed">
+                {generatedSQL ? (
+                  generatedSQL.split("\n").map((line, i) => (
+                    <div key={i} className="flex">
+                      <span className="select-none text-muted-foreground w-8 shrink-0 text-right pr-3">
+                        {i + 1}
+                      </span>
+                      <span className={
+                        line.startsWith("--")
+                          ? "text-muted-foreground italic"
+                          : line.includes("INSERT")
+                          ? "text-green-600 dark:text-green-400"
+                          : line.includes("UPDATE")
+                          ? "text-blue-600 dark:text-blue-400"
+                          : line.includes("DELETE")
+                          ? "text-red-600 dark:text-red-400"
+                          : line.includes("ALTER")
+                          ? "text-purple-600 dark:text-purple-400"
+                          : ""
+                      }>
+                        {line || " "}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <span className="text-muted-foreground">-- No SQL generated</span>
+                )}
+              </pre>
+            </div>
+          </ScrollArea>
+        )}
 
         <Separator />
+
+        {/* Validation Error Alert */}
+        {!validationStatus.canCommitAll && (
+          <Alert variant="destructive">
+            <IconAlertTriangle className="h-4 w-4" />
+            <AlertTitle>Cannot commit: validation errors</AlertTitle>
+            <AlertDescription>
+              {validationStatus.totalErrors} validation{" "}
+              {validationStatus.totalErrors === 1 ? "error" : "errors"} in{" "}
+              {Object.keys(validationStatus.tableErrors).length}{" "}
+              {Object.keys(validationStatus.tableErrors).length === 1
+                ? "table"
+                : "tables"}
+              : {Object.entries(validationStatus.tableErrors)
+                .map(([table, count]) => `${table} (${count})`)
+                .join(", ")}
+            </AlertDescription>
+          </Alert>
+        )}
 
         <DialogFooter className="flex justify-end gap-2">
           {!isTableSpecific && (
@@ -414,7 +618,15 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
             <IconX className="h-3.5 w-3.5 mr-1.5" />
             {isTableSpecific ? "Discard" : "Discard All"}
           </Button>
-          <Button onClick={handleCommitAll} disabled={isCommitting}>
+          <Button
+            onClick={handleCommitAll}
+            disabled={isCommitting || !validationStatus.canCommitAll}
+            title={
+              !validationStatus.canCommitAll
+                ? `Fix ${validationStatus.totalErrors} validation error${validationStatus.totalErrors === 1 ? "" : "s"} before committing`
+                : undefined
+            }
+          >
             {isCommitting ? (
               <>
                 <IconLoader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
@@ -624,6 +836,16 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
 
   const { old, new: newVal } = buildRowDiff();
 
+  // Debug: log when diff is empty
+  if (!old && !newVal) {
+    logger.warn("[RowChangesCard] Empty diff for row:", {
+      rowKey: row.rowKey,
+      tableName: row.tableName,
+      commandCount: row.commands.length,
+      commandTypes: row.commands.map(c => c.type),
+    });
+  }
+
   return (
     <div className="rounded-xl border bg-card overflow-hidden">
       {/* Header */}
@@ -699,6 +921,14 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
 
       {/* Diff Viewer */}
       <div className="text-xs [&_.diff-viewer]:!text-xs [&_.diff-viewer]:!font-mono">
+        {!old && !newVal ? (
+          <div className="p-3 text-muted-foreground italic">
+            Unable to display diff for {row.commands.length} command(s):
+            {row.commands.map((c, i) => (
+              <span key={i} className="ml-2 text-xs font-mono">{c.type}</span>
+            ))}
+          </div>
+        ) : (
         <ReactDiffViewer
           oldValue={old}
           newValue={newVal}
@@ -741,6 +971,7 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
             },
           }}
         />
+        )}
       </div>
     </div>
   );

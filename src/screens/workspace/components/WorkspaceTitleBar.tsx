@@ -395,6 +395,18 @@ export function WorkspaceTitleBar({
     };
   }, [totalChanges, commitAll, discardAll]);
 
+  // Update document title with unsaved changes indicator
+  useEffect(() => {
+    const dbName = selectedDatabase || connection?.database || "Query Pilot";
+    const baseTitle = `${dbName} - Query Pilot`;
+    document.title = totalChanges > 0 ? `* ${baseTitle}` : baseTitle;
+
+    // Cleanup: reset title on unmount
+    return () => {
+      document.title = "Query Pilot";
+    };
+  }, [totalChanges, selectedDatabase, connection?.database]);
+
   // Load connections if not already loaded
   useEffect(() => {
     if (connections.length === 0) {
@@ -1030,7 +1042,7 @@ export function WorkspaceTitleBar({
               onClick={() => {
                 setShowGlobalChanges(true);
               }}
-              className="h-5 px-2 text-xs gap-1.5 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/20 rounded-full"
+              className="h-5 px-2 text-xs gap-1.5 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/20 rounded-full animate-pulse"
               title="Click to review and commit changes"
             >
               <IconGitCommit className="h-2.5 w-2.5 text-orange-600 dark:text-orange-400" />
