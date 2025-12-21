@@ -255,16 +255,18 @@ describe("crudStore", () => {
       expect(state.isDirty).toBe(false);
     });
 
-    it("should create history snapshot when discarding", () => {
+    it("should reset history when discarding (discarded changes not recoverable)", () => {
       const store = useCrudStore.getState();
 
       store.stageCommand(mockCommand);
-      const historyLengthBefore = useCrudStore.getState().history.length;
+      expect(useCrudStore.getState().history.length).toBe(2);
 
       store.discardAll();
 
       const state = useCrudStore.getState();
-      expect(state.history.length).toBe(historyLengthBefore + 1);
+      // History is reset to 1 entry (empty state) - discarded changes should not be undoable
+      expect(state.history.length).toBe(1);
+      expect(state.historyIndex).toBe(0);
     });
   });
 
@@ -537,13 +539,14 @@ describe("crudStore", () => {
       const tableKey = store.getTableKey(mockTarget);
 
       await store.commitChanges(tableKey);
-      const historyLengthBefore = useCrudStore.getState().history.length;
 
-      // clearCommittedChanges creates a history snapshot
+      // clearCommittedChanges resets history (committed changes not undoable)
       store.clearCommittedChanges(tableKey);
 
       const state = useCrudStore.getState();
-      expect(state.history.length).toBe(historyLengthBefore + 1);
+      // History is reset to 1 entry - committed changes should not be undoable
+      expect(state.history.length).toBe(1);
+      expect(state.historyIndex).toBe(0);
     });
   });
 

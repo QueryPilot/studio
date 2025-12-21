@@ -113,3 +113,9 @@ export type {
   UseKeyboardNavigationOptions,
   UseKeyboardNavigationResult,
 } from './useKeyboardNavigation';
+
+export { useFillOperations } from './useFillOperations';
+export type {
+  UseFillOperationsOptions,
+  UseFillOperationsResult,
+} from './useFillOperations';

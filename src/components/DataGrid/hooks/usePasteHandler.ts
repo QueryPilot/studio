@@ -3,6 +3,12 @@ import { useCallback, useMemo } from "react";
 import type { Item } from "@glideapps/glide-data-grid";
 import type { DataGridBaseProps } from "../base/DataGridBase";
 import type { GridPasteEvent } from "../types";
+import {
+  type ColumnTypeHint,
+  type PasteValidationError,
+  coerceToColumnType,
+  validatePasteData,
+} from "../utils/pasteUtils";
 
 export type DataEditorPasteHandler = NonNullable<DataGridBaseProps["onPaste"]>;
 
@@ -11,6 +17,10 @@ export interface UsePasteHandlerOptions {
   coerceValue?: (value: string) => string | number | boolean | null;
   allowGridFallback?: boolean;
   afterPaste?: (event: GridPasteEvent, result: unknown) => void;
+  /** Column type hints for smart paste coercion (ordered by column index) */
+  columnHints?: ColumnTypeHint[];
+  /** Callback when paste has validation errors */
+  onValidationErrors?: (errors: PasteValidationError[]) => void;
 }
 
 export interface UsePasteHandlerResult {
@@ -30,11 +40,48 @@ const defaultCoerce = (value: string): string | number | boolean | null => {
   return value;
 };
 
+/**
+ * Smart coercion that uses column type hints when available
+ */
+const smartCoerce = (
+  value: string,
+  colIndex: number,
+  targetColIndex: number,
+  columnHints?: ColumnTypeHint[],
+  fallbackCoerce?: (value: string) => string | number | boolean | null,
+): string | number | boolean | null => {
+  // Calculate the actual column index based on target offset
+  const actualColIndex = targetColIndex + colIndex;
+  const hint = columnHints?.[actualColIndex];
+
+  if (hint) {
+    return coerceToColumnType(value, hint);
+  }
+
+  // Fall back to default coercion
+  return fallbackCoerce ? fallbackCoerce(value) : defaultCoerce(value);
+};
+
 const normalizeMatrix = (
   values: readonly (readonly string[])[],
   coerce: (value: string) => string | number | boolean | null,
 ): (string | number | boolean | null)[][] =>
   values.map((row) => row.map((value) => coerce(value)));
+
+/**
+ * Smart normalization with column type hints
+ */
+const normalizeMatrixWithHints = (
+  values: readonly (readonly string[])[],
+  targetColIndex: number,
+  columnHints?: ColumnTypeHint[],
+  fallbackCoerce?: (value: string) => string | number | boolean | null,
+): (string | number | boolean | null)[][] =>
+  values.map((row) =>
+    row.map((value, colIndex) =>
+      smartCoerce(value, colIndex, targetColIndex, columnHints, fallbackCoerce)
+    )
+  );
 
 export function parseClipboardText(text: string): string[][] {
   if (!text) return [];
@@ -53,17 +100,42 @@ export function usePasteHandler(
     coerceValue = defaultCoerce,
     allowGridFallback = false,
     afterPaste,
+    columnHints,
+    onValidationErrors,
   } = options;
 
   const handleDataEditorPaste = useCallback(
     (target: Item, values: readonly (readonly string[])[]) => {
-      logger.info('[usePasteHandler] handleDataEditorPaste called:', { target, values, hasOnPaste: !!onPaste, allowGridFallback });
+      const [targetColIndex] = target;
+      logger.info('[usePasteHandler] handleDataEditorPaste called:', {
+        target,
+        values,
+        hasOnPaste: !!onPaste,
+        allowGridFallback,
+        hasColumnHints: !!columnHints,
+      });
+
       if (!onPaste) {
         logger.info('[usePasteHandler] No onPaste handler, returning allowGridFallback:', allowGridFallback);
         return allowGridFallback;
       }
 
-      const normalized = normalizeMatrix(values, coerceValue);
+      // Use smart coercion if column hints are available
+      const normalized = columnHints
+        ? normalizeMatrixWithHints(values, targetColIndex, columnHints, coerceValue)
+        : normalizeMatrix(values, coerceValue);
+
+      // Validate paste data if column hints are provided
+      if (columnHints && onValidationErrors) {
+        // Build hints for the target columns only
+        const targetHints = columnHints.slice(targetColIndex);
+        const errors = validatePasteData(normalized, targetHints);
+        if (errors.length > 0) {
+          logger.info('[usePasteHandler] Validation errors found:', errors);
+          onValidationErrors(errors);
+        }
+      }
+
       const event = { target, values: normalized } satisfies GridPasteEvent;
       logger.info('[usePasteHandler] Calling onPaste with normalized event:', event);
       const result = onPaste(event);
@@ -78,7 +150,7 @@ export function usePasteHandler(
       logger.info('[usePasteHandler] Returning allowGridFallback:', allowGridFallback);
       return allowGridFallback;
     },
-    [allowGridFallback, coerceValue, onPaste, afterPaste],
+    [allowGridFallback, coerceValue, onPaste, afterPaste, columnHints, onValidationErrors],
   );
 
   const parseTextMatrix = useCallback<UsePasteHandlerResult["parseTextMatrix"]>(

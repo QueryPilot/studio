@@ -178,18 +178,23 @@ describe('useKeyboardNavigation', () => {
       expect(useNavigationStore.getState().getSelectedCell()).toBeNull();
     });
 
-    it('calls onClearCell on Delete key', () => {
+    it('does not handle Delete key (handled by Glide onDelete)', () => {
+      // Delete/Backspace is handled by Glide Data Grid's onDelete callback,
+      // not by useKeyboardNavigation's handleKeyDown
       const { result } = renderHook(() => useKeyboardNavigation(defaultOptions));
 
       act(() => {
         result.current.handleCellClick([1, 5]);
       });
 
+      let handled: boolean;
       act(() => {
-        result.current.handleKeyDown(createKeyEvent('Delete'));
+        handled = result.current.handleKeyDown(createKeyEvent('Delete'));
       });
 
-      expect(defaultOptions.onClearCell).toHaveBeenCalledWith([1, 5], 'email');
+      // Should return false to let Glide handle the key
+      expect(handled!).toBe(false);
+      expect(defaultOptions.onClearCell).not.toHaveBeenCalled();
     });
 
     it('moves right on Tab', () => {
