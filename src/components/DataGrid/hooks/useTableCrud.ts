@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, useTransition } from "react";
 import { toast } from "sonner";
 import isEqual from "lodash/isEqual";
 import { useCrudStore } from "@/stores/crudStore";
@@ -61,6 +61,8 @@ export interface UseTableCrudResult {
   isEditingCell: boolean;
   pendingChanges: ReturnType<typeof useCrudStore.getState>["stagedCommands"] extends Map<string, infer T> ? T : never;
   tableKey: string;
+  /** Whether a batch operation is in progress (useTransition pending state) */
+  isBatchPending: boolean;
 
   // Handlers
   handleCellEditStart: () => void;
@@ -94,6 +96,9 @@ export function useTableCrud({
   const [internalIsEditingCell, setInternalIsEditingCell] = useState(false);
   const isEditingCell = externalIsEditingCell ?? internalIsEditingCell;
   const setIsEditingCell = onEditingChange ?? setInternalIsEditingCell;
+
+  // Non-blocking batch operations via useTransition
+  const [isBatchPending, startBatchTransition] = useTransition();
 
   const { stageCommand, stageBatchWithSingleHistoryEntry, getTableKey, stagedCommands } = useCrudStore();
 
@@ -258,47 +263,51 @@ export function useTableCrud({
   );
 
   // Handler: Batch edit (for fill operations) with single history entry
+  // Uses useTransition for non-blocking UI during large batch operations
   const handleBatchEdit = useCallback(
     (edits: BatchEditItem[], rows: GridRowModel[]): void => {
       if (!enabled || edits.length === 0) return;
 
-      try {
-        const commands = edits.map(({ cell, value }) => {
-          const [columnIndex, rowIndex] = cell;
-          const column = columns[columnIndex];
-          const row = rows[rowIndex];
-          if (!column || !row) return null;
+      // Wrap in startBatchTransition for non-blocking processing
+      startBatchTransition(() => {
+        try {
+          const commands = edits.map(({ cell, value }) => {
+            const [columnIndex, rowIndex] = cell;
+            const column = columns[columnIndex];
+            const row = rows[rowIndex];
+            if (!column || !row) return null;
 
-          const columnName = column.name ?? column.field;
-          const previousValue = row[columnName] as CellValue | undefined;
+            const columnName = column.name ?? column.field;
+            const previousValue = row[columnName] as CellValue | undefined;
 
-          // Skip if value hasn't changed
-          if (areValuesEqual(previousValue, value)) return null;
+            // Skip if value hasn't changed
+            if (areValuesEqual(previousValue, value)) return null;
 
-          // Create UPDATE command
-          const event: GridEditCommitEvent = {
-            cell,
-            columnIndex,
-            rowIndex,
-            column,
-            row,
-            newValue: { kind: "text", data: value, displayData: String(value ?? "") } as any,
-            previousValue: previousValue ?? null,
-          };
+            // Create UPDATE command
+            const event: GridEditCommitEvent = {
+              cell,
+              columnIndex,
+              rowIndex,
+              column,
+              row,
+              newValue: { kind: "text", data: value, displayData: String(value ?? "") } as any,
+              previousValue: previousValue ?? null,
+            };
 
-          return createUpdateCommand(event, target, columns);
-        }).filter((cmd): cmd is NonNullable<typeof cmd> => cmd !== null);
+            return createUpdateCommand(event, target, columns);
+          }).filter((cmd): cmd is NonNullable<typeof cmd> => cmd !== null);
 
-        if (commands.length > 0) {
-          stageBatchWithSingleHistoryEntry(commands);
-          toast.success(`Applied ${commands.length} cell${commands.length === 1 ? "" : "s"}`);
+          if (commands.length > 0) {
+            stageBatchWithSingleHistoryEntry(commands);
+            toast.success(`Applied ${commands.length} cell${commands.length === 1 ? "" : "s"}`);
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          toast.error("Failed to apply batch edit", { description: message });
         }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        toast.error("Failed to apply batch edit", { description: message });
-      }
+      });
     },
-    [enabled, target, columns, stageBatchWithSingleHistoryEntry]
+    [enabled, target, columns, stageBatchWithSingleHistoryEntry, startBatchTransition]
   );
 
   // Action: Insert a new row programmatically
@@ -321,6 +330,7 @@ export function useTableCrud({
     isEditingCell,
     pendingChanges,
     tableKey,
+    isBatchPending,
     handleCellEditStart,
     handleCellEditCancel,
     handleCellEditCommit,
