@@ -7,6 +7,37 @@ import type { FilterConfig, FilterCondition, FilterGroup } from "@/types";
 // Define GridRowModel type locally to avoid circular dependency
 type GridRowModel = Record<string, unknown>;
 
+// Cell value wrapper used in query mode
+interface CellValueWrapper {
+  value: unknown;
+  db_type?: string;
+}
+
+export interface FilterOptions {
+  /** Map column names to row keys (for query mode with col_N keys) */
+  columnKeyMap?: Map<string, string>;
+  /** Whether row values are wrapped in {value: ...} objects */
+  wrappedValues?: boolean;
+}
+
+/**
+ * Get value from row, handling both direct access and wrapped values
+ */
+function getRowValue(
+  row: GridRowModel,
+  column: string,
+  options: FilterOptions,
+): unknown {
+  const key = options.columnKeyMap?.get(column) ?? column;
+  const cellData = row[key];
+
+  if (options.wrappedValues && cellData && typeof cellData === "object") {
+    return (cellData as CellValueWrapper).value;
+  }
+
+  return cellData;
+}
+
 /**
  * Apply a FilterConfig to rows client-side
  */
@@ -14,6 +45,7 @@ export function applyClientSideFilter(
   rows: GridRowModel[],
   filter: FilterConfig | undefined,
   columns: string[],
+  options: FilterOptions = {},
 ): GridRowModel[] {
   if (!filter) {
     return rows;
@@ -21,11 +53,11 @@ export function applyClientSideFilter(
 
   // Handle raw WHERE clause - convert to simple search
   if (filter.rawWhereClause) {
-    return applySimpleSearch(rows, filter.rawWhereClause, columns);
+    return applySimpleSearch(rows, filter.rawWhereClause, columns, options);
   }
 
   // Handle structured filter
-  return rows.filter((row) => evaluateGroup(row, filter.root, columns));
+  return rows.filter((row) => evaluateGroup(row, filter.root, columns, options));
 }
 
 /**
@@ -35,6 +67,7 @@ function applySimpleSearch(
   rows: GridRowModel[],
   searchTerm: string,
   columns: string[],
+  options: FilterOptions,
 ): GridRowModel[] {
   const term = searchTerm.toLowerCase().trim();
   if (!term) {
@@ -43,7 +76,7 @@ function applySimpleSearch(
 
   return rows.filter((row) => {
     for (const col of columns) {
-      const value = row[col];
+      const value = getRowValue(row, col, options);
       if (value === null || value === undefined) {
         continue;
       }
@@ -59,16 +92,16 @@ function applySimpleSearch(
 /**
  * Evaluate a filter group (AND/OR logic)
  */
-function evaluateGroup(row: GridRowModel, group: FilterGroup, columns: string[]): boolean {
+function evaluateGroup(row: GridRowModel, group: FilterGroup, columns: string[], options: FilterOptions): boolean {
   if (group.conditions.length === 0) {
     return true;
   }
 
   const results = group.conditions.map((item) => {
     if ("type" in item && item.type === "group") {
-      return evaluateGroup(row, item, columns);
+      return evaluateGroup(row, item, columns, options);
     }
-    return evaluateCondition(row, item as FilterCondition);
+    return evaluateCondition(row, item as FilterCondition, options);
   });
 
   if (group.logical === "AND") {
@@ -80,8 +113,8 @@ function evaluateGroup(row: GridRowModel, group: FilterGroup, columns: string[])
 /**
  * Evaluate a single filter condition
  */
-function evaluateCondition(row: GridRowModel, condition: FilterCondition): boolean {
-  const value = row[condition.column];
+function evaluateCondition(row: GridRowModel, condition: FilterCondition, options: FilterOptions): boolean {
+  const value = getRowValue(row, condition.column, options);
   const filterValue = condition.value;
 
   // Handle NULL checks first
