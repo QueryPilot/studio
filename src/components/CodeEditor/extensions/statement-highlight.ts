@@ -1,15 +1,20 @@
 /**
  * Statement Highlighting Extension
- * 
+ *
  * Provides visual feedback for SQL statement blocks:
  * - Highlights the active statement (statement containing cursor)
  * - Dims inactive statements
  * - Updates decorations when cursor moves
+ *
+ * Performance optimization:
+ * - Relies on getAllStatements() internal cache (single source of truth)
+ * - StateField only tracks activeIndex (cheap O(n) lookup)
+ * - Reference equality checks prevent unnecessary decoration rebuilds
  */
 
 import { EditorView, Decoration, type DecorationSet, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { StateField, StateEffect, type Extension } from "@codemirror/state";
-import { getAllStatements } from "../core/query-utils";
+import { getAllStatements, type StatementBoundary } from "../core/query-utils";
 
 /**
  * Effect to update the active statement
@@ -17,11 +22,34 @@ import { getAllStatements } from "../core/query-utils";
 const setActiveStatementEffect = StateEffect.define<number | null>();
 
 /**
- * StateField that tracks which statement is currently active (contains cursor)
+ * Find the index of the statement containing the given cursor position.
+ * Returns null if no statement contains the position.
+ */
+function findActiveStatement(statements: StatementBoundary[], cursorPos: number): number | null {
+  for (let i = 0; i < statements.length; i++) {
+    const stmt = statements[i];
+    if (stmt && cursorPos >= stmt.from && cursorPos <= stmt.to) {
+      return i;
+    }
+  }
+  return null;
+}
+
+/**
+ * StateField that tracks the active statement index.
+ *
+ * Performance optimization:
+ * - Relies on getAllStatements() internal cache for statement parsing
+ * - Only tracks activeIndex (cheap O(n) lookup on selection change)
+ * - Reference equality check prevents unnecessary updates
  */
 const activeStatementField = StateField.define<number | null>({
-  create() {
-    return null;
+  create(state) {
+    const statements = getAllStatements(state);
+    if (statements.length === 0) {
+      return null;
+    }
+    return 0; // Default to first statement
   },
   update(value, tr) {
     // Check for explicit effects first
@@ -31,35 +59,28 @@ const activeStatementField = StateField.define<number | null>({
       }
     }
 
-    // If selection changed, recalculate active statement
-    if (tr.selection || tr.docChanged) {
+    // Recalculate on document or selection change
+    if (tr.docChanged || tr.selection) {
       const statements = getAllStatements(tr.state);
-      
+
       // Don't highlight if no statements or empty document
       if (statements.length === 0) {
-        return null;
+        return value === null ? value : null; // Reference equality check
       }
 
       const selection = tr.state.selection.main;
       const cursorPos = selection.head;
-      
+
       // Check if entire document is selected (Cmd+A)
       const entireDocSelected = selection.from === 0 && selection.to === tr.state.doc.length;
-      
+
       // If entire document selected, highlight the first statement
-      if (entireDocSelected && statements.length > 0) {
-        return 0;
-      }
-      
-      // Find which statement contains the cursor
-      for (let i = 0; i < statements.length; i++) {
-        const stmt = statements[i];
-        if (stmt && cursorPos >= stmt.from && cursorPos <= stmt.to) {
-          return i;
-        }
-      }
-      
-      return null;
+      const newActiveIndex = entireDocSelected
+        ? 0
+        : findActiveStatement(statements, cursorPos);
+
+      // Reference equality check - avoid creating new value if unchanged
+      return newActiveIndex === value ? value : newActiveIndex;
     }
 
     return value;
@@ -84,10 +105,12 @@ const inactiveStatementLine = Decoration.line({
 
 /**
  * Build decorations for all statements
- * 
+ *
  * All statements get a left border:
  * - Active: primary color (visible)
  * - Inactive: transparent (invisible but maintains layout)
+ *
+ * Performance: Uses getAllStatements() internal cache (no reparse)
  */
 function buildStatementDecorations(view: EditorView): DecorationSet {
   // Don't apply decorations if document is empty or whitespace-only
@@ -96,6 +119,7 @@ function buildStatementDecorations(view: EditorView): DecorationSet {
     return Decoration.none;
   }
 
+  // Get statements from cache (getAllStatements has internal memoization)
   const statements = getAllStatements(view.state);
 
   // Don't apply decorations if no statements
@@ -103,17 +127,19 @@ function buildStatementDecorations(view: EditorView): DecorationSet {
     return Decoration.none;
   }
 
+  // Get active index from StateField
   const activeIndex = view.state.field(activeStatementField, false);
+
   const decorations: any[] = [];
 
   statements.forEach((stmt, index) => {
     // Get all line numbers for this statement
     const fromLine = view.state.doc.lineAt(stmt.from);
     const toLine = view.state.doc.lineAt(stmt.to);
-    
+
     for (let lineNum = fromLine.number; lineNum <= toLine.number; lineNum++) {
       const line = view.state.doc.line(lineNum);
-      
+
       if (index === activeIndex) {
         // Active statement - primary color border
         decorations.push(activeStatementLine.range(line.from));
@@ -129,6 +155,10 @@ function buildStatementDecorations(view: EditorView): DecorationSet {
 
 /**
  * ViewPlugin that manages statement decorations
+ *
+ * Performance optimization:
+ * - Only rebuilds when StateField reference changes (not on viewport changes)
+ * - Reference equality check leverages StateField's optimization
  */
 const statementHighlightPlugin = ViewPlugin.fromClass(
   class {
@@ -139,8 +169,11 @@ const statementHighlightPlugin = ViewPlugin.fromClass(
     }
 
     update(update: ViewUpdate) {
-      // Rebuild decorations if document or selection changed
-      if (update.docChanged || update.selectionSet || update.viewportChanged) {
+      // Only rebuild if StateField reference changed (includes doc/selection changes)
+      const oldActiveIndex = update.startState.field(activeStatementField, false);
+      const newActiveIndex = update.state.field(activeStatementField, false);
+
+      if (oldActiveIndex !== newActiveIndex || update.docChanged) {
         this.decorations = buildStatementDecorations(update.view);
       }
     }
