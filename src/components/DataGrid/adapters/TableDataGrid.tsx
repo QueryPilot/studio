@@ -1753,21 +1753,21 @@ export const TableDataGrid = memo(function TableDataGrid(
         };
       }
 
-      // Priority 4: Staged changes (subtle orange)
+      // Priority 4: Staged changes (subtle golden)
       if (changes.rowChanges.has(rowIndex)) {
         return {
-          bgCell: "rgba(252, 163, 17, 0.04)", // Brand orange with very low opacity
-          bgCellMedium: "rgba(252, 163, 17, 0.06)",
-          accentColor: "#FCA311",
-          accentLight: "rgba(252, 163, 17, 0.12)",
+          bgCell: "rgba(212, 165, 43, 0.04)", // Brand golden with very low opacity
+          bgCellMedium: "rgba(212, 165, 43, 0.06)",
+          accentColor: "#D4A52B",
+          accentLight: "rgba(212, 165, 43, 0.12)",
         };
       }
 
-      // Priority 4: Selected rows (orange)
+      // Priority 4: Selected rows (golden)
       if (selectedRowsSet.has(rowIndex)) {
         return {
-          bgCell: "rgba(252, 163, 17, 0.10)",
-          bgCellMedium: "rgba(252, 163, 17, 0.12)",
+          bgCell: "rgba(212, 165, 43, 0.10)",
+          bgCellMedium: "rgba(212, 165, 43, 0.12)",
         };
       }
 

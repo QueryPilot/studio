@@ -1,15 +1,15 @@
-import { Tabs as TabsPrimitive } from "@base-ui/react/tabs"
-import { cva, type VariantProps } from "class-variance-authority"
+import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
+import { cva, type VariantProps } from "class-variance-authority";
 
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/utils";
 
 // Extended props for backwards compatibility with custom shortcut features
 type TabsProps = TabsPrimitive.Root.Props & {
-  enableShortcuts?: boolean
-  tabGroupId?: string
-  focused?: boolean
-  enableGlobalShortcuts?: boolean
-}
+  enableShortcuts?: boolean;
+  tabGroupId?: string;
+  focused?: boolean;
+  enableGlobalShortcuts?: boolean;
+};
 
 function Tabs({
   className,
@@ -27,11 +27,11 @@ function Tabs({
       data-orientation={orientation}
       className={cn(
         "gap-2 group/tabs flex data-[orientation=horizontal]:flex-col",
-        className
+        className,
       )}
       {...props}
     />
-  )
+  );
 }
 
 const tabsListVariants = cva(
@@ -52,8 +52,8 @@ const tabsListVariants = cva(
       variant: "default",
       size: "default",
     },
-  }
-)
+  },
+);
 
 function TabsList({
   className,
@@ -69,14 +69,14 @@ function TabsList({
       className={cn(tabsListVariants({ variant, size }), className)}
       {...props}
     />
-  )
+  );
 }
 
 const tabsTriggerVariants = cva(
   [
     "gap-1.5 rounded-md border border-transparent text-xs font-medium group-data-vertical/tabs:py-[calc(--spacing(1.25))] [&_svg:not([class*='size-'])]:size-3.5 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:outline-ring text-foreground/60 hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center whitespace-nowrap transition-[color,background-color,border-color,box-shadow] duration-150 group-data-[orientation=vertical]/tabs:w-full group-data-[orientation=vertical]/tabs:justify-start focus-visible:ring-[3px] focus-visible:outline-1 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
     "group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent",
-    "data-active:bg-background dark:data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 data-active:text-foreground",
+    "data-active:bg-background dark:data-active:text-foreground dark:data-active:border-transparent dark:data-active:bg-background data-active:text-foreground",
     "after:bg-foreground after:absolute after:opacity-0 after:transition-opacity after:duration-150 group-data-[orientation=horizontal]/tabs:after:inset-x-0 group-data-[orientation=horizontal]/tabs:after:bottom-[-5px] group-data-[orientation=horizontal]/tabs:after:h-0.5 group-data-[orientation=vertical]/tabs:after:inset-y-0 group-data-[orientation=vertical]/tabs:after:-right-1 group-data-[orientation=vertical]/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100",
   ],
   {
@@ -90,8 +90,8 @@ const tabsTriggerVariants = cva(
     defaultVariants: {
       size: "default",
     },
-  }
-)
+  },
+);
 
 function TabsTrigger({
   className,
@@ -104,7 +104,7 @@ function TabsTrigger({
       className={cn(tabsTriggerVariants({ size }), className)}
       {...props}
     />
-  )
+  );
 }
 
 function TabsContent({ className, ...props }: TabsPrimitive.Panel.Props) {
@@ -114,7 +114,14 @@ function TabsContent({ className, ...props }: TabsPrimitive.Panel.Props) {
       className={cn("text-xs/relaxed flex-1 outline-none", className)}
       {...props}
     />
-  )
+  );
 }
 
-export { Tabs, TabsList, TabsTrigger, TabsContent, tabsListVariants, tabsTriggerVariants }
+export {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+  tabsListVariants,
+  tabsTriggerVariants,
+};

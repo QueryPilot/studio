@@ -317,7 +317,7 @@ export const QuickFilter = memo(
             ".cm-content": {
               padding: "6px 0",
               minHeight: "auto",
-              caretColor: actualTheme === "dark" ? "#FCA311" : "#EA9A0F",
+              caretColor: actualTheme === "dark" ? "#D4A52B" : "#B8911F",
             },
             ".cm-line": {
               padding: "0",

@@ -193,12 +193,9 @@ function App() {
             if (toastId !== undefined) toast.dismiss(toastId);
           }
 
-          // Ensure we close all backend DB connections to avoid leaks
-          try {
-            await databaseService.cleanup();
-          } catch (err) {
-            logger.error("Database cleanup failed on window close", err);
-          }
+          // Note: Do NOT call databaseService.cleanup() here!
+          // Each workspace window manages its own connection cleanup in WorkspaceScreen.
+          // Calling disconnectAll() here would disconnect ALL windows' connections.
 
           await currentWindow.destroy();
         });

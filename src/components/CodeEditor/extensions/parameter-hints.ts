@@ -324,7 +324,7 @@ export function createParameterHintsExtension(): Extension[] {
         color: "#9cdcfe",
       },
       ".cm-parameter-hint-active": {
-        backgroundColor: "rgba(252, 163, 17, 0.2)",
+        backgroundColor: "rgba(212, 165, 43, 0.2)",
         borderRadius: "2px",
         padding: "0 2px",
         fontWeight: "600",
