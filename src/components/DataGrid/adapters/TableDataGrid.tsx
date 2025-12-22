@@ -58,7 +58,7 @@ import {
   useGridPreferencesStore,
 } from "../stores";
 import { perfMonitor } from "../utils/performanceMonitor";
-import { applyClientSideFilter } from "../utils/clientSideFilter";
+import { applyClientSideFilter, type FilterOptions } from "../utils/clientSideFilter";
 import {
   useColumnPinning,
   useColumnSizing,
@@ -736,8 +736,18 @@ export const TableDataGrid = memo(function TableDataGrid(
       return rows; // Server-side filtering
     }
     // Client-side filtering for query results
+    // Build column name -> key mapping (query mode uses col_N keys)
+    const columnKeyMap = new Map<string, string>();
+    columnMeta.forEach((col, index) => {
+      columnKeyMap.set(col.name, `col_${index}`);
+    });
+
     const columnNames = columnMeta.map((c) => c.name);
-    return applyClientSideFilter(rows, activeFilter, columnNames) as TableDataRow[];
+    const filterOptions: FilterOptions = {
+      columnKeyMap,
+      wrappedValues: true, // Query mode wraps values in {value: ...} objects
+    };
+    return applyClientSideFilter(rows, activeFilter, columnNames, filterOptions) as TableDataRow[];
   }, [rows, isTableMode, activeFilter, columnMeta]);
 
   const { pinnedRows, unpinnedRows, pinnedRowIds, pinRow, unpinRow } =

@@ -446,4 +446,83 @@ describe("clientSideFilter", () => {
       expect(result).toHaveLength(3); // Bob, David, nobody (not Alice, Charlie)
     });
   });
+
+  describe("query mode (index-based keys with wrapped values)", () => {
+    // Simulate query mode row structure: col_N keys with {value: ...} wrapper
+    const queryModeRows = [
+      { col_0: { value: "1" }, col_1: { value: "Alice" }, col_2: { value: "pending" } },
+      { col_0: { value: "2" }, col_1: { value: "Bob" }, col_2: { value: "completed" } },
+      { col_0: { value: "3" }, col_1: { value: "Charlie" }, col_2: { value: "pending" } },
+      { col_0: { value: "4" }, col_1: { value: "David" }, col_2: { value: null } },
+    ];
+    const queryModeColumns = ["id", "name", "status"];
+
+    it("filters with column key map and wrapped values", () => {
+      const columnKeyMap = new Map([
+        ["id", "col_0"],
+        ["name", "col_1"],
+        ["status", "col_2"],
+      ]);
+
+      const filter: FilterConfig = {
+        root: {
+          id: "root",
+          type: "group",
+          logical: "AND",
+          conditions: [{ id: "c1", column: "status", operator: "ILIKE", value: "%pending%" }],
+        },
+      };
+
+      const result = applyClientSideFilter(queryModeRows, filter, queryModeColumns, {
+        columnKeyMap,
+        wrappedValues: true,
+      });
+
+      expect(result).toHaveLength(2); // Alice and Charlie have status "pending"
+    });
+
+    it("simple search with wrapped values", () => {
+      const columnKeyMap = new Map([
+        ["id", "col_0"],
+        ["name", "col_1"],
+        ["status", "col_2"],
+      ]);
+
+      const filter: FilterConfig = {
+        root: { id: "root", type: "group", logical: "AND", conditions: [] },
+        rawWhereClause: "alice",
+      };
+
+      const result = applyClientSideFilter(queryModeRows, filter, queryModeColumns, {
+        columnKeyMap,
+        wrappedValues: true,
+      });
+
+      expect(result).toHaveLength(1); // Only Alice
+    });
+
+    it("handles IS NULL with wrapped values", () => {
+      const columnKeyMap = new Map([
+        ["id", "col_0"],
+        ["name", "col_1"],
+        ["status", "col_2"],
+      ]);
+
+      const filter: FilterConfig = {
+        root: {
+          id: "root",
+          type: "group",
+          logical: "AND",
+          conditions: [{ id: "c1", column: "status", operator: "IS NULL", value: "" }],
+        },
+      };
+
+      const result = applyClientSideFilter(queryModeRows, filter, queryModeColumns, {
+        columnKeyMap,
+        wrappedValues: true,
+      });
+
+      expect(result).toHaveLength(1); // David has null status
+    });
+  });
 });
