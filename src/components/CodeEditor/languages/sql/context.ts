@@ -48,38 +48,45 @@ const SCOPE_NODES = new Set([
 // ============================================================================
 // CONTEXT ANALYSIS CACHE - Avoid re-analyzing on every keystroke
 // ============================================================================
-interface ContextCacheEntry {
-  analysis: SqlContextAnalysis;
+
+// Position-independent cached analysis
+interface CachedDocumentAnalysis {
+  ctes: TableRef[];
+  mutationContext: {
+    isInsert: boolean;
+    isUpdate: boolean;
+    targetTable?: string;
+  };
+  sql: string;
   docHash: number;
-  pos: number;
   timestamp: number;
 }
 
-// LRU cache for context analysis results
-const contextCache = new Map<string, ContextCacheEntry>();
-const CONTEXT_CACHE_MAX_SIZE = 100;
-const CONTEXT_CACHE_TTL = 5000; // 5 seconds
+// Document-level cache (no position in key = no cache miss on cursor move)
+const documentCache = new Map<string, CachedDocumentAnalysis>();
+const DOCUMENT_CACHE_MAX_SIZE = 50;
+const DOCUMENT_CACHE_TTL = 5000; // 5 seconds
 
-function getContextCacheKey(docHash: number, pos: number): string {
-  return `${docHash}:${pos}`;
+function getDocumentCacheKey(docHash: number): string {
+  return `${docHash}`;
 }
 
-function cleanContextCache(): void {
+function cleanDocumentCache(): void {
   const now = Date.now();
-  for (const [key, entry] of contextCache) {
-    if (now - entry.timestamp > CONTEXT_CACHE_TTL) {
-      contextCache.delete(key);
+  for (const [key, entry] of documentCache) {
+    if (now - entry.timestamp > DOCUMENT_CACHE_TTL) {
+      documentCache.delete(key);
     }
   }
   // Evict oldest if over size
-  if (contextCache.size > CONTEXT_CACHE_MAX_SIZE) {
-    const entries = [...contextCache.entries()].sort(
+  if (documentCache.size > DOCUMENT_CACHE_MAX_SIZE) {
+    const entries = [...documentCache.entries()].sort(
       (a, b) => a[1].timestamp - b[1].timestamp
     );
-    for (let i = 0; i < entries.length - CONTEXT_CACHE_MAX_SIZE / 2; i++) {
+    for (let i = 0; i < entries.length - DOCUMENT_CACHE_MAX_SIZE / 2; i++) {
       const entry = entries[i];
       if (entry) {
-        contextCache.delete(entry[0]);
+        documentCache.delete(entry[0]);
       }
     }
   }
@@ -213,16 +220,15 @@ function extractTablesFromRange(
  */
 function getScopeTables(
   state: EditorState,
-  pos: number
+  pos: number,
+  cachedCTEs: TableRef[]
 ): { tables: TableRef[]; outerTables: TableRef[]; subqueryDepth: number } {
   const tree = syntaxTree(state);
   const tables: TableRef[] = [];
   const outerTables: TableRef[] = [];
-  const sql = state.doc.toString();
 
-  // Parse CTEs first (available at all scope levels)
-  const ctes = parseCTEs(sql);
-  for (const cte of ctes) {
+  // Use cached CTEs (available at all scope levels)
+  for (const cte of cachedCTEs) {
     tables.push(cte);
   }
 
@@ -238,7 +244,7 @@ function getScopeTables(
 
   // Check if we're in a subquery using the syntax tree
   const subqueryScope = getSubqueryScopeAtPosition(state, pos);
-  const seen = new Set<string>(ctes.map(c => c.name.toLowerCase()));
+  const seen = new Set<string>(cachedCTEs.map(c => c.name.toLowerCase()));
 
   if (subqueryScope) {
     // We're in a subquery - extract tables only from this subquery's scope
@@ -548,14 +554,53 @@ function detectJoinOnContext(
 }
 
 /**
+ * Get or compute document-level analysis (position-independent).
+ * This is cached by document hash only - cursor movement doesn't invalidate cache.
+ *
+ * All expensive computations that don't depend on cursor position go here.
+ */
+function getOrComputeDocumentAnalysis(
+  _state: EditorState,
+  sql: string,
+  docHash: number
+): CachedDocumentAnalysis {
+  const cacheKey = getDocumentCacheKey(docHash);
+  const cached = documentCache.get(cacheKey);
+
+  if (cached && Date.now() - cached.timestamp < DOCUMENT_CACHE_TTL) {
+    return cached; // CACHE HIT - reuse expensive computations
+  }
+
+  // Clean old cache entries periodically
+  if (documentCache.size > DOCUMENT_CACHE_MAX_SIZE / 2) {
+    cleanDocumentCache();
+  }
+
+  // CACHE MISS - compute all position-independent data
+  const ctes = parseCTEs(sql);
+  const mutationContext = detectMutationContext(sql);
+
+  const analysis: CachedDocumentAnalysis = {
+    ctes,
+    mutationContext,
+    sql,
+    docHash,
+    timestamp: Date.now(),
+  };
+
+  documentCache.set(cacheKey, analysis);
+  return analysis;
+}
+
+/**
  * Analyze the SQL context at the cursor position.
  * Returns information about what kind of completion is expected
  * and which tables are in scope.
  *
  * Performance optimizations:
- * - Caches results by document hash + position
- * - Early returns for cached results
- * - TTL-based cache expiration
+ * - Caches document analysis by hash only (no position in key)
+ * - Position-specific resolution uses cached data
+ * - Cursor movement doesn't invalidate cache
  */
 export function analyzeSqlContext(
   context: CompletionContext,
@@ -564,27 +609,11 @@ export function analyzeSqlContext(
   const { state, pos } = context;
   const sql = state.doc.toString();
 
-  // Check cache first - hash based on document content
+  // ACTUALLY USE the cached document analysis (position-independent)
   const docHash = hashString(sql);
-  const cacheKey = getContextCacheKey(docHash, pos);
-  const cached = contextCache.get(cacheKey);
+  const docAnalysis = getOrComputeDocumentAnalysis(state, sql, docHash);
 
-  if (cached && Date.now() - cached.timestamp < CONTEXT_CACHE_TTL) {
-    // Return cached result with updated range (word may have changed)
-    const word = context.matchBefore(/[\w$]*$/);
-    return {
-      ...cached.analysis,
-      identifier: word?.text || "",
-      range: word ? { from: word.from, to: word.to } : { from: pos, to: pos },
-    };
-  }
-
-  // Clean old cache entries periodically
-  if (contextCache.size > CONTEXT_CACHE_MAX_SIZE / 2) {
-    cleanContextCache();
-  }
-
-  // Get the word being typed
+  // Position-specific analysis (not cached)
   const word = context.matchBefore(/[\w$]*$/);
   const identifier = word?.text || "";
   const range = word
@@ -604,11 +633,11 @@ export function analyzeSqlContext(
     intent = detectIntent(state, pos);
   }
 
-  // Get tables with subquery scope isolation
-  const { tables, outerTables, subqueryDepth } = getScopeTables(state, pos);
+  // Get tables with subquery scope isolation using cached CTEs
+  const { tables, outerTables, subqueryDepth } = getScopeTables(state, pos, docAnalysis.ctes);
 
-  // Detect mutation context (INSERT/UPDATE)
-  const mutationContext = detectMutationContext(sql);
+  // Use cached mutation context
+  const mutationContext = docAnalysis.mutationContext;
 
   // For INSERT, check if we're in the column list (between parentheses after table name)
   let isInsertColumnContext = false;
@@ -622,7 +651,7 @@ export function analyzeSqlContext(
     }
   }
 
-  // Detect JOIN ON context
+  // Detect JOIN ON context (position-specific)
   const joinContext = detectJoinOnContext(state, pos);
 
   const analysis: SqlContextAnalysis = {
@@ -640,14 +669,6 @@ export function analyzeSqlContext(
     isJoinOnContext: joinContext.isJoinOnContext,
     joinTargetTable: joinContext.joinTargetTable,
   };
-
-  // Cache the result
-  contextCache.set(cacheKey, {
-    analysis,
-    docHash,
-    pos,
-    timestamp: Date.now(),
-  });
 
   return analysis;
 }
