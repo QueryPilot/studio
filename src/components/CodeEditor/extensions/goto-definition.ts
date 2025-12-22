@@ -258,7 +258,7 @@ export function createGotoDefinitionExtension(
     // Styling
     EditorView.baseTheme({
       ".cm-goto-highlight": {
-        backgroundColor: "rgba(252, 163, 17, 0.3)",
+        backgroundColor: "rgba(212, 165, 43, 0.3)",
         borderRadius: "2px",
       },
     }),

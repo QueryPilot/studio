@@ -5,6 +5,7 @@ use postgres_native_tls::MakeTlsConnector;
 use rust_decimal::Decimal;
 use std::fs;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio_postgres::config::{ChannelBinding as PgChannelBinding, SslMode as PgSslMode};
 use tokio_postgres::{Config, NoTls};
 use uuid::Uuid;
@@ -402,15 +403,22 @@ impl DbAdapter for PostgresAdapter {
     }
 
     async fn is_connected(&self) -> bool {
-        if let Some(pool) = &self.pool {
-            // Try to get a connection from the pool and run a simple query
-            if let Ok(conn) = pool.get().await {
-                return conn.query_one("SELECT 1", &[]).await.is_ok();
-            }
-            false
-        } else {
-            false
-        }
+        let Some(pool) = &self.pool else {
+            return false;
+        };
+
+        // Use timeout to prevent hanging on dead connections
+        let check_future = async {
+            let conn = pool.get().await.ok()?;
+            conn.query_one("SELECT 1", &[]).await.ok()?;
+            Some(())
+        };
+
+        tokio::time::timeout(Duration::from_secs(5), check_future)
+            .await
+            .ok()
+            .flatten()
+            .is_some()
     }
 
     async fn query(&self, sql: &str) -> Result<QueryResult> {

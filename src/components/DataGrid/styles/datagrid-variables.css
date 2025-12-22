@@ -26,14 +26,14 @@
   --grid-row-updated-bg: rgba(59, 130, 246, 0.08);
   --grid-row-updated-bg-medium: rgba(59, 130, 246, 0.10);
 
-  /* Pinned row - brand orange tint */
-  --grid-row-pinned-bg: rgba(252, 163, 17, 0.04);
-  --grid-row-pinned-bg-medium: rgba(252, 163, 17, 0.06);
-  --grid-row-pinned-accent-light: rgba(252, 163, 17, 0.12);
+  /* Pinned row - brand golden tint (oklch(0.79 0.145 77) ≈ #D4A52B) */
+  --grid-row-pinned-bg: rgba(212, 165, 43, 0.04);
+  --grid-row-pinned-bg-medium: rgba(212, 165, 43, 0.06);
+  --grid-row-pinned-accent-light: rgba(212, 165, 43, 0.12);
 
-  /* Pinned + staged row - stronger orange */
-  --grid-row-pinned-staged-bg: rgba(252, 163, 17, 0.10);
-  --grid-row-pinned-staged-bg-medium: rgba(252, 163, 17, 0.12);
+  /* Pinned + staged row - stronger golden */
+  --grid-row-pinned-staged-bg: rgba(212, 165, 43, 0.10);
+  --grid-row-pinned-staged-bg-medium: rgba(212, 165, 43, 0.12);
 
   /* ============================================
    * Cell State Backgrounds
@@ -68,12 +68,12 @@
   --grid-border-light: rgba(0, 0, 0, 0.05);
   --grid-drilldown-border: rgba(0, 0, 0, 0.2);
 
-  /* Brand accent */
-  --grid-accent: #fca311;
-  --grid-accent-light: rgba(252, 163, 17, 0.1);
+  /* Brand accent - oklch(0.79 0.145 77) ≈ #D4A52B */
+  --grid-accent: #D4A52B;
+  --grid-accent-light: rgba(212, 165, 43, 0.1);
 
   /* Search result highlight */
-  --grid-search-result-bg: rgba(252, 163, 17, 0.2);
+  --grid-search-result-bg: rgba(212, 165, 43, 0.2);
 
   /* ============================================
    * Hover & Selection
@@ -95,11 +95,11 @@
   --grid-row-updated-bg: rgba(59, 130, 246, 0.10);
   --grid-row-updated-bg-medium: rgba(59, 130, 246, 0.14);
 
-  --grid-row-pinned-bg: rgba(252, 163, 17, 0.06);
-  --grid-row-pinned-bg-medium: rgba(252, 163, 17, 0.08);
+  --grid-row-pinned-bg: rgba(212, 165, 43, 0.06);
+  --grid-row-pinned-bg-medium: rgba(212, 165, 43, 0.08);
 
-  --grid-row-pinned-staged-bg: rgba(252, 163, 17, 0.12);
-  --grid-row-pinned-staged-bg-medium: rgba(252, 163, 17, 0.15);
+  --grid-row-pinned-staged-bg: rgba(212, 165, 43, 0.12);
+  --grid-row-pinned-staged-bg-medium: rgba(212, 165, 43, 0.15);
 
   /* Cell states */
   --grid-cell-modified-bg: rgba(59, 130, 246, 0.20);

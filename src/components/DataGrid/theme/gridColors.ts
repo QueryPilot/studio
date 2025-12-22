@@ -74,16 +74,16 @@ export function getUpdatedRowColors(): RowStateColors {
 
 export function getPinnedRowColors(): RowStateColors {
   return {
-    bgCell: getCssVar("--grid-row-pinned-bg", "rgba(252, 163, 17, 0.04)"),
-    bgCellMedium: getCssVar("--grid-row-pinned-bg-medium", "rgba(252, 163, 17, 0.06)"),
-    accentLight: getCssVar("--grid-row-pinned-accent-light", "rgba(252, 163, 17, 0.12)"),
+    bgCell: getCssVar("--grid-row-pinned-bg", "rgba(212, 165, 43, 0.04)"),
+    bgCellMedium: getCssVar("--grid-row-pinned-bg-medium", "rgba(212, 165, 43, 0.06)"),
+    accentLight: getCssVar("--grid-row-pinned-accent-light", "rgba(212, 165, 43, 0.12)"),
   };
 }
 
 export function getPinnedStagedRowColors(): RowStateColors {
   return {
-    bgCell: getCssVar("--grid-row-pinned-staged-bg", "rgba(252, 163, 17, 0.10)"),
-    bgCellMedium: getCssVar("--grid-row-pinned-staged-bg-medium", "rgba(252, 163, 17, 0.12)"),
+    bgCell: getCssVar("--grid-row-pinned-staged-bg", "rgba(212, 165, 43, 0.10)"),
+    bgCellMedium: getCssVar("--grid-row-pinned-staged-bg-medium", "rgba(212, 165, 43, 0.12)"),
   };
 }
 
@@ -135,15 +135,15 @@ export function getBorderLightColor(): string {
 }
 
 export function getAccentColor(): string {
-  return getCssVar("--grid-accent", "#fca311");
+  return getCssVar("--grid-accent", "#D4A52B");
 }
 
 export function getAccentLightColor(): string {
-  return getCssVar("--grid-accent-light", "rgba(252, 163, 17, 0.1)");
+  return getCssVar("--grid-accent-light", "rgba(212, 165, 43, 0.1)");
 }
 
 export function getSearchResultBg(): string {
-  return getCssVar("--grid-search-result-bg", "rgba(252, 163, 17, 0.2)");
+  return getCssVar("--grid-search-result-bg", "rgba(212, 165, 43, 0.2)");
 }
 
 // ============================================================================

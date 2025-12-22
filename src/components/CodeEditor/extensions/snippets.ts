@@ -521,7 +521,7 @@ export function createSnippetExtension(
     // Snippet mode styling
     EditorView.baseTheme({
       ".cm-snippet-tabstop": {
-        backgroundColor: "rgba(252, 163, 17, 0.2)",
+        backgroundColor: "rgba(212, 165, 43, 0.2)",
         borderRadius: "2px",
       },
     }),

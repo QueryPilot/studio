@@ -391,10 +391,10 @@ export const TableStructure = memo(function TableStructure({
           }
         : isModified
         ? {
-            bgCell: "rgba(252, 163, 17, 0.04)", // brand orange for modified columns
-            bgCellMedium: "rgba(252, 163, 17, 0.06)",
-            accentColor: "#FCA311",
-            accentLight: "rgba(252, 163, 17, 0.12)",
+            bgCell: "rgba(212, 165, 43, 0.04)", // brand golden for modified columns
+            bgCellMedium: "rgba(212, 165, 43, 0.06)",
+            accentColor: "#D4A52B",
+            accentLight: "rgba(212, 165, 43, 0.12)",
           }
         : undefined;
 
