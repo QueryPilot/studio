@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { exportToCSV, type ExportOptions } from "@/utils/csvExport";
 import { exportToJSON, type JsonExportOptions, type JsonFormat } from "@/utils/jsonExport";
+import { copyInsertToClipboard, type InsertExportOptions } from "@/utils/sqlInsertExport";
 import { toast } from "sonner";
 
 interface QueryResult {
@@ -53,6 +54,8 @@ interface ResultViewerProps {
   height?: string;
   connectionId?: string;
   database?: string;
+  schema?: string;
+  databaseType?: string;
   gridId: string;
   isStreaming?: boolean;
   viewMode: "table" | "json" | "explain" | "raw" | "stats";
@@ -85,6 +88,8 @@ export const ResultViewer = memo(function ResultViewer({
   multiResults,
   activeResultIndex,
   onResultTabChange,
+  schema,
+  databaseType,
 }: ResultViewerProps) {
   const handleTabChange = (index: number) => {
     onResultTabChange(index);
@@ -155,6 +160,8 @@ export const ResultViewer = memo(function ResultViewer({
               networkMs={actualResult.networkMs}
               conversionMs={actualResult.conversionMs}
               ipcSendMs={actualResult.ipcSendMs}
+              schema={schema}
+              databaseType={databaseType}
             />
           )}
         </div>
@@ -177,6 +184,8 @@ export const ResultViewer = memo(function ResultViewer({
         networkMs={networkMs}
         conversionMs={conversionMs}
         ipcSendMs={ipcSendMs}
+        schema={schema}
+        databaseType={databaseType}
       />
     </div>
   );
@@ -197,15 +206,19 @@ interface SingleResultViewProps {
   networkMs?: number;
   conversionMs?: number;
   ipcSendMs?: number;
+  schema?: string;
+  databaseType?: string;
 }
 
 interface ExportMenuProps {
   columns: string[];
   rows: unknown[][];
+  schema?: string;
+  databaseType?: string;
 }
 
-const ExportMenu = memo(function ExportMenu({ columns, rows }: ExportMenuProps) {
-  type ExportFormat = "csv" | "json";
+const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseType }: ExportMenuProps) {
+  type ExportFormat = "csv" | "json" | "insert";
   const [exportFormat, setExportFormat] = useState<ExportFormat>("csv");
 
   // CSV options
@@ -214,6 +227,10 @@ const ExportMenu = memo(function ExportMenu({ columns, rows }: ExportMenuProps) 
 
   // JSON options
   const [jsonFormat, setJsonFormat] = useState<JsonFormat>("pretty");
+
+  // INSERT options
+  const [tableName, setTableName] = useState("table_name");
+  const [batchMode, setBatchMode] = useState(true);
 
   const handleExportCSV = () => {
     const options: ExportOptions = {
@@ -259,6 +276,32 @@ const ExportMenu = memo(function ExportMenu({ columns, rows }: ExportMenuProps) 
     }
   };
 
+  const handleCopyInsert = async () => {
+    const validTypes = ["postgresql", "mysql", "mariadb", "mssql", "sqlite"];
+    const dbTypeToUse = databaseType && validTypes.includes(databaseType)
+      ? (databaseType as InsertExportOptions["databaseType"])
+      : "postgresql";
+
+    const options: InsertExportOptions = {
+      tableName,
+      schema,
+      databaseType: dbTypeToUse,
+      batchMode,
+    };
+
+    const result = await copyInsertToClipboard(rows, columns, options);
+
+    if (result.success) {
+      toast.success("Copied as INSERT statements", {
+        description: `${result.rowCount.toLocaleString()} rows copied to clipboard`,
+      });
+    } else {
+      toast.error("Copy failed", {
+        description: result.error || "Unknown error",
+      });
+    }
+  };
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -295,6 +338,15 @@ const ExportMenu = memo(function ExportMenu({ columns, rows }: ExportMenuProps) 
           {exportFormat === "json" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
           {exportFormat !== "json" && <span className="w-3.5 mr-2" />}
           JSON (JavaScript Object)
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => {
+            setExportFormat("insert");
+          }}
+        >
+          {exportFormat === "insert" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
+          {exportFormat !== "insert" && <span className="w-3.5 mr-2" />}
+          SQL INSERT Statements
         </DropdownMenuItem>
 
         <DropdownMenuSeparator />
@@ -388,6 +440,48 @@ const ExportMenu = memo(function ExportMenu({ columns, rows }: ExportMenuProps) 
             </DropdownMenuItem>
           </>
         )}
+
+        {exportFormat === "insert" && (
+          <>
+            <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">
+              INSERT Options
+            </DropdownMenuLabel>
+
+            <div className="px-3 py-2">
+              <label className="text-xs text-muted-foreground mb-1 block">
+                Table Name
+              </label>
+              <input
+                type="text"
+                value={tableName}
+                onChange={(e) => {
+                  setTableName(e.target.value);
+                }}
+                className="w-full px-2 py-1 text-xs border rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                placeholder="table_name"
+              />
+            </div>
+
+            <DropdownMenuSeparator />
+
+            <DropdownMenuCheckboxItem
+              checked={batchMode}
+              onCheckedChange={setBatchMode}
+            >
+              Batch Mode (Single INSERT)
+            </DropdownMenuCheckboxItem>
+
+            <DropdownMenuSeparator />
+
+            <DropdownMenuItem
+              onClick={handleCopyInsert}
+              className="bg-primary/10 text-primary font-medium"
+            >
+              <IconCopy className="h-3.5 w-3.5 mr-2" />
+              Copy INSERT
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -405,6 +499,8 @@ const SingleResultView = memo(function SingleResultView({
   networkMs,
   conversionMs,
   ipcSendMs,
+  schema,
+  databaseType,
 }: SingleResultViewProps) {
   const jsonContent = useMemo(() => {
     // Skip expensive JSON computation when in table mode
@@ -537,7 +633,7 @@ const SingleResultView = memo(function SingleResultView({
       {/* Export button for results with data */}
       {hasExportableData && (
         <div className="px-2 py-1.5 border-b bg-muted/30 flex items-center justify-end">
-          <ExportMenu columns={result.columns} rows={result.rows} />
+          <ExportMenu columns={result.columns} rows={result.rows} schema={schema} databaseType={databaseType} />
         </div>
       )}
 
