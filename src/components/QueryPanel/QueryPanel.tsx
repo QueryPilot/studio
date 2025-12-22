@@ -9,6 +9,7 @@ import {
   startTransition,
   useReducer,
 } from "react";
+import { debounce } from "lodash";
 import { QueryEditor } from "./QueryEditor";
 import { ResultViewer } from "./ResultViewer";
 import { QueryHistory } from "./QueryHistory";
@@ -396,30 +397,35 @@ export const QueryPanel = memo(function QueryPanel({
   // Instead, workbenchStore should call clearQueryState when tab is actually removed
 
   const lastPersistedRef = useRef<string>(globalState?.query ?? initialSql);
-  const persistTimerRef = useRef<number | null>(null);
-  const persistSql = useCallback(
-    (value: string) => {
-      if (!panelId || !tabId) return;
-      if (value === lastPersistedRef.current) return;
-      if (persistTimerRef.current) {
-        clearTimeout(persistTimerRef.current);
-        persistTimerRef.current = null;
-      }
-      persistTimerRef.current = window.setTimeout(() => {
-        lastPersistedRef.current = value;
-        updateTabMetadata(panelId, tabId, { sql: value });
-      }, 250);
-    },
-    [panelId, tabId, updateTabMetadata],
-  );
+  const persistSqlRef = useRef<ReturnType<typeof debounce> | null>(null);
+  const metadataRef = useRef({ panelId, tabId, updateTabMetadata });
+
+  // Keep metadata ref current
   useEffect(() => {
+    metadataRef.current = { panelId, tabId, updateTabMetadata };
+  }, [panelId, tabId, updateTabMetadata]);
+
+  // Create stable debounced function once
+  useEffect(() => {
+    const abortController = new AbortController();
+
+    const persistSql = debounce((value: string) => {
+      if (abortController.signal.aborted) return;
+      if (value === lastPersistedRef.current) return;
+      lastPersistedRef.current = value;
+
+      const { panelId, tabId, updateTabMetadata } = metadataRef.current;
+      if (!panelId || !tabId) return; // Guard against undefined
+      updateTabMetadata(panelId, tabId, { sql: value });
+    }, 250);
+
+    persistSqlRef.current = persistSql;
+
     return () => {
-      if (persistTimerRef.current) {
-        clearTimeout(persistTimerRef.current);
-        persistTimerRef.current = null;
-      }
+      abortController.abort();
+      persistSql.cancel();
     };
-  }, []);
+  }, []); // Empty deps - create once, cleanup on unmount
 
   /**
    * Execute multiple SQL statements sequentially.
@@ -1155,9 +1161,9 @@ export const QueryPanel = memo(function QueryPanel({
   const handleSelectQuery = useCallback(
     (selectedQuery: string) => {
       setQuery(selectedQuery);
-      persistSql(selectedQuery);
+      persistSqlRef.current?.(selectedQuery);
     },
-    [persistSql, setQuery],
+    [setQuery],
   );
 
   const handleBeautify = useCallback(() => {
@@ -1179,10 +1185,10 @@ export const QueryPanel = memo(function QueryPanel({
 
     if (beautified !== query) {
       setQuery(beautified);
-      persistSql(beautified);
+      persistSqlRef.current?.(beautified);
       toast.success("Query formatted");
     }
-  }, [query, dbType, persistSql, setQuery]);
+  }, [query, dbType, setQuery]);
 
   // Handle EXPLAIN ANALYZE - wraps query with EXPLAIN and executes
   const handleExplain = useCallback(() => {
@@ -1377,7 +1383,7 @@ export const QueryPanel = memo(function QueryPanel({
                     onChange={(value) => {
                       const nextValue = value ?? "";
                       setQuery(nextValue);
-                      persistSql(nextValue);
+                      persistSqlRef.current?.(nextValue);
                     }}
                     onExecute={handleExecute}
                     isExecuting={isExecuting}
