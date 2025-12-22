@@ -426,7 +426,7 @@ export const QueryPanel = memo(function QueryPanel({
    * Shows progress and accumulates results in a tabbed interface.
    */
   const handleMultiQueryExecute = useCallback(
-    async (statements: string[]) => {
+    async (statements: string[], signal?: AbortSignal) => {
       if (statements.length === 0) return;
 
       logger.info(
@@ -444,7 +444,7 @@ export const QueryPanel = memo(function QueryPanel({
       setQueryState(tabId, { multiResults: [], activeResultIndex: 0 });
 
       for (let i = 0; i < statements.length; i++) {
-        if (hasError) break; // Stop on first error
+        if (hasError || signal?.aborted) break; // Stop on first error or cancellation
 
         const stmt = statements[i];
         if (!stmt || !stmt.trim()) continue;
@@ -495,6 +495,7 @@ export const QueryPanel = memo(function QueryPanel({
             () => {
               /* Skip limit callback for multi-query */
             },
+            signal,
           );
 
           const final = await streamPromise;
@@ -685,7 +686,16 @@ export const QueryPanel = memo(function QueryPanel({
         logger.info(
           `[handleExecute] Multi-statement query detected: ${statements.length} statements`,
         );
-        await handleMultiQueryExecute(statements);
+
+        // Create abort controller for multi-query execution
+        const controller = new AbortController();
+        setAbortController(controller);
+
+        try {
+          await handleMultiQueryExecute(statements, controller.signal);
+        } finally {
+          setAbortController(null);
+        }
         return;
       }
 
@@ -849,6 +859,7 @@ export const QueryPanel = memo(function QueryPanel({
           (originalSql, appliedLimit) => {
             setAppliedLimit({ originalSql, limit: appliedLimit });
           },
+          controller.signal,
         );
 
         const final = await streamPromise;
@@ -1136,9 +1147,6 @@ export const QueryPanel = memo(function QueryPanel({
       setIsExecuting(false);
       setIsStreaming(false);
       setAbortController(null);
-
-      // Cancel backend streaming
-      tableStreamingService.cancel();
 
       toast.info("Query cancelled");
     }
