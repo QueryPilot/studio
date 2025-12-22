@@ -1259,45 +1259,60 @@ export const QueryPanel = memo(function QueryPanel({
     return unsubscribe;
   }, [panelId]);
 
+  // Use refs for stable handler identity
+  const handlersRef = useRef({
+    format: () => {},
+    execute: () => {},
+    toggleHistory: () => {},
+    explain: () => {},
+  });
+
+  // Update refs when handlers change (doesn't change identity)
   useEffect(() => {
-    const handleFormat = () => {
-      // IconCheck if THIS panel should handle the event
+    handlersRef.current.format = handleBeautify;
+    handlersRef.current.execute = handleExecute;
+    handlersRef.current.toggleHistory = toggleHistory;
+    handlersRef.current.explain = handleExplain;
+  }, [handleBeautify, handleExecute, toggleHistory, handleExplain]);
+
+  // Subscribe once with stable wrapper
+  useEffect(() => {
+    const onFormat = () => {
       if (!isFocusedRef.current) return;
       logger.info("🟢 QueryPanel handling format event");
-      handleBeautify();
+      handlersRef.current.format();
     };
 
-    const handleToggleHistory = () => {
+    const onToggleHistory = () => {
       if (!isFocusedRef.current) return;
       logger.info("🟢 QueryPanel handling toggle history event");
-      toggleHistory();
+      handlersRef.current.toggleHistory();
     };
 
-    const handleExecuteEvent = () => {
+    const onExecute = () => {
       if (!isFocusedRef.current) return;
       logger.info("🟢 QueryPanel handling execute event");
-      handleExecute();
+      handlersRef.current.execute();
     };
 
-    const handleExplainEvent = () => {
+    const onExplain = () => {
       if (!isFocusedRef.current) return;
       logger.info("🟢 QueryPanel handling explain event");
-      handleExplain();
+      handlersRef.current.explain();
     };
 
-    // Subscribe ALWAYS - handlers check focus
-    eventBus.on("query-editor:format", handleFormat);
-    eventBus.on("query-editor:toggle-history", handleToggleHistory);
-    eventBus.on("query-editor:execute", handleExecuteEvent);
-    eventBus.on("query-editor:explain", handleExplainEvent);
+    eventBus.on("query-editor:format", onFormat);
+    eventBus.on("query-editor:toggle-history", onToggleHistory);
+    eventBus.on("query-editor:execute", onExecute);
+    eventBus.on("query-editor:explain", onExplain);
 
     return () => {
-      eventBus.off("query-editor:format", handleFormat);
-      eventBus.off("query-editor:toggle-history", handleToggleHistory);
-      eventBus.off("query-editor:execute", handleExecuteEvent);
-      eventBus.off("query-editor:explain", handleExplainEvent);
+      eventBus.off("query-editor:format", onFormat);
+      eventBus.off("query-editor:toggle-history", onToggleHistory);
+      eventBus.off("query-editor:execute", onExecute);
+      eventBus.off("query-editor:explain", onExplain);
     };
-  }, [handleBeautify, toggleHistory, handleExecute, handleExplain]);
+  }, []); // Empty deps - subscribe once
 
   // Focus panel when QueryPanel is clicked or focused
   const handleFocusPanel = useCallback(() => {
