@@ -58,6 +58,7 @@ import {
   useGridPreferencesStore,
 } from "../stores";
 import { perfMonitor } from "../utils/performanceMonitor";
+import { applyClientSideFilter } from "../utils/clientSideFilter";
 import {
   useColumnPinning,
   useColumnSizing,
@@ -81,6 +82,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { IconFilterX, IconPlus } from "@tabler/icons-react";
 import type { CellValue as BackendCellValue } from "@/services/backend";
+import type { TableDataRow } from "@/services/tableDataTypes";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { cn } from "@/lib/utils";
 import { GridContextMenu } from "../components/GridContextMenu";
@@ -323,39 +325,57 @@ export const TableDataGrid = memo(function TableDataGrid(
   // Build filter columns from tableStructure (available before query)
   // This allows useQuickFilter to be called before tableDataQuery
   const filterColumns = useMemo<FilterColumnInfo[]>(() => {
-    if (!tableStructure?.columns) return [];
-
-    // Build FK lookup from tableStructure
-    const fkMap = new Map<string, { table: string; column: string }>();
-    if (tableStructure?.foreignKeys) {
-      for (const fk of tableStructure.foreignKeys) {
-        for (let i = 0; i < fk.columns.length; i++) {
-          const sourceCol = fk.columns[i];
-          const targetCol = fk.foreignColumns[i];
-          if (sourceCol && targetCol) {
-            fkMap.set(sourceCol, {
-              table: fk.foreignTable,
-              column: targetCol,
-            });
+    // For table mode, use tableStructure with full metadata
+    if (isTableMode && tableStructure?.columns) {
+      // Build FK lookup from tableStructure
+      const fkMap = new Map<string, { table: string; column: string }>();
+      if (tableStructure?.foreignKeys) {
+        for (const fk of tableStructure.foreignKeys) {
+          for (let i = 0; i < fk.columns.length; i++) {
+            const sourceCol = fk.columns[i];
+            const targetCol = fk.foreignColumns[i];
+            if (sourceCol && targetCol) {
+              fkMap.set(sourceCol, {
+                table: fk.foreignTable,
+                column: targetCol,
+              });
+            }
           }
         }
       }
+
+      return tableStructure.columns.map((col) => {
+        const fkInfo = fkMap.get(col.name);
+        return {
+          name: col.name,
+          dataType: col.db_type,
+          nullable: col.nullable,
+          enumValues: col.enum_values,
+          isPrimaryKey: col.is_pk,
+          isForeignKey: !!fkInfo,
+          foreignTable: fkInfo?.table,
+          foreignColumn: fkInfo?.column,
+        };
+      });
     }
 
-    return tableStructure.columns.map((col) => {
-      const fkInfo = fkMap.get(col.name);
-      return {
-        name: col.name,
-        dataType: col.db_type,
-        nullable: col.nullable,
-        enumValues: col.enum_values,
-        isPrimaryKey: col.is_pk,
-        isForeignKey: !!fkInfo,
-        foreignTable: fkInfo?.table,
-        foreignColumn: fkInfo?.column,
-      };
-    });
-  }, [tableStructure?.columns, tableStructure?.foreignKeys]);
+    // For query mode, derive columns from query result metadata
+    // Use props.data directly to avoid dependency ordering issues
+    if (!isTableMode && props.mode === "query") {
+      const queryModeProps = props as QueryModeProps;
+      if (queryModeProps.data?.columnMeta) {
+        return queryModeProps.data.columnMeta.map((col) => ({
+          name: col.name,
+          dataType: col.db_type,
+          nullable: col.nullable,
+          isPrimaryKey: col.is_pk,
+          isForeignKey: col.is_fk,
+        }));
+      }
+    }
+
+    return [];
+  }, [isTableMode, tableStructure?.columns, tableStructure?.foreignKeys, props]);
 
   // AI filter hook with proper connection context
   const { generateFilter: generateAIFilter, isLoading: isAIFilterLoading } =
@@ -397,7 +417,8 @@ export const TableDataGrid = memo(function TableDataGrid(
 
   // IconKeyboard shortcuts for focusing quick filter (Cmd+F or /)
   useEffect(() => {
-    if (!isTableMode) return;
+    // Enable keyboard shortcuts when filter columns are available (table or query mode)
+    if (filterColumns.length === 0) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // Only handle if this panel has focus (activeElement is within wrapperRef)
@@ -432,7 +453,7 @@ export const TableDataGrid = memo(function TableDataGrid(
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isTableMode]);
+  }, [filterColumns.length]);
 
   useEffect(() => {
     if (!isTableMode) {
@@ -707,9 +728,21 @@ export const TableDataGrid = memo(function TableDataGrid(
   const gridSelectionRef = useRef<GridSelection | undefined>(gridSelection);
   gridSelectionRef.current = gridSelection;
 
+  // Client-side filtering for query mode
+  // In table mode, filtering is handled server-side via tableDataQuery
+  // In query mode, we filter the loaded results client-side
+  const filteredRows = useMemo(() => {
+    if (isTableMode) {
+      return rows; // Server-side filtering
+    }
+    // Client-side filtering for query results
+    const columnNames = columnMeta.map((c) => c.name);
+    return applyClientSideFilter(rows, activeFilter, columnNames) as TableDataRow[];
+  }, [rows, isTableMode, activeFilter, columnMeta]);
+
   const { pinnedRows, unpinnedRows, pinnedRowIds, pinRow, unpinRow } =
     useRowPinning({
-      rows,
+      rows: filteredRows,
       initialPinned: preferences?.pinnedRows ?? [],
       maxPinnedRows: 5,
       getRowId: getRowKey,
@@ -2067,8 +2100,8 @@ export const TableDataGrid = memo(function TableDataGrid(
         }
       }}
     >
-      {/* Quick IconFilter toolbar - only in table mode */}
-      {isTableMode && (
+      {/* Quick filter toolbar - available in both table and query mode */}
+      {filterColumns.length > 0 && (
         <div className="flex-none pb-1.5 pt-1 bg-background">
           <QuickFilter
             ref={quickFilterRef}
