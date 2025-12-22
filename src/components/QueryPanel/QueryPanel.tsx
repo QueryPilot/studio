@@ -1444,7 +1444,7 @@ export const QueryPanel = memo(function QueryPanel({
                           conversionMs={result?.conversionMs}
                           ipcSendMs={result?.ipcSendMs}
                           multiResults={globalState?.multiResults}
-                          activeResultIndex={globalState?.activeResultIndex}
+                          activeResultIndex={globalState?.activeResultIndex ?? 0}
                           onResultTabChange={(index) => {
                             setQueryState(tabId, { activeResultIndex: index });
                           }}
