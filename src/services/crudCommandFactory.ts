@@ -42,6 +42,7 @@ interface CommandBuildOptions {
 interface DataUpdateParams extends CommandBuildOptions {
   readonly target: CrudCommandTarget;
   readonly column: string;
+  readonly columnType?: string; // PostgreSQL type for explicit casting (e.g., "money", "inet")
   readonly primaryKeys: Record<string, CrudPrimitive>;
   readonly oldValue?: unknown;
   readonly newValue: unknown;
@@ -50,6 +51,7 @@ interface DataUpdateParams extends CommandBuildOptions {
 interface DataInsertParams extends CommandBuildOptions {
   readonly target: CrudCommandTarget;
   readonly values: Record<string, unknown>;
+  readonly columnTypes?: Record<string, string>; // PostgreSQL types for explicit casting
   readonly primaryKeys?: Record<string, CrudPrimitive>;
   readonly tempId?: string;
 }
@@ -300,6 +302,7 @@ export const CrudCommandFactory = {
 
     const payload: DataUpdatePayload = {
       column: params.column,
+      columnType: params.columnType,
       primaryKeys: normalizePrimaryKeys(params.primaryKeys),
       oldValue:
         params.oldValue === undefined
@@ -335,6 +338,7 @@ export const CrudCommandFactory = {
     const payload: DataInsertPayload = {
       tempId,
       values: normalizeJsonRecord(params.values),
+      columnTypes: params.columnTypes,
       primaryKeys: params.primaryKeys
         ? normalizePrimaryKeys(params.primaryKeys)
         : undefined,

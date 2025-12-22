@@ -127,8 +127,13 @@ export function createUpdateCommand(
   // Use actual column name for SQL, not the internal field identifier
   const columnName = event.column.name ?? event.column.field;
 
+  // Get column type for explicit casting (needed for specialty types like money, inet, etc.)
+  // Use meta.db_type first, fall back to column.type which also stores db_type
+  const columnType = event.column.meta?.db_type ?? event.column.type;
+
   const payload: DataUpdatePayload = {
     column: columnName,
+    columnType,
     oldValue,
     newValue,
     primaryKeys,
@@ -158,12 +163,17 @@ export function createInsertCommand(
   tempId?: string,
 ): CrudCommand<DataInsertPayload> {
   const values: Record<string, JsonValue> = {};
+  const columnTypes: Record<string, string> = {};
 
   columns.forEach((col) => {
     const cellValue = row[col.field] as CellValue | null | undefined;
     const value = cellValue?.value;
     // Use actual column name for SQL, not the internal field identifier
     const columnName = col.name ?? col.field;
+    // Track column type for explicit casting
+    if (col.meta?.db_type) {
+      columnTypes[columnName] = col.meta.db_type;
+    }
     // Only include non-null values, ensure they're JsonValue compatible
     if (value !== null && value !== undefined) {
       if (
@@ -180,6 +190,7 @@ export function createInsertCommand(
 
   const payload: DataInsertPayload = {
     values,
+    columnTypes: Object.keys(columnTypes).length > 0 ? columnTypes : undefined,
     tempId: tempId ?? nanoid(),
   };
 

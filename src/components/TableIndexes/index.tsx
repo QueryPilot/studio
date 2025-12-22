@@ -9,17 +9,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { IconAlertCircle } from "@tabler/icons-react";
 import { databaseService, type TableIndex } from "@/services/databaseService";
 import type { IndexUsageStats } from "@/services/backend";
-import { EditableDataGrid } from "@/components/DataGrid/base/EditableDataGrid";
-import type {
-  GridEditCommitEvent,
-  GridRowModel,
-} from "@/components/DataGrid/types";
+import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
 import { useColumnSizing } from "@/components/DataGrid/hooks/useColumnSizing";
 import { TextSingleLineCellRenderer } from "@/components/DataGrid/renderers/TextCell";
 import { indexColumns } from "./columns";
 import { transformIndexesToRows } from "./utils";
 import IndexNameCellRenderer from "./IndexNameCellRenderer";
 import type { IndexGridRow } from "./types";
+import { useCrudStore, buildCrudTableKey } from "@/stores/crudStore";
+import { createIndexDropCommand } from "./commandFactory";
+import { TableActionsToolbar } from "@/components/shared/TableActionsToolbar";
+import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
+import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
+import { toast } from "sonner";
+import type { CrudCommandTarget, IndexDropPayload } from "@/types/crud";
 
 type AnyCell = CustomCell<Record<string, unknown>>;
 
@@ -44,6 +47,23 @@ export const TableIndexes = memo(function TableIndexes({
   );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Dialog state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<IndexGridRow | null>(null);
+  const [globalChangesDialogOpen, setGlobalChangesDialogOpen] = useState(false);
+
+  // crudStore integration
+  const { stagedCommands, stageCommand, unstageCommand } = useCrudStore();
+
+  const tableKey = useMemo(
+    () => buildCrudTableKey({ connectionId, database, schema, table }),
+    [connectionId, database, schema, table],
+  );
+
+  const pendingCommands = useMemo(() => {
+    return stagedCommands.get(tableKey) ?? [];
+  }, [stagedCommands, tableKey]);
 
   const loadIndexes = useCallback(async () => {
     setIsLoading(true);
@@ -80,10 +100,38 @@ export const TableIndexes = memo(function TableIndexes({
     void loadIndexes();
   }, [loadIndexes]);
 
-  // Transform indexes to grid rows with stats
+  // Transform indexes to grid rows with stats and pending commands
   const gridRows = useMemo(
-    () => transformIndexesToRows(indexes, [], statsMap),
-    [indexes, statsMap],
+    () => transformIndexesToRows(indexes, pendingCommands, statsMap),
+    [indexes, pendingCommands, statsMap],
+  );
+
+  // Handler: Delete index
+  const handleDeleteIndex = useCallback(
+    (row: IndexGridRow) => {
+      // Cannot delete primary key indexes
+      if (row.name_meta.primary) {
+        toast.error("Cannot drop primary key index", {
+          description: "Primary key indexes cannot be dropped directly",
+        });
+        return;
+      }
+
+      const target: CrudCommandTarget = {
+        connectionId,
+        database,
+        schema,
+        table,
+      };
+      const command = createIndexDropCommand(target, row.name);
+      stageCommand(command);
+      toast.success("Index deletion staged", {
+        description: `${row.name} will be dropped when committed`,
+      });
+      setDeleteDialogOpen(false);
+      setDeleteTarget(null);
+    },
+    [connectionId, database, schema, table, stageCommand],
   );
 
   // Enable column resizing
@@ -112,6 +160,67 @@ export const TableIndexes = memo(function TableIndexes({
       }
 
       const fieldValue = row[column.field as keyof IndexGridRow];
+      const isPending = row._isPending ?? false;
+      const isPendingDelete = row._isPendingDelete ?? false;
+
+      // Row background - visual indicators for pending states
+      const rowTheme = isPendingDelete
+        ? {
+            bgCell: "rgba(239, 68, 68, 0.08)", // red for pending delete
+            bgCellMedium: "rgba(239, 68, 68, 0.12)",
+            textDark: "#dc2626",
+          }
+        : isPending
+        ? {
+            bgCell: "rgba(34, 197, 94, 0.06)", // green for new indexes
+            bgCellMedium: "rgba(34, 197, 94, 0.08)",
+          }
+        : undefined;
+
+      // Actions column - Delete/Undo button
+      if (column.field === "actions") {
+        // Don't show delete for primary key indexes
+        if (row.name_meta.primary) {
+          return {
+            kind: GridCellKind.Text,
+            data: "",
+            displayData: "",
+            readonly: true,
+            allowOverlay: false,
+            themeOverride: rowTheme,
+          } as const;
+        }
+
+        return {
+          kind: GridCellKind.Text,
+          data: isPendingDelete ? "↩️" : "🗑️",
+          displayData: isPendingDelete ? "↩️" : "🗑️",
+          readonly: true,
+          allowOverlay: false,
+          contentAlign: "center" as const,
+          themeOverride: rowTheme,
+        } as const;
+      }
+
+      // Make all cells readonly when row is pending delete
+      if (isPendingDelete) {
+        let displayValue = "";
+        if (fieldValue == null) {
+          displayValue = "";
+        } else if (typeof fieldValue === "object") {
+          displayValue = JSON.stringify(fieldValue);
+        } else if (typeof fieldValue === "string" || typeof fieldValue === "number" || typeof fieldValue === "boolean") {
+          displayValue = String(fieldValue);
+        }
+        return {
+          kind: GridCellKind.Text,
+          data: displayValue,
+          displayData: displayValue,
+          readonly: true,
+          allowOverlay: false,
+          themeOverride: rowTheme,
+        } as const;
+      }
 
       // Custom cell for index name with badges
       if (column.field === "name") {
@@ -126,6 +235,7 @@ export const TableIndexes = memo(function TableIndexes({
           copyData: row.name,
           readonly: true,
           allowOverlay: false,
+          themeOverride: rowTheme,
         } as const;
       }
 
@@ -166,7 +276,7 @@ export const TableIndexes = memo(function TableIndexes({
 
       // Columns (monospace font) - editable for viewing
       if (column.field === "columns") {
-        const columnsValue = String(fieldValue ?? "");
+        const columnsValue = typeof fieldValue === "string" ? fieldValue : "";
         return {
           kind: GridCellKind.Custom,
           data: {
@@ -184,7 +294,7 @@ export const TableIndexes = memo(function TableIndexes({
 
       // Condition/Definition (monospace font with blue color) - editable for viewing
       if (column.field === "condition") {
-        const conditionValue = String(fieldValue ?? "");
+        const conditionValue = typeof fieldValue === "string" ? fieldValue : "";
         return {
           kind: GridCellKind.Custom,
           data: {
@@ -203,7 +313,7 @@ export const TableIndexes = memo(function TableIndexes({
 
       // Statistics cell with color coding
       if (column.field === "statistics") {
-        const statsValue = String(fieldValue ?? "—");
+        const statsValue = typeof fieldValue === "string" ? fieldValue : "—";
         const isUnused = row.stats?.is_unused ?? false;
         return {
           kind: GridCellKind.Text,
@@ -221,7 +331,7 @@ export const TableIndexes = memo(function TableIndexes({
       }
 
       // Default text cell (index_type)
-      const displayValue = String(fieldValue ?? "");
+      const displayValue = typeof fieldValue === "string" ? fieldValue : "";
       return {
         kind: GridCellKind.Text,
         data: displayValue,
@@ -243,11 +353,42 @@ export const TableIndexes = memo(function TableIndexes({
     [],
   );
 
-  // Handle cell edit commit (for read-only overlays, just cancel)
-  const handleCellEditCommit = useCallback((_event: GridEditCommitEvent) => {
-    // Read-only - don't actually save edits
-    return undefined;
-  }, []);
+  // Handle cell click for actions
+  const handleCellClick = useCallback(
+    (cell: Item) => {
+      const [colIndex, rowIndex] = cell;
+      const column = sizedColumns[colIndex];
+      const row = gridRows[rowIndex];
+
+      if (!column || !row) return;
+
+      // Handle action button click
+      if (column.field === "actions") {
+        // Skip for primary key indexes
+        if (row.name_meta.primary) return;
+
+        if (row._isPendingDelete) {
+          // Undo pending delete
+          const dropCommand = pendingCommands.find(
+            (cmd) =>
+              cmd.type === "index.drop" &&
+              (cmd.payload as IndexDropPayload).indexName === row._original?.name,
+          );
+          if (dropCommand) {
+            unstageCommand(dropCommand.id);
+            toast.success("Delete undone", {
+              description: `${row._original?.name} will no longer be dropped`,
+            });
+          }
+        } else {
+          // Show delete confirmation
+          setDeleteTarget(row);
+          setDeleteDialogOpen(true);
+        }
+      }
+    },
+    [sizedColumns, gridRows, pendingCommands, unstageCommand],
+  );
 
   if (isLoading) {
     return <TableIndexesSkeleton />;
@@ -265,39 +406,108 @@ export const TableIndexes = memo(function TableIndexes({
     );
   }
 
-  if (!hasIndexes) {
+  // Count pending index commands
+  const pendingIndexCommands = pendingCommands.filter(
+    (cmd) => cmd.type.startsWith("index."),
+  );
+
+  if (!hasIndexes && pendingIndexCommands.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-        <p className="text-xs">No indexes defined for this table.</p>
-      </div>
+      <>
+        <div className="h-full flex flex-col">
+          <TableActionsToolbar
+            addButtonLabel="Create Index"
+            onAdd={() => {
+              toast.info("Index creation coming soon", {
+                description: "Use SQL to create indexes for now",
+              });
+            }}
+            onReviewChanges={() => { setGlobalChangesDialogOpen(true); }}
+            pendingChangesCount={pendingIndexCommands.length}
+          />
+          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground">
+            <p className="text-xs">No indexes defined for this table.</p>
+          </div>
+        </div>
+
+        <GlobalChangesDialog
+          open={globalChangesDialogOpen}
+          onOpenChange={setGlobalChangesDialogOpen}
+          connectionId={connectionId}
+          database={database}
+          schema={schema}
+          table={table}
+          onCommitSuccess={() => {
+            loadIndexes().catch(() => undefined);
+          }}
+        />
+      </>
     );
   }
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex-1">
-        <EditableDataGrid
-          tableKey={`${connectionId}:${database}:${schema ?? 'public'}:${table}:indexes`}
-          rows={gridRows as unknown as GridRowModel[]}
-          columns={sizedColumns}
-          getCellContent={getCellContent}
-          customRenderers={customRenderers}
-          onCellEditCommit={handleCellEditCommit}
-          onColumnResize={handleColumnResize}
-          onColumnResizeEnd={handleColumnResizeEnd}
+    <>
+      <div className="h-full flex flex-col">
+        <TableActionsToolbar
+          addButtonLabel="Create Index"
+          onAdd={() => {
+            toast.info("Index creation coming soon", {
+              description: "Use SQL to create indexes for now",
+            });
+          }}
+          onReviewChanges={() => { setGlobalChangesDialogOpen(true); }}
+          pendingChangesCount={pendingIndexCommands.length}
         />
+        <div className="flex-1">
+          <DataGridBase
+            columns={sizedColumns}
+            rowCount={gridRows.length}
+            getCellContent={getCellContent}
+            customRenderers={customRenderers}
+            rowSelect="none"
+            columnSelect="none"
+            onColumnResize={handleColumnResize}
+            onColumnResizeEnd={handleColumnResizeEnd}
+            onCellClicked={handleCellClick}
+          />
+        </div>
+        <div className="px-4 py-2 text-xs text-muted-foreground border-t">
+          Total indexes: {indexes.length}
+          <button
+            type="button"
+            onClick={() => loadIndexes().catch(() => undefined)}
+            className="ml-4 text-primary hover:underline"
+          >
+            Refresh
+          </button>
+        </div>
       </div>
-      <div className="px-4 py-2 text-xs text-muted-foreground border-t">
-        Total indexes: {indexes.length}
-        <button
-          type="button"
-          onClick={() => loadIndexes().catch(() => undefined)}
-          className="ml-4 text-primary hover:underline"
-        >
-          Refresh
-        </button>
-      </div>
-    </div>
+
+      <ConfirmDeleteDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Drop Index"
+        description="Are you sure you want to drop this index? This may affect query performance. The action cannot be undone."
+        entityName={deleteTarget?.name}
+        onConfirm={() => {
+          if (deleteTarget) {
+            handleDeleteIndex(deleteTarget);
+          }
+        }}
+      />
+
+      <GlobalChangesDialog
+        open={globalChangesDialogOpen}
+        onOpenChange={setGlobalChangesDialogOpen}
+        connectionId={connectionId}
+        database={database}
+        schema={schema}
+        table={table}
+        onCommitSuccess={() => {
+          loadIndexes().catch(() => undefined);
+        }}
+      />
+    </>
   );
 });
 

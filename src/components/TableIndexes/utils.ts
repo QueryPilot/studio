@@ -36,14 +36,25 @@ export function transformIndexesToRows(
   pendingCommands: CrudCommand[] = [],
   statsMap?: Map<string, IndexUsageStats>,
 ): IndexGridRow[] {
-  // Extract pending index additions
+  // Extract pending operations by type
   const pendingAdds = pendingCommands.filter(
     (cmd) => cmd.type === "index.create",
   ) as CrudCommand<IndexCreatePayload>[];
 
+  const pendingDeletes = pendingCommands.filter(
+    (cmd) => cmd.type === "index.drop",
+  );
+
+  // Build lookup set for deleted indexes
+  const deletedIndexNames = new Set(
+    pendingDeletes.map((cmd) => (cmd.payload as { indexName: string }).indexName),
+  );
+
   // Transform actual indexes first
   const actualRows: IndexGridRow[] = indexes.map((index, idx) => {
     const stats = statsMap?.get(index.name);
+    const isPendingDelete = deletedIndexNames.has(index.name);
+
     return {
       row_number: idx + 1,
       name: index.name,
@@ -58,6 +69,7 @@ export function transformIndexesToRows(
       stats,
       condition: index.condition || "",
       _original: index,
+      _isPendingDelete: isPendingDelete,
     };
   });
 
