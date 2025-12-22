@@ -561,6 +561,39 @@ export const QueryPanel = memo(function QueryPanel({
             startTime,
             endTime,
           });
+
+          // Handle mutation cache invalidation (same as single-query path)
+          if (wasMutation && effectiveConnectionId) {
+            handleMutationCache(stmt, effectiveConnectionId);
+            logger.info(
+              `[handleMultiQueryExecute] Mutation detected in statement ${
+                i + 1
+              } - cache invalidated`,
+            );
+
+            const affectedTables = parseMutationTables(stmt);
+            if (affectedTables.length > 0) {
+              const { invalidateTable } = useDataInvalidationStore.getState();
+              affectedTables.forEach(({ schema, table }) => {
+                logger.info(
+                  `[handleMultiQueryExecute] Invalidating table: ${
+                    schema ?? "public"
+                  }.${table}`,
+                );
+                invalidateTable(
+                  effectiveConnectionId,
+                  database,
+                  schema ?? "public",
+                  table,
+                );
+              });
+            } else {
+              logger.warn(
+                `[handleMultiQueryExecute] Mutation detected but no tables parsed from SQL:`,
+                stmt,
+              );
+            }
+          }
         } catch (error) {
           hasError = true;
           const errorMessage =
