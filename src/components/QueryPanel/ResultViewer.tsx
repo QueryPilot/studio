@@ -35,6 +35,7 @@ import {
 import { exportToCSV, type ExportOptions } from "@/utils/csvExport";
 import { exportToJSON, type JsonExportOptions, type JsonFormat } from "@/utils/jsonExport";
 import { copyInsertToClipboard, type InsertExportOptions } from "@/utils/sqlInsertExport";
+import { copyMarkdownToClipboard } from "@/utils/markdownExport";
 import { toast } from "sonner";
 
 interface QueryResult {
@@ -219,7 +220,7 @@ interface ExportMenuProps {
 }
 
 const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseType }: ExportMenuProps) {
-  type ExportFormat = "csv" | "json" | "insert";
+  type ExportFormat = "csv" | "json" | "insert" | "markdown";
   const [exportFormat, setExportFormat] = useState<ExportFormat>("csv");
 
   // CSV options
@@ -232,6 +233,9 @@ const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseTyp
   // INSERT options
   const [tableName, setTableName] = useState("table_name");
   const [batchMode, setBatchMode] = useState(true);
+
+  // Markdown options
+  const [alignNumeric, setAlignNumeric] = useState<"left" | "center" | "right">("right");
 
   const handleExportCSV = () => {
     const options: ExportOptions = {
@@ -303,6 +307,20 @@ const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseTyp
     }
   };
 
+  const handleCopyMarkdown = async () => {
+    const result = await copyMarkdownToClipboard(rows, columns, { alignNumeric });
+
+    if (result.success) {
+      toast.success("Copied as Markdown table", {
+        description: `${result.rowCount.toLocaleString()} rows copied to clipboard`,
+      });
+    } else {
+      toast.error("Copy failed", {
+        description: result.error || "Unknown error",
+      });
+    }
+  };
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -347,6 +365,15 @@ const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseTyp
             {exportFormat === "insert" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
             {exportFormat !== "insert" && <span className="w-3.5 mr-2" />}
             SQL INSERT Statements
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => {
+              setExportFormat("markdown");
+            }}
+          >
+            {exportFormat === "markdown" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
+            {exportFormat !== "markdown" && <span className="w-3.5 mr-2" />}
+            Markdown Table
           </DropdownMenuItem>
         </DropdownMenuGroup>
 
@@ -486,6 +513,53 @@ const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseTyp
             >
               <IconCopy className="h-3.5 w-3.5 mr-2" />
               Copy INSERT
+            </DropdownMenuItem>
+          </>
+        )}
+
+        {exportFormat === "markdown" && (
+          <>
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">
+                Markdown Options
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={() => {
+                  setAlignNumeric("right");
+                }}
+              >
+                {alignNumeric === "right" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
+                {alignNumeric !== "right" && <span className="w-3.5 mr-2" />}
+                Align Numbers Right
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  setAlignNumeric("left");
+                }}
+              >
+                {alignNumeric === "left" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
+                {alignNumeric !== "left" && <span className="w-3.5 mr-2" />}
+                Align Numbers Left
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  setAlignNumeric("center");
+                }}
+              >
+                {alignNumeric === "center" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
+                {alignNumeric !== "center" && <span className="w-3.5 mr-2" />}
+                Align Numbers Center
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+
+            <DropdownMenuSeparator />
+
+            <DropdownMenuItem
+              onClick={handleCopyMarkdown}
+              className="bg-primary/10 text-primary font-medium"
+            >
+              <IconCopy className="h-3.5 w-3.5 mr-2" />
+              Copy Markdown
             </DropdownMenuItem>
           </>
         )}
