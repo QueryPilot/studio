@@ -431,6 +431,9 @@ class TableStreamingService {
       }
       const timeoutId = setTimeout(() => {
         this.isStreaming = false;
+        if (signal) {
+          signal.removeEventListener("abort", abortHandler);
+        }
         const error: StreamingError = {
           message: `Stream timeout: No response from backend after 30 seconds`,
           code: "STREAM_TIMEOUT",
