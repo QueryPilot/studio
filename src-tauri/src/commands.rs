@@ -15,7 +15,6 @@ use crate::ssh;
 use crate::state::AppState;
 use crate::types::*;
 use serde::Serialize;
-use serde_json::Value as JsonValue;
 use tokio_postgres::Row;
 
 /// Extract clean error message from PostgreSQL error
@@ -1093,15 +1092,15 @@ async fn execute_single_fetch_stream(
     tracing::info!("TRUE STREAMING: Query executing, rows will arrive progressively...");
 
     let mut total_rows = 0;
-    let mut row_buffer: Vec<Row> = Vec::new(); // Row buffer for micro-batching
-    let mut json_buffer: Vec<Vec<JsonValue>> = Vec::new(); // Converted rows ready for MsgPack
-    // OPTIMIZATION: Use parallel converter + micro-batches for faster CPU-bound conversion
+    let mut row_buffer: Vec<Row> = Vec::new(); // Row buffer for parallel conversion
+    let mut json_buffer: Vec<Vec<serde_json::Value>> = Vec::new(); // Converted rows ready for MsgPack
+    // OPTIMIZATION: Rayon parallel conversion + MsgPack serialization
 
     // Incremental batch sizes: start small for instant feedback, then go big
-    const FIRST_BATCH_SIZE: usize = 32; // Ultra-fast first render (~4ms IPC)
-    const SECOND_BATCH_SIZE: usize = 512; // Quick second batch (~25ms IPC)
-    const LARGE_BATCH_SIZE: usize = 3072; // Slightly larger to reduce batch count without big stalls
-    const MICRO_BATCH_SIZE: usize = 256; // Parallel conversion chunk size
+    const FIRST_BATCH_SIZE: usize = 16; // Ultra-fast first render
+    const SECOND_BATCH_SIZE: usize = 512; // Quick second batch
+    const LARGE_BATCH_SIZE: usize = 4096; // Larger batches for throughput
+    const MICRO_BATCH_SIZE: usize = 512; // Parallel conversion chunk size
 
     let mut first_row_elapsed_ms: Option<u64> = None;
 
@@ -1161,13 +1160,11 @@ async fn execute_single_fetch_stream(
                 row_buffer.push(row);
                 total_rows += 1;
 
-                // Parallel micro-batch conversion to JSON values.
-                // Convert eagerly when either the micro batch is full OR we're ready to send.
+                // Parallel conversion when micro-batch is full OR ready to send
                 let current_threshold = get_send_threshold(rows_sent);
                 let pending_total = json_buffer.len() + row_buffer.len();
                 if !row_buffer.is_empty()
-                    && (row_buffer.len() >= MICRO_BATCH_SIZE
-                        || pending_total >= current_threshold)
+                    && (row_buffer.len() >= MICRO_BATCH_SIZE || pending_total >= current_threshold)
                 {
                     let convert_start = std::time::Instant::now();
                     let converted =
@@ -1180,7 +1177,7 @@ async fn execute_single_fetch_stream(
                     row_buffer.clear();
                 }
 
-                // Send chunk to frontend when output buffer reaches dynamic threshold
+                // Send chunk when buffer reaches threshold
                 if json_buffer.len() >= current_threshold {
                     let batch_size = json_buffer.len();
 
@@ -1235,7 +1232,7 @@ async fn execute_single_fetch_stream(
         }
     }
 
-    // Convert any remaining buffered rows, then send
+    // Convert remaining buffered rows
     if !row_buffer.is_empty() {
         let convert_start = std::time::Instant::now();
         let converted =
@@ -1248,6 +1245,7 @@ async fn execute_single_fetch_stream(
         row_buffer.clear();
     }
 
+    // Send final batch
     if !json_buffer.is_empty() {
         let batch_size = json_buffer.len();
         let _offset = total_rows - batch_size;
@@ -1266,7 +1264,7 @@ async fn execute_single_fetch_stream(
         };
         conversion_time_ms += serialize_start.elapsed().as_millis() as u64;
 
-        // Send raw binary via Response (ZERO serialization overhead!)
+        // Send raw binary via Response
         let send_start = std::time::Instant::now();
         let send_result = data_channel.send(tauri::ipc::Response::new(rows_msgpack));
         send_time_ms += send_start.elapsed().as_millis() as u64;
