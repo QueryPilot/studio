@@ -262,6 +262,14 @@ export const QueryPanel = memo(function QueryPanel({
     [tabId, setQueryState, globalState?.lastExecutedQuery],
   );
 
+  // Use ref to access current result without stale closure
+  const resultRef = useRef<QueryResult | null>(result);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    resultRef.current = result;
+  }, [result]);
+
   const setResult = useCallback(
     (
       value:
@@ -270,13 +278,13 @@ export const QueryPanel = memo(function QueryPanel({
         | ((prev: QueryResult | null) => QueryResult | null),
     ) => {
       if (typeof value === "function") {
-        // For functional updates, we need to get current state
-        dispatch({ type: "SET_RESULT", payload: value(result) });
+        // Use ref to get current state - avoids stale closure
+        dispatch({ type: "SET_RESULT", payload: value(resultRef.current) });
       } else {
         dispatch({ type: "SET_RESULT", payload: value });
       }
     },
-    [result],
+    [], // No dependencies - stable reference
   );
 
   const setIsExecuting = useCallback((value: boolean) => {
