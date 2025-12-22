@@ -32,6 +32,7 @@ import {
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
 import { exportToCSV, type ExportOptions } from "@/utils/csvExport";
+import { exportToJSON, type JsonExportOptions, type JsonFormat } from "@/utils/jsonExport";
 import { toast } from "sonner";
 
 interface QueryResult {
@@ -204,10 +205,17 @@ interface ExportMenuProps {
 }
 
 const ExportMenu = memo(function ExportMenu({ columns, rows }: ExportMenuProps) {
+  type ExportFormat = "csv" | "json";
+  const [exportFormat, setExportFormat] = useState<ExportFormat>("csv");
+
+  // CSV options
   const [delimiter, setDelimiter] = useState<"," | ";" | "\t">(",");
   const [includeHeaders, setIncludeHeaders] = useState(true);
 
-  const handleExport = () => {
+  // JSON options
+  const [jsonFormat, setJsonFormat] = useState<JsonFormat>("pretty");
+
+  const handleExportCSV = () => {
     const options: ExportOptions = {
       delimiter,
       includeHeaders,
@@ -230,6 +238,27 @@ const ExportMenu = memo(function ExportMenu({ columns, rows }: ExportMenuProps) 
     }
   };
 
+  const handleExportJSON = () => {
+    const options: JsonExportOptions = {
+      format: jsonFormat,
+    };
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
+    const filename = `query-export-${timestamp}.json`;
+
+    const result = exportToJSON(rows, columns, options, filename);
+
+    if (result.success) {
+      toast.success("JSON exported successfully", {
+        description: `${result.rowCount.toLocaleString()} rows exported as ${jsonFormat}`,
+      });
+    } else {
+      toast.error("Export failed", {
+        description: result.error || "Unknown error",
+      });
+    }
+  };
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -241,63 +270,124 @@ const ExportMenu = memo(function ExportMenu({ columns, rows }: ExportMenuProps) 
             className="h-7 gap-1.5"
           >
             <IconDownload className="h-3.5 w-3.5" />
-            Export CSV
+            Export
           </Button>
         )}
       />
-      <DropdownMenuContent align="end" className="w-48">
-        <DropdownMenuLabel>Export Options</DropdownMenuLabel>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuLabel>Export Format</DropdownMenuLabel>
         <DropdownMenuSeparator />
 
-        <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">
-          Delimiter
-        </DropdownMenuLabel>
         <DropdownMenuItem
           onClick={() => {
-            setDelimiter(",");
+            setExportFormat("csv");
           }}
         >
-          {delimiter === "," && <IconCheck className="h-3.5 w-3.5 mr-2" />}
-          {delimiter !== "," && <span className="w-3.5 mr-2" />}
-          Comma (,)
+          {exportFormat === "csv" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
+          {exportFormat !== "csv" && <span className="w-3.5 mr-2" />}
+          CSV (Comma Separated)
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={() => {
-            setDelimiter(";");
+            setExportFormat("json");
           }}
         >
-          {delimiter === ";" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
-          {delimiter !== ";" && <span className="w-3.5 mr-2" />}
-          Semicolon (;)
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => {
-            setDelimiter("\t");
-          }}
-        >
-          {delimiter === "\t" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
-          {delimiter !== "\t" && <span className="w-3.5 mr-2" />}
-          Tab
+          {exportFormat === "json" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
+          {exportFormat !== "json" && <span className="w-3.5 mr-2" />}
+          JSON (JavaScript Object)
         </DropdownMenuItem>
 
         <DropdownMenuSeparator />
 
-        <DropdownMenuCheckboxItem
-          checked={includeHeaders}
-          onCheckedChange={setIncludeHeaders}
-        >
-          Include Headers
-        </DropdownMenuCheckboxItem>
+        {exportFormat === "csv" && (
+          <>
+            <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">
+              CSV Options
+            </DropdownMenuLabel>
+            <DropdownMenuItem
+              onClick={() => {
+                setDelimiter(",");
+              }}
+            >
+              {delimiter === "," && <IconCheck className="h-3.5 w-3.5 mr-2" />}
+              {delimiter !== "," && <span className="w-3.5 mr-2" />}
+              Comma (,)
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                setDelimiter(";");
+              }}
+            >
+              {delimiter === ";" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
+              {delimiter !== ";" && <span className="w-3.5 mr-2" />}
+              Semicolon (;)
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                setDelimiter("\t");
+              }}
+            >
+              {delimiter === "\t" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
+              {delimiter !== "\t" && <span className="w-3.5 mr-2" />}
+              Tab
+            </DropdownMenuItem>
 
-        <DropdownMenuSeparator />
+            <DropdownMenuSeparator />
 
-        <DropdownMenuItem
-          onClick={handleExport}
-          className="bg-primary/10 text-primary font-medium"
-        >
-          <IconDownload className="h-3.5 w-3.5 mr-2" />
-          Download
-        </DropdownMenuItem>
+            <DropdownMenuCheckboxItem
+              checked={includeHeaders}
+              onCheckedChange={setIncludeHeaders}
+            >
+              Include Headers
+            </DropdownMenuCheckboxItem>
+
+            <DropdownMenuSeparator />
+
+            <DropdownMenuItem
+              onClick={handleExportCSV}
+              className="bg-primary/10 text-primary font-medium"
+            >
+              <IconDownload className="h-3.5 w-3.5 mr-2" />
+              Download CSV
+            </DropdownMenuItem>
+          </>
+        )}
+
+        {exportFormat === "json" && (
+          <>
+            <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">
+              JSON Options
+            </DropdownMenuLabel>
+            <DropdownMenuItem
+              onClick={() => {
+                setJsonFormat("pretty");
+              }}
+            >
+              {jsonFormat === "pretty" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
+              {jsonFormat !== "pretty" && <span className="w-3.5 mr-2" />}
+              Pretty (Indented)
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                setJsonFormat("compact");
+              }}
+            >
+              {jsonFormat === "compact" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
+              {jsonFormat !== "compact" && <span className="w-3.5 mr-2" />}
+              Compact (Minified)
+            </DropdownMenuItem>
+
+            <DropdownMenuSeparator />
+
+            <DropdownMenuItem
+              onClick={handleExportJSON}
+              className="bg-primary/10 text-primary font-medium"
+            >
+              <IconDownload className="h-3.5 w-3.5 mr-2" />
+              Download JSON
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
