@@ -49,10 +49,10 @@ interface ResultViewerProps {
   conversionMs?: number;
   ipcSendMs?: number;
 
-  // Multi-query results support
+  // Multi-query results support - always controlled by parent
   multiResults?: MultiQueryResult[];
-  activeResultIndex?: number;
-  onResultTabChange?: (index: number) => void;
+  activeResultIndex: number;
+  onResultTabChange: (index: number) => void;
 }
 
 export const ResultViewer = memo(function ResultViewer({
@@ -69,27 +69,16 @@ export const ResultViewer = memo(function ResultViewer({
   conversionMs,
   ipcSendMs,
   multiResults,
-  activeResultIndex = 0,
+  activeResultIndex,
   onResultTabChange,
 }: ResultViewerProps) {
-  // Local state for tab switching (falls back to prop)
-  const [localActiveIndex, setLocalActiveIndex] = useState(activeResultIndex);
-
-  // Use controlled or uncontrolled mode
-  const currentActiveIndex = onResultTabChange
-    ? activeResultIndex
-    : localActiveIndex;
   const handleTabChange = (index: number) => {
-    if (onResultTabChange) {
-      onResultTabChange(index);
-    } else {
-      setLocalActiveIndex(index);
-    }
+    onResultTabChange(index);
   };
 
   // If we have multi-results, render tabbed interface
   if (multiResults && multiResults.length > 0) {
-    const activeResult = multiResults[currentActiveIndex];
+    const activeResult = multiResults[activeResultIndex];
     const actualResult = activeResult?.result || null;
 
     return (
@@ -97,7 +86,7 @@ export const ResultViewer = memo(function ResultViewer({
         {/* Horizontal tabs for each statement */}
         <div className="flex items-center gap-1 px-2 py-1 bg-secondary/30 border-b overflow-x-auto">
           {multiResults.map((mr, index) => {
-            const isActive = index === currentActiveIndex;
+            const isActive = index === activeResultIndex;
             const hasError = Boolean(mr.result.error);
             const rowCount = mr.result.rowCount || mr.result.affectedRows || 0;
 
@@ -144,7 +133,7 @@ export const ResultViewer = memo(function ResultViewer({
               result={actualResult}
               isLoading={false}
               isStreaming={false}
-              gridId={`${gridId}-stmt${currentActiveIndex}`}
+              gridId={`${gridId}-stmt${activeResultIndex}`}
               viewMode={viewMode}
               cursorSetupMs={actualResult.cursorSetupMs}
               totalStreamingMs={actualResult.totalStreamingMs}
