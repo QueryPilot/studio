@@ -527,14 +527,36 @@ impl ConnectionManager {
     }
 
     pub async fn disconnect(&self, conn_id: &str) -> Result<()> {
+        // Remove from pool first - this is always safe and non-blocking
         if let Some((_, mut conn)) = self.connections.remove(conn_id) {
-            conn.adapter.disconnect().await?;
+            // Disconnect adapter with timeout - don't hang on dead connections
+            let disconnect_result = tokio::time::timeout(
+                Duration::from_secs(2),
+                conn.adapter.disconnect(),
+            )
+            .await;
+
+            match disconnect_result {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    tracing::warn!("Disconnect adapter error for {}: {}", conn_id, e);
+                }
+                Err(_) => {
+                    tracing::warn!("Disconnect timed out for {}, forcing cleanup", conn_id);
+                }
+            }
             self.total_connections.fetch_sub(1, Ordering::SeqCst);
         }
+
+        // Close tunnel with timeout
         if let Some((_, tunnel)) = self.tunnels.remove(conn_id) {
-            tunnel.close().await?;
+            let tunnel_result = tokio::time::timeout(Duration::from_secs(2), tunnel.close()).await;
+            if let Err(_) | Ok(Err(_)) = tunnel_result {
+                tracing::warn!("Tunnel close failed or timed out for {}", conn_id);
+            }
         }
-        // Also remove stored profile
+
+        // Always remove stored profile
         self.profiles.remove(conn_id);
         delete_ssh_passphrase(conn_id).await.ok();
         Ok(())
@@ -547,8 +569,12 @@ impl ConnectionManager {
             .map(|entry| entry.key().clone())
             .collect();
 
+        // Disconnect all connections with individual timeouts
+        // Don't fail on individual errors - log and continue
         for key in keys {
-            self.disconnect(&key).await?;
+            if let Err(e) = self.disconnect(&key).await {
+                tracing::warn!("Failed to disconnect {}: {}", key, e);
+            }
         }
 
         // Close any remaining tunnels (if any connections failed earlier)
@@ -560,7 +586,7 @@ impl ConnectionManager {
 
         for key in tunnel_keys {
             if let Some((_, tunnel)) = self.tunnels.remove(&key) {
-                tunnel.close().await?;
+                let _ = tokio::time::timeout(Duration::from_secs(2), tunnel.close()).await;
             }
         }
 

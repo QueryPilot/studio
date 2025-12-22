@@ -3,6 +3,17 @@ import type { Extension } from "@codemirror/state";
 import { githubDarkInit, githubLightInit } from "@uiw/codemirror-theme-github";
 import { tags as t } from "@lezer/highlight";
 
+/**
+ * CodeEditor theme using oklch-based color palette from globals.css
+ *
+ * Color mappings:
+ * - Primary: oklch(0.79 0.145 77) ≈ #D4A52B (warm golden)
+ * - Dark bg: oklch(0.17 0.008 80) ≈ #27231E
+ * - Dark foreground: oklch(0.93 0.008 80) ≈ #EDE9E3
+ * - Dark muted: oklch(0.45 0.01 80) ≈ #7A756C
+ * - Light foreground: oklch(0.17 0.008 80) ≈ #27231E
+ */
+
 // Fold gutter theme with adaptive colors
 export const createFoldGutterTheme = (isDark: boolean) =>
   EditorView.theme({
@@ -12,7 +23,7 @@ export const createFoldGutterTheme = (isDark: boolean) =>
     ".cm-foldGutter .cm-gutterElement": {
       padding: "0",
       cursor: "pointer",
-      color: isDark ? "#9CA3AF" : "#6B7280", // Dark mode: lighter, Light mode: darker
+      color: isDark ? "#9A958C" : "#7A756C",
       transition: "color 0.2s",
       display: "flex",
       alignItems: "center",
@@ -20,7 +31,7 @@ export const createFoldGutterTheme = (isDark: boolean) =>
       height: "100%",
     },
     ".cm-foldGutter .cm-gutterElement:hover": {
-      color: "#FCA311",
+      color: "#D4A52B",
     },
     ".cm-foldGutter .cm-gutterElement > span": {
       display: "inline-flex",
@@ -33,30 +44,30 @@ export const createFoldGutterTheme = (isDark: boolean) =>
 export const createDarkTheme = (): Extension => {
   return githubDarkInit({
     settings: {
-      background: "#09090B",
+      background: "#110F0C",
       backgroundImage: "",
-      foreground: "#E5E5E5",
-      caret: "#FCA311",
-      selection: "#FCA31133", // 20% opacity (0x33 = 51/255 ≈ 20%)
-      selectionMatch: "#FCA31128",
-      lineHighlight: "#FFFFFF14", // Increased from 08 (8%) to 14 (~12%) for better visibility
-      gutterBackground: "#09090B",
-      gutterForeground: "#6B7280",
-      gutterBorder: "#FFFFFF1A", // Subtle border (10% white) for visual separation
+      foreground: "#EBE7E2",
+      caret: "#D4A52B",
+      selection: "#D4A52B33",
+      selectionMatch: "#D4A52B28",
+      lineHighlight: "#FFFFFF14",
+      gutterBackground: "#110F0C",
+      gutterForeground: "#7A756C",
+      gutterBorder: "#FFFFFF1A",
     },
     styles: [
-      // Keywords - brand amber
-      { tag: [t.keyword, t.operator, t.operatorKeyword], color: "#FCA311" },
+      // Keywords - brand golden
+      { tag: [t.keyword, t.operator, t.operatorKeyword], color: "#D4A52B" },
       {
         tag: [t.controlKeyword, t.definitionKeyword],
-        color: "#FCA311",
+        color: "#D4A52B",
         fontWeight: "600",
       },
 
-      // Functions - orange
+      // Functions - warm orange
       {
         tag: [t.function(t.variableName), t.function(t.propertyName)],
-        color: "#FF9800",
+        color: "#E5923A",
       },
 
       // Strings - green
@@ -65,10 +76,10 @@ export const createDarkTheme = (): Extension => {
       // Numbers - cyan
       { tag: [t.number, t.integer, t.float], color: "#06B6D4" },
 
-      // Comments - muted
+      // Comments - muted (oklch(0.45 0.01 80))
       {
         tag: [t.lineComment, t.blockComment, t.docComment],
-        color: "#6B7280",
+        color: "#7A756C",
         fontStyle: "italic",
       },
 
@@ -77,14 +88,14 @@ export const createDarkTheme = (): Extension => {
 
       // Properties and variables
       { tag: [t.propertyName], color: "#A78BFA" },
-      { tag: [t.variableName], color: "#E5E5E5" },
+      { tag: [t.variableName], color: "#EBE7E2" },
 
       // Special SQL elements
       { tag: [t.bool, t.null, t.atom], color: "#F472B6" },
 
       // Brackets and punctuation
-      { tag: [t.bracket, t.paren], color: "#9CA3AF" },
-      { tag: [t.punctuation, t.separator], color: "#6B7280" },
+      { tag: [t.bracket, t.paren], color: "#9A958C" },
+      { tag: [t.punctuation, t.separator], color: "#7A756C" },
     ],
   });
 };
@@ -95,28 +106,28 @@ export const createLightTheme = (): Extension => {
     settings: {
       background: "#FFFFFF",
       backgroundImage: "",
-      foreground: "#0A0A0B",
-      caret: "#FCA311",
-      selection: "#FCA31133", // 20% opacity (0x33 = 51/255 ≈ 20%) - standardized with dark mode
-      selectionMatch: "#FCA31120",
-      lineHighlight: "#00000014", // Increased from 08 (8%) to 14 (~12%) for better visibility
+      foreground: "#27231E",
+      caret: "#D4A52B",
+      selection: "#D4A52B33",
+      selectionMatch: "#D4A52B20",
+      lineHighlight: "#00000014",
       gutterBackground: "#FFFFFF",
-      gutterForeground: "#6B7280",
-      gutterBorder: "#0000001A", // Subtle border (10% black) for visual separation
+      gutterForeground: "#7A756C",
+      gutterBorder: "#27231E1A",
     },
     styles: [
-      // Keywords - brand amber (slightly darker for contrast)
-      { tag: [t.keyword, t.operator, t.operatorKeyword], color: "#EA9A0F" },
+      // Keywords - brand golden (slightly darker for light bg contrast)
+      { tag: [t.keyword, t.operator, t.operatorKeyword], color: "#B8911F" },
       {
         tag: [t.controlKeyword, t.definitionKeyword],
-        color: "#EA9A0F",
+        color: "#B8911F",
         fontWeight: "600",
       },
 
-      // Functions - orange
+      // Functions - warm orange
       {
         tag: [t.function(t.variableName), t.function(t.propertyName)],
-        color: "#F97316",
+        color: "#D17D2A",
       },
 
       // Strings - green
@@ -125,10 +136,10 @@ export const createLightTheme = (): Extension => {
       // Numbers - cyan
       { tag: [t.number, t.integer, t.float], color: "#0891B2" },
 
-      // Comments - muted
+      // Comments - muted (oklch(0.45 0.01 80))
       {
         tag: [t.lineComment, t.blockComment, t.docComment],
-        color: "#6B7280",
+        color: "#7A756C",
         fontStyle: "italic",
       },
 
@@ -137,14 +148,14 @@ export const createLightTheme = (): Extension => {
 
       // Properties and variables
       { tag: [t.propertyName], color: "#7C3AED" },
-      { tag: [t.variableName], color: "#0A0A0B" },
+      { tag: [t.variableName], color: "#27231E" },
 
       // Special SQL elements
       { tag: [t.bool, t.null, t.atom], color: "#DB2777" },
 
       // Brackets and punctuation
-      { tag: [t.bracket, t.paren], color: "#4B5563" },
-      { tag: [t.punctuation, t.separator], color: "#6B7280" },
+      { tag: [t.bracket, t.paren], color: "#5A554C" },
+      { tag: [t.punctuation, t.separator], color: "#7A756C" },
     ],
   });
 };

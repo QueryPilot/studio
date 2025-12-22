@@ -592,7 +592,7 @@ export const getEditorExtensions = (
           marker.appendChild(svg);
 
           marker.onmouseenter = () => {
-            svg.style.color = "#FCA311";
+            svg.style.color = "#D4A52B";
           };
           marker.onmouseleave = () => {
             svg.style.color = "#888";
