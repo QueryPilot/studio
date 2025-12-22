@@ -64,6 +64,7 @@ import {
   useColumnVisibility,
   useRowPinning,
   useColumnSorting,
+  useColumnStats,
 } from "../hooks";
 import { createDrawHeader } from "../utils/headerUtils";
 import {
@@ -93,6 +94,7 @@ import {
   deriveValueType,
   normalizeBackendValue,
 } from "@/services/tableDataTransform";
+import { ColumnStatsPopover } from "../components/ColumnStatsPopover";
 
 interface BaseTableDataGridProps {
   gridId: string;
@@ -1212,7 +1214,7 @@ export const TableDataGrid = memo(function TableDataGrid(
   const isLargeDataset = deferredDisplayRows.length > 5000;
 
   const {
-    onItemHovered: handleItemHovered,
+    onItemHovered: handleCellHovered,
     drawCell: drawCellWithHoverIcons,
     fkPreviewState,
     clearFkPreview,
@@ -1224,6 +1226,26 @@ export const TableDataGrid = memo(function TableDataGrid(
     containerRef: containerRef,
     enableFKPreview: isTableMode,
   });
+
+  // Column stats on header hover
+  const {
+    statsState,
+    handleItemHovered: handleStatsHover,
+    clearStats,
+  } = useColumnStats({
+    rows: deferredDisplayRows,
+    columns: finalColumns,
+    enabled: !isLargeDataset,
+  });
+
+  // Combine both hover handlers
+  const handleItemHovered = useCallback(
+    (args: Parameters<typeof handleCellHovered>[0]) => {
+      handleCellHovered(args);
+      handleStatsHover(args);
+    },
+    [handleCellHovered, handleStatsHover],
+  );
 
   // Memoize clipboard callbacks to prevent recreation on every render
   const toTextCallback = useCallback(
@@ -2215,6 +2237,21 @@ export const TableDataGrid = memo(function TableDataGrid(
                 sourcePanelId: panelId,
               });
             }}
+          />
+        )}
+
+        {/* Column Stats Popover - shows statistics on header hover */}
+        {statsState && (
+          <ColumnStatsPopover
+            open={true}
+            onOpenChange={(open) => {
+              if (!open) {
+                clearStats();
+              }
+            }}
+            columnName={statsState.columnName}
+            stats={statsState.stats}
+            bounds={statsState.bounds}
           />
         )}
       </div>
