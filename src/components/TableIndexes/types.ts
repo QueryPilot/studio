@@ -20,6 +20,7 @@ export interface IndexGridRow {
   _original?: TableIndex; // Keep reference to original data
   _tempId?: string; // For pending index additions
   _isPending?: boolean; // True for new indexes not yet committed
+  _isPendingDelete?: boolean; // True for existing indexes marked for deletion
 }
 
 interface IndexNameCellData {

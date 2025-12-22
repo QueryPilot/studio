@@ -19,6 +19,7 @@ import { structureColumns } from "./columns";
 import { transformStructureToRows } from "./utils";
 import ColumnNameCellRenderer from "./ColumnNameCellRenderer";
 import type { StructureGridRow } from "./types";
+import { validateColumnName } from "./types";
 import { useCrudStore, buildCrudTableKey } from "@/stores/crudStore";
 import {
   createColumnAddCommand,
@@ -31,7 +32,7 @@ import { TableActionsToolbar } from "@/components/shared/TableActionsToolbar";
 import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
 import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
 import { toast } from "sonner";
-import type { CrudCommandTarget, ColumnAddPayload } from "@/types/crud";
+import type { CrudCommandTarget, ColumnAddPayload, ColumnDropPayload } from "@/types/crud";
 
 type AnyCell = CustomCell<Record<string, unknown>>;
 
@@ -103,6 +104,19 @@ export const TableStructure = memo(function TableStructure({
     });
     return Array.from(types);
   }, [columns]);
+
+  // Collect existing column names for validation (includes pending adds)
+  const existingColumnNames = useMemo(() => {
+    const names = columns.map((col) => col.name);
+    // Also include pending column additions
+    pendingCommands
+      .filter((cmd) => cmd.type === "column.add")
+      .forEach((cmd) => {
+        const colName = (cmd.payload as ColumnAddPayload).column.name;
+        if (colName) names.push(colName);
+      });
+    return names;
+  }, [columns, pendingCommands]);
 
   // Transform to grid rows (includes pending additions)
   const gridRows = useMemo(
@@ -192,6 +206,21 @@ export const TableStructure = memo(function TableStructure({
     ],
   );
 
+  // Helper to extract value from cell data
+  const extractCellValue = useCallback(
+    (newValue: EditableGridCell): string | boolean | null => {
+      if ("data" in newValue) {
+        const data = newValue.data;
+        if (typeof data === "object" && data !== null && "value" in data) {
+          return (data as { value: string | boolean | null }).value;
+        }
+        return data as string | boolean | null;
+      }
+      return null;
+    },
+    [],
+  );
+
   // Handler: Cell edited
   const handleCellEdited = useCallback(
     (cell: Item, newValue: EditableGridCell) => {
@@ -209,14 +238,23 @@ export const TableStructure = memo(function TableStructure({
       };
 
       // Extract value from cell
-      let extractedValue: string | boolean | null = null;
-      if ("data" in newValue) {
-        const data = newValue.data;
-        // Handle custom cell data structure
-        if (typeof data === "object" && data !== null && "value" in data) {
-          extractedValue = (data as any).value;
-        } else {
-          extractedValue = data as string | boolean | null;
+      const extractedValue = extractCellValue(newValue);
+
+      // Validate column name changes
+      if (column.field === "column_name" && typeof extractedValue === "string") {
+        const currentColumnName = row._isPending
+          ? undefined // New columns don't have an existing name to exclude
+          : row._original?.name;
+        const validation = validateColumnName(
+          extractedValue,
+          existingColumnNames,
+          currentColumnName,
+        );
+        if (!validation.valid) {
+          toast.error("Invalid column name", {
+            description: validation.error,
+          });
+          return;
         }
       }
 
@@ -308,6 +346,8 @@ export const TableStructure = memo(function TableStructure({
       table,
       pendingCommands,
       stageCommand,
+      extractCellValue,
+      existingColumnNames,
     ],
   );
 
@@ -331,9 +371,18 @@ export const TableStructure = memo(function TableStructure({
       const fieldValue = row[column.field as keyof StructureGridRow];
       const isPending = row._isPending ?? false;
       const isModified = row._isModified ?? false;
+      const isPendingDelete = row._isPendingDelete ?? false;
 
-      // Row background - match TableDataGrid colors
-      const rowTheme = isPending
+      // Row background - match TableDataGrid colors with priority order
+      const rowTheme = isPendingDelete
+        ? {
+            bgCell: "rgba(239, 68, 68, 0.08)", // red-500 for pending delete
+            bgCellMedium: "rgba(239, 68, 68, 0.12)",
+            accentColor: "rgba(239, 68, 68, 0.4)",
+            accentLight: "rgba(239, 68, 68, 0.15)",
+            textDark: "#dc2626", // red text
+          }
+        : isPending
         ? {
             bgCell: "rgba(34, 197, 94, 0.06)", // green-500 for new columns
             bgCellMedium: "rgba(34, 197, 94, 0.08)",
@@ -349,15 +398,29 @@ export const TableStructure = memo(function TableStructure({
           }
         : undefined;
 
-      // Actions column - Delete button (text-based for now)
+      // Actions column - Delete/Undo button
       if (column.field === "actions") {
         return {
           kind: GridCellKind.Text,
-          data: "🗑️",
-          displayData: "🗑️",
+          data: isPendingDelete ? "↩️" : "🗑️",
+          displayData: isPendingDelete ? "↩️" : "🗑️",
           readonly: true,
           allowOverlay: false,
           contentAlign: "center" as const,
+          themeOverride: rowTheme,
+        } as const;
+      }
+
+      // Make all cells readonly when row is pending delete
+      if (isPendingDelete) {
+        const displayValue =
+          typeof fieldValue === "object" ? JSON.stringify(fieldValue) : String(fieldValue ?? "");
+        return {
+          kind: GridCellKind.Text,
+          data: displayValue,
+          displayData: displayValue,
+          readonly: true,
+          allowOverlay: false,
           themeOverride: rowTheme,
         } as const;
       }
@@ -381,10 +444,11 @@ export const TableStructure = memo(function TableStructure({
 
       // Row number (right-aligned, muted)
       if (column.field === "row_number") {
+        const rowNum = typeof fieldValue === "number" ? fieldValue : 0;
         return {
           kind: GridCellKind.Text,
-          data: String(fieldValue),
-          displayData: String(fieldValue),
+          data: String(rowNum),
+          displayData: String(rowNum),
           readonly: true,
           allowOverlay: false,
           contentAlign: "right" as const,
@@ -397,7 +461,7 @@ export const TableStructure = memo(function TableStructure({
 
       // Nullable - YES/NO dropdown
       if (column.field === "nullable") {
-        const nullableValue = String(fieldValue) as "YES" | "NO";
+        const nullableValue = (typeof fieldValue === "string" ? fieldValue : "NO") as "YES" | "NO";
         return {
           kind: GridCellKind.Custom,
           data: {
@@ -415,7 +479,7 @@ export const TableStructure = memo(function TableStructure({
 
       // Type - data type dropdown - editable for all rows
       if (column.field === "db_type") {
-        const typeValue = String(fieldValue ?? "text");
+        const typeValue = typeof fieldValue === "string" ? fieldValue : "text";
         return {
           kind: GridCellKind.Custom,
           data: {
@@ -434,14 +498,14 @@ export const TableStructure = memo(function TableStructure({
       // Default, Comment - editable
       if (column.field === "default" || column.field === "comment") {
         // Keep null/undefined as-is - don't convert to empty string
-        const value = fieldValue ?? null;
+        const value = typeof fieldValue === "string" ? fieldValue : null;
         return {
           kind: GridCellKind.Custom,
           data: {
             kind: "text-single-cell",
             value: value,
           },
-          copyData: value === null ? "" : String(value),
+          copyData: value ?? "",
           readonly: false,
           allowOverlay: true,
           themeOverride: {
@@ -456,7 +520,7 @@ export const TableStructure = memo(function TableStructure({
         column.field === "foreign_key" ||
         column.field === "check_constraint"
       ) {
-        const value = String(fieldValue ?? "");
+        const value = typeof fieldValue === "string" ? fieldValue : "";
         return {
           kind: GridCellKind.Text,
           data: value,
@@ -471,7 +535,7 @@ export const TableStructure = memo(function TableStructure({
       }
 
       // Default text cell
-      const displayValue = String(fieldValue ?? "");
+      const displayValue = typeof fieldValue === "string" ? fieldValue : "";
       return {
         kind: GridCellKind.Text,
         data: displayValue,
@@ -502,13 +566,29 @@ export const TableStructure = memo(function TableStructure({
 
       if (!column || !row) return;
 
-      // Handle delete action
+      // Handle action button click
       if (column.field === "actions") {
-        setDeleteTarget(row);
-        setDeleteDialogOpen(true);
+        if (row._isPendingDelete) {
+          // Undo pending delete - find and unstage the drop command
+          const dropCommand = pendingCommands.find(
+            (cmd) =>
+              cmd.type === "column.drop" &&
+              (cmd.payload as ColumnDropPayload).columnName === row._original?.name,
+          );
+          if (dropCommand) {
+            unstageCommand(dropCommand.id);
+            toast.success("Delete undone", {
+              description: `${row._original?.name} will no longer be dropped`,
+            });
+          }
+        } else {
+          // Show delete confirmation
+          setDeleteTarget(row);
+          setDeleteDialogOpen(true);
+        }
       }
     },
-    [sizedColumns, gridRows],
+    [sizedColumns, gridRows, pendingCommands, unstageCommand],
   );
 
   if (isLoading) {
@@ -541,7 +621,7 @@ export const TableStructure = memo(function TableStructure({
         <TableActionsToolbar
           addButtonLabel="Add Column"
           onAdd={handleAddColumn}
-          onReviewChanges={() => setGlobalChangesDialogOpen(true)}
+          onReviewChanges={() => { setGlobalChangesDialogOpen(true); }}
           pendingChangesCount={pendingCommands.length}
         />
         <div className="flex-1">
