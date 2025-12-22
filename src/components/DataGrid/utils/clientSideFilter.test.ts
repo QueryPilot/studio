@@ -352,4 +352,98 @@ describe("clientSideFilter", () => {
       expect(result).toHaveLength(1);
     });
   });
+
+  describe("ILIKE and REGEX operators", () => {
+    it("filters with ILIKE operator (case insensitive)", () => {
+      const filter: FilterConfig = {
+        root: {
+          id: "root",
+          type: "group",
+          logical: "AND",
+          conditions: [{ id: "c1", column: "name", operator: "ILIKE", value: "%ALICE%" }],
+        },
+      };
+
+      const result = applyClientSideFilter(sampleRows, filter, columns);
+
+      expect(result).toHaveLength(1); // Alice (case insensitive match)
+    });
+
+    it("filters with REGEX operator (case sensitive)", () => {
+      const filter: FilterConfig = {
+        root: {
+          id: "root",
+          type: "group",
+          logical: "AND",
+          conditions: [{ id: "c1", column: "name", operator: "REGEX", value: "^A.*e$" }],
+        },
+      };
+
+      const result = applyClientSideFilter(sampleRows, filter, columns);
+
+      expect(result).toHaveLength(1); // Alice
+    });
+
+    it("filters with REGEX_I operator (case insensitive)", () => {
+      const filter: FilterConfig = {
+        root: {
+          id: "root",
+          type: "group",
+          logical: "AND",
+          conditions: [{ id: "c1", column: "name", operator: "REGEX_I", value: "li" }],
+        },
+      };
+
+      const result = applyClientSideFilter(sampleRows, filter, columns);
+
+      expect(result).toHaveLength(2); // Alice, Charlie (both contain "li")
+    });
+
+    it("handles invalid regex gracefully", () => {
+      const filter: FilterConfig = {
+        root: {
+          id: "root",
+          type: "group",
+          logical: "AND",
+          conditions: [{ id: "c1", column: "name", operator: "REGEX", value: "[invalid" }],
+        },
+      };
+
+      const result = applyClientSideFilter(sampleRows, filter, columns);
+
+      expect(result).toHaveLength(0); // Invalid regex returns false
+    });
+  });
+
+  describe("negated conditions", () => {
+    it("handles negated CONTAINS condition", () => {
+      const filter: FilterConfig = {
+        root: {
+          id: "root",
+          type: "group",
+          logical: "AND",
+          conditions: [{ id: "c1", column: "email", operator: "CONTAINS", value: "test", negated: true }],
+        },
+      };
+
+      const result = applyClientSideFilter(sampleRows, filter, columns);
+
+      expect(result).toHaveLength(2); // Charlie (example.com) + David (null)
+    });
+
+    it("handles negated ILIKE condition", () => {
+      const filter: FilterConfig = {
+        root: {
+          id: "root",
+          type: "group",
+          logical: "AND",
+          conditions: [{ id: "c1", column: "name", operator: "ILIKE", value: "%li%", negated: true }],
+        },
+      };
+
+      const result = applyClientSideFilter(sampleRows, filter, columns);
+
+      expect(result).toHaveLength(3); // Bob, David, nobody (not Alice, Charlie)
+    });
+  });
 });
