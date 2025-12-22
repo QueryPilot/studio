@@ -9,6 +9,8 @@ import {
   IconChevronUp,
   IconCopy,
   IconClipboardCheck,
+  IconDownload,
+  IconCheck,
 } from "@tabler/icons-react";
 import { TableDataGrid } from "@/components/DataGrid";
 import { DataGridSkeleton } from "@/components/DataGrid/components/DataGridSkeleton";
@@ -20,6 +22,17 @@ import type { CellValue as BackendCellValue } from "@/services/backend";
 import { normalizeBackendValue } from "@/services/tableDataTransform";
 import { ExplainViewer } from "./ExplainViewer";
 import type { MultiQueryResult } from "@/stores/tabStateStore";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  DropdownMenuCheckboxItem,
+} from "@/components/ui/dropdown-menu";
+import { exportToCSV, type ExportOptions } from "@/utils/csvExport";
+import { toast } from "sonner";
 
 interface QueryResult {
   columns: string[];
@@ -185,6 +198,111 @@ interface SingleResultViewProps {
   ipcSendMs?: number;
 }
 
+interface ExportMenuProps {
+  columns: string[];
+  rows: unknown[][];
+}
+
+const ExportMenu = memo(function ExportMenu({ columns, rows }: ExportMenuProps) {
+  const [delimiter, setDelimiter] = useState<"," | ";" | "\t">(",");
+  const [includeHeaders, setIncludeHeaders] = useState(true);
+
+  const handleExport = () => {
+    const options: ExportOptions = {
+      delimiter,
+      includeHeaders,
+      encoding: "utf-8",
+    };
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
+    const filename = `query-export-${timestamp}.csv`;
+
+    const result = exportToCSV(rows, columns, options, filename);
+
+    if (result.success) {
+      toast.success("CSV exported successfully", {
+        description: `${result.rowCount.toLocaleString()} rows exported`,
+      });
+    } else {
+      toast.error("Export failed", {
+        description: result.error || "Unknown error",
+      });
+    }
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={(props) => (
+          <Button
+            {...props}
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1.5"
+          >
+            <IconDownload className="h-3.5 w-3.5" />
+            Export CSV
+          </Button>
+        )}
+      />
+      <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuLabel>Export Options</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+
+        <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">
+          Delimiter
+        </DropdownMenuLabel>
+        <DropdownMenuItem
+          onClick={() => {
+            setDelimiter(",");
+          }}
+        >
+          {delimiter === "," && <IconCheck className="h-3.5 w-3.5 mr-2" />}
+          {delimiter !== "," && <span className="w-3.5 mr-2" />}
+          Comma (,)
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => {
+            setDelimiter(";");
+          }}
+        >
+          {delimiter === ";" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
+          {delimiter !== ";" && <span className="w-3.5 mr-2" />}
+          Semicolon (;)
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => {
+            setDelimiter("\t");
+          }}
+        >
+          {delimiter === "\t" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
+          {delimiter !== "\t" && <span className="w-3.5 mr-2" />}
+          Tab
+        </DropdownMenuItem>
+
+        <DropdownMenuSeparator />
+
+        <DropdownMenuCheckboxItem
+          checked={includeHeaders}
+          onCheckedChange={setIncludeHeaders}
+        >
+          Include Headers
+        </DropdownMenuCheckboxItem>
+
+        <DropdownMenuSeparator />
+
+        <DropdownMenuItem
+          onClick={handleExport}
+          className="bg-primary/10 text-primary font-medium"
+        >
+          <IconDownload className="h-3.5 w-3.5 mr-2" />
+          Download
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+});
+
 const SingleResultView = memo(function SingleResultView({
   result,
   isLoading,
@@ -312,6 +430,8 @@ const SingleResultView = memo(function SingleResultView({
   const hasReturningData =
     result.affectedRows !== undefined && result.rows.length > 0;
 
+  const hasExportableData = result.rows.length > 0 && result.columns.length > 0;
+
   return (
     <div className="overflow-hidden h-full flex flex-col">
       {/* Banner for RETURNING clause queries */}
@@ -321,6 +441,13 @@ const SingleResultView = memo(function SingleResultView({
           <span className="text-xs font-medium text-green-700 dark:text-green-400">
             {result.message || `${result.affectedRows} row(s) affected`}
           </span>
+        </div>
+      )}
+
+      {/* Export button for results with data */}
+      {hasExportableData && (
+        <div className="px-2 py-1.5 border-b bg-muted/30 flex items-center justify-end">
+          <ExportMenu columns={result.columns} rows={result.rows} />
         </div>
       )}
 
