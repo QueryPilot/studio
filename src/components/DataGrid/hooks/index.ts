@@ -119,3 +119,5 @@ export type {
   UseFillOperationsOptions,
   UseFillOperationsResult,
 } from './useFillOperations';
+
+export { useColumnStats } from './useColumnStats';
