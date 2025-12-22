@@ -230,6 +230,25 @@ export const QueryPanel = memo(function QueryPanel({
   // Editor ref for focusing
   const editorRef = useRef<QueryEditorRef>(null);
 
+  // Refs for auto-refresh race condition prevention
+  const pendingRefreshRef = useRef<number | null>(null);
+  const isExecutingRef = useRef<boolean>(false);
+
+  // Sync isExecutingRef with isExecuting state for stable reference in callbacks
+  useEffect(() => {
+    isExecutingRef.current = isExecuting;
+  }, [isExecuting]);
+
+  // Cleanup pending auto-refresh on unmount
+  useEffect(() => {
+    return () => {
+      if (pendingRefreshRef.current) {
+        clearTimeout(pendingRefreshRef.current);
+        pendingRefreshRef.current = null;
+      }
+    };
+  }, []);
+
   // Memoized action dispatchers - stable references prevent child re-renders
   const setQuery = useCallback(
     (value: string) => {
@@ -608,6 +627,12 @@ export const QueryPanel = memo(function QueryPanel({
 
   const handleExecute = useCallback(
     async (queryToExecute?: string) => {
+      // Cancel any pending auto-refresh since user is manually executing
+      if (pendingRefreshRef.current) {
+        clearTimeout(pendingRefreshRef.current);
+        pendingRefreshRef.current = null;
+      }
+
       console.log("[QueryPanel.handleExecute] ===== EXECUTE CALLED =====");
       console.log("[QueryPanel.handleExecute] queryToExecute:", queryToExecute);
       console.log(
@@ -995,11 +1020,21 @@ export const QueryPanel = memo(function QueryPanel({
             // Auto-refresh: Re-run last SELECT query to show updated data
             const lastSelectQuery = globalState?.lastSelectQuery;
             if (lastSelectQuery) {
-              toast.info("Data modified - Refreshing results...");
-              // Schedule refresh after current query completes
-              setTimeout(() => {
-                handleExecute(lastSelectQuery);
-              }, 100);
+              // Cancel any pending refresh
+              if (pendingRefreshRef.current) {
+                clearTimeout(pendingRefreshRef.current);
+              }
+
+              // Guard against concurrent execution
+              if (!isExecuting) {
+                toast.info("Data modified - Refreshing results...");
+                pendingRefreshRef.current = window.setTimeout(() => {
+                  pendingRefreshRef.current = null;
+                  if (!isExecutingRef.current) {
+                    void handleExecute(lastSelectQuery);
+                  }
+                }, 100);
+              }
             }
           }
         }
