@@ -413,9 +413,22 @@ class TableStreamingService {
     onError?: (error: StreamingError) => void,
     userLimitPreference?: number,
     onLimitApplied?: (originalSql: string, appliedLimit: number) => void,
+    signal?: AbortSignal,
   ): Promise<StreamingTableResult> {
     this.cancel();
     return new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new DOMException("Streaming aborted", "AbortError"));
+        return;
+      }
+
+      const abortHandler = () => {
+        reject(new DOMException("Streaming aborted", "AbortError"));
+      };
+
+      if (signal) {
+        signal.addEventListener("abort", abortHandler, { once: true });
+      }
       const timeoutId = setTimeout(() => {
         this.isStreaming = false;
         const error: StreamingError = {
@@ -500,6 +513,10 @@ class TableStreamingService {
                 resolved = true;
                 cleanupPolling();
 
+                if (signal) {
+                  signal.removeEventListener("abort", abortHandler);
+                }
+
                 const finalResult: StreamingTableResult = {
                   columns: mapBackendColumnsToColumnMeta(streamResult.columns),
                   rows: this.accumulatedRows,
@@ -543,6 +560,9 @@ class TableStreamingService {
             onError: (err) => {
               clearTimeout(timeoutId);
               this.isStreaming = false;
+              if (signal) {
+                signal.removeEventListener("abort", abortHandler);
+              }
               reject(err);
             },
           },
@@ -550,6 +570,9 @@ class TableStreamingService {
       } catch (error) {
         clearTimeout(timeoutId);
         this.isStreaming = false;
+        if (signal) {
+          signal.removeEventListener("abort", abortHandler);
+        }
         reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
