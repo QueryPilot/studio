@@ -86,78 +86,123 @@ function evaluateCondition(row: GridRowModel, condition: FilterCondition): boole
 
   // Handle NULL checks first
   if (condition.operator === "IS NULL") {
-    return value === null || value === undefined;
+    const result = value === null || value === undefined;
+    return condition.negated ? !result : result;
   }
   if (condition.operator === "IS NOT NULL") {
-    return value !== null && value !== undefined;
+    const result = value !== null && value !== undefined;
+    return condition.negated ? !result : result;
   }
 
   // For other operators, null values don't match
   if (value === null || value === undefined) {
-    return false;
+    return condition.negated ? true : false;
   }
 
   const strValue = typeof value === "object" ? JSON.stringify(value) : String(value);
   const lowerValue = strValue.toLowerCase();
   const lowerFilter = String(filterValue ?? "").toLowerCase();
 
+  let result: boolean;
+
   switch (condition.operator) {
     case "=":
-      return strValue === String(filterValue);
+      result = strValue === String(filterValue);
+      break;
     case "!=":
-      return strValue !== String(filterValue);
+      result = strValue !== String(filterValue);
+      break;
     case "CONTAINS":
-      return lowerValue.includes(lowerFilter);
+      result = lowerValue.includes(lowerFilter);
+      break;
     case "NOT CONTAINS":
-      return !lowerValue.includes(lowerFilter);
+      result = !lowerValue.includes(lowerFilter);
+      break;
     case "STARTS WITH":
-      return lowerValue.startsWith(lowerFilter);
+      result = lowerValue.startsWith(lowerFilter);
+      break;
     case "ENDS WITH":
-      return lowerValue.endsWith(lowerFilter);
+      result = lowerValue.endsWith(lowerFilter);
+      break;
     case "LIKE":
-      return matchLike(strValue, String(filterValue ?? ""));
+      result = matchLike(strValue, String(filterValue ?? ""), true);
+      break;
+    case "ILIKE":
+      result = matchLike(strValue, String(filterValue ?? ""), false);
+      break;
     case "NOT LIKE":
-      return !matchLike(strValue, String(filterValue ?? ""));
+      result = !matchLike(strValue, String(filterValue ?? ""), true);
+      break;
+    case "REGEX":
+      result = matchRegex(strValue, String(filterValue ?? ""), true);
+      break;
+    case "REGEX_I":
+      result = matchRegex(strValue, String(filterValue ?? ""), false);
+      break;
     case ">":
     case "<":
     case ">=":
     case "<=":
-      return compareValues(value, filterValue, condition.operator);
+      result = compareValues(value, filterValue, condition.operator);
+      break;
     case "IN":
       if (Array.isArray(filterValue)) {
-        return filterValue.some((v) => String(v) === strValue);
+        result = filterValue.some((v) => String(v) === strValue);
+      } else {
+        result = false;
       }
-      return false;
+      break;
     case "NOT IN":
       if (Array.isArray(filterValue)) {
-        return !filterValue.some((v) => String(v) === strValue);
+        result = !filterValue.some((v) => String(v) === strValue);
+      } else {
+        result = true;
       }
-      return true;
+      break;
     case "BETWEEN":
       if (Array.isArray(filterValue) && filterValue.length === 2) {
         const numValue = Number(value);
         const minVal = Number(filterValue[0]);
         const maxVal = Number(filterValue[1]);
-        return numValue >= minVal && numValue <= maxVal;
+        result = numValue >= minVal && numValue <= maxVal;
+      } else {
+        result = false;
       }
-      return false;
+      break;
     default:
-      return true;
+      result = true;
   }
+
+  return condition.negated ? !result : result;
 }
 
 /**
  * SQL LIKE pattern matching
  */
-function matchLike(value: string, pattern: string): boolean {
+function matchLike(value: string, pattern: string, caseSensitive: boolean): boolean {
   // Convert SQL LIKE pattern to regex
   const regexPattern = pattern
     .replace(/[.*+?^${}()|[\]\\]/g, "\\$&") // Escape special regex chars
     .replace(/%/g, ".*") // % = any characters
     .replace(/_/g, "."); // _ = single character
 
-  const regex = new RegExp(`^${regexPattern}$`, "i");
+  const flags = caseSensitive ? "" : "i";
+  const regex = new RegExp(`^${regexPattern}$`, flags);
   return regex.test(value);
+}
+
+/**
+ * Regex pattern matching
+ */
+function matchRegex(value: string, pattern: string, caseSensitive: boolean): boolean {
+  try {
+    const flags = caseSensitive ? "" : "i";
+    const regex = new RegExp(pattern, flags);
+    return regex.test(value);
+  } catch {
+    // Invalid regex pattern - return false
+    return false;
+  }
 }
 
 /**
