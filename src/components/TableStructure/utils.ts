@@ -9,13 +9,26 @@ export function transformStructureToRows(
   constraints: Constraint[],
   pendingCommands: CrudCommand[] = [],
 ): StructureGridRow[] {
-  // Extract pending column additions and modifications
+  // Extract pending column operations by type
   const pendingAdds = pendingCommands.filter(
     (cmd) => cmd.type === "column.add",
   ) as CrudCommand<ColumnAddPayload>[];
 
   const pendingModifies = pendingCommands.filter(
     (cmd) => cmd.type === "column.modify",
+  );
+
+  const pendingDeletes = pendingCommands.filter(
+    (cmd) => cmd.type === "column.drop",
+  );
+
+  const pendingRenames = pendingCommands.filter(
+    (cmd) => cmd.type === "column.rename",
+  );
+
+  // Build lookup sets for quick checks
+  const deletedColumnNames = new Set(
+    pendingDeletes.map((cmd) => (cmd.payload as any).columnName as string),
   );
 
   // Transform actual columns first
@@ -35,10 +48,24 @@ export function transformStructureToRows(
       (cmd) => (cmd.payload as any).columnName === column.name,
     );
 
+    // Check if there's a pending rename command for this column
+    const renameCmd = pendingRenames.find(
+      (cmd) => (cmd.payload as any).columnName === column.name,
+    );
+
+    // Check if column is marked for deletion
+    const isPendingDelete = deletedColumnNames.has(column.name);
+
+    let displayName = column.name;
     let dbType = column.db_type ?? "";
     let nullable = column.nullable ? "YES" : "NO";
     let defaultValue = column.default; // Keep null/undefined as-is
     let comment = column.comment ?? "";
+
+    // Apply pending rename
+    if (renameCmd) {
+      displayName = (renameCmd.payload as any).newName ?? column.name;
+    }
 
     // Apply pending modifications
     if (modifyCmd) {
@@ -59,7 +86,7 @@ export function transformStructureToRows(
 
     return {
       row_number: idx + 1,
-      column_name: column.name,
+      column_name: displayName,
       column_meta: {
         is_pk: column.is_pk ?? false,
         is_fk: column.is_fk ?? false,
@@ -73,7 +100,8 @@ export function transformStructureToRows(
       check_constraint: checkConstraint?.definition ?? "",
       comment: comment,
       _original: column,
-      _isModified: !!modifyCmd, // Mark row as modified
+      _isModified: !!(modifyCmd || renameCmd), // Mark row as modified
+      _isPendingDelete: isPendingDelete, // Mark row for deletion
     };
   });
 

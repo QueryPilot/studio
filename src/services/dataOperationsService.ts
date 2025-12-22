@@ -17,12 +17,14 @@ interface BaseOperationParams {
 
 export interface InsertRowParams extends BaseOperationParams {
   readonly values: Record<string, unknown>;
+  readonly columnTypes?: Record<string, string>; // PostgreSQL types for explicit casting
   readonly primaryKeys?: Record<string, CrudPrimitive>;
   readonly tempId?: string;
 }
 
 export interface UpdateCellParams extends BaseOperationParams {
   readonly column: string;
+  readonly columnType?: string; // PostgreSQL type for explicit casting (e.g., "money", "inet")
   readonly primaryKeys: Record<string, CrudPrimitive>;
   readonly oldValue?: unknown;
   readonly newValue: unknown;

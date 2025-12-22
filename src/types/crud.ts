@@ -5,6 +5,8 @@ export type CrudOperationType =
   | 'data.update'
   | 'data.insert'
   | 'data.delete'
+  | 'table.create'
+  | 'table.drop'
   | 'column.add'
   | 'column.modify'
   | 'column.drop'
@@ -143,6 +145,7 @@ export interface ForeignKeyDefinitionInput {
 
 export interface DataUpdatePayload extends CrudCommandPayload {
   readonly column: string;
+  readonly columnType?: string; // PostgreSQL type for explicit casting (e.g., "money", "inet")
   readonly primaryKeys: Record<string, CrudPrimitive>;
   readonly oldValue?: JsonValue;
   readonly newValue: JsonValue;
@@ -150,6 +153,7 @@ export interface DataUpdatePayload extends CrudCommandPayload {
 
 export interface DataInsertPayload extends CrudCommandPayload {
   readonly values: Record<string, JsonValue>;
+  readonly columnTypes?: Record<string, string>; // PostgreSQL types for explicit casting
   readonly primaryKeys?: Record<string, CrudPrimitive>;
 }
 
@@ -213,10 +217,25 @@ export interface ForeignKeyDropPayload extends CrudCommandPayload {
   readonly cascade?: boolean;
 }
 
+export interface TableCreatePayload extends CrudCommandPayload {
+  readonly tableName: string;
+  readonly columns: ColumnDefinitionInput[];
+  readonly primaryKey?: string[];
+  readonly ifNotExists?: boolean;
+}
+
+export interface TableDropPayload extends CrudCommandPayload {
+  readonly tableName: string;
+  readonly cascade?: boolean;
+  readonly ifExists?: boolean;
+}
+
 export type CrudCommandPayloadMap = {
   'data.update': DataUpdatePayload;
   'data.insert': DataInsertPayload;
   'data.delete': DataDeletePayload;
+  'table.create': TableCreatePayload;
+  'table.drop': TableDropPayload;
   'column.add': ColumnAddPayload;
   'column.modify': ColumnModifyPayload;
   'column.drop': ColumnDropPayload;

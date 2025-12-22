@@ -1,4 +1,11 @@
-import { forwardRef, type Ref, useMemo, useCallback, useRef } from "react";
+import {
+  forwardRef,
+  type Ref,
+  useMemo,
+  useCallback,
+  useRef,
+  useImperativeHandle,
+} from "react";
 import DataEditor, {
   type DataEditorProps,
   type DataEditorRef,
@@ -45,6 +52,12 @@ export const DataGridBase = forwardRef(function DataGridBase(
     props;
   const { resolvedTheme } = useTheme();
 
+  // Internal grid ref for updateCells
+  const internalGridRef = useRef<DataEditorRef>(null);
+
+  // Expose internal ref via forwarded ref
+  useImperativeHandle(ref, () => internalGridRef.current as DataEditorRef, []);
+
   // Use ref instead of state to avoid re-renders on every mouse move
   // Glide DataGrid calls getRowThemeOverride during draw, so ref access works
   const hoveredRowRef = useRef<number | null>(null);
@@ -57,15 +70,44 @@ export const DataGridBase = forwardRef(function DataGridBase(
     [resolvedTheme],
   );
 
-  // Handle item hover - just update ref, no state changes = no re-renders
-  // The theme override callback reads from ref during draw
+  // Handle item hover - update ref and trigger redraw for affected rows
   const handleItemHovered = useCallback(
     (args: GridMouseEventArgs) => {
-      hoveredRowRef.current = args.kind === "cell" ? args.location[1] : null;
+      const newRow = args.kind === "cell" ? args.location[1] : null;
+      const prevRow = hoveredRowRef.current;
+
+      // Only update if row changed
+      if (prevRow !== newRow) {
+        hoveredRowRef.current = newRow;
+
+        // Damage the affected rows to trigger redraw with new hover state
+        const cellsToDamage: { cell: [number, number] }[] = [];
+        const colCount = columns.length;
+
+        // Damage all cells in the previous hovered row
+        if (prevRow !== null) {
+          for (let col = 0; col < colCount; col++) {
+            cellsToDamage.push({ cell: [col, prevRow] });
+          }
+        }
+
+        // Damage all cells in the new hovered row
+        if (newRow !== null) {
+          for (let col = 0; col < colCount; col++) {
+            cellsToDamage.push({ cell: [col, newRow] });
+          }
+        }
+
+        // Trigger redraw
+        if (cellsToDamage.length > 0) {
+          internalGridRef.current?.updateCells(cellsToDamage);
+        }
+      }
+
       rest.onItemHovered?.(args);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rest.onItemHovered],
+    [rest.onItemHovered, columns.length],
   );
 
   // Merge row hover with external getRowThemeOverride
@@ -113,7 +155,7 @@ export const DataGridBase = forwardRef(function DataGridBase(
   return (
     <div className={containerClasses}>
       <DataEditor
-        ref={ref}
+        ref={internalGridRef}
         columns={columns}
         rows={rowCount}
         getCellContent={getCellContent}

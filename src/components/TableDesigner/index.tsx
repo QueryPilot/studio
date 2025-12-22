@@ -13,7 +13,6 @@ import { cn } from "@/lib/utils";
 import {
   GridCellKind,
   type Item,
-  type CustomCell,
   type CustomRenderer,
   type GridCell,
 } from "@glideapps/glide-data-grid";
@@ -24,12 +23,11 @@ import { NullableCellRenderer } from "@/components/TableStructure/NullableCellRe
 import { DataTypeCellRenderer } from "@/components/TableStructure/DataTypeCellRenderer";
 import { TextSingleLineCellRenderer } from "@/components/DataGrid/renderers/TextCell";
 import { useCrudStore, buildCrudTableKey } from "@/stores/crudStore";
-import {
-  createColumnAddCommand,
-  generateCommandId,
-} from "@/components/TableStructure/commandFactory";
+import { createTableCreateCommand } from "./commandFactory";
 import type { CrudCommandTarget } from "@/types/crud";
+import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
 import { toast } from "sonner";
+import { nanoid } from "nanoid";
 
 export interface TableDesignerProps {
   connectionId: string;
@@ -38,6 +36,16 @@ export interface TableDesignerProps {
   className?: string;
   onSave?: (tableName: string, sql: string) => void;
   onCancel?: () => void;
+}
+
+// Local column state (not in crudStore until submit)
+interface DesignerColumn {
+  id: string;
+  name: string;
+  dataType: string;
+  nullable: boolean;
+  defaultValue: string;
+  isPrimaryKey: boolean;
 }
 
 // Grid row for designer
@@ -52,6 +60,17 @@ interface DesignerGridRow {
   nullable: string;
   default: string;
   _tempId: string;
+}
+
+function createDefaultColumn(): DesignerColumn {
+  return {
+    id: nanoid(),
+    name: "",
+    dataType: "VARCHAR(255)",
+    nullable: true,
+    defaultValue: "",
+    isPrimaryKey: false,
+  };
 }
 
 // Designer columns
@@ -113,92 +132,54 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
 }) => {
   const [tableName, setTableName] = useState("");
   const tableNameInputRef = useRef<HTMLInputElement>(null);
+  const [globalChangesDialogOpen, setGlobalChangesDialogOpen] = useState(false);
 
-  const { stagedCommands, stageCommand, unstageCommand, discardChanges } =
-    useCrudStore();
+  // Local column state (not in crudStore until submit)
+  const [columns, setColumns] = useState<DesignerColumn[]>(() => [
+    {
+      id: nanoid(),
+      name: "id",
+      dataType: "SERIAL",
+      nullable: false,
+      defaultValue: "",
+      isPrimaryKey: true,
+    },
+  ]);
 
-  // Use a temporary table key for the new table design
+  const { stageCommand, discardChanges } = useCrudStore();
+
+  // Table key for crudStore - uses actual table name when available
   const tableKey = useMemo(
     () =>
       buildCrudTableKey({
         connectionId,
         database,
         schema,
-        table: `__new_table_${Date.now()}`,
+        table: tableName.trim() || "__new_table_design",
       }),
-    [connectionId, database, schema],
+    [connectionId, database, schema, tableName],
   );
-
-  // Get pending commands for this design session
-  const pendingCommands = useMemo(() => {
-    return stagedCommands.get(tableKey) ?? [];
-  }, [stagedCommands, tableKey]);
 
   // Auto-focus on table name input
   useEffect(() => {
     tableNameInputRef.current?.focus();
   }, []);
 
-  // Initialize with one default column
-  useEffect(() => {
-    if (pendingCommands.length === 0) {
-      const target: CrudCommandTarget = {
-        connectionId,
-        database,
-        schema,
-        table: tableKey,
-      };
-
-      const tempId = generateCommandId();
-      const command = createColumnAddCommand(
-        target,
-        {
-          name: "id",
-          dataType: "SERIAL",
-          nullable: false,
-        },
-        tempId,
-      );
-      stageCommand(command);
-    }
-  }, [
-    connectionId,
-    database,
-    schema,
-    tableKey,
-    pendingCommands.length,
-    stageCommand,
-  ]);
-
-  // Transform commands to grid rows
+  // Transform local columns to grid rows
   const gridRows = useMemo((): DesignerGridRow[] => {
-    return pendingCommands
-      .filter((cmd) => cmd.type === "column.add")
-      .map((cmd, index) => {
-        const payload = cmd.payload as {
-          column: {
-            name: string;
-            dataType: string;
-            nullable: boolean;
-            defaultValue?: string;
-          };
-          tempId: string;
-        };
-        const col = payload.column;
-        return {
-          row_number: index + 1,
-          column_name: col.name || "",
-          column_meta: {
-            is_pk: col.dataType?.toUpperCase().includes("SERIAL") || false,
-            is_fk: false,
-          },
-          db_type: col.dataType || "VARCHAR(255)",
-          nullable: col.nullable ? "YES" : "NO",
-          default: col.defaultValue || "",
-          _tempId: cmd.id,
-        };
-      });
-  }, [pendingCommands]);
+    return columns.map((col, index) => ({
+      row_number: index + 1,
+      column_name: col.name || "",
+      column_meta: {
+        is_pk: col.isPrimaryKey || col.dataType.toUpperCase().includes("SERIAL"),
+        is_fk: false,
+      },
+      db_type: col.dataType || "VARCHAR(255)",
+      nullable: col.nullable ? "YES" : "NO",
+      default: col.defaultValue || "",
+      _tempId: col.id,
+    }));
+  }, [columns]);
 
   // Column sizing
   const { sizedColumns, handleColumnResize, handleColumnResizeEnd } =
@@ -211,9 +192,9 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
   // Custom renderers
   const customRenderers = useMemo(
     () => [
-      NullableCellRenderer as unknown as CustomRenderer<CustomCell>,
-      DataTypeCellRenderer as unknown as CustomRenderer<CustomCell>,
-      TextSingleLineCellRenderer as unknown as CustomRenderer<CustomCell>,
+      NullableCellRenderer as unknown as CustomRenderer,
+      DataTypeCellRenderer as unknown as CustomRenderer,
+      TextSingleLineCellRenderer as unknown as CustomRenderer,
     ],
     [],
   );
@@ -302,99 +283,60 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
 
       const column = sizedColumns[col];
       const field = column?.field;
-      const tempId = rowData._tempId;
+      const columnId = rowData._tempId;
 
-      // Find the existing command
-      const existingCmd = pendingCommands.find((cmd) => cmd.id === tempId);
-      if (!existingCmd) return;
+      setColumns((prev) =>
+        prev.map((c) => {
+          if (c.id !== columnId) return c;
 
-      const payload = existingCmd.payload as {
-        name: string;
-        dataType: string;
-        nullable: boolean;
-        defaultValue?: string;
-      };
+          const updated = { ...c };
 
-      let updatedPayload = { ...payload };
+          switch (field) {
+            case "column_name":
+              if (newValue.kind === GridCellKind.Custom) {
+                const data = newValue.data as { value?: string };
+                updated.name = data.value || "";
+              } else if (newValue.kind === GridCellKind.Text) {
+                updated.name = newValue.data || "";
+              }
+              break;
 
-      switch (field) {
-        case "column_name":
-          if (newValue.kind === GridCellKind.Custom) {
-            const data = newValue.data as { name?: string };
-            updatedPayload.name = data.name || "";
-          } else if (newValue.kind === GridCellKind.Text) {
-            updatedPayload.name = newValue.data || "";
+            case "db_type":
+              if (newValue.kind === GridCellKind.Custom) {
+                const data = newValue.data as { value?: string };
+                updated.dataType = data.value || "VARCHAR(255)";
+              } else if (newValue.kind === GridCellKind.Text) {
+                updated.dataType = newValue.data || "VARCHAR(255)";
+              }
+              // Update isPrimaryKey based on SERIAL type
+              updated.isPrimaryKey = updated.dataType.toUpperCase().includes("SERIAL");
+              break;
+
+            case "nullable":
+              if (newValue.kind === GridCellKind.Custom) {
+                const data = newValue.data as { value?: string };
+                updated.nullable = data.value === "YES";
+              }
+              break;
+
+            case "default":
+              if (newValue.kind === GridCellKind.Text) {
+                updated.defaultValue = newValue.data || "";
+              }
+              break;
           }
-          break;
 
-        case "db_type":
-          if (newValue.kind === GridCellKind.Custom) {
-            const data = newValue.data as { value?: string };
-            updatedPayload.dataType = data.value || "VARCHAR(255)";
-          } else if (newValue.kind === GridCellKind.Text) {
-            updatedPayload.dataType = newValue.data || "VARCHAR(255)";
-          }
-          break;
-
-        case "nullable":
-          if (newValue.kind === GridCellKind.Custom) {
-            const data = newValue.data as { value?: string };
-            updatedPayload.nullable = data.value === "YES";
-          }
-          break;
-
-        case "default":
-          if (newValue.kind === GridCellKind.Text) {
-            updatedPayload.defaultValue = newValue.data || "";
-          }
-          break;
-      }
-
-      // Update the command
-      unstageCommand(tempId);
-      const target: CrudCommandTarget = {
-        connectionId,
-        database,
-        schema,
-        table: tableKey,
-      };
-      const newCommand = createColumnAddCommand(target, updatedPayload, tempId);
-      stageCommand(newCommand);
+          return updated;
+        }),
+      );
     },
-    [
-      gridRows,
-      sizedColumns,
-      pendingCommands,
-      unstageCommand,
-      stageCommand,
-      connectionId,
-      database,
-      schema,
-      tableKey,
-    ],
+    [gridRows, sizedColumns],
   );
 
   // Handle row append
   const handleRowAppended = useCallback(() => {
-    const target: CrudCommandTarget = {
-      connectionId,
-      database,
-      schema,
-      table: tableKey,
-    };
-
-    const tempId = generateCommandId();
-    const command = createColumnAddCommand(
-      target,
-      {
-        name: "",
-        dataType: "VARCHAR(255)",
-        nullable: true,
-      },
-      tempId,
-    );
-    stageCommand(command);
-  }, [connectionId, database, schema, tableKey, stageCommand]);
+    setColumns((prev) => [...prev, createDefaultColumn()]);
+  }, []);
 
   // Generate SQL
   const generateSQL = useCallback(() => {
@@ -427,17 +369,50 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
       tableNameInputRef.current?.focus();
       return;
     }
-    if (gridRows.length === 0) {
+    if (columns.length === 0) {
       toast.error("Please add at least one column");
       return;
     }
 
-    const sql = generateSQL();
-    onSave?.(tableName, sql);
+    // Validate all columns have names
+    const invalidColumns = columns.filter((col) => !col.name.trim());
+    if (invalidColumns.length > 0) {
+      toast.error("All columns must have names");
+      return;
+    }
 
-    // Clear the staged commands after save
-    discardChanges(tableKey);
-  }, [tableName, gridRows, generateSQL, onSave, discardChanges, tableKey]);
+    // Create command target
+    const target: CrudCommandTarget = {
+      connectionId,
+      database,
+      schema,
+      table: tableName,
+    };
+
+    // Convert local columns to ColumnDefinitionInput format
+    const columnDefs = columns.map((col) => ({
+      name: col.name,
+      dataType: col.dataType,
+      nullable: col.nullable,
+      defaultValue: col.defaultValue || undefined,
+      isPrimaryKey: col.isPrimaryKey,
+    }));
+
+    // Extract primary key columns
+    const primaryKey = columns
+      .filter((col) => col.isPrimaryKey)
+      .map((col) => col.name);
+
+    // Create and stage the table.create command
+    const command = createTableCreateCommand(target, {
+      tableName,
+      columns: columnDefs,
+      primaryKey: primaryKey.length > 0 ? primaryKey : undefined,
+    });
+
+    stageCommand(command);
+    setGlobalChangesDialogOpen(true);
+  }, [tableName, columns, connectionId, database, schema, stageCommand]);
 
   const handleCancel = useCallback(() => {
     discardChanges(tableKey);
@@ -460,7 +435,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
               ref={tableNameInputRef}
               id="tableName"
               value={tableName}
-              onChange={(e) => setTableName(e.target.value)}
+              onChange={(e) => { setTableName(e.target.value); }}
               placeholder="Enter table name"
               className="mt-1"
             />
@@ -520,11 +495,26 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
         <Button
           size="sm"
           onClick={handleSave}
-          disabled={!tableName.trim() || gridRows.length === 0}
+          disabled={!tableName.trim() || columns.length === 0}
         >
           Create Table
         </Button>
       </div>
+
+      <GlobalChangesDialog
+        open={globalChangesDialogOpen}
+        onOpenChange={setGlobalChangesDialogOpen}
+        connectionId={connectionId}
+        database={database}
+        schema={schema}
+        table={tableName}
+        onCommitSuccess={() => {
+          const sql = generateSQL();
+          onSave?.(tableName, sql);
+          discardChanges(tableKey);
+          setGlobalChangesDialogOpen(false);
+        }}
+      />
     </div>
   );
 };
