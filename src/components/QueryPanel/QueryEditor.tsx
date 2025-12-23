@@ -21,6 +21,7 @@ interface QueryEditorProps {
   value?: string;
   onChange?: (value: string | undefined) => void;
   onExecute?: (query: string) => void;
+  onGotoDefinition?: (event: { type: "table" | "column"; name: string; schema?: string; table?: string }) => void;
   isExecuting?: boolean;
   height?: string;
   readOnly?: boolean;
@@ -40,6 +41,7 @@ export const QueryEditor = memo(
       value = "",
       onChange,
       onExecute,
+      onGotoDefinition,
       isExecuting = false,
       height = "100%",
       readOnly = false,
@@ -124,6 +126,7 @@ export const QueryEditor = memo(
           onChange={handleChange}
           onChangeDelay={150} // Debounced updates - reduces re-renders
           onExecute={handleExecute}
+          onGotoDefinition={onGotoDefinition}
           connectionId={connectionId}
           database={database}
           schema={schema}

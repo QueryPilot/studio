@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 
 interface BackgroundQueryIndicatorProps {
   className?: string;
+  onViewResult?: (queryId: string) => void;
 }
 
 function formatDuration(startTime: number, endTime?: number): string {
@@ -42,11 +43,13 @@ function truncateQuery(query: string, maxLength: number = 50): string {
 interface BackgroundQueryItemProps {
   query: BackgroundQuery;
   onClear: (queryId: string) => void;
+  onViewResult?: (queryId: string) => void;
 }
 
 const BackgroundQueryItem = memo(function BackgroundQueryItem({
   query,
   onClear,
+  onViewResult,
 }: BackgroundQueryItemProps) {
   const statusConfig = useMemo(() => {
     switch (query.status) {
@@ -104,12 +107,22 @@ const BackgroundQueryItem = memo(function BackgroundQueryItem({
     return null;
   }, [query.result, query.error]);
 
+  const handleClick = () => {
+    if (query.status === "completed" && query.result && onViewResult) {
+      onViewResult(query.id);
+    }
+  };
+
+  const isClickable = query.status === "completed" && query.result && onViewResult;
+
   return (
     <div
       className={cn(
         "flex flex-col gap-2 p-3 rounded-lg border",
-        statusConfig.bg
+        statusConfig.bg,
+        isClickable && "cursor-pointer hover:bg-accent/50 transition-colors"
       )}
+      onClick={handleClick}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -133,7 +146,10 @@ const BackgroundQueryItem = memo(function BackgroundQueryItem({
           <Button
             size="icon-sm"
             variant="ghost"
-            onClick={() => onClear(query.id)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onClear(query.id);
+            }}
             className="shrink-0"
             title="Clear"
           >
@@ -151,6 +167,7 @@ const BackgroundQueryItem = memo(function BackgroundQueryItem({
 
 export const BackgroundQueryIndicator = memo(function BackgroundQueryIndicator({
   className,
+  onViewResult,
 }: BackgroundQueryIndicatorProps) {
   const backgroundQueries = useTabStateStore((state) => state.getBackgroundQueries());
   const runningCount = useTabStateStore((state) => state.getRunningBackgroundQueriesCount());
@@ -205,6 +222,7 @@ export const BackgroundQueryIndicator = memo(function BackgroundQueryIndicator({
                   key={query.id}
                   query={query}
                   onClear={clearBackgroundQuery}
+                  onViewResult={onViewResult}
                 />
               ))}
             </div>
