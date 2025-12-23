@@ -65,8 +65,8 @@ DB_USER='admin'`;
     });
 
     describe("unknown format detection", () => {
-      it("should return unknown for single line", () => {
-        expect(detectConnectionFormat("DB_HOST=localhost")).toBe("unknown");
+      it("should return env for single line KEY=VALUE", () => {
+        expect(detectConnectionFormat("DB_HOST=localhost")).toBe("env");
       });
 
       it("should return unknown for empty string", () => {
@@ -204,6 +204,40 @@ export DATABASE_NAME=mydb`;
         expect(config.username).toBe("myuser");
         expect(config.password).toBe("mypass");
         expect(config.database).toBe("mydb");
+      });
+    });
+
+    describe("DATABASE_URL support", () => {
+      it("should parse DATABASE_URL with PostgreSQL URI", () => {
+        const env = `DATABASE_URL=postgresql://user:pass@localhost:5432/mydb`;
+        const config = parseConnectionEnv(env);
+
+        expect(config.dbType).toBe("postgresql");
+        expect(config.host).toBe("localhost");
+        expect(config.port).toBe("5432");
+        expect(config.username).toBe("user");
+        expect(config.password).toBe("pass");
+        expect(config.database).toBe("mydb");
+      });
+
+      it("should parse DATABASE_URL with MySQL URI", () => {
+        const env = `DATABASE_URL=mysql://admin:secret@db.example.com:3306/appdb`;
+        const config = parseConnectionEnv(env);
+
+        expect(config.dbType).toBe("mysql");
+        expect(config.host).toBe("db.example.com");
+        expect(config.port).toBe("3306");
+        expect(config.username).toBe("admin");
+        expect(config.password).toBe("secret");
+        expect(config.database).toBe("appdb");
+      });
+
+      it("should parse DB_URL as alias", () => {
+        const env = `DB_URL=postgres://user:pass@host:5432/db`;
+        const config = parseConnectionEnv(env);
+
+        expect(config.dbType).toBe("postgresql");
+        expect(config.host).toBe("host");
       });
     });
 

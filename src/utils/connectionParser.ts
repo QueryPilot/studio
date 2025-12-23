@@ -41,12 +41,12 @@ export interface ParsedUriConfig {
 export function detectConnectionFormat(text: string): ConnectionFormat {
   const trimmed = text.trim();
 
-  // Check for URI format (contains protocol://)
-  if (trimmed.includes("://")) {
+  // Check for URI format (starts with protocol://)
+  if (/^(postgres|postgresql|mysql|mariadb|mssql|sqlserver|sqlite):\/\//i.test(trimmed)) {
     return "uri";
   }
 
-  // Check for env format (multiple KEY=VALUE pairs)
+  // Check for env format (KEY=VALUE pairs)
   const lines = trimmed.split("\n").filter((line) => {
     const l = line.trim();
     return l && !l.startsWith("#");
@@ -55,7 +55,8 @@ export function detectConnectionFormat(text: string): ConnectionFormat {
   const envPattern = /^(export\s+)?[A-Z_][A-Z0-9_]*\s*=\s*.+$/i;
   const envLines = lines.filter((line) => envPattern.test(line));
 
-  if (envLines.length >= 2) {
+  // Accept single-line env if it contains a database URL or connection info
+  if (envLines.length >= 1) {
     return "env";
   }
 
@@ -183,6 +184,26 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     "DATABASE",
     "DB",
   );
+
+  // Handle DATABASE_URL as a full connection URI
+  const databaseUrl = getValue("DATABASE_URL", "DB_URL", "CONNECTION_STRING");
+  if (databaseUrl && databaseUrl.includes("://")) {
+    try {
+      const uriConfig = parseConnectionUri(databaseUrl);
+      config.dbType = uriConfig.dbType;
+      config.host = uriConfig.host;
+      config.port = uriConfig.port;
+      config.username = uriConfig.username;
+      config.password = uriConfig.password;
+      config.database = uriConfig.database;
+      if (uriConfig.sslMode !== undefined) {
+        config.sslMode = uriConfig.sslMode;
+      }
+      return config;
+    } catch {
+      // Fall through to manual parsing
+    }
+  }
 
   // SSL Mode
   const sslModeValue = getValue(
