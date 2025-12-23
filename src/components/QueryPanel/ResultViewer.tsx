@@ -11,6 +11,8 @@ import {
   IconClipboardCheck,
   IconDownload,
   IconCheck,
+  IconPin,
+  IconPinFilled,
 } from "@tabler/icons-react";
 import { TableDataGrid } from "@/components/DataGrid";
 import { DataGridSkeleton } from "@/components/DataGrid/components/DataGridSkeleton";
@@ -45,6 +47,12 @@ interface QueryResult {
   rowCount: number;
   affectedRows?: number;
   executionTime?: number;
+  cursorSetupMs?: number;
+  totalStreamingMs?: number;
+  fetchCount?: number;
+  networkMs?: number;
+  conversionMs?: number;
+  ipcSendMs?: number;
   message?: string;
   error?: string;
 }
@@ -72,6 +80,16 @@ interface ResultViewerProps {
   multiResults?: MultiQueryResult[];
   activeResultIndex: number;
   onResultTabChange: (index: number) => void;
+
+  // Pin support
+  tabId?: string;
+  pinnedResult?: QueryResult | null;
+  pinnedResultQuery?: string;
+  onPinResult?: () => void;
+  onUnpinResult?: () => void;
+
+  // EXPLAIN plan diff support
+  currentQuery?: string;
 }
 
 export const ResultViewer = memo(function ResultViewer({
@@ -92,10 +110,102 @@ export const ResultViewer = memo(function ResultViewer({
   onResultTabChange,
   schema,
   databaseType,
+  pinnedResult,
+  pinnedResultQuery,
+  onPinResult,
+  onUnpinResult,
+  tabId: _tabId,
+  currentQuery: _currentQuery,
 }: ResultViewerProps) {
+  const [activeTab, setActiveTab] = useState<"current" | "pinned">("current");
+
   const handleTabChange = (index: number) => {
     onResultTabChange(index);
   };
+
+  const hasPinnedResult = Boolean(pinnedResult && !pinnedResult.error);
+  const hasCurrentResult = Boolean(result && !isLoading);
+
+  // If we have a pinned result alongside current result, show pin tabs
+  if (hasPinnedResult && hasCurrentResult) {
+    const displayResult = (activeTab === "pinned" ? pinnedResult : result) || null;
+    const displayQuery = activeTab === "pinned" ? pinnedResultQuery : undefined;
+
+    return (
+      <div className={cn("flex flex-col h-full", className)}>
+        {/* Pin tabs */}
+        <div className="flex items-center gap-1 px-2 py-1 bg-secondary/30 border-b">
+          <button
+            onClick={() => setActiveTab("current")}
+            className={cn(
+              "flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+              "hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-primary/20",
+              activeTab === "current" &&
+                "bg-primary/15 text-foreground border border-primary/30 shadow-sm",
+              activeTab !== "current" && "text-muted-foreground bg-secondary/40",
+            )}
+          >
+            <span>Current Result</span>
+          </button>
+          <button
+            onClick={() => setActiveTab("pinned")}
+            className={cn(
+              "flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+              "hover:bg-secondary/80 focus:outline-none focus:ring-2 focus:ring-primary/20",
+              activeTab === "pinned" &&
+                "bg-primary/15 text-foreground border border-primary/30 shadow-sm",
+              activeTab !== "pinned" && "text-muted-foreground bg-secondary/40",
+            )}
+          >
+            <IconPinFilled className="h-3 w-3" />
+            <span>Pinned Result</span>
+          </button>
+          {activeTab === "pinned" && onUnpinResult && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onUnpinResult}
+              className="h-7 ml-auto"
+              title="Unpin result"
+            >
+              <IconPin className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
+
+        {/* Query info for pinned result */}
+        {activeTab === "pinned" && displayQuery && (
+          <div className="px-2 py-1.5 bg-muted/20 border-b text-xs text-muted-foreground font-mono truncate">
+            {displayQuery.length > 100 ? `${displayQuery.substring(0, 100)}...` : displayQuery}
+          </div>
+        )}
+
+        {/* Result content */}
+        <div className="flex-1 min-h-0">
+          <SingleResultView
+            result={displayResult}
+            isLoading={false}
+            isStreaming={false}
+            gridId={`${gridId}-${activeTab}`}
+            viewMode={viewMode}
+            cursorSetupMs={displayResult?.cursorSetupMs || cursorSetupMs}
+            totalStreamingMs={displayResult?.totalStreamingMs || totalStreamingMs}
+            fetchCount={displayResult?.fetchCount || fetchCount}
+            networkMs={displayResult?.networkMs || networkMs}
+            conversionMs={displayResult?.conversionMs || conversionMs}
+            ipcSendMs={displayResult?.ipcSendMs || ipcSendMs}
+            schema={schema}
+            databaseType={databaseType}
+            showPinButton={activeTab === "current"}
+            isPinned={false}
+            onPinResult={onPinResult}
+            tabId={_tabId}
+            currentQuery={_currentQuery}
+          />
+        </div>
+      </div>
+    );
+  }
 
   // If we have multi-results, render tabbed interface
   if (multiResults && multiResults.length > 0) {
@@ -164,6 +274,8 @@ export const ResultViewer = memo(function ResultViewer({
               ipcSendMs={actualResult.ipcSendMs}
               schema={schema}
               databaseType={databaseType}
+              tabId={_tabId}
+              currentQuery={_currentQuery}
             />
           )}
         </div>
@@ -188,6 +300,9 @@ export const ResultViewer = memo(function ResultViewer({
         ipcSendMs={ipcSendMs}
         schema={schema}
         databaseType={databaseType}
+        showPinButton={!hasPinnedResult && hasCurrentResult}
+        isPinned={hasPinnedResult}
+        onPinResult={onPinResult}
       />
     </div>
   );
@@ -210,6 +325,11 @@ interface SingleResultViewProps {
   ipcSendMs?: number;
   schema?: string;
   databaseType?: string;
+  showPinButton?: boolean;
+  isPinned?: boolean;
+  onPinResult?: () => void;
+  tabId?: string;
+  currentQuery?: string;
 }
 
 interface ExportMenuProps {
@@ -582,6 +702,11 @@ const SingleResultView = memo(function SingleResultView({
   ipcSendMs,
   schema,
   databaseType,
+  showPinButton = false,
+  isPinned = false,
+  onPinResult,
+  tabId: _tabId,
+  currentQuery: _currentQuery,
 }: SingleResultViewProps) {
   const jsonContent = useMemo(() => {
     // Skip expensive JSON computation when in table mode
@@ -711,9 +836,30 @@ const SingleResultView = memo(function SingleResultView({
         </div>
       )}
 
-      {/* Export button for results with data */}
+      {/* Export button and pin button for results with data */}
       {hasExportableData && (
-        <div className="px-2 py-1.5 border-b bg-muted/30 flex items-center justify-end">
+        <div className="px-2 py-1.5 border-b bg-muted/30 flex items-center justify-end gap-2">
+          {showPinButton && onPinResult && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onPinResult}
+              className="h-7 gap-1.5"
+              title="Pin this result to keep it visible while running new queries"
+            >
+              {isPinned ? (
+                <>
+                  <IconPinFilled className="h-3.5 w-3.5" />
+                  Pinned
+                </>
+              ) : (
+                <>
+                  <IconPin className="h-3.5 w-3.5" />
+                  Pin Result
+                </>
+              )}
+            </Button>
+          )}
           <ExportMenu columns={result.columns} rows={result.rows} schema={schema} databaseType={databaseType} />
         </div>
       )}
@@ -723,6 +869,8 @@ const SingleResultView = memo(function SingleResultView({
           <ExplainViewer
             result={{ columns: result.columns, rows: result.rows }}
             viewMode={viewMode}
+            tabId={_tabId}
+            currentQuery={_currentQuery}
           />
         </div>
       ) : viewMode === "table" ? (
