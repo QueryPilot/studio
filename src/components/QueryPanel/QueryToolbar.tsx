@@ -32,10 +32,8 @@ import {
   IconFileText,
   IconChartBar,
   IconListTree,
-  IconClock,
 } from "@tabler/icons-react";
 import { QueryLimitControl } from "./QueryLimitControl";
-import { BackgroundQueryIndicator } from "./BackgroundQueryIndicator";
 import type { SqlDialect } from "@/components/CodeEditor";
 
 // Dialect display names and descriptions
@@ -72,7 +70,6 @@ interface QueryToolbarProps {
   isExplainResult?: boolean;
   hasValidResult?: boolean;
   onExecute: () => void;
-  onExecuteInBackground?: () => void;
   onCancel: () => void;
   onBeautify: () => void;
   onToggleHistory: () => void;
@@ -83,7 +80,6 @@ interface QueryToolbarProps {
   ) => void;
   onDialectChange?: (dialect: SqlDialect | "auto") => void;
   onFocusEditor?: () => void;
-  onViewBackgroundQuery?: (queryId: string) => void;
 }
 
 export const QueryToolbar = memo(function QueryToolbar({
@@ -102,7 +98,6 @@ export const QueryToolbar = memo(function QueryToolbar({
   isExplainResult = false,
   hasValidResult = true,
   onExecute,
-  onExecuteInBackground,
   onCancel,
   onBeautify,
   onToggleHistory,
@@ -111,7 +106,6 @@ export const QueryToolbar = memo(function QueryToolbar({
   onViewModeChange,
   onDialectChange,
   onFocusEditor,
-  onViewBackgroundQuery,
 }: QueryToolbarProps) {
   return (
     <div className="@container/toolbar flex-shrink-0">
@@ -330,27 +324,6 @@ export const QueryToolbar = memo(function QueryToolbar({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-
-          {/* Background Query Indicator - shows running background queries */}
-          <BackgroundQueryIndicator
-            className="hidden @[600px]/toolbar:flex"
-            onViewResult={onViewBackgroundQuery}
-          />
-
-          {/* Run in Background button - visible on wider screens */}
-          {onExecuteInBackground && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onExecuteInBackground}
-              disabled={isExecuting || !query.trim()}
-              className="hidden @[600px]/toolbar:flex"
-              title="Run query in background (⇧⌘↵)"
-            >
-              <IconClock />
-              <span>Background</span>
-            </Button>
-          )}
 
           {/* Run/Cancel button - always visible */}
           <Button

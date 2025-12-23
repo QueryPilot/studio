@@ -39,7 +39,6 @@ import {
 import { eventBus } from "@/services/eventBus";
 import { useQueryExecution } from "./hooks/useQueryExecution";
 import { useTransactionState } from "./hooks/useTransactionState";
-import { useBackgroundExecution } from "./hooks/useBackgroundExecution";
 import { databaseService } from "@/services/databaseService";
 
 interface QueryPanelProps {
@@ -232,39 +231,6 @@ export const QueryPanel = memo(function QueryPanel({
   const setShowResults = useCallback((value: boolean) => {
     dispatch({ type: "SET_SHOW_RESULTS", payload: value });
   }, []);
-
-  const handleViewBackgroundResult = useCallback((queryId: string) => {
-    const backgroundQueries = useTabStateStore.getState().getBackgroundQueries();
-    const bgQuery = backgroundQueries.find((q) => q.id === queryId);
-
-    if (!bgQuery?.result) {
-      toast.error("No result available for this background query");
-      return;
-    }
-
-    // Set the background query result as the active result
-    setQueryState(tabId, {
-      result: bgQuery.result,
-      lastExecutedQuery: bgQuery.query,
-    });
-
-    // Show results panel if hidden
-    setShowResults(true);
-
-    toast.success("Showing background query results", {
-      description: "Query executed in background is now displayed",
-    });
-
-    logger.info("[QueryPanel] Switched to background query result:", { queryId });
-  }, [tabId, setQueryState, setShowResults]);
-
-  const { executeInBackground } = useBackgroundExecution({
-    tabId,
-    onExecute: async (sql: string) => {
-      await execute(sql);
-    },
-    onViewResult: handleViewBackgroundResult,
-  });
 
   const updateTabMetadata = useWorkbenchStore(
     (state) => state.updateTabMetadata,
@@ -499,21 +465,6 @@ export const QueryPanel = memo(function QueryPanel({
     }
   }, [query, dbType, setQuery]);
 
-  const handleExecuteInBackground = useCallback(async () => {
-    if (!query || !query.trim()) {
-      toast.error("Please enter a query to execute");
-      return;
-    }
-
-    const cleanSql = query.trim().replace(/;\s*$/, "");
-    if (!cleanSql) {
-      toast.error("Please enter a query to execute");
-      return;
-    }
-
-    await executeInBackground(cleanSql);
-  }, [query, executeInBackground]);
-
   // Handle EXPLAIN ANALYZE - wraps query with EXPLAIN and executes
   const handleExplain = useCallback(() => {
     // Clean up the query - remove trailing semicolons before wrapping
@@ -599,7 +550,6 @@ export const QueryPanel = memo(function QueryPanel({
     execute: () => {},
     toggleHistory: () => {},
     explain: () => {},
-    executeInBackground: () => {},
   });
 
   // Update refs when handlers change (doesn't change identity)
@@ -608,8 +558,7 @@ export const QueryPanel = memo(function QueryPanel({
     handlersRef.current.execute = handleExecute;
     handlersRef.current.toggleHistory = toggleHistory;
     handlersRef.current.explain = handleExplain;
-    handlersRef.current.executeInBackground = handleExecuteInBackground;
-  }, [handleBeautify, handleExecute, toggleHistory, handleExplain, handleExecuteInBackground]);
+  }, [handleBeautify, handleExecute, toggleHistory, handleExplain]);
 
   // Subscribe once with stable wrapper
   useEffect(() => {
@@ -637,24 +586,16 @@ export const QueryPanel = memo(function QueryPanel({
       handlersRef.current.explain();
     };
 
-    const onExecuteInBackground = () => {
-      if (!isFocusedRef.current) return;
-      logger.info("🟢 QueryPanel handling execute in background event");
-      handlersRef.current.executeInBackground();
-    };
-
     eventBus.on("query-editor:format", onFormat);
     eventBus.on("query-editor:toggle-history", onToggleHistory);
     eventBus.on("query-editor:execute", onExecute);
     eventBus.on("query-editor:explain", onExplain);
-    eventBus.on("query-editor:execute-background", onExecuteInBackground);
 
     return () => {
       eventBus.off("query-editor:format", onFormat);
       eventBus.off("query-editor:toggle-history", onToggleHistory);
       eventBus.off("query-editor:execute", onExecute);
       eventBus.off("query-editor:explain", onExplain);
-      eventBus.off("query-editor:execute-background", onExecuteInBackground);
     };
   }, []); // Empty deps - subscribe once
 
@@ -746,7 +687,6 @@ export const QueryPanel = memo(function QueryPanel({
                     detectedDialect={detectedDialect}
                     isExplainResult={isExplainResult}
                     onExecute={() => handleExecute()}
-                    onExecuteInBackground={handleExecuteInBackground}
                     onCancel={handleCancel}
                     onBeautify={handleBeautify}
                     onToggleHistory={toggleHistory}
@@ -755,7 +695,6 @@ export const QueryPanel = memo(function QueryPanel({
                     onViewModeChange={setViewMode}
                     onDialectChange={setSelectedDialect}
                     onFocusEditor={focusEditor}
-                    onViewBackgroundQuery={handleViewBackgroundResult}
                   />
                 </div>
               </ResizablePanel>
