@@ -274,6 +274,9 @@ export const ResultViewer = memo(function ResultViewer({
               ipcSendMs={actualResult.ipcSendMs}
               schema={schema}
               databaseType={databaseType}
+              showPinButton={!hasPinnedResult}
+              isPinned={false}
+              onPinResult={onPinResult}
               tabId={_tabId}
               currentQuery={_currentQuery}
             />
@@ -836,34 +839,6 @@ const SingleResultView = memo(function SingleResultView({
         </div>
       )}
 
-      {/* Export button and pin button for results with data */}
-      {hasExportableData && (
-        <div className="px-2 py-1.5 border-b bg-muted/30 flex items-center justify-end gap-2">
-          {showPinButton && onPinResult && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onPinResult}
-              className="h-7 gap-1.5"
-              title="Pin this result to keep it visible while running new queries"
-            >
-              {isPinned ? (
-                <>
-                  <IconPinFilled className="h-3.5 w-3.5" />
-                  Pinned
-                </>
-              ) : (
-                <>
-                  <IconPin className="h-3.5 w-3.5" />
-                  Pin Result
-                </>
-              )}
-            </Button>
-          )}
-          <ExportMenu columns={result.columns} rows={result.rows} schema={schema} databaseType={databaseType} />
-        </div>
-      )}
-
       {viewMode === "explain" || viewMode === "raw" || viewMode === "stats" ? (
         <div className="h-full">
           <ExplainViewer
@@ -897,6 +872,29 @@ const SingleResultView = memo(function SingleResultView({
             isStreaming={isStreaming}
             className="h-full"
             error={result.error ?? null}
+            toolbarActions={
+              hasExportableData ? (
+                <>
+                  {showPinButton && onPinResult && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={onPinResult}
+                      className="h-7 gap-1.5"
+                      title="Pin this result to compare with next query"
+                    >
+                      {isPinned ? (
+                        <IconPinFilled className="h-3.5 w-3.5" />
+                      ) : (
+                        <IconPin className="h-3.5 w-3.5" />
+                      )}
+                      Pin
+                    </Button>
+                  )}
+                  <ExportMenu columns={result.columns} rows={result.rows} schema={schema} databaseType={databaseType} />
+                </>
+              ) : undefined
+            }
           />
         </div>
       ) : (
