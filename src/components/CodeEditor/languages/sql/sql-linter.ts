@@ -1150,14 +1150,23 @@ const collectSemanticDiagnostics = async (
       }
 
       if (analysis.intent === "table" && !identifier.isQualified) {
-        const exists = await checkEntityExists(provider, identifier.text, defaultSchema);
-        if (!exists) {
-          diagnostics.push({
-            from: identifier.from,
-            to: identifier.to,
-            severity: "error",
-            message: `Table '${identifier.text}' does not exist`,
-          });
+        // Check if it's a CTE or subquery alias in scope first
+        const isCteOrAlias = analysis.activeStatementTables.some(
+          (t) =>
+            t.name.toLowerCase() === identifier.text.toLowerCase() ||
+            t.alias?.toLowerCase() === identifier.text.toLowerCase()
+        );
+
+        if (!isCteOrAlias) {
+          const exists = await checkEntityExists(provider, identifier.text, defaultSchema);
+          if (!exists) {
+            diagnostics.push({
+              from: identifier.from,
+              to: identifier.to,
+              severity: "error",
+              message: `Table '${identifier.text}' does not exist`,
+            });
+          }
         }
       }
 

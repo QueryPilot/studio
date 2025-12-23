@@ -398,7 +398,6 @@ export function ConnectionForm() {
       setTimeout(() => {
         setUriParsed(false);
       }, 3000);
-      toast.success("Environment Config Parsed");
     } catch (error) {
       toast.error("Invalid Environment Format", {
         description: error instanceof Error ? error.message : "Failed to parse",
@@ -848,17 +847,31 @@ export function ConnectionForm() {
                       <div className="flex items-center gap-2 min-w-0 flex-1">
                         {selectedTags.length > 0 ? (
                           selectedTags.map((tag) => {
-                            const isGroup = groupTags.some((g) => g.name === tag);
+                            const isGroup = groupTags.some(
+                              (g) => g.name === tag,
+                            );
                             const tagColor = getTagColor(tag, isGroup);
                             return (
-                              <div key={tag} className="flex items-center gap-1.5">
-                                <div className={cn("w-2 h-2 rounded-full flex-shrink-0", tagColor.bg)} />
-                                <span className="text-xs truncate max-w-[80px]">{tag}</span>
+                              <div
+                                key={tag}
+                                className="flex items-center gap-1.5"
+                              >
+                                <div
+                                  className={cn(
+                                    "w-2 h-2 rounded-full flex-shrink-0",
+                                    tagColor.bg,
+                                  )}
+                                />
+                                <span className="text-xs truncate max-w-[80px]">
+                                  {tag}
+                                </span>
                               </div>
                             );
                           })
                         ) : (
-                          <span className="text-muted-foreground text-xs">Select tags...</span>
+                          <span className="text-muted-foreground text-xs">
+                            Select tags...
+                          </span>
                         )}
                       </div>
                       <IconChevronDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
@@ -1505,7 +1518,11 @@ export function ConnectionForm() {
                     >
                       ECS Cluster *
                       <Tooltip>
-                        <TooltipTrigger render={<IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />} />
+                        <TooltipTrigger
+                          render={
+                            <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                          }
+                        />
                         <TooltipContent side="top" className="max-w-[280px]">
                           <p className="font-medium mb-1">How to find:</p>
                           <p>
@@ -1532,7 +1549,11 @@ export function ConnectionForm() {
                     >
                       Task Definition *
                       <Tooltip>
-                        <TooltipTrigger render={<IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />} />
+                        <TooltipTrigger
+                          render={
+                            <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                          }
+                        />
                         <TooltipContent side="top" className="max-w-[280px]">
                           <p className="font-medium mb-1">How to find:</p>
                           <p>
@@ -1562,7 +1583,11 @@ export function ConnectionForm() {
                   >
                     AWS Region *
                     <Tooltip>
-                      <TooltipTrigger render={<IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />} />
+                      <TooltipTrigger
+                        render={
+                          <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                        }
+                      />
                       <TooltipContent side="top" className="max-w-[280px]">
                         <p className="font-medium mb-1">How to find:</p>
                         <p>
@@ -1641,7 +1666,11 @@ export function ConnectionForm() {
                       >
                         Tenant ID *
                         <Tooltip>
-                          <TooltipTrigger render={<IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />} />
+                          <TooltipTrigger
+                            render={
+                              <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                            }
+                          />
                           <TooltipContent side="top" className="max-w-[280px]">
                             <p className="font-medium mb-1">How to find:</p>
                             <p>
@@ -1668,7 +1697,11 @@ export function ConnectionForm() {
                       >
                         Session Hours
                         <Tooltip>
-                          <TooltipTrigger render={<IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />} />
+                          <TooltipTrigger
+                            render={
+                              <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                            }
+                          />
                           <TooltipContent side="top" className="max-w-[280px]">
                             <p className="font-medium mb-1">What this means:</p>
                             <p>
@@ -1700,7 +1733,11 @@ export function ConnectionForm() {
                     >
                       App ID URI *
                       <Tooltip>
-                        <TooltipTrigger render={<IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />} />
+                        <TooltipTrigger
+                          render={
+                            <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                          }
+                        />
                         <TooltipContent side="top" className="max-w-[280px]">
                           <p className="font-medium mb-1">How to find:</p>
                           <p>
@@ -1728,7 +1765,11 @@ export function ConnectionForm() {
                     >
                       Default Role ARN (optional)
                       <Tooltip>
-                        <TooltipTrigger render={<IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />} />
+                        <TooltipTrigger
+                          render={
+                            <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                          }
+                        />
                         <TooltipContent side="top" className="max-w-[280px]">
                           <p className="font-medium mb-1">What this means:</p>
                           <p>
@@ -1764,7 +1805,11 @@ export function ConnectionForm() {
                       >
                         Remote Host
                         <Tooltip>
-                          <TooltipTrigger render={<IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />} />
+                          <TooltipTrigger
+                            render={
+                              <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                            }
+                          />
                           <TooltipContent side="top" className="max-w-[280px]">
                             <p className="font-medium mb-1">What this means:</p>
                             <p>
@@ -1792,7 +1837,11 @@ export function ConnectionForm() {
                       >
                         Remote Port
                         <Tooltip>
-                          <TooltipTrigger render={<IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />} />
+                          <TooltipTrigger
+                            render={
+                              <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                            }
+                          />
                           <TooltipContent side="top" className="max-w-[280px]">
                             <p className="font-medium mb-1">What this means:</p>
                             <p>
@@ -1821,7 +1870,11 @@ export function ConnectionForm() {
                     >
                       Subnet Tags (comma-separated)
                       <Tooltip>
-                        <TooltipTrigger render={<IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />} />
+                        <TooltipTrigger
+                          render={
+                            <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                          }
+                        />
                         <TooltipContent side="top" className="max-w-[280px]">
                           <p className="font-medium mb-1">What this means:</p>
                           <p>
@@ -1849,7 +1902,11 @@ export function ConnectionForm() {
                     >
                       Security Group Tag
                       <Tooltip>
-                        <TooltipTrigger render={<IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />} />
+                        <TooltipTrigger
+                          render={
+                            <IconInfoCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                          }
+                        />
                         <TooltipContent side="top" className="max-w-[280px]">
                           <p className="font-medium mb-1">What this means:</p>
                           <p>
@@ -1891,7 +1948,7 @@ export function ConnectionForm() {
           }}
           className={cn(
             "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-xs font-medium transition-colors border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground h-7 px-2.5 cursor-pointer select-none",
-            uriParsed && "text-green-600",
+            uriParsed && "text-green-600!",
           )}
         >
           {uriParsed ? (
