@@ -1,12 +1,10 @@
 import { logger } from "@/lib/logger";
 import {
   memo,
-  useState,
   useCallback,
   useEffect,
   useMemo,
   useRef,
-  startTransition,
   useReducer,
 } from "react";
 import { debounce } from "lodash";
@@ -15,41 +13,34 @@ import { ResultViewer } from "./ResultViewer";
 import { QueryHistory } from "./QueryHistory";
 import { SavedQueries } from "./SavedQueries";
 import { QueryToolbar } from "./QueryToolbar";
-import { isExplainResult as checkIsExplainResult } from "./ExplainViewer";
+import { QueryOutline } from "./QueryOutline";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ResizablePanelGroup,
   ResizablePanel,
   ResizableHandle,
 } from "@/components/ui/resizable";
-import { IconHistory, IconStar } from "@tabler/icons-react";
+import { IconHistory, IconStar, IconListTree } from "@tabler/icons-react";
 import { toast } from "sonner";
 
-import { tableStreamingService } from "@/services/tableStreamingService";
-import { queryHistoryService } from "@/services/queryHistoryService";
 import { cn } from "@/lib/utils";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
-import { useTabStateStore, type QueryResult } from "@/stores/tabStateStore";
+import { useTabStateStore } from "@/stores/tabStateStore";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
-import type { ColumnMeta } from "@/types/database";
 import { formatSql } from "@/utils/codeFormatter";
 import type { SqlDialect } from "@/components/CodeEditor/types";
 import type { QueryEditorRef } from "./QueryEditor";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import {
-  handleMutationCache,
-  isMutationQuery,
-  isSelectQuery,
-} from "@/lib/cacheManager";
-import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
-import { parseMutationTables } from "@/utils/sqlParser";
-import {
   parseSqlStatements,
   hasMultipleStatements,
 } from "@/utils/sqlStatementParser";
 import { eventBus } from "@/services/eventBus";
-import type { MultiQueryResult } from "@/stores/tabStateStore";
+import { useQueryExecution } from "./hooks/useQueryExecution";
+import { useTransactionState } from "./hooks/useTransactionState";
+import { useBackgroundExecution } from "./hooks/useBackgroundExecution";
+import { databaseService } from "@/services/databaseService";
 
 interface QueryPanelProps {
   panelId: string;
@@ -63,16 +54,12 @@ interface QueryPanelProps {
 }
 
 // ============================================================================
-// STATE REDUCER - Consolidates 11+ useState into single reducer
-// Reduces re-renders from state cascade
+// STATE REDUCER - UI state only (execution state moved to useQueryExecution hook)
 // ============================================================================
 interface QueryPanelState {
   query: string;
-  result: QueryResult | null;
-  isExecuting: boolean;
-  isStreaming: boolean;
   showHistory: boolean;
-  appliedLimit: { originalSql: string; limit: number } | null;
+  showOutline: boolean;
   viewMode: "table" | "json" | "explain" | "raw" | "stats";
   selectedDialect: SqlDialect | "auto";
   detectedDialect: SqlDialect;
@@ -82,14 +69,8 @@ interface QueryPanelState {
 
 type QueryPanelAction =
   | { type: "SET_QUERY"; payload: string }
-  | { type: "SET_RESULT"; payload: QueryResult | null }
-  | { type: "SET_IS_EXECUTING"; payload: boolean }
-  | { type: "SET_IS_STREAMING"; payload: boolean }
   | { type: "SET_SHOW_HISTORY"; payload: boolean }
-  | {
-      type: "SET_APPLIED_LIMIT";
-      payload: { originalSql: string; limit: number } | null;
-    }
+  | { type: "SET_SHOW_OUTLINE"; payload: boolean }
   | {
       type: "SET_VIEW_MODE";
       payload: "table" | "json" | "explain" | "raw" | "stats";
@@ -98,11 +79,6 @@ type QueryPanelAction =
   | { type: "SET_DETECTED_DIALECT"; payload: SqlDialect }
   | { type: "SET_SHOW_RESULTS"; payload: boolean }
   | { type: "SET_IS_EXPLAIN_RESULT"; payload: boolean }
-  | { type: "START_EXECUTION" }
-  | {
-      type: "END_EXECUTION";
-      payload: { result: QueryResult | null; error?: string };
-    }
   | { type: "BATCH_UPDATE"; payload: Partial<QueryPanelState> };
 
 function queryPanelReducer(
@@ -112,20 +88,10 @@ function queryPanelReducer(
   switch (action.type) {
     case "SET_QUERY":
       return { ...state, query: action.payload };
-    case "SET_RESULT":
-      return {
-        ...state,
-        result: action.payload,
-        showResults: action.payload !== null,
-      };
-    case "SET_IS_EXECUTING":
-      return { ...state, isExecuting: action.payload };
-    case "SET_IS_STREAMING":
-      return { ...state, isStreaming: action.payload };
     case "SET_SHOW_HISTORY":
       return { ...state, showHistory: action.payload };
-    case "SET_APPLIED_LIMIT":
-      return { ...state, appliedLimit: action.payload };
+    case "SET_SHOW_OUTLINE":
+      return { ...state, showOutline: action.payload };
     case "SET_VIEW_MODE":
       return { ...state, viewMode: action.payload };
     case "SET_SELECTED_DIALECT":
@@ -136,22 +102,6 @@ function queryPanelReducer(
       return { ...state, showResults: action.payload };
     case "SET_IS_EXPLAIN_RESULT":
       return { ...state, isExplainResult: action.payload };
-    case "START_EXECUTION":
-      return {
-        ...state,
-        isExecuting: true,
-        isStreaming: true,
-        result: null,
-        isExplainResult: false,
-      };
-    case "END_EXECUTION":
-      return {
-        ...state,
-        isExecuting: false,
-        isStreaming: false,
-        result: action.payload.result,
-        showResults: action.payload.result !== null,
-      };
     case "BATCH_UPDATE":
       return { ...state, ...action.payload };
     default:
@@ -171,11 +121,8 @@ function createInitialState(
 ): QueryPanelState {
   return {
     query: globalState?.query ?? initialSql,
-    result: globalState?.result || null,
-    isExecuting: globalState?.isExecuting || false,
-    isStreaming: globalState?.isStreaming || false,
     showHistory: false,
-    appliedLimit: globalState?.appliedLimit || null,
+    showOutline: false,
     viewMode: globalState?.viewMode || "table",
     selectedDialect: globalState?.selectedDialect || "auto",
     detectedDialect: "postgresql",
@@ -197,6 +144,8 @@ export const QueryPanel = memo(function QueryPanel({
   // Use global tab state store to persist across panel moves
   const setQueryState = useTabStateStore((state) => state.setQueryState);
   const globalState = useTabStateStore((state) => state.queryStates.get(tabId));
+  const pinResult = useTabStateStore((state) => state.pinResult);
+  const unpinResult = useTabStateStore((state) => state.unpinResult);
   const focusedPanelId = useWorkbenchStore((state) => state.focusedPanelId);
   const isPanelFocused = focusedPanelId === panelId;
 
@@ -209,11 +158,8 @@ export const QueryPanel = memo(function QueryPanel({
 
   const {
     query,
-    result,
-    isExecuting,
-    isStreaming,
     showHistory,
-    appliedLimit,
+    showOutline,
     viewMode,
     selectedDialect,
     detectedDialect,
@@ -221,34 +167,51 @@ export const QueryPanel = memo(function QueryPanel({
     isExplainResult,
   } = state;
 
-  // AbortController still needs separate state (not serializable)
-  const [abortController, setAbortController] =
-    useState<AbortController | null>(null);
+  const smartQueryLimit = usePreferencesStore((state) => state.smartQueryLimit);
+  const activeConnectionId = useWorkspaceSelectionStore(
+    (state) => state.connectionId,
+  );
 
-  // Get transaction state from persisted store
-  const inTransaction = globalState?.inTransaction || false;
+  const effectiveConnectionId = useMemo(
+    () => connectionId || activeConnectionId || "",
+    [connectionId, activeConnectionId],
+  );
+
+  // ============================================================================
+  // HOOKS - Execution and transaction state managed by dedicated hooks
+  // ============================================================================
+  const {
+    isExecuting,
+    isStreaming,
+    result,
+    appliedLimit,
+    execute,
+    executeMulti,
+    cancel: cancelExecution,
+  } = useQueryExecution({
+    connectionId: effectiveConnectionId,
+    database,
+    tabId,
+    smartQueryLimit: smartQueryLimit ?? undefined,
+  });
+
+  const { inTransaction } = useTransactionState({
+    tabId,
+  });
+
+  const { executeInBackground } = useBackgroundExecution({
+    tabId,
+    onExecute: async (sql: string) => {
+      await execute(sql);
+    },
+  });
+
+  const runningBackgroundQueriesCount = useTabStateStore(
+    (state) => state.getRunningBackgroundQueriesCount()
+  );
 
   // Editor ref for focusing
   const editorRef = useRef<QueryEditorRef>(null);
-
-  // Refs for auto-refresh race condition prevention
-  const pendingRefreshRef = useRef<number | null>(null);
-  const isExecutingRef = useRef<boolean>(false);
-
-  // Sync isExecutingRef with isExecuting state for stable reference in callbacks
-  useEffect(() => {
-    isExecutingRef.current = isExecuting;
-  }, [isExecuting]);
-
-  // Cleanup pending auto-refresh on unmount
-  useEffect(() => {
-    return () => {
-      if (pendingRefreshRef.current) {
-        clearTimeout(pendingRefreshRef.current);
-        pendingRefreshRef.current = null;
-      }
-    };
-  }, []);
 
   // Memoized action dispatchers - stable references prevent child re-renders
   const setQuery = useCallback(
@@ -260,46 +223,6 @@ export const QueryPanel = memo(function QueryPanel({
       setQueryState(tabId, { hasUnsavedChanges: hasChanges });
     },
     [tabId, setQueryState, globalState?.lastExecutedQuery],
-  );
-
-  // Use ref to access current result without stale closure
-  const resultRef = useRef<QueryResult | null>(result);
-
-  // Keep ref in sync with state
-  useEffect(() => {
-    resultRef.current = result;
-  }, [result]);
-
-  const setResult = useCallback(
-    (
-      value:
-        | QueryResult
-        | null
-        | ((prev: QueryResult | null) => QueryResult | null),
-    ) => {
-      if (typeof value === "function") {
-        // Use ref to get current state - avoids stale closure
-        dispatch({ type: "SET_RESULT", payload: value(resultRef.current) });
-      } else {
-        dispatch({ type: "SET_RESULT", payload: value });
-      }
-    },
-    [], // No dependencies - stable reference
-  );
-
-  const setIsExecuting = useCallback((value: boolean) => {
-    dispatch({ type: "SET_IS_EXECUTING", payload: value });
-  }, []);
-
-  const setIsStreaming = useCallback((value: boolean) => {
-    dispatch({ type: "SET_IS_STREAMING", payload: value });
-  }, []);
-
-  const setAppliedLimit = useCallback(
-    (value: { originalSql: string; limit: number } | null) => {
-      dispatch({ type: "SET_APPLIED_LIMIT", payload: value });
-    },
-    [],
   );
 
   const setViewMode = useCallback(
@@ -321,18 +244,8 @@ export const QueryPanel = memo(function QueryPanel({
     dispatch({ type: "SET_SHOW_RESULTS", payload: value });
   }, []);
 
-  const smartQueryLimit = usePreferencesStore((state) => state.smartQueryLimit);
   const updateTabMetadata = useWorkbenchStore(
     (state) => state.updateTabMetadata,
-  );
-
-  const activeConnectionId = useWorkspaceSelectionStore(
-    (state) => state.connectionId,
-  );
-
-  const effectiveConnectionId = useMemo(
-    () => connectionId || activeConnectionId || "",
-    [connectionId, activeConnectionId],
   );
 
   useEffect(() => {
@@ -369,7 +282,7 @@ export const QueryPanel = memo(function QueryPanel({
   }, [initialSql]);
 
   // Async sync: Batch update Zustand store when local state changes (after initial mount)
-  // Single effect reduces re-renders from 6 to 1
+  // Note: Execution state (result, isExecuting, isStreaming, appliedLimit) is synced by useQueryExecution hook
   const isInitialMount = useRef(true);
 
   useEffect(() => {
@@ -378,22 +291,14 @@ export const QueryPanel = memo(function QueryPanel({
       return;
     }
 
-    // Batch all state updates into single Zustand update
+    // Batch UI state updates into single Zustand update
     setQueryState(tabId, {
       query,
-      result,
-      isExecuting,
-      isStreaming,
-      appliedLimit,
       viewMode,
       selectedDialect,
     });
   }, [
     query,
-    result,
-    isExecuting,
-    isStreaming,
-    appliedLimit,
     viewMode,
     selectedDialect,
     tabId,
@@ -436,739 +341,109 @@ export const QueryPanel = memo(function QueryPanel({
   }, []); // Empty deps - create once, cleanup on unmount
 
   /**
-   * Execute multiple SQL statements sequentially.
-   * Shows progress and accumulates results in a tabbed interface.
+   * Execute query - wrapper that handles multi-statement detection
+   * and delegates to the hook's execute/executeMulti functions
    */
-  const handleMultiQueryExecute = useCallback(
-    async (statements: string[], signal?: AbortSignal) => {
-      if (statements.length === 0) return;
-
-      logger.info(
-        `[handleMultiQueryExecute] Executing ${statements.length} statements`,
-      );
-
-      setIsExecuting(true);
-      setIsStreaming(false);
-      setResult(null);
-
-      const multiResults: MultiQueryResult[] = [];
-      let hasError = false;
-
-      // Clear any previous multi-results
-      setQueryState(tabId, { multiResults: [], activeResultIndex: 0 });
-
-      for (let i = 0; i < statements.length; i++) {
-        if (hasError || signal?.aborted) break; // Stop on first error or cancellation
-
-        const stmt = statements[i];
-        if (!stmt || !stmt.trim()) continue;
-
-        const startTime = Date.now();
-        logger.info(
-          `[handleMultiQueryExecute] Executing statement ${i + 1}/${
-            statements.length
-          }`,
-        );
-
-        // Show progress toast
-        toast.info(`Executing statement ${i + 1} of ${statements.length}...`, {
-          id: `multi-query-progress`,
-          duration: Infinity,
-        });
-
-        try {
-          // Execute statement using existing logic - we'll reuse the streaming service
-          const pageSize = 2500;
-          let currentColumns: string[] = [];
-          let currentColumnMeta: ColumnMeta[] = [];
-          const accumulatedRows: unknown[][] = [];
-
-          const streamPromise = tableStreamingService.streamQuery(
-            effectiveConnectionId,
-            `${tabId}-stmt${i}`,
-            stmt.trim(),
-            pageSize,
-            (progress) => {
-              if (progress.started && progress.columns) {
-                currentColumns = progress.columns.map((c) => c.name);
-                currentColumnMeta = progress.columns as unknown as ColumnMeta[];
-              }
-              if (progress.newRows && progress.newRows.length > 0) {
-                accumulatedRows.push(...progress.newRows);
-              }
-            },
-            (err: unknown) => {
-              logger.error(
-                `[handleMultiQueryExecute] Stream error for statement ${
-                  i + 1
-                }:`,
-                err,
-              );
-            },
-            smartQueryLimit ?? undefined,
-            () => {
-              /* Skip limit callback for multi-query */
-            },
-            signal,
-          );
-
-          const final = await streamPromise;
-          const endTime = Date.now();
-          const executionTime = final.executionTimeMs ?? endTime - startTime;
-
-          // Determine statement type and build appropriate result
-          const sqlUpper = stmt.trim().toUpperCase();
-          const hasReturning = sqlUpper.includes(" RETURNING ");
-          const wasMutation = isMutationQuery(stmt);
-          const isDDL =
-            sqlUpper.startsWith("CREATE ") ||
-            sqlUpper.startsWith("ALTER ") ||
-            sqlUpper.startsWith("DROP ");
-          const isTransaction =
-            sqlUpper === "BEGIN" ||
-            sqlUpper === "COMMIT" ||
-            sqlUpper === "ROLLBACK";
-
-          let affectedRows: number | undefined;
-          let message: string | undefined;
-
-          if (wasMutation && hasReturning && accumulatedRows.length > 0) {
-            affectedRows = final.totalRows ?? accumulatedRows.length;
-            message = `${affectedRows} row(s) affected`;
-          } else if (wasMutation && !hasReturning) {
-            affectedRows = final.totalRows ?? 0;
-          } else if (isDDL && accumulatedRows.length === 0) {
-            message = "Query executed successfully";
-          } else if (isTransaction) {
-            message =
-              sqlUpper === "BEGIN"
-                ? "Transaction started"
-                : sqlUpper === "COMMIT"
-                ? "Transaction committed"
-                : "Transaction rolled back";
-          }
-
-          multiResults.push({
-            statementIndex: i,
-            statement: stmt.trim(),
-            result: {
-              columns: currentColumns,
-              columnMeta: currentColumnMeta,
-              rows: [...accumulatedRows],
-              rowCount: final.totalRows ?? accumulatedRows.length,
-              affectedRows,
-              message,
-              executionTime,
-              cursorSetupMs: final.cursorSetupMs,
-              totalStreamingMs: final.totalStreamingMs,
-              fetchCount: final.fetchCount,
-              networkMs: final.networkMs,
-              conversionMs: final.conversionMs,
-              ipcSendMs: final.ipcSendMs,
-            },
-            startTime,
-            endTime,
-          });
-
-          // Handle mutation cache invalidation (same as single-query path)
-          if (wasMutation && effectiveConnectionId) {
-            handleMutationCache(stmt, effectiveConnectionId);
-            logger.info(
-              `[handleMultiQueryExecute] Mutation detected in statement ${
-                i + 1
-              } - cache invalidated`,
-            );
-
-            const affectedTables = parseMutationTables(stmt);
-            if (affectedTables.length > 0) {
-              const { invalidateTable } = useDataInvalidationStore.getState();
-              affectedTables.forEach(({ schema, table }) => {
-                logger.info(
-                  `[handleMultiQueryExecute] Invalidating table: ${
-                    schema ?? "public"
-                  }.${table}`,
-                );
-                invalidateTable(
-                  effectiveConnectionId,
-                  database,
-                  schema ?? "public",
-                  table,
-                );
-              });
-            } else {
-              logger.warn(
-                `[handleMultiQueryExecute] Mutation detected but no tables parsed from SQL:`,
-                stmt,
-              );
-            }
-          }
-        } catch (error) {
-          hasError = true;
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
-
-          multiResults.push({
-            statementIndex: i,
-            statement: stmt.trim(),
-            result: {
-              columns: [],
-              rows: [],
-              rowCount: 0,
-              error: errorMessage,
-              executionTime: Date.now() - startTime,
-            },
-            startTime,
-            endTime: Date.now(),
-          });
-
-          toast.error(`Error in statement ${i + 1}: ${errorMessage}`, {
-            id: `multi-query-progress`,
-            duration: 5000,
-          });
-
-          logger.error(
-            `[handleMultiQueryExecute] Error in statement ${i + 1}:`,
-            error,
-          );
-        }
-      }
-
-      // Dismiss progress toast
-      toast.dismiss(`multi-query-progress`);
-
-      // Update state with all results
-      setQueryState(tabId, {
-        multiResults,
-        activeResultIndex: 0,
-        hasUnsavedChanges: false,
-        lastExecutedQuery: statements.join(";\n"),
-      });
-
-      setIsExecuting(false);
-
-      // Show completion toast
-      const successCount = multiResults.filter((r) => !r.result.error).length;
-      const errorCount = multiResults.length - successCount;
-
-      if (errorCount === 0) {
-        toast.success(`✓ Executed ${successCount} statement(s) successfully`);
-      } else {
-        toast.warning(
-          `Executed ${successCount} statement(s), ${errorCount} failed`,
-        );
-      }
-
-      logger.info(
-        `[handleMultiQueryExecute] Completed: ${successCount} succeeded, ${errorCount} failed`,
-      );
-    },
-    [
-      setIsExecuting,
-      setIsStreaming,
-      setResult,
-      setQueryState,
-      tabId,
-      effectiveConnectionId,
-      smartQueryLimit,
-    ],
-  );
-
   const handleExecute = useCallback(
     async (queryToExecute?: string) => {
-      // Cancel any pending auto-refresh since user is manually executing
-      if (pendingRefreshRef.current) {
-        clearTimeout(pendingRefreshRef.current);
-        pendingRefreshRef.current = null;
-      }
-
-      console.log("[QueryPanel.handleExecute] ===== EXECUTE CALLED =====");
-      console.log("[QueryPanel.handleExecute] queryToExecute:", queryToExecute);
-      console.log(
-        "[QueryPanel.handleExecute] queryToExecute type:",
-        typeof queryToExecute,
-      );
-      console.log("[QueryPanel.handleExecute] query (fallback):", query);
-
-      logger.info("[handleExecute] Called with:", {
-        queryToExecute,
-        queryToExecuteLength: queryToExecute?.length || 0,
-        fallbackQuery: query,
-        fallbackQueryLength: query.length || 0,
-      });
-
-      let sql = queryToExecute ?? query;
-
-      logger.info("[handleExecute] Before trim:", {
-        sql,
-        sqlLength: sql.length || 0,
-      });
+      const sql = queryToExecute ?? query;
 
       if (!sql || !sql.trim()) {
-        logger.info("[handleExecute] EMPTY QUERY - Showing error toast");
         toast.error("Please enter a query to execute");
         return;
       }
 
       // If the editor passed an explicit statement (selection or current block),
       // treat it as a single statement and SKIP multi-statement detection.
-      // (Use strict type check so empty string still counts as explicit.)
       const shouldSkipMultiCheck = typeof queryToExecute === "string";
 
-      console.log(
-        "[QueryPanel.handleExecute] shouldSkipMultiCheck:",
-        shouldSkipMultiCheck,
-      );
-      console.log(
-        "[QueryPanel.handleExecute] hasMultipleStatements(sql):",
-        hasMultipleStatements(sql),
-      );
-
       // Check if this is a multi-statement query (only when not forced single)
-      // Don't trim trailing semicolons yet - we need them for parsing
       if (!shouldSkipMultiCheck && hasMultipleStatements(sql)) {
-        console.log(
-          "[QueryPanel.handleExecute] ===== MULTI-STATEMENT PATH =====",
-        );
         const statements = parseSqlStatements(sql).map((s) => s.text);
         logger.info(
           `[handleExecute] Multi-statement query detected: ${statements.length} statements`,
         );
-
-        // Create abort controller for multi-query execution
-        const controller = new AbortController();
-        setAbortController(controller);
-
-        try {
-          await handleMultiQueryExecute(statements, controller.signal);
-        } finally {
-          setAbortController(null);
-        }
+        await executeMulti(statements);
         return;
       }
 
-      console.log(
-        "[QueryPanel.handleExecute] ===== SINGLE-STATEMENT PATH =====",
-      );
       // Single statement execution - clean up trailing semicolons
-      sql = sql.trim().replace(/;\s*$/, "");
-
-      logger.info("[handleExecute] After trim and semicolon removal:", {
-        sql,
-        sqlLength: sql.length || 0,
-        isEmpty: !sql,
-      });
-
-      if (!sql) {
-        logger.info("[handleExecute] EMPTY QUERY - Showing error toast");
+      const cleanSql = sql.trim().replace(/;\s*$/, "");
+      if (!cleanSql) {
         toast.error("Please enter a query to execute");
         return;
       }
 
-      // Clear multi-results for single query execution
-      setQueryState(tabId, {
-        multiResults: undefined,
-        activeResultIndex: undefined,
-      });
-
-      setIsExecuting(true);
-      setIsStreaming(true);
-      setResult(null);
-
-      // Create abort controller for cancellation
-      const controller = new AbortController();
-      setAbortController(controller);
-
-      let executionTime = 0;
-      let queryResult: QueryResult | null = null;
-      let errorMessage: string | undefined;
-
-      try {
-        // Stream results directly; no wrapping/pagination or SQL rewriting
-        const pageSize = 2500; // Increased from 1000 for better performance
-        let started = false;
-        let currentColumns: string[] = [];
-        let currentColumnMeta: ColumnMeta[] = [];
-        let rowCount = 0;
-        const accumulatedRows: unknown[][] = [];
-        let rafPending = false;
-
-        // Single RAF with frame budget for smooth streaming
-        const renderedCountRef = { current: 0 };
-        const hasRenderedOnce = { current: false };
-
-        const flushUpdate = () => {
-          // Don't render until we have rows - keeps skeleton visible
-          if (accumulatedRows.length === 0) {
-            return;
-          }
-
-          // First render is synchronous to avoid flash, subsequent use startTransition
-          if (!hasRenderedOnce.current) {
-            hasRenderedOnce.current = true;
-            renderedCountRef.current = accumulatedRows.length;
-            setResult({
-              columns: currentColumns,
-              columnMeta: currentColumnMeta,
-              rows: accumulatedRows.slice(0),
-              rowCount: accumulatedRows.length,
-              executionTime: 0,
-            });
-            return;
-          }
-
-          // Use startTransition for streaming updates to keep UI responsive
-          startTransition(() => {
-            setResult((prev) => {
-              if (!prev) {
-                return null;
-              }
-              const already = renderedCountRef.current;
-              const total = accumulatedRows.length;
-              if (total <= already) {
-                return prev;
-              }
-              const newRows = accumulatedRows.slice(already);
-              renderedCountRef.current = total;
-              return {
-                ...prev,
-                rows: [...prev.rows, ...newRows],
-                rowCount: total,
-              };
-            });
-          });
-        };
-
-        const scheduleUpdate = () => {
-          if (rafPending) return;
-          rafPending = true;
-          requestAnimationFrame(() => {
-            rafPending = false;
-            if (accumulatedRows.length > renderedCountRef.current) {
-              flushUpdate();
-            }
-          });
-        };
-
-        if (!effectiveConnectionId) {
-          throw new Error("No active connection selected");
-        }
-
-        const streamPromise = tableStreamingService.streamQuery(
-          effectiveConnectionId,
-          tabId,
-          sql,
-          pageSize,
-          (progress) => {
-            if (progress.started && progress.columns && !started) {
-              started = true;
-              currentColumns = progress.columns.map((c) => c.name);
-              currentColumnMeta = progress.columns as unknown as ColumnMeta[];
-              // Don't render empty table - wait for first batch
-            }
-            if (progress.newRows && progress.newRows.length > 0) {
-              // Accumulate rows
-              accumulatedRows.push(...progress.newRows);
-              rowCount = accumulatedRows.length;
-
-              // Schedule throttled update (max 60 FPS)
-              scheduleUpdate();
-            }
-          },
-          (err: unknown) => {
-            let msg: string;
-            if (err instanceof Error) msg = err.message;
-            else if (typeof err === "string") msg = err;
-            else if (err && typeof err === "object") msg = JSON.stringify(err);
-            else msg = "Stream error";
-            toast.error(msg);
-          },
-          smartQueryLimit ?? undefined, // Convert null to undefined for backend
-          (originalSql, appliedLimit) => {
-            setAppliedLimit({ originalSql, limit: appliedLimit });
-          },
-          controller.signal,
-        );
-
-        const final = await streamPromise;
-
-        // No cleanup needed - RAF completes naturally
-
-        // Use backend's actual database execution time, not frontend timer
-        executionTime = final.executionTimeMs ?? 0;
-
-        // Detect query type for proper result display
-        const sqlUpper = sql.trim().toUpperCase();
-        const hasReturning = sqlUpper.includes(" RETURNING ");
-        const wasMutation = isMutationQuery(sql);
-        const isTransaction =
-          sqlUpper === "BEGIN" ||
-          sqlUpper === "COMMIT" ||
-          sqlUpper === "ROLLBACK" ||
-          sqlUpper.startsWith("ROLLBACK TO ") ||
-          sqlUpper.startsWith("SAVEPOINT ") ||
-          sqlUpper.startsWith("RELEASE SAVEPOINT ") ||
-          sqlUpper === "START TRANSACTION";
-        const isConfig =
-          sqlUpper.startsWith("SET ") || sqlUpper.startsWith("RESET ");
-        const isDDL =
-          sqlUpper.startsWith("CREATE ") ||
-          sqlUpper.startsWith("ALTER ") ||
-          sqlUpper.startsWith("DROP ");
-        const isMaintenance =
-          sqlUpper.startsWith("VACUUM") ||
-          sqlUpper.startsWith("ANALYZE") ||
-          sqlUpper.startsWith("REINDEX");
-
-        let affectedRows: number | undefined;
-        let message: string | undefined;
-
-        // For mutation queries with RETURNING, show both data and affected rows
-        if (wasMutation && hasReturning && accumulatedRows.length > 0) {
-          affectedRows = final.totalRows ?? accumulatedRows.length;
-          message = `${affectedRows} row(s) affected`;
-        }
-        // For mutation queries without RETURNING, just show affected rows
-        else if (wasMutation && !hasReturning) {
-          affectedRows = final.totalRows ?? 0;
-        }
-        // For DDL queries, add success message if no rows returned
-        else if (isDDL && accumulatedRows.length === 0) {
-          message = "Query executed successfully";
-        }
-        // For transaction control commands
-        else if (isTransaction) {
-          if (
-            sqlUpper.startsWith("BEGIN") ||
-            sqlUpper.startsWith("START TRANSACTION")
-          ) {
-            message = "Transaction started";
-            setQueryState(tabId, { inTransaction: true });
-            toast.success("Transaction started", {
-              description:
-                "This tab now has an active transaction. All queries in this tab will be part of this transaction until you COMMIT or ROLLBACK.",
-              duration: 5000,
-            });
-          } else if (sqlUpper.startsWith("COMMIT")) {
-            message = "Transaction committed successfully";
-            setQueryState(tabId, { inTransaction: false });
-          } else if (sqlUpper.startsWith("ROLLBACK")) {
-            message = "Transaction rolled back successfully";
-            setQueryState(tabId, { inTransaction: false });
-          } else if (sqlUpper.startsWith("SAVEPOINT")) {
-            message = "Savepoint created";
-          } else if (sqlUpper.startsWith("RELEASE SAVEPOINT")) {
-            message = "Savepoint released";
-          }
-        }
-        // For configuration commands
-        else if (isConfig && accumulatedRows.length === 0) {
-          message = sqlUpper.startsWith("SET ")
-            ? "Configuration parameter set"
-            : "Configuration parameter reset";
-        }
-        // For maintenance commands
-        else if (isMaintenance && accumulatedRows.length === 0) {
-          message = "Maintenance command completed successfully";
-        }
-
-        // CRITICAL: Direct state update (bypass RAF) to ensure ALL rows are immediately visible
-        // This fixes the issue where RAF throttling could cause the last batch to not render
-        // Create new array reference to force React re-render
-        setResult({
-          columns: currentColumns,
-          columnMeta: currentColumnMeta,
-          rows: [...accumulatedRows], // New array reference forces React to detect change
-          rowCount: final.totalRows ?? accumulatedRows.length,
-          affectedRows,
-          message,
-          executionTime,
-          cursorSetupMs: final.cursorSetupMs,
-          totalStreamingMs: final.totalStreamingMs,
-          fetchCount: final.fetchCount,
-          networkMs: final.networkMs,
-          conversionMs: final.conversionMs,
-          ipcSendMs: final.ipcSendMs,
-        });
-
-        // Streaming complete - stop streaming indicator
-        setIsStreaming(false);
-
-        // Detect EXPLAIN results and auto-switch to explain view
-        const isExplain = checkIsExplainResult(currentColumns, accumulatedRows);
-        if (isExplain) {
-          dispatch({ type: "SET_IS_EXPLAIN_RESULT", payload: true });
-          dispatch({ type: "SET_VIEW_MODE", payload: "explain" });
-          logger.info(
-            "[QueryPanel] EXPLAIN result detected - switching to explain view",
-          );
-        } else {
-          // Reset explain-specific UI when returning to normal results
-          if (isExplainResult) {
-            dispatch({ type: "SET_IS_EXPLAIN_RESULT", payload: false });
-          }
-          if (
-            viewMode === "explain" ||
-            viewMode === "raw" ||
-            viewMode === "stats"
-          ) {
-            dispatch({ type: "SET_VIEW_MODE", payload: "table" });
-          }
-        }
-
-        // Handle mutations and auto-refresh
-        if (effectiveConnectionId) {
-          if (wasMutation) {
-            // Clear cache
-            handleMutationCache(sql, effectiveConnectionId);
-            logger.info("[QueryPanel] Mutation detected - cache invalidated");
-
-            // NEW: Broadcast invalidation to all components displaying affected tables
-            const affectedTables = parseMutationTables(sql);
-            if (affectedTables.length > 0) {
-              const { invalidateTable } = useDataInvalidationStore.getState();
-              affectedTables.forEach(({ schema, table }) => {
-                logger.info(
-                  `[QueryPanel] Invalidating table: ${
-                    schema ?? "public"
-                  }.${table}`,
-                );
-                invalidateTable(
-                  effectiveConnectionId,
-                  database,
-                  schema ?? "public",
-                  table,
-                );
-              });
-            } else {
-              logger.warn(
-                "[QueryPanel] Mutation detected but no tables parsed from SQL:",
-                sql,
-              );
-            }
-
-            // Auto-refresh: Re-run last SELECT query to show updated data
-            const lastSelectQuery = globalState?.lastSelectQuery;
-            if (lastSelectQuery) {
-              // Cancel any pending refresh
-              if (pendingRefreshRef.current) {
-                clearTimeout(pendingRefreshRef.current);
-              }
-
-              // Guard against concurrent execution
-              if (!isExecuting) {
-                toast.info("Data modified - Refreshing results...");
-                pendingRefreshRef.current = window.setTimeout(() => {
-                  pendingRefreshRef.current = null;
-                  if (!isExecutingRef.current) {
-                    void handleExecute(lastSelectQuery);
-                  }
-                }, 100);
-              }
-            }
-          }
-        }
-
-        // Store SELECT queries for auto-refresh after mutations
-        const isSelect = isSelectQuery(sql);
-
-        // Clear unsaved changes flag and update last executed query
-        setQueryState(tabId, {
-          hasUnsavedChanges: false,
-          lastExecutedQuery: sql,
-          ...(isSelect ? { lastSelectQuery: sql } : {}),
-        });
-
-        queryResult = {
-          columns: final.columns.map((c) => c.name),
-          columnMeta: final.columns as unknown as ColumnMeta[],
-          rows: [], // Don't store rows again - already in state
-          rowCount: final.totalRows ?? rowCount,
-          affectedRows,
-          executionTime,
-        };
-      } catch (error) {
-        // IconCheck if this is a user cancellation
-        const isCancellation =
-          (error instanceof Error && error.name === "AbortError") ||
-          (error instanceof Error && error.message.includes("cancelled")) ||
-          (error instanceof Error && error.message.includes("interrupted"));
-
-        if (isCancellation) {
-          // User cancelled - don't show as error
-          logger.info("Query cancelled by user");
-          return; // Exit early, no toast (already shown in handleCancel)
-        } else {
-          // Extract detailed error message
-          if (error instanceof Error) {
-            errorMessage = error.message;
-          } else if (typeof error === "string") {
-            errorMessage = error;
-          } else if (error && typeof error === "object" && "message" in error) {
-            errorMessage = String(error.message);
-          } else {
-            errorMessage =
-              "An unknown error occurred while executing the query";
-          }
-
-          setResult({
-            columns: [],
-            rows: [],
-            rowCount: 0,
-            error: errorMessage,
-          });
-
-          // Show error toast with full details
-          toast.error(errorMessage, {
-            duration: 5000,
-            description: "Check the console for more details",
-          });
-
-          logger.error("Query execution failed:", error);
-        }
-      } finally {
-        setIsExecuting(false);
-        setIsStreaming(false);
-        setAbortController(null);
-
-        // IconDeviceFloppy to history (skip if cancelled)
-        const wasCancelled = controller.signal.aborted;
-        if (sql.trim() && !wasCancelled) {
-          await queryHistoryService.addEntry({
-            connectionId: effectiveConnectionId,
-            database,
-            query: sql,
-            executedAt: new Date(),
-            executionTime,
-            rowCount: queryResult?.rowCount,
-            error: errorMessage,
-          });
-        }
-      }
+      await execute(cleanSql);
     },
-    [
-      query,
-      effectiveConnectionId,
-      database,
-      smartQueryLimit,
-      setIsExecuting,
-      setIsStreaming,
-      setResult,
-      setAppliedLimit,
-      viewMode,
-      isExplainResult,
-    ],
+    [query, execute, executeMulti],
   );
 
+  /**
+   * Cancel running query - delegates to hook
+   */
   const handleCancel = useCallback(() => {
-    if (abortController) {
-      abortController.abort();
-      setIsExecuting(false);
-      setIsStreaming(false);
-      setAbortController(null);
+    cancelExecution();
+    toast.info("Query cancelled");
+  }, [cancelExecution]);
 
-      toast.info("Query cancelled");
-    }
-  }, [abortController, setIsExecuting, setIsStreaming]);
+  const handleGotoDefinition = useCallback(
+    async (event: {
+      type: "table" | "column";
+      name: string;
+      schema?: string;
+      table?: string;
+    }) => {
+      if (event.type !== "table") {
+        return;
+      }
+
+      const targetSchema = event.schema || schema || "public";
+
+      try {
+        const ddl = await databaseService.getObjectDefinition(
+          connectionId,
+          database,
+          targetSchema,
+          event.name,
+          "table"
+        );
+
+        const { focusedPanelId, addTab, panelContents, focusPanel } =
+          useWorkbenchStore.getState();
+
+        let targetPanelId = focusedPanelId;
+        if (!targetPanelId && panelContents.size > 0) {
+          const firstPanelId = Array.from(panelContents.keys())[0];
+          if (firstPanelId) {
+            targetPanelId = firstPanelId;
+            focusPanel(firstPanelId);
+          }
+        }
+
+        if (!targetPanelId) return;
+
+        const tabId = `ddl-${targetSchema}-${event.name}-${Date.now()}`;
+
+        addTab(targetPanelId, tabId, {
+          type: "query",
+          title: `DDL: ${event.name}`,
+          connectionId,
+          database,
+          schema: targetSchema,
+          sql: ddl,
+        });
+
+        toast.success(`Opened DDL for ${targetSchema}.${event.name}`);
+      } catch (error) {
+        logger.error("Failed to fetch DDL:", error);
+        toast.error(
+          `Failed to fetch DDL for ${event.name}: ${error instanceof Error ? error.message : "Unknown error"}`
+        );
+      }
+    },
+    [connectionId, database, schema]
+  );
 
   const handleSelectQuery = useCallback(
     (selectedQuery: string) => {
@@ -1201,6 +476,21 @@ export const QueryPanel = memo(function QueryPanel({
       toast.success("Query formatted");
     }
   }, [query, dbType, setQuery]);
+
+  const handleExecuteInBackground = useCallback(async () => {
+    if (!query || !query.trim()) {
+      toast.error("Please enter a query to execute");
+      return;
+    }
+
+    const cleanSql = query.trim().replace(/;\s*$/, "");
+    if (!cleanSql) {
+      toast.error("Please enter a query to execute");
+      return;
+    }
+
+    await executeInBackground(cleanSql);
+  }, [query, executeInBackground]);
 
   // Handle EXPLAIN ANALYZE - wraps query with EXPLAIN and executes
   const handleExplain = useCallback(() => {
@@ -1246,6 +536,10 @@ export const QueryPanel = memo(function QueryPanel({
     dispatch({ type: "SET_SHOW_HISTORY", payload: !showHistory });
   }, [showHistory]);
 
+  const toggleOutline = useCallback(() => {
+    dispatch({ type: "SET_SHOW_OUTLINE", payload: !showOutline });
+  }, [showOutline]);
+
   const toggleResults = useCallback(() => {
     dispatch({ type: "SET_SHOW_RESULTS", payload: !showResults });
   }, [showResults]);
@@ -1283,6 +577,7 @@ export const QueryPanel = memo(function QueryPanel({
     execute: () => {},
     toggleHistory: () => {},
     explain: () => {},
+    executeInBackground: () => {},
   });
 
   // Update refs when handlers change (doesn't change identity)
@@ -1291,7 +586,8 @@ export const QueryPanel = memo(function QueryPanel({
     handlersRef.current.execute = handleExecute;
     handlersRef.current.toggleHistory = toggleHistory;
     handlersRef.current.explain = handleExplain;
-  }, [handleBeautify, handleExecute, toggleHistory, handleExplain]);
+    handlersRef.current.executeInBackground = handleExecuteInBackground;
+  }, [handleBeautify, handleExecute, toggleHistory, handleExplain, handleExecuteInBackground]);
 
   // Subscribe once with stable wrapper
   useEffect(() => {
@@ -1319,16 +615,24 @@ export const QueryPanel = memo(function QueryPanel({
       handlersRef.current.explain();
     };
 
+    const onExecuteInBackground = () => {
+      if (!isFocusedRef.current) return;
+      logger.info("🟢 QueryPanel handling execute in background event");
+      handlersRef.current.executeInBackground();
+    };
+
     eventBus.on("query-editor:format", onFormat);
     eventBus.on("query-editor:toggle-history", onToggleHistory);
     eventBus.on("query-editor:execute", onExecute);
     eventBus.on("query-editor:explain", onExplain);
+    eventBus.on("query-editor:execute-background", onExecuteInBackground);
 
     return () => {
       eventBus.off("query-editor:format", onFormat);
       eventBus.off("query-editor:toggle-history", onToggleHistory);
       eventBus.off("query-editor:execute", onExecute);
       eventBus.off("query-editor:explain", onExplain);
+      eventBus.off("query-editor:execute-background", onExecuteInBackground);
     };
   }, []); // Empty deps - subscribe once
 
@@ -1398,6 +702,7 @@ export const QueryPanel = memo(function QueryPanel({
                       persistSqlRef.current?.(nextValue);
                     }}
                     onExecute={handleExecute}
+                    onGotoDefinition={handleGotoDefinition}
                     isExecuting={isExecuting}
                     height="100%"
                     dialectOverride={
@@ -1410,6 +715,7 @@ export const QueryPanel = memo(function QueryPanel({
                     isExecuting={isExecuting}
                     query={query}
                     showHistory={showHistory}
+                    showOutline={showOutline}
                     showResults={showResults}
                     viewMode={viewMode}
                     appliedLimit={appliedLimit?.limit}
@@ -1417,10 +723,13 @@ export const QueryPanel = memo(function QueryPanel({
                     dialect={selectedDialect}
                     detectedDialect={detectedDialect}
                     isExplainResult={isExplainResult}
+                    runningBackgroundQueriesCount={runningBackgroundQueriesCount}
                     onExecute={() => handleExecute()}
+                    onExecuteInBackground={handleExecuteInBackground}
                     onCancel={handleCancel}
                     onBeautify={handleBeautify}
                     onToggleHistory={toggleHistory}
+                    onToggleOutline={toggleOutline}
                     onToggleResults={toggleResults}
                     onViewModeChange={setViewMode}
                     onDialectChange={setSelectedDialect}
@@ -1462,6 +771,20 @@ export const QueryPanel = memo(function QueryPanel({
                           onResultTabChange={(index) => {
                             setQueryState(tabId, { activeResultIndex: index });
                           }}
+                          tabId={tabId}
+                          pinnedResult={globalState?.pinnedResult}
+                          pinnedResultQuery={globalState?.pinnedResultQuery}
+                          onPinResult={() => {
+                            pinResult(tabId);
+                            toast.success("Result pinned", {
+                              description: "This result will remain visible while you run new queries",
+                            });
+                          }}
+                          onUnpinResult={() => {
+                            unpinResult(tabId);
+                            toast.success("Result unpinned");
+                          }}
+                          currentQuery={globalState?.lastExecutedQuery}
                         />
                       </div>
                     </div>
@@ -1471,32 +794,53 @@ export const QueryPanel = memo(function QueryPanel({
             </ResizablePanelGroup>
           </ResizablePanel>
 
-          {showHistory && (
+          {(showHistory || showOutline) && (
             <>
               <ResizableHandle className="bg-secondary w-1" />
 
-              {/* IconHistory and Saved Queries */}
+              {/* History, Outline, and Saved Queries */}
               <ResizablePanel defaultSize={30} minSize={20}>
                 <Tabs
-                  defaultValue="history"
+                  defaultValue={showOutline ? "outline" : "history"}
                   className="h-full flex flex-col px-1 rounded-xl"
                   enableShortcuts={true}
-                  tabGroupId={`query-history-${tabId}`}
-                  focused={isPanelFocused && showHistory}
+                  tabGroupId={`query-side-panel-${tabId}`}
+                  focused={isPanelFocused && (showHistory || showOutline)}
                 >
-                  <TabsList className="grid w-full grid-cols-2">
+                  <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger
+                      value="outline"
+                      tabIndex={0}
+                      className={cn(!showOutline && "hidden")}
+                    >
+                      <IconListTree className="mr-1" />
+                      Outline
+                    </TabsTrigger>
                     <TabsTrigger
                       value="history"
-                      tabIndex={0}
+                      tabIndex={1}
+                      className={cn(!showHistory && "hidden")}
                     >
                       <IconHistory className="mr-1" />
-                      IconHistory
+                      History
                     </TabsTrigger>
-                    <TabsTrigger value="saved" tabIndex={1}>
+                    <TabsTrigger
+                      value="saved"
+                      tabIndex={2}
+                      className={cn(!showHistory && "hidden")}
+                    >
                       <IconStar className="mr-1" />
                       Saved
                     </TabsTrigger>
                   </TabsList>
+                  <TabsContent value="outline" className="flex-1 mt-0">
+                    <QueryOutline
+                      sql={query}
+                      onNavigate={() => {
+                        editorRef.current?.focus();
+                      }}
+                    />
+                  </TabsContent>
                   <TabsContent value="history" className="flex-1 mt-0">
                     <QueryHistory
                       connectionId={effectiveConnectionId}
