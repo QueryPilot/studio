@@ -6,6 +6,7 @@ import { logger } from "@/lib/logger";
 interface UseBackgroundExecutionOptions {
   tabId: string;
   onExecute: (sql: string) => Promise<void>;
+  onViewResult?: (queryId: string) => void;
 }
 
 interface NotificationPermissionState {
@@ -16,7 +17,7 @@ interface NotificationPermissionState {
 const NOTIFICATION_ICON = "/icon.png";
 
 export function useBackgroundExecution(options: UseBackgroundExecutionOptions) {
-  const { tabId, onExecute } = options;
+  const { tabId, onExecute, onViewResult } = options;
   const startBackgroundQuery = useTabStateStore((state) => state.startBackgroundQuery);
   const completeBackgroundQuery = useTabStateStore((state) => state.completeBackgroundQuery);
   const failBackgroundQuery = useTabStateStore((state) => state.failBackgroundQuery);
@@ -89,10 +90,8 @@ export function useBackgroundExecution(options: UseBackgroundExecutionOptions) {
         notification.close();
 
         const bgQuery = getBackgroundQueries().find((q) => q.id === queryId);
-        if (bgQuery?.result) {
-          toast.success("Background query result ready", {
-            description: "Showing results in current tab",
-          });
+        if (bgQuery?.result && onViewResult) {
+          onViewResult(queryId);
         }
       };
 
@@ -102,7 +101,7 @@ export function useBackgroundExecution(options: UseBackgroundExecutionOptions) {
     } catch (error) {
       logger.error("[useBackgroundExecution] Failed to send notification:", error);
     }
-  }, [getBackgroundQueries]);
+  }, [getBackgroundQueries, onViewResult]);
 
   const executeInBackground = useCallback(async (sql: string): Promise<string | null> => {
     if (!sql || !sql.trim()) {

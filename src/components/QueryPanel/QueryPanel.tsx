@@ -199,17 +199,6 @@ export const QueryPanel = memo(function QueryPanel({
     tabId,
   });
 
-  const { executeInBackground } = useBackgroundExecution({
-    tabId,
-    onExecute: async (sql: string) => {
-      await execute(sql);
-    },
-  });
-
-  const runningBackgroundQueriesCount = useTabStateStore(
-    (state) => state.getRunningBackgroundQueriesCount()
-  );
-
   // Editor ref for focusing
   const editorRef = useRef<QueryEditorRef>(null);
 
@@ -243,6 +232,39 @@ export const QueryPanel = memo(function QueryPanel({
   const setShowResults = useCallback((value: boolean) => {
     dispatch({ type: "SET_SHOW_RESULTS", payload: value });
   }, []);
+
+  const handleViewBackgroundResult = useCallback((queryId: string) => {
+    const backgroundQueries = useTabStateStore.getState().getBackgroundQueries();
+    const bgQuery = backgroundQueries.find((q) => q.id === queryId);
+
+    if (!bgQuery?.result) {
+      toast.error("No result available for this background query");
+      return;
+    }
+
+    // Set the background query result as the active result
+    setQueryState(tabId, {
+      result: bgQuery.result,
+      lastExecutedQuery: bgQuery.query,
+    });
+
+    // Show results panel if hidden
+    setShowResults(true);
+
+    toast.success("Showing background query results", {
+      description: "Query executed in background is now displayed",
+    });
+
+    logger.info("[QueryPanel] Switched to background query result:", { queryId });
+  }, [tabId, setQueryState, setShowResults]);
+
+  const { executeInBackground } = useBackgroundExecution({
+    tabId,
+    onExecute: async (sql: string) => {
+      await execute(sql);
+    },
+    onViewResult: handleViewBackgroundResult,
+  });
 
   const updateTabMetadata = useWorkbenchStore(
     (state) => state.updateTabMetadata,
@@ -723,7 +745,6 @@ export const QueryPanel = memo(function QueryPanel({
                     dialect={selectedDialect}
                     detectedDialect={detectedDialect}
                     isExplainResult={isExplainResult}
-                    runningBackgroundQueriesCount={runningBackgroundQueriesCount}
                     onExecute={() => handleExecute()}
                     onExecuteInBackground={handleExecuteInBackground}
                     onCancel={handleCancel}
@@ -734,6 +755,7 @@ export const QueryPanel = memo(function QueryPanel({
                     onViewModeChange={setViewMode}
                     onDialectChange={setSelectedDialect}
                     onFocusEditor={focusEditor}
+                    onViewBackgroundQuery={handleViewBackgroundResult}
                   />
                 </div>
               </ResizablePanel>

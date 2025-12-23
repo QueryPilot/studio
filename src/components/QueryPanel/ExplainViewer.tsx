@@ -2,6 +2,14 @@ import React, { memo, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { CodeEditor } from "@/components/CodeEditor";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   IconClock,
@@ -15,7 +23,12 @@ import {
   IconLayersIntersect,
   IconCopy,
   IconRocket,
+  IconBookmark,
+  IconGitCompare,
+  IconX,
 } from "@tabler/icons-react";
+import { useTabStateStore } from "@/stores/tabStateStore";
+import { PlanDiff } from "./PlanDiff";
 
 // ============================================================================
 // TYPES
@@ -131,6 +144,7 @@ interface ExplainNode {
   // Children
   children?: ExplainNode[];
   raw?: string;
+  [key: string]: unknown;
 }
 
 interface JitInfo {
@@ -170,6 +184,8 @@ interface ExplainViewerProps {
   };
   className?: string;
   viewMode?: "explain" | "raw" | "stats";
+  tabId?: string;
+  currentQuery?: string;
 }
 
 // ============================================================================
@@ -2287,11 +2303,70 @@ export const ExplainViewer = memo(function ExplainViewer({
   result,
   className,
   viewMode = "explain",
+  tabId,
+  currentQuery,
 }: ExplainViewerProps) {
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [saveLabel, setSaveLabel] = useState("");
+  const [showCompare, setShowCompare] = useState(false);
+  const [selectedPlan1, setSelectedPlan1] = useState<string>("");
+  const [selectedPlan2, setSelectedPlan2] = useState<string>("");
+
+  const saveExplainPlan = useTabStateStore((state) => state.saveExplainPlan);
+  const getSavedExplainPlans = useTabStateStore((state) => state.getSavedExplainPlans);
+
+  const savedPlans = tabId ? getSavedExplainPlans(tabId) : [];
+
   const parsed = useMemo(
     () => parsePostgresExplain(result.rows),
     [result.rows],
   );
+
+  const handleSavePlan = () => {
+    if (!tabId || !currentQuery) {
+      toast.error("Cannot save plan: Missing tab or query information");
+      return;
+    }
+
+    const fullResult = {
+      ...result,
+      rowCount: result.rows.length,
+    };
+    saveExplainPlan(tabId, currentQuery, fullResult, saveLabel || undefined);
+    toast.success("Plan saved for comparison");
+    setShowSaveDialog(false);
+    setSaveLabel("");
+  };
+
+  const handleComparePlans = () => {
+    if (!selectedPlan1 || !selectedPlan2) {
+      toast.error("Please select two plans to compare");
+      return;
+    }
+    setShowCompare(true);
+  };
+
+  const plan1 = savedPlans.find(p => p.id === selectedPlan1);
+  const plan2 = savedPlans.find(p => p.id === selectedPlan2);
+
+  if (showCompare && plan1 && plan2) {
+    return (
+      <PlanDiff
+        plan1={plan1.plan}
+        plan2={plan2.plan}
+        query1={plan1.query}
+        query2={plan2.query}
+        label1={plan1.label}
+        label2={plan2.label}
+        onBack={() => {
+          setShowCompare(false);
+          setSelectedPlan1("");
+          setSelectedPlan2("");
+        }}
+        parseExplain={parsePostgresExplain}
+      />
+    );
+  }
 
   // Fallback to raw text if parsing failed
   if (parsed.nodes.length === 0) {
@@ -2316,6 +2391,116 @@ export const ExplainViewer = memo(function ExplainViewer({
 
   return (
     <div className={cn("h-full flex flex-col overflow-hidden", className)}>
+      {/* Plan comparison toolbar */}
+      {viewMode === "explain" && tabId && (
+        <div className="border-b bg-muted/20 px-4 py-2">
+          <div className="flex items-center gap-3">
+            {/* Save current plan */}
+            {!showSaveDialog ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowSaveDialog(true)}
+                className="h-7 text-xs"
+              >
+                <IconBookmark className="h-3.5 w-3.5 mr-1.5" />
+                Save for comparison
+              </Button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Input
+                  value={saveLabel}
+                  onChange={(e) => setSaveLabel(e.target.value)}
+                  placeholder="Label (optional)"
+                  className="h-7 text-xs w-40"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSavePlan();
+                    if (e.key === "Escape") {
+                      setShowSaveDialog(false);
+                      setSaveLabel("");
+                    }
+                  }}
+                  autoFocus
+                />
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={handleSavePlan}
+                  className="h-7 text-xs"
+                >
+                  Save
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowSaveDialog(false);
+                    setSaveLabel("");
+                  }}
+                  className="h-7 w-7 p-0"
+                >
+                  <IconX className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            )}
+
+            {/* Compare plans */}
+            {savedPlans.length >= 2 && (
+              <>
+                <div className="h-4 w-px bg-border" />
+                <div className="flex items-center gap-2">
+                  <Select value={selectedPlan1 || null} onValueChange={(val) => setSelectedPlan1(val || "")}>
+                    <SelectTrigger className="h-7 w-32 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {savedPlans.map((plan) => (
+                        <SelectItem key={plan.id} value={plan.id} className="text-xs">
+                          {plan.label || new Date(plan.timestamp).toLocaleTimeString()}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <span className="text-xs text-muted-foreground">vs</span>
+                  <Select value={selectedPlan2 || null} onValueChange={(val) => setSelectedPlan2(val || "")}>
+                    <SelectTrigger className="h-7 w-32 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {savedPlans.map((plan) => (
+                        <SelectItem key={plan.id} value={plan.id} className="text-xs">
+                          {plan.label || new Date(plan.timestamp).toLocaleTimeString()}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleComparePlans}
+                    disabled={!selectedPlan1 || !selectedPlan2 || selectedPlan1 === selectedPlan2}
+                    className="h-7 text-xs"
+                  >
+                    <IconGitCompare className="h-3.5 w-3.5 mr-1.5" />
+                    Compare
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {/* Saved plans count */}
+            {savedPlans.length > 0 && (
+              <>
+                <div className="flex-1" />
+                <span className="text-xs text-muted-foreground">
+                  {savedPlans.length} saved plan{savedPlans.length !== 1 ? 's' : ''}
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Header with timing info */}
       {viewMode === "explain" &&
         (parsed.planningTime !== undefined ||

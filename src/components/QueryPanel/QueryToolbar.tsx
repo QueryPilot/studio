@@ -35,6 +35,7 @@ import {
   IconClock,
 } from "@tabler/icons-react";
 import { QueryLimitControl } from "./QueryLimitControl";
+import { BackgroundQueryIndicator } from "./BackgroundQueryIndicator";
 import type { SqlDialect } from "@/components/CodeEditor";
 
 // Dialect display names and descriptions
@@ -70,7 +71,6 @@ interface QueryToolbarProps {
   detectedDialect?: SqlDialect;
   isExplainResult?: boolean;
   hasValidResult?: boolean;
-  runningBackgroundQueriesCount?: number;
   onExecute: () => void;
   onExecuteInBackground?: () => void;
   onCancel: () => void;
@@ -83,6 +83,7 @@ interface QueryToolbarProps {
   ) => void;
   onDialectChange?: (dialect: SqlDialect | "auto") => void;
   onFocusEditor?: () => void;
+  onViewBackgroundQuery?: (queryId: string) => void;
 }
 
 export const QueryToolbar = memo(function QueryToolbar({
@@ -100,7 +101,6 @@ export const QueryToolbar = memo(function QueryToolbar({
   detectedDialect: _detectedDialect,
   isExplainResult = false,
   hasValidResult = true,
-  runningBackgroundQueriesCount = 0,
   onExecute,
   onExecuteInBackground,
   onCancel,
@@ -111,6 +111,7 @@ export const QueryToolbar = memo(function QueryToolbar({
   onViewModeChange,
   onDialectChange,
   onFocusEditor,
+  onViewBackgroundQuery,
 }: QueryToolbarProps) {
   return (
     <div className="@container/toolbar flex-shrink-0">
@@ -330,6 +331,12 @@ export const QueryToolbar = memo(function QueryToolbar({
             </DropdownMenuContent>
           </DropdownMenu>
 
+          {/* Background Query Indicator - shows running background queries */}
+          <BackgroundQueryIndicator
+            className="hidden @[600px]/toolbar:flex"
+            onViewResult={onViewBackgroundQuery}
+          />
+
           {/* Run in Background button - visible on wider screens */}
           {onExecuteInBackground && (
             <Button
@@ -337,16 +344,11 @@ export const QueryToolbar = memo(function QueryToolbar({
               variant="outline"
               onClick={onExecuteInBackground}
               disabled={isExecuting || !query.trim()}
-              className="hidden @[600px]/toolbar:flex relative"
+              className="hidden @[600px]/toolbar:flex"
               title="Run query in background (⇧⌘↵)"
             >
               <IconClock />
               <span>Background</span>
-              {runningBackgroundQueriesCount > 0 && (
-                <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-blue-500 text-[10px] font-semibold text-white">
-                  {runningBackgroundQueriesCount}
-                </span>
-              )}
             </Button>
           )}
 
