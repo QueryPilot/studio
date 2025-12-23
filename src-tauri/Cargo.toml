@@ -2,6 +2,7 @@
 name = "query-pilot"
 version = "0.11.0"
 edition = "2021"
+default-run = "query-pilot"
 
 [build-dependencies]
 tauri-build = { version = "2.5.2", features = [] }
