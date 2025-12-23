@@ -169,9 +169,20 @@ export const BackgroundQueryIndicator = memo(function BackgroundQueryIndicator({
   className,
   onViewResult,
 }: BackgroundQueryIndicatorProps) {
-  const backgroundQueries = useTabStateStore((state) => state.getBackgroundQueries());
-  const runningCount = useTabStateStore((state) => state.getRunningBackgroundQueriesCount());
+  // Select the raw Map to avoid creating new array on every render
+  const backgroundQueriesMap = useTabStateStore((state) => state.backgroundQueries);
   const clearBackgroundQuery = useTabStateStore((state) => state.clearBackgroundQuery);
+
+  // Transform to array in useMemo to maintain stable reference
+  const backgroundQueries = useMemo(
+    () => Array.from(backgroundQueriesMap.values()),
+    [backgroundQueriesMap]
+  );
+
+  const runningCount = useMemo(
+    () => backgroundQueries.filter((q) => q.status === "running").length,
+    [backgroundQueries]
+  );
 
   const sortedQueries = useMemo(() => {
     return [...backgroundQueries].sort((a, b) => {
