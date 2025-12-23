@@ -55,6 +55,8 @@ interface QuickFilterProps {
   isLoading?: boolean;
   error?: string | null;
   explanation?: string | null;
+  /** Hide mode switcher (AI/SQL) - useful for query result filtering where only search mode applies */
+  searchModeOnly?: boolean;
 }
 
 export interface QuickFilterRef {
@@ -202,6 +204,7 @@ export const QuickFilter = memo(
       isLoading = false,
       error = null,
       explanation = null,
+      searchModeOnly = false,
     },
     ref,
   ) {
@@ -1017,17 +1020,23 @@ export const QuickFilter = memo(
                 )}
               >
                 {/* Mode selector - inside input at left */}
-                <DropdownMenuTrigger
-                  className={cn(
-                    "absolute left-1 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center rounded-sm size-5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors",
-                    isLoading && "pointer-events-none opacity-50",
-                  )}
-                  disabled={isLoading}
-                >
-                  {mode === "ai" && <IconSparkles className="size-3.5" />}
-                  {mode === "where" && <IconCode className="size-3.5" />}
-                  {mode === "search" && <IconSearch className="size-3.5" />}
-                </DropdownMenuTrigger>
+                {searchModeOnly ? (
+                  <div className="absolute left-1 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center rounded-sm size-5 text-muted-foreground">
+                    <IconSearch className="size-3.5" />
+                  </div>
+                ) : (
+                  <DropdownMenuTrigger
+                    className={cn(
+                      "absolute left-1 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center rounded-sm size-5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors",
+                      isLoading && "pointer-events-none opacity-50",
+                    )}
+                    disabled={isLoading}
+                  >
+                    {mode === "ai" && <IconSparkles className="size-3.5" />}
+                    {mode === "where" && <IconCode className="size-3.5" />}
+                    {mode === "search" && <IconSearch className="size-3.5" />}
+                  </DropdownMenuTrigger>
+                )}
                 <CodeMirror
                   value={
                     value.startsWith("?") ||
@@ -1064,6 +1073,7 @@ export const QuickFilter = memo(
                   ) : null}
                 </div>
               </div>
+              {!searchModeOnly && (
               <DropdownMenuContent align="start" className="w-48">
                 {(Object.keys(modeConfig) as FilterMode[]).map((m) => {
                   const cfg = modeConfig[m];
@@ -1179,6 +1189,7 @@ export const QuickFilter = memo(
                   </>
                 )}
               </DropdownMenuContent>
+              )}
             </DropdownMenu>
             {/* Suggestions dropdown - lightweight positioned div (no Portal/Popover overhead) */}
             {showSuggestions && (

@@ -45,6 +45,137 @@ const STATEMENT_TYPES = new Set([
 ]);
 
 /**
+ * Split SQL content by semicolons, respecting strings, comments, and dollar quotes.
+ * Returns array of statement strings (without trailing semicolons).
+ */
+function splitBySemicolon(content: string): string[] {
+  const statements: string[] = [];
+  let current = "";
+  let i = 0;
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let dollarTag: string | null = null;
+
+  while (i < content.length) {
+    const char = content[i];
+    const nextChar = content[i + 1];
+
+    // Handle line comments
+    if (!inSingleQuote && !inDoubleQuote && !inBlockComment && !dollarTag) {
+      if (char === "-" && nextChar === "-") {
+        inLineComment = true;
+        current += char;
+        i++;
+        continue;
+      }
+    }
+    if (inLineComment) {
+      current += char;
+      if (char === "\n") {
+        inLineComment = false;
+      }
+      i++;
+      continue;
+    }
+
+    // Handle block comments
+    if (!inSingleQuote && !inDoubleQuote && !dollarTag) {
+      if (char === "/" && nextChar === "*") {
+        inBlockComment = true;
+        current += "/*";
+        i += 2;
+        continue;
+      }
+    }
+    if (inBlockComment) {
+      current += char;
+      if (char === "*" && nextChar === "/") {
+        current += "/";
+        inBlockComment = false;
+        i += 2;
+        continue;
+      }
+      i++;
+      continue;
+    }
+
+    // Handle dollar-quoted strings (PostgreSQL)
+    if (!inSingleQuote && !inDoubleQuote && !dollarTag) {
+      if (char === "$") {
+        // Look for opening dollar tag: $tag$ or $$
+        const match = content.slice(i).match(/^(\$[a-zA-Z0-9_]*\$)/);
+        if (match?.[1]) {
+          dollarTag = match[1];
+          current += dollarTag;
+          i += dollarTag.length;
+          continue;
+        }
+      }
+    }
+    if (dollarTag) {
+      current += char;
+      // Check for closing dollar tag
+      if (char === "$" && content.slice(i, i + dollarTag.length) === dollarTag) {
+        current += dollarTag.slice(1); // Already added first $
+        i += dollarTag.length;
+        dollarTag = null;
+        continue;
+      }
+      i++;
+      continue;
+    }
+
+    // Handle single quotes
+    if (!inDoubleQuote && char === "'") {
+      if (inSingleQuote && nextChar === "'") {
+        // Escaped quote
+        current += "''";
+        i += 2;
+        continue;
+      }
+      inSingleQuote = !inSingleQuote;
+      current += char;
+      i++;
+      continue;
+    }
+
+    // Handle double quotes
+    if (!inSingleQuote && char === '"') {
+      if (inDoubleQuote && nextChar === '"') {
+        // Escaped quote
+        current += '""';
+        i += 2;
+        continue;
+      }
+      inDoubleQuote = !inDoubleQuote;
+      current += char;
+      i++;
+      continue;
+    }
+
+    // Handle semicolon (statement delimiter)
+    if (!inSingleQuote && !inDoubleQuote && char === ";") {
+      statements.push(current);
+      current = "";
+      i++;
+      continue;
+    }
+
+    current += char;
+    i++;
+  }
+
+  // Add remaining content as last statement
+  if (current.trim()) {
+    statements.push(current);
+  }
+
+  return statements;
+}
+
+/**
  * Remove trailing semicolons and whitespace from a query string.
  */
 function cleanQuery(query: string): string {
@@ -211,25 +342,57 @@ export function getAllStatements(state: EditorState): StatementBoundary[] {
     } while (cursor.nextSibling());
   }
 
-  // If no statements found via AST, fallback to semicolon splitting
-  // This handles cases where the AST is incomplete or parsing failed
-  if (statements.length === 0) {
-    const content = doc.toString();
-    if (content.trim()) {
-      // Simple fallback: treat entire document as one statement
-      statements.push({
-        from: 0,
-        to: doc.length,
-        text: cleanQuery(content),
-        lineStart: 1,
-        lineEnd: doc.lines,
-        type: "Statement",
-      });
+  // Fallback to semicolon-based splitting if:
+  // 1. No statements found via AST, OR
+  // 2. AST found only 1 statement but content has semicolons (likely parsing issue)
+  const content = doc.toString();
+  const hasSemicolons = content.includes(";");
+  const needsFallback = statements.length === 0 || (statements.length === 1 && hasSemicolons);
+
+  console.log('[getAllStatements] AST found:', statements.length, 'statements, hasSemicolons:', hasSemicolons, 'needsFallback:', needsFallback);
+
+  if (needsFallback && content.trim()) {
+    // Split by semicolons (respecting strings and comments)
+    const splitStatements = splitBySemicolon(content);
+
+    // Only use fallback if it finds more statements than AST did
+    console.log('[getAllStatements] Fallback found:', splitStatements.length, 'statements via semicolon split');
+    if (splitStatements.length > statements.length) {
+      console.log('[getAllStatements] Using fallback (more statements found)');
+      statements.length = 0; // Clear AST results
+      let offset = 0;
+
+      for (const stmtText of splitStatements) {
+        const trimmed = stmtText.trim();
+        if (!trimmed) {
+          offset += stmtText.length + 1; // +1 for semicolon
+          continue;
+        }
+
+        // Find actual position in document
+        const from = content.indexOf(trimmed, offset);
+        const to = from + trimmed.length;
+        const lineStart = doc.lineAt(from).number;
+        const lineEnd = doc.lineAt(to).number;
+
+        statements.push({
+          from,
+          to,
+          text: cleanQuery(trimmed),
+          lineStart,
+          lineEnd,
+          type: "Statement",
+        });
+
+        offset = to + 1;
+      }
     }
   }
 
   // Cache result for subsequent calls
   statementsCache = { docLength, docHash, treeLength, statements };
+
+  console.log('[getAllStatements] Final result:', statements.length, 'statements', statements.map(s => ({ from: s.from, to: s.to, preview: s.text.slice(0, 50) })));
 
   return statements;
 }

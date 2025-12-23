@@ -135,6 +135,8 @@ interface QueryModeProps extends BaseTableDataGridProps {
   conversionMs?: number;
   ipcSendMs?: number;
   isStreaming?: boolean;
+  /** Actions to render in the result toolbar (e.g., Pin, Export buttons) */
+  toolbarActions?: React.ReactNode;
 }
 
 export type TableDataGridProps = TableModeProps | QueryModeProps;
@@ -498,6 +500,7 @@ export const TableDataGrid = memo(function TableDataGrid(
   }, [isTableMode, connectionId, database, schema, table]);
 
   const queryData = isQueryMode ? props.data : null;
+  const toolbarActions = isQueryMode ? (props as QueryModeProps).toolbarActions : null;
 
   // Transform raw CellValue[][] to TableDataRow[] for query mode
   // The streaming worker returns raw arrays; we need to convert to objects keyed by column names
@@ -2063,20 +2066,30 @@ export const TableDataGrid = memo(function TableDataGrid(
           }}
         >
           {/* Keep the filter toolbar visible */}
-          {filterColumns.length > 0 && (
-            <div className="flex-none pb-1.5 pt-1 bg-background">
-              <QuickFilter
-                ref={quickFilterRef}
-                columns={filterColumns}
-                value={quickFilterValue}
-                mode={quickFilterMode}
-                onValueChange={setQuickFilterValue}
-                onModeChange={setQuickFilterMode}
-                onSubmit={handleFilterSubmit}
-                isLoading={isAIFilterLoading}
-                error={quickFilterError}
-                explanation={aiExplanation}
-              />
+          {(filterColumns.length > 0 || toolbarActions) && (
+            <div className="flex-none flex items-center gap-2 pb-1.5 pt-1 px-1 bg-background">
+              {filterColumns.length > 0 && (
+                <div className="flex-1 min-w-0">
+                  <QuickFilter
+                    ref={quickFilterRef}
+                    columns={filterColumns}
+                    value={quickFilterValue}
+                    mode={quickFilterMode}
+                    onValueChange={setQuickFilterValue}
+                    onModeChange={setQuickFilterMode}
+                    onSubmit={handleFilterSubmit}
+                    isLoading={isAIFilterLoading}
+                    error={quickFilterError}
+                    explanation={aiExplanation}
+                    searchModeOnly={isQueryMode}
+                  />
+                </div>
+              )}
+              {toolbarActions && (
+                <div className="flex-shrink-0 flex items-center gap-1.5">
+                  {toolbarActions}
+                </div>
+              )}
             </div>
           )}
           <div className="flex flex-col items-center justify-center flex-1 gap-4">
@@ -2110,21 +2123,31 @@ export const TableDataGrid = memo(function TableDataGrid(
         }
       }}
     >
-      {/* Quick filter toolbar - available in both table and query mode */}
-      {filterColumns.length > 0 && (
-        <div className="flex-none pb-1.5 pt-1 bg-background">
-          <QuickFilter
-            ref={quickFilterRef}
-            columns={filterColumns}
-            value={quickFilterValue}
-            mode={quickFilterMode}
-            onValueChange={setQuickFilterValue}
-            onModeChange={setQuickFilterMode}
-            onSubmit={handleFilterSubmit}
-            isLoading={isAIFilterLoading}
-            error={quickFilterError}
-            explanation={aiExplanation}
-          />
+      {/* Result toolbar - filter + actions (Pin, Export) */}
+      {(filterColumns.length > 0 || toolbarActions) && (
+        <div className="flex-none flex items-center gap-2 pb-1.5 pt-1 px-1 bg-background">
+          {filterColumns.length > 0 && (
+            <div className="flex-1 min-w-0">
+              <QuickFilter
+                ref={quickFilterRef}
+                columns={filterColumns}
+                value={quickFilterValue}
+                mode={quickFilterMode}
+                onValueChange={setQuickFilterValue}
+                onModeChange={setQuickFilterMode}
+                onSubmit={handleFilterSubmit}
+                isLoading={isAIFilterLoading}
+                error={quickFilterError}
+                explanation={aiExplanation}
+                searchModeOnly={isQueryMode}
+              />
+            </div>
+          )}
+          {toolbarActions && (
+            <div className="flex-shrink-0 flex items-center gap-1.5">
+              {toolbarActions}
+            </div>
+          )}
         </div>
       )}
 
