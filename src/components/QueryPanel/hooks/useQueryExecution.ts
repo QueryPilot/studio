@@ -559,8 +559,8 @@ export function useQueryExecution(options: UseQueryExecutionOptions): UseQueryEx
           message = "Maintenance command completed successfully";
         }
 
-        // Direct state update to ensure ALL rows are immediately visible
-        setResult({
+        // Build final result object
+        const finalResult: QueryResult = {
           columns: currentColumns,
           columnMeta: currentColumnMeta,
           rows: [...accumulatedRows],
@@ -574,7 +574,10 @@ export function useQueryExecution(options: UseQueryExecutionOptions): UseQueryEx
           networkMs: final.networkMs,
           conversionMs: final.conversionMs,
           ipcSendMs: final.ipcSendMs,
-        });
+        };
+
+        // Direct state update to ensure ALL rows are immediately visible
+        setResult(finalResult);
 
         setIsStreaming(false);
 
@@ -629,6 +632,7 @@ export function useQueryExecution(options: UseQueryExecutionOptions): UseQueryEx
         const isSelect = isSelectQuery(sql);
 
         setQueryState(tabId, {
+          result: finalResult, // Sync result to store for background execution access
           hasUnsavedChanges: false,
           lastExecutedQuery: sql,
           ...(isSelect ? { lastSelectQuery: sql } : {}),
@@ -662,12 +666,16 @@ export function useQueryExecution(options: UseQueryExecutionOptions): UseQueryEx
             errorMessage = "An unknown error occurred while executing the query";
           }
 
-          setResult({
+          const errorResult: QueryResult = {
             columns: [],
             rows: [],
             rowCount: 0,
             error: errorMessage,
-          });
+          };
+          setResult(errorResult);
+
+          // Sync error result to store for background execution access
+          setQueryState(tabId, { result: errorResult });
 
           toast.error(errorMessage, {
             duration: 5000,
