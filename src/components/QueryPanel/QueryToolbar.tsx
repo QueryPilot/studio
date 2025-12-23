@@ -31,6 +31,8 @@ import {
   IconChartTreemap,
   IconFileText,
   IconChartBar,
+  IconListTree,
+  IconClock,
 } from "@tabler/icons-react";
 import { QueryLimitControl } from "./QueryLimitControl";
 import type { SqlDialect } from "@/components/CodeEditor";
@@ -57,6 +59,7 @@ interface QueryToolbarProps {
   isExecuting: boolean;
   query: string;
   showHistory: boolean;
+  showOutline: boolean;
   showResults: boolean;
   viewMode: "table" | "json" | "explain" | "raw" | "stats";
   appliedLimit?: number;
@@ -67,10 +70,13 @@ interface QueryToolbarProps {
   detectedDialect?: SqlDialect;
   isExplainResult?: boolean;
   hasValidResult?: boolean;
+  runningBackgroundQueriesCount?: number;
   onExecute: () => void;
+  onExecuteInBackground?: () => void;
   onCancel: () => void;
   onBeautify: () => void;
   onToggleHistory: () => void;
+  onToggleOutline: () => void;
   onToggleResults: () => void;
   onViewModeChange: (
     mode: "table" | "json" | "explain" | "raw" | "stats",
@@ -83,6 +89,7 @@ export const QueryToolbar = memo(function QueryToolbar({
   isExecuting,
   query,
   showHistory,
+  showOutline,
   showResults,
   viewMode,
   appliedLimit,
@@ -93,10 +100,13 @@ export const QueryToolbar = memo(function QueryToolbar({
   detectedDialect: _detectedDialect,
   isExplainResult = false,
   hasValidResult = true,
+  runningBackgroundQueriesCount = 0,
   onExecute,
+  onExecuteInBackground,
   onCancel,
   onBeautify,
   onToggleHistory,
+  onToggleOutline,
   onToggleResults,
   onViewModeChange,
   onDialectChange,
@@ -215,6 +225,18 @@ export const QueryToolbar = memo(function QueryToolbar({
             />
           </div>
 
+          {/* Outline button - hidden on narrow containers */}
+          <Button
+            size="sm"
+            variant={showOutline ? "secondary" : "ghost"}
+            onClick={onToggleOutline}
+            className="hidden @[600px]/toolbar:flex"
+            title="Toggle outline panel"
+          >
+            <IconListTree />
+            <span>Outline</span>
+          </Button>
+
           {/* History button - hidden on narrow containers */}
           <Button
             size="sm"
@@ -284,6 +306,12 @@ export const QueryToolbar = memo(function QueryToolbar({
 
               <DropdownMenuSeparator />
 
+              {/* Outline */}
+              <DropdownMenuItem onClick={onToggleOutline} className="text-xs">
+                <IconListTree className="h-3 w-3 mr-2" />
+                {showOutline ? "Hide Outline" : "Show Outline"}
+              </DropdownMenuItem>
+
               {/* History */}
               <DropdownMenuItem onClick={onToggleHistory} className="text-xs">
                 <IconHistory className="h-3 w-3 mr-2" />
@@ -301,6 +329,26 @@ export const QueryToolbar = memo(function QueryToolbar({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* Run in Background button - visible on wider screens */}
+          {onExecuteInBackground && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onExecuteInBackground}
+              disabled={isExecuting || !query.trim()}
+              className="hidden @[600px]/toolbar:flex relative"
+              title="Run query in background (⇧⌘↵)"
+            >
+              <IconClock />
+              <span>Background</span>
+              {runningBackgroundQueriesCount > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-blue-500 text-[10px] font-semibold text-white">
+                  {runningBackgroundQueriesCount}
+                </span>
+              )}
+            </Button>
+          )}
 
           {/* Run/Cancel button - always visible */}
           <Button

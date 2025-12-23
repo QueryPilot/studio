@@ -647,4 +647,13 @@ export const defaultCommands: Command[] = [
       eventBus.emit("query-editor:execute", {});
     },
   },
+  {
+    id: "editor.action.executeQueryInBackground",
+    label: "Execute Query in Background",
+    category: "Editor",
+    when: "editorTextFocus && queryEditor",
+    handler: () => {
+      eventBus.emit("query-editor:execute-background", {});
+    },
+  },
 ];
