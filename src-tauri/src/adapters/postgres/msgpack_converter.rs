@@ -37,6 +37,23 @@ impl<'a> FromSql<'a> for RawValue<'a> {
 }
 
 impl FastMsgPackConverter {
+    fn estimate_buffer_size(rows_count: usize, column_types: &[&Type]) -> usize {
+        let row_size: usize = column_types.iter().map(|t| match **t {
+            Type::BOOL => 2,
+            Type::INT2 => 4,
+            Type::INT4 => 6,
+            Type::INT8 | Type::FLOAT8 => 10,
+            Type::TEXT | Type::VARCHAR => 64,
+            Type::TIMESTAMP | Type::TIMESTAMPTZ => 36,
+            Type::UUID => 40,
+            Type::JSONB | Type::JSON => 128,
+            Type::BYTEA => 256,
+            _ => 32,
+        }).sum();
+        let estimated = rows_count * (row_size + column_types.len() * 2);
+        (estimated as f64 * 1.2) as usize
+    }
+
     /// Convert rows directly to MessagePack bytes - bypasses serde_json::Value entirely
     /// Uses rayon for parallel conversion of row batches
     pub fn rows_to_msgpack(rows: &[Row]) -> Result<Vec<u8>> {
@@ -48,17 +65,15 @@ impl FastMsgPackConverter {
 
         // Cache column types once
         let column_types: Vec<&Type> = rows[0].columns().iter().map(|col| col.type_()).collect();
-        let num_columns = column_types.len();
 
-        // Estimate buffer size: ~100 bytes per row average
-        let estimated_size = rows.len() * num_columns * 20;
+        let estimated_size = Self::estimate_buffer_size(rows.len(), &column_types);
         let mut buffer = Vec::with_capacity(estimated_size);
 
         // Write array header for all rows
         encode::write_array_len(&mut buffer, rows.len() as u32).map_err(Self::map_encode_err)?;
 
         // For smaller batches, encode sequentially (rayon overhead not worth it)
-        if rows.len() < 256 {
+        if rows.len() < 1024 {
             for row in rows {
                 Self::encode_row(&mut buffer, row, &column_types)?;
             }
@@ -70,7 +85,8 @@ impl FastMsgPackConverter {
             let encoded_chunks: Vec<Result<Vec<u8>>> = chunks
                 .par_iter()
                 .map(|chunk| {
-                    let mut chunk_buf = Vec::with_capacity(chunk.len() * num_columns * 20);
+                    let chunk_size = Self::estimate_buffer_size(chunk.len(), &column_types);
+                    let mut chunk_buf = Vec::with_capacity(chunk_size);
                     for row in *chunk {
                         Self::encode_row(&mut chunk_buf, row, &column_types)?;
                     }
@@ -87,8 +103,7 @@ impl FastMsgPackConverter {
         Ok(buffer)
     }
 
-    /// Encode a single row as a MsgPack array
-    #[inline]
+    #[inline(always)]
     fn encode_row<W: Write>(buf: &mut W, row: &Row, column_types: &[&Type]) -> Result<()> {
         encode::write_array_len(buf, column_types.len() as u32).map_err(Self::map_encode_err)?;
 
@@ -102,18 +117,118 @@ impl FastMsgPackConverter {
         Ok(())
     }
 
-    /// Encode a cell value directly to MsgPack
+    #[inline(always)]
     fn encode_value<W: Write>(buf: &mut W, pg_type: &Type, raw: &[u8]) -> Result<()> {
         match pg_type.kind() {
             Kind::Simple | Kind::Pseudo => Self::encode_simple(buf, pg_type, raw),
-            Kind::Enum(_) => Self::encode_string(buf, raw),
+            Kind::Enum(_) => Self::encode_string_fast(buf, raw),
             Kind::Array(inner) => Self::encode_array(buf, inner, raw),
             Kind::Range(inner) => Self::encode_range(buf, inner, raw),
             Kind::Domain(inner) => Self::encode_value(buf, inner, raw),
+            Kind::Composite(_fields) => Self::encode_complex_as_base64(buf, raw),
             _ => Self::encode_fallback(buf, raw),
         }
     }
 
+    #[inline(always)]
+    fn encode_uuid_zero_alloc<W: Write>(buf: &mut W, raw: &[u8]) -> Result<()> {
+        let bytes = proto::uuid_from_sql(raw).map_err(Self::map_decode_err)?;
+        let uuid = Uuid::from_bytes(bytes);
+
+        let mut stack_buf = [0u8; 36];
+        uuid.hyphenated().encode_lower(&mut stack_buf);
+
+        encode::write_str_len(buf, 36).map_err(Self::map_encode_err)?;
+        buf.write_all(&stack_buf).map_err(|e| AppError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn encode_timestamp_zero_alloc<W: Write>(buf: &mut W, pg_type: &Type, raw: &[u8]) -> Result<()> {
+        let dt = NaiveDateTime::from_sql(pg_type, raw).map_err(Self::map_decode_err)?;
+
+        let mut stack_buf = [0u8; 32];
+        let mut cursor = std::io::Cursor::new(&mut stack_buf[..]);
+
+        use std::io::Write as IoWrite;
+        write!(cursor, "{}", dt.and_utc().format("%Y-%m-%dT%H:%M:%S%.fZ"))
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        let len = cursor.position() as usize;
+        encode::write_str_len(buf, len as u32).map_err(Self::map_encode_err)?;
+        buf.write_all(&stack_buf[..len]).map_err(|e| AppError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn encode_timestamptz_zero_alloc<W: Write>(buf: &mut W, pg_type: &Type, raw: &[u8]) -> Result<()> {
+        let dt = DateTime::<Utc>::from_sql(pg_type, raw).map_err(Self::map_decode_err)?;
+
+        let mut stack_buf = [0u8; 40];
+        let mut cursor = std::io::Cursor::new(&mut stack_buf[..]);
+
+        use std::io::Write as IoWrite;
+        write!(cursor, "{}", dt.format("%Y-%m-%dT%H:%M:%S%.fZ"))
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        let len = cursor.position() as usize;
+        encode::write_str_len(buf, len as u32).map_err(Self::map_encode_err)?;
+        buf.write_all(&stack_buf[..len]).map_err(|e| AppError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn encode_date_zero_alloc<W: Write>(buf: &mut W, pg_type: &Type, raw: &[u8]) -> Result<()> {
+        let d = NaiveDate::from_sql(pg_type, raw).map_err(Self::map_decode_err)?;
+
+        let mut stack_buf = [0u8; 16];
+        let mut cursor = std::io::Cursor::new(&mut stack_buf[..]);
+
+        use std::io::Write as IoWrite;
+        write!(cursor, "{}", d.format("%Y-%m-%d"))
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        let len = cursor.position() as usize;
+        encode::write_str_len(buf, len as u32).map_err(Self::map_encode_err)?;
+        buf.write_all(&stack_buf[..len]).map_err(|e| AppError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn encode_time_zero_alloc<W: Write>(buf: &mut W, pg_type: &Type, raw: &[u8]) -> Result<()> {
+        let t = NaiveTime::from_sql(pg_type, raw).map_err(Self::map_decode_err)?;
+
+        let mut stack_buf = [0u8; 32];
+        let mut cursor = std::io::Cursor::new(&mut stack_buf[..]);
+
+        use std::io::Write as IoWrite;
+        write!(cursor, "{}", t.format("%H:%M:%S%.f"))
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        let len = cursor.position() as usize;
+        encode::write_str_len(buf, len as u32).map_err(Self::map_encode_err)?;
+        buf.write_all(&stack_buf[..len]).map_err(|e| AppError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn encode_inet_zero_alloc<W: Write>(buf: &mut W, raw: &[u8]) -> Result<()> {
+        let inet = proto::inet_from_sql(raw).map_err(Self::map_decode_err)?;
+
+        let mut stack_buf = [0u8; 64];
+        let mut cursor = std::io::Cursor::new(&mut stack_buf[..]);
+
+        use std::io::Write as IoWrite;
+        write!(cursor, "{}/{}", inet.addr(), inet.netmask())
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+
+        let len = cursor.position() as usize;
+        encode::write_str_len(buf, len as u32).map_err(Self::map_encode_err)?;
+        buf.write_all(&stack_buf[..len]).map_err(|e| AppError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    #[inline(always)]
     fn encode_simple<W: Write>(buf: &mut W, pg_type: &Type, raw: &[u8]) -> Result<()> {
         match *pg_type {
             Type::BOOL => {
@@ -161,26 +276,22 @@ impl FastMsgPackConverter {
                 }
             }
             Type::TEXT | Type::VARCHAR | Type::BPCHAR | Type::NAME | Type::CHAR | Type::UNKNOWN => {
-                Self::encode_string(buf, raw)?;
+                Self::encode_string_fast(buf, raw)?;
             }
             Type::UUID => {
-                let bytes = proto::uuid_from_sql(raw).map_err(Self::map_decode_err)?;
-                let s = Uuid::from_bytes(bytes).to_string();
-                encode::write_str(buf, &s).map_err(Self::map_encode_err)?;
+                Self::encode_uuid_zero_alloc(buf, raw)?;
             }
             Type::BYTEA => {
                 let encoded = BASE64_STANDARD.encode(raw);
                 encode::write_str(buf, &encoded).map_err(Self::map_encode_err)?;
             }
             Type::JSON => {
-                // JSON stored as text
                 Self::encode_string(buf, raw)?;
             }
             Type::JSONB => {
                 if raw.is_empty() {
                     encode::write_nil(buf).map_err(Self::map_encode_err)?;
                 } else {
-                    // Skip version byte, encode as string
                     let payload = &raw[1..];
                     match std::str::from_utf8(payload) {
                         Ok(text) => encode::write_str(buf, text).map_err(Self::map_encode_err)?,
@@ -192,27 +303,18 @@ impl FastMsgPackConverter {
                 }
             }
             Type::TIMESTAMP => {
-                let dt = NaiveDateTime::from_sql(pg_type, raw).map_err(Self::map_decode_err)?;
-                let s = dt.and_utc().to_rfc3339();
-                encode::write_str(buf, &s).map_err(Self::map_encode_err)?;
+                Self::encode_timestamp_zero_alloc(buf, pg_type, raw)?;
             }
             Type::TIMESTAMPTZ => {
-                let dt = DateTime::<Utc>::from_sql(pg_type, raw).map_err(Self::map_decode_err)?;
-                let s = dt.to_rfc3339();
-                encode::write_str(buf, &s).map_err(Self::map_encode_err)?;
+                Self::encode_timestamptz_zero_alloc(buf, pg_type, raw)?;
             }
             Type::DATE => {
-                let d = NaiveDate::from_sql(pg_type, raw).map_err(Self::map_decode_err)?;
-                let s = d.format("%Y-%m-%d").to_string();
-                encode::write_str(buf, &s).map_err(Self::map_encode_err)?;
+                Self::encode_date_zero_alloc(buf, pg_type, raw)?;
             }
             Type::TIME => {
-                let t = NaiveTime::from_sql(pg_type, raw).map_err(Self::map_decode_err)?;
-                let s = t.format("%H:%M:%S%.f").to_string();
-                encode::write_str(buf, &s).map_err(Self::map_encode_err)?;
+                Self::encode_time_zero_alloc(buf, pg_type, raw)?;
             }
             Type::INTERVAL => {
-                // Encode as map with months, days, microseconds
                 if raw.len() == 16 {
                     let mut micros_bytes = [0u8; 8];
                     micros_bytes.copy_from_slice(&raw[..8]);
@@ -238,9 +340,7 @@ impl FastMsgPackConverter {
                 }
             }
             Type::INET | Type::CIDR => {
-                let inet = proto::inet_from_sql(raw).map_err(Self::map_decode_err)?;
-                let s = format!("{}/{}", inet.addr(), inet.netmask());
-                encode::write_str(buf, &s).map_err(Self::map_encode_err)?;
+                Self::encode_inet_zero_alloc(buf, raw)?;
             }
             Type::MACADDR => Self::encode_macaddr(buf, raw, 6)?,
             Type::MACADDR8 => Self::encode_macaddr(buf, raw, 8)?,
@@ -257,6 +357,14 @@ impl FastMsgPackConverter {
         Ok(())
     }
 
+    #[inline(always)]
+    fn encode_string_fast<W: Write>(buf: &mut W, raw: &[u8]) -> Result<()> {
+        encode::write_str_len(buf, raw.len() as u32).map_err(Self::map_encode_err)?;
+        buf.write_all(raw).map_err(|e| AppError::Internal(e.to_string()))?;
+        Ok(())
+    }
+
+    #[inline(always)]
     fn encode_string<W: Write>(buf: &mut W, raw: &[u8]) -> Result<()> {
         match std::str::from_utf8(raw) {
             Ok(text) => encode::write_str(buf, text).map_err(Self::map_encode_err)?,
@@ -268,13 +376,40 @@ impl FastMsgPackConverter {
         Ok(())
     }
 
+    #[inline(always)]
+    fn hex_digit(nibble: u8) -> u8 {
+        if nibble < 10 {
+            b'0' + nibble
+        } else {
+            b'a' + (nibble - 10)
+        }
+    }
+
+    #[inline(always)]
     fn encode_macaddr<W: Write>(buf: &mut W, raw: &[u8], len: usize) -> Result<()> {
         if raw.len() != len {
             return Self::encode_fallback(buf, raw);
         }
-        let parts: Vec<String> = raw.iter().map(|b| format!("{:02x}", b)).collect();
-        let s = parts.join(":");
-        encode::write_str(buf, &s).map_err(Self::map_encode_err)?;
+
+        let mut stack_buf = [0u8; 23];
+        let mut idx = 0usize;
+
+        for (i, byte) in raw.iter().enumerate() {
+            if i > 0 {
+                stack_buf[idx] = b':';
+                idx += 1;
+            }
+
+            let hi = byte >> 4;
+            let lo = byte & 0x0f;
+            stack_buf[idx] = Self::hex_digit(hi);
+            idx += 1;
+            stack_buf[idx] = Self::hex_digit(lo);
+            idx += 1;
+        }
+
+        encode::write_str_len(buf, idx as u32).map_err(Self::map_encode_err)?;
+        buf.write_all(&stack_buf[..idx]).map_err(|e| AppError::Internal(e.to_string()))?;
         Ok(())
     }
 
@@ -394,6 +529,14 @@ impl FastMsgPackConverter {
         }
     }
 
+    #[inline(always)]
+    fn encode_complex_as_base64<W: Write>(buf: &mut W, raw: &[u8]) -> Result<()> {
+        let encoded = BASE64_STANDARD.encode(raw);
+        encode::write_str(buf, &encoded).map_err(Self::map_encode_err)?;
+        Ok(())
+    }
+
+    #[inline(always)]
     fn encode_fallback<W: Write>(buf: &mut W, raw: &[u8]) -> Result<()> {
         match std::str::from_utf8(raw) {
             Ok(text) => encode::write_str(buf, text).map_err(Self::map_encode_err)?,
@@ -405,6 +548,7 @@ impl FastMsgPackConverter {
         Ok(())
     }
 
+    #[inline(always)]
     fn to_hex(data: &[u8]) -> String {
         data.iter().map(|b| format!("{:02x}", b)).collect()
     }

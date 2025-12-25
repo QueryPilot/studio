@@ -349,16 +349,12 @@ export function getAllStatements(state: EditorState): StatementBoundary[] {
   const hasSemicolons = content.includes(";");
   const needsFallback = statements.length === 0 || (statements.length === 1 && hasSemicolons);
 
-  console.log('[getAllStatements] AST found:', statements.length, 'statements, hasSemicolons:', hasSemicolons, 'needsFallback:', needsFallback);
-
   if (needsFallback && content.trim()) {
     // Split by semicolons (respecting strings and comments)
     const splitStatements = splitBySemicolon(content);
 
     // Only use fallback if it finds more statements than AST did
-    console.log('[getAllStatements] Fallback found:', splitStatements.length, 'statements via semicolon split');
     if (splitStatements.length > statements.length) {
-      console.log('[getAllStatements] Using fallback (more statements found)');
       statements.length = 0; // Clear AST results
       let offset = 0;
 
@@ -392,8 +388,6 @@ export function getAllStatements(state: EditorState): StatementBoundary[] {
   // Cache result for subsequent calls
   statementsCache = { docLength, docHash, treeLength, statements };
 
-  console.log('[getAllStatements] Final result:', statements.length, 'statements', statements.map(s => ({ from: s.from, to: s.to, preview: s.text.slice(0, 50) })));
-
   return statements;
 }
 
@@ -405,6 +399,34 @@ export function getStatementAtPosition(
   state: EditorState,
   pos: number
 ): StatementBoundary | null {
+  const doc = state.doc;
+  const tree = syntaxTree(state);
+
+  let node = tree.resolveInner(pos, -1);
+  while (node) {
+    const typeName = node.type.name;
+    if (typeName === "Script") {
+      break;
+    }
+    if (STATEMENT_TYPES.has(typeName) || typeName.includes("Statement")) {
+      const from = node.from;
+      const to = node.to;
+      const text = cleanQuery(state.sliceDoc(from, to));
+      if (text) {
+        return {
+          from,
+          to,
+          text,
+          lineStart: doc.lineAt(from).number,
+          lineEnd: doc.lineAt(to).number,
+          type: typeName,
+        };
+      }
+      break;
+    }
+    node = node.parent;
+  }
+
   const statements = getAllStatements(state);
 
   if (!statements.length) return null;
@@ -457,5 +479,4 @@ export function getStatementsInRange(
     return stmt.from < to && stmt.to > from;
   });
 }
-
 
