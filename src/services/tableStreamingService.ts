@@ -411,8 +411,6 @@ class TableStreamingService {
     pageSize?: number,
     onProgress?: (progress: StreamingProgress) => void,
     onError?: (error: StreamingError) => void,
-    userLimitPreference?: number,
-    onLimitApplied?: (originalSql: string, appliedLimit: number) => void,
     signal?: AbortSignal,
   ): Promise<StreamingTableResult> {
     this.cancel();
@@ -455,15 +453,8 @@ class TableStreamingService {
             tabId,
             sql,
             batchSize: pageSize,
-            userLimitPreference,
           },
           {
-            onLimitApplied: (originalSql, appliedLimit) => {
-              clearTimeout(timeoutId);
-              if (onLimitApplied) {
-                onLimitApplied(originalSql, appliedLimit);
-              }
-            },
             onStarted: (columns, estimatedRows) => {
               clearTimeout(timeoutId);
               this.columns = mapBackendColumnsToColumnMeta(columns);

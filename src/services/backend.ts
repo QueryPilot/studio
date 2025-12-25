@@ -293,7 +293,6 @@ export type StreamEvent =
 // NOTE: Batch data sent via separate data channel as ArrayBuffer (not in metadata messages)
 // Rust payloads use camelCase field names (serde renames), reflected here
 export type StreamMessage =
-  | { type: "limitApplied"; originalSql: string; appliedLimit: number }
   | { type: "started"; columns: ColumnMeta[]; estimatedRows?: number }
   | {
       type: "success";

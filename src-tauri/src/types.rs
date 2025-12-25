@@ -795,12 +795,6 @@ pub enum StreamMessage {
         resumable: bool,
         message: String,
     },
-    LimitApplied {
-        #[serde(rename = "originalSql")]
-        original_sql: String,
-        #[serde(rename = "appliedLimit")]
-        applied_limit: usize,
-    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
