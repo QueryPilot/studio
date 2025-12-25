@@ -13,6 +13,25 @@ import {
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { parseMutationTables } from "@/utils/sqlParser";
 
+/** Check if SQL query has a LIMIT clause */
+function hasLimitClause(sql: string): boolean {
+  return /\bLIMIT\s+\d+/i.test(sql);
+}
+
+/** Apply LIMIT to SQL if it's a SELECT query without LIMIT */
+function applySmartLimit(
+  sql: string,
+  limit: number | undefined,
+): { sql: string; appliedLimit: number | null } {
+  if (!limit || !isSelectQuery(sql) || hasLimitClause(sql)) {
+    return { sql, appliedLimit: null };
+  }
+  return {
+    sql: `${sql} LIMIT ${limit}`,
+    appliedLimit: limit,
+  };
+}
+
 /**
  * Options for useQueryExecution hook
  */
@@ -169,10 +188,13 @@ export function useQueryExecution(options: UseQueryExecutionOptions): UseQueryEx
           let currentColumnMeta: ColumnMeta[] = [];
           const accumulatedRows: unknown[][] = [];
 
+          // Apply smart limit for each statement
+          const { sql: limitedStmt } = applySmartLimit(stmt.trim(), smartQueryLimit);
+
           const streamPromise = tableStreamingService.streamQuery(
             connectionId,
             `${tabId}-stmt${i}`,
-            stmt.trim(),
+            limitedStmt,
             pageSize,
             (progress) => {
               if (progress.started && progress.columns) {
@@ -188,10 +210,6 @@ export function useQueryExecution(options: UseQueryExecutionOptions): UseQueryEx
                 `[useQueryExecution.executeMulti] Stream error for statement ${i + 1}:`,
                 err,
               );
-            },
-            smartQueryLimit ?? undefined,
-            () => {
-              /* Skip limit callback for multi-query */
             },
             signal,
           );
@@ -372,6 +390,17 @@ export function useQueryExecution(options: UseQueryExecutionOptions): UseQueryEx
         return;
       }
 
+      // Apply smart limit (frontend applies LIMIT to reduce backend overhead)
+      const originalSql = sql;
+      const { sql: limitedSql, appliedLimit: limitValue } = applySmartLimit(sql, smartQueryLimit);
+      sql = limitedSql;
+
+      if (limitValue) {
+        setAppliedLimit({ originalSql, limit: limitValue });
+      } else {
+        setAppliedLimit(null);
+      }
+
       // Clear multi-results for single query execution
       setQueryState(tabId, {
         multiResults: undefined,
@@ -482,10 +511,6 @@ export function useQueryExecution(options: UseQueryExecutionOptions): UseQueryEx
             else if (err && typeof err === "object") msg = JSON.stringify(err);
             else msg = "Stream error";
             toast.error(msg);
-          },
-          smartQueryLimit ?? undefined,
-          (originalSql, appliedLimit) => {
-            setAppliedLimit({ originalSql, limit: appliedLimit });
           },
           controller.signal,
         );

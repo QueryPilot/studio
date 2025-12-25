@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { logger } from "@/lib/logger";
 import {
   invoke,
@@ -14,7 +13,6 @@ export interface QueryStreamParams {
   tabId: string;
   sql: string;
   batchSize?: number;
-  userLimitPreference?: number;
 }
 
 export interface StreamBatch {
@@ -59,7 +57,11 @@ function createIpcChannel(handler: (message: unknown) => void): ChannelLike {
         return;
       }
 
-      const wrapped = rawMessage as { message?: unknown; index?: number; id?: number };
+      const wrapped = rawMessage as {
+        message?: unknown;
+        index?: number;
+        id?: number;
+      };
       if ("message" in wrapped) {
         actualMessage = wrapped.message;
       }
@@ -202,7 +204,6 @@ export class QueryStreamClient {
       onBatch?: (batch: StreamBatch, totalSoFar: number) => void;
       onSuccess?: (result: StreamResult) => void;
       onError?: (error: Error) => void;
-      onLimitApplied?: (originalSql: string, appliedLimit: number) => void;
     },
   ): Promise<StreamResult> {
     // Check if running in Tauri context
@@ -214,7 +215,7 @@ export class QueryStreamClient {
       return Promise.reject(error);
     }
 
-    const { connId, tabId, sql, batchSize = 1000, userLimitPreference } = params;
+    const { connId, tabId, sql, batchSize = 1000 } = params;
 
     const decodeWorker = getStreamDecodeWorker();
 
@@ -267,7 +268,7 @@ export class QueryStreamClient {
                 message.buffer,
                 message.byteOffset,
                 message.byteLength,
-              ).slice().buffer as ArrayBuffer;
+              ).slice().buffer;
             }
             // ArrayBuffer-like object (cross-realm)
             else if (
@@ -275,7 +276,8 @@ export class QueryStreamClient {
               typeof message === "object" &&
               "byteLength" in message
             ) {
-              buffer = new Uint8Array(message as ArrayBufferLike).slice().buffer as ArrayBuffer;
+              buffer = new Uint8Array(message as ArrayBufferLike).slice()
+                .buffer;
             }
             // Objects that carry a data/blob payload (tauri::ipc::Response variants)
             else if (message && typeof message === "object") {
@@ -288,15 +290,16 @@ export class QueryStreamClient {
                   payload.buffer,
                   payload.byteOffset,
                   payload.byteLength,
-                ).slice().buffer as ArrayBuffer;
+                ).slice().buffer;
               } else if (Array.isArray(payload)) {
-                buffer = Uint8Array.from(payload as number[]).buffer as ArrayBuffer;
+                buffer = Uint8Array.from(payload as number[]).buffer;
               } else if (
                 payload &&
                 typeof payload === "object" &&
                 "byteLength" in payload
               ) {
-                buffer = new Uint8Array(payload as ArrayBufferLike).slice().buffer as ArrayBuffer;
+                buffer = new Uint8Array(payload as ArrayBufferLike).slice()
+                  .buffer;
               }
             }
             // Response/Blob-like payloads (tauri::ipc::Response arrives here)
@@ -312,7 +315,11 @@ export class QueryStreamClient {
                   message as { arrayBuffer: () => Promise<ArrayBuffer> }
                 ).arrayBuffer();
               } catch (error) {
-                logger.error("query-stream", "Failed to read Response body", error);
+                logger.error(
+                  "query-stream",
+                  "Failed to read Response body",
+                  error,
+                );
                 return;
               }
             }
@@ -354,13 +361,13 @@ export class QueryStreamClient {
       // Metadata channel: receives JSON StreamMessages
       const metadataChannel = createIpcChannel((message) => {
         if (!message || typeof message !== "object") {
-            logger.warn(
-              "query-stream",
-              "Skipping malformed metadata message",
-              message,
-            );
-            return;
-          }
+          logger.warn(
+            "query-stream",
+            "Skipping malformed metadata message",
+            message,
+          );
+          return;
+        }
 
         // Skip terminal markers from the channel transport
         if ("end" in (message as Record<string, unknown>)) {
@@ -379,18 +386,6 @@ export class QueryStreamClient {
         }
 
         switch (typedMessage.type) {
-          case "limitApplied": {
-            const legacy = typedMessage as {
-              original_sql?: string;
-              applied_limit?: number;
-            };
-            callbacks.onLimitApplied?.(
-              typedMessage.originalSql ?? legacy.original_sql ?? "",
-              typedMessage.appliedLimit ?? legacy.applied_limit ?? 0,
-            );
-            break;
-          }
-
           case "started": {
             const legacy = typedMessage as { estimated_rows?: number };
             const estimatedRows =
@@ -414,21 +409,16 @@ export class QueryStreamClient {
             };
             const result: StreamResult = {
               columns: this.columns || [],
-              totalRows:
-                typedMessage.totalRows ?? legacy.total_rows ?? 0,
+              totalRows: typedMessage.totalRows ?? legacy.total_rows ?? 0,
               executionTimeMs:
-                typedMessage.executionTimeMs ??
-                legacy.execution_time_ms ??
-                0,
+                typedMessage.executionTimeMs ?? legacy.execution_time_ms ?? 0,
               cursorSetupMs:
                 typedMessage.cursorSetupMs ?? legacy.cursor_setup_ms,
               totalStreamingMs:
-                typedMessage.totalStreamingMs ??
-                legacy.total_streaming_ms,
+                typedMessage.totalStreamingMs ?? legacy.total_streaming_ms,
               fetchCount: typedMessage.fetchCount ?? legacy.fetch_count,
               networkMs: typedMessage.networkMs ?? legacy.network_ms,
-              conversionMs:
-                typedMessage.conversionMs ?? legacy.conversion_ms,
+              conversionMs: typedMessage.conversionMs ?? legacy.conversion_ms,
               ipcSendMs: typedMessage.ipcSendMs ?? legacy.ipc_send_ms,
             };
 
@@ -457,7 +447,9 @@ export class QueryStreamClient {
               .catch(() => {
                 // swallow
               })
-              .finally(() => settleReject(error));
+              .finally(() => {
+                settleReject(error);
+              });
             break;
           }
 
@@ -487,7 +479,6 @@ export class QueryStreamClient {
           tabId,
           sql,
           batchSize,
-          userLimitPreference,
           metadataChannel,
           dataChannel,
         }).catch((error: unknown) => {
