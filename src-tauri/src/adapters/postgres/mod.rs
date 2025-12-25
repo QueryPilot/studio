@@ -1,5 +1,6 @@
 pub mod adapter;
 pub mod fast_converter;
+pub mod msgpack_converter;
 pub mod parser;
 pub mod pool;
 pub mod query_fast;
