@@ -155,7 +155,6 @@ export async function streamEntityPage(
     // Start fetching estimated total in parallel (don't wait for it)
     void fetchEstimatedTotal();
 
-    // Wait for stream to complete
     void queryStreamClient.streamWithCallbacks(
       {
         connId: connectionId,
@@ -356,6 +355,7 @@ export async function streamEntityPage(
           }
         },
       },
+      signal,
     );
   });
 }
@@ -469,6 +469,7 @@ class TableStreamingService {
               }
             },
             onBatch: (batch, totalSoFar) => {
+              if (signal?.aborted) return;
               clearTimeout(timeoutId);
               this.accumulatedRows.push(...batch.rows);
               if (onProgress) {
@@ -560,6 +561,7 @@ class TableStreamingService {
               reject(err);
             },
           },
+          signal,
         );
       } catch (error) {
         clearTimeout(timeoutId);

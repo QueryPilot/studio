@@ -20,12 +20,46 @@ import {
   memo,
 } from "react";
 import { EditorState, Compartment, Prec } from "@codemirror/state";
-import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightActiveLine, placeholder as placeholderExt } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { bracketMatching, indentOnInput, indentUnit, foldGutter, codeFolding, foldKeymap } from "@codemirror/language";
-import { searchKeymap, highlightSelectionMatches, search } from "@codemirror/search";
-import { autocompletion, acceptCompletion, completionKeymap } from "@codemirror/autocomplete";
-import { sql, PostgreSQL, MySQL, SQLite, MSSQL, PLSQL } from "@codemirror/lang-sql";
+import {
+  EditorView,
+  keymap,
+  lineNumbers,
+  highlightActiveLineGutter,
+  highlightActiveLine,
+  placeholder as placeholderExt,
+} from "@codemirror/view";
+import {
+  defaultKeymap,
+  history,
+  historyKeymap,
+  indentWithTab,
+} from "@codemirror/commands";
+import {
+  bracketMatching,
+  indentOnInput,
+  indentUnit,
+  foldGutter,
+  codeFolding,
+  foldKeymap,
+} from "@codemirror/language";
+import {
+  searchKeymap,
+  highlightSelectionMatches,
+  search,
+} from "@codemirror/search";
+import {
+  autocompletion,
+  acceptCompletion,
+  completionKeymap,
+} from "@codemirror/autocomplete";
+import {
+  sql,
+  PostgreSQL,
+  MySQL,
+  SQLite,
+  MSSQL,
+  PLSQL,
+} from "@codemirror/lang-sql";
 import { lintGutter } from "@codemirror/lint";
 
 import { useTheme } from "@/components/theme-provider";
@@ -39,7 +73,10 @@ import { getQueryAtCursor, getStatementAtPosition } from "./core";
 import { createMultiCursorExtension } from "./extensions/multi-cursor";
 import { createSnippetExtension } from "./extensions/snippets";
 import { createParameterHintsExtension } from "./extensions/parameter-hints";
-import { createFormatterExtension, formatEditorContent } from "./extensions/formatter";
+import {
+  createFormatterExtension,
+  formatEditorContent,
+} from "./extensions/formatter";
 import { createGotoDefinitionExtension } from "./extensions/goto-definition";
 import { createSemanticHighlightingExtension } from "./extensions/semantic-highlighting";
 import { createStatementHighlightExtension } from "./extensions/statement-highlight";
@@ -80,7 +117,12 @@ export interface SqlEditorProps {
   /** Called when user triggers query execution (Cmd/Ctrl+Enter) */
   onExecute?: (query: string) => void;
   /** Called when user navigates to a definition (Cmd+Click or F12) */
-  onGotoDefinition?: (event: { type: "table" | "column"; name: string; schema?: string; table?: string }) => void;
+  onGotoDefinition?: (event: {
+    type: "table" | "column";
+    name: string;
+    schema?: string;
+    table?: string;
+  }) => void;
   /** Connection ID for metadata */
   connectionId: string;
   /** Database name */
@@ -199,7 +241,7 @@ export const SqlEditor = memo(
       className = "",
       height = "100%",
     },
-    ref
+    ref,
   ) {
     const containerRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
@@ -212,7 +254,7 @@ export const SqlEditor = memo(
     const contextServiceRef = useRef(keyboardServices?.contextService);
     contextServiceRef.current = keyboardServices?.contextService;
     const [currentDialect, setCurrentDialect] = useState<SqlDialect>(() =>
-      detectSqlDialect(dbType, initialValue)
+      detectSqlDialect(dbType, initialValue),
     );
 
     // Instance-level compartments - fixes state corruption across multiple editors
@@ -236,7 +278,7 @@ export const SqlEditor = memo(
           setCurrentDialect(detected);
           onDialectDetectedRef.current?.(detected);
         }, 500),
-      [dbType]
+      [dbType],
     );
 
     // Use override or detected dialect
@@ -246,33 +288,30 @@ export const SqlEditor = memo(
     const debouncedOnChange = useMemo(
       () =>
         onChangeDelay > 0
-          ? debounce((value: string) => onChangeRef.current?.(value), onChangeDelay)
+          ? debounce(
+              (value: string) => onChangeRef.current?.(value),
+              onChangeDelay,
+            )
           : (value: string) => onChangeRef.current?.(value),
-      [onChangeDelay]
+      [onChangeDelay],
     );
 
     // Create execute keymap
     const executeKeymap = useMemo(() => {
       if (!onExecute) return [];
-      
+
       return Prec.highest(
         keymap.of([
           {
             key: "Mod-Enter",
             run: (view) => {
               const selection = view.state.selection.main;
-              
-              console.log('[SqlEditor.executeKeymap] Cmd+Enter pressed', {
-                hasSelection: selection.from !== selection.to,
-                selectionFrom: selection.from,
-                selectionTo: selection.to,
-                cursorPos: selection.head,
-              });
-              
+
               // Priority 1: If text is selected, execute the selection
               if (selection.from !== selection.to) {
-                const selectedText = view.state.doc.sliceString(selection.from, selection.to).trim();
-                console.log('[SqlEditor.executeKeymap] Executing SELECTION:', selectedText);
+                const selectedText = view.state.doc
+                  .sliceString(selection.from, selection.to)
+                  .trim();
                 if (selectedText) {
                   onExecuteRef.current?.(selectedText);
                   return true;
@@ -280,20 +319,20 @@ export const SqlEditor = memo(
               }
 
               // Priority 2: Execute statement at cursor (current active block)
-              const statementAtCursor = getStatementAtPosition(view.state, selection.head);
-              console.log('[SqlEditor.executeKeymap] Statement at cursor:', statementAtCursor);
+              const statementAtCursor = getStatementAtPosition(
+                view.state,
+                selection.head,
+              );
               if (statementAtCursor) {
-                console.log('[SqlEditor.executeKeymap] Executing CURRENT BLOCK:', statementAtCursor.text);
                 onExecuteRef.current?.(statementAtCursor.text);
                 return true;
               }
 
               // No statement found -> do nothing
-              console.log('[SqlEditor.executeKeymap] No statement found at cursor, skipping execution');
               return false;
             },
           },
-        ])
+        ]),
       );
     }, [onExecute]);
 
@@ -303,13 +342,14 @@ export const SqlEditor = memo(
     // Create completion source - this is the only extension that needs connection context
     // Memoize to prevent unnecessary recreations
     const completionSource = useMemo(
-      () => createOptimizedCompletionSource({
-        connectionId,
-        database,
-        schema: defaultSchema,
-        dialect: effectiveDialect,
-      }),
-      [connectionId, database, defaultSchema, effectiveDialect]
+      () =>
+        createOptimizedCompletionSource({
+          connectionId,
+          database,
+          schema: defaultSchema,
+          dialect: effectiveDialect,
+        }),
+      [connectionId, database, defaultSchema, effectiveDialect],
     );
 
     // SQL language instance - stable reference, only changes with dialect
@@ -371,9 +411,12 @@ export const SqlEditor = memo(
           return view.state.doc.sliceString(from, to);
         },
         replaceSelection: (text: string) => {
-          viewRef.current?.dispatch(viewRef.current.state.replaceSelection(text));
+          viewRef.current?.dispatch(
+            viewRef.current.state.replaceSelection(text),
+          );
         },
-        getCursorPosition: () => viewRef.current?.state.selection.main.head || 0,
+        getCursorPosition: () =>
+          viewRef.current?.state.selection.main.head || 0,
         setCursorPosition: (pos: number) => {
           viewRef.current?.dispatch({ selection: { anchor: pos } });
         },
@@ -402,7 +445,7 @@ export const SqlEditor = memo(
           }
         },
       }),
-      [effectiveDialect]
+      [effectiveDialect],
     );
 
     // Initialize editor
@@ -434,10 +477,10 @@ export const SqlEditor = memo(
         extensions: [
           // Base setup
           baseTheme,
-          
+
           // History MUST come first to ensure undo/redo works properly
           history(),
-          
+
           bracketMatching(),
           highlightSelectionMatches({
             minSelectionLength: 3,
@@ -480,7 +523,7 @@ export const SqlEditor = memo(
                   return indentWithTab.run ? indentWithTab.run(view) : false;
                 },
               },
-            ])
+            ]),
           ),
 
           // Dynamic compartments (instance-level to prevent state corruption)
@@ -491,7 +534,9 @@ export const SqlEditor = memo(
           ]),
           compartments.completion.of(completionExtension),
           compartments.readOnly.of(EditorView.editable.of(!readOnly)),
-          compartments.placeholder.of(placeholder ? placeholderExt(placeholder) : []),
+          compartments.placeholder.of(
+            placeholder ? placeholderExt(placeholder) : [],
+          ),
 
           // Smart features
           createMultiCursorExtension(),
@@ -503,9 +548,15 @@ export const SqlEditor = memo(
 
           // Statement highlighting - highlight active statement block
           createStatementHighlightExtension(),
-          
+
           // Run gutter - play button for each statement (includes lintGutter)
-          ...(onExecute ? [createRunGutterExtension((query) => onExecuteRef.current?.(query))] : [lintGutter()]),
+          ...(onExecute
+            ? [
+                createRunGutterExtension((query) =>
+                  onExecuteRef.current?.(query),
+                ),
+              ]
+            : [lintGutter()]),
 
           // Update listener
           updateListener,
@@ -521,7 +572,12 @@ export const SqlEditor = memo(
 
       // Listen for goto-definition events
       const handleGotoDefinition = (event: Event) => {
-        const customEvent = event as CustomEvent<{ type: "table" | "column"; name: string; schema?: string; table?: string }>;
+        const customEvent = event as CustomEvent<{
+          type: "table" | "column";
+          name: string;
+          schema?: string;
+          table?: string;
+        }>;
         onGotoDefinitionRef.current?.(customEvent.detail);
       };
       view.dom.addEventListener("goto-definition", handleGotoDefinition);
@@ -546,7 +602,9 @@ export const SqlEditor = memo(
       view.dom.addEventListener("focusout", handleBlur);
 
       if (autoFocus) {
-        requestAnimationFrame(() => { view.focus(); });
+        requestAnimationFrame(() => {
+          view.focus();
+        });
       }
 
       return () => {
@@ -565,7 +623,9 @@ export const SqlEditor = memo(
     useEffect(() => {
       const actualTheme = resolvedTheme === "dark" ? "dark" : "light";
       viewRef.current?.dispatch({
-        effects: compartments.theme.reconfigure(getThemeExtensions(actualTheme)),
+        effects: compartments.theme.reconfigure(
+          getThemeExtensions(actualTheme),
+        ),
       });
     }, [resolvedTheme, compartments]);
 
@@ -589,7 +649,9 @@ export const SqlEditor = memo(
     // Update read-only
     useEffect(() => {
       viewRef.current?.dispatch({
-        effects: compartments.readOnly.reconfigure(EditorView.editable.of(!readOnly)),
+        effects: compartments.readOnly.reconfigure(
+          EditorView.editable.of(!readOnly),
+        ),
       });
     }, [readOnly, compartments]);
 
@@ -597,7 +659,7 @@ export const SqlEditor = memo(
     useEffect(() => {
       viewRef.current?.dispatch({
         effects: compartments.placeholder.reconfigure(
-          placeholder ? placeholderExt(placeholder) : []
+          placeholder ? placeholderExt(placeholder) : [],
         ),
       });
     }, [placeholder, compartments]);
@@ -609,7 +671,7 @@ export const SqlEditor = memo(
         style={{ height }}
       />
     );
-  })
+  }),
 );
 
 SqlEditor.displayName = "SqlEditor";

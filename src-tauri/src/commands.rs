@@ -916,6 +916,26 @@ async fn execute_single_fetch_stream(
     conn: &crate::core::manager::LiveConnection,
 ) -> std::result::Result<(), String> {
     use futures::StreamExt;
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+    use tokio::sync::mpsc;
+
+    #[derive(Default)]
+    struct EncodeStats {
+        direct_encode_ms: u64,
+        msgpack_bytes: usize,
+        encode_calls: usize,
+        send_time_ms: u64,
+        send_count: usize,
+    }
+
+    enum EncodeError {
+        ChannelClosed,
+        EncodeFailed(String),
+        Cancelled,
+    }
 
     // Try to get FastPostgresQueryExecutor
     let executor = conn
@@ -1110,11 +1130,48 @@ async fn execute_single_fetch_stream(
     let mut first_row_elapsed_ms: Option<u64> = None;
 
     // Performance tracking (combined - no separate conversion/serialization phases)
-    let mut direct_encode_ms = 0u64;
-    let mut msgpack_bytes = 0usize;
-    let mut encode_calls = 0usize;
-    let mut send_time_ms = 0u64;
-    let mut send_count = 0usize;
+    let data_channel_for_encode = data_channel.clone();
+    let data_channel_ping = data_channel.clone();
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let cancelled_for_encode = cancelled.clone();
+
+    const BATCH_QUEUE_DEPTH: usize = 4;
+    let (batch_tx, mut batch_rx) = mpsc::channel::<Vec<Row>>(BATCH_QUEUE_DEPTH);
+
+    let encoder_handle =
+        tokio::task::spawn_blocking(move || -> std::result::Result<EncodeStats, EncodeError> {
+            let mut stats = EncodeStats::default();
+
+            while let Some(rows) = batch_rx.blocking_recv() {
+                if cancelled_for_encode.load(Ordering::Relaxed) {
+                    return Err(EncodeError::Cancelled);
+                }
+
+                if rows.is_empty() {
+                    continue;
+                }
+
+                let encode_start = std::time::Instant::now();
+                let rows_msgpack =
+                    crate::adapters::postgres::msgpack_converter::FastMsgPackConverter::rows_to_msgpack(&rows)
+                        .map_err(|e| EncodeError::EncodeFailed(e.to_string()))?;
+                stats.direct_encode_ms += encode_start.elapsed().as_millis() as u64;
+                stats.msgpack_bytes += rows_msgpack.len();
+                stats.encode_calls += 1;
+
+                let send_start = std::time::Instant::now();
+                let send_result = data_channel_for_encode.send(tauri::ipc::Response::new(rows_msgpack));
+                stats.send_time_ms += send_start.elapsed().as_millis() as u64;
+                stats.send_count += 1;
+
+                if send_result.is_err() {
+                    cancelled_for_encode.store(true, Ordering::Relaxed);
+                    return Err(EncodeError::ChannelClosed);
+                }
+            }
+
+            Ok(stats)
+        });
 
     // Dynamic batch sizing - determines when to send based on rows seen
     let get_send_threshold = |rows_sent: usize| -> usize {
@@ -1128,52 +1185,17 @@ async fn execute_single_fetch_stream(
     };
 
     let mut rows_sent = 0usize;
-
-    // Helper: encode and send a batch of rows
-    let encode_and_send = |rows: &[Row],
-                           data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
-                           direct_encode_ms: &mut u64,
-                           msgpack_bytes: &mut usize,
-                           encode_calls: &mut usize,
-                           send_time_ms: &mut u64,
-                           send_count: &mut usize|
-     -> std::result::Result<bool, String> {
-        if rows.is_empty() {
-            return Ok(true);
-        }
-
-        // Direct Row → MsgPack (no serde_json::Value intermediate!)
-        let encode_start = std::time::Instant::now();
-        let rows_msgpack =
-            crate::adapters::postgres::msgpack_converter::FastMsgPackConverter::rows_to_msgpack(
-                rows,
-            )
-            .map_err(|e| e.to_string())?;
-        *direct_encode_ms += encode_start.elapsed().as_millis() as u64;
-        *msgpack_bytes += rows_msgpack.len();
-        *encode_calls += 1;
-
-        // Send raw binary via Response
-        let send_start = std::time::Instant::now();
-        let send_result = data_channel.send(tauri::ipc::Response::new(rows_msgpack));
-        *send_time_ms += send_start.elapsed().as_millis() as u64;
-        *send_count += 1;
-
-        Ok(send_result.is_ok())
-    };
+    let mut interrupted_sent = false;
+    let mut fetch_error: Option<String> = None;
+    let mut encoder_failed = false;
 
     // Stream rows as they arrive from PostgreSQL
     let mut check_interval = 0u32;
 
     while let Some(row_result) = row_stream.next().await {
-        // Check for cancellation periodically (every 100 rows)
-        check_interval += 1;
-        if check_interval % 100 == 0 {
-            if data_channel
-                .send(tauri::ipc::Response::new(vec![]))
-                .is_err()
-            {
-                tracing::info!("  ⚠️  Channel closed during row fetch (user cancelled early)");
+        if cancelled.load(Ordering::Relaxed) {
+            if !interrupted_sent {
+                tracing::info!("  ⚠️  Channel closed (user cancelled), stopping stream early");
                 tracing::info!("  🛑 Cancelling PostgreSQL backend PID: {}", backend_pid);
                 spawn_cancel_backend_query(pool.clone(), backend_pid);
 
@@ -1181,7 +1203,28 @@ async fn execute_single_fetch_stream(
                     resumable: false,
                     message: "Query cancelled by user".to_string(),
                 });
-                return Err("Query cancelled by user".to_string());
+                interrupted_sent = true;
+            }
+            fetch_error = Some("Query cancelled by user".to_string());
+            break;
+        }
+
+        // Check for cancellation periodically (every 100 rows)
+        check_interval += 1;
+        if check_interval % 100 == 0 {
+            if data_channel_ping.send(tauri::ipc::Response::new(vec![])).is_err() {
+                tracing::info!("  ⚠️  Channel closed during row fetch (user cancelled early)");
+                tracing::info!("  🛑 Cancelling PostgreSQL backend PID: {}", backend_pid);
+                spawn_cancel_backend_query(pool.clone(), backend_pid);
+                cancelled.store(true, Ordering::Relaxed);
+
+                let _ = metadata_channel.send(StreamMessage::Interrupted {
+                    resumable: false,
+                    message: "Query cancelled by user".to_string(),
+                });
+                interrupted_sent = true;
+                fetch_error = Some("Query cancelled by user".to_string());
+                break;
             }
         }
 
@@ -1201,33 +1244,15 @@ async fn execute_single_fetch_stream(
                 let current_threshold = get_send_threshold(rows_sent);
                 if row_buffer.len() >= current_threshold {
                     let batch_size = row_buffer.len();
+                    let batch_rows = row_buffer.split_off(0);
 
-                    let send_ok = encode_and_send(
-                        &row_buffer,
-                        &data_channel,
-                        &mut direct_encode_ms,
-                        &mut msgpack_bytes,
-                        &mut encode_calls,
-                        &mut send_time_ms,
-                        &mut send_count,
-                    )?;
-
-                    row_buffer.clear();
-                    rows_sent += batch_size;
-
-                    if !send_ok {
-                        tracing::info!(
-                            "  ⚠️  Channel closed (user cancelled), stopping stream early"
-                        );
-                        tracing::info!("  🛑 Cancelling PostgreSQL backend PID: {}", backend_pid);
-                        spawn_cancel_backend_query(pool.clone(), backend_pid);
-
-                        let _ = metadata_channel.send(StreamMessage::Interrupted {
-                            resumable: false,
-                            message: "Query cancelled by user".to_string(),
-                        });
-                        return Err("Query cancelled by user".to_string());
+                    if batch_tx.send(batch_rows).await.is_err() {
+                        encoder_failed = true;
+                        cancelled.store(true, Ordering::Relaxed);
+                        break;
                     }
+
+                    rows_sent += batch_size;
                 }
             }
             Err(e) => {
@@ -1235,46 +1260,70 @@ async fn execute_single_fetch_stream(
                     code: "FETCH_ERROR".to_string(),
                     message: e.to_string(),
                 });
-                return Err(e.to_string());
+                fetch_error = Some(e.to_string());
+                break;
             }
         }
     }
 
     // Send final batch
-    if !row_buffer.is_empty() {
+    if fetch_error.is_none()
+        && !encoder_failed
+        && !cancelled.load(Ordering::Relaxed)
+        && !row_buffer.is_empty()
+    {
         let batch_size = row_buffer.len();
+        let batch_rows = row_buffer.split_off(0);
 
-        let send_ok = encode_and_send(
-            &row_buffer,
-            &data_channel,
-            &mut direct_encode_ms,
-            &mut msgpack_bytes,
-            &mut encode_calls,
-            &mut send_time_ms,
-            &mut send_count,
-        )?;
-
-        rows_sent += batch_size;
-
-        // Check if channel closed (user cancelled)
-        if !send_ok {
-            tracing::info!("  ⚠️  Channel closed (user cancelled), stopping stream early");
-            tracing::info!("  🛑 Cancelling PostgreSQL backend PID: {}", backend_pid);
-            spawn_cancel_backend_query(pool.clone(), backend_pid);
-
-            let _ = metadata_channel.send(StreamMessage::Interrupted {
-                resumable: false,
-                message: "Query cancelled by user".to_string(),
-            });
-            return Err("Query cancelled by user".to_string());
+        if batch_tx.send(batch_rows).await.is_err() {
+            encoder_failed = true;
+            cancelled.store(true, Ordering::Relaxed);
+        } else {
+            rows_sent += batch_size;
         }
     }
+
+    drop(batch_tx);
+
+    let encode_stats = match encoder_handle.await {
+        Ok(Ok(stats)) => Ok(stats),
+        Ok(Err(err)) => Err(err),
+        Err(err) => Err(EncodeError::EncodeFailed(err.to_string())),
+    };
+
+    if let Some(error) = fetch_error {
+        return Err(error);
+    }
+
+    let stats = match encode_stats {
+        Ok(stats) => stats,
+        Err(EncodeError::ChannelClosed | EncodeError::Cancelled) => {
+            if !interrupted_sent {
+                tracing::info!("  ⚠️  Channel closed (user cancelled), stopping stream early");
+                tracing::info!("  🛑 Cancelling PostgreSQL backend PID: {}", backend_pid);
+                spawn_cancel_backend_query(pool.clone(), backend_pid);
+
+                let _ = metadata_channel.send(StreamMessage::Interrupted {
+                    resumable: false,
+                    message: "Query cancelled by user".to_string(),
+                });
+            }
+            return Err("Query cancelled by user".to_string());
+        }
+        Err(EncodeError::EncodeFailed(message)) => {
+            let _ = metadata_channel.send(StreamMessage::Error {
+                code: "ENCODE_ERROR".to_string(),
+                message: message.clone(),
+            });
+            return Err(message);
+        }
+    };
 
     let total_time = query_start.elapsed().as_millis() as u64;
     let first_row_ms = first_row_elapsed_ms.unwrap_or(0);
 
     // Direct encoding time (no separate conversion + serialization phases)
-    let network_time_ms = total_time.saturating_sub(direct_encode_ms + send_time_ms);
+    let network_time_ms = total_time.saturating_sub(stats.direct_encode_ms + stats.send_time_ms);
 
     tracing::info!("==========================================");
     tracing::info!("TRUE STREAMING COMPLETE: {} rows", total_rows);
@@ -1292,15 +1341,15 @@ async fn execute_single_fetch_stream(
     );
     tracing::info!(
         "  │  Direct Row→MsgPack: {}ms ({:.1}%) - {} calls | Payload: {:.1} MiB",
-        direct_encode_ms,
-        (direct_encode_ms as f64 / total_time as f64) * 100.0,
-        encode_calls,
-        msgpack_bytes as f64 / (1024.0 * 1024.0)
+        stats.direct_encode_ms,
+        (stats.direct_encode_ms as f64 / total_time as f64) * 100.0,
+        stats.encode_calls,
+        stats.msgpack_bytes as f64 / (1024.0 * 1024.0)
     );
     tracing::info!(
         "  │  IPC: Overlapped/async ({}ms queue, {} batches)",
-        send_time_ms,
-        send_count
+        stats.send_time_ms,
+        stats.send_count
     );
     tracing::info!(
         "  └─ Batch sizes: 128→1024→4096 (incremental) | Direct Row→MsgPack"
@@ -1314,10 +1363,10 @@ async fn execute_single_fetch_stream(
         execution_time_ms: total_time,
         cursor_setup_ms: None,
         total_streaming_ms: Some(total_time),
-        fetch_count: Some(send_count as u64),
+        fetch_count: Some(stats.send_count as u64),
         network_ms: Some(network_time_ms),
-        conversion_ms: Some(direct_encode_ms), // Direct Row→MsgPack time
-        ipc_send_ms: Some(send_time_ms),
+        conversion_ms: Some(stats.direct_encode_ms), // Direct Row→MsgPack time
+        ipc_send_ms: Some(stats.send_time_ms),
     });
 
     // If channel closed, it means user cancelled - don't return success

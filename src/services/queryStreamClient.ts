@@ -41,18 +41,34 @@ type ChannelLike = {
   toJSON: () => string;
 };
 
-function createIpcChannel(handler: (message: unknown) => void): ChannelLike {
+function createIpcChannel(
+  handler: (message: unknown) => void,
+  signal?: AbortSignal,
+): ChannelLike {
   let nextMessageId = 0;
   const pending = new Map<number, unknown>();
+  let aborted = false;
+
+  const cleanup = () => {
+    aborted = true;
+    pending.clear();
+  };
+
+  if (signal) {
+    if (signal.aborted) {
+      cleanup();
+    } else {
+      signal.addEventListener("abort", cleanup, { once: true });
+    }
+  }
+
   const callbackId = transformCallback((rawMessage: unknown) => {
-    // Tauri channel payloads can arrive in two shapes:
-    // 1) Wrapped: { message, index } (Channel ordering) or { message, id }
-    // 2) Unwrapped: raw payload (large binary batches)
+    if (aborted) return;
+
     let actualMessage: unknown = rawMessage;
     let id: number | undefined;
 
     if (rawMessage && typeof rawMessage === "object") {
-      // Channel sends a terminal marker: { end: true, index }
       if ("end" in (rawMessage as Record<string, unknown>)) {
         return;
       }
@@ -72,13 +88,11 @@ function createIpcChannel(handler: (message: unknown) => void): ChannelLike {
       }
     }
 
-    // If there's no ordering ID, deliver immediately
     if (typeof id !== "number") {
       handler(actualMessage);
       return;
     }
 
-    // Process wrapped messages with ordering
     if (id === nextMessageId) {
       nextMessageId++;
       handler(actualMessage);
@@ -92,8 +106,8 @@ function createIpcChannel(handler: (message: unknown) => void): ChannelLike {
     } else if (id > nextMessageId) {
       pending.set(id, actualMessage);
     } else {
-      // Late arrival; deliver but do not disturb ordering state
-      handler(actualMessage);
+      // Duplicate or late-arriving message already handled via pending queue.
+      return;
     }
   });
 
@@ -205,12 +219,18 @@ export class QueryStreamClient {
       onSuccess?: (result: StreamResult) => void;
       onError?: (error: Error) => void;
     },
+    signal?: AbortSignal,
   ): Promise<StreamResult> {
-    // Check if running in Tauri context
     if (!isTauri()) {
       const error = new Error(
         "Query streaming requires Tauri context. Please run the app with 'pnpm tauri:dev' instead of 'pnpm dev'",
       );
+      callbacks.onError?.(error);
+      return Promise.reject(error);
+    }
+
+    if (signal?.aborted) {
+      const error = new Error("Query aborted before start");
       callbacks.onError?.(error);
       return Promise.reject(error);
     }
@@ -241,10 +261,17 @@ export class QueryStreamClient {
         reject(error);
       };
 
-      // DUAL CHANNEL: metadata (JSON) + data (raw ArrayBuffer)
+      const handleAbort = () => {
+        settleReject(new Error("Query aborted"));
+      };
+
+      if (signal) {
+        signal.addEventListener("abort", handleAbort, { once: true });
+      }
+
       let batchCount = 0;
-      // Data channel: receives raw MessagePack ArrayBuffers (Response type)
       const dataChannel = createIpcChannel((message: unknown) => {
+        if (signal?.aborted) return;
         // Decode off the main thread to keep UI responsive
         pendingDecode = pendingDecode
           .then(async () => {
@@ -356,10 +383,10 @@ export class QueryStreamClient {
           .catch((err) => {
             logger.error("query-stream", "Failed to decode batch", err);
           });
-      });
+      }, signal);
 
-      // Metadata channel: receives JSON StreamMessages
       const metadataChannel = createIpcChannel((message) => {
+        if (signal?.aborted) return;
         if (!message || typeof message !== "object") {
           logger.warn(
             "query-stream",
@@ -424,7 +451,6 @@ export class QueryStreamClient {
 
             callbacks.onSuccess?.(result);
 
-            // Ensure all pending decode tasks are flushed before resolving
             pendingDecode
               .catch((error) => {
                 logger.error(
@@ -433,6 +459,9 @@ export class QueryStreamClient {
                 );
               })
               .finally(() => {
+                if (signal) {
+                  signal.removeEventListener("abort", handleAbort);
+                }
                 settleResolve(result);
               });
             break;
@@ -448,6 +477,9 @@ export class QueryStreamClient {
                 // swallow
               })
               .finally(() => {
+                if (signal) {
+                  signal.removeEventListener("abort", handleAbort);
+                }
                 settleReject(error);
               });
             break;
@@ -459,6 +491,9 @@ export class QueryStreamClient {
                 `Stream interrupted (resumable: ${typedMessage.resumable}): ${typedMessage.message}`,
               );
               callbacks.onError?.(interruptError);
+              if (signal) {
+                signal.removeEventListener("abort", handleAbort);
+              }
               settleReject(interruptError);
             }
             break;
@@ -471,7 +506,7 @@ export class QueryStreamClient {
             );
             break;
         }
-      });
+      }, signal);
 
       try {
         invoke("stream_query", {
@@ -484,11 +519,17 @@ export class QueryStreamClient {
         }).catch((error: unknown) => {
           const normalized = normalizeError(error);
           callbacks.onError?.(normalized);
+          if (signal) {
+            signal.removeEventListener("abort", handleAbort);
+          }
           settleReject(normalized);
         });
       } catch (error) {
         const normalized = normalizeError(error);
         callbacks.onError?.(normalized);
+        if (signal) {
+          signal.removeEventListener("abort", handleAbort);
+        }
         settleReject(normalized);
       }
     });

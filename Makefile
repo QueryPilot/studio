@@ -1,4 +1,4 @@
-.PHONY: help d dev build build-ai build-ai-all verify-sidecars dev-sidecar ds package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup version release release-publish release-manual release-local relc generate-keys test-ssh-setup test-ssh test-ssh-clean test-ssh-full setup-ssm-plugin
+.PHONY: help d dev dev-profile dp build build-ai build-ai-all verify-sidecars dev-sidecar ds package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle setup version release release-publish release-manual release-local relc generate-keys test-ssh-setup test-ssh test-ssh-clean test-ssh-full setup-ssm-plugin
 
 SSH_KEYGEN ?= ssh-keygen
 
@@ -14,6 +14,7 @@ help:
 	@echo ""
 	@echo "Development:"
 	@echo "  make dev, make d       - Run in development mode"
+	@echo "  make dev-profile, dp   - Run in development mode with QP_STREAM_PROFILE=1"
 	@echo "  make dev-sidecar, ds   - Run AI sidecar in dev mode (Bun)"
 	@echo "  make build             - Build for production (includes all sidecars)"
 	@echo "  make build-ai          - Build AI sidecar for current platform"
@@ -62,6 +63,9 @@ help:
 # Development
 dev d:
 	pnpm tauri:dev
+
+dev-profile dp:
+	QP_STREAM_PROFILE=1 pnpm tauri:dev
 
 dev-sidecar ds:
 	@echo "Starting AI sidecar in dev mode..."
