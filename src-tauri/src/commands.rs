@@ -3,8 +3,6 @@ use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
 // Precompiled regexes for SQL parsing (compiled once at startup)
-static LIMIT_REGEX: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"(?i)\bLIMIT\s+(\d+)").expect("LIMIT regex is valid"));
 static BLOCK_COMMENT_REGEX: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"/\*.*?\*/").expect("block comment regex is valid"));
 use tauri::{AppHandle, Manager, State};
@@ -850,13 +848,6 @@ pub async fn ping(
     }
 }
 
-/// Extract LIMIT value from SQL query (simple regex-based parser)
-fn extract_limit_from_sql(sql: &str) -> Option<usize> {
-    // Use precompiled LIMIT_REGEX for performance
-    let caps = LIMIT_REGEX.captures(sql)?;
-    caps.get(1)?.as_str().parse::<usize>().ok()
-}
-
 /// Check if SQL query is a SELECT statement (or returns rows like EXPLAIN)
 fn is_select_query(sql: &str) -> bool {
     // Trim whitespace and comments, get first significant SQL keyword
@@ -1384,20 +1375,17 @@ async fn execute_single_fetch_stream(
     Ok(())
 }
 
-/// Stream query results with smart limit detection
-/// Automatically applies LIMIT if query doesn't have one (unless user disabled it)
+/// Stream query results (LIMIT is applied by frontend if needed)
 #[tauri::command]
 pub async fn stream_query(
     conn_id: String,
     tab_id: String,
     sql: String,
     _batch_size: Option<usize>,
-    user_limit_preference: Option<usize>,
     metadata_channel: tauri::ipc::Channel<StreamMessage>,
     data_channel: tauri::ipc::Channel<tauri::ipc::Response>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<(), String> {
-    // Use composite key for tab-specific connection (transaction isolation)
     let connection_key = format!("{}:{}", conn_id, tab_id);
 
     let conn = manager
@@ -1405,51 +1393,13 @@ pub async fn stream_query(
         .await
         .map_err(|e| e.to_string())?;
 
-    // Check if query is a SELECT statement
-    let is_select = is_select_query(&sql);
-
-    // Check if query has LIMIT clause
-    let has_limit = extract_limit_from_sql(&sql).is_some();
-
-    // Apply smart limit only if:
-    // 1. Query is a SELECT statement (not INSERT/UPDATE/DELETE/CREATE/etc.)
-    // 2. Query doesn't have LIMIT
-    // 3. User has a preference set (Some(limit)) - if None, user chose "No limit"
-    let applied_limit = if is_select && !has_limit {
-        user_limit_preference // Returns Some(limit) or None based on user preference
-    } else {
-        None
-    };
-
-    // Apply limit if needed
-    let final_sql = if let Some(limit) = applied_limit {
-        format!("{} LIMIT {}", sql.trim().trim_end_matches(';'), limit)
-    } else {
-        sql.clone()
-    };
-
-    // Send metadata about limit application before starting query
-    if let Some(limit) = applied_limit {
-        let _ = metadata_channel.send(StreamMessage::LimitApplied {
-            original_sql: sql.clone(),
-            applied_limit: limit,
-        });
-    }
-
     tracing::info!("==========================================");
     tracing::info!("FAST PATH (query_raw streaming)");
     tracing::info!("  connection_key: {}", connection_key);
-    tracing::info!("  sql: {}", final_sql);
-    if let Some(limit) = applied_limit {
-        tracing::info!("Auto-applied LIMIT {} (SELECT query)", limit);
-    } else if !is_select {
-        tracing::info!("No auto-limit (not a SELECT query)");
-    } else if !has_limit {
-        tracing::info!("No auto-limit (user preference: no limit)");
-    }
+    tracing::info!("  sql: {}", sql);
     tracing::info!("==========================================");
 
-    execute_single_fetch_stream(&final_sql, &metadata_channel, &data_channel, &conn).await
+    execute_single_fetch_stream(&sql, &metadata_channel, &data_channel, &conn).await
 }
 
 // ============================================================================

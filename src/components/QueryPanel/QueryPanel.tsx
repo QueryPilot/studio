@@ -459,6 +459,8 @@ export const QueryPanel = memo(function QueryPanel({
     const beautified = formatSql(query, dialect);
 
     if (beautified !== query) {
+      // Update CodeMirror editor directly (initialValue is not reactive)
+      editorRef.current?.setValue(beautified);
       setQuery(beautified);
       persistSqlRef.current?.(beautified);
       toast.success("Query formatted");
