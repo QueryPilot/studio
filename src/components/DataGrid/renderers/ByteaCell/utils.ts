@@ -179,3 +179,41 @@ export function downloadBytes(bytes: Uint8Array, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Parse PostgreSQL hstore from binary format
+ */
+export function parseHstoreFromBytes(bytes: Uint8Array): Record<string, string | null> {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const result: Record<string, string | null> = {};
+  let offset = 0;
+
+  const count = view.getInt32(offset, false);
+  offset += 4;
+
+  const decoder = new TextDecoder('utf-8');
+
+  for (let i = 0; i < count; i++) {
+    const keyLen = view.getInt32(offset, false);
+    offset += 4;
+    const key = decoder.decode(bytes.subarray(offset, offset + keyLen));
+    offset += keyLen;
+
+    const valLen = view.getInt32(offset, false);
+    offset += 4;
+    if (valLen === -1) {
+      result[key] = null;
+    } else {
+      result[key] = decoder.decode(bytes.subarray(offset, offset + valLen));
+      offset += valLen;
+    }
+  }
+
+  return result;
+}
+
+export function formatHstore(hstore: Record<string, string | null>): string {
+  return Object.entries(hstore)
+    .map(([k, v]) => `"${k}"=>${v === null ? 'NULL' : `"${v}"`}`)
+    .join(', ');
+}
+

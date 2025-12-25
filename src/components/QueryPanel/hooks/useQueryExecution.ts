@@ -98,7 +98,7 @@ export function useQueryExecution(options: UseQueryExecutionOptions): UseQueryEx
   const [isStreaming, setIsStreaming] = useState(false);
   const [result, setResultState] = useState<QueryResult | null>(null);
   const [appliedLimit, setAppliedLimit] = useState<{ originalSql: string; limit: number } | null>(null);
-  const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Refs for stable access in callbacks
   const isExecutingRef = useRef<boolean>(false);
@@ -411,9 +411,13 @@ export function useQueryExecution(options: UseQueryExecutionOptions): UseQueryEx
       setIsStreaming(true);
       setResult(null);
 
-      // Create abort controller for cancellation
+      // Abort any previous query before starting new one
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+
       const controller = new AbortController();
-      setAbortController(controller);
+      abortControllerRef.current = controller;
 
       let executionTime = 0;
       let queryResult: QueryResult | null = null;
@@ -427,13 +431,14 @@ export function useQueryExecution(options: UseQueryExecutionOptions): UseQueryEx
         let rowCount = 0;
         const accumulatedRows: unknown[][] = [];
         let rafPending = false;
+        let streamCompleted = false;
 
         // Single RAF with frame budget for smooth streaming
         const renderedCountRef = { current: 0 };
         const hasRenderedOnce = { current: false };
 
         const flushUpdate = () => {
-          if (accumulatedRows.length === 0) {
+          if (streamCompleted || accumulatedRows.length === 0) {
             return;
           }
 
@@ -473,11 +478,14 @@ export function useQueryExecution(options: UseQueryExecutionOptions): UseQueryEx
         };
 
         const scheduleUpdate = () => {
-          if (rafPending) return;
+          if (streamCompleted || rafPending) return;
           rafPending = true;
           requestAnimationFrame(() => {
             rafPending = false;
-            if (accumulatedRows.length > renderedCountRef.current) {
+            if (
+              !streamCompleted &&
+              accumulatedRows.length > renderedCountRef.current
+            ) {
               flushUpdate();
             }
           });
@@ -518,6 +526,9 @@ export function useQueryExecution(options: UseQueryExecutionOptions): UseQueryEx
         const final = await streamPromise;
 
         executionTime = final.executionTimeMs ?? 0;
+        streamCompleted = true;
+        renderedCountRef.current = accumulatedRows.length;
+        hasRenderedOnce.current = true;
 
         // Detect query type for proper result display
         const sqlUpper = sql.trim().toUpperCase();
@@ -712,7 +723,7 @@ export function useQueryExecution(options: UseQueryExecutionOptions): UseQueryEx
       } finally {
         setIsExecuting(false);
         setIsStreaming(false);
-        setAbortController(null);
+        abortControllerRef.current = null;
 
         // Save to history (skip if cancelled)
         const wasCancelled = controller.signal.aborted;
@@ -744,14 +755,14 @@ export function useQueryExecution(options: UseQueryExecutionOptions): UseQueryEx
    * Cancel currently executing query
    */
   const cancel = useCallback(() => {
-    if (abortController) {
-      abortController.abort();
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
       setIsExecuting(false);
       setIsStreaming(false);
-      setAbortController(null);
       toast.info("Query cancelled");
     }
-  }, [abortController]);
+  }, []);
 
   return {
     isExecuting,

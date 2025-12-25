@@ -3,6 +3,7 @@ import type { CellValue } from "@/types";
 import type { GridColumnV2 } from "../types";
 import { computeArrayStringsFromRaw } from "../utils/arrayFormat";
 import { coerceToHstoreString } from "../renderers/HStoreCell/hstoreFormat";
+import { base64ToBytes, parseHstoreFromBytes, formatHstore, isValidBase64 } from "../renderers/ByteaCell/utils";
 
 // ============================================================================
 // Cache Configuration
@@ -337,7 +338,21 @@ const buildJsonCell: CellBuilder = (rawValue, value, column, _meta, readOnly) =>
 };
 
 const buildHstoreCell: CellBuilder = (rawValue, value, column, _meta, readOnly) => {
-  const hstoreString = coerceToHstoreString(rawValue);
+  let hstoreString: string | null;
+
+  if (rawValue === null || rawValue === undefined) {
+    hstoreString = null;
+  } else if (typeof rawValue === 'string' && isValidBase64(rawValue)) {
+    try {
+      const bytes = base64ToBytes(rawValue);
+      const hstore = parseHstoreFromBytes(bytes);
+      hstoreString = formatHstore(hstore);
+    } catch {
+      hstoreString = coerceToHstoreString(rawValue);
+    }
+  } else {
+    hstoreString = coerceToHstoreString(rawValue);
+  }
 
   return cacheAndReturn(value, column.id, readOnly, {
     kind: GridCellKind.Custom,
