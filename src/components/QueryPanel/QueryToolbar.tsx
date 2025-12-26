@@ -28,10 +28,7 @@ import {
   IconDotsVertical,
   IconHistory,
   IconWand,
-  IconChartTreemap,
-  IconFileText,
-  IconChartBar,
-  IconListTree,
+  IconReportAnalytics,
 } from "@tabler/icons-react";
 import { QueryLimitControl } from "./QueryLimitControl";
 import type { SqlDialect } from "@/components/CodeEditor";
@@ -58,7 +55,6 @@ interface QueryToolbarProps {
   isExecuting: boolean;
   query: string;
   showHistory: boolean;
-  showOutline: boolean;
   showResults: boolean;
   viewMode: "table" | "json" | "explain" | "raw" | "stats";
   appliedLimit?: number;
@@ -67,17 +63,13 @@ interface QueryToolbarProps {
   focused?: boolean;
   dialect?: SqlDialect | "auto";
   detectedDialect?: SqlDialect;
-  isExplainResult?: boolean;
-  hasValidResult?: boolean;
   onExecute: () => void;
   onCancel: () => void;
+  onExplain?: () => void;
   onBeautify: () => void;
   onToggleHistory: () => void;
-  onToggleOutline: () => void;
   onToggleResults: () => void;
-  onViewModeChange: (
-    mode: "table" | "json" | "explain" | "raw" | "stats",
-  ) => void;
+  onViewModeChange: (mode: "table" | "json" | "explain" | "raw" | "stats") => void;
   onDialectChange?: (dialect: SqlDialect | "auto") => void;
   onFocusEditor?: () => void;
 }
@@ -86,7 +78,6 @@ export const QueryToolbar = memo(function QueryToolbar({
   isExecuting,
   query,
   showHistory,
-  showOutline,
   showResults,
   viewMode,
   appliedLimit,
@@ -94,19 +85,30 @@ export const QueryToolbar = memo(function QueryToolbar({
   beautifyHint: _beautifyHint,
   focused = false,
   dialect = "auto",
-  detectedDialect: _detectedDialect,
-  isExplainResult = false,
-  hasValidResult = true,
+  detectedDialect,
   onExecute,
   onCancel,
+  onExplain,
   onBeautify,
   onToggleHistory,
-  onToggleOutline,
   onToggleResults,
   onViewModeChange,
   onDialectChange,
   onFocusEditor,
 }: QueryToolbarProps) {
+  // Get the display label for the current dialect
+  const currentDialectLabel =
+    dialect === "auto"
+      ? `Auto${
+          detectedDialect
+            ? ` (${
+                DIALECT_OPTIONS.find((d) => d.value === detectedDialect)
+                  ?.label || detectedDialect
+              })`
+            : ""
+        }`
+      : DIALECT_OPTIONS.find((d) => d.value === dialect)?.label || dialect;
+
   return (
     <div className="@container/toolbar flex-shrink-0">
       <div className="flex items-center justify-between gap-1.5 px-1.5 py-1 bg-muted/20">
@@ -114,70 +116,42 @@ export const QueryToolbar = memo(function QueryToolbar({
         <div className="flex items-center gap-1.5">
           {/* Toggle Results Panel */}
           <Button
-            size="icon-sm"
+            size="sm"
             variant={showResults ? "secondary" : "ghost"}
             onClick={onToggleResults}
+            className="!h-6 !w-6 !p-0"
             title={showResults ? "Hide results (⌥R)" : "Show results (⌥R)"}
           >
-            <IconLayoutRows />
+            <IconLayoutRows className="h-3.5 w-3.5" />
           </Button>
 
-          {/* View Mode Tabs - only visible when results showing and result is valid */}
-          {showResults && hasValidResult && (
+          {/* View Mode Tabs - always visible when results showing */}
+          {showResults && (
             <Tabs
               value={viewMode}
               onValueChange={(value) => {
-                onViewModeChange(
-                  value as "table" | "json" | "explain" | "raw" | "stats",
-                );
+                onViewModeChange(value as "table" | "json" | "explain" | "raw" | "stats");
               }}
               enableShortcuts={true}
               tabGroupId="query-view-mode"
               focused={focused}
               enableGlobalShortcuts={false}
             >
-              <TabsList>
-                {!isExplainResult && (
-                  <>
-                    <TabsTrigger
-                      value="table"
-                      tabIndex={0}
-                    >
-                      Table
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="json"
-                      tabIndex={1}
-                    >
-                      JSON
-                    </TabsTrigger>
-                  </>
-                )}
-                {isExplainResult && (
-                  <>
-                    <TabsTrigger
-                      value="explain"
-                      tabIndex={0}
-                    >
-                      <IconChartTreemap />
-                      Tree
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="stats"
-                      tabIndex={1}
-                    >
-                      <IconChartBar />
-                      Stats
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="raw"
-                      tabIndex={2}
-                    >
-                      <IconFileText />
-                      Raw
-                    </TabsTrigger>
-                  </>
-                )}
+              <TabsList className="!h-6 !p-0.5">
+                <TabsTrigger
+                  value="table"
+                  className="text-xs !h-5 !px-2"
+                  tabIndex={0}
+                >
+                  Table
+                </TabsTrigger>
+                <TabsTrigger
+                  value="json"
+                  className="text-xs !h-5 !px-2"
+                  tabIndex={1}
+                >
+                  JSON
+                </TabsTrigger>
               </TabsList>
             </Tabs>
           )}
@@ -191,9 +165,12 @@ export const QueryToolbar = memo(function QueryToolbar({
               onDialectChange?.(value as SqlDialect | "auto")
             }
           >
-            <SelectTrigger>
+            <SelectTrigger
+              className="!h-6 w-auto min-w-[80px] text-xs gap-1 border-none bg-transparent hover:bg-accent hidden @[400px]/toolbar:flex !px-2"
+              title={`SQL Dialect: ${currentDialectLabel}`}
+            >
               <IconCode className="h-3 w-3 text-muted-foreground" />
-              <SelectValue>Dialect</SelectValue>
+              <SelectValue className="text-xs" />
             </SelectTrigger>
             <SelectContent>
               {DIALECT_OPTIONS.map((option) => (
@@ -220,27 +197,15 @@ export const QueryToolbar = memo(function QueryToolbar({
             />
           </div>
 
-          {/* Outline button - hidden on narrow containers */}
-          <Button
-            size="sm"
-            variant={showOutline ? "secondary" : "ghost"}
-            onClick={onToggleOutline}
-            className="hidden @[600px]/toolbar:flex"
-            title="Toggle outline panel"
-          >
-            <IconListTree />
-            <span>Outline</span>
-          </Button>
-
           {/* History button - hidden on narrow containers */}
           <Button
             size="sm"
             variant={showHistory ? "secondary" : "ghost"}
             onClick={onToggleHistory}
-            className="hidden @[500px]/toolbar:flex"
+            className="!h-6 text-xs gap-1 hidden @[500px]/toolbar:flex !px-2"
             title="Toggle history panel (⌥H)"
           >
-            <IconHistory />
+            <IconHistory className="h-3 w-3" />
             <span>History</span>
           </Button>
 
@@ -250,26 +215,27 @@ export const QueryToolbar = memo(function QueryToolbar({
             variant="ghost"
             onClick={onBeautify}
             disabled={isExecuting || !query.trim()}
-            className="hidden @[500px]/toolbar:flex"
+            className="!h-6 text-xs gap-1 hidden @[500px]/toolbar:flex !px-2"
             title="Format SQL (⌥F)"
           >
-            <IconWand />
+            <IconWand className="h-3 w-3" />
             <span>Format</span>
           </Button>
 
           {/* Overflow Menu - visible on narrow containers */}
           <DropdownMenu>
             <DropdownMenuTrigger
-              render={
+              render={(props) => (
                 <Button
-                  size="icon-sm"
+                  {...props}
+                  size="sm"
                   variant="ghost"
-                  className="@[500px]/toolbar:hidden"
+                  className="!h-6 !w-6 !p-0 @[500px]/toolbar:hidden"
                   title="More options"
                 >
-                  <IconDotsVertical />
+                  <IconDotsVertical className="h-3.5 w-3.5" />
                 </Button>
-              }
+              )}
             />
             <DropdownMenuContent align="end" className="w-44">
               {/* Dialect Selector */}
@@ -301,12 +267,6 @@ export const QueryToolbar = memo(function QueryToolbar({
 
               <DropdownMenuSeparator />
 
-              {/* Outline */}
-              <DropdownMenuItem onClick={onToggleOutline} className="text-xs">
-                <IconListTree className="h-3 w-3 mr-2" />
-                {showOutline ? "Hide Outline" : "Show Outline"}
-              </DropdownMenuItem>
-
               {/* History */}
               <DropdownMenuItem onClick={onToggleHistory} className="text-xs">
                 <IconHistory className="h-3 w-3 mr-2" />
@@ -325,12 +285,26 @@ export const QueryToolbar = memo(function QueryToolbar({
             </DropdownMenuContent>
           </DropdownMenu>
 
+          {/* Explain button */}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onExplain}
+            disabled={isExecuting || !query.trim()}
+            className="!h-6 text-xs gap-1 !px-2 hidden @[500px]/toolbar:flex"
+            title="Run EXPLAIN ANALYZE"
+          >
+            <IconReportAnalytics className="h-3.5 w-3.5" />
+            <span>Explain</span>
+          </Button>
+
           {/* Run/Cancel button - always visible */}
           <Button
             size="sm"
             variant={isExecuting ? "destructive" : "default"}
             onClick={isExecuting ? onCancel : onExecute}
             disabled={!query.trim() && !isExecuting}
+            className="!h-6 text-xs gap-1 !px-2.5"
             title={
               isExecuting
                 ? "Cancel execution"
@@ -341,12 +315,12 @@ export const QueryToolbar = memo(function QueryToolbar({
           >
             {isExecuting ? (
               <>
-                <IconPlayerStop />
+                <IconPlayerStop className="h-3.5 w-3.5" />
                 <span>Stop</span>
               </>
             ) : (
               <>
-                <IconPlayerPlay />
+                <IconPlayerPlay className="h-3.5 w-3.5" />
                 <span>Run</span>
               </>
             )}

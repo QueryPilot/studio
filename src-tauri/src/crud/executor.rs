@@ -1,4 +1,4 @@
-use crate::core::adapter::{DbAdapter, ParameterizedSql, SqlParam};
+use crate::core::adapter::DbAdapter;
 use crate::error::{AppError, Result};
 use crate::types::*;
 use std::collections::HashMap;
@@ -128,8 +128,7 @@ pub async fn execute_crud_transaction(
     })
 }
 
-/// Execute transaction using PostgreSQL's proper transaction API with parameterized queries
-/// SECURITY: Uses $1, $2 placeholders to prevent SQL injection
+/// Execute transaction using PostgreSQL's proper transaction API (single connection)
 async fn execute_postgres_transaction(
     adapter: &crate::adapters::postgres::adapter::PostgresAdapter,
     transaction: CrudTransaction,
@@ -139,12 +138,12 @@ async fn execute_postgres_transaction(
     let mut committed = Vec::new();
     let id_mappings = HashMap::new();
     let warnings = Vec::new();
-    let mut parameterized_statements = Vec::new();
+    let mut sql_statements = Vec::new();
 
-    // Build all parameterized SQL statements
+    // Build all SQL statements
     for (idx, command) in transaction.commands.iter().enumerate() {
         tracing::info!(
-            "  Building parameterized SQL for command {}/{}: {} ({})",
+            "  Building SQL for command {}/{}: {} ({})",
             idx + 1,
             transaction.commands.len(),
             command.operation_type,
@@ -152,9 +151,9 @@ async fn execute_postgres_transaction(
         );
 
         match build_command_sql(command) {
-            Ok(stmt) => {
-                tracing::info!("    Generated SQL: {} (with {} params)", stmt.sql, stmt.params.len());
-                parameterized_statements.push(stmt);
+            Ok(sql) => {
+                tracing::info!("    Generated SQL: {}", sql);
+                sql_statements.push(sql);
 
                 let summary = CommandSummary {
                     id: command.id.clone(),
@@ -197,61 +196,15 @@ async fn execute_postgres_transaction(
         }
     }
 
-    // Execute all statements in a single transaction with parameterized queries
+    // Execute all statements in a single transaction
     tracing::info!(
-        "  Executing {} parameterized statements in transaction...",
-        parameterized_statements.len()
+        "  Executing {} statements in transaction...",
+        sql_statements.len()
     );
-    match adapter
-        .execute_parameterized_transaction(parameterized_statements)
-        .await
-    {
+    match adapter.execute_in_transaction(sql_statements).await {
         Ok(results) => {
             tracing::info!("  ✅ Transaction committed successfully");
             tracing::info!("  Duration: {}ms", start_time.elapsed().as_millis());
-
-            // Check for conflicts: UPDATE with 0 affected rows means optimistic lock failed
-            for (i, rows) in results.iter().enumerate() {
-                if let Some(cmd) = transaction.commands.get(i) {
-                    if cmd.operation_type == "data.update" && *rows == 0 {
-                        // Check if oldValue was provided (optimistic locking enabled)
-                        if let Some(payload) = cmd.payload.as_object() {
-                            if payload.contains_key("oldValue") {
-                                tracing::warn!(
-                                    "  ⚠️ Conflict detected for command {}: row was modified by another user",
-                                    cmd.id
-                                );
-
-                                let error = CommandError {
-                                    code: "CONFLICT_DETECTED".to_string(),
-                                    message: "Row was modified by another user since you started editing. Please refresh and try again.".to_string(),
-                                    severity: "error".to_string(),
-                                    recoverable: true,
-                                };
-
-                                let failure = CommandFailure {
-                                    id: cmd.id.clone(),
-                                    operation_type: cmd.operation_type.clone(),
-                                    error,
-                                    rolled_back: false, // Transaction already committed
-                                };
-
-                                // Note: In a real conflict scenario, we'd want to rollback
-                                // but since the transaction already committed, we report the conflict
-                                return Ok(TransactionResult {
-                                    transaction_id,
-                                    success: false,
-                                    duration_ms: start_time.elapsed().as_millis() as u64,
-                                    committed: vec![],
-                                    failures: vec![failure],
-                                    warnings: None,
-                                    id_mappings: None,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
 
             // Update affected rows in committed summaries
             for (i, rows) in results.iter().enumerate() {
@@ -308,12 +261,12 @@ async fn execute_postgres_transaction(
     }
 }
 
-/// Build parameterized SQL for a single command (SQL INJECTION SAFE)
-fn build_command_sql(command: &CrudCommand) -> Result<ParameterizedSql> {
+/// Build SQL for a single command
+fn build_command_sql(command: &CrudCommand) -> Result<String> {
     match command.operation_type.as_str() {
-        "data.update" => build_update_sql_parameterized(command),
-        "data.insert" => build_insert_sql_parameterized(command),
-        "data.delete" => build_delete_sql_parameterized(command),
+        "data.update" => build_update_sql(command),
+        "data.insert" => build_insert_sql(command),
+        "data.delete" => build_delete_sql(command),
         _ => Err(AppError::Unsupported(format!(
             "Operation type {} not yet supported in transactions",
             command.operation_type
@@ -321,63 +274,8 @@ fn build_command_sql(command: &CrudCommand) -> Result<ParameterizedSql> {
     }
 }
 
-/// Types that need explicit SQL casting because tokio_postgres ToSql doesn't support them directly
-/// These types require $1::type syntax instead of just $1
-fn needs_explicit_cast(pg_type: &str) -> bool {
-    let type_lower = pg_type.to_lowercase();
-    matches!(
-        type_lower.as_str(),
-        // Monetary
-        "money"
-        // Interval
-        | "interval"
-        // Network types
-        | "inet"
-        | "cidr"
-        | "macaddr"
-        | "macaddr8"
-        // Geometric types
-        | "point"
-        | "line"
-        | "lseg"
-        | "box"
-        | "path"
-        | "polygon"
-        | "circle"
-        // Bit strings
-        | "bit"
-        | "varbit"
-        | "bit varying"
-        // Range types
-        | "int4range"
-        | "int8range"
-        | "numrange"
-        | "tsrange"
-        | "tstzrange"
-        | "daterange"
-        // Multirange types (PostgreSQL 14+)
-        | "int4multirange"
-        | "int8multirange"
-        | "nummultirange"
-        | "tsmultirange"
-        | "tstzmultirange"
-        | "datemultirange"
-        // Full-text search
-        | "tsvector"
-        | "tsquery"
-        // XML
-        | "xml"
-        // Other specialty types
-        | "pg_lsn"
-        | "pg_snapshot"
-        | "txid_snapshot"
-    ) || type_lower.ends_with("[]") // All array types need casting
-      || type_lower.starts_with("_") // Internal array type names (e.g., _int4)
-}
-
-/// Build parameterized UPDATE SQL (SQL INJECTION SAFE)
-/// Includes optimistic locking via oldValue check for conflict detection
-fn build_update_sql_parameterized(command: &CrudCommand) -> Result<ParameterizedSql> {
+/// Build UPDATE SQL
+fn build_update_sql(command: &CrudCommand) -> Result<String> {
     let payload = command.payload.as_object().ok_or_else(|| {
         AppError::InvalidInput("data.update payload must be an object".to_string())
     })?;
@@ -391,12 +289,6 @@ fn build_update_sql_parameterized(command: &CrudCommand) -> Result<Parameterized
         .get("newValue")
         .ok_or_else(|| AppError::InvalidInput("Missing 'newValue' in payload".to_string()))?;
 
-    // Optional columnType for explicit casting (needed for specialty types like money, inet, etc.)
-    let column_type = payload.get("columnType").and_then(|v| v.as_str());
-
-    // Optional oldValue for conflict detection (optimistic locking)
-    let old_value = payload.get("oldValue");
-
     let primary_keys = payload
         .get("primaryKeys")
         .and_then(|v| v.as_object())
@@ -409,63 +301,24 @@ fn build_update_sql_parameterized(command: &CrudCommand) -> Result<Parameterized
         .as_ref()
         .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
-    // Build parameterized query with $1, $2, etc. placeholders
-    let mut params = Vec::new();
-    let mut param_idx = 1;
-
-    // SET clause: column = $1 (or $1::type for specialty types)
-    params.push(SqlParam::from_json(new_value));
-    let placeholder = if let Some(col_type) = column_type {
-        if needs_explicit_cast(col_type) {
-            format!("${}::{}", param_idx, col_type)
-        } else {
-            format!("${}", param_idx)
-        }
-    } else {
-        format!("${}", param_idx)
-    };
-    let set_clause = format!("{} = {}", quote_identifier(column), placeholder);
-    param_idx += 1;
-
-    // WHERE clause: pk1 = $2 AND pk2 = $3 ...
-    let mut where_parts: Vec<String> = primary_keys
+    let where_clause = primary_keys
         .iter()
-        .map(|(k, v)| {
-            params.push(SqlParam::from_json(v));
-            let placeholder = format!("{} = ${}", quote_identifier(k), param_idx);
-            param_idx += 1;
-            placeholder
-        })
-        .collect();
+        .map(|(k, v)| format!("{} = {}", quote_identifier(k), format_value(v)))
+        .collect::<Vec<_>>()
+        .join(" AND ");
 
-    // Add optimistic locking check if oldValue is provided
-    // This ensures the row hasn't been modified since we fetched it
-    if let Some(old_val) = old_value {
-        if old_val.is_null() {
-            // For NULL values, use IS NULL (not = NULL which doesn't work in SQL)
-            where_parts.push(format!("{} IS NULL", quote_identifier(column)));
-        } else {
-            params.push(SqlParam::from_json(old_val));
-            where_parts.push(format!("{} = ${}", quote_identifier(column), param_idx));
-            // param_idx += 1; // Not needed as this is the last parameter
-        }
-    }
-
-    let where_clause = where_parts.join(" AND ");
-
-    let sql = format!(
-        "UPDATE {}.{} SET {} WHERE {}",
+    Ok(format!(
+        "UPDATE {}.{} SET {} = {} WHERE {}",
         quote_identifier(schema),
         quote_identifier(table),
-        set_clause,
+        quote_identifier(column),
+        format_value(new_value),
         where_clause
-    );
-
-    Ok(ParameterizedSql::new(sql, params))
+    ))
 }
 
-/// Build parameterized INSERT SQL (SQL INJECTION SAFE)
-fn build_insert_sql_parameterized(command: &CrudCommand) -> Result<ParameterizedSql> {
+/// Build INSERT SQL
+fn build_insert_sql(command: &CrudCommand) -> Result<String> {
     let payload = command.payload.as_object().ok_or_else(|| {
         AppError::InvalidInput("data.insert payload must be an object".to_string())
     })?;
@@ -475,11 +328,6 @@ fn build_insert_sql_parameterized(command: &CrudCommand) -> Result<Parameterized
         .and_then(|v| v.as_object())
         .ok_or_else(|| AppError::InvalidInput("Missing 'values' in payload".to_string()))?;
 
-    // Optional columnTypes for explicit casting (needed for specialty types)
-    let column_types = payload
-        .get("columnTypes")
-        .and_then(|v| v.as_object());
-
     let schema = command.target.schema.as_deref().unwrap_or("public");
     let table = command
         .target
@@ -487,50 +335,30 @@ fn build_insert_sql_parameterized(command: &CrudCommand) -> Result<Parameterized
         .as_ref()
         .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
-    // Build column list and parameterized values
-    let mut params = Vec::new();
     let columns: Vec<&str> = values.keys().map(|s| s.as_str()).collect();
-
     let column_list = columns
         .iter()
         .map(|c| quote_identifier(c))
         .collect::<Vec<_>>()
         .join(", ");
 
-    // Build $1, $2, $3 ... placeholders (with optional type casts)
-    let placeholders: Vec<String> = columns
+    let value_list = columns
         .iter()
-        .enumerate()
-        .map(|(idx, c)| {
-            params.push(SqlParam::from_json(values.get(*c).unwrap()));
-            let param_num = idx + 1;
+        .map(|c| format_value(values.get(*c).unwrap()))
+        .collect::<Vec<_>>()
+        .join(", ");
 
-            // Check if this column needs explicit casting
-            if let Some(types_map) = column_types {
-                if let Some(col_type) = types_map.get(*c).and_then(|v| v.as_str()) {
-                    if needs_explicit_cast(col_type) {
-                        return format!("${}::{}", param_num, col_type);
-                    }
-                }
-            }
-            format!("${}", param_num)
-        })
-        .collect();
-    let placeholder_list = placeholders.join(", ");
-
-    let sql = format!(
+    Ok(format!(
         "INSERT INTO {}.{} ({}) VALUES ({})",
         quote_identifier(schema),
         quote_identifier(table),
         column_list,
-        placeholder_list
-    );
-
-    Ok(ParameterizedSql::new(sql, params))
+        value_list
+    ))
 }
 
-/// Build parameterized DELETE SQL (SQL INJECTION SAFE)
-fn build_delete_sql_parameterized(command: &CrudCommand) -> Result<ParameterizedSql> {
+/// Build DELETE SQL
+fn build_delete_sql(command: &CrudCommand) -> Result<String> {
     let payload = command.payload.as_object().ok_or_else(|| {
         AppError::InvalidInput("data.delete payload must be an object".to_string())
     })?;
@@ -547,26 +375,18 @@ fn build_delete_sql_parameterized(command: &CrudCommand) -> Result<Parameterized
         .as_ref()
         .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
-    // Build WHERE clause with parameterized values
-    let mut params = Vec::new();
-    let where_parts: Vec<String> = primary_keys
+    let where_clause = primary_keys
         .iter()
-        .enumerate()
-        .map(|(idx, (k, v))| {
-            params.push(SqlParam::from_json(v));
-            format!("{} = ${}", quote_identifier(k), idx + 1)
-        })
-        .collect();
-    let where_clause = where_parts.join(" AND ");
+        .map(|(k, v)| format!("{} = {}", quote_identifier(k), format_value(v)))
+        .collect::<Vec<_>>()
+        .join(" AND ");
 
-    let sql = format!(
+    Ok(format!(
         "DELETE FROM {}.{} WHERE {}",
         quote_identifier(schema),
         quote_identifier(table),
         where_clause
-    );
-
-    Ok(ParameterizedSql::new(sql, params))
+    ))
 }
 
 /// Execute a single CRUD command
@@ -583,8 +403,6 @@ async fn execute_command(
         "data.update" => execute_data_update(adapter, command).await?,
         "data.insert" => execute_data_insert(adapter, command, id_mappings).await?,
         "data.delete" => execute_data_delete(adapter, command).await?,
-        "table.create" => execute_table_create(adapter, command).await?,
-        "table.drop" => execute_table_drop(adapter, command).await?,
         "column.add" => execute_column_add(adapter, command).await?,
         "column.modify" => execute_column_modify(adapter, command).await?,
         "column.drop" => execute_column_drop(adapter, command).await?,
@@ -769,148 +587,6 @@ async fn execute_data_delete(adapter: &dyn DbAdapter, command: &CrudCommand) -> 
 // STRUCTURE OPERATIONS
 // ============================================================================
 
-// --- TABLE OPERATIONS ---
-
-async fn execute_table_create(adapter: &dyn DbAdapter, command: &CrudCommand) -> Result<u64> {
-    let payload = command.payload.as_object().ok_or_else(|| {
-        AppError::InvalidInput("table.create payload must be an object".to_string())
-    })?;
-
-    let schema = command.target.schema.as_deref().unwrap_or("public");
-
-    // Frontend sends { tableName, columns: [...], primaryKey?: [...], ifNotExists?: bool }
-    let table_name = payload
-        .get("tableName")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::InvalidInput("Missing 'tableName' in payload".to_string()))?;
-
-    let columns = payload
-        .get("columns")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| AppError::InvalidInput("Missing 'columns' array in payload".to_string()))?;
-
-    let primary_key = payload
-        .get("primaryKey")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str())
-                .map(String::from)
-                .collect::<Vec<_>>()
-        });
-
-    let if_not_exists = payload
-        .get("ifNotExists")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    // Build column definitions
-    let mut column_defs = Vec::new();
-    for col in columns {
-        let col_obj = col.as_object().ok_or_else(|| {
-            AppError::InvalidInput("Each column must be an object".to_string())
-        })?;
-
-        let name = col_obj
-            .get("name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| AppError::InvalidInput("Missing column name".to_string()))?;
-
-        let data_type = col_obj
-            .get("dataType")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| AppError::InvalidInput("Missing column dataType".to_string()))?;
-
-        let nullable = col_obj
-            .get("nullable")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
-
-        let default_value = col_obj
-            .get("defaultValue")
-            .filter(|v| !v.is_null());
-
-        let mut def = format!("{} {}", quote_identifier(name), data_type);
-        if !nullable {
-            def.push_str(" NOT NULL");
-        }
-        if let Some(default) = default_value {
-            def.push_str(" DEFAULT ");
-            def.push_str(&format_value(default));
-        }
-
-        column_defs.push(def);
-    }
-
-    // Add primary key constraint if specified
-    if let Some(pk_columns) = &primary_key {
-        if !pk_columns.is_empty() {
-            let pk_def = format!(
-                "PRIMARY KEY ({})",
-                pk_columns
-                    .iter()
-                    .map(|c| quote_identifier(c))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-            column_defs.push(pk_def);
-        }
-    }
-
-    // Build CREATE TABLE SQL
-    let if_not_exists_clause = if if_not_exists { "IF NOT EXISTS " } else { "" };
-    let sql = format!(
-        "CREATE TABLE {}{}.{} (\n  {}\n)",
-        if_not_exists_clause,
-        quote_identifier(schema),
-        quote_identifier(table_name),
-        column_defs.join(",\n  ")
-    );
-
-    tracing::info!("Executing CREATE TABLE: {}", sql);
-    adapter.execute(&sql).await
-}
-
-async fn execute_table_drop(adapter: &dyn DbAdapter, command: &CrudCommand) -> Result<u64> {
-    let payload = command.payload.as_object().ok_or_else(|| {
-        AppError::InvalidInput("table.drop payload must be an object".to_string())
-    })?;
-
-    let schema = command.target.schema.as_deref().unwrap_or("public");
-
-    // Frontend sends { tableName, cascade?: bool, ifExists?: bool }
-    let table_name = payload
-        .get("tableName")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::InvalidInput("Missing 'tableName' in payload".to_string()))?;
-
-    let cascade = payload
-        .get("cascade")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    let if_exists = payload
-        .get("ifExists")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
-
-    // Build DROP TABLE SQL
-    let if_exists_clause = if if_exists { "IF EXISTS " } else { "" };
-    let cascade_clause = if cascade { " CASCADE" } else { "" };
-    let sql = format!(
-        "DROP TABLE {}{}.{}{}",
-        if_exists_clause,
-        quote_identifier(schema),
-        quote_identifier(table_name),
-        cascade_clause
-    );
-
-    tracing::info!("Executing DROP TABLE: {}", sql);
-    adapter.execute(&sql).await
-}
-
-// --- COLUMN OPERATIONS ---
-
 async fn execute_column_add(adapter: &dyn DbAdapter, command: &CrudCommand) -> Result<u64> {
     let payload = command.payload.as_object().ok_or_else(|| {
         AppError::InvalidInput("column.add payload must be an object".to_string())
@@ -923,37 +599,21 @@ async fn execute_column_add(adapter: &dyn DbAdapter, command: &CrudCommand) -> R
         .as_ref()
         .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
-    // Frontend sends { column: { name, dataType, ... }, tempId }
-    // Extract column definition from nested object
-    let column = payload
-        .get("column")
-        .and_then(|v| v.as_object())
-        .ok_or_else(|| AppError::InvalidInput("Missing 'column' object in payload".to_string()))?;
-
-    let name = column
+    let name = payload
         .get("name")
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::InvalidInput("Missing column name".to_string()))?;
-    let data_type = column
+    let data_type = payload
         .get("dataType")
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::InvalidInput("Missing dataType".to_string()))?;
-    let nullable = column
+    let nullable = payload
         .get("nullable")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
-    // Handle defaultValue as either string or other JSON value
-    let default_value = column.get("defaultValue").and_then(|v| {
-        if v.is_null() {
-            None
-        } else if let Some(s) = v.as_str() {
-            Some(s.to_string())
-        } else {
-            Some(v.to_string())
-        }
-    });
-    let check_constraint = column.get("checkExpression").and_then(|v| v.as_str());
-    let comment = column.get("comment").and_then(|v| v.as_str());
+    let default_value = payload.get("defaultValue").and_then(|v| v.as_str());
+    let check_constraint = payload.get("checkExpression").and_then(|v| v.as_str());
+    let comment = payload.get("comment").and_then(|v| v.as_str());
 
     // Build ADD COLUMN SQL
     let mut sql = format!(
@@ -968,7 +628,7 @@ async fn execute_column_add(adapter: &dyn DbAdapter, command: &CrudCommand) -> R
         sql.push_str(" NOT NULL");
     }
 
-    if let Some(ref default) = default_value {
+    if let Some(default) = default_value {
         sql.push_str(&format!(" DEFAULT {}", default));
     }
 
@@ -1006,60 +666,41 @@ async fn execute_column_modify(adapter: &dyn DbAdapter, command: &CrudCommand) -
         .as_ref()
         .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
-    // Frontend sends { columnName, newDefinition: { dataType, nullable, defaultValue, comment } }
-    let column_name = payload
-        .get("columnName")
+    let name = payload
+        .get("name")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::InvalidInput("Missing columnName".to_string()))?;
-
-    let new_definition = payload
-        .get("newDefinition")
-        .and_then(|v| v.as_object());
-
-    // Extract fields from newDefinition (all optional)
-    let new_type = new_definition.and_then(|d| d.get("dataType")).and_then(|v| v.as_str());
-    let nullable = new_definition.and_then(|d| d.get("nullable")).and_then(|v| v.as_bool());
-    let default_value = new_definition.and_then(|d| d.get("defaultValue")).and_then(|v| {
-        if v.is_null() {
-            None
-        } else if let Some(s) = v.as_str() {
-            Some(s.to_string())
-        } else {
-            Some(v.to_string())
-        }
-    });
-    // Check if defaultValue was explicitly set to null (drop default)
-    let drop_default = new_definition
-        .and_then(|d| d.get("defaultValue"))
-        .map(|v| v.is_null())
-        .unwrap_or(false);
-    let new_check_constraint = new_definition.and_then(|d| d.get("checkExpression")).and_then(|v| v.as_str());
-    let drop_check_constraint = new_definition
-        .and_then(|d| d.get("dropCheckConstraint"))
+        .ok_or_else(|| AppError::InvalidInput("Missing column name".to_string()))?;
+    let new_name = payload.get("newName").and_then(|v| v.as_str());
+    let new_type = payload.get("newType").and_then(|v| v.as_str());
+    let nullable = payload.get("nullable").and_then(|v| v.as_bool());
+    let default_value = payload.get("defaultValue").and_then(|v| v.as_str());
+    let drop_default = payload
+        .get("dropDefault")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let comment = new_definition.and_then(|d| d.get("comment")).and_then(|v| v.as_str());
+    let new_check_constraint = payload.get("checkExpression").and_then(|v| v.as_str());
+    let drop_check_constraint = payload
+        .get("dropCheckConstraint")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let comment = payload.get("comment").and_then(|v| v.as_str());
 
-    let current_column_name = quote_identifier(column_name);
+    let current_column_name = quote_identifier(name);
 
-    // Handle column rename (from newDefinition.name if different)
-    let new_name = new_definition.and_then(|d| d.get("name")).and_then(|v| v.as_str());
+    // Handle column rename
     if let Some(new_n) = new_name {
-        if new_n != column_name {
-            let sql = format!(
-                "ALTER TABLE {}.{} RENAME COLUMN {} TO {}",
-                quote_identifier(schema),
-                quote_identifier(table),
-                current_column_name,
-                quote_identifier(new_n)
-            );
-            adapter.execute(&sql).await?;
-        }
+        let sql = format!(
+            "ALTER TABLE {}.{} RENAME COLUMN {} TO {}",
+            quote_identifier(schema),
+            quote_identifier(table),
+            current_column_name,
+            quote_identifier(new_n)
+        );
+        adapter.execute(&sql).await?;
     }
 
     // Use the new name for subsequent operations if it was renamed
     let working_column_name = new_name
-        .filter(|n| *n != column_name)
         .map(|n| quote_identifier(n))
         .unwrap_or_else(|| current_column_name.clone());
 
@@ -1106,7 +747,7 @@ async fn execute_column_modify(adapter: &dyn DbAdapter, command: &CrudCommand) -
             working_column_name
         );
         adapter.execute(&sql).await?;
-    } else if let Some(ref default) = default_value {
+    } else if let Some(default) = default_value {
         let sql = format!(
             "ALTER TABLE {}.{} ALTER COLUMN {} SET DEFAULT {}",
             quote_identifier(schema),
@@ -1186,24 +827,16 @@ async fn execute_column_drop(adapter: &dyn DbAdapter, command: &CrudCommand) -> 
         .as_ref()
         .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
-    // Frontend sends { columnName, cascade? }
     let column_name = payload
-        .get("columnName")
+        .get("name")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::InvalidInput("Missing columnName".to_string()))?;
+        .ok_or_else(|| AppError::InvalidInput("Missing column name".to_string()))?;
 
-    let cascade = payload
-        .get("cascade")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    let cascade_str = if cascade { " CASCADE" } else { "" };
     let sql = format!(
-        "ALTER TABLE {}.{} DROP COLUMN IF EXISTS {}{}",
+        "ALTER TABLE {}.{} DROP COLUMN IF EXISTS {}",
         quote_identifier(schema),
         quote_identifier(table),
-        quote_identifier(column_name),
-        cascade_str
+        quote_identifier(column_name)
     );
 
     adapter.execute(&sql).await?;
@@ -1222,11 +855,10 @@ async fn execute_column_rename(adapter: &dyn DbAdapter, command: &CrudCommand) -
         .as_ref()
         .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
-    // Frontend sends { columnName, newName }
     let old_name = payload
-        .get("columnName")
+        .get("oldName")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::InvalidInput("Missing columnName".to_string()))?;
+        .ok_or_else(|| AppError::InvalidInput("Missing oldName".to_string()))?;
 
     let new_name = payload
         .get("newName")
@@ -1257,13 +889,7 @@ async fn execute_index_create(adapter: &dyn DbAdapter, command: &CrudCommand) ->
         .as_ref()
         .ok_or_else(|| AppError::InvalidInput("Missing table in target".to_string()))?;
 
-    // Frontend sends { definition: { name, columns, unique, using, where, includeColumns }, tempId }
-    let definition = payload
-        .get("definition")
-        .and_then(|v| v.as_object())
-        .ok_or_else(|| AppError::InvalidInput("Missing 'definition' object in payload".to_string()))?;
-
-    let columns = definition
+    let columns = payload
         .get("columns")
         .and_then(|v| v.as_array())
         .ok_or_else(|| AppError::InvalidInput("Missing or invalid columns array".to_string()))?
@@ -1277,21 +903,19 @@ async fn execute_index_create(adapter: &dyn DbAdapter, command: &CrudCommand) ->
         ));
     }
 
-    let name = definition
+    let name = payload
         .get("name")
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::InvalidInput("Missing index name".to_string()))?;
-    let unique = definition
+    let unique = payload
         .get("unique")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    // Frontend uses "using" (e.g., "btree", "hash", "gin")
-    let index_type = definition
-        .get("using")
+    let index_type = payload
+        .get("indexType")
         .and_then(|v| v.as_str())
         .unwrap_or("btree");
-    // Frontend uses "where" for partial index condition
-    let condition = definition.get("where").and_then(|v| v.as_str());
+    let condition = payload.get("condition").and_then(|v| v.as_str());
 
     // Format columns (handle opclass syntax like: column gin_trgm_ops)
     let formatted_columns = columns
@@ -1341,11 +965,10 @@ async fn execute_index_drop(adapter: &dyn DbAdapter, command: &CrudCommand) -> R
 
     let schema = command.target.schema.as_deref().unwrap_or("public");
 
-    // Frontend sends { indexName, ifExists? }
     let index_name = payload
-        .get("indexName")
+        .get("name")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::InvalidInput("Missing indexName".to_string()))?;
+        .ok_or_else(|| AppError::InvalidInput("Missing index name".to_string()))?;
 
     let sql = format!(
         "DROP INDEX IF EXISTS {}.{}",
@@ -1364,11 +987,10 @@ async fn execute_index_rename(adapter: &dyn DbAdapter, command: &CrudCommand) ->
 
     let schema = command.target.schema.as_deref().unwrap_or("public");
 
-    // Frontend sends { indexName, newName }
     let old_name = payload
-        .get("indexName")
+        .get("oldName")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::InvalidInput("Missing indexName".to_string()))?;
+        .ok_or_else(|| AppError::InvalidInput("Missing oldName".to_string()))?;
 
     let new_name = payload
         .get("newName")

@@ -1,6 +1,5 @@
 pub mod adapter;
 pub mod fast_converter;
-pub mod msgpack_converter;
 pub mod parser;
 pub mod pool;
 pub mod query_fast;
@@ -9,6 +8,7 @@ pub mod types;
 // with dialect-specific SQL via commands::query. See: src/services/introspectionService.ts
 
 pub use adapter::PostgresAdapter;
+// Exports for internal use
 #[allow(unused_imports)]
 pub use fast_converter::FastPostgresConverter;
 #[allow(unused_imports)]

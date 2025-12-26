@@ -45,7 +45,6 @@ impl FastPostgresQueryExecutor {
             .iter()
             .map(|col| ColumnMeta {
                 name: col.name().to_string(),
-                table_name: None, // Avoid extra pg_class roundtrip on every small query
                 data_type: PostgresTypeConverter::type_to_cell_type(col.type_()),
                 nullable: true,
                 primary_key: false,

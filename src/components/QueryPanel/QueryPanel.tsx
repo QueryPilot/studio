@@ -1,13 +1,13 @@
 import { logger } from "@/lib/logger";
 import {
   memo,
+  useState,
   useCallback,
   useEffect,
   useMemo,
   useRef,
-  useReducer,
+  startTransition,
 } from "react";
-import { debounce } from "lodash";
 import { QueryEditor } from "./QueryEditor";
 import { ResultViewer } from "./ResultViewer";
 import { QueryHistory } from "./QueryHistory";
@@ -20,26 +20,24 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from "@/components/ui/resizable";
-import { IconHistory, IconStar, IconListTree } from "@tabler/icons-react";
+import { IconHistory, IconStar } from '@tabler/icons-react';
 import { toast } from "sonner";
 
+import { tableStreamingService } from "@/services/tableStreamingService";
+import { queryHistoryService } from "@/services/queryHistoryService";
 import { cn } from "@/lib/utils";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
-import { useTabStateStore } from "@/stores/tabStateStore";
-import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
+import { useTabStateStore, type QueryResult } from "@/stores/tabStateStore";
+import type { ColumnMeta } from "@/types/database";
 import { formatSql } from "@/utils/codeFormatter";
 import type { SqlDialect } from "@/components/CodeEditor/types";
-import type { QueryEditorRef } from "./QueryEditor";
+import type { CodeEditorRef } from "@/components/CodeEditor";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
-import {
-  parseSqlStatements,
-  hasMultipleStatements,
-} from "@/utils/sqlStatementParser";
+import { handleMutationCache, isMutationQuery, isSelectQuery } from "@/lib/cacheManager";
+import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
+import { parseMutationTables } from "@/utils/sqlParser";
 import { eventBus } from "@/services/eventBus";
-import { useQueryExecution } from "./hooks/useQueryExecution";
-import { useTransactionState } from "./hooks/useTransactionState";
-import { databaseService } from "@/services/databaseService";
 
 interface QueryPanelProps {
   panelId: string;
@@ -50,84 +48,6 @@ interface QueryPanelProps {
   dbType?: string;
   className?: string;
   initialSql?: string;
-}
-
-// ============================================================================
-// STATE REDUCER - UI state only (execution state moved to useQueryExecution hook)
-// ============================================================================
-interface QueryPanelState {
-  query: string;
-  showHistory: boolean;
-  showOutline: boolean;
-  viewMode: "table" | "json" | "explain" | "raw" | "stats";
-  selectedDialect: SqlDialect | "auto";
-  detectedDialect: SqlDialect;
-  showResults: boolean;
-  isExplainResult: boolean;
-}
-
-type QueryPanelAction =
-  | { type: "SET_QUERY"; payload: string }
-  | { type: "SET_SHOW_HISTORY"; payload: boolean }
-  | { type: "SET_SHOW_OUTLINE"; payload: boolean }
-  | {
-      type: "SET_VIEW_MODE";
-      payload: "table" | "json" | "explain" | "raw" | "stats";
-    }
-  | { type: "SET_SELECTED_DIALECT"; payload: SqlDialect | "auto" }
-  | { type: "SET_DETECTED_DIALECT"; payload: SqlDialect }
-  | { type: "SET_SHOW_RESULTS"; payload: boolean }
-  | { type: "SET_IS_EXPLAIN_RESULT"; payload: boolean }
-  | { type: "BATCH_UPDATE"; payload: Partial<QueryPanelState> };
-
-function queryPanelReducer(
-  state: QueryPanelState,
-  action: QueryPanelAction,
-): QueryPanelState {
-  switch (action.type) {
-    case "SET_QUERY":
-      return { ...state, query: action.payload };
-    case "SET_SHOW_HISTORY":
-      return { ...state, showHistory: action.payload };
-    case "SET_SHOW_OUTLINE":
-      return { ...state, showOutline: action.payload };
-    case "SET_VIEW_MODE":
-      return { ...state, viewMode: action.payload };
-    case "SET_SELECTED_DIALECT":
-      return { ...state, selectedDialect: action.payload };
-    case "SET_DETECTED_DIALECT":
-      return { ...state, detectedDialect: action.payload };
-    case "SET_SHOW_RESULTS":
-      return { ...state, showResults: action.payload };
-    case "SET_IS_EXPLAIN_RESULT":
-      return { ...state, isExplainResult: action.payload };
-    case "BATCH_UPDATE":
-      return { ...state, ...action.payload };
-    default:
-      return state;
-  }
-}
-
-type GlobalQueryState = ReturnType<
-  typeof useTabStateStore.getState
->["queryStates"] extends Map<string, infer T>
-  ? T
-  : never;
-
-function createInitialState(
-  globalState: GlobalQueryState | undefined,
-  initialSql: string,
-): QueryPanelState {
-  return {
-    query: globalState?.query ?? initialSql,
-    showHistory: false,
-    showOutline: false,
-    viewMode: globalState?.viewMode || "table",
-    selectedDialect: globalState?.selectedDialect || "auto",
-    detectedDialect: "postgresql",
-    showResults: globalState?.result !== null,
-    isExplainResult: false,
-  };
 }
 
 export const QueryPanel = memo(function QueryPanel({
@@ -143,68 +63,56 @@ export const QueryPanel = memo(function QueryPanel({
   // Use global tab state store to persist across panel moves
   const setQueryState = useTabStateStore((state) => state.setQueryState);
   const globalState = useTabStateStore((state) => state.queryStates.get(tabId));
-  const pinResult = useTabStateStore((state) => state.pinResult);
-  const unpinResult = useTabStateStore((state) => state.unpinResult);
   const focusedPanelId = useWorkbenchStore((state) => state.focusedPanelId);
   const isPanelFocused = focusedPanelId === panelId;
 
-  // Consolidated state using reducer - reduces re-renders from state cascade
-  const [state, dispatch] = useReducer(
-    queryPanelReducer,
-    { globalState, initialSql },
-    ({ globalState: gs, initialSql: sql }) => createInitialState(gs, sql),
+  const [query, setQueryInternal] = useState<string>(
+    globalState?.query ?? initialSql,
+  );
+  const [result, setResultInternal] = useState<QueryResult | null>(
+    globalState?.result || null,
+  );
+  const [isExecuting, setIsExecutingInternal] = useState(
+    globalState?.isExecuting || false,
+  );
+  const [isStreaming, setIsStreamingInternal] = useState(
+    globalState?.isStreaming || false,
+  );
+  const [abortController, setAbortController] =
+    useState<AbortController | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const [appliedLimit, setAppliedLimitInternal] = useState<{
+    originalSql: string;
+    limit: number;
+  } | null>(globalState?.appliedLimit || null);
+  const [viewMode, setViewModeInternal] = useState<"table" | "json" | "explain" | "raw" | "stats">(
+    globalState?.viewMode || "table",
   );
 
-  const {
-    query,
-    showHistory,
-    showOutline,
-    viewMode,
-    selectedDialect,
-    detectedDialect,
-    showResults,
-    isExplainResult,
-  } = state;
-
-  const smartQueryLimit = usePreferencesStore((state) => state.smartQueryLimit);
-  const activeConnectionId = useWorkspaceSelectionStore(
-    (state) => state.connectionId,
+  // Dialect selection: "auto" means auto-detect, otherwise use selected dialect
+  const [selectedDialect, setSelectedDialect] = useState<SqlDialect | "auto">(
+    globalState?.selectedDialect || "auto"
   );
+  const [detectedDialect, setDetectedDialect] = useState<SqlDialect>("postgresql");
+  
+  // Results panel visibility - hidden by default, shown when query executes
+  const [showResults, setShowResults] = useState(result !== null);
 
-  const effectiveConnectionId = useMemo(
-    () => connectionId || activeConnectionId || "",
-    [connectionId, activeConnectionId],
-  );
+  // Outline panel visibility - default false, can be toggled via toolbar in future
+  const [showOutline, _setShowOutline] = useState(false);
+  // Suppress unused setter warning - will be used when outline toggle is added to toolbar
+  void _setShowOutline;
 
-  // ============================================================================
-  // HOOKS - Execution and transaction state managed by dedicated hooks
-  // ============================================================================
-  const {
-    isExecuting,
-    isStreaming,
-    result,
-    appliedLimit,
-    execute,
-    executeMulti,
-    cancel: cancelExecution,
-  } = useQueryExecution({
-    connectionId: effectiveConnectionId,
-    database,
-    tabId,
-    smartQueryLimit: smartQueryLimit ?? undefined,
-  });
-
-  const { inTransaction } = useTransactionState({
-    tabId,
-  });
+  // Get transaction state from persisted store
+  const inTransaction = globalState?.inTransaction || false;
 
   // Editor ref for focusing
-  const editorRef = useRef<QueryEditorRef>(null);
+  const editorRef = useRef<CodeEditorRef>(null);
 
-  // Memoized action dispatchers - stable references prevent child re-renders
+  // Wrapper setters that update ONLY local state (Zustand sync happens in useEffect)
   const setQuery = useCallback(
     (value: string) => {
-      dispatch({ type: "SET_QUERY", payload: value });
+      setQueryInternal(value);
       // Mark as having unsaved changes when query is modified
       const lastExecutedQuery = globalState?.lastExecutedQuery || "";
       const hasChanges = value.trim() !== lastExecutedQuery.trim();
@@ -213,36 +121,54 @@ export const QueryPanel = memo(function QueryPanel({
     [tabId, setQueryState, globalState?.lastExecutedQuery],
   );
 
-  const setViewMode = useCallback(
-    (value: "table" | "json" | "explain" | "raw" | "stats") => {
-      dispatch({ type: "SET_VIEW_MODE", payload: value });
+  const setResult = useCallback(
+    (
+      value:
+        | QueryResult
+        | null
+        | ((prev: QueryResult | null) => QueryResult | null),
+    ) => {
+      if (typeof value === "function") {
+        setResultInternal(value);
+      } else {
+        setResultInternal(value);
+      }
     },
     [],
   );
 
-  const setSelectedDialect = useCallback((value: SqlDialect | "auto") => {
-    dispatch({ type: "SET_SELECTED_DIALECT", payload: value });
+  const setIsExecuting = useCallback((value: boolean) => {
+    setIsExecutingInternal(value);
   }, []);
 
-  const setDetectedDialect = useCallback((value: SqlDialect) => {
-    dispatch({ type: "SET_DETECTED_DIALECT", payload: value });
+  const setIsStreaming = useCallback((value: boolean) => {
+    setIsStreamingInternal(value);
   }, []);
 
-  const setShowResults = useCallback((value: boolean) => {
-    dispatch({ type: "SET_SHOW_RESULTS", payload: value });
+  const setAppliedLimit = useCallback(
+    (value: { originalSql: string; limit: number } | null) => {
+      setAppliedLimitInternal(value);
+    },
+    [],
+  );
+
+  const setViewMode = useCallback((value: "table" | "json" | "explain" | "raw" | "stats") => {
+    setViewModeInternal(value);
   }, []);
 
+  const smartQueryLimit = usePreferencesStore((state) => state.smartQueryLimit);
   const updateTabMetadata = useWorkbenchStore(
     (state) => state.updateTabMetadata,
   );
 
+  const effectiveConnectionId = useMemo(
+    () => connectionId || "",
+    [connectionId],
+  );
+
   useEffect(() => {
-    if (!connectionId && activeConnectionId && panelId && tabId) {
-      updateTabMetadata(panelId, tabId, {
-        connectionId: activeConnectionId,
-      });
-    }
-  }, [connectionId, activeConnectionId, panelId, tabId, updateTabMetadata]);
+    // Connection ID is now always passed from parent
+  }, [connectionId, panelId, tabId, updateTabMetadata]);
 
   const queryGridId = useMemo(
     () => `query:${effectiveConnectionId}:${database}:${schema}:${tabId}`,
@@ -270,7 +196,7 @@ export const QueryPanel = memo(function QueryPanel({
   }, [initialSql]);
 
   // Async sync: Batch update Zustand store when local state changes (after initial mount)
-  // Note: Execution state (result, isExecuting, isStreaming, appliedLimit) is synced by useQueryExecution hook
+  // Single effect reduces re-renders from 6 to 1
   const isInitialMount = useRef(true);
 
   useEffect(() => {
@@ -279,14 +205,22 @@ export const QueryPanel = memo(function QueryPanel({
       return;
     }
 
-    // Batch UI state updates into single Zustand update
+    // Batch all state updates into single Zustand update
     setQueryState(tabId, {
       query,
+      result,
+      isExecuting,
+      isStreaming,
+      appliedLimit,
       viewMode,
       selectedDialect,
     });
   }, [
     query,
+    result,
+    isExecuting,
+    isStreaming,
+    appliedLimit,
     viewMode,
     selectedDialect,
     tabId,
@@ -298,147 +232,460 @@ export const QueryPanel = memo(function QueryPanel({
   // Instead, workbenchStore should call clearQueryState when tab is actually removed
 
   const lastPersistedRef = useRef<string>(globalState?.query ?? initialSql);
-  const persistSqlRef = useRef<ReturnType<typeof debounce> | null>(null);
-  const metadataRef = useRef({ panelId, tabId, updateTabMetadata });
-
-  // Keep metadata ref current
-  useEffect(() => {
-    metadataRef.current = { panelId, tabId, updateTabMetadata };
-  }, [panelId, tabId, updateTabMetadata]);
-
-  // Create stable debounced function once
-  useEffect(() => {
-    const abortController = new AbortController();
-
-    const persistSql = debounce((value: string) => {
-      if (abortController.signal.aborted) return;
+  const persistTimerRef = useRef<number | null>(null);
+  const persistSql = useCallback(
+    (value: string) => {
+      if (!panelId || !tabId) return;
       if (value === lastPersistedRef.current) return;
-      lastPersistedRef.current = value;
-
-      const { panelId, tabId, updateTabMetadata } = metadataRef.current;
-      if (!panelId || !tabId) return; // Guard against undefined
-      updateTabMetadata(panelId, tabId, { sql: value });
-    }, 250);
-
-    persistSqlRef.current = persistSql;
-
+      if (persistTimerRef.current) {
+        clearTimeout(persistTimerRef.current);
+        persistTimerRef.current = null;
+      }
+      persistTimerRef.current = window.setTimeout(() => {
+        lastPersistedRef.current = value;
+        updateTabMetadata(panelId, tabId, { sql: value });
+      }, 250);
+    },
+    [panelId, tabId, updateTabMetadata],
+  );
+  useEffect(() => {
     return () => {
-      abortController.abort();
-      persistSql.cancel();
+      if (persistTimerRef.current) {
+        clearTimeout(persistTimerRef.current);
+        persistTimerRef.current = null;
+      }
     };
-  }, []); // Empty deps - create once, cleanup on unmount
+  }, []);
 
-  /**
-   * Execute query - wrapper that handles multi-statement detection
-   * and delegates to the hook's execute/executeMulti functions
-   */
   const handleExecute = useCallback(
     async (queryToExecute?: string) => {
-      const sql = queryToExecute ?? query;
+      logger.info("[handleExecute] Called with:", {
+        queryToExecute,
+        queryToExecuteLength: queryToExecute?.length || 0,
+        fallbackQuery: query,
+        fallbackQueryLength: query.length || 0,
+      });
 
-      if (!sql || !sql.trim()) {
+      let sql = queryToExecute ?? query;
+
+      logger.info("[handleExecute] Before trim:", {
+        sql,
+        sqlLength: sql.length || 0,
+      });
+
+      // Clean up the SQL - remove trailing semicolons as they cause issues
+      sql = sql.trim().replace(/;\s*$/, "");
+
+      logger.info("[handleExecute] After trim and semicolon removal:", {
+        sql,
+        sqlLength: sql.length || 0,
+        isEmpty: !sql,
+      });
+
+      if (!sql) {
+        logger.info("[handleExecute] EMPTY QUERY - Showing error toast");
         toast.error("Please enter a query to execute");
         return;
       }
 
-      // If the editor passed an explicit statement (selection or current block),
-      // treat it as a single statement and SKIP multi-statement detection.
-      const shouldSkipMultiCheck = typeof queryToExecute === "string";
+      setIsExecuting(true);
+      setIsStreaming(true);
+      setResult(null);
 
-      // Check if this is a multi-statement query (only when not forced single)
-      if (!shouldSkipMultiCheck && hasMultipleStatements(sql)) {
-        const statements = parseSqlStatements(sql).map((s) => s.text);
-        logger.info(
-          `[handleExecute] Multi-statement query detected: ${statements.length} statements`,
-        );
-        await executeMulti(statements);
-        return;
-      }
+      // Create abort controller for cancellation
+      const controller = new AbortController();
+      setAbortController(controller);
 
-      // Single statement execution - clean up trailing semicolons
-      const cleanSql = sql.trim().replace(/;\s*$/, "");
-      if (!cleanSql) {
-        toast.error("Please enter a query to execute");
-        return;
-      }
-
-      await execute(cleanSql);
-    },
-    [query, execute, executeMulti],
-  );
-
-  /**
-   * Cancel running query - delegates to hook
-   */
-  const handleCancel = useCallback(() => {
-    cancelExecution();
-    toast.info("Query cancelled");
-  }, [cancelExecution]);
-
-  const handleGotoDefinition = useCallback(
-    async (event: {
-      type: "table" | "column";
-      name: string;
-      schema?: string;
-      table?: string;
-    }) => {
-      if (event.type !== "table") {
-        return;
-      }
-
-      const targetSchema = event.schema || schema || "public";
+      let executionTime = 0;
+      let queryResult: QueryResult | null = null;
+      let errorMessage: string | undefined;
 
       try {
-        const ddl = await databaseService.getObjectDefinition(
-          connectionId,
-          database,
-          targetSchema,
-          event.name,
-          "table"
+        // Stream results directly; no wrapping/pagination or SQL rewriting
+        const pageSize = 2500; // Increased from 1000 for better performance
+        let started = false;
+        let currentColumns: string[] = [];
+        let currentColumnMeta: ColumnMeta[] = [];
+        let rowCount = 0;
+        const accumulatedRows: unknown[][] = [];
+        let rafId: number | undefined;
+        let pendingTimeout: number | undefined;
+
+        // Throttle updates using requestAnimationFrame with a minimum spacing
+        const renderedCountRef = { current: 0 };
+        const hasRenderedOnce = { current: false };
+        const MIN_UPDATE_INTERVAL_MS = 120;
+        let lastUpdateTime = 0;
+
+        const scheduleUpdate = (force = false) => {
+          if (pendingTimeout !== undefined && !force) return; // Update already queued
+
+          const now = performance.now();
+          const delay = force
+            ? 0
+            : Math.max(MIN_UPDATE_INTERVAL_MS - (now - lastUpdateTime), 0);
+
+          if (pendingTimeout !== undefined && force) {
+            clearTimeout(pendingTimeout);
+            pendingTimeout = undefined;
+          }
+
+          pendingTimeout = window.setTimeout(() => {
+            pendingTimeout = undefined;
+            lastUpdateTime = performance.now();
+
+            if (!force && rafId !== undefined) return; // Already scheduled in this frame
+
+            if (rafId !== undefined && force) {
+              cancelAnimationFrame(rafId);
+              rafId = undefined;
+            }
+
+            rafId = requestAnimationFrame(() => {
+              rafId = undefined;
+
+              // Don't render until we have rows - keeps skeleton visible
+              if (accumulatedRows.length === 0) {
+                return;
+              }
+
+              // First render is synchronous to avoid flash, subsequent use startTransition
+              if (!hasRenderedOnce.current) {
+                hasRenderedOnce.current = true;
+                renderedCountRef.current = accumulatedRows.length;
+                setResult({
+                  columns: currentColumns,
+                  columnMeta: currentColumnMeta,
+                  rows: accumulatedRows.slice(0),
+                  rowCount: accumulatedRows.length,
+                  executionTime: 0,
+                });
+                return;
+              }
+
+              // Use startTransition for streaming updates to keep UI responsive
+              startTransition(() => {
+                setResult((prev) => {
+                  if (!prev) {
+                    return null;
+                  }
+                  const already = renderedCountRef.current;
+                  const total = accumulatedRows.length;
+                  if (total <= already) {
+                    return prev;
+                  }
+                  const newRows = accumulatedRows.slice(already);
+                  renderedCountRef.current = total;
+                  return {
+                    ...prev,
+                    rows: [...prev.rows, ...newRows],
+                    rowCount: total,
+                  };
+                });
+              });
+            });
+          }, delay);
+        };
+
+        if (!effectiveConnectionId) {
+          throw new Error("No active connection selected");
+        }
+
+        const streamPromise = tableStreamingService.streamQuery(
+          effectiveConnectionId,
+          tabId,
+          sql,
+          pageSize,
+          (progress) => {
+            if (progress.started && progress.columns && !started) {
+              started = true;
+              currentColumns = progress.columns.map((c) => c.name);
+              currentColumnMeta = progress.columns as unknown as ColumnMeta[];
+              // Don't render empty table - wait for first batch
+            }
+            if (progress.newRows && progress.newRows.length > 0) {
+              // Accumulate rows
+              accumulatedRows.push(...progress.newRows);
+              rowCount = accumulatedRows.length;
+
+              // Schedule throttled update (max 60 FPS)
+              scheduleUpdate();
+            }
+          },
+          (err: unknown) => {
+            let msg: string;
+            if (err instanceof Error) msg = err.message;
+            else if (typeof err === "string") msg = err;
+            else if (err && typeof err === "object") msg = JSON.stringify(err);
+            else msg = "Stream error";
+            toast.error(msg);
+          },
+          smartQueryLimit ?? undefined, // Convert null to undefined for backend
+          (originalSql, appliedLimit) => {
+            setAppliedLimit({ originalSql, limit: appliedLimit });
+          },
         );
 
-        const { focusedPanelId, addTab, panelContents, focusPanel } =
-          useWorkbenchStore.getState();
+        const final = await streamPromise;
 
-        let targetPanelId = focusedPanelId;
-        if (!targetPanelId && panelContents.size > 0) {
-          const firstPanelId = Array.from(panelContents.keys())[0];
-          if (firstPanelId) {
-            targetPanelId = firstPanelId;
-            focusPanel(firstPanelId);
+        if (pendingTimeout !== undefined) {
+          clearTimeout(pendingTimeout);
+          pendingTimeout = undefined;
+        }
+
+        // Cancel any pending animation frame - we'll do immediate final update
+        if (rafId !== undefined) {
+          cancelAnimationFrame(rafId);
+          rafId = undefined;
+        }
+
+        // Use backend's actual database execution time, not frontend timer
+        executionTime = final.executionTimeMs ?? 0;
+
+        // Detect query type for proper result display
+        const sqlUpper = sql.trim().toUpperCase();
+        const hasReturning = sqlUpper.includes(" RETURNING ");
+        const wasMutation = isMutationQuery(sql);
+        const isTransaction =
+          sqlUpper === "BEGIN" ||
+          sqlUpper === "COMMIT" ||
+          sqlUpper === "ROLLBACK" ||
+          sqlUpper.startsWith("ROLLBACK TO ") ||
+          sqlUpper.startsWith("SAVEPOINT ") ||
+          sqlUpper.startsWith("RELEASE SAVEPOINT ") ||
+          sqlUpper === "START TRANSACTION";
+        const isConfig =
+          sqlUpper.startsWith("SET ") ||
+          sqlUpper.startsWith("RESET ");
+        const isDDL =
+          sqlUpper.startsWith("CREATE ") ||
+          sqlUpper.startsWith("ALTER ") ||
+          sqlUpper.startsWith("DROP ");
+        const isMaintenance =
+          sqlUpper.startsWith("VACUUM") ||
+          sqlUpper.startsWith("ANALYZE") ||
+          sqlUpper.startsWith("REINDEX");
+
+        let affectedRows: number | undefined;
+        let message: string | undefined;
+
+        // For mutation queries with RETURNING, show both data and affected rows
+        if (wasMutation && hasReturning && accumulatedRows.length > 0) {
+          affectedRows = final.totalRows ?? accumulatedRows.length;
+          message = `${affectedRows} row(s) affected`;
+        }
+        // For mutation queries without RETURNING, just show affected rows
+        else if (wasMutation && !hasReturning) {
+          affectedRows = final.totalRows ?? 0;
+        }
+        // For DDL queries, add success message if no rows returned
+        else if (isDDL && accumulatedRows.length === 0) {
+          message = "Query executed successfully";
+        }
+        // For transaction control commands
+        else if (isTransaction) {
+          if (sqlUpper.startsWith("BEGIN") || sqlUpper.startsWith("START TRANSACTION")) {
+            message = "Transaction started";
+            setQueryState(tabId, { inTransaction: true });
+            toast.success("Transaction started", {
+              description: "This tab now has an active transaction. All queries in this tab will be part of this transaction until you COMMIT or ROLLBACK.",
+              duration: 5000,
+            });
+          } else if (sqlUpper.startsWith("COMMIT")) {
+            message = "Transaction committed successfully";
+            setQueryState(tabId, { inTransaction: false });
+          } else if (sqlUpper.startsWith("ROLLBACK")) {
+            message = "Transaction rolled back successfully";
+            setQueryState(tabId, { inTransaction: false });
+          } else if (sqlUpper.startsWith("SAVEPOINT")) {
+            message = "Savepoint created";
+          } else if (sqlUpper.startsWith("RELEASE SAVEPOINT")) {
+            message = "Savepoint released";
+          }
+        }
+        // For configuration commands
+        else if (isConfig && accumulatedRows.length === 0) {
+          message = sqlUpper.startsWith("SET ")
+            ? "Configuration parameter set"
+            : "Configuration parameter reset";
+        }
+        // For maintenance commands
+        else if (isMaintenance && accumulatedRows.length === 0) {
+          message = "Maintenance command completed successfully";
+        }
+
+        // CRITICAL: Direct state update (bypass RAF) to ensure ALL rows are immediately visible
+        // This fixes the issue where RAF throttling could cause the last batch to not render
+        // Create new array reference to force React re-render
+        setResult({
+          columns: currentColumns,
+          columnMeta: currentColumnMeta,
+          rows: [...accumulatedRows], // New array reference forces React to detect change
+          rowCount: final.totalRows ?? accumulatedRows.length,
+          affectedRows,
+          message,
+          executionTime,
+          cursorSetupMs: final.cursorSetupMs,
+          totalStreamingMs: final.totalStreamingMs,
+          fetchCount: final.fetchCount,
+          networkMs: final.networkMs,
+          conversionMs: final.conversionMs,
+          ipcSendMs: final.ipcSendMs,
+        });
+
+        // Streaming complete - stop streaming indicator
+        setIsStreaming(false);
+
+        // Handle mutations and auto-refresh
+        if (effectiveConnectionId) {
+          if (wasMutation) {
+            // Clear cache
+            handleMutationCache(sql, effectiveConnectionId);
+            logger.info("[QueryPanel] Mutation detected - cache invalidated");
+
+            // NEW: Broadcast invalidation to all components displaying affected tables
+            const affectedTables = parseMutationTables(sql);
+            if (affectedTables.length > 0) {
+              const { invalidateTable } = useDataInvalidationStore.getState();
+              affectedTables.forEach(({ schema, table }) => {
+                logger.info(
+                  `[QueryPanel] Invalidating table: ${schema ?? "public"}.${table}`,
+                );
+                invalidateTable(
+                  effectiveConnectionId,
+                  database,
+                  schema ?? "public",
+                  table,
+                );
+              });
+            } else {
+              logger.warn(
+                "[QueryPanel] Mutation detected but no tables parsed from SQL:",
+                sql,
+              );
+            }
+
+            // Auto-refresh: Re-run last SELECT query to show updated data
+            const lastSelectQuery = globalState?.lastSelectQuery;
+            if (lastSelectQuery) {
+              toast.info("Data modified - Refreshing results...");
+              // Schedule refresh after current query completes
+              setTimeout(() => {
+                handleExecute(lastSelectQuery);
+              }, 100);
+            }
           }
         }
 
-        if (!targetPanelId) return;
+        // Store SELECT queries for auto-refresh after mutations
+        const isSelect = isSelectQuery(sql);
 
-        const tabId = `ddl-${targetSchema}-${event.name}-${Date.now()}`;
-
-        addTab(targetPanelId, tabId, {
-          type: "query",
-          title: `DDL: ${event.name}`,
-          connectionId,
-          database,
-          schema: targetSchema,
-          sql: ddl,
+        // Clear unsaved changes flag and update last executed query
+        setQueryState(tabId, {
+          hasUnsavedChanges: false,
+          lastExecutedQuery: sql,
+          ...(isSelect ? { lastSelectQuery: sql } : {}),
         });
 
-        toast.success(`Opened DDL for ${targetSchema}.${event.name}`);
+        queryResult = {
+          columns: final.columns.map((c) => c.name),
+          columnMeta: final.columns as unknown as ColumnMeta[],
+          rows: [], // Don't store rows again - already in state
+          rowCount: final.totalRows ?? rowCount,
+          affectedRows,
+          executionTime,
+        };
       } catch (error) {
-        logger.error("Failed to fetch DDL:", error);
-        toast.error(
-          `Failed to fetch DDL for ${event.name}: ${error instanceof Error ? error.message : "Unknown error"}`
-        );
+        // IconCheck if this is a user cancellation
+        const isCancellation =
+          (error instanceof Error && error.name === "AbortError") ||
+          (error instanceof Error && error.message.includes("cancelled")) ||
+          (error instanceof Error && error.message.includes("interrupted"));
+
+        if (isCancellation) {
+          // User cancelled - don't show as error
+          logger.info("Query cancelled by user");
+          return; // Exit early, no toast (already shown in handleCancel)
+        } else {
+          // Extract detailed error message
+          if (error instanceof Error) {
+            errorMessage = error.message;
+          } else if (typeof error === "string") {
+            errorMessage = error;
+          } else if (error && typeof error === "object" && "message" in error) {
+            errorMessage = String(error.message);
+          } else {
+            errorMessage =
+              "An unknown error occurred while executing the query";
+          }
+
+          setResult({
+            columns: [],
+            rows: [],
+            rowCount: 0,
+            error: errorMessage,
+          });
+
+          // Show error toast with full details
+          toast.error(errorMessage, {
+            duration: 5000,
+            description: "Check the console for more details",
+          });
+
+          logger.error("Query execution failed:", error);
+        }
+      } finally {
+        setIsExecuting(false);
+        setIsStreaming(false);
+        setAbortController(null);
+
+        // IconDeviceFloppy to history (skip if cancelled)
+        const wasCancelled = controller.signal.aborted;
+        if (sql.trim() && !wasCancelled) {
+          await queryHistoryService.addEntry({
+            connectionId: effectiveConnectionId,
+            database,
+            query: sql,
+            executedAt: new Date(),
+            executionTime,
+            rowCount: queryResult?.rowCount,
+            error: errorMessage,
+          });
+        }
       }
     },
-    [connectionId, database, schema]
+    [
+      query,
+      effectiveConnectionId,
+      database,
+      smartQueryLimit,
+      setIsExecuting,
+      setIsStreaming,
+      setResult,
+      setAppliedLimit,
+    ],
   );
+
+  const handleCancel = useCallback(() => {
+    if (abortController) {
+      abortController.abort();
+      setIsExecuting(false);
+      setIsStreaming(false);
+      setAbortController(null);
+
+      // Cancel backend streaming
+      tableStreamingService.cancel();
+
+      toast.info("Query cancelled");
+    }
+  }, [abortController, setIsExecuting, setIsStreaming]);
 
   const handleSelectQuery = useCallback(
     (selectedQuery: string) => {
       setQuery(selectedQuery);
-      persistSqlRef.current?.(selectedQuery);
+      persistSql(selectedQuery);
     },
-    [setQuery],
+    [persistSql, setQuery],
   );
 
   const handleBeautify = useCallback(() => {
@@ -459,15 +706,12 @@ export const QueryPanel = memo(function QueryPanel({
     const beautified = formatSql(query, dialect);
 
     if (beautified !== query) {
-      // Update CodeMirror editor directly (initialValue is not reactive)
-      editorRef.current?.setValue(beautified);
       setQuery(beautified);
-      persistSqlRef.current?.(beautified);
+      persistSql(beautified);
       toast.success("Query formatted");
     }
-  }, [query, dbType, setQuery]);
+  }, [query, dbType, persistSql, setQuery]);
 
-  // Handle EXPLAIN ANALYZE - wraps query with EXPLAIN and executes
   const handleExplain = useCallback(() => {
     // Clean up the query - remove trailing semicolons before wrapping
     const sql = query.trim().replace(/;\s*$/, "");
@@ -490,7 +734,7 @@ export const QueryPanel = memo(function QueryPanel({
       // SQLite: EXPLAIN QUERY PLAN
       explainSql = `EXPLAIN QUERY PLAN ${sql}`;
     } else if (dbTypeLower === "sqlserver" || dbTypeLower === "mssql") {
-      // SQL Server: Use SET STATISTICS PROFILE which works in single batch
+      // SQL Server: Use SET STATISTICS PROFILE
       explainSql = `SET STATISTICS PROFILE ON; ${sql}`;
     } else {
       // Default to basic EXPLAIN
@@ -508,16 +752,12 @@ export const QueryPanel = memo(function QueryPanel({
   }, [query, dbType, handleExecute]);
 
   const toggleHistory = useCallback(() => {
-    dispatch({ type: "SET_SHOW_HISTORY", payload: !showHistory });
-  }, [showHistory]);
-
-  const toggleOutline = useCallback(() => {
-    dispatch({ type: "SET_SHOW_OUTLINE", payload: !showOutline });
-  }, [showOutline]);
+    setShowHistory((prev) => !prev);
+  }, []);
 
   const toggleResults = useCallback(() => {
-    dispatch({ type: "SET_SHOW_RESULTS", payload: !showResults });
-  }, [showResults]);
+    setShowResults((prev) => !prev);
+  }, []);
 
   // Auto-show results panel when query execution starts or completes
   useEffect(() => {
@@ -533,73 +773,49 @@ export const QueryPanel = memo(function QueryPanel({
   // Subscribe to event bus for keyboard shortcuts
   // Track if this panel is focused using a ref to avoid re-subscribing
   const isFocusedRef = useRef(false);
-
+  
   useEffect(() => {
     // Update focus state
-    isFocusedRef.current =
-      panelId === useWorkbenchStore.getState().focusedPanelId;
-
+    isFocusedRef.current = (panelId === useWorkbenchStore.getState().focusedPanelId);
+    
     const unsubscribe = useWorkbenchStore.subscribe((state) => {
-      isFocusedRef.current = panelId === state.focusedPanelId;
+      isFocusedRef.current = (panelId === state.focusedPanelId);
     });
-
+    
     return unsubscribe;
   }, [panelId]);
 
-  // Use refs for stable handler identity
-  const handlersRef = useRef({
-    format: () => {},
-    execute: () => {},
-    toggleHistory: () => {},
-    explain: () => {},
-  });
-
-  // Update refs when handlers change (doesn't change identity)
   useEffect(() => {
-    handlersRef.current.format = handleBeautify;
-    handlersRef.current.execute = handleExecute;
-    handlersRef.current.toggleHistory = toggleHistory;
-    handlersRef.current.explain = handleExplain;
-  }, [handleBeautify, handleExecute, toggleHistory, handleExplain]);
-
-  // Subscribe once with stable wrapper
-  useEffect(() => {
-    const onFormat = () => {
+    const handleFormat = () => {
+      // IconCheck if THIS panel should handle the event
       if (!isFocusedRef.current) return;
       logger.info("🟢 QueryPanel handling format event");
-      handlersRef.current.format();
+      handleBeautify();
     };
 
-    const onToggleHistory = () => {
+    const handleToggleHistory = () => {
       if (!isFocusedRef.current) return;
       logger.info("🟢 QueryPanel handling toggle history event");
-      handlersRef.current.toggleHistory();
+      toggleHistory();
     };
 
-    const onExecute = () => {
+    const handleExecuteEvent = () => {
       if (!isFocusedRef.current) return;
       logger.info("🟢 QueryPanel handling execute event");
-      handlersRef.current.execute();
+      handleExecute();
     };
 
-    const onExplain = () => {
-      if (!isFocusedRef.current) return;
-      logger.info("🟢 QueryPanel handling explain event");
-      handlersRef.current.explain();
-    };
-
-    eventBus.on("query-editor:format", onFormat);
-    eventBus.on("query-editor:toggle-history", onToggleHistory);
-    eventBus.on("query-editor:execute", onExecute);
-    eventBus.on("query-editor:explain", onExplain);
+    // Subscribe ALWAYS - handlers check focus
+    eventBus.on("query-editor:format", handleFormat);
+    eventBus.on("query-editor:toggle-history", handleToggleHistory);
+    eventBus.on("query-editor:execute", handleExecuteEvent);
 
     return () => {
-      eventBus.off("query-editor:format", onFormat);
-      eventBus.off("query-editor:toggle-history", onToggleHistory);
-      eventBus.off("query-editor:execute", onExecute);
-      eventBus.off("query-editor:explain", onExplain);
+      eventBus.off("query-editor:format", handleFormat);
+      eventBus.off("query-editor:toggle-history", handleToggleHistory);
+      eventBus.off("query-editor:execute", handleExecuteEvent);
     };
-  }, []); // Empty deps - subscribe once
+  }, [handleBeautify, toggleHistory, handleExecute]);
 
   // Focus panel when QueryPanel is clicked or focused
   const handleFocusPanel = useCallback(() => {
@@ -634,7 +850,19 @@ export const QueryPanel = memo(function QueryPanel({
                 minSize={20}
                 className="border-none"
               >
-                <div className="flex flex-col h-full relative">
+                <div className="flex h-full relative">
+                  {/* Query Outline Sidebar */}
+                  {showOutline && (
+                    <div className="w-48 border-r flex-shrink-0 overflow-auto">
+                      <QueryOutline
+                        sql={query}
+                        onNavigate={(line) => {
+                          editorRef.current?.revealLine(line);
+                        }}
+                      />
+                    </div>
+                  )}
+                  <div className="flex flex-col flex-1 min-w-0 relative">
                   {/* Transaction indicator badge */}
                   {inTransaction && (
                     <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5 px-2 py-1 bg-yellow-500/90 dark:bg-yellow-600/90 text-yellow-950 dark:text-yellow-50 text-xs font-medium rounded-md shadow-md backdrop-blur-sm border border-yellow-600/20">
@@ -664,15 +892,12 @@ export const QueryPanel = memo(function QueryPanel({
                     onChange={(value) => {
                       const nextValue = value ?? "";
                       setQuery(nextValue);
-                      persistSqlRef.current?.(nextValue);
+                      persistSql(nextValue);
                     }}
                     onExecute={handleExecute}
-                    onGotoDefinition={handleGotoDefinition}
                     isExecuting={isExecuting}
                     height="100%"
-                    dialectOverride={
-                      selectedDialect === "auto" ? undefined : selectedDialect
-                    }
+                    dialectOverride={selectedDialect === "auto" ? undefined : selectedDialect}
                     onDialectDetected={setDetectedDialect}
                   />
                   {/* Toolbar */}
@@ -680,24 +905,23 @@ export const QueryPanel = memo(function QueryPanel({
                     isExecuting={isExecuting}
                     query={query}
                     showHistory={showHistory}
-                    showOutline={showOutline}
                     showResults={showResults}
                     viewMode={viewMode}
                     appliedLimit={appliedLimit?.limit}
                     focused={isPanelFocused}
                     dialect={selectedDialect}
                     detectedDialect={detectedDialect}
-                    isExplainResult={isExplainResult}
                     onExecute={() => handleExecute()}
                     onCancel={handleCancel}
                     onBeautify={handleBeautify}
+                    onExplain={handleExplain}
                     onToggleHistory={toggleHistory}
-                    onToggleOutline={toggleOutline}
                     onToggleResults={toggleResults}
                     onViewModeChange={setViewMode}
                     onDialectChange={setSelectedDialect}
                     onFocusEditor={focusEditor}
                   />
+                  </div>
                 </div>
               </ResizablePanel>
 
@@ -718,8 +942,6 @@ export const QueryPanel = memo(function QueryPanel({
                           isStreaming={isStreaming}
                           connectionId={effectiveConnectionId}
                           database={database}
-                          schema={schema}
-                          databaseType={dbType}
                           height="100%"
                           gridId={queryGridId}
                           viewMode={viewMode}
@@ -729,25 +951,6 @@ export const QueryPanel = memo(function QueryPanel({
                           networkMs={result?.networkMs}
                           conversionMs={result?.conversionMs}
                           ipcSendMs={result?.ipcSendMs}
-                          multiResults={globalState?.multiResults}
-                          activeResultIndex={globalState?.activeResultIndex ?? 0}
-                          onResultTabChange={(index) => {
-                            setQueryState(tabId, { activeResultIndex: index });
-                          }}
-                          tabId={tabId}
-                          pinnedResult={globalState?.pinnedResult}
-                          pinnedResultQuery={globalState?.pinnedResultQuery}
-                          onPinResult={() => {
-                            pinResult(tabId);
-                            toast.success("Result pinned", {
-                              description: "This result will remain visible while you run new queries",
-                            });
-                          }}
-                          onUnpinResult={() => {
-                            unpinResult(tabId);
-                            toast.success("Result unpinned");
-                          }}
-                          currentQuery={globalState?.lastExecutedQuery}
                         />
                       </div>
                     </div>
@@ -757,53 +960,33 @@ export const QueryPanel = memo(function QueryPanel({
             </ResizablePanelGroup>
           </ResizablePanel>
 
-          {(showHistory || showOutline) && (
+          {showHistory && (
             <>
               <ResizableHandle className="bg-secondary w-1" />
 
-              {/* History, Outline, and Saved Queries */}
+              {/* IconHistory and Saved Queries */}
               <ResizablePanel defaultSize={30} minSize={20}>
                 <Tabs
-                  defaultValue={showOutline ? "outline" : "history"}
+                  defaultValue="history"
                   className="h-full flex flex-col px-1 rounded-xl"
                   enableShortcuts={true}
-                  tabGroupId={`query-side-panel-${tabId}`}
-                  focused={isPanelFocused && (showHistory || showOutline)}
+                  tabGroupId={`query-history-${tabId}`}
+                  focused={isPanelFocused && showHistory}
                 >
-                  <TabsList className="grid w-full grid-cols-3">
-                    <TabsTrigger
-                      value="outline"
-                      tabIndex={0}
-                      className={cn(!showOutline && "hidden")}
-                    >
-                      <IconListTree className="mr-1" />
-                      Outline
-                    </TabsTrigger>
+                  <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger
                       value="history"
-                      tabIndex={1}
-                      className={cn(!showHistory && "hidden")}
+                      className="text-xs"
+                      tabIndex={0}
                     >
-                      <IconHistory className="mr-1" />
-                      History
+                      <IconHistory className="h-3 w-3 mr-1" />
+                      IconHistory
                     </TabsTrigger>
-                    <TabsTrigger
-                      value="saved"
-                      tabIndex={2}
-                      className={cn(!showHistory && "hidden")}
-                    >
-                      <IconStar className="mr-1" />
+                    <TabsTrigger value="saved" className="text-xs" tabIndex={1}>
+                      <IconStar className="h-3 w-3 mr-1" />
                       Saved
                     </TabsTrigger>
                   </TabsList>
-                  <TabsContent value="outline" className="flex-1 mt-0">
-                    <QueryOutline
-                      sql={query}
-                      onNavigate={() => {
-                        editorRef.current?.focus();
-                      }}
-                    />
-                  </TabsContent>
                   <TabsContent value="history" className="flex-1 mt-0">
                     <QueryHistory
                       connectionId={effectiveConnectionId}

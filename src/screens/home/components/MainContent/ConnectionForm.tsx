@@ -166,6 +166,7 @@ export function ConnectionForm() {
     connection?.profile.ssl_mode || SslMode.Disable,
   );
   const [selectedTags, setSelectedTags] = useState<string[]>(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (isEditMode && connection.metadata.tags) {
       return connection.metadata.tags;
     }
@@ -313,7 +314,12 @@ export function ConnectionForm() {
       await clearCredentials(connection.profile.id);
       setEcsCredentialsStatus(null);
       toast.success("AWS credentials cleared");
-    } catch (error) {
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        toast.error(error.message);
+      } else {
+        toast.error("Failed to clear credentials");
+      }
       toast.error("Failed to clear credentials");
     }
   };
@@ -1409,7 +1415,8 @@ export function ConnectionForm() {
                       <Select
                         value={ssmOAuthProvider}
                         onValueChange={(value) => {
-                          setSsmOAuthProvider(value ?? "");
+                          if (!value) return;
+                          setSsmOAuthProvider(value);
                         }}
                       >
                         <SelectTrigger>
@@ -1972,7 +1979,7 @@ export function ConnectionForm() {
             disabled={isTesting || isSaving || isConnecting}
             className={cn(
               "h-7 px-2.5 text-xs",
-              testSuccess && "text-green-600",
+              testSuccess && "text-green-600!",
             )}
           >
             {isTesting ? (

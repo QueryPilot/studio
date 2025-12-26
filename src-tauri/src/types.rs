@@ -21,9 +21,6 @@ pub struct ConnectionProfile {
     pub options: HashMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub group: Option<String>,
-    /// Default schema for PostgreSQL (search_path) or SQL Server (default schema)
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub default_schema: Option<String>,
 }
 
 impl ConnectionProfile {
@@ -177,9 +174,6 @@ pub struct QueryHandle {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ColumnMeta {
     pub name: String,
-    /// Source table name (for query results with JOINs)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub table_name: Option<String>,
     pub data_type: CellValueType,
     pub nullable: bool,
     pub primary_key: bool,
@@ -762,29 +756,27 @@ pub struct TransactionResult {
 pub enum StreamMessage {
     Started {
         columns: Vec<ColumnMeta>,
-        #[serde(skip_serializing_if = "Option::is_none", rename = "estimatedRows")]
+        #[serde(skip_serializing_if = "Option::is_none")]
         estimated_rows: Option<i64>,
     },
     // NOTE: Batch data now sent via separate data_channel as Response (raw binary)
     // Metadata-only messages below:
     Success {
-        #[serde(rename = "totalRows")]
         total_rows: usize,
-        #[serde(rename = "executionTimeMs")]
         execution_time_ms: u64,
         // Detailed timing metrics
-        #[serde(skip_serializing_if = "Option::is_none", rename = "cursorSetupMs")]
+        #[serde(skip_serializing_if = "Option::is_none")]
         cursor_setup_ms: Option<u64>,
-        #[serde(skip_serializing_if = "Option::is_none", rename = "totalStreamingMs")]
+        #[serde(skip_serializing_if = "Option::is_none")]
         total_streaming_ms: Option<u64>,
-        #[serde(skip_serializing_if = "Option::is_none", rename = "fetchCount")]
+        #[serde(skip_serializing_if = "Option::is_none")]
         fetch_count: Option<u64>,
         // Performance breakdown
-        #[serde(skip_serializing_if = "Option::is_none", rename = "networkMs")]
+        #[serde(skip_serializing_if = "Option::is_none")]
         network_ms: Option<u64>,
-        #[serde(skip_serializing_if = "Option::is_none", rename = "conversionMs")]
+        #[serde(skip_serializing_if = "Option::is_none")]
         conversion_ms: Option<u64>,
-        #[serde(skip_serializing_if = "Option::is_none", rename = "ipcSendMs")]
+        #[serde(skip_serializing_if = "Option::is_none")]
         ipc_send_ms: Option<u64>,
     },
     Error {
@@ -794,6 +786,10 @@ pub enum StreamMessage {
     Interrupted {
         resumable: bool,
         message: String,
+    },
+    LimitApplied {
+        original_sql: String,
+        applied_limit: usize,
     },
 }
 
