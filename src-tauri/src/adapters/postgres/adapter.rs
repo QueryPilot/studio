@@ -2,13 +2,10 @@ use async_trait::async_trait;
 use deadpool_postgres::Pool;
 use native_tls::{Certificate, TlsConnector};
 use postgres_native_tls::MakeTlsConnector;
-use rust_decimal::Decimal;
 use std::fs;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio_postgres::config::{ChannelBinding as PgChannelBinding, SslMode as PgSslMode};
 use tokio_postgres::{Config, NoTls};
-use uuid::Uuid;
 
 use super::pool::PostgresPoolBuilder;
 use super::query_fast::FastPostgresQueryExecutor;
@@ -76,123 +73,6 @@ impl PostgresAdapter {
         Ok(results)
     }
 
-    /// Execute parameterized SQL statements within a transaction (SQL INJECTION SAFE)
-    /// Uses proper $1, $2 placeholders with separate parameter values
-    pub async fn execute_parameterized_transaction(
-        &self,
-        statements: Vec<crate::core::adapter::ParameterizedSql>,
-    ) -> Result<Vec<u64>> {
-        use crate::core::adapter::SqlParam;
-        use tokio_postgres::types::ToSql;
-
-        let pool = self
-            .pool
-            .as_ref()
-            .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-
-        let mut client = pool
-            .get()
-            .await
-            .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
-
-        let transaction = client
-            .transaction()
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to begin transaction: {}", e)))?;
-
-        let mut results = Vec::new();
-
-        for stmt in statements {
-            // Log the SQL and parameters for debugging
-            tracing::info!("  Executing parameterized SQL: {}", stmt.sql);
-            tracing::info!("  Parameters: {:?}", stmt.params);
-
-            // CRITICAL: Prepare statement FIRST to enable PostgreSQL type inference
-            // This allows PG to infer parameter types from column definitions, fixing ENUM/custom type issues
-            let prepared = transaction
-                .prepare(&stmt.sql)
-                .await
-                .map_err(|e| {
-                    AppError::DatabaseError(format!(
-                        "Failed to prepare statement '{}': {}",
-                        stmt.sql, e
-                    ))
-                })?;
-
-            // Convert SqlParam to tokio_postgres compatible types
-            let params: Vec<Box<dyn ToSql + Sync + Send>> = stmt
-                .params
-                .iter()
-                .map(|p| -> Box<dyn ToSql + Sync + Send> {
-                    match p {
-                        SqlParam::Null => Box::new(None::<String>),
-                        SqlParam::Bool(b) => Box::new(*b),
-                        SqlParam::Int(i) => {
-                            if *i >= i32::MIN as i64 && *i <= i32::MAX as i64 {
-                                Box::new(*i as i32)
-                            } else {
-                                Box::new(*i)
-                            }
-                        }
-                        SqlParam::Float(f) => {
-                            if let Some(decimal) = Decimal::from_f64_retain(*f) {
-                                Box::new(decimal)
-                            } else {
-                                Box::new(*f)
-                            }
-                        }
-                        SqlParam::Text(s) => {
-                            // Try UUID first
-                            if let Ok(uuid) = Uuid::parse_str(s) {
-                                Box::new(uuid)
-                            }
-                            // Try date formats (DATE, TIMESTAMP)
-                            else if let Ok(date) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
-                                Box::new(date)
-                            }
-                            else if let Ok(datetime) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
-                                Box::new(datetime)
-                            }
-                            else if let Ok(datetime) = s.parse::<chrono::DateTime<chrono::Utc>>() {
-                                Box::new(datetime)
-                            }
-                            // Try decimal
-                            else if let Ok(decimal) = s.parse::<rust_decimal::Decimal>() {
-                                Box::new(decimal)
-                            }
-                            // Fallback to String for ENUMs and other text types
-                            else {
-                                Box::new(s.clone())
-                            }
-                        }
-                        SqlParam::Json(v) => Box::new(v.clone()),
-                    }
-                })
-                .collect();
-
-            let param_refs: Vec<&(dyn ToSql + Sync)> =
-                params.iter().map(|p| p.as_ref() as &(dyn ToSql + Sync)).collect();
-
-            let rows_affected = transaction
-                .execute(&prepared, &param_refs)
-                .await
-                .map_err(|e| {
-                    AppError::DatabaseError(format!(
-                        "Transaction failed on SQL '{}': {}",
-                        stmt.sql, e
-                    ))
-                })?;
-            results.push(rows_affected);
-        }
-
-        transaction
-            .commit()
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to commit transaction: {}", e)))?;
-
-        Ok(results)
-    }
-
     fn build_config(profile: &ConnectionProfile) -> Result<(Config, PgSslMode)> {
         let mut config = Config::new();
         config.host(&profile.host);
@@ -241,13 +121,6 @@ impl PostgresAdapter {
         config.connect_timeout(Duration::from_secs(10));
         config.keepalives(true);
         config.keepalives_idle(Duration::from_secs(30));
-
-        // Add default schema as search_path if specified
-        if let Some(schema) = &profile.default_schema {
-            if !schema.is_empty() {
-                runtime_options.push(format!("-c search_path={}", schema));
-            }
-        }
 
         // Add additional runtime options (converted to -c style parameters)
         if !runtime_options.is_empty() {
@@ -403,22 +276,15 @@ impl DbAdapter for PostgresAdapter {
     }
 
     async fn is_connected(&self) -> bool {
-        let Some(pool) = &self.pool else {
-            return false;
-        };
-
-        // Use timeout to prevent hanging on dead connections
-        let check_future = async {
-            let conn = pool.get().await.ok()?;
-            conn.query_one("SELECT 1", &[]).await.ok()?;
-            Some(())
-        };
-
-        tokio::time::timeout(Duration::from_secs(5), check_future)
-            .await
-            .ok()
-            .flatten()
-            .is_some()
+        if let Some(pool) = &self.pool {
+            // Try to get a connection from the pool and run a simple query
+            if let Ok(conn) = pool.get().await {
+                return conn.query_one("SELECT 1", &[]).await.is_ok();
+            }
+            false
+        } else {
+            false
+        }
     }
 
     async fn query(&self, sql: &str) -> Result<QueryResult> {

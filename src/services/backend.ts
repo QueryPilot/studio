@@ -1,5 +1,6 @@
 import { logger } from "@/lib/logger";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { ConnectionProfile } from "@/types/connection";
 import type {
   CrudCommand,
@@ -291,19 +292,19 @@ export type StreamEvent =
 
 // NEW: Channel-based streaming (matches Rust StreamMessage enum)
 // NOTE: Batch data sent via separate data channel as ArrayBuffer (not in metadata messages)
-// Rust payloads use camelCase field names (serde renames), reflected here
 export type StreamMessage =
-  | { type: "started"; columns: ColumnMeta[]; estimatedRows?: number }
+  | { type: "limitApplied"; original_sql: string; applied_limit: number }
+  | { type: "started"; columns: ColumnMeta[]; estimated_rows?: number }
   | {
       type: "success";
-      totalRows: number;
-      executionTimeMs: number;
-      cursorSetupMs?: number;
-      totalStreamingMs?: number;
-      fetchCount?: number;
-      networkMs?: number;
-      conversionMs?: number;
-      ipcSendMs?: number;
+      total_rows: number;
+      execution_time_ms: number;
+      cursor_setup_ms?: number;
+      total_streaming_ms?: number;
+      fetch_count?: number;
+      network_ms?: number;
+      conversion_ms?: number;
+      ipc_send_ms?: number;
     }
   | { type: "error"; code: string; message: string }
   | { type: "interrupted"; resumable: boolean; message: string };
@@ -340,9 +341,40 @@ export class BackendAPI {
     return invoke("ping", { connId });
   }
 
-  // NOTE: streamQuery was removed - it was incompatible with the Rust backend
-  // (expected channels, returned Result<()> not string). Use QueryStreamClient instead.
-  // See: src/services/queryStreamClient.ts
+  // Streaming query
+  // @deprecated This method is not actively used. Use QueryStreamClient instead.
+  static async streamQuery(
+    connId: string,
+    sql: string,
+    pageSize?: number,
+    onEvent?: (event: StreamEvent) => void,
+  ): Promise<string> {
+    const streamId = await invoke<string>("stream_query", {
+      connId,
+      tabId: "legacy-backend-api", // Default tabId for backward compatibility
+      sql,
+      pageSize,
+    });
+
+    if (onEvent) {
+      const unlisten = await listen<StreamEvent>(
+        `query-stream-${streamId}`,
+        (event) => {
+          onEvent(event.payload);
+
+          // Auto cleanup on completion or error
+          if (
+            event.payload.type === "Completed" ||
+            event.payload.type === "Error"
+          ) {
+            unlisten();
+          }
+        },
+      );
+    }
+
+    return streamId;
+  }
 
   // Database introspection - Use IntrospectionService instead (dialect-aware)
   // See: src/services/introspectionService.ts
