@@ -1,4 +1,4 @@
-import { decode } from "@msgpack/msgpack";
+import { Decoder } from "msgpackr";
 import type { ColumnMeta } from "@/types/database";
 import type { TableDataRow } from "./tableDataTypes";
 import type { CellValue as BackendCellValue } from "./backend";
@@ -7,6 +7,13 @@ import {
   normalizeBackendValue,
   deriveValueType,
 } from "./tableDataTransform";
+
+// Reusable decoder instance - 2-3x faster than @msgpack/msgpack
+const decoder = new Decoder({
+  useRecords: false, // Return plain arrays
+  mapsAsObjects: true,
+  int64AsNumber: true, // BigInt handled by our normalizer
+});
 
 interface DecodeRequest {
   id: number;
@@ -56,10 +63,10 @@ self.onmessage = (event: MessageEvent<StreamWorkerRequest>) => {
 
   try {
     if (message.type === "decode") {
-      // Decode MessagePack payload off the main thread
-      const rows = decode(new Uint8Array(message.buffer), {
-        useBigInt64: true,
-      }) as BackendCellValue[][];
+      // Decode MessagePack payload off the main thread (msgpackr is 2-3x faster)
+      const rows = decoder.decode(
+        new Uint8Array(message.buffer),
+      ) as BackendCellValue[][];
 
       respond({
         id: message.id,
