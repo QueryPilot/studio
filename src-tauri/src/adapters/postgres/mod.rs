@@ -1,4 +1,5 @@
 pub mod adapter;
+pub mod direct_msgpack;
 pub mod fast_converter;
 pub mod parser;
 pub mod pool;
@@ -9,6 +10,8 @@ pub mod types;
 
 pub use adapter::PostgresAdapter;
 // Exports for internal use
+#[allow(unused_imports)]
+pub use direct_msgpack::DirectMsgPackEncoder;
 #[allow(unused_imports)]
 pub use fast_converter::FastPostgresConverter;
 #[allow(unused_imports)]
