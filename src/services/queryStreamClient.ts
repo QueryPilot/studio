@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { logger } from "@/lib/logger";
 import {
   invoke,
@@ -13,6 +14,7 @@ export interface QueryStreamParams {
   tabId: string;
   sql: string;
   batchSize?: number;
+  userLimitPreference?: number;
 }
 
 export interface StreamBatch {
@@ -41,75 +43,35 @@ type ChannelLike = {
   toJSON: () => string;
 };
 
-function createIpcChannel(
-  handler: (message: unknown) => void,
-  signal?: AbortSignal,
-): ChannelLike {
+function createIpcChannel(handler: (message: unknown) => void): ChannelLike {
   let nextMessageId = 0;
   const pending = new Map<number, unknown>();
-  let aborted = false;
-
-  const cleanup = () => {
-    aborted = true;
-    pending.clear();
-  };
-
-  if (signal) {
-    if (signal.aborted) {
-      cleanup();
-    } else {
-      signal.addEventListener("abort", cleanup, { once: true });
-    }
-  }
-
-  const callbackId = transformCallback((rawMessage: unknown) => {
-    if (aborted) return;
-
-    let actualMessage: unknown = rawMessage;
-    let id: number | undefined;
-
-    if (rawMessage && typeof rawMessage === "object") {
-      if ("end" in (rawMessage as Record<string, unknown>)) {
+  const callbackId = transformCallback(
+    ({ message, id }: { message: unknown; id?: number }) => {
+      // Suppress ID warnings - messages are delivered sequentially anyway
+      if (typeof id !== "number") {
+        handler(message);
         return;
       }
 
-      const wrapped = rawMessage as {
-        message?: unknown;
-        index?: number;
-        id?: number;
-      };
-      if ("message" in wrapped) {
-        actualMessage = wrapped.message;
-      }
-      if (typeof wrapped.index === "number") {
-        id = wrapped.index;
-      } else if (typeof wrapped.id === "number") {
-        id = wrapped.id;
-      }
-    }
-
-    if (typeof id !== "number") {
-      handler(actualMessage);
-      return;
-    }
-
-    if (id === nextMessageId) {
-      nextMessageId++;
-      handler(actualMessage);
-
-      while (pending.has(nextMessageId)) {
-        const next = pending.get(nextMessageId)!;
-        pending.delete(nextMessageId);
+      if (id === nextMessageId) {
         nextMessageId++;
-        handler(next);
+        handler(message);
+
+        while (pending.has(nextMessageId)) {
+          const next = pending.get(nextMessageId)!;
+          pending.delete(nextMessageId);
+          nextMessageId++;
+          handler(next);
+        }
+      } else if (id > nextMessageId) {
+        pending.set(id, message);
+      } else {
+        // Late arrival; deliver but do not disturb ordering state
+        handler(message);
       }
-    } else if (id > nextMessageId) {
-      pending.set(id, actualMessage);
-    } else {
-      // Duplicate or late-arriving message already handled via pending queue.
-      return;
-    }
-  });
+    },
+  );
 
   const serializedId = `__CHANNEL__:${String(callbackId)}`;
   return {
@@ -144,9 +106,7 @@ export class QueryStreamClient {
           switch (message.type) {
             case "started":
               this.columns = message.columns;
-              this.estimatedRows =
-                message.estimatedRows ??
-                (message as { estimated_rows?: number }).estimated_rows;
+              this.estimatedRows = message.estimated_rows;
               break;
 
             case "batch":
@@ -159,14 +119,8 @@ export class QueryStreamClient {
             case "success":
               const result: StreamResult = {
                 columns: this.columns || [],
-                totalRows:
-                  message.totalRows ??
-                  (message as { total_rows?: number }).total_rows ??
-                  0,
-                executionTimeMs:
-                  message.executionTimeMs ??
-                  (message as { execution_time_ms?: number }).execution_time_ms ??
-                  0,
+                totalRows: message.total_rows,
+                executionTimeMs: message.execution_time_ms,
               };
 
               resolve(
@@ -218,9 +172,10 @@ export class QueryStreamClient {
       onBatch?: (batch: StreamBatch, totalSoFar: number) => void;
       onSuccess?: (result: StreamResult) => void;
       onError?: (error: Error) => void;
+      onLimitApplied?: (originalSql: string, appliedLimit: number) => void;
     },
-    signal?: AbortSignal,
   ): Promise<StreamResult> {
+    // Check if running in Tauri context
     if (!isTauri()) {
       const error = new Error(
         "Query streaming requires Tauri context. Please run the app with 'pnpm tauri:dev' instead of 'pnpm dev'",
@@ -229,13 +184,7 @@ export class QueryStreamClient {
       return Promise.reject(error);
     }
 
-    if (signal?.aborted) {
-      const error = new Error("Query aborted before start");
-      callbacks.onError?.(error);
-      return Promise.reject(error);
-    }
-
-    const { connId, tabId, sql, batchSize = 1000 } = params;
+    const { connId, tabId, sql, batchSize = 1000, userLimitPreference } = params;
 
     const decodeWorker = getStreamDecodeWorker();
 
@@ -261,106 +210,23 @@ export class QueryStreamClient {
         reject(error);
       };
 
-      const handleAbort = () => {
-        settleReject(new Error("Query aborted"));
-      };
-
-      if (signal) {
-        signal.addEventListener("abort", handleAbort, { once: true });
-      }
-
+      // DUAL CHANNEL: metadata (JSON) + data (raw ArrayBuffer)
       let batchCount = 0;
+      // Data channel: receives raw MessagePack ArrayBuffers (Response type)
       const dataChannel = createIpcChannel((message: unknown) => {
-        if (signal?.aborted) return;
+        // Type guard: ensure message is an ArrayBuffer
+        if (!(message instanceof ArrayBuffer)) {
+        logger.warn(
+          "query-stream",
+          "Expected ArrayBuffer batch but received",
+          typeof message,
+        );
+        return;
+      }
+        const buffer = message;
         // Decode off the main thread to keep UI responsive
         pendingDecode = pendingDecode
           .then(async () => {
-            if (
-              message &&
-              typeof message === "object" &&
-              "end" in (message as Record<string, unknown>)
-            ) {
-              return;
-            }
-
-            let buffer: ArrayBuffer | null = null;
-
-            // Common cases: ArrayBuffer/Uint8Array
-            if (message instanceof ArrayBuffer) {
-              buffer = message;
-            } else if (message instanceof Uint8Array) {
-              // Preserve the exact slice for subarray views
-              // Copy to ensure ArrayBuffer (not SharedArrayBuffer)
-              buffer = new Uint8Array(
-                message.buffer,
-                message.byteOffset,
-                message.byteLength,
-              ).slice().buffer;
-            }
-            // ArrayBuffer-like object (cross-realm)
-            else if (
-              message &&
-              typeof message === "object" &&
-              "byteLength" in message
-            ) {
-              buffer = new Uint8Array(message as ArrayBufferLike).slice()
-                .buffer;
-            }
-            // Objects that carry a data/blob payload (tauri::ipc::Response variants)
-            else if (message && typeof message === "object") {
-              const payload = (message as { data?: unknown }).data;
-              if (payload instanceof ArrayBuffer) {
-                buffer = payload;
-              } else if (payload instanceof Uint8Array) {
-                // Copy to ensure ArrayBuffer (not SharedArrayBuffer)
-                buffer = new Uint8Array(
-                  payload.buffer,
-                  payload.byteOffset,
-                  payload.byteLength,
-                ).slice().buffer;
-              } else if (Array.isArray(payload)) {
-                buffer = Uint8Array.from(payload as number[]).buffer;
-              } else if (
-                payload &&
-                typeof payload === "object" &&
-                "byteLength" in payload
-              ) {
-                buffer = new Uint8Array(payload as ArrayBufferLike).slice()
-                  .buffer;
-              }
-            }
-            // Response/Blob-like payloads (tauri::ipc::Response arrives here)
-            else if (
-              message &&
-              typeof message === "object" &&
-              "arrayBuffer" in message &&
-              typeof (message as { arrayBuffer?: unknown }).arrayBuffer ===
-                "function"
-            ) {
-              try {
-                buffer = await (
-                  message as { arrayBuffer: () => Promise<ArrayBuffer> }
-                ).arrayBuffer();
-              } catch (error) {
-                logger.error(
-                  "query-stream",
-                  "Failed to read Response body",
-                  error,
-                );
-                return;
-              }
-            }
-
-            if (!buffer) {
-              logger.warn(
-                "query-stream",
-                "Expected ArrayBuffer batch but received",
-                typeof message,
-                message,
-              );
-              return;
-            }
-
             // Skip empty buffers (used for cancellation checks)
             if (buffer.byteLength === 0) {
               return;
@@ -383,23 +249,18 @@ export class QueryStreamClient {
           .catch((err) => {
             logger.error("query-stream", "Failed to decode batch", err);
           });
-      }, signal);
+      });
 
+      // Metadata channel: receives JSON StreamMessages
       const metadataChannel = createIpcChannel((message) => {
-        if (signal?.aborted) return;
         if (!message || typeof message !== "object") {
-          logger.warn(
-            "query-stream",
-            "Skipping malformed metadata message",
-            message,
-          );
-          return;
-        }
-
-        // Skip terminal markers from the channel transport
-        if ("end" in (message as Record<string, unknown>)) {
-          return;
-        }
+            logger.warn(
+              "query-stream",
+              "Skipping malformed metadata message",
+              message,
+            );
+            return;
+          }
 
         const typedMessage = message as StreamMessage;
 
@@ -413,44 +274,38 @@ export class QueryStreamClient {
         }
 
         switch (typedMessage.type) {
-          case "started": {
-            const legacy = typedMessage as { estimated_rows?: number };
-            const estimatedRows =
-              typedMessage.estimatedRows ?? legacy.estimated_rows;
-            this.columns = typedMessage.columns;
-            this.estimatedRows = estimatedRows;
-            callbacks.onStarted?.(typedMessage.columns, estimatedRows);
+          case "limitApplied":
+            callbacks.onLimitApplied?.(
+              typedMessage.original_sql,
+              typedMessage.applied_limit,
+            );
             break;
-          }
+
+          case "started":
+            this.columns = typedMessage.columns;
+            this.estimatedRows = typedMessage.estimated_rows;
+            callbacks.onStarted?.(
+              typedMessage.columns,
+              typedMessage.estimated_rows,
+            );
+            break;
 
           case "success": {
-            const legacy = typedMessage as {
-              total_rows?: number;
-              execution_time_ms?: number;
-              cursor_setup_ms?: number;
-              total_streaming_ms?: number;
-              fetch_count?: number;
-              network_ms?: number;
-              conversion_ms?: number;
-              ipc_send_ms?: number;
-            };
             const result: StreamResult = {
               columns: this.columns || [],
-              totalRows: typedMessage.totalRows ?? legacy.total_rows ?? 0,
-              executionTimeMs:
-                typedMessage.executionTimeMs ?? legacy.execution_time_ms ?? 0,
-              cursorSetupMs:
-                typedMessage.cursorSetupMs ?? legacy.cursor_setup_ms,
-              totalStreamingMs:
-                typedMessage.totalStreamingMs ?? legacy.total_streaming_ms,
-              fetchCount: typedMessage.fetchCount ?? legacy.fetch_count,
-              networkMs: typedMessage.networkMs ?? legacy.network_ms,
-              conversionMs: typedMessage.conversionMs ?? legacy.conversion_ms,
-              ipcSendMs: typedMessage.ipcSendMs ?? legacy.ipc_send_ms,
+              totalRows: typedMessage.total_rows,
+              executionTimeMs: typedMessage.execution_time_ms,
+              cursorSetupMs: typedMessage.cursor_setup_ms,
+              totalStreamingMs: typedMessage.total_streaming_ms,
+              fetchCount: typedMessage.fetch_count,
+              networkMs: typedMessage.network_ms,
+              conversionMs: typedMessage.conversion_ms,
+              ipcSendMs: typedMessage.ipc_send_ms,
             };
 
             callbacks.onSuccess?.(result);
 
+            // Ensure all pending decode tasks are flushed before resolving
             pendingDecode
               .catch((error) => {
                 logger.error(
@@ -459,9 +314,6 @@ export class QueryStreamClient {
                 );
               })
               .finally(() => {
-                if (signal) {
-                  signal.removeEventListener("abort", handleAbort);
-                }
                 settleResolve(result);
               });
             break;
@@ -476,12 +328,7 @@ export class QueryStreamClient {
               .catch(() => {
                 // swallow
               })
-              .finally(() => {
-                if (signal) {
-                  signal.removeEventListener("abort", handleAbort);
-                }
-                settleReject(error);
-              });
+              .finally(() => settleReject(error));
             break;
           }
 
@@ -491,9 +338,6 @@ export class QueryStreamClient {
                 `Stream interrupted (resumable: ${typedMessage.resumable}): ${typedMessage.message}`,
               );
               callbacks.onError?.(interruptError);
-              if (signal) {
-                signal.removeEventListener("abort", handleAbort);
-              }
               settleReject(interruptError);
             }
             break;
@@ -506,7 +350,7 @@ export class QueryStreamClient {
             );
             break;
         }
-      }, signal);
+      });
 
       try {
         invoke("stream_query", {
@@ -514,22 +358,17 @@ export class QueryStreamClient {
           tabId,
           sql,
           batchSize,
+          userLimitPreference,
           metadataChannel,
           dataChannel,
         }).catch((error: unknown) => {
           const normalized = normalizeError(error);
           callbacks.onError?.(normalized);
-          if (signal) {
-            signal.removeEventListener("abort", handleAbort);
-          }
           settleReject(normalized);
         });
       } catch (error) {
         const normalized = normalizeError(error);
         callbacks.onError?.(normalized);
-        if (signal) {
-          signal.removeEventListener("abort", handleAbort);
-        }
         settleReject(normalized);
       }
     });

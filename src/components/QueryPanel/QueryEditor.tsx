@@ -1,17 +1,8 @@
 import { logger } from "@/lib/logger";
-import { memo, useCallback, forwardRef, useRef, useEffect } from "react";
-import { SqlEditor, type SqlEditorRef } from "@/components/CodeEditor/SqlEditor";
-import type { SqlDialect } from "@/components/CodeEditor";
-
-export interface QueryEditorRef {
-  focus: () => void;
-  getValue: () => string;
-  setValue: (value: string) => void;
-  getSelection: () => string;
-  replaceSelection: (text: string) => void;
-  revealLine: (line: number) => void;
-  getQueryAtCursor: () => string | undefined;
-}
+import { memo, useCallback, forwardRef, useMemo } from "react";
+import { CodeEditor } from "@/components/CodeEditor";
+import type { SqlDialect, CodeEditorRef } from "@/components/CodeEditor";
+import { detectSqlDialect } from "@/utils/dialectDetector";
 
 interface QueryEditorProps {
   connectionId: string;
@@ -21,7 +12,6 @@ interface QueryEditorProps {
   value?: string;
   onChange?: (value: string | undefined) => void;
   onExecute?: (query: string) => void;
-  onGotoDefinition?: (event: { type: "table" | "column"; name: string; schema?: string; table?: string }) => void;
   isExecuting?: boolean;
   height?: string;
   readOnly?: boolean;
@@ -32,7 +22,7 @@ interface QueryEditorProps {
 }
 
 export const QueryEditor = memo(
-  forwardRef<QueryEditorRef, QueryEditorProps>(function QueryEditor(
+  forwardRef<CodeEditorRef, QueryEditorProps>(function QueryEditor(
     {
       connectionId,
       database,
@@ -41,7 +31,6 @@ export const QueryEditor = memo(
       value = "",
       onChange,
       onExecute,
-      onGotoDefinition,
       isExecuting = false,
       height = "100%",
       readOnly = false,
@@ -50,48 +39,31 @@ export const QueryEditor = memo(
     },
     ref,
   ) {
-    const editorRef = useRef<SqlEditorRef>(null);
-    const isExecutingRef = useRef(isExecuting);
-    const valueRef = useRef(value);
+    // Smart dialect detection - uses plsql for PL/pgSQL code (DO blocks, functions, etc.)
+    const detectedDialect = useMemo<SqlDialect>(() => {
+      return detectSqlDialect(dbType, value);
+    }, [dbType, value]);
 
-    // Keep refs updated
-    isExecutingRef.current = isExecuting;
-    valueRef.current = value;
+    // Use override if provided, otherwise use detected
+    const dialect = dialectOverride ?? detectedDialect;
 
-    // Expose imperative handle
-    useEffect(() => {
-      if (typeof ref === "function") {
-        ref({
-          focus: () => editorRef.current?.focus(),
-          getValue: () => editorRef.current?.getValue() || "",
-          setValue: (v) => editorRef.current?.setValue(v),
-          getSelection: () => editorRef.current?.getSelection() || "",
-          replaceSelection: (t) => editorRef.current?.replaceSelection(t),
-          revealLine: (l) => editorRef.current?.revealLine(l),
-          getQueryAtCursor: () => editorRef.current?.getQueryAtCursor(),
-        });
-      } else if (ref) {
-        ref.current = {
-          focus: () => editorRef.current?.focus(),
-          getValue: () => editorRef.current?.getValue() || "",
-          setValue: (v) => editorRef.current?.setValue(v),
-          getSelection: () => editorRef.current?.getSelection() || "",
-          replaceSelection: (t) => editorRef.current?.replaceSelection(t),
-          revealLine: (l) => editorRef.current?.revealLine(l),
-          getQueryAtCursor: () => editorRef.current?.getQueryAtCursor(),
-        };
-      }
-    }, [ref]);
+    // Report detected dialect to parent (for showing in toolbar)
+    useMemo(() => {
+      onDialectDetected?.(detectedDialect);
+    }, [detectedDialect, onDialectDetected]);
 
     const handleExecute = useCallback(
-      (query: string) => {
+      (query?: string) => {
         logger.info("[QueryEditor.handleExecute] Called with:", {
           query,
           queryLength: query?.length || 0,
+          value,
+          valueLength: value?.length || 0,
+          willUse: query || value,
         });
 
         // Prevent execution if already executing
-        if (isExecutingRef.current) {
+        if (isExecuting) {
           logger.info(
             "[QueryEditor.handleExecute] Already executing, ignoring",
           );
@@ -99,44 +71,35 @@ export const QueryEditor = memo(
         }
 
         if (onExecute) {
-          // Pass the query as-is - DO NOT fall back to valueRef.current
-          // SqlEditor already handles extracting the correct query (selection/cursor/full)
+          const finalQuery = query || value;
           logger.info("[QueryEditor.handleExecute] Calling onExecute with:", {
-            query,
-            queryLength: query?.length || 0,
+            finalQuery,
+            finalQueryLength: finalQuery?.length || 0,
           });
-          onExecute(query);
+          onExecute(finalQuery);
         }
       },
-      [onExecute],
-    );
-
-    const handleChange = useCallback(
-      (newValue: string) => {
-        onChange?.(newValue);
-      },
-      [onChange],
+      [isExecuting, onExecute, value],
     );
 
     return (
       <div className="h-full overflow-hidden">
-        <SqlEditor
-          ref={editorRef}
-          initialValue={value}
-          onChange={handleChange}
-          onChangeDelay={150} // Debounced updates - reduces re-renders
+        <CodeEditor
+          ref={ref}
+          value={value}
+          onChange={onChange}
           onExecute={handleExecute}
-          onGotoDefinition={onGotoDefinition}
+          language="sql"
+          dialect={dialect}
           connectionId={connectionId}
           database={database}
           schema={schema}
-          dbType={dbType}
-          dialectOverride={dialectOverride}
-          onDialectDetected={onDialectDetected}
           readOnly={readOnly}
-          autoFocus={true}
           height={height}
+          theme="auto"
           placeholder="Enter your SQL query..."
+          autoFocus={true}
+          lineNumbers={true}
         />
       </div>
     );

@@ -13,13 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  IconStar,
-  IconTrash,
-  IconEdit,
-  IconSearch,
-  IconX,
-} from "@tabler/icons-react";
+import { IconStar, IconTrash, IconEdit, IconSearch, IconX } from '@tabler/icons-react';
 import { toast } from "sonner";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
@@ -189,7 +183,7 @@ export function SavedQueries({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <IconStar className="h-3 w-3 text-yellow-500 fill-yellow-500 flex-shrink-0" />
-                        <h4 className="font-medium text-xs">
+                        <h4 className="font-medium text-sm">
                           {favorite.name || "Untitled Query"}
                         </h4>
                       </div>
@@ -257,7 +251,7 @@ export function SavedQueries({
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-xs font-medium">Name</label>
+              <label className="text-sm font-medium">Name</label>
               <Input
                 value={favoriteName}
                 onChange={(e) => {

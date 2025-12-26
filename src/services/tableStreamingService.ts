@@ -155,6 +155,7 @@ export async function streamEntityPage(
     // Start fetching estimated total in parallel (don't wait for it)
     void fetchEstimatedTotal();
 
+    // Wait for stream to complete
     void queryStreamClient.streamWithCallbacks(
       {
         connId: connectionId,
@@ -243,7 +244,6 @@ export async function streamEntityPage(
             });
         },
         onSuccess: (result) => {
-          // Wait for all batch mappings to complete before resolving
           mappingQueue
             .catch(() => {
               // ignore mapping errors here, they'll have been logged
@@ -259,90 +259,75 @@ export async function streamEntityPage(
                 });
               }
 
-              // Track if we've already resolved to prevent double resolution
-              let resolved = false;
+              // CRITICAL FIX: Poll until all batches are accumulated
+              // The backend sends success before all batch messages are processed
               const expectedRows = result.totalRows;
-
-              const doResolve = () => {
-                if (resolved) return;
-                resolved = true;
-
-                try {
-                  if (signal) {
-                    signal.removeEventListener("abort", abortHandler);
-                  }
-
-                  if (!resolvedColumns) {
-                    resolvedColumns = columnsHint ?? [];
-                  }
-
-                  const limitReached =
-                    (rowLimit != null && offset + rows.length >= rowLimit) ||
-                    limitReachedByRowCap === true;
-                  const fetchedFullPage = rows.length === fetchLimit;
-                  const hasMoreFromEstimate =
-                    estimatedTotal != null && estimatedTotal > 0
-                      ? offset + rows.length < estimatedTotal
-                      : true;
-                  const hasMore = !limitReached && fetchedFullPage && hasMoreFromEstimate;
-
-                  logger.debug("stream-service", "hasMore calculation", {
-                    rowsLength: rows.length,
-                    fetchLimit,
-                    offset,
-                    estimatedTotal,
-                    limitReached,
-                    fetchedFullPage,
-                    hasMoreFromEstimate,
-                    hasMore,
-                  });
-
-                  resolve({
-                    columns: resolvedColumns,
-                    rows,
-                    hasMore,
-                    estimatedTotal,
-                    executionTimeMs,
-                  });
-                } catch (error) {
-                  reject(
-                    error instanceof Error ? error : new Error(String(error)),
-                  );
-                }
-              };
-
-              // Poll until all batches accumulated (with cleanup)
-              let pollInterval: ReturnType<typeof setInterval> | null = null;
-              let timeoutId: ReturnType<typeof setTimeout> | null = null;
-
-              const cleanup = () => {
-                if (pollInterval) {
-                  clearInterval(pollInterval);
-                  pollInterval = null;
-                }
-                if (timeoutId) {
-                  clearTimeout(timeoutId);
-                  timeoutId = null;
-                }
-              };
-
-              pollInterval = setInterval(() => {
+              const pollInterval = setInterval(() => {
                 if (rows.length >= expectedRows) {
-                  cleanup();
-                  doResolve();
+                  clearInterval(pollInterval);
+
+                  try {
+                    if (signal) {
+                      signal.removeEventListener("abort", abortHandler);
+                    }
+
+                    if (!resolvedColumns) {
+                      resolvedColumns = columnsHint ?? [];
+                    }
+
+                    const limitReached =
+                      (rowLimit != null && offset + rows.length >= rowLimit) ||
+                      limitReachedByRowCap === true;
+                    // If we got fewer rows than requested, we've definitely reached the end
+                    // This is critical when filters are applied since estimatedTotal is unfiltered count
+                    const fetchedFullPage = rows.length === fetchLimit;
+                    // Handle invalid estimatedTotal (-1 or negative means unknown)
+                    const hasMoreFromEstimate =
+                      estimatedTotal != null && estimatedTotal > 0
+                        ? offset + rows.length < estimatedTotal
+                        : true; // If no valid estimate, assume more data if we got a full page
+                    const hasMore = !limitReached && fetchedFullPage && hasMoreFromEstimate;
+
+                    logger.debug("stream-service", "hasMore calculation", {
+                      rowsLength: rows.length,
+                      fetchLimit,
+                      offset,
+                      estimatedTotal,
+                      limitReached,
+                      fetchedFullPage,
+                      hasMoreFromEstimate,
+                      hasMore,
+                    });
+
+                    resolve({
+                      columns: resolvedColumns,
+                      rows,
+                      hasMore,
+                      estimatedTotal,
+                      executionTimeMs,
+                    });
+                  } catch (error) {
+                    reject(
+                      error instanceof Error ? error : new Error(String(error)),
+                    );
+                  }
                 }
               }, 10);
 
               // Safety timeout: resolve after 5 seconds even if count doesn't match
-              timeoutId = setTimeout(() => {
-                cleanup();
-                if (!resolved) {
-                  logger.warn(
-                    "stream-service",
-                    `Timeout waiting for batches: expected ${expectedRows}, got ${rows.length}`,
-                  );
-                }
-                doResolve();
+              setTimeout(() => {
+                clearInterval(pollInterval);
+                logger.warn(
+                  "stream-service",
+                  `Timeout waiting for batches: expected ${expectedRows}, got ${rows.length}`,
+                );
+                resolve({
+                  columns: resolvedColumns ?? columnsHint ?? [],
+                  rows,
+                  hasMore: false,
+                  estimatedTotal: undefined,
+                  executionTimeMs,
+                });
               }, 5000);
             });
         },
@@ -355,7 +340,6 @@ export async function streamEntityPage(
           }
         },
       },
-      signal,
     );
   });
 }
@@ -411,27 +395,13 @@ class TableStreamingService {
     pageSize?: number,
     onProgress?: (progress: StreamingProgress) => void,
     onError?: (error: StreamingError) => void,
-    signal?: AbortSignal,
+    userLimitPreference?: number,
+    onLimitApplied?: (originalSql: string, appliedLimit: number) => void,
   ): Promise<StreamingTableResult> {
     this.cancel();
     return new Promise((resolve, reject) => {
-      if (signal?.aborted) {
-        reject(new DOMException("Streaming aborted", "AbortError"));
-        return;
-      }
-
-      const abortHandler = () => {
-        reject(new DOMException("Streaming aborted", "AbortError"));
-      };
-
-      if (signal) {
-        signal.addEventListener("abort", abortHandler, { once: true });
-      }
       const timeoutId = setTimeout(() => {
         this.isStreaming = false;
-        if (signal) {
-          signal.removeEventListener("abort", abortHandler);
-        }
         const error: StreamingError = {
           message: `Stream timeout: No response from backend after 30 seconds`,
           code: "STREAM_TIMEOUT",
@@ -453,8 +423,15 @@ class TableStreamingService {
             tabId,
             sql,
             batchSize: pageSize,
+            userLimitPreference,
           },
           {
+            onLimitApplied: (originalSql, appliedLimit) => {
+              clearTimeout(timeoutId);
+              if (onLimitApplied) {
+                onLimitApplied(originalSql, appliedLimit);
+              }
+            },
             onStarted: (columns, estimatedRows) => {
               clearTimeout(timeoutId);
               this.columns = mapBackendColumnsToColumnMeta(columns);
@@ -469,7 +446,6 @@ class TableStreamingService {
               }
             },
             onBatch: (batch, totalSoFar) => {
-              if (signal?.aborted) return;
               clearTimeout(timeoutId);
               this.accumulatedRows.push(...batch.rows);
               if (onProgress) {
@@ -488,30 +464,41 @@ class TableStreamingService {
               // The backend sends success before all batch messages are processed
               // This is the same proven pattern used in streamEntityPage
               const expectedRows = streamResult.totalRows;
-              let resolved = false;
-              let successPollInterval: ReturnType<typeof setInterval> | null = null;
-              let successTimeoutId: ReturnType<typeof setTimeout> | null = null;
+              const pollInterval = setInterval(() => {
+                if (this.accumulatedRows.length >= expectedRows) {
+                  clearInterval(pollInterval);
 
-              const cleanupPolling = () => {
-                if (successPollInterval) {
-                  clearInterval(successPollInterval);
-                  successPollInterval = null;
+                  const finalResult: StreamingTableResult = {
+                    columns: mapBackendColumnsToColumnMeta(streamResult.columns),
+                    rows: this.accumulatedRows,
+                    isComplete: true,
+                    totalRows: streamResult.totalRows,
+                    executionTimeMs: streamResult.executionTimeMs,
+                    cursorSetupMs: streamResult.cursorSetupMs,
+                    totalStreamingMs: streamResult.totalStreamingMs,
+                    fetchCount: streamResult.fetchCount,
+                    networkMs: streamResult.networkMs,
+                    conversionMs: streamResult.conversionMs,
+                    ipcSendMs: streamResult.ipcSendMs,
+                  };
+                  if (onProgress) {
+                    onProgress({
+                      rowsFetched: streamResult.totalRows,
+                      totalRows: streamResult.totalRows,
+                      executionTimeMs: streamResult.executionTimeMs,
+                      completed: true,
+                    });
+                  }
+                  resolve(finalResult);
                 }
-                if (successTimeoutId) {
-                  clearTimeout(successTimeoutId);
-                  successTimeoutId = null;
-                }
-              };
+              }, 10);
 
-              const doResolve = () => {
-                if (resolved) return;
-                resolved = true;
-                cleanupPolling();
-
-                if (signal) {
-                  signal.removeEventListener("abort", abortHandler);
-                }
-
+              // Safety timeout: resolve after 5 seconds even if count doesn't match
+              setTimeout(() => {
+                clearInterval(pollInterval);
+                logger.warn(
+                  `⚠️ streamQuery timeout waiting for batches: expected ${expectedRows}, got ${this.accumulatedRows.length}`,
+                );
                 const finalResult: StreamingTableResult = {
                   columns: mapBackendColumnsToColumnMeta(streamResult.columns),
                   rows: this.accumulatedRows,
@@ -525,50 +512,19 @@ class TableStreamingService {
                   conversionMs: streamResult.conversionMs,
                   ipcSendMs: streamResult.ipcSendMs,
                 };
-                if (onProgress) {
-                  onProgress({
-                    rowsFetched: streamResult.totalRows,
-                    totalRows: streamResult.totalRows,
-                    executionTimeMs: streamResult.executionTimeMs,
-                    completed: true,
-                  });
-                }
                 resolve(finalResult);
-              };
-
-              successPollInterval = setInterval(() => {
-                if (this.accumulatedRows.length >= expectedRows) {
-                  doResolve();
-                }
-              }, 10);
-
-              // Safety timeout: resolve after 5 seconds even if count doesn't match
-              successTimeoutId = setTimeout(() => {
-                if (!resolved) {
-                  logger.warn(
-                    `⚠️ streamQuery timeout waiting for batches: expected ${expectedRows}, got ${this.accumulatedRows.length}`,
-                  );
-                }
-                doResolve();
               }, 5000);
             },
             onError: (err) => {
               clearTimeout(timeoutId);
               this.isStreaming = false;
-              if (signal) {
-                signal.removeEventListener("abort", abortHandler);
-              }
               reject(err);
             },
           },
-          signal,
         );
       } catch (error) {
         clearTimeout(timeoutId);
         this.isStreaming = false;
-        if (signal) {
-          signal.removeEventListener("abort", abortHandler);
-        }
         reject(error instanceof Error ? error : new Error(String(error)));
       }
     });

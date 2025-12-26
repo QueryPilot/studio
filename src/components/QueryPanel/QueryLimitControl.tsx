@@ -5,7 +5,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { IconAlertCircle } from "@tabler/icons-react";
+import { IconAlertCircle } from '@tabler/icons-react';
 import { usePreferencesStore } from "@/stores/preferencesStore";
 
 interface QueryLimitControlProps {
@@ -13,10 +13,7 @@ interface QueryLimitControlProps {
   onFocusEditor?: () => void;
 }
 
-export function QueryLimitControl({
-  appliedLimit,
-  onFocusEditor,
-}: QueryLimitControlProps) {
+export function QueryLimitControl({ appliedLimit, onFocusEditor }: QueryLimitControlProps) {
   const { smartQueryLimit, setSmartQueryLimit } = usePreferencesStore();
   const limits = [
     100, 1000, 5000, 10000, 50000, 100000, 250000, 500000, 1000000,
@@ -44,7 +41,7 @@ export function QueryLimitControl({
           onFocusEditor?.();
         }}
       >
-        <SelectTrigger>
+        <SelectTrigger size="sm" className="!h-7 w-[130px] text-xs">
           <SelectValue />
         </SelectTrigger>
         <SelectContent className="text-xs">

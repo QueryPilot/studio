@@ -144,9 +144,8 @@ impl FastPostgresConverter {
             Type::MACADDR => Self::convert_macaddr(raw, 6),
             Type::MACADDR8 => Self::convert_macaddr(raw, 8),
             Type::PG_LSN => Self::convert_lsn(raw)?,
-            // Use proper parsers for tsvector and tsquery
-            Type::TS_VECTOR => Self::convert_tsvector(raw).unwrap_or_else(|_| Self::fallback_value(raw)),
-            Type::TSQUERY => Self::convert_tsquery(raw).unwrap_or_else(|_| Self::fallback_value(raw)),
+            Type::TS_VECTOR => Self::convert_tsvector(raw)?,
+            Type::TSQUERY => Self::convert_tsquery(raw)?,
             Type::POINT => Self::convert_point(raw)?,
             Type::PATH => Self::convert_path(raw)?,
             Type::BOX => Self::convert_box(raw)?,
@@ -154,8 +153,7 @@ impl FastPostgresConverter {
             Type::LINE => Self::convert_line(raw)?,
             Type::POLYGON => Self::convert_polygon(raw)?,
             _ => match pg_type.name() {
-                // Use proper parser for hstore with fallback on error
-                "hstore" => Self::convert_hstore(raw).unwrap_or_else(|_| Self::fallback_value(raw)),
+                "hstore" => Self::convert_hstore(raw)?,
                 "ltree" | "lquery" | "ltxtquery" | "tsquery" => Self::convert_text(raw),
                 _ => Self::fallback_value(raw),
             },
@@ -199,10 +197,15 @@ impl FastPostgresConverter {
         // First byte is version marker (currently 1)
         let payload = &raw[1..];
 
-        // FAST PATH: Skip parse+serialize round-trip, just return UTF-8 string
-        // PostgreSQL JSONB is already valid JSON bytes - no need to parse/reformat
-        match std::str::from_utf8(payload) {
-            Ok(text) => Ok(JsonValue::String(text.to_string())),
+        // Parse JSON and convert back to compact string (single line, no indentation)
+        match serde_json::from_slice::<serde_json::Value>(payload) {
+            Ok(json_val) => {
+                // Use compact serialization (no pretty printing)
+                match serde_json::to_string(&json_val) {
+                    Ok(compact_str) => Ok(JsonValue::String(compact_str)),
+                    Err(_) => Ok(JsonValue::String(BASE64_STANDARD.encode(payload))),
+                }
+            }
             Err(_) => Ok(JsonValue::String(BASE64_STANDARD.encode(payload))),
         }
     }
@@ -611,10 +614,104 @@ impl FastPostgresConverter {
     }
 
     fn convert_tsvector(raw: &[u8]) -> Result<JsonValue> {
-        // FAST PATH: Use simple text representation instead of complex binary parsing
-        // Full tsvector parsing (90 lines) adds ~50-100ms for 12,546 rows
-        // Frontend rarely needs the full position-weight details
-        Ok(Self::fallback_value(raw))
+        // Parse tsvector binary format directly
+        // Format: [u32 num_lexemes][for each: null-terminated text, u16 npos, npos × u16 positions]
+        // Position encoding: top 2 bits = weight (A-D), lower 14 bits = position (1-16383)
+
+        if raw.len() < 4 {
+            return Ok(Self::fallback_value(raw));
+        }
+
+        let mut cursor = raw;
+        let num_lexemes = Self::read_i32(&mut cursor)? as usize;
+
+        if num_lexemes == 0 {
+            return Ok(JsonValue::String("".to_string()));
+        }
+
+        let mut lexemes = Vec::with_capacity(num_lexemes);
+
+        for _ in 0..num_lexemes {
+            if cursor.is_empty() {
+                break;
+            }
+
+            // Read null-terminated C string (lexeme text)
+            let start = 0;
+            let mut end = start;
+            while end < cursor.len() && cursor[end] != 0 {
+                end += 1;
+            }
+
+            if end >= cursor.len() {
+                // Unterminated string, return what we have so far
+                break;
+            }
+
+            // Parse lexeme text as UTF-8
+            let lexeme_text = match std::str::from_utf8(&cursor[start..end]) {
+                Ok(text) => text.to_string(),
+                Err(_) => {
+                    // Skip this lexeme if invalid UTF-8
+                    cursor = &cursor[end + 1..];
+                    continue;
+                }
+            };
+
+            // Move cursor past null terminator
+            cursor = &cursor[end + 1..];
+
+            if cursor.len() < 2 {
+                break;
+            }
+
+            // Read number of positions (u16)
+            let num_positions = u16::from_be_bytes([cursor[0], cursor[1]]) as usize;
+            cursor = &cursor[2..];
+
+            if cursor.len() < num_positions * 2 {
+                break;
+            }
+
+            // Read positions with weight information
+            let mut positions = Vec::with_capacity(num_positions);
+            for _ in 0..num_positions {
+                let wep = u16::from_be_bytes([cursor[0], cursor[1]]);
+                cursor = &cursor[2..];
+
+                // Extract weight (top 2 bits) and position (lower 14 bits)
+                let weight_bits = (wep >> 14) & 0b11;
+                let pos = wep & 0x3fff; // 14-bit position (max 16383)
+
+                // Weight: 3=A, 2=B, 1=C, 0=D
+                let weight_char = match weight_bits {
+                    3 => 'A',
+                    2 => 'B',
+                    1 => 'C',
+                    _ => '\0', // D (default weight, not displayed)
+                };
+
+                if weight_char == '\0' {
+                    positions.push(pos.to_string());
+                } else {
+                    positions.push(format!("{}{}", pos, weight_char));
+                }
+            }
+
+            // Format as 'lexeme':pos1,pos2,pos3
+            if positions.is_empty() {
+                lexemes.push(format!("'{}'", lexeme_text.replace('\'', "''")));
+            } else {
+                let positions_str = positions.join(",");
+                lexemes.push(format!(
+                    "'{}':{}",
+                    lexeme_text.replace('\'', "''"),
+                    positions_str
+                ));
+            }
+        }
+
+        Ok(JsonValue::String(lexemes.join(" ")))
     }
 
     fn convert_tsquery(raw: &[u8]) -> Result<JsonValue> {

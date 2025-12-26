@@ -13,15 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  IconTrash,
-  IconClock,
-  IconAlertCircle,
-  IconCircleCheckFilled,
-  IconSearch,
-  IconX,
-  IconStar,
-} from "@tabler/icons-react";
+import { IconTrash, IconClock, IconAlertCircle, IconCircleCheckFilled, IconSearch, IconX, IconStar } from '@tabler/icons-react';
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import dayjs from "dayjs";
@@ -296,7 +288,7 @@ export function QueryHistory({
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-xs font-medium">Name</label>
+              <label className="text-sm font-medium">Name</label>
               <Input
                 value={favoriteName}
                 onChange={(e) => {
