@@ -14,7 +14,7 @@ import { useRoleSelection } from "./components/dialogs/RoleSelectionDialog";
 
 function VaultLoadingScreen() {
   return (
-    <div className="flex flex-col items-center justify-center h-screen bg-background">
+    <div className="flex flex-col items-center justify-center h-screen bg-secondary">
       <img
         src="/logo.png"
         alt="Query Pilot"
@@ -39,7 +39,10 @@ function AppContent() {
       <Router>
         <Routes>
           <Route path="/" element={<HomeScreen />} />
-          <Route path="/workspace/:connectionId" element={<WorkspaceScreen />} />
+          <Route
+            path="/workspace/:connectionId"
+            element={<WorkspaceScreen />}
+          />
         </Routes>
       </Router>
       <RoleSelectionDialog />
