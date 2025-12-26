@@ -4,12 +4,12 @@ use std::time::Instant;
 use tauri::{AppHandle, Manager, State};
 use tokio::time::{timeout, Duration};
 
+use crate::adapters::postgres::DirectMsgPackEncoder;
 use crate::core::ConnectionManager;
 use crate::ssh;
 use crate::state::AppState;
 use crate::types::*;
 use serde::Serialize;
-use serde_json::Value as JsonValue;
 use tokio_postgres::Row;
 
 /// Extract clean error message from PostgreSQL error
@@ -1051,14 +1051,13 @@ async fn execute_single_fetch_stream(
     tracing::info!("TRUE STREAMING: Query executing, rows will arrive progressively...");
 
     let mut total_rows = 0;
-    let mut json_buffer: Vec<Vec<JsonValue>> = Vec::new(); // Final JSON output buffer
-    let mut row_buffer: Vec<Row> = Vec::new(); // Temporary Row buffer for batch conversion
-    const MICRO_BATCH_SIZE: usize = 500; // Convert this many rows in parallel (optimal for cache)
+    let mut row_buffer: Vec<Row> = Vec::new(); // Row buffer for batch conversion
 
-    // Incremental batch sizes: start small for instant feedback, then go big
-    const FIRST_BATCH_SIZE: usize = 32; // Ultra-fast first render (~4ms IPC)
-    const SECOND_BATCH_SIZE: usize = 512; // Quick second batch (~25ms IPC)
-    const LARGE_BATCH_SIZE: usize = 4096; // Large bulk transfer (~80-100ms IPC but fewer calls)
+    // Progressive batch sizes: start tiny for instant feedback, scale up
+    const BATCH_SIZES: [usize; 5] = [16, 64, 256, 1024, 2048];
+
+    // Initialize encoder lazily (need column types from first row)
+    let mut encoder: Option<DirectMsgPackEncoder> = None;
 
     let mut first_row_elapsed_ms: Option<u64> = None;
 
@@ -1067,18 +1066,8 @@ async fn execute_single_fetch_stream(
     let mut send_time_ms = 0u64;
     let mut send_count = 0usize;
 
-    // Dynamic batch sizing - determines when to send based on rows seen
-    let get_send_threshold = |rows_sent: usize| -> usize {
-        if rows_sent == 0 {
-            FIRST_BATCH_SIZE // First batch: 32 rows for instant feedback
-        } else if rows_sent == FIRST_BATCH_SIZE {
-            SECOND_BATCH_SIZE // Second batch: 512 rows
-        } else {
-            LARGE_BATCH_SIZE // Rest: 2048 rows for efficiency
-        }
-    };
-
-    let mut rows_sent = 0usize;
+    // Dynamic batch sizing - progressive increase for faster first render
+    let mut batch_index = 0usize;
 
     // Stream rows as they arrive from PostgreSQL
     // Track iterations for periodic cancellation checks (every 100 rows)
@@ -1119,44 +1108,40 @@ async fn execute_single_fetch_stream(
 
         match row_result {
             Ok(row) => {
-                // Mark when first row arrives
+                // Mark when first row arrives and initialize encoder
                 if first_row_elapsed_ms.is_none() {
                     let elapsed = query_start.elapsed().as_millis() as u64;
                     first_row_elapsed_ms = Some(elapsed);
                     tracing::info!("  ⏱ First row arrived: {}ms", elapsed);
+
+                    // Initialize encoder with column types from first row
+                    encoder = Some(DirectMsgPackEncoder::from_row(&row));
                 }
 
                 row_buffer.push(row);
                 total_rows += 1;
 
-                // Micro-batch: Convert rows in parallel when buffer is full
-                if row_buffer.len() >= MICRO_BATCH_SIZE {
+                // Send chunk to frontend when buffer reaches current batch size
+                let current_threshold = BATCH_SIZES[batch_index.min(BATCH_SIZES.len() - 1)];
+                if row_buffer.len() >= current_threshold {
+                    let _batch_size = row_buffer.len();
+
+                    // Direct encode to MessagePack (no JSON intermediate!)
                     let convert_start = std::time::Instant::now();
-                    let converted = crate::adapters::postgres::fast_converter::FastPostgresConverter::rows_to_json(&row_buffer)
-                        .map_err(|e| e.to_string())?;
+                    let rows_msgpack = encoder
+                        .as_ref()
+                        .unwrap()
+                        .encode_batch(&row_buffer)
+                        .unwrap_or_else(|_| Vec::new());
                     conversion_time_ms += convert_start.elapsed().as_millis() as u64;
-                    json_buffer.extend(converted);
                     row_buffer.clear();
-                }
-
-                // Send chunk to frontend when output buffer reaches dynamic threshold
-                let current_threshold = get_send_threshold(rows_sent);
-                if json_buffer.len() >= current_threshold {
-                    let batch_size = json_buffer.len();
-
-                    // Serialize to MessagePack RAW bytes (no base64!)
-                    let serialize_start = std::time::Instant::now();
-                    let rows_msgpack =
-                        rmp_serde::to_vec(&json_buffer).unwrap_or_else(|_| Vec::new());
-                    conversion_time_ms += serialize_start.elapsed().as_millis() as u64;
-                    json_buffer.clear();
+                    batch_index += 1;
 
                     // Send raw binary via Response (ZERO serialization overhead!)
                     let send_start = std::time::Instant::now();
                     let send_result = data_channel.send(tauri::ipc::Response::new(rows_msgpack));
                     send_time_ms += send_start.elapsed().as_millis() as u64;
                     send_count += 1;
-                    rows_sent += batch_size;
 
                     // Check if channel closed (user cancelled) - stop streaming early
                     if send_result.is_err() {
@@ -1200,56 +1185,42 @@ async fn execute_single_fetch_stream(
         }
     }
 
-    // Convert any remaining rows in row_buffer
+    // Send any remaining rows directly
     if !row_buffer.is_empty() {
-        let convert_start = std::time::Instant::now();
-        let converted =
-            crate::adapters::postgres::fast_converter::FastPostgresConverter::rows_to_json(
-                &row_buffer,
-            )
-            .map_err(|e| e.to_string())?;
-        conversion_time_ms += convert_start.elapsed().as_millis() as u64;
-        json_buffer.extend(converted);
-    }
+        if let Some(ref enc) = encoder {
+            // Direct encode to MessagePack (no JSON intermediate!)
+            let convert_start = std::time::Instant::now();
+            let rows_msgpack = enc.encode_batch(&row_buffer).unwrap_or_else(|_| Vec::new());
+            conversion_time_ms += convert_start.elapsed().as_millis() as u64;
 
-    // Send any remaining JSON rows
-    if !json_buffer.is_empty() {
-        let batch_size = json_buffer.len();
-        let _offset = total_rows - batch_size;
+            // Send raw binary via Response
+            let send_start = std::time::Instant::now();
+            let send_result = data_channel.send(tauri::ipc::Response::new(rows_msgpack));
+            send_time_ms += send_start.elapsed().as_millis() as u64;
+            send_count += 1;
 
-        // Serialize to MessagePack RAW bytes
-        let serialize_start = std::time::Instant::now();
-        let rows_msgpack = rmp_serde::to_vec(&json_buffer).unwrap_or_else(|_| Vec::new());
-        conversion_time_ms += serialize_start.elapsed().as_millis() as u64;
+            // Check if channel closed (user cancelled)
+            if send_result.is_err() {
+                tracing::info!("  ⚠️  Channel closed (user cancelled), stopping stream early");
+                tracing::info!("  🛑 Cancelling PostgreSQL backend PID: {}", backend_pid);
 
-        // Send raw binary via Response (ZERO serialization overhead!)
-        let send_start = std::time::Instant::now();
-        let send_result = data_channel.send(tauri::ipc::Response::new(rows_msgpack));
-        send_time_ms += send_start.elapsed().as_millis() as u64;
-        send_count += 1;
-
-        // Check if channel closed (user cancelled) - stop streaming early
-        if send_result.is_err() {
-            tracing::info!("  ⚠️  Channel closed (user cancelled), stopping stream early");
-            tracing::info!("  🛑 Cancelling PostgreSQL backend PID: {}", backend_pid);
-
-            // Cancel the running query in PostgreSQL
-            let cancel_pool = pool.clone();
-            tokio::spawn(async move {
-                if let Ok(cancel_conn) = cancel_pool.get().await {
-                    let cancel_sql = format!("SELECT pg_cancel_backend({})", backend_pid);
-                    match cancel_conn.execute(&cancel_sql, &[]).await {
-                        Ok(_) => tracing::info!("  ✅ Successfully cancelled backend query"),
-                        Err(e) => tracing::warn!("  ⚠️  Failed to cancel backend: {}", e),
+                let cancel_pool = pool.clone();
+                tokio::spawn(async move {
+                    if let Ok(cancel_conn) = cancel_pool.get().await {
+                        let cancel_sql = format!("SELECT pg_cancel_backend({})", backend_pid);
+                        match cancel_conn.execute(&cancel_sql, &[]).await {
+                            Ok(_) => tracing::info!("  ✅ Successfully cancelled backend query"),
+                            Err(e) => tracing::warn!("  ⚠️  Failed to cancel backend: {}", e),
+                        }
                     }
-                }
-            });
+                });
 
-            let _ = metadata_channel.send(StreamMessage::Interrupted {
-                resumable: false,
-                message: "Query cancelled by user".to_string(),
-            });
-            return Err("Query cancelled by user".to_string());
+                let _ = metadata_channel.send(StreamMessage::Interrupted {
+                    resumable: false,
+                    message: "Query cancelled by user".to_string(),
+                });
+                return Err("Query cancelled by user".to_string());
+            }
         }
     }
 
@@ -1285,8 +1256,7 @@ async fn execute_single_fetch_stream(
         send_count
     );
     tracing::info!(
-        "  └─ Batch sizes: 32→512→4096 (incremental), micro: {} | Format: msgpack",
-        MICRO_BATCH_SIZE
+        "  └─ Batch sizes: 16→64→256→1024→2048 (progressive) | Format: direct msgpack"
     );
     tracing::info!("==========================================");
 
