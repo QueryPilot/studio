@@ -132,10 +132,9 @@ fn main() {
             // See: src/services/introspectionService.ts
             commands::get_type_info,
             commands::query,
-            commands::stream_query,
+            commands::execute_query,
             commands::get_connection_health,
             commands::ping,
-            commands::execute_crud_transaction,
             // Generic SQL execution (frontend-driven dialect support)
             commands::execute_sql,
             commands::execute_sql_batch,
