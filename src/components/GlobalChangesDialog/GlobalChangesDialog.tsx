@@ -1,12 +1,12 @@
 import { logger } from "@/lib/logger";
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useCrudStore } from "@/stores/crudStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import type { CrudCommand } from "@/types/crud";
-import type { DatabaseType } from "@/types";
+import { DbType } from "@/types/connection";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { useValidationStore } from "@/stores/validationStore";
-import { stagedCommandsToSQL } from "@/utils/sqlGenerator";
+import { generateSqlPreview } from "@/adapters";
 import {
   Dialog,
   DialogContent,
@@ -77,14 +77,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
   // Get connection for database type
   const { getConnection } = useConnectionStore();
   const connection = getConnection(connectionId);
-  // Map DbType enum to DatabaseType string
-  const dbTypeMap: Record<string, DatabaseType> = {
-    PostgreSQL: "postgresql",
-    MySQL: "mysql",
-    SQLite: "sqlite",
-    SQLServer: "mssql",
-  };
-  const dbType: DatabaseType = dbTypeMap[connection?.profile?.db_type ?? ""] ?? "postgresql";
+  const dbType: DbType = (connection?.profile?.db_type as DbType) ?? DbType.PostgreSQL;
 
   // Validation store for checking errors
   const { canCommit } = useValidationStore();
@@ -243,18 +236,28 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     };
   }, [connectionCommands, canCommit]);
 
-  // Generate SQL from staged commands
-  const generatedSQL = useMemo(() => {
-    const commandsMap = new Map(connectionCommands);
-    const sql = stagedCommandsToSQL(commandsMap, dbType);
-    logger.info("[GlobalChangesDialog] Generated SQL:", {
-      connectionCommandsCount: connectionCommands.length,
-      dbType,
-      sqlLength: sql.length,
-      sqlPreview: sql.slice(0, 200),
-    });
-    return sql;
-  }, [connectionCommands, dbType]);
+  // Generate SQL from staged commands (async)
+  const [generatedSQL, setGeneratedSQL] = useState<string>("-- Loading...");
+
+  useEffect(() => {
+    const generateSQL = async () => {
+      const commandsMap = new Map(connectionCommands);
+      try {
+        const sql = await generateSqlPreview(connectionId, dbType, commandsMap);
+        logger.info("[GlobalChangesDialog] Generated SQL:", {
+          connectionCommandsCount: connectionCommands.length,
+          dbType,
+          sqlLength: sql.length,
+          sqlPreview: sql.slice(0, 200),
+        });
+        setGeneratedSQL(sql);
+      } catch (error) {
+        logger.error("[GlobalChangesDialog] Failed to generate SQL:", error);
+        setGeneratedSQL("-- Error generating SQL preview");
+      }
+    };
+    generateSQL();
+  }, [connectionCommands, connectionId, dbType]);
 
   // Debug: Log grouped data
   logger.info("[GlobalChangesDialog] Render state:", {
