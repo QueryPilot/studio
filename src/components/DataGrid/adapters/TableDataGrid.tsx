@@ -2333,56 +2333,56 @@ export const TableDataGrid = memo(function TableDataGrid(
           </UnifiedContextMenu>
         )}
 
-        {/* FK Preview Popover - inside container for correct absolute positioning */}
-        {isTableMode && fkPreviewState && !isEditingCell && (
-          <FKPreviewPopover
-            open={true}
-            onOpenChange={(open) => {
-              if (!open) {
-                clearFkPreview();
-              }
-            }}
-            fkReference={fkPreviewState.fkReference}
-            fkValue={fkPreviewState.fkValue}
-            connectionId={connectionId}
-            database={database}
-            cellBounds={fkPreviewState.cellBounds}
-            onOpenReference={() => {
-              // Build the WHERE clause filter
-              const { fkReference, fkValue } = fkPreviewState;
-              let filterValue: string;
-              if (fkValue === null) {
-                filterValue = `"${fkReference.referenced_column}" IS NULL`;
-              } else if (typeof fkValue === "string") {
-                const escaped = String(fkValue).replace(/'/g, "''");
-                filterValue = `"${fkReference.referenced_column}" = '${escaped}'`;
-              } else if (
-                typeof fkValue === "number" ||
-                typeof fkValue === "boolean"
-              ) {
-                filterValue = `"${fkReference.referenced_column}" = ${fkValue}`;
-              } else {
-                const escaped = String(fkValue).replace(/'/g, "''");
-                filterValue = `"${fkReference.referenced_column}" = '${escaped}'`;
-              }
-
-              openTableObject({
-                table: {
-                  name: fkReference.referenced_table,
-                  schema: fkReference.referenced_schema,
-                  kind: "Table",
-                },
-                connectionId,
-                database,
-                viewType: "data",
-                initialFilter: filterValue,
-                sourcePanelId: panelId,
-              });
-            }}
-          />
-        )}
-
       </div>
+
+      {/* FK Preview Popover - uses fixed positioning with viewport coordinates */}
+      {isTableMode && fkPreviewState && !isEditingCell && (
+        <FKPreviewPopover
+          open={true}
+          onOpenChange={(open) => {
+            if (!open) {
+              clearFkPreview();
+            }
+          }}
+          fkReference={fkPreviewState.fkReference}
+          fkValue={fkPreviewState.fkValue}
+          connectionId={connectionId}
+          database={database}
+          cellBounds={fkPreviewState.cellBounds}
+          onOpenReference={() => {
+            // Build the WHERE clause filter
+            const { fkReference, fkValue } = fkPreviewState;
+            let filterValue: string;
+            if (fkValue === null) {
+              filterValue = `"${fkReference.referenced_column}" IS NULL`;
+            } else if (typeof fkValue === "string") {
+              const escaped = String(fkValue).replace(/'/g, "''");
+              filterValue = `"${fkReference.referenced_column}" = '${escaped}'`;
+            } else if (
+              typeof fkValue === "number" ||
+              typeof fkValue === "boolean"
+            ) {
+              filterValue = `"${fkReference.referenced_column}" = ${fkValue}`;
+            } else {
+              const escaped = String(fkValue).replace(/'/g, "''");
+              filterValue = `"${fkReference.referenced_column}" = '${escaped}'`;
+            }
+
+            openTableObject({
+              table: {
+                name: fkReference.referenced_table,
+                schema: fkReference.referenced_schema,
+                kind: "Table",
+              },
+              connectionId,
+              database,
+              viewType: "data",
+              initialFilter: filterValue,
+              sourcePanelId: panelId,
+            });
+          }}
+        />
+      )}
 
       <DataGridStatusBar
         loadedRows={rowsRef.current.length}

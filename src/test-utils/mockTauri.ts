@@ -85,7 +85,7 @@ export const defaultCommandMocks: Record<string, (args?: InvokeArgs) => any> = {
   ],
 
   // Query execution
-  stream_query: () => ({
+  execute_query: () => ({
     success: true,
     data: new Uint8Array([0x81, 0xa7, 0x73, 0x75, 0x63, 0x63, 0x65, 0x73, 0x73, 0xc3]),
   }),

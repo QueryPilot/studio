@@ -148,7 +148,7 @@ export class QueryStreamClient {
         });
 
         try {
-          await invoke("stream_query", {
+          await invoke("execute_query", {
             connId,
             sql,
             batchSize,
@@ -353,7 +353,7 @@ export class QueryStreamClient {
       });
 
       try {
-        invoke("stream_query", {
+        invoke("execute_query", {
           connId,
           tabId,
           sql,

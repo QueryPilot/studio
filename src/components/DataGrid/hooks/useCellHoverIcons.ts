@@ -551,6 +551,9 @@ export function useCellHoverIcons(
   );
 
   // Clear hover state when mouse leaves the container
+  // Note: We don't clear fkPreviewState here because the popover is portaled
+  // and the user needs to be able to interact with it. FK preview is closed
+  // via the close button or clicking outside.
   useEffect(() => {
     if (!containerRef?.current) {
       return;
@@ -566,7 +569,7 @@ export function useCellHoverIcons(
       }
       setHoveredCell(null);
       setHoveredButton(null);
-      setFkPreviewState(null);
+      // Don't clear fkPreviewState - let the popover handle its own closing
     };
 
     container.addEventListener("mouseleave", handleMouseLeave);
@@ -665,7 +668,10 @@ export function useCellHoverIcons(
               // If FK preview is enabled, show popover instead of navigating
               if (enableFKPreview) {
                 const cellBounds = hoveredCellBoundsRef.current;
-                if (cellBounds) {
+                if (cellBounds && containerRef?.current) {
+                  // Convert canvas coordinates to viewport coordinates
+                  // by adding the container's offset
+                  const containerRect = containerRef.current.getBoundingClientRect();
                   setFkPreviewState({
                     col,
                     row,
@@ -676,8 +682,8 @@ export function useCellHoverIcons(
                     },
                     fkValue: cellValue.value,
                     cellBounds: {
-                      x: cellBounds.x,
-                      y: cellBounds.y,
+                      x: containerRect.left + cellBounds.x,
+                      y: containerRect.top + cellBounds.y,
                       width: cellBounds.width,
                       height: cellBounds.height,
                     },
