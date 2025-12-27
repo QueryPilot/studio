@@ -4,7 +4,6 @@ import {
   v3 as uuidv3,
   v4 as uuidv4,
   v5 as uuidv5,
-  v6 as uuidv6,
   v7 as uuidv7,
 } from "uuid";
 import type { UuidCustomCell } from "./types";
@@ -28,7 +27,7 @@ interface UuidCellEditorProps {
   ) => void;
 }
 
-type UuidVersion = "1" | "3" | "4" | "5" | "6" | "7";
+type UuidVersion = "1" | "3" | "4" | "5" | "7";
 
 interface UuidVersionOption {
   value: UuidVersion;
@@ -38,7 +37,6 @@ interface UuidVersionOption {
 const UUID_VERSIONS: UuidVersionOption[] = [
   { value: "4", label: "v4" },
   { value: "5", label: "v5" },
-  { value: "6", label: "v6" },
   { value: "7", label: "v7" },
   { value: "3", label: "v3" },
   { value: "1", label: "v1" },
@@ -77,9 +75,6 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
       case "3":
         // v3 requires namespace and name - using DNS namespace with timestamp-based name
         newUuid = uuidv3(`debdb-uuid-${Date.now()}`, uuidv3.DNS);
-        break;
-      case "6":
-        newUuid = uuidv6();
         break;
       case "7":
         newUuid = uuidv7();
