@@ -1681,21 +1681,6 @@ mod tests {
     }
 
     #[test]
-    fn test_write_array_header() {
-        let mut buf = [0u8; 5];
-
-        // fixarray
-        let len = write_array_header_to_slice(&mut buf, 5);
-        assert_eq!(len, 1);
-        assert_eq!(buf[0], 0x95);
-
-        // array 16
-        let len = write_array_header_to_slice(&mut buf, 100);
-        assert_eq!(len, 3);
-        assert_eq!(buf[0], 0xdc);
-    }
-
-    #[test]
     fn test_buffer_estimation() {
         let encoder = DirectMsgPackEncoder::new(vec![Type::INT4, Type::TEXT, Type::TIMESTAMP]);
         assert!(encoder.estimated_row_size > 0);

@@ -689,7 +689,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
 
         {/* Changes List - Grouped by Row ID */}
         {viewMode === "changes" && (
-          <ScrollArea className="flex-1 min-h-[200px] max-h-[50vh]">
+          <ScrollArea className="flex-1 h-0 min-h-[200px] max-h-[50vh]">
             <div className="space-y-2 px-1">
               {groupedByRow.length === 0 ? (
                 <div className="text-sm text-muted-foreground text-center py-8">
@@ -711,8 +711,8 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
 
         {/* SQL Preview */}
         {viewMode === "sql" && (
-          <ScrollArea className="flex-1 min-h-[200px] max-h-[50vh]">
-            <div className="rounded-lg border bg-muted/30 overflow-hidden mx-1">
+          <ScrollArea className="flex-1 h-0 min-h-[200px] max-h-[50vh]">
+            <div className="rounded-lg border bg-muted/30 mx-1">
               <pre className="p-4 text-xs font-mono whitespace-pre-wrap break-words text-foreground leading-relaxed">
                 {generatedSQL ? (
                   generatedSQL.split("\n").map((line, i) => (
