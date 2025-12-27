@@ -6,6 +6,7 @@ import {
   ContextMenuSubTrigger,
   ContextMenuCheckboxItem,
   ContextMenuLabel,
+  ContextMenuGroup,
 } from "@/components/ui/context-menu";
 import {
   IconArrowsUpDown,
@@ -119,23 +120,25 @@ export function ColumnHeaderContextMenuItems({
             <span>Show All Columns</span>
           </ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuLabel className="text-xs text-muted-foreground py-1 px-2">
-            Toggle Columns
-          </ContextMenuLabel>
-          {allColumns.map((col) => {
-            const isVisible = columnVisibility[col.id] !== false;
-            return (
-              <ContextMenuCheckboxItem
-                key={col.id}
-                checked={isVisible}
-                onCheckedChange={() => onToggleColumnVisibility(col.id)}
-                onSelect={(e) => e.preventDefault()}
-                className="py-1.5"
-              >
-                <span className="truncate">{col.name ?? col.field}</span>
-              </ContextMenuCheckboxItem>
-            );
-          })}
+          <ContextMenuGroup>
+            <ContextMenuLabel className="text-xs text-muted-foreground py-1 px-2">
+              Toggle Columns
+            </ContextMenuLabel>
+            {allColumns.map((col) => {
+              const isVisible = columnVisibility[col.id] !== false;
+              return (
+                <ContextMenuCheckboxItem
+                  key={col.id}
+                  checked={isVisible}
+                  onCheckedChange={() => onToggleColumnVisibility(col.id)}
+                  onSelect={(e) => e.preventDefault()}
+                  className="py-1.5"
+                >
+                  <span className="truncate">{col.name ?? col.field}</span>
+                </ContextMenuCheckboxItem>
+              );
+            })}
+          </ContextMenuGroup>
         </ContextMenuSubContent>
       </ContextMenuSub>
 
