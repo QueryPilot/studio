@@ -58,7 +58,10 @@ import {
   useGridPreferencesStore,
 } from "../stores";
 import { perfMonitor } from "../utils/performanceMonitor";
-import { applyClientSideFilter, type FilterOptions } from "../utils/clientSideFilter";
+import {
+  applyClientSideFilter,
+  type FilterOptions,
+} from "../utils/clientSideFilter";
 import {
   useColumnPinning,
   useColumnSizing,
@@ -69,9 +72,9 @@ import {
 } from "../hooks";
 import { createDrawHeader } from "../utils/headerUtils";
 import {
-  ColumnHeaderContextMenu,
-  useColumnHeaderContextMenu,
-} from "../components/ColumnHeaderContextMenu";
+  UnifiedContextMenu,
+  type ContextMenuTarget,
+} from "../components/UnifiedContextMenu";
 import {
   applyPinnedOrdering,
   computeBaseWidth,
@@ -85,7 +88,6 @@ import type { CellValue as BackendCellValue } from "@/services/backend";
 import type { TableDataRow } from "@/services/tableDataTypes";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { cn } from "@/lib/utils";
-import { GridContextMenu } from "../components/GridContextMenu";
 import { useContextKey, useScopedKeybindings } from "@/hooks/useContextKey";
 import { useCommand } from "@/hooks/useCommand";
 import { useCrudStore } from "@/stores/crudStore";
@@ -364,7 +366,7 @@ export const TableDataGrid = memo(function TableDataGrid(
     // For query mode, derive columns from query result metadata
     // Use props.data directly to avoid dependency ordering issues
     if (!isTableMode && props.mode === "query") {
-      const queryModeProps = props as QueryModeProps;
+      const queryModeProps = props;
       if (queryModeProps.data?.columnMeta) {
         return queryModeProps.data.columnMeta.map((col) => ({
           name: col.name,
@@ -377,7 +379,12 @@ export const TableDataGrid = memo(function TableDataGrid(
     }
 
     return [];
-  }, [isTableMode, tableStructure?.columns, tableStructure?.foreignKeys, props]);
+  }, [
+    isTableMode,
+    tableStructure?.columns,
+    tableStructure?.foreignKeys,
+    props,
+  ]);
 
   // AI filter hook with proper connection context
   const { generateFilter: generateAIFilter, isLoading: isAIFilterLoading } =
@@ -500,7 +507,7 @@ export const TableDataGrid = memo(function TableDataGrid(
   }, [isTableMode, connectionId, database, schema, table]);
 
   const queryData = isQueryMode ? props.data : null;
-  const toolbarActions = isQueryMode ? (props as QueryModeProps).toolbarActions : null;
+  const toolbarActions = isQueryMode ? props.toolbarActions : null;
 
   // Transform raw CellValue[][] to TableDataRow[] for query mode
   // The streaming worker returns raw arrays; we need to convert to objects keyed by column names
@@ -750,7 +757,12 @@ export const TableDataGrid = memo(function TableDataGrid(
       columnKeyMap,
       wrappedValues: true, // Query mode wraps values in {value: ...} objects
     };
-    return applyClientSideFilter(rows, activeFilter, columnNames, filterOptions) as TableDataRow[];
+    return applyClientSideFilter(
+      rows,
+      activeFilter,
+      columnNames,
+      filterOptions,
+    ) as TableDataRow[];
   }, [rows, isTableMode, activeFilter, columnMeta]);
 
   const { pinnedRows, unpinnedRows, pinnedRowIds, pinRow, unpinRow } =
@@ -1060,7 +1072,11 @@ export const TableDataGrid = memo(function TableDataGrid(
 
     // Wait a couple of frames so Glide can fire onFinishedEditing
     await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => requestAnimationFrame(() => { resolve(); }));
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          resolve();
+        }),
+      );
     });
   }, [isEditingCell]);
 
@@ -1082,70 +1098,83 @@ export const TableDataGrid = memo(function TableDataGrid(
     [getSortDirection, getSortIndex, finalColumns, sortColumns.length],
   );
 
-  // Column header context menu
-  // Use finalColumns for column lookup (matches grid index), reorderedColumns for visibility submenu
-  const { handleHeaderContextMenu, menuState, closeMenu, getMenuProps } =
-    useColumnHeaderContextMenu({
-      columns: finalColumns,
-      allColumnsForVisibility: reorderedColumns,
-      pinnedColumns: columnState.pinned,
-      columnVisibility: columnState.visibility,
-      getSortDirection,
-      onSort: (columnId, direction) => {
-        // Clear existing sort and set new one
-        const store = useGridPreferencesStore.getState();
-        store.upsert(gridId, (draft) => {
-          draft.sortColumns = [{ columnId, direction }];
-        });
-      },
-      onClearSort: (columnId) => {
-        const store = useGridPreferencesStore.getState();
-        store.upsert(gridId, (draft) => {
-          draft.sortColumns = draft.sortColumns.filter(
-            (s) => s.columnId !== columnId,
-          );
-        });
-      },
-      onHide: (columnId) => {
-        upsertGridColumnsState(gridId, (draft) => {
-          draft.visibility[columnId] = false;
-        });
-      },
-      onPin: (columnId) => {
-        upsertGridColumnsState(gridId, (draft) => {
-          if (!draft.pinned.includes(columnId)) {
-            draft.pinned.push(columnId);
-          }
-        });
-      },
-      onUnpin: (columnId) => {
-        upsertGridColumnsState(gridId, (draft) => {
-          draft.pinned = draft.pinned.filter((id) => id !== columnId);
-        });
-      },
-      onToggleColumnVisibility: (columnId) => {
-        upsertGridColumnsState(gridId, (draft) => {
-          const currentVisible = draft.visibility[columnId] !== false;
-          draft.visibility[columnId] = !currentVisible;
-        });
-      },
-      onShowAllColumns: () => {
-        upsertGridColumnsState(gridId, (draft) => {
-          // Set all columns to visible
-          for (const col of reorderedColumns) {
-            draft.visibility[col.id] = true;
-          }
-        });
-      },
-      onFilterByColumn: isTableMode
-        ? (columnId) => {
-            setQuickFilterValue(`${columnId}:`);
-            quickFilterRef.current?.focus();
-          }
-        : undefined,
-    });
+  // Column header context menu callbacks (passed to UnifiedContextMenu)
+  const handleColumnSort = useCallback(
+    (columnId: string, direction: "asc" | "desc") => {
+      const store = useGridPreferencesStore.getState();
+      store.upsert(gridId, (draft) => {
+        draft.sortColumns = [{ columnId, direction }];
+      });
+    },
+    [gridId],
+  );
 
-  const contextMenuProps = getMenuProps();
+  const handleColumnClearSort = useCallback(
+    (columnId: string) => {
+      const store = useGridPreferencesStore.getState();
+      store.upsert(gridId, (draft) => {
+        draft.sortColumns = draft.sortColumns.filter(
+          (s) => s.columnId !== columnId,
+        );
+      });
+    },
+    [gridId],
+  );
+
+  const handleColumnHide = useCallback(
+    (columnId: string) => {
+      upsertGridColumnsState(gridId, (draft) => {
+        draft.visibility[columnId] = false;
+      });
+    },
+    [gridId],
+  );
+
+  const handleColumnPin = useCallback(
+    (columnId: string) => {
+      upsertGridColumnsState(gridId, (draft) => {
+        if (!draft.pinned.includes(columnId)) {
+          draft.pinned.push(columnId);
+        }
+      });
+    },
+    [gridId],
+  );
+
+  const handleColumnUnpin = useCallback(
+    (columnId: string) => {
+      upsertGridColumnsState(gridId, (draft) => {
+        draft.pinned = draft.pinned.filter((id) => id !== columnId);
+      });
+    },
+    [gridId],
+  );
+
+  const handleToggleColumnVisibility = useCallback(
+    (columnId: string) => {
+      upsertGridColumnsState(gridId, (draft) => {
+        const currentVisible = draft.visibility[columnId] !== false;
+        draft.visibility[columnId] = !currentVisible;
+      });
+    },
+    [gridId],
+  );
+
+  const handleShowAllColumns = useCallback(() => {
+    upsertGridColumnsState(gridId, (draft) => {
+      for (const col of reorderedColumns) {
+        draft.visibility[col.id] = true;
+      }
+    });
+  }, [gridId, reorderedColumns]);
+
+  const handleFilterByColumn = useCallback((columnId: string) => {
+    setQuickFilterValue(`${columnId}:`);
+    quickFilterRef.current?.focus();
+  }, []);
+
+  // Track context menu target (header vs cell)
+  const contextMenuTargetRef = useRef<ContextMenuTarget>(null);
 
   // Pre-build column lookup map for O(1) access (used in INSERT row building)
   const columnByFieldMap = useMemo(() => {
@@ -1284,30 +1313,41 @@ export const TableDataGrid = memo(function TableDataGrid(
     enabled: !isLargeDataset,
   });
 
-  // Combine both hover handlers
+  // Combine hover handlers and track context menu target
   const handleItemHovered = useCallback(
     (args: Parameters<typeof handleCellHovered>[0]) => {
       handleCellHovered(args);
       handleStatsHover(args);
+
+      // Update context menu target based on what's being hovered
+      if (args.kind === "header") {
+        const [colIndex] = args.location;
+        const column = finalColumns[colIndex];
+        if (column) {
+          contextMenuTargetRef.current = {
+            type: "header",
+            columnIndex: colIndex,
+            column,
+          };
+        }
+      } else if (args.kind === "cell") {
+        const [colIndex, rowIndex] = args.location;
+        contextMenuTargetRef.current = {
+          type: "cell",
+          columnIndex: colIndex,
+          rowIndex,
+        };
+      } else if (args.kind === "out-of-bounds") {
+        contextMenuTargetRef.current = { type: "out-of-bounds" };
+      }
     },
-    [handleCellHovered, handleStatsHover],
+    [handleCellHovered, handleStatsHover, finalColumns],
   );
 
-  // Wrap header context menu handler to close stats popover when menu opens
-  const handleHeaderContextMenuWithClearStats = useCallback(
-    (
-      colIndex: number,
-      event: {
-        bounds: { x: number; y: number; width: number; height: number };
-        preventDefault: () => void;
-      },
-    ) => {
-      // Clear stats popover before opening context menu to avoid z-index conflicts
-      clearStats();
-      handleHeaderContextMenu(colIndex, event);
-    },
-    [handleHeaderContextMenu, clearStats],
-  );
+  // Callback for when unified context menu opens
+  const handleContextMenuOpen = useCallback(() => {
+    clearStats();
+  }, [clearStats]);
 
   // Memoize clipboard callbacks to prevent recreation on every render
   const toTextCallback = useCallback(
@@ -1944,7 +1984,7 @@ export const TableDataGrid = memo(function TableDataGrid(
     (edits: Array<{ cell: Item; value: unknown }>) => {
       handleBatchEdit(edits, rowsRef.current);
     },
-    [handleBatchEdit]
+    [handleBatchEdit],
   );
 
   // Batch clear callback for Delete on range selection
@@ -1954,7 +1994,7 @@ export const TableDataGrid = memo(function TableDataGrid(
       const edits = cells.map((cell) => ({ cell, value: null }));
       handleBatchEdit(edits, rowsRef.current);
     },
-    [isTableMode, handleBatchEdit]
+    [isTableMode, handleBatchEdit],
   );
 
   const { fillDown, fillRight } = useFillOperations({
@@ -2083,7 +2123,7 @@ export const TableDataGrid = memo(function TableDataGrid(
         >
           {/* Keep the filter toolbar visible */}
           {(filterColumns.length > 0 || toolbarActions) && (
-            <div className="flex-none flex items-center gap-2 pb-1.5 pt-1 px-1 bg-background">
+            <div className="flex-none flex items-center gap-2 pb-1.5 pt-1">
               {filterColumns.length > 0 && (
                 <div className="flex-1 min-w-0">
                   <QuickFilter
@@ -2141,7 +2181,7 @@ export const TableDataGrid = memo(function TableDataGrid(
     >
       {/* Result toolbar - filter + actions (Pin, Export) */}
       {(filterColumns.length > 0 || toolbarActions) && (
-        <div className="flex-none flex items-center gap-2 pb-1.5 pt-1 px-1 bg-background">
+        <div className="flex-none flex items-center gap-2 pb-1.5 pt-1">
           {filterColumns.length > 0 && (
             <div className="flex-1 min-w-0">
               <QuickFilter
@@ -2182,7 +2222,7 @@ export const TableDataGrid = memo(function TableDataGrid(
             onReload={() => tableDataQuery.refetch()}
           />
         ) : (
-          <GridContextMenu
+          <UnifiedContextMenu
             selectedRows={selectedRows}
             selectedRowKeys={selectedRowKeys}
             allRows={rowsRef.current}
@@ -2198,12 +2238,9 @@ export const TableDataGrid = memo(function TableDataGrid(
             onAddRow={undefined}
             onInsertRowAbove={undefined}
             onInsertRowBelow={isTableMode ? handleInsertRowBelow : undefined}
-            disabled={menuState.isOpen}
-            onOpen={clearStats}
             onDeleteRows={
               isTableMode
                 ? () => {
-                    // Delete selected rows via context menu
                     handleRowDelete({
                       selection:
                         gridSelection ??
@@ -2219,6 +2256,21 @@ export const TableDataGrid = memo(function TableDataGrid(
             }
             showDetailsSheet={showDetailsSheet}
             onShowDetailsSheetChange={setShowDetailsSheet}
+            // Header context menu props
+            allColumnsForVisibility={reorderedColumns}
+            pinnedColumns={columnState.pinned}
+            columnVisibility={columnState.visibility}
+            getSortDirection={getSortDirection}
+            onSort={handleColumnSort}
+            onClearSort={handleColumnClearSort}
+            onHideColumn={handleColumnHide}
+            onPinColumn={handleColumnPin}
+            onUnpinColumn={handleColumnUnpin}
+            onToggleColumnVisibility={handleToggleColumnVisibility}
+            onShowAllColumns={handleShowAllColumns}
+            onFilterByColumn={isTableMode ? handleFilterByColumn : undefined}
+            onOpen={handleContextMenuOpen}
+            contextMenuTargetRef={contextMenuTargetRef}
           >
             <EditableDataGrid
               ref={gridRef}
@@ -2236,8 +2288,6 @@ export const TableDataGrid = memo(function TableDataGrid(
               onPendingChange={setIsPastePending}
               overscrollX={0}
               overscrollY={24}
-              // Avoid rendering very tall buffers on large datasets
-              // This keeps DOM/paint work bounded when streaming big tables
               smoothScrollX={true}
               smoothScrollY={true}
               maxColumnWidth={1000}
@@ -2246,7 +2296,6 @@ export const TableDataGrid = memo(function TableDataGrid(
               }}
               onColumnResizeEnd={(column, size) => {
                 handleColumnResizeEnd(column, size);
-                // Persist widths after resize completes
                 flushWidths(columnWidths);
               }}
               onColumnMoved={(start, end) => {
@@ -2271,11 +2320,10 @@ export const TableDataGrid = memo(function TableDataGrid(
               getRowThemeOverride={getRowThemeOverride}
               highlightRegions={cellHighlightRegions}
               drawHeader={drawHeader}
-              onHeaderContextMenu={handleHeaderContextMenuWithClearStats}
               onItemHovered={handleItemHovered}
               drawCell={drawCellWithHoverIcons}
             />
-          </GridContextMenu>
+          </UnifiedContextMenu>
         )}
 
         {/* FK Preview Popover - inside container for correct absolute positioning */}
@@ -2301,7 +2349,10 @@ export const TableDataGrid = memo(function TableDataGrid(
               } else if (typeof fkValue === "string") {
                 const escaped = String(fkValue).replace(/'/g, "''");
                 filterValue = `"${fkReference.referenced_column}" = '${escaped}'`;
-              } else if (typeof fkValue === "number" || typeof fkValue === "boolean") {
+              } else if (
+                typeof fkValue === "number" ||
+                typeof fkValue === "boolean"
+              ) {
                 filterValue = `"${fkReference.referenced_column}" = ${fkValue}`;
               } else {
                 const escaped = String(fkValue).replace(/'/g, "''");
@@ -2323,7 +2374,6 @@ export const TableDataGrid = memo(function TableDataGrid(
             }}
           />
         )}
-
       </div>
 
       <DataGridStatusBar
@@ -2372,18 +2422,6 @@ export const TableDataGrid = memo(function TableDataGrid(
             : undefined
         }
       />
-
-      {/* Column header context menu */}
-      {contextMenuProps && (
-        <ColumnHeaderContextMenu
-          open={menuState.isOpen}
-          onOpenChange={(open) => {
-            if (!open) closeMenu();
-          }}
-          position={menuState.position}
-          {...contextMenuProps}
-        />
-      )}
 
       {/* Column Stats Popover - shows statistics on header hover */}
       {/* Rendered outside container to use fixed positioning with viewport coordinates */}
