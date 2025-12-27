@@ -22,6 +22,7 @@ fn test_connection_profile_serialization() {
         ssh_tunnel: None,
         bastion: None,
         options: HashMap::new(),
+        group: None,
     };
 
     // Test that connection profiles can be serialized (required for vault storage)
@@ -52,6 +53,7 @@ fn test_multiple_connections_serialization() {
             ssh_tunnel: None,
             bastion: None,
             options: HashMap::new(),
+            group: None,
         },
         ConnectionProfile {
             id: "mysql-1".to_string(),
@@ -67,6 +69,7 @@ fn test_multiple_connections_serialization() {
             ssh_tunnel: None,
             bastion: None,
             options: HashMap::new(),
+            group: None,
         },
     ];
 
@@ -101,6 +104,7 @@ fn test_connection_with_options() {
         ssh_tunnel: None,
         bastion: None,
         options: options.clone(),
+        group: None,
     };
 
     // Verify options are preserved in serialization
@@ -144,6 +148,7 @@ fn test_connection_password_handling() {
         ssh_tunnel: None,
         bastion: None,
         options: HashMap::new(),
+        group: None,
     };
 
     // Without password
@@ -161,6 +166,7 @@ fn test_connection_password_handling() {
         ssh_tunnel: None,
         bastion: None,
         options: HashMap::new(),
+        group: None,
     };
 
     assert!(with_password.password.is_some());
