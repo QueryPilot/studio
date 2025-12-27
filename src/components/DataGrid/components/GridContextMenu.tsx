@@ -31,6 +31,10 @@ export interface GridContextMenuProps {
   onPaste?: () => void;
   showDetailsSheet?: boolean;
   onShowDetailsSheetChange?: (show: boolean) => void;
+  /** When true, prevents the context menu from opening (e.g., when header menu is active) */
+  disabled?: boolean;
+  /** Called when the context menu opens */
+  onOpen?: () => void;
 }
 
 export function GridContextMenu({
@@ -54,9 +58,12 @@ export function GridContextMenu({
   onPaste,
   showDetailsSheet: controlledShowDetailsSheet,
   onShowDetailsSheetChange,
+  disabled = false,
+  onOpen,
 }: GridContextMenuProps) {
   const [internalShowDetailsSheet, setInternalShowDetailsSheet] =
     useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Use controlled state if provided, otherwise use internal state
   const showDetailsSheet =
@@ -80,9 +87,21 @@ export function GridContextMenu({
 
   const canPinMore = pinnedRowKeys.length < maxPinnedRows;
 
+  // Handle controlled open state - prevent opening when disabled
+  const handleOpenChange = (open: boolean) => {
+    if (disabled && open) {
+      // Don't open if disabled (e.g., header context menu is active)
+      return;
+    }
+    if (open && onOpen) {
+      onOpen();
+    }
+    setMenuOpen(open);
+  };
+
   return (
     <>
-      <ContextMenu>
+      <ContextMenu open={menuOpen} onOpenChange={handleOpenChange}>
         <ContextMenuTrigger className="h-full w-full block">
           {children}
         </ContextMenuTrigger>

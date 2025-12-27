@@ -30,7 +30,6 @@ import {
   IconWand,
   IconReportAnalytics,
 } from "@tabler/icons-react";
-import { QueryLimitControl } from "./QueryLimitControl";
 import type { SqlDialect } from "@/components/CodeEditor";
 
 // Dialect display names and descriptions
@@ -57,7 +56,6 @@ interface QueryToolbarProps {
   showHistory: boolean;
   showResults: boolean;
   viewMode: "table" | "json" | "explain" | "raw" | "stats";
-  appliedLimit?: number;
   executeHint?: string;
   beautifyHint?: string;
   focused?: boolean;
@@ -71,7 +69,6 @@ interface QueryToolbarProps {
   onToggleResults: () => void;
   onViewModeChange: (mode: "table" | "json" | "explain" | "raw" | "stats") => void;
   onDialectChange?: (dialect: SqlDialect | "auto") => void;
-  onFocusEditor?: () => void;
 }
 
 export const QueryToolbar = memo(function QueryToolbar({
@@ -80,7 +77,6 @@ export const QueryToolbar = memo(function QueryToolbar({
   showHistory,
   showResults,
   viewMode,
-  appliedLimit,
   executeHint,
   beautifyHint: _beautifyHint,
   focused = false,
@@ -94,7 +90,6 @@ export const QueryToolbar = memo(function QueryToolbar({
   onToggleResults,
   onViewModeChange,
   onDialectChange,
-  onFocusEditor,
 }: QueryToolbarProps) {
   // Get the display label for the current dialect
   const currentDialectLabel =
@@ -189,14 +184,6 @@ export const QueryToolbar = memo(function QueryToolbar({
 
         {/* Right side */}
         <div className="flex items-center gap-1.5">
-          {/* Limit Control - always visible */}
-          <div className="text-xs">
-            <QueryLimitControl
-              appliedLimit={appliedLimit}
-              onFocusEditor={onFocusEditor}
-            />
-          </div>
-
           {/* History button - hidden on narrow containers */}
           <Button
             size="sm"
