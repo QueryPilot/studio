@@ -1,7 +1,7 @@
 import { IconSettings, IconMoon, IconSun } from '@tabler/icons-react';
-import { Button } from '@/components/ui/button';
 import { useTheme } from '@/components/theme-provider';
 import { usePreferencesStore } from '@/stores/preferencesStore';
+import { cn } from '@/lib/utils';
 
 export function ActionBarFooter() {
   const { theme, setTheme } = useTheme();
@@ -11,33 +11,28 @@ export function ActionBarFooter() {
     setTheme(theme === 'dark' ? 'light' : 'dark');
   };
 
-  return (
-    <div className="flex flex-col gap-1 p-2">
-      <Button
-        variant="ghost"
-        size="sm"
-        className="justify-start gap-2 h-8"
-        onClick={() => openPreferences()}
-      >
-        <IconSettings className="h-3.5 w-3.5" />
-        <span className="text-xs">Settings</span>
-      </Button>
+  const buttonClass = cn(
+    'flex items-center gap-2 w-full px-3 py-2 rounded-md',
+    'text-xs text-muted-foreground',
+    'hover:text-foreground hover:bg-sidebar-accent',
+    'transition-colors duration-150'
+  );
 
-      <Button
-        variant="ghost"
-        size="sm"
-        className="justify-start gap-2 h-8"
-        onClick={handleToggleTheme}
-      >
+  return (
+    <div className="flex flex-col gap-0.5 p-2 border-t border-sidebar-border">
+      <button type="button" className={buttonClass} onClick={() => openPreferences()}>
+        <IconSettings className="h-4 w-4" />
+        <span>Settings</span>
+      </button>
+
+      <button type="button" className={buttonClass} onClick={handleToggleTheme}>
         {theme === 'dark' ? (
-          <IconSun className="h-3.5 w-3.5" />
+          <IconSun className="h-4 w-4" />
         ) : (
-          <IconMoon className="h-3.5 w-3.5" />
+          <IconMoon className="h-4 w-4" />
         )}
-        <span className="text-xs">
-          {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
-        </span>
-      </Button>
+        <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+      </button>
     </div>
   );
 }
