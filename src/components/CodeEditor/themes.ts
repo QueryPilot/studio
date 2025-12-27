@@ -104,14 +104,14 @@ export const createDarkTheme = (): Extension => {
 export const createLightTheme = (): Extension => {
   return githubLightInit({
     settings: {
-      background: "#FFFFFF",
+      background: "#FAF8F5",
       backgroundImage: "",
       foreground: "#27231E",
       caret: "#D4A52B",
       selection: "#D4A52B33",
       selectionMatch: "#D4A52B20",
       lineHighlight: "#00000014",
-      gutterBackground: "#FFFFFF",
+      gutterBackground: "#FAF8F5",
       gutterForeground: "#7A756C",
       gutterBorder: "#27231E1A",
     },

@@ -93,6 +93,45 @@ Cannot proceed without AI CLI for version and changelog generation."
     success "All requirements met"
 }
 
+# Run all tests before release
+run_tests() {
+    log "Running tests before release..."
+    echo ""
+
+    # Build AI sidecar first (required for some tests)
+    log "Building AI sidecar for tests..."
+    bash scripts/build-ai-sidecar.sh >/dev/null 2>&1 || error "Failed to build AI sidecar"
+
+    # Run Rust backend tests
+    log "Running Rust backend tests..."
+    if ! (cd src-tauri && cargo test --lib --bins 2>&1); then
+        error "Rust tests failed! Fix tests before releasing."
+    fi
+    success "Rust tests passed"
+
+    # Run Frontend tests
+    log "Running Frontend tests..."
+    if ! pnpm test:unit 2>&1; then
+        error "Frontend tests failed! Fix tests before releasing."
+    fi
+    success "Frontend tests passed"
+
+    # Run integration tests if PostgreSQL is available
+    if nc -z 127.0.0.1 15432 2>/dev/null; then
+        log "Running integration tests (PostgreSQL available)..."
+        if ! (cd src-tauri && cargo test --test binary_types_test 2>&1); then
+            error "Integration tests failed! Fix tests before releasing."
+        fi
+        success "Integration tests passed"
+    else
+        warn "Skipping integration tests (PostgreSQL not available at localhost:15432)"
+    fi
+
+    echo ""
+    success "All tests passed ✓"
+    echo ""
+}
+
 # Analyze commits since last tag
 analyze_commits() {
     log "Analyzing commits since last release..."
@@ -686,6 +725,7 @@ main() {
     echo ""
 
     check_requirements
+    run_tests
 
     # If version provided via arg, skip AI version suggestion
     if [ -n "$VERSION" ]; then

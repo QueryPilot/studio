@@ -1,5 +1,6 @@
 import { useCallback, useState, useRef, useEffect } from "react";
 import type {
+  DataEditorRef,
   DrawCellCallback,
   GridMouseEventArgs,
   Item,
@@ -55,6 +56,8 @@ export interface UseCellHoverIconsOptions {
   containerRef?: React.RefObject<HTMLElement | null>;
   /** Enable FK preview popover on click instead of navigation */
   enableFKPreview?: boolean;
+  /** Ref to the grid for triggering cell redraws when hover changes */
+  gridRef?: React.RefObject<DataEditorRef | null>;
 }
 
 export interface FKPreviewState {
@@ -262,7 +265,7 @@ function getFkReference(column: GridColumnV2): { schema: string; table: string; 
 export function useCellHoverIcons(
   options: UseCellHoverIconsOptions
 ): UseCellHoverIconsResult {
-  const { columns, rows, onOpenReference, enabled = true, containerRef, enableFKPreview = false } = options;
+  const { columns, rows, onOpenReference, enabled = true, containerRef, enableFKPreview = false, gridRef } = options;
   const [hoveredCell, setHoveredCell] = useState<Item | null>(null);
   const [hoveredButton, setHoveredButton] = useState<string | null>(null);
   const [copiedCell, setCopiedCell] = useState<string | null>(null); // Track which cell was just copied
@@ -282,7 +285,41 @@ export function useCellHoverIcons(
 
   // Track hoveredCell in ref to avoid callback recreation
   const hoveredCellRef = useRef<Item | null>(null);
-  hoveredCellRef.current = hoveredCell;
+
+  // Track previous hovered cell to trigger redraws
+  const prevHoveredCellRef = useRef<Item | null>(null);
+
+  // Update ref and trigger cell redraws when hoveredCell changes
+  useEffect(() => {
+    const prevCell = prevHoveredCellRef.current;
+    const currCell = hoveredCell;
+
+    // Update the current ref
+    hoveredCellRef.current = currCell;
+
+    // If cells changed, damage both old and new cells to trigger redraw
+    if (gridRef?.current) {
+      const cellsToDamage: { cell: [number, number] }[] = [];
+
+      // Damage the previous hovered cell
+      if (prevCell !== null) {
+        cellsToDamage.push({ cell: [prevCell[0], prevCell[1]] });
+      }
+
+      // Damage the new hovered cell
+      if (currCell !== null) {
+        cellsToDamage.push({ cell: [currCell[0], currCell[1]] });
+      }
+
+      // Trigger redraw for affected cells
+      if (cellsToDamage.length > 0) {
+        gridRef.current.updateCells(cellsToDamage);
+      }
+    }
+
+    // Update previous cell ref
+    prevHoveredCellRef.current = currCell;
+  }, [hoveredCell, gridRef]);
 
   const onItemHovered = useCallback(
     (args: GridMouseEventArgs) => {

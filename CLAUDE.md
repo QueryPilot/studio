@@ -11,8 +11,9 @@ Query Pilot is a local-first desktop database IDE built with Tauri 2 + React 19.
 ```bash
 # Development
 pnpm tauri:dev           # Run app in dev mode
-make dev                 # Same as above
-make dev-sidecar         # Run AI sidecar in dev mode (Bun on port 3001)
+make dev (or make d)     # Same as above
+make dev-profile (or dp) # Run with QP_STREAM_PROFILE=1 for profiling
+make dev-sidecar (or ds) # Run AI sidecar in dev mode (Bun on port 3001)
 
 # Building
 pnpm build               # Build frontend only
@@ -25,10 +26,13 @@ make build-ai-all        # Build AI sidecar for all platforms
 pnpm test:unit           # Run frontend tests once
 pnpm test:watch          # Run frontend tests in watch mode
 pnpm test:coverage       # Run tests with coverage
-make test                # Run all unit tests (Rust + Frontend)
+make test (or make t)    # Run all unit tests (Rust + Frontend)
 make test-backend        # Run Rust tests only
 make test-frontend       # Run Frontend tests only
-cargo test --lib         # Run specific Rust unit tests (in src-tauri/)
+
+# Running specific tests
+pnpm test:unit <pattern>               # Run specific frontend test (e.g., pnpm test:unit QueryPanel)
+cd src-tauri && cargo test <test_name> # Run specific Rust test (e.g., cargo test test_connection)
 
 # Linting & Type Checking
 pnpm lint                # ESLint
@@ -164,90 +168,10 @@ Multiple stores with specific concerns:
 
 **📖 See [SENTRY.md](./SENTRY.md) for comprehensive documentation**
 
-**Sentry Integration (Opt-In):**
-- Crash reporting, error tracking, and performance monitoring across all three components
-- **Privacy-First**: Default disabled, requires explicit user opt-in via Preferences UI
-- **Single Project**: All components report to one Sentry project with automatic tagging
-- Controlled via `preferencesStore.telemetry` settings
-
-**Frontend (React + @sentry/react):**
-- Initialized in `src/main.tsx` based on user preference
-- ErrorBoundary enhanced with Sentry capture in `src/components/ErrorBoundary.tsx`
-- Source maps uploaded to Sentry via Vite plugin (production builds only)
-- Utility functions in `src/utils/sentry.ts`:
-  - `initializeSentry()` - Initialize with user preferences
-  - `disableSentry()` - Runtime disable (immediate effect)
-  - `captureException()` - Error capture with context
-  - `addBreadcrumb()` - Debugging breadcrumbs
-- Configuration: `VITE_SENTRY_DSN` environment variable
-
-**Rust Backend (sentry crate):**
-- Optional feature flag: `cargo build --features telemetry`
-- Initialized in `src-tauri/src/main.rs` on app startup
-- Panic handler automatically captures Rust panics
-- Integration module: `src-tauri/src/sentry_integration.rs`
-- Performance tracing with `sentry-tracing` integration
-- Configuration: `SENTRY_DSN` environment variable
-- Note: Enabling requires app restart (Sentry initializes on startup)
-
-**AI Sidecar (Bun + @sentry/node):**
-- Initialized via `/config` endpoint when sidecar receives configuration
-- Captures uncaught exceptions and unhandled rejections
-- Integration module: `src-tauri/sidecar-ai/utils/sentry.ts`
-- Configuration passed from Rust backend via POST to `/config`
-- Environment: `SENTRY_DSN`
-
-**Performance Monitoring:**
-- **Frontend**: Page loads, navigation, component renders, API calls (10% sample rate)
-- **Backend**: Database queries, connection pool operations, SSH tunnels
-- **Sidecar**: LLM requests, HTTP endpoints, provider API calls
-- User control: Toggle in Preferences → Performance monitoring
-
-**Session Replay (Opt-In):**
-- Visual debugging context for errors
-- All text masked, all media blocked (privacy)
-- 50% of errors captured when enabled
-- User control: Toggle in Preferences → Session replay
-
-**Privacy Safeguards:**
-- **Never sent**: SQL queries, user messages, AI responses, API keys, credentials, connection strings
-- **Data sanitization**: `beforeSend` hooks strip sensitive data before transmission
-- **Anonymization**: Only error types, stack traces, OS info, and app version sent
-- **User control**: All telemetry disabled by default, opt-in only
-- **Runtime disable**: User can disable instantly (no restart required)
-
-**Build Configuration:**
-```bash
-# Single Sentry project for all components
-export SENTRY_DSN="https://[KEY]@sentry.io/[PROJECT]"
-export VITE_SENTRY_DSN="$SENTRY_DSN"  # For frontend
-export SENTRY_AUTH_TOKEN="[TOKEN]"
-cargo build --release --features telemetry
-pnpm build  # Vite automatically uploads source maps
-```
-
-**GitHub Actions Setup:**
-- Release workflow: `.github/workflows/release.yml` supports optional Sentry integration
-- Configure GitHub secrets: `SENTRY_DSN`, `SENTRY_AUTH_TOKEN`
-- Quick setup guide: `.github/SENTRY_QUICKSTART.md`
-- Detailed setup guide: `.github/SENTRY_SETUP.md`
-- If secrets not set, app builds successfully without telemetry (graceful degradation)
-
-**User Preferences UI:**
-- Location: Preferences → Telemetry & Error Reporting
-- Three toggles:
-  - **Enable error tracking** (master switch) - Disable = immediate, Enable = requires restart
-  - **Performance monitoring** (10% sample rate) - Requires error tracking enabled
-  - **Session replay on errors** (50% sample rate) - Requires error tracking enabled
-- Status indicators: Green (active) / Yellow (disabled)
-- Clear privacy disclosure with data collection transparency
-- "What we collect" vs "What we never collect" comparison
-
-**Component Tagging in Sentry:**
-All errors automatically tagged for filtering:
-- `component:frontend` + `platform:javascript`
-- `component:backend` + `platform:rust`
-- `component:sidecar` + `platform:node`
+- Optional Sentry integration (disabled by default, opt-in via Preferences UI)
+- Three components: Frontend (`@sentry/react`), Rust backend (feature-gated `telemetry`), AI sidecar
+- Build with telemetry: `cargo build --release --features telemetry`
+- Environment variables: `SENTRY_DSN`, `VITE_SENTRY_DSN`, `SENTRY_AUTH_TOKEN`
 
 ### Build Process
 

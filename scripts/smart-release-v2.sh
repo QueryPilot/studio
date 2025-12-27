@@ -61,6 +61,46 @@ if ! git diff-index --quiet HEAD -- 2>/dev/null; then
     fi
 fi
 
+# Run tests before release
+echo -e "${BLUE}🧪 Running tests before release...${NC}"
+echo ""
+
+# Build AI sidecar first (required for some tests)
+echo "Building AI sidecar..."
+bash scripts/build-ai-sidecar.sh >/dev/null 2>&1 || { echo -e "${RED}❌ Failed to build AI sidecar${NC}"; exit 1; }
+
+# Run Rust backend tests
+echo "Running Rust backend tests..."
+if ! (cd src-tauri && cargo test --lib --bins 2>&1); then
+    echo -e "${RED}❌ Rust tests failed! Fix tests before releasing.${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✓${NC} Rust tests passed"
+
+# Run Frontend tests
+echo "Running Frontend tests..."
+if ! pnpm test:unit 2>&1; then
+    echo -e "${RED}❌ Frontend tests failed! Fix tests before releasing.${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✓${NC} Frontend tests passed"
+
+# Run integration tests if PostgreSQL is available
+if nc -z 127.0.0.1 15432 2>/dev/null; then
+    echo "Running integration tests..."
+    if ! (cd src-tauri && cargo test --test binary_types_test 2>&1); then
+        echo -e "${RED}❌ Integration tests failed! Fix tests before releasing.${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✓${NC} Integration tests passed"
+else
+    echo -e "${YELLOW}⚠️  Skipping integration tests (PostgreSQL not available)${NC}"
+fi
+
+echo ""
+echo -e "${GREEN}✓ All tests passed${NC}"
+echo ""
+
 # Get current version
 CURRENT_VERSION=$(grep '"version"' package.json | head -1 | sed 's/.*"version": "\(.*\)".*/\1/')
 echo -e "${BLUE}📦 Current version: ${NC}v$CURRENT_VERSION"

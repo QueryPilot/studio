@@ -1300,6 +1300,7 @@ export const TableDataGrid = memo(function TableDataGrid(
     enabled: !isLargeDataset,
     containerRef: containerRef,
     enableFKPreview: isTableMode,
+    gridRef: gridRef,
   });
 
   // Column stats on header hover
@@ -1416,7 +1417,8 @@ export const TableDataGrid = memo(function TableDataGrid(
               const value = row?.[col.field];
               if (value && typeof value === "object" && "value" in value) {
                 const cellValue = value.value;
-                jsonRow[col.field] =
+                // Use column name for JSON key, not internal field identifier
+                jsonRow[col.name] =
                   typeof cellValue === "bigint"
                     ? cellValue.toString()
                     : cellValue;
@@ -1443,7 +1445,8 @@ export const TableDataGrid = memo(function TableDataGrid(
             const value = row[col.field];
             if (value && typeof value === "object" && "value" in value) {
               const cellValue = value.value;
-              jsonRow[col.field] =
+              // Use column name for JSON key, not internal field identifier
+              jsonRow[col.name] =
                 typeof cellValue === "bigint"
                   ? cellValue.toString()
                   : cellValue;
