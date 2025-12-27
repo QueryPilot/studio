@@ -10,8 +10,9 @@
  */
 
 import { DbType } from '@/types/connection';
+import type { ColumnDefinitionInput } from '@/types/crud';
 import { SqlAdapter } from '../base/SqlAdapter';
-import type { ColumnInfo } from '../types';
+import type { ColumnInfo, TableRef } from '../types';
 import {
   quoteIdentifier as sharedQuoteIdentifier,
   escapeString as sharedEscapeString,
@@ -106,5 +107,101 @@ export class MySQLAdapter extends SqlAdapter {
    */
   protected escapeString(value: string): string {
     return sharedEscapeString(value, DbType.MySQL);
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // DDL Operations - MySQL syntax
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * MySQL uses MODIFY COLUMN instead of ALTER COLUMN
+   */
+  modifyColumn(
+    target: TableRef,
+    columnName: string,
+    changes: Partial<ColumnDefinitionInput>
+  ): string {
+    const table = this.formatTableRef(target);
+    const colName = this.quoteIdentifier(columnName);
+
+    // MySQL requires full column definition with MODIFY COLUMN
+    // Build the complete definition from changes
+    const parts: string[] = [colName];
+
+    if (changes.dataType) {
+      parts.push(changes.dataType);
+    } else {
+      // MySQL requires datatype - use TEXT as fallback
+      parts.push('TEXT');
+    }
+
+    if (changes.nullable === false) {
+      parts.push('NOT NULL');
+    } else if (changes.nullable === true) {
+      parts.push('NULL');
+    }
+
+    if (changes.defaultValue !== undefined) {
+      if (changes.defaultValue === null) {
+        parts.push('DEFAULT NULL');
+      } else {
+        parts.push(`DEFAULT ${this.formatValue(changes.defaultValue, { name: columnName })}`);
+      }
+    }
+
+    return `ALTER TABLE ${table} MODIFY COLUMN ${parts.join(' ')}`;
+  }
+
+  /**
+   * MySQL uses CHANGE COLUMN for rename
+   */
+  renameColumn(target: TableRef, oldName: string, newName: string): string {
+    const table = this.formatTableRef(target);
+    // MySQL CHANGE requires full column definition - simplified version
+    // In practice, you'd need to query the current column definition first
+    return `ALTER TABLE ${table} RENAME COLUMN ${this.quoteIdentifier(oldName)} TO ${this.quoteIdentifier(newName)}`;
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Index DDL Operations - MySQL syntax
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * MySQL DROP INDEX requires ON table
+   */
+  dropIndex(target: TableRef, indexName: string, ifExists?: boolean): string {
+    const table = this.formatTableRef(target);
+    // MySQL 8.0.29+ supports IF EXISTS, older versions don't
+    const ifExistsClause = ifExists ? 'IF EXISTS ' : '';
+    return `DROP INDEX ${ifExistsClause}${this.quoteIdentifier(indexName)} ON ${table}`;
+  }
+
+  /**
+   * MySQL uses ALTER TABLE ... RENAME INDEX
+   */
+  renameIndex(target: TableRef, oldName: string, newName: string): string {
+    const table = this.formatTableRef(target);
+    return `ALTER TABLE ${table} RENAME INDEX ${this.quoteIdentifier(oldName)} TO ${this.quoteIdentifier(newName)}`;
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Trigger DDL Operations - MySQL syntax
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * MySQL DROP TRIGGER doesn't use ON table
+   */
+  dropTrigger(_target: TableRef, triggerName: string, ifExists?: boolean): string {
+    const ifExistsClause = ifExists ? 'IF EXISTS ' : '';
+    return `DROP TRIGGER ${ifExistsClause}${this.quoteIdentifier(triggerName)}`;
+  }
+
+  /**
+   * MySQL doesn't support ENABLE/DISABLE TRIGGER
+   * Returns empty string (no-op)
+   */
+  toggleTrigger(_target: TableRef, _triggerName: string, _enable: boolean): string {
+    // MySQL doesn't have enable/disable trigger - must drop and recreate
+    return '-- MySQL does not support ENABLE/DISABLE TRIGGER';
   }
 }

@@ -8,6 +8,11 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { DbType } from '@/types/connection';
 import type {
+  ColumnDefinitionInput,
+  IndexDefinitionInput,
+  TriggerDefinitionInput,
+} from '@/types/crud';
+import type {
   DatabaseAdapter,
   DatabaseParadigm,
   TableRef,
@@ -192,6 +197,222 @@ export abstract class SqlAdapter implements DatabaseAdapter {
    */
   protected escapeString(value: string): string {
     return value.replace(/'/g, "''");
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // DDL Operations (can be overridden by specific dialects)
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Generate ADD COLUMN statement
+   */
+  addColumn(target: TableRef, column: ColumnDefinitionInput): string {
+    const table = this.formatTableRef(target);
+    const columnDef = this.formatColumnDefinition(column);
+    return `ALTER TABLE ${table} ADD COLUMN ${columnDef}`;
+  }
+
+  /**
+   * Generate ALTER COLUMN statements for modifications
+   * Default implementation for PostgreSQL-style ALTER statements
+   * Override for MySQL, SQLite, etc.
+   */
+  modifyColumn(
+    target: TableRef,
+    columnName: string,
+    changes: Partial<ColumnDefinitionInput>
+  ): string {
+    const table = this.formatTableRef(target);
+    const colName = this.quoteIdentifier(columnName);
+    const statements: string[] = [];
+
+    if (changes.dataType) {
+      statements.push(
+        `ALTER TABLE ${table} ALTER COLUMN ${colName} TYPE ${changes.dataType}`
+      );
+    }
+
+    if (changes.nullable !== undefined) {
+      if (changes.nullable) {
+        statements.push(`ALTER TABLE ${table} ALTER COLUMN ${colName} DROP NOT NULL`);
+      } else {
+        statements.push(`ALTER TABLE ${table} ALTER COLUMN ${colName} SET NOT NULL`);
+      }
+    }
+
+    if (changes.defaultValue !== undefined) {
+      if (changes.defaultValue === null) {
+        statements.push(`ALTER TABLE ${table} ALTER COLUMN ${colName} DROP DEFAULT`);
+      } else {
+        statements.push(
+          `ALTER TABLE ${table} ALTER COLUMN ${colName} SET DEFAULT ${this.formatValue(
+            changes.defaultValue,
+            { name: columnName }
+          )}`
+        );
+      }
+    }
+
+    return statements.join(';\n');
+  }
+
+  /**
+   * Generate DROP COLUMN statement
+   */
+  dropColumn(target: TableRef, columnName: string, cascade?: boolean): string {
+    const table = this.formatTableRef(target);
+    const cascadeClause = cascade ? ' CASCADE' : '';
+    return `ALTER TABLE ${table} DROP COLUMN ${this.quoteIdentifier(columnName)}${cascadeClause}`;
+  }
+
+  /**
+   * Generate RENAME COLUMN statement
+   */
+  renameColumn(target: TableRef, oldName: string, newName: string): string {
+    const table = this.formatTableRef(target);
+    return `ALTER TABLE ${table} RENAME COLUMN ${this.quoteIdentifier(oldName)} TO ${this.quoteIdentifier(newName)}`;
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Index DDL Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Generate CREATE INDEX statement
+   * Default implementation for PostgreSQL-style syntax
+   * Override for MySQL, SQLite, etc. if needed
+   */
+  createIndex(target: TableRef, definition: IndexDefinitionInput): string {
+    const table = this.formatTableRef(target);
+    const indexName = this.quoteIdentifier(definition.name);
+    const uniqueClause = definition.unique ? 'UNIQUE ' : '';
+    const columns = definition.columns.map((c) => this.quoteIdentifier(c)).join(', ');
+
+    let sql = `CREATE ${uniqueClause}INDEX ${indexName} ON ${table}`;
+
+    // Index method (USING btree, hash, gin, gist, etc.)
+    if (definition.using) {
+      sql += ` USING ${definition.using}`;
+    }
+
+    sql += ` (${columns})`;
+
+    // INCLUDE columns (PostgreSQL 11+, SQL Server)
+    if (definition.includeColumns && definition.includeColumns.length > 0) {
+      const includes = definition.includeColumns.map((c) => this.quoteIdentifier(c)).join(', ');
+      sql += ` INCLUDE (${includes})`;
+    }
+
+    // Partial index (WHERE clause)
+    if (definition.where) {
+      sql += ` WHERE ${definition.where}`;
+    }
+
+    return sql;
+  }
+
+  /**
+   * Generate DROP INDEX statement
+   * Default implementation - may need override for MySQL (requires ON table)
+   */
+  dropIndex(_target: TableRef, indexName: string, ifExists?: boolean): string {
+    const ifExistsClause = ifExists ? 'IF EXISTS ' : '';
+    // PostgreSQL/SQLite style - index name only
+    // MySQL requires: DROP INDEX name ON table
+    return `DROP INDEX ${ifExistsClause}${this.quoteIdentifier(indexName)}`;
+  }
+
+  /**
+   * Generate RENAME INDEX statement
+   * PostgreSQL style - override for other dialects
+   */
+  renameIndex(_target: TableRef, oldName: string, newName: string): string {
+    return `ALTER INDEX ${this.quoteIdentifier(oldName)} RENAME TO ${this.quoteIdentifier(newName)}`;
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Trigger DDL Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Generate CREATE TRIGGER statement
+   * Default implementation for PostgreSQL-style syntax
+   * Override for MySQL, SQLite, SQL Server (very different syntax)
+   */
+  createTrigger(target: TableRef, definition: TriggerDefinitionInput): string {
+    const table = this.formatTableRef(target);
+    const triggerName = this.quoteIdentifier(definition.name);
+    const timing = definition.timing;
+    const events = definition.events.join(' OR ');
+    const level = definition.level || 'STATEMENT';
+
+    let sql = `CREATE TRIGGER ${triggerName} ${timing} ${events} ON ${table}`;
+
+    // FOR EACH ROW or FOR EACH STATEMENT
+    sql += ` FOR EACH ${level}`;
+
+    // WHEN condition (PostgreSQL)
+    if (definition.condition) {
+      sql += ` WHEN (${definition.condition})`;
+    }
+
+    // EXECUTE FUNCTION (PostgreSQL style)
+    sql += ` EXECUTE FUNCTION ${definition.functionName}()`;
+
+    return sql;
+  }
+
+  /**
+   * Generate DROP TRIGGER statement
+   * PostgreSQL style - override for MySQL (no ON table), SQL Server
+   */
+  dropTrigger(target: TableRef, triggerName: string, ifExists?: boolean): string {
+    const table = this.formatTableRef(target);
+    const ifExistsClause = ifExists ? 'IF EXISTS ' : '';
+    // PostgreSQL requires ON table
+    return `DROP TRIGGER ${ifExistsClause}${this.quoteIdentifier(triggerName)} ON ${table}`;
+  }
+
+  /**
+   * Generate ENABLE/DISABLE TRIGGER statement
+   * PostgreSQL style - override for SQL Server, not supported in MySQL/SQLite
+   */
+  toggleTrigger(target: TableRef, triggerName: string, enable: boolean): string {
+    const table = this.formatTableRef(target);
+    const action = enable ? 'ENABLE' : 'DISABLE';
+    return `ALTER TABLE ${table} ${action} TRIGGER ${this.quoteIdentifier(triggerName)}`;
+  }
+
+  /**
+   * Format a column definition for DDL statements
+   */
+  protected formatColumnDefinition(column: ColumnDefinitionInput): string {
+    const parts: string[] = [
+      this.quoteIdentifier(column.name),
+      column.dataType || 'text',
+    ];
+
+    if (column.nullable === false) {
+      parts.push('NOT NULL');
+    }
+
+    if (column.defaultValue !== undefined && column.defaultValue !== null) {
+      parts.push(`DEFAULT ${this.formatValue(column.defaultValue, { name: column.name })}`);
+    }
+
+    if (column.isPrimaryKey) {
+      parts.push('PRIMARY KEY');
+    }
+
+    if (column.isUnique && !column.isPrimaryKey) {
+      parts.push('UNIQUE');
+    }
+
+    if (column.checkExpression) {
+      parts.push(`CHECK (${column.checkExpression})`);
+    }
+
+    return parts.join(' ');
   }
 
   // Abstract methods - must be implemented by each dialect
