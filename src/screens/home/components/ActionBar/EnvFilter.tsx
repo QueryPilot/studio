@@ -1,4 +1,3 @@
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useHomeScreenStore } from '../../store/homeScreenStore';
 
@@ -17,7 +16,7 @@ export function EnvFilter() {
   const toggleEnvFilter = useHomeScreenStore((s) => s.toggleEnvFilter);
 
   return (
-    <div className="flex flex-col gap-0.5 p-2">
+    <div className="flex flex-col gap-0.5 px-1.5 py-1">
       {ENV_FILTERS.map((env) => {
         const isActive =
           env.key === 'all'
@@ -25,21 +24,33 @@ export function EnvFilter() {
             : activeEnvFilters.includes(env.key);
 
         return (
-          <Button
+          <button
             key={env.key}
-            variant="ghost"
-            size="sm"
+            type="button"
             className={cn(
-              'justify-start gap-2 h-7',
-              isActive && 'bg-accent'
+              'group flex items-center gap-2.5 h-8 px-2.5 w-full rounded-lg text-left',
+              'transition-all duration-150 ease-out',
+              'text-muted-foreground hover:text-foreground',
+              'hover:bg-foreground/[0.06]',
+              isActive && 'bg-foreground/[0.08] text-foreground'
             )}
             onClick={() => toggleEnvFilter(env.key)}
           >
             <div
-              className={cn('h-2.5 w-2.5 rounded-full flex-shrink-0', env.color)}
+              className={cn(
+                'h-2 w-2 rounded-full flex-shrink-0 transition-all duration-150',
+                env.color,
+                'group-hover:scale-110',
+                isActive && 'scale-125'
+              )}
             />
-            <span className="text-xs">{env.label}</span>
-          </Button>
+            <span className={cn(
+              'text-[13px] transition-all duration-150',
+              isActive && 'font-medium'
+            )}>
+              {env.label}
+            </span>
+          </button>
         );
       })}
     </div>

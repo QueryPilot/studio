@@ -24,10 +24,10 @@
 
 ## Data Features
 
-- [Data Grid V2](./data-grid-v2.spec.md) - Table viewer
 - [Data Query](./data-query.spec.md) - Query execution
 - [Index Usage](./index_usage.spec.md) - Index stats
 - [Data Invalidation Testing](./data-invalidation-testing-guide.md) - Cache testing
+- [DataGrid Improvement Plan](./datagrid-improvement-plan.md) - DataGrid roadmap
 
 ## ERD & DBML
 
@@ -45,4 +45,4 @@
 - [CI/CD](./ci.spec.md) - Build pipeline
 - [Sentry](../SENTRY.md) - Error tracking & telemetry
 
-**Last Updated**: 2025-12-11
+**Last Updated**: 2025-12-27
