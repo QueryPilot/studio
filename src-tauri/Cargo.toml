@@ -65,6 +65,9 @@ regex = "1.10"
 dirs = "5.0"
 rayon = "1.8"  # Parallel processing for row conversion
 moka = { version = "0.12", features = ["sync"] }  # LRU cache for prepared statements
+bumpalo = { version = "3.14", features = ["collections"] }  # Arena allocator for batch encoding
+ryu = "1.0"  # Fast float-to-string conversion
+itoa = "1.0"  # Fast integer-to-string conversion
 
 # SSH
 ssh2 = { version = "0.9.5", features = ["vendored-openssl"] }  # Primary SSH library with libssh2 v1.11.1 (supports modern key types)
