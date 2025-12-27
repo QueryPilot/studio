@@ -766,10 +766,6 @@ export const QueryPanel = memo(function QueryPanel({
     }
   }, [isExecuting, result]);
 
-  const focusEditor = useCallback(() => {
-    editorRef.current?.focus();
-  }, []);
-
   // Subscribe to event bus for keyboard shortcuts
   // Track if this panel is focused using a ref to avoid re-subscribing
   const isFocusedRef = useRef(false);
@@ -907,7 +903,6 @@ export const QueryPanel = memo(function QueryPanel({
                     showHistory={showHistory}
                     showResults={showResults}
                     viewMode={viewMode}
-                    appliedLimit={appliedLimit?.limit}
                     focused={isPanelFocused}
                     dialect={selectedDialect}
                     detectedDialect={detectedDialect}
@@ -919,7 +914,6 @@ export const QueryPanel = memo(function QueryPanel({
                     onToggleResults={toggleResults}
                     onViewModeChange={setViewMode}
                     onDialectChange={setSelectedDialect}
-                    onFocusEditor={focusEditor}
                   />
                   </div>
                 </div>

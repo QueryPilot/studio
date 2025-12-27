@@ -38,7 +38,7 @@ interface PreferencesState {
 export const usePreferencesStore = create<PreferencesState>()(
   persist(
     (set) => ({
-      smartQueryLimit: 500, // Default: 500 rows
+      smartQueryLimit: null, // Default: no limit
       setSmartQueryLimit: (limit) => {
         set({ smartQueryLimit: limit });
       },

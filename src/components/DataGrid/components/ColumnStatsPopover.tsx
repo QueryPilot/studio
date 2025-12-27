@@ -30,15 +30,16 @@ export const ColumnStatsPopover = memo(function ColumnStatsPopover({
   const nullPercentage = formatPercentage(stats.nullCount, stats.totalRows);
 
   // Create a virtual trigger element at the bounds position
+  // Use fixed positioning since bounds from Glide are in viewport coordinates
+  // This component should be rendered outside any transformed containers
   const triggerStyle = useMemo(
     () => ({
       position: "fixed" as const,
-      left: `${bounds.x}px`,
-      top: `${bounds.y}px`,
-      width: `${bounds.width}px`,
-      height: `${bounds.height}px`,
+      left: bounds.x,
+      top: bounds.y + bounds.height,
+      width: bounds.width,
+      height: 0,
       pointerEvents: "none" as const,
-      opacity: 0,
     }),
     [bounds],
   );

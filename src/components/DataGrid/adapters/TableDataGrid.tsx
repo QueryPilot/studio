@@ -1293,6 +1293,22 @@ export const TableDataGrid = memo(function TableDataGrid(
     [handleCellHovered, handleStatsHover],
   );
 
+  // Wrap header context menu handler to close stats popover when menu opens
+  const handleHeaderContextMenuWithClearStats = useCallback(
+    (
+      colIndex: number,
+      event: {
+        bounds: { x: number; y: number; width: number; height: number };
+        preventDefault: () => void;
+      },
+    ) => {
+      // Clear stats popover before opening context menu to avoid z-index conflicts
+      clearStats();
+      handleHeaderContextMenu(colIndex, event);
+    },
+    [handleHeaderContextMenu, clearStats],
+  );
+
   // Memoize clipboard callbacks to prevent recreation on every render
   const toTextCallback = useCallback(
     (selection: GridSelection) => {
@@ -2182,6 +2198,8 @@ export const TableDataGrid = memo(function TableDataGrid(
             onAddRow={undefined}
             onInsertRowAbove={undefined}
             onInsertRowBelow={isTableMode ? handleInsertRowBelow : undefined}
+            disabled={menuState.isOpen}
+            onOpen={clearStats}
             onDeleteRows={
               isTableMode
                 ? () => {
@@ -2253,7 +2271,7 @@ export const TableDataGrid = memo(function TableDataGrid(
               getRowThemeOverride={getRowThemeOverride}
               highlightRegions={cellHighlightRegions}
               drawHeader={drawHeader}
-              onHeaderContextMenu={handleHeaderContextMenu}
+              onHeaderContextMenu={handleHeaderContextMenuWithClearStats}
               onItemHovered={handleItemHovered}
               drawCell={drawCellWithHoverIcons}
             />
@@ -2306,20 +2324,6 @@ export const TableDataGrid = memo(function TableDataGrid(
           />
         )}
 
-        {/* Column Stats Popover - shows statistics on header hover */}
-        {statsState && (
-          <ColumnStatsPopover
-            open={true}
-            onOpenChange={(open) => {
-              if (!open) {
-                clearStats();
-              }
-            }}
-            columnName={statsState.columnName}
-            stats={statsState.stats}
-            bounds={statsState.bounds}
-          />
-        )}
       </div>
 
       <DataGridStatusBar
@@ -2378,6 +2382,22 @@ export const TableDataGrid = memo(function TableDataGrid(
           }}
           position={menuState.position}
           {...contextMenuProps}
+        />
+      )}
+
+      {/* Column Stats Popover - shows statistics on header hover */}
+      {/* Rendered outside container to use fixed positioning with viewport coordinates */}
+      {statsState && (
+        <ColumnStatsPopover
+          open={true}
+          onOpenChange={(open) => {
+            if (!open) {
+              clearStats();
+            }
+          }}
+          columnName={statsState.columnName}
+          stats={statsState.stats}
+          bounds={statsState.bounds}
         />
       )}
     </div>
