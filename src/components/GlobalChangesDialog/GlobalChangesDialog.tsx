@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   IconPencil,
   IconPlus,
@@ -86,7 +87,8 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
   // Get connection for database type
   const { getConnection } = useConnectionStore();
   const connection = getConnection(connectionId);
-  const dbType: DbType = (connection?.profile?.db_type as DbType) ?? DbType.PostgreSQL;
+  const dbType: DbType =
+    (connection?.profile?.db_type as DbType) ?? DbType.PostgreSQL;
 
   // Validation store for checking errors
   const { canCommit } = useValidationStore();
@@ -113,7 +115,15 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
       }
       return true;
     });
-  }, [stagedCommands, isTableSpecific, connectionId, database, schema, table, getTableKey]);
+  }, [
+    stagedCommands,
+    isTableSpecific,
+    connectionId,
+    database,
+    schema,
+    table,
+    getTableKey,
+  ]);
 
   // Group commands by row ID only, preserving user edit order
   const groupedByRow = useMemo(() => {
@@ -287,7 +297,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
       await navigator.clipboard.writeText(generatedSQL);
       setCopiedSql(true);
       toast.success("SQL copied to clipboard");
-      setTimeout(() => setCopiedSql(false), 2000);
+      setTimeout(() => {
+        setCopiedSql(false);
+      }, 2000);
     } catch {
       toast.error("Failed to copy SQL");
     }
@@ -367,10 +379,14 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
       }
     } catch (error) {
       logger.error("❌ Commit failed:", error);
-      const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error occurred";
 
       // Check for conflict detection error - show inline alert instead of toast
-      if (errorMessage.includes("modified by another user") || errorMessage.includes("CONFLICT")) {
+      if (
+        errorMessage.includes("modified by another user") ||
+        errorMessage.includes("CONFLICT")
+      ) {
         setConflictError(errorMessage);
         // Don't close dialog - let user choose Override or Refresh
       } else {
@@ -392,7 +408,12 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     try {
       // Get current staged commands and create NEW commands without oldValue
       const tableKey = isTableSpecific
-        ? getTableKey({ connectionId, database: database!, schema, table: table! })
+        ? getTableKey({
+            connectionId,
+            database: database,
+            schema,
+            table: table,
+          })
         : null;
 
       // Helper to strip oldValue from a command (creates new object)
@@ -410,7 +431,8 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
       };
 
       // Update staged commands in store with oldValue removed
-      const { stageCommands, discardChanges: discardTableChanges } = useCrudStore.getState();
+      const { stageCommands, discardChanges: discardTableChanges } =
+        useCrudStore.getState();
 
       if (isTableSpecific && tableKey) {
         const originalCommands = stagedCommands.get(tableKey) ?? [];
@@ -426,10 +448,12 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         await new Promise((resolve) => setTimeout(resolve, 100));
 
         const { invalidateTable } = useDataInvalidationStore.getState();
-        invalidateTable(connectionId, database!, schema, table!);
+        invalidateTable(connectionId, database, schema, table);
 
         toast.success("Changes force-committed", {
-          description: `Overwrote with your changes (${result.committed.length} change${result.committed.length === 1 ? "" : "s"})`,
+          description: `Overwrote with your changes (${
+            result.committed.length
+          } change${result.committed.length === 1 ? "" : "s"})`,
         });
       } else {
         // For workspace-wide, process each table
@@ -475,7 +499,12 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
   const handleRefreshAndDiscard = () => {
     // Discard staged changes
     if (isTableSpecific) {
-      const tableKey = getTableKey({ connectionId, database: database!, schema, table: table! });
+      const tableKey = getTableKey({
+        connectionId,
+        database: database,
+        schema,
+        table: table,
+      });
       discardChanges(tableKey);
     } else {
       discardAll();
@@ -484,7 +513,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     // Invalidate to trigger refetch
     const { invalidateTable } = useDataInvalidationStore.getState();
     if (isTableSpecific) {
-      invalidateTable(connectionId, database!, schema, table!);
+      invalidateTable(connectionId, database, schema, table);
     } else {
       connectionCommands.forEach(([tk]) => {
         const parts = tk.split(":");
@@ -553,13 +582,19 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
 
         {/* Conflict Alert */}
         {conflictError && (
-          <Alert variant="destructive" className="border-destructive/50 bg-destructive/10">
+          <Alert
+            variant="destructive"
+            className="border-destructive/50 bg-destructive/10"
+          >
             <IconAlertTriangle className="h-4 w-4" />
-            <AlertTitle className="text-sm font-semibold">Conflict Detected</AlertTitle>
+            <AlertTitle className="text-sm font-semibold">
+              Conflict Detected
+            </AlertTitle>
             <AlertDescription className="text-xs">
               <p className="mb-3">
-                The row was modified by another user or process since you started editing.
-                You can either override with your changes or refresh to see the latest data.
+                The row was modified by another user or process since you
+                started editing. You can either override with your changes or
+                refresh to see the latest data.
               </p>
               <div className="flex gap-2">
                 <Button
@@ -594,10 +629,8 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
         {/* Debug info */}
         {process.env.NODE_ENV === "development" && (
           <div className="text-[10px] text-muted-foreground bg-muted/30 p-2 rounded font-mono">
-            Tables: {connectionCommands.length} |
-            Rows: {groupedByRow.length} |
-            Total: {totalSummary.total} |
-            SQL: {generatedSQL.length} chars
+            Tables: {connectionCommands.length} | Rows: {groupedByRow.length} |
+            Total: {totalSummary.total} | SQL: {generatedSQL.length} chars
           </div>
         )}
 
@@ -654,88 +687,84 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
           </div>
         </div>
 
-        {/* View Mode Toggle */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1 rounded-lg border bg-muted/50 p-1">
-            <Button
-              variant={viewMode === "changes" ? "default" : "ghost"}
-              size="sm"
-              className="h-7 px-3 text-xs"
-              onClick={() => setViewMode("changes")}
-            >
-              <IconList className="h-3.5 w-3.5 mr-1.5" />
-              Changes
-            </Button>
-            <Button
-              variant={viewMode === "sql" ? "default" : "ghost"}
-              size="sm"
-              className="h-7 px-3 text-xs"
-              onClick={() => setViewMode("sql")}
-            >
-              <IconCode className="h-3.5 w-3.5 mr-1.5" />
-              SQL
-            </Button>
+        {/* View Mode Tabs */}
+        <Tabs
+          value={viewMode}
+          onValueChange={(value) => setViewMode(value as "changes" | "sql")}
+          className="flex-1 flex flex-col min-h-0"
+        >
+          <div className="flex items-center justify-between">
+            <TabsList size="sm">
+              <TabsTrigger value="changes" size="sm">
+                <IconList className="h-3.5 w-3.5" />
+                Changes
+              </TabsTrigger>
+              <TabsTrigger value="sql" size="sm">
+                <IconCode className="h-3.5 w-3.5" />
+                SQL
+              </TabsTrigger>
+            </TabsList>
+
+            {viewMode === "sql" && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={handleCopySQL}
+              >
+                {copiedSql ? (
+                  <>
+                    <IconCheck className="h-3.5 w-3.5 mr-1.5 text-green-500" />
+                    Copied
+                  </>
+                ) : (
+                  <>
+                    <IconCopy className="h-3.5 w-3.5 mr-1.5" />
+                    Copy SQL
+                  </>
+                )}
+              </Button>
+            )}
           </div>
 
-          {viewMode === "sql" && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs"
-              onClick={handleCopySQL}
-            >
-              {copiedSql ? (
-                <>
-                  <IconCheck className="h-3.5 w-3.5 mr-1.5 text-green-500" />
-                  Copied
-                </>
-              ) : (
-                <>
-                  <IconCopy className="h-3.5 w-3.5 mr-1.5" />
-                  Copy SQL
-                </>
-              )}
-            </Button>
-          )}
-        </div>
+          {/* Changes List - Grouped by Row ID */}
+          <TabsContent value="changes" className="flex-1 min-h-0 mt-0">
+            <ScrollArea className="h-full min-h-[200px] max-h-[50vh]">
+              <div className="space-y-2 px-1">
+                {groupedByRow.length === 0 ? (
+                  <div className="text-sm text-muted-foreground text-center py-8">
+                    No changes to display
+                  </div>
+                ) : (
+                  groupedByRow.map((row, index) => (
+                    <RowChangesCard
+                      key={row.rowKey}
+                      row={row}
+                      index={index}
+                      onUndo={handleUndoRow}
+                    />
+                  ))
+                )}
+              </div>
+            </ScrollArea>
+          </TabsContent>
 
-        {/* Changes List - Grouped by Row ID */}
-        {viewMode === "changes" && (
-          <ScrollArea className="flex-1 h-0 min-h-[200px] max-h-[50vh]">
-            <div className="space-y-2 px-1">
-              {groupedByRow.length === 0 ? (
-                <div className="text-sm text-muted-foreground text-center py-8">
-                  No changes to display
-                </div>
-              ) : (
-                groupedByRow.map((row, index) => (
-                  <RowChangesCard
-                    key={row.rowKey}
-                    row={row}
-                    index={index}
-                    onUndo={handleUndoRow}
-                  />
-                ))
-              )}
+          {/* SQL Preview */}
+          <TabsContent value="sql" className="flex-1 min-h-0 mt-0">
+            <div className="h-full min-h-[200px] max-h-[50vh] rounded-lg border overflow-hidden">
+              <CodeEditor
+                value={generatedSQL || "-- No SQL generated"}
+                readOnly={true}
+                language="sql"
+                dialect={dbTypeToDialect[dbType]}
+                lineNumbers={true}
+                height="100%"
+                minHeight="200px"
+                maxHeight="50vh"
+              />
             </div>
-          </ScrollArea>
-        )}
-
-        {/* SQL Preview */}
-        {viewMode === "sql" && (
-          <div className="flex-1 min-h-[200px] max-h-[50vh] rounded-lg border overflow-hidden mx-1">
-            <CodeEditor
-              value={generatedSQL || "-- No SQL generated"}
-              readOnly={true}
-              language="sql"
-              dialect={dbTypeToDialect[dbType]}
-              lineNumbers={true}
-              height="100%"
-              minHeight="200px"
-              maxHeight="50vh"
-            />
-          </div>
-        )}
+          </TabsContent>
+        </Tabs>
 
         <Separator />
 
@@ -751,7 +780,8 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
               {Object.keys(validationStatus.tableErrors).length === 1
                 ? "table"
                 : "tables"}
-              : {Object.entries(validationStatus.tableErrors)
+              :{" "}
+              {Object.entries(validationStatus.tableErrors)
                 .map(([table, count]) => `${table} (${count})`)
                 .join(", ")}
             </AlertDescription>
@@ -783,7 +813,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
             disabled={isCommitting || !validationStatus.canCommitAll}
             title={
               !validationStatus.canCommitAll
-                ? `Fix ${validationStatus.totalErrors} validation error${validationStatus.totalErrors === 1 ? "" : "s"} before committing`
+                ? `Fix ${validationStatus.totalErrors} validation error${
+                    validationStatus.totalErrors === 1 ? "" : "s"
+                  } before committing`
                 : undefined
             }
           >
@@ -1002,7 +1034,7 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
       rowKey: row.rowKey,
       tableName: row.tableName,
       commandCount: row.commands.length,
-      commandTypes: row.commands.map(c => c.type),
+      commandTypes: row.commands.map((c) => c.type),
     });
   }
 
@@ -1085,52 +1117,54 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
           <div className="p-3 text-muted-foreground italic">
             Unable to display diff for {row.commands.length} command(s):
             {row.commands.map((c, i) => (
-              <span key={i} className="ml-2 text-xs font-mono">{c.type}</span>
+              <span key={i} className="ml-2 text-xs font-mono">
+                {c.type}
+              </span>
             ))}
           </div>
         ) : (
-        <ReactDiffViewer
-          oldValue={old}
-          newValue={newVal}
-          splitView={true}
-          hideLineNumbers={true}
-          showDiffOnly={false}
-          useDarkTheme={resolvedTheme === "dark"}
-          styles={{
-            variables: {
-              light: {
-                diffViewerBackground: "#fafafa",
-                addedBackground: "#e6ffec",
-                addedColor: "#24292e",
-                removedBackground: "#ffeef0",
-                removedColor: "#24292e",
-                wordAddedBackground: "#acf2bd",
-                wordRemovedBackground: "#fdb8c0",
-                addedGutterBackground: "#cdffd8",
-                removedGutterBackground: "#ffdce0",
-                gutterBackground: "#f5f5f5",
-                gutterBackgroundDark: "#eeeeee",
-                highlightBackground: "#fffbdd",
-                highlightGutterBackground: "#fff5b1",
+          <ReactDiffViewer
+            oldValue={old}
+            newValue={newVal}
+            splitView={true}
+            hideLineNumbers={true}
+            showDiffOnly={false}
+            useDarkTheme={resolvedTheme === "dark"}
+            styles={{
+              variables: {
+                light: {
+                  diffViewerBackground: "#fafafa",
+                  addedBackground: "#e6ffec",
+                  addedColor: "#24292e",
+                  removedBackground: "#ffeef0",
+                  removedColor: "#24292e",
+                  wordAddedBackground: "#acf2bd",
+                  wordRemovedBackground: "#fdb8c0",
+                  addedGutterBackground: "#cdffd8",
+                  removedGutterBackground: "#ffdce0",
+                  gutterBackground: "#f5f5f5",
+                  gutterBackgroundDark: "#eeeeee",
+                  highlightBackground: "#fffbdd",
+                  highlightGutterBackground: "#fff5b1",
+                },
+                dark: {
+                  diffViewerBackground: "#1e1e1e",
+                  addedBackground: "#044B53",
+                  addedColor: "#e6ffec",
+                  removedBackground: "#5A1E1E",
+                  removedColor: "#ffeef0",
+                  wordAddedBackground: "#055d67",
+                  wordRemovedBackground: "#7d2727",
+                  addedGutterBackground: "#033e47",
+                  removedGutterBackground: "#4b1818",
+                  gutterBackground: "#2d2d2d",
+                  gutterBackgroundDark: "#262626",
+                  highlightBackground: "#3d3d00",
+                  highlightGutterBackground: "#4d4d00",
+                },
               },
-              dark: {
-                diffViewerBackground: "#1e1e1e",
-                addedBackground: "#044B53",
-                addedColor: "#e6ffec",
-                removedBackground: "#5A1E1E",
-                removedColor: "#ffeef0",
-                wordAddedBackground: "#055d67",
-                wordRemovedBackground: "#7d2727",
-                addedGutterBackground: "#033e47",
-                removedGutterBackground: "#4b1818",
-                gutterBackground: "#2d2d2d",
-                gutterBackgroundDark: "#262626",
-                highlightBackground: "#3d3d00",
-                highlightGutterBackground: "#4d4d00",
-              },
-            },
-          }}
-        />
+            }}
+          />
         )}
       </div>
     </div>
