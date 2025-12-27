@@ -43,7 +43,7 @@ export function HomeScreen() {
   }, [openConnectionForm]);
 
   return (
-    <div className="relative h-screen flex flex-col bg-secondary">
+    <div className="relative h-screen flex flex-col bg-sidebar">
       {/* Drag region - top bar */}
       <div
         data-tauri-drag-region
@@ -52,8 +52,8 @@ export function HomeScreen() {
 
       {/* Main layout */}
       <div className="flex-1 flex overflow-hidden relative z-10">
-        {/* Left Action Bar - fixed width */}
-        <div className="w-64 pt-6">
+        {/* Left Sidebar - Navigation Hub */}
+        <div className="w-[280px] pt-6 flex-shrink-0">
           <ActionBar />
         </div>
 
