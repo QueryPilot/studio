@@ -787,28 +787,28 @@ export function WorkspaceTitleBar({
       <div className="flex items-center gap-2 pl-20">
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           onClick={handleGoHome}
           title="Go to home"
         >
-          <IconHome />
+          <IconHome className="!size-4" />
         </Button>
 
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           onClick={handleReload}
           title="Reload workspace"
         >
-          <IconRefresh />
+          <IconRefresh className="!size-4" />
         </Button>
 
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           title="Connection security"
         >
-          <IconLock />
+          <IconLock className="!size-4" />
         </Button>
 
         <Popover
@@ -822,11 +822,11 @@ export function WorkspaceTitleBar({
             render={
               <Button
                 variant="ghost"
-                size="icon"
+                size="icon-sm"
                 title="Select database"
                 disabled={isLoadingDatabases}
               >
-                <IconDatabase />
+                <IconDatabase className="!size-4" />
               </Button>
             }
           />
@@ -1004,12 +1004,12 @@ export function WorkspaceTitleBar({
                 render={
                   <Button
                     variant="ghost"
-                    size="icon-xs"
+                    size="icon-sm"
                     onClick={undo}
                     disabled={!canUndo}
                     title="Undo"
                   >
-                    <IconArrowBackUp />
+                    <IconArrowBackUp className="!size-4" />
                   </Button>
                 }
               />
@@ -1023,12 +1023,12 @@ export function WorkspaceTitleBar({
                 render={
                   <Button
                     variant="ghost"
-                    size="icon-xs"
+                    size="icon-sm"
                     onClick={redo}
                     disabled={!canRedo}
                     title="Redo"
                   >
-                    <IconArrowForwardUp />
+                    <IconArrowForwardUp className="!size-4" />
                   </Button>
                 }
               />
@@ -1054,18 +1054,18 @@ export function WorkspaceTitleBar({
         )}
       </div>
 
-      {/* Center Section - Absolute positioning for true center */}
-      <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-2 text-xs max-w-[50%] min-w-0 select-none">
+      {/* Center Section - Absolute positioning for true center, shrinks when space is limited */}
+      <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-1.5 text-xs max-w-[40%] min-w-0 select-none">
         {/* IconDatabase Name with Type */}
         <div
-          className="flex items-center gap-1.5 min-w-0 flex-shrink"
+          className="flex items-center gap-1 min-w-0 flex-shrink"
           data-tauri-drag-region
         >
           <span className="font-medium text-xs truncate" data-tauri-drag-region>
             {selectedDatabase || connection?.database || "Loading..."}
           </span>
           <span
-            className="text-muted-foreground whitespace-nowrap hidden sm:inline"
+            className="text-muted-foreground whitespace-nowrap hidden lg:inline text-[10px]"
             data-tauri-drag-region
           >
             {connection?.db_type}
@@ -1073,12 +1073,12 @@ export function WorkspaceTitleBar({
           </span>
         </div>
 
-        {/* Connection Details - Hidden on small screens */}
+        {/* Connection Details - Hidden on smaller screens */}
         {connection?.host && (
           <>
-            <div className="h-3 w-px bg-border flex-shrink-0 hidden md:block" />
+            <div className="h-3 w-px bg-border flex-shrink-0 hidden xl:block" />
             <span
-              className="text-muted-foreground truncate min-w-0 hidden md:inline"
+              className="text-muted-foreground truncate min-w-0 hidden xl:inline text-[10px]"
               data-tauri-drag-region
             >
               {connection.host}:{connection.port}
@@ -1131,33 +1131,33 @@ export function WorkspaceTitleBar({
       <div className="flex items-center gap-2 pr-3">
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           onClick={handleOpenErd}
           title="Open ERD"
         >
-          <IconSitemap />
+          <IconSitemap className="!size-4" />
         </Button>
 
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           onClick={() => {
             onToggleSidebar("left");
           }}
           title="Toggle left sidebar"
         >
-          <IconLayoutSidebar />
+          <IconLayoutSidebar className="!size-4" />
         </Button>
 
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           onClick={() => {
             onToggleSidebar("right");
           }}
           title="Toggle right sidebar"
         >
-          <IconRobot />
+          <IconRobot className="!size-4" />
         </Button>
 
         {/* IconSettings Dropdown - Now at the far right */}
@@ -1166,10 +1166,10 @@ export function WorkspaceTitleBar({
             render={
               <Button
                 variant="ghost"
-                size="icon"
+                size="icon-sm"
                 title="Settings"
               >
-                <IconSettings />
+                <IconSettings className="!size-4" />
               </Button>
             }
           />

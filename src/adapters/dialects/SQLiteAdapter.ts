@@ -10,6 +10,7 @@
  */
 
 import { DbType } from '@/types/connection';
+import type { ColumnDefinitionInput } from '@/types/crud';
 import { SqlAdapter } from '../base/SqlAdapter';
 import type { ColumnInfo, TableRef, InsertOptions, RowData, WhereClause } from '../types';
 import { quoteIdentifier as sharedQuoteIdentifier } from '../formatting';
@@ -186,5 +187,93 @@ export class SQLiteAdapter extends SqlAdapter {
     }
 
     return `BEGIN TRANSACTION;\n${statements.join(';\n')};\nCOMMIT;`;
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // DDL Operations - SQLite has limited ALTER TABLE support
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * SQLite ADD COLUMN - simplified (SQLite doesn't support all constraints inline)
+   */
+  addColumn(target: TableRef, column: ColumnDefinitionInput): string {
+    const table = this.formatTableRef(target);
+    const parts: string[] = [
+      this.quoteIdentifier(column.name),
+      column.dataType || 'TEXT',
+    ];
+
+    // SQLite ADD COLUMN has restrictions on what can be specified
+    if (column.defaultValue !== undefined && column.defaultValue !== null) {
+      parts.push(`DEFAULT ${this.formatValue(column.defaultValue, { name: column.name })}`);
+    }
+
+    // NOT NULL requires a default value in SQLite ADD COLUMN
+    if (column.nullable === false && column.defaultValue !== undefined) {
+      parts.push('NOT NULL');
+    }
+
+    return `ALTER TABLE ${table} ADD COLUMN ${parts.join(' ')}`;
+  }
+
+  /**
+   * SQLite doesn't support MODIFY COLUMN - requires table recreation
+   * Return a comment explaining this limitation
+   */
+  modifyColumn(
+    _target: TableRef,
+    columnName: string,
+    _changes: Partial<ColumnDefinitionInput>
+  ): string {
+    // SQLite doesn't support modifying column definitions
+    // This would require recreating the table
+    return `-- SQLite does not support ALTER COLUMN for "${columnName}". Table recreation required.`;
+  }
+
+  /**
+   * SQLite 3.35+ supports DROP COLUMN
+   */
+  dropColumn(target: TableRef, columnName: string, _cascade?: boolean): string {
+    const table = this.formatTableRef(target);
+    // SQLite doesn't support CASCADE
+    return `ALTER TABLE ${table} DROP COLUMN ${this.quoteIdentifier(columnName)}`;
+  }
+
+  /**
+   * SQLite 3.25+ supports RENAME COLUMN
+   */
+  renameColumn(target: TableRef, oldName: string, newName: string): string {
+    const table = this.formatTableRef(target);
+    return `ALTER TABLE ${table} RENAME COLUMN ${this.quoteIdentifier(oldName)} TO ${this.quoteIdentifier(newName)}`;
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Index DDL Operations - SQLite syntax
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * SQLite doesn't support RENAME INDEX - requires drop and recreate
+   */
+  renameIndex(_target: TableRef, oldName: string, _newName: string): string {
+    return `-- SQLite does not support RENAME INDEX. Drop "${oldName}" and recreate with new name.`;
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Trigger DDL Operations - SQLite syntax
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * SQLite DROP TRIGGER doesn't use ON table
+   */
+  dropTrigger(_target: TableRef, triggerName: string, ifExists?: boolean): string {
+    const ifExistsClause = ifExists ? 'IF EXISTS ' : '';
+    return `DROP TRIGGER ${ifExistsClause}${this.quoteIdentifier(triggerName)}`;
+  }
+
+  /**
+   * SQLite doesn't support ENABLE/DISABLE TRIGGER
+   */
+  toggleTrigger(_target: TableRef, _triggerName: string, _enable: boolean): string {
+    return '-- SQLite does not support ENABLE/DISABLE TRIGGER';
   }
 }

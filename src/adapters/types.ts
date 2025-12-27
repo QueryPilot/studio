@@ -7,6 +7,11 @@
 
 import type { DbType } from '@/types/connection';
 import type { ColumnMeta } from '@/types/database';
+import type {
+  ColumnDefinitionInput,
+  IndexDefinitionInput,
+  TriggerDefinitionInput,
+} from '@/types/crud';
 
 /**
  * Query payload - SQL string for relational DBs, object for document/graph DBs
@@ -151,4 +156,97 @@ export interface DatabaseAdapter {
    * @param value - String to quote
    */
   quoteString(value: string): string;
+
+  // ─────────────────────────────────────────────────────────────────
+  // DDL Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Generate ADD COLUMN statement
+   * @param target - Table reference
+   * @param column - Column definition
+   */
+  addColumn(target: TableRef, column: ColumnDefinitionInput): QueryPayload;
+
+  /**
+   * Generate ALTER COLUMN statements for modifications
+   * @param target - Table reference
+   * @param columnName - Existing column name
+   * @param changes - Changed properties
+   */
+  modifyColumn(
+    target: TableRef,
+    columnName: string,
+    changes: Partial<ColumnDefinitionInput>
+  ): QueryPayload;
+
+  /**
+   * Generate DROP COLUMN statement
+   * @param target - Table reference
+   * @param columnName - Column to drop
+   * @param cascade - Whether to cascade
+   */
+  dropColumn(target: TableRef, columnName: string, cascade?: boolean): QueryPayload;
+
+  /**
+   * Generate RENAME COLUMN statement
+   * @param target - Table reference
+   * @param oldName - Current column name
+   * @param newName - New column name
+   */
+  renameColumn(target: TableRef, oldName: string, newName: string): QueryPayload;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Index DDL Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Generate CREATE INDEX statement
+   * @param target - Table reference
+   * @param definition - Index definition
+   */
+  createIndex(target: TableRef, definition: IndexDefinitionInput): QueryPayload;
+
+  /**
+   * Generate DROP INDEX statement
+   * @param target - Table reference
+   * @param indexName - Index name to drop
+   * @param ifExists - Whether to use IF EXISTS
+   */
+  dropIndex(target: TableRef, indexName: string, ifExists?: boolean): QueryPayload;
+
+  /**
+   * Generate RENAME INDEX statement
+   * @param target - Table reference
+   * @param oldName - Current index name
+   * @param newName - New index name
+   */
+  renameIndex(target: TableRef, oldName: string, newName: string): QueryPayload;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Trigger DDL Operations
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Generate CREATE TRIGGER statement
+   * @param target - Table reference
+   * @param definition - Trigger definition
+   */
+  createTrigger(target: TableRef, definition: TriggerDefinitionInput): QueryPayload;
+
+  /**
+   * Generate DROP TRIGGER statement
+   * @param target - Table reference
+   * @param triggerName - Trigger name to drop
+   * @param ifExists - Whether to use IF EXISTS
+   */
+  dropTrigger(target: TableRef, triggerName: string, ifExists?: boolean): QueryPayload;
+
+  /**
+   * Generate ENABLE/DISABLE TRIGGER statement
+   * @param target - Table reference
+   * @param triggerName - Trigger name
+   * @param enable - true to enable, false to disable
+   */
+  toggleTrigger(target: TableRef, triggerName: string, enable: boolean): QueryPayload;
 }

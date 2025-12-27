@@ -11,6 +11,7 @@
  */
 
 import { DbType } from '@/types/connection';
+import type { ColumnDefinitionInput } from '@/types/crud';
 import { SqlAdapter } from '../base/SqlAdapter';
 import type {
   ColumnInfo,
@@ -248,5 +249,145 @@ export class MSSQLAdapter extends SqlAdapter {
   protected formatLimit(_limit: number, _offset?: number): string {
     // Not used - handled in select() override
     return '';
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // DDL Operations - T-SQL syntax
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * MSSQL ADD - doesn't use COLUMN keyword
+   */
+  addColumn(target: TableRef, column: ColumnDefinitionInput): string {
+    const table = this.formatTableRef(target);
+    const parts: string[] = [
+      this.quoteIdentifier(column.name),
+      column.dataType || 'NVARCHAR(MAX)',
+    ];
+
+    if (column.nullable === false) {
+      parts.push('NOT NULL');
+    } else {
+      parts.push('NULL');
+    }
+
+    if (column.defaultValue !== undefined && column.defaultValue !== null) {
+      parts.push(`DEFAULT ${this.formatValue(column.defaultValue, { name: column.name })}`);
+    }
+
+    return `ALTER TABLE ${table} ADD ${parts.join(' ')}`;
+  }
+
+  /**
+   * MSSQL ALTER COLUMN syntax
+   */
+  modifyColumn(
+    target: TableRef,
+    columnName: string,
+    changes: Partial<ColumnDefinitionInput>
+  ): string {
+    const table = this.formatTableRef(target);
+    const colName = this.quoteIdentifier(columnName);
+    const statements: string[] = [];
+
+    // MSSQL ALTER COLUMN requires full type specification
+    if (changes.dataType) {
+      let alterStmt = `ALTER TABLE ${table} ALTER COLUMN ${colName} ${changes.dataType}`;
+      if (changes.nullable !== undefined) {
+        alterStmt += changes.nullable ? ' NULL' : ' NOT NULL';
+      }
+      statements.push(alterStmt);
+    } else if (changes.nullable !== undefined) {
+      // Need to specify type even when just changing nullability
+      // This is a limitation - in practice, you'd need to query the current type
+      statements.push(
+        `-- ALTER COLUMN for nullability requires datatype: ALTER TABLE ${table} ALTER COLUMN ${colName} <datatype> ${changes.nullable ? 'NULL' : 'NOT NULL'}`
+      );
+    }
+
+    // Default constraint requires ADD/DROP CONSTRAINT in MSSQL
+    if (changes.defaultValue !== undefined) {
+      if (changes.defaultValue === null) {
+        // Need constraint name to drop - this is a placeholder
+        statements.push(
+          `-- DROP DEFAULT requires constraint name: ALTER TABLE ${table} DROP CONSTRAINT DF_${columnName}`
+        );
+      } else {
+        statements.push(
+          `ALTER TABLE ${table} ADD DEFAULT ${this.formatValue(changes.defaultValue, { name: columnName })} FOR ${colName}`
+        );
+      }
+    }
+
+    return statements.join(';\n');
+  }
+
+  /**
+   * MSSQL DROP COLUMN
+   */
+  dropColumn(target: TableRef, columnName: string, _cascade?: boolean): string {
+    const table = this.formatTableRef(target);
+    // MSSQL doesn't support CASCADE - constraints must be dropped first
+    return `ALTER TABLE ${table} DROP COLUMN ${this.quoteIdentifier(columnName)}`;
+  }
+
+  /**
+   * MSSQL uses sp_rename for column renaming
+   */
+  renameColumn(target: TableRef, oldName: string, newName: string): string {
+    const fullTableName = target.schema
+      ? `${target.schema}.${target.table}`
+      : target.table;
+    // sp_rename syntax: sp_rename 'table.old_column', 'new_column', 'COLUMN'
+    return `EXEC sp_rename '${fullTableName}.${oldName}', '${newName}', 'COLUMN'`;
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Index DDL Operations - T-SQL syntax
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * MSSQL DROP INDEX uses ON table syntax
+   */
+  dropIndex(target: TableRef, indexName: string, _ifExists?: boolean): string {
+    const table = this.formatTableRef(target);
+    // MSSQL: DROP INDEX index_name ON table
+    // Note: IF EXISTS requires SQL Server 2016+
+    return `DROP INDEX ${this.quoteIdentifier(indexName)} ON ${table}`;
+  }
+
+  /**
+   * MSSQL uses sp_rename for index renaming
+   */
+  renameIndex(target: TableRef, oldName: string, newName: string): string {
+    const fullTableName = target.schema
+      ? `${target.schema}.${target.table}`
+      : target.table;
+    // sp_rename syntax: sp_rename 'table.old_index', 'new_index', 'INDEX'
+    return `EXEC sp_rename '${fullTableName}.${oldName}', '${newName}', 'INDEX'`;
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Trigger DDL Operations - T-SQL syntax
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * MSSQL DROP TRIGGER - different syntax, no ON table
+   */
+  dropTrigger(target: TableRef, triggerName: string, ifExists?: boolean): string {
+    const schema = target.schema || 'dbo';
+    const ifExistsClause = ifExists
+      ? `IF EXISTS (SELECT * FROM sys.triggers WHERE name = '${triggerName}') `
+      : '';
+    return `${ifExistsClause}DROP TRIGGER ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(triggerName)}`;
+  }
+
+  /**
+   * MSSQL uses ENABLE/DISABLE TRIGGER syntax (different from PostgreSQL)
+   */
+  toggleTrigger(target: TableRef, triggerName: string, enable: boolean): string {
+    const table = this.formatTableRef(target);
+    const action = enable ? 'ENABLE' : 'DISABLE';
+    return `${action} TRIGGER ${this.quoteIdentifier(triggerName)} ON ${table}`;
   }
 }

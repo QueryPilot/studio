@@ -88,21 +88,23 @@ export function FKPreviewPopover({
 
   return (
     <Popover open={open} onOpenChange={onOpenChange} modal={false}>
+      {/* Virtual trigger positioned at the cell location (viewport coordinates) */}
       <PopoverTrigger
         style={{
-          position: "absolute",
+          position: "fixed",
           left: cellBounds.x,
-          top: cellBounds.y + cellBounds.height,
+          top: cellBounds.y,
           width: cellBounds.width,
-          height: 0,
+          height: cellBounds.height,
           pointerEvents: "none",
         }}
       />
       <PopoverContent
-        className="w-[500px] max-w-[90vw] p-0"
+        className="w-[400px] p-0 bg-secondary gap-0"
         align="start"
-        side="bottom"
-        sideOffset={4}
+        side="right"
+        sideOffset={8}
+        alignOffset={-4}
       >
         <div className="border-b px-3 py-1.5 bg-muted/40 flex items-center justify-between gap-2">
           <div className="font-medium text-xs text-muted-foreground">
@@ -135,7 +137,7 @@ export function FKPreviewPopover({
           </div>
         </div>
 
-        <div className="max-h-[400px] overflow-y-auto p-2 bg-secondary">
+        <div className="max-h-[300px] overflow-y-auto p-2 bg-secondary">
           {isLoading && (
             <div className="space-y-2">
               {[...Array(5)].map((_, i) => (

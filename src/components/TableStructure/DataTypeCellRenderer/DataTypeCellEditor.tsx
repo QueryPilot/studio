@@ -7,7 +7,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { IconCheck } from '@tabler/icons-react';
+import { IconCheck } from "@tabler/icons-react";
 import { cn } from "@/lib/cn";
 
 interface DataTypeCellEditorProps {
@@ -25,7 +25,7 @@ const DataTypeCellEditor: React.FC<DataTypeCellEditorProps> = ({
   const customTypes = value.data.customTypes;
 
   const allTypes = useMemo(
-    () => [...POSTGRES_STANDARD_TYPES, ...(customTypes ?? [])],
+    () => [...new Set([...POSTGRES_STANDARD_TYPES, ...(customTypes ?? [])])],
     [customTypes],
   );
 
@@ -93,7 +93,7 @@ const DataTypeCellEditor: React.FC<DataTypeCellEditorProps> = ({
       </div>
 
       <div className="flex items-center flex-1">
-        <Command className="w-full border-0 shadow-none">
+        <Command className="w-full border-0 rounded-none shadow-none">
           <div className="flex items-center border-b">
             <CommandPrimitive.Input
               ref={inputRef}

@@ -1,5 +1,5 @@
 import { logger } from "@/lib/logger";
-import { memo, useMemo, useCallback, useState } from "react";
+import { memo, useMemo, useCallback, useState, useEffect } from "react";
 import {
   GridCellKind,
   type Item,
@@ -15,6 +15,7 @@ import { useColumnSizing } from "@/components/DataGrid/hooks/useColumnSizing";
 import { TextSingleLineCellRenderer } from "@/components/DataGrid/renderers/TextCell";
 import { NullableCellRenderer } from "./NullableCellRenderer";
 import { DataTypeCellRenderer } from "./DataTypeCellRenderer";
+import { ActionsCellRenderer } from "./ActionsCellRenderer";
 import { structureColumns } from "./columns";
 import { transformStructureToRows } from "./utils";
 import ColumnNameCellRenderer from "./ColumnNameCellRenderer";
@@ -31,8 +32,10 @@ import {
 import { TableActionsToolbar } from "@/components/shared/TableActionsToolbar";
 import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
 import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
+import { BatchActionsToolbar } from "./BatchActionsToolbar";
 import { toast } from "sonner";
 import type { CrudCommandTarget, ColumnAddPayload, ColumnDropPayload } from "@/types/crud";
+import { CompactSelection, type GridSelection } from "@glideapps/glide-data-grid";
 
 type AnyCell = CustomCell<Record<string, unknown>>;
 
@@ -73,6 +76,10 @@ export const TableStructure = memo(function TableStructure({
     null,
   );
   const [globalChangesDialogOpen, setGlobalChangesDialogOpen] = useState(false);
+  const [selection, setSelection] = useState<GridSelection>({
+    columns: CompactSelection.empty(),
+    rows: CompactSelection.empty(),
+  });
 
   const columns = useMemo(() => structure?.columns ?? [], [structure?.columns]);
   const foreignKeys = useMemo(
@@ -129,6 +136,14 @@ export const TableStructure = memo(function TableStructure({
       ),
     [columns, foreignKeys, constraints, pendingCommands],
   );
+
+  // Get selected row indices from GridSelection
+  const selectedRowIndices = useMemo(() => {
+    if (selection.rows && typeof selection.rows.toArray === 'function') {
+      return selection.rows.toArray();
+    }
+    return [];
+  }, [selection.rows]);
 
   // Enable column resizing
   const { sizedColumns, handleColumnResize, handleColumnResizeEnd } =
@@ -206,13 +221,183 @@ export const TableStructure = memo(function TableStructure({
     ],
   );
 
+  // Handler: Duplicate column
+  const handleDuplicateColumn = useCallback(
+    (rowIndex: number) => {
+      const row = gridRows[rowIndex];
+      if (!row) return;
+
+      const target: CrudCommandTarget = {
+        connectionId,
+        database,
+        schema,
+        table,
+      };
+
+      // Generate unique copy name
+      let baseName = row.column_name;
+      let copyName = `${baseName}_copy`;
+      let counter = 2;
+      while (existingColumnNames.includes(copyName)) {
+        copyName = `${baseName}_copy${counter}`;
+        counter++;
+      }
+
+      const tempId = generateCommandId();
+      const command = createColumnAddCommand(
+        target,
+        {
+          name: copyName,
+          dataType: row.db_type || "text",
+          nullable: row.nullable === "YES",
+          defaultValue: row.default,
+          comment: row.comment,
+        },
+        tempId,
+      );
+
+      stageCommand(command);
+      toast.success("Column duplicated", {
+        description: `Created ${copyName} as a copy of ${row.column_name}`,
+      });
+    },
+    [connectionId, database, schema, table, gridRows, existingColumnNames, stageCommand],
+  );
+
+  // Handler: Delete selected rows (batch)
+  const handleDeleteSelected = useCallback(() => {
+    const target: CrudCommandTarget = {
+      connectionId,
+      database,
+      schema,
+      table,
+    };
+
+    let deletedCount = 0;
+    for (const rowIndex of selectedRowIndices) {
+      const row = gridRows[rowIndex];
+      if (!row || row._isPendingDelete) continue;
+
+      if (row._isPending) {
+        const command = pendingCommands.find(
+          (cmd) =>
+            cmd.type === "column.add" &&
+            (cmd.payload as ColumnAddPayload).tempId === row._tempId,
+        );
+        if (command) {
+          unstageCommand(command.id);
+          deletedCount++;
+        }
+      } else {
+        const command = createColumnDropCommand(target, row.column_name);
+        stageCommand(command);
+        deletedCount++;
+      }
+    }
+
+    if (deletedCount > 0) {
+      toast.success(`${deletedCount} column${deletedCount > 1 ? "s" : ""} staged for deletion`);
+    }
+  }, [connectionId, database, schema, table, selectedRowIndices, gridRows, pendingCommands, stageCommand, unstageCommand]);
+
+  // Handler: Set nullable for selected rows (batch)
+  const handleBatchSetNullable = useCallback(
+    (value: "YES" | "NO") => {
+      const target: CrudCommandTarget = {
+        connectionId,
+        database,
+        schema,
+        table,
+      };
+
+      for (const rowIndex of selectedRowIndices) {
+        const row = gridRows[rowIndex];
+        if (!row || row._isPendingDelete) continue;
+
+        if (row._isPending) {
+          const command = pendingCommands.find(
+            (cmd) =>
+              cmd.type === "column.add" &&
+              (cmd.payload as ColumnAddPayload).tempId === row._tempId,
+          );
+          if (command) {
+            const payload = command.payload as ColumnAddPayload;
+            const updatedCmd = {
+              ...command,
+              payload: {
+                ...payload,
+                column: { ...payload.column, nullable: value === "YES" },
+              },
+            };
+            stageCommand(updatedCmd);
+          }
+        } else {
+          const modifyCmd = createColumnModifyCommand(target, row.column_name, {
+            nullable: value === "YES",
+          });
+          stageCommand(modifyCmd);
+        }
+      }
+
+      toast.success(`Set nullable to ${value} for ${selectedRowIndices.length} column${selectedRowIndices.length > 1 ? "s" : ""}`);
+    },
+    [connectionId, database, schema, table, selectedRowIndices, gridRows, pendingCommands, stageCommand],
+  );
+
+  // Handler: Set type for selected rows (batch)
+  const handleBatchSetType = useCallback(
+    (dataType: string) => {
+      const target: CrudCommandTarget = {
+        connectionId,
+        database,
+        schema,
+        table,
+      };
+
+      for (const rowIndex of selectedRowIndices) {
+        const row = gridRows[rowIndex];
+        if (!row || row._isPendingDelete) continue;
+
+        if (row._isPending) {
+          const command = pendingCommands.find(
+            (cmd) =>
+              cmd.type === "column.add" &&
+              (cmd.payload as ColumnAddPayload).tempId === row._tempId,
+          );
+          if (command) {
+            const payload = command.payload as ColumnAddPayload;
+            const updatedCmd = {
+              ...command,
+              payload: {
+                ...payload,
+                column: { ...payload.column, dataType },
+              },
+            };
+            stageCommand(updatedCmd);
+          }
+        } else {
+          const modifyCmd = createColumnModifyCommand(target, row.column_name, {
+            dataType,
+          });
+          stageCommand(modifyCmd);
+        }
+      }
+
+      toast.success(`Set type to ${dataType} for ${selectedRowIndices.length} column${selectedRowIndices.length > 1 ? "s" : ""}`);
+    },
+    [connectionId, database, schema, table, selectedRowIndices, gridRows, pendingCommands, stageCommand],
+  );
+
   // Helper to extract value from cell data
   const extractCellValue = useCallback(
     (newValue: EditableGridCell): string | boolean | null => {
       if ("data" in newValue) {
         const data = newValue.data;
-        if (typeof data === "object" && data !== null && "value" in data) {
-          return (data as { value: string | boolean | null }).value;
+        if (typeof data === "object" && data !== null) {
+          // Handle cell types with value field
+          if ("value" in data) {
+            return (data as { value: string | boolean | null }).value;
+          }
         }
         return data as string | boolean | null;
       }
@@ -398,15 +583,17 @@ export const TableStructure = memo(function TableStructure({
           }
         : undefined;
 
-      // Actions column - Delete/Undo button
+      // Actions column - Delete/Undo button with custom icon renderer
       if (column.field === "actions") {
         return {
-          kind: GridCellKind.Text,
-          data: isPendingDelete ? "↩️" : "🗑️",
-          displayData: isPendingDelete ? "↩️" : "🗑️",
+          kind: GridCellKind.Custom,
+          data: {
+            kind: "actions-cell",
+            isPendingDelete,
+          },
+          copyData: isPendingDelete ? "undo" : "delete",
           readonly: true,
           allowOverlay: false,
-          contentAlign: "center" as const,
           themeOverride: rowTheme,
         } as const;
       }
@@ -554,6 +741,7 @@ export const TableStructure = memo(function TableStructure({
       ColumnNameCellRenderer as unknown as CustomRenderer<AnyCell>,
       NullableCellRenderer as unknown as CustomRenderer<AnyCell>,
       DataTypeCellRenderer as unknown as CustomRenderer<AnyCell>,
+      ActionsCellRenderer as unknown as CustomRenderer<AnyCell>,
     ],
     [],
   );
@@ -591,6 +779,23 @@ export const TableStructure = memo(function TableStructure({
     [sizedColumns, gridRows, pendingCommands, unstageCommand],
   );
 
+  // Keyboard shortcut handler
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd+D / Ctrl+D - Duplicate selected column
+      if ((e.metaKey || e.ctrlKey) && e.key === "d") {
+        e.preventDefault();
+        const firstSelected = selectedRowIndices[0];
+        if (selectedRowIndices.length === 1 && firstSelected !== undefined) {
+          handleDuplicateColumn(firstSelected);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedRowIndices, handleDuplicateColumn]);
+
   if (isLoading) {
     return <TableStructureSkeleton />;
   }
@@ -623,6 +828,14 @@ export const TableStructure = memo(function TableStructure({
           onAdd={handleAddColumn}
           onReviewChanges={() => { setGlobalChangesDialogOpen(true); }}
           pendingChangesCount={pendingCommands.length}
+          batchActions={
+            <BatchActionsToolbar
+              selectedCount={selectedRowIndices.length}
+              onDeleteSelected={handleDeleteSelected}
+              onSetNullable={handleBatchSetNullable}
+              onSetType={handleBatchSetType}
+            />
+          }
         />
         <div className="flex-1">
           <DataGridBase
@@ -630,12 +843,16 @@ export const TableStructure = memo(function TableStructure({
             rowCount={gridRows.length}
             getCellContent={getCellContent}
             customRenderers={customRenderers}
-            rowSelect="none"
+            rowSelect="multi"
             columnSelect="none"
+            gridSelection={selection}
+            onGridSelectionChange={setSelection}
             onColumnResize={handleColumnResize}
             onColumnResizeEnd={handleColumnResizeEnd}
             onCellEdited={handleCellEdited}
             onCellClicked={handleCellClick}
+            overscrollX={0}
+            overscrollY={100}
           />
         </div>
         <div className="px-4 py-2 text-xs text-muted-foreground border-t">
