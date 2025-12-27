@@ -17,7 +17,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -200,33 +199,11 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     return result;
   }, [connectionCommands]);
 
-  // Calculate total summary
-  const totalSummary = {
-    updates: 0,
-    inserts: 0,
-    deletes: 0,
-    ddl: 0,
-    total: 0,
-  };
-
-  connectionCommands.forEach(([, commands]) => {
-    totalSummary.updates += commands.filter(
-      (c) => c.type === "data.update",
-    ).length;
-    totalSummary.inserts += commands.filter(
-      (c) => c.type === "data.insert",
-    ).length;
-    totalSummary.deletes += commands.filter(
-      (c) => c.type === "data.delete",
-    ).length;
-    totalSummary.ddl += commands.filter(
-      (c) =>
-        c.type.startsWith("column.") ||
-        c.type.startsWith("index.") ||
-        c.type.startsWith("trigger."),
-    ).length;
-    totalSummary.total += commands.length;
-  });
+  // Calculate total change count
+  const totalChanges = connectionCommands.reduce(
+    (sum, [, commands]) => sum + commands.length,
+    0,
+  );
 
   // Calculate validation errors across all tables in scope
   const validationStatus = useMemo(() => {
@@ -287,7 +264,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     isTableSpecific,
     connectionCommandsLength: connectionCommands.length,
     groupedByRowLength: groupedByRow.length,
-    totalSummary,
+    totalChanges,
     viewMode,
   });
 
@@ -570,10 +547,10 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="!max-w-[80vw] max-h-[80vh] flex flex-col p-4">
         <DialogHeader>
-          <DialogTitle className="text-xs">
+          <DialogTitle>
             {isTableSpecific ? "Commit changes" : "Review All Changes"}
           </DialogTitle>
-          <DialogDescription className="text-xs">
+          <DialogDescription>
             {isTableSpecific
               ? "Review the changes that will be committed to the database."
               : "Review and commit all pending changes across all tables"}
@@ -590,7 +567,7 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
             <AlertTitle className="text-sm font-semibold">
               Conflict Detected
             </AlertTitle>
-            <AlertDescription className="text-xs">
+            <AlertDescription>
               <p className="mb-3">
                 The row was modified by another user or process since you
                 started editing. You can either override with your changes or
@@ -598,11 +575,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
               </p>
               <div className="flex gap-2">
                 <Button
-                  size="sm"
                   variant="destructive"
                   onClick={handleForceCommit}
                   disabled={isCommitting}
-                  className="h-7 text-xs"
                 >
                   {isCommitting ? (
                     <IconLoader2 className="mr-1 h-3 w-3 animate-spin" />
@@ -612,11 +587,9 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
                   Override with My Changes
                 </Button>
                 <Button
-                  size="sm"
                   variant="outline"
                   onClick={handleRefreshAndDiscard}
                   disabled={isCommitting}
-                  className="h-7 text-xs"
                 >
                   <IconRefresh className="mr-1 h-3 w-3" />
                   Discard & Refresh
@@ -626,92 +599,28 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
           </Alert>
         )}
 
-        {/* Debug info */}
-        {process.env.NODE_ENV === "development" && (
-          <div className="text-[10px] text-muted-foreground bg-muted/30 p-2 rounded font-mono">
-            Tables: {connectionCommands.length} | Rows: {groupedByRow.length} |
-            Total: {totalSummary.total} | SQL: {generatedSQL.length} chars
-          </div>
-        )}
-
-        {/* Summary Statistics */}
-        <div className="grid grid-cols-5 gap-3">
-          <div className="flex items-center gap-2 rounded-xl border bg-card p-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
-              <IconCircleCheckFilled className="h-4 w-4 text-primary" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Total</p>
-              <p className="text-lg font-semibold">{totalSummary.total}</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 rounded-xl border bg-card p-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-500/10">
-              <IconPencil className="h-4 w-4 text-blue-500" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Updates</p>
-              <p className="text-lg font-semibold">{totalSummary.updates}</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 rounded-xl border bg-card p-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-green-500/10">
-              <IconPlus className="h-4 w-4 text-green-500" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Inserts</p>
-              <p className="text-lg font-semibold">{totalSummary.inserts}</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 rounded-xl border bg-card p-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-red-500/10">
-              <IconTrash className="h-4 w-4 text-red-500 select-text" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Deletes</p>
-              <p className="text-lg font-semibold">{totalSummary.deletes}</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 rounded-xl border bg-card p-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-purple-500/10">
-              <IconPencil className="h-4 w-4 text-purple-500" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">DDL</p>
-              <p className="text-lg font-semibold">{totalSummary.ddl}</p>
-            </div>
-          </div>
-        </div>
-
         {/* View Mode Tabs */}
         <Tabs
           value={viewMode}
-          onValueChange={(value) => setViewMode(value as "changes" | "sql")}
+          onValueChange={(value) => {
+            setViewMode(value as "changes" | "sql");
+          }}
           className="flex-1 flex flex-col min-h-0"
         >
           <div className="flex items-center justify-between">
-            <TabsList size="sm">
-              <TabsTrigger value="changes" size="sm">
+            <TabsList>
+              <TabsTrigger value="changes">
                 <IconList className="h-3.5 w-3.5" />
                 Changes
               </TabsTrigger>
-              <TabsTrigger value="sql" size="sm">
+              <TabsTrigger value="sql">
                 <IconCode className="h-3.5 w-3.5" />
                 SQL
               </TabsTrigger>
             </TabsList>
 
             {viewMode === "sql" && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={handleCopySQL}
-              >
+              <Button variant="outline" onClick={handleCopySQL}>
                 {copiedSql ? (
                   <>
                     <IconCheck className="h-3.5 w-3.5 mr-1.5 text-green-500" />
@@ -728,30 +637,34 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
           </div>
 
           {/* Changes List - Grouped by Row ID */}
-          <TabsContent value="changes" className="flex-1 min-h-0 mt-0">
-            <ScrollArea className="h-full min-h-[200px] max-h-[50vh]">
-              <div className="space-y-2 px-1">
-                {groupedByRow.length === 0 ? (
-                  <div className="text-sm text-muted-foreground text-center py-8">
-                    No changes to display
-                  </div>
-                ) : (
-                  groupedByRow.map((row, index) => (
-                    <RowChangesCard
-                      key={row.rowKey}
-                      row={row}
-                      index={index}
-                      onUndo={handleUndoRow}
-                    />
-                  ))
-                )}
-              </div>
-            </ScrollArea>
+          <TabsContent
+            value="changes"
+            className="m-0 data-[state=active]:block min-h-[200px] max-h-[50vh] overflow-auto"
+          >
+            <div className="space-y-2 px-1">
+              {groupedByRow.length === 0 ? (
+                <div className="text-sm text-muted-foreground text-center py-8">
+                  No changes to display
+                </div>
+              ) : (
+                groupedByRow.map((row, index) => (
+                  <RowChangesCard
+                    key={row.rowKey}
+                    row={row}
+                    index={index}
+                    onUndo={handleUndoRow}
+                  />
+                ))
+              )}
+            </div>
           </TabsContent>
 
           {/* SQL Preview */}
-          <TabsContent value="sql" className="flex-1 min-h-0 mt-0">
-            <div className="h-full min-h-[200px] max-h-[50vh] rounded-lg border overflow-hidden">
+          <TabsContent
+            value="sql"
+            className="m-0 data-[state=active]:flex-1 data-[state=active]:flex data-[state=active]:flex-col min-h-0"
+          >
+            <div className="h-full min-h-[200px] max-h-[50vh] overflow-hidden">
               <CodeEditor
                 value={generatedSQL || "-- No SQL generated"}
                 readOnly={true}
@@ -827,8 +740,8 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
             ) : (
               <>
                 <IconCircleCheckFilled className="h-3.5 w-3.5 mr-1.5" />
-                Commit {totalSummary.total}{" "}
-                {totalSummary.total === 1 ? "Change" : "Changes"}
+                Commit {totalChanges}{" "}
+                {totalChanges === 1 ? "Change" : "Changes"}
               </>
             )}
           </Button>

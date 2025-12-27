@@ -309,9 +309,9 @@ export function RowDetailsSheet({
           {/* Content */}
           <TabsContent
             value="summary"
-            className="m-0 data-[state=active]:flex-1 data-[state=active]:flex data-[state=active]:flex-col data-[state=active]:overflow-hidden"
+            className="m-0 min-h-0 data-[state=active]:flex-1 data-[state=active]:flex data-[state=active]:flex-col"
           >
-            <div className="flex-1 overflow-auto p-2 bg-secondary">
+            <div className="flex-1 min-h-0 overflow-auto p-2 bg-secondary">
               {filteredSummaries.length === 0 ? (
                 <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
                   No columns found matching "{searchQuery}"
@@ -445,7 +445,7 @@ export function RowDetailsSheet({
 
           <TabsContent
             value="json"
-            className="m-0 p-0 data-[state=active]:flex-1 data-[state=active]:flex data-[state=active]:flex-col data-[state=active]:overflow-hidden"
+            className="m-0 p-0 min-h-0 data-[state=active]:flex-1 data-[state=active]:flex data-[state=active]:flex-col"
           >
             <CodeEditor
               value={jsonContent}
