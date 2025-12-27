@@ -9,6 +9,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuCheckboxItem,
   DropdownMenuLabel,
+  DropdownMenuGroup,
 } from "@/components/ui/dropdown-menu";
 import { IconArrowsUpDown, IconSortAscendingSmallBig, IconSortDescendingSmallBig, IconEyeOff, IconPin, IconPinnedOff, IconCopy, IconFilter, IconColumns, IconEye } from '@tabler/icons-react';
 import type { GridColumnV2 } from "../types";
@@ -137,23 +138,25 @@ export function ColumnHeaderContextMenu({
               <span>Show All Columns</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel className="text-xs text-muted-foreground py-1 px-2">
-              Toggle Columns
-            </DropdownMenuLabel>
-            {allColumns.map((col) => {
-              const isVisible = columnVisibility[col.id] !== false;
-              return (
-                <DropdownMenuCheckboxItem
-                  key={col.id}
-                  checked={isVisible}
-                  onCheckedChange={() => onToggleColumnVisibility(col.id)}
-                  onSelect={(e) => e.preventDefault()}
-                  className="py-1.5"
-                >
-                  <span className="truncate">{col.name ?? col.field}</span>
-                </DropdownMenuCheckboxItem>
-              );
-            })}
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="text-xs text-muted-foreground py-1 px-2">
+                Toggle Columns
+              </DropdownMenuLabel>
+              {allColumns.map((col) => {
+                const isVisible = columnVisibility[col.id] !== false;
+                return (
+                  <DropdownMenuCheckboxItem
+                    key={col.id}
+                    checked={isVisible}
+                    onCheckedChange={() => onToggleColumnVisibility(col.id)}
+                    onSelect={(e) => e.preventDefault()}
+                    className="py-1.5"
+                  >
+                    <span className="truncate">{col.name ?? col.field}</span>
+                  </DropdownMenuCheckboxItem>
+                );
+              })}
+            </DropdownMenuGroup>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
 

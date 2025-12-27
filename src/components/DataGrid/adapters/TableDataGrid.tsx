@@ -68,7 +68,6 @@ import {
   useColumnVisibility,
   useRowPinning,
   useColumnSorting,
-  useColumnStats,
 } from "../hooks";
 import { createDrawHeader } from "../utils/headerUtils";
 import {
@@ -98,7 +97,6 @@ import {
   deriveValueType,
   normalizeBackendValue,
 } from "@/services/tableDataTransform";
-import { ColumnStatsPopover } from "../components/ColumnStatsPopover";
 
 interface BaseTableDataGridProps {
   gridId: string;
@@ -1080,11 +1078,25 @@ export const TableDataGrid = memo(function TableDataGrid(
     });
   }, [isEditingCell]);
 
-  // Column sorting (header click disabled for performance - use context menu)
-  const { sortColumns, getSortIndex, getSortDirection } = useColumnSorting({
-    gridId,
-    columns: finalColumns,
-  });
+  // Column sorting - click header to toggle sort (Shift+click for multi-sort)
+  const { sortColumns, getSortIndex, getSortDirection, toggleSort } =
+    useColumnSorting({
+      gridId,
+      columns: finalColumns,
+    });
+
+  // Handle header click to toggle column sorting
+  // Shift+click enables multi-column sorting
+  const handleHeaderClicked = useCallback(
+    (colIndex: number, event: { shiftKey: boolean }) => {
+      const column = finalColumns[colIndex];
+      if (!column) return;
+
+      // Use column.id for sorting (actual column name in table mode)
+      toggleSort(column.id, event.shiftKey);
+    },
+    [finalColumns, toggleSort],
+  );
 
   // Custom header draw function for sort indicators and column type icons
   const drawHeader = useMemo(
@@ -1303,22 +1315,11 @@ export const TableDataGrid = memo(function TableDataGrid(
     gridRef: gridRef,
   });
 
-  // Column stats on header hover
-  const {
-    statsState,
-    handleItemHovered: handleStatsHover,
-    clearStats,
-  } = useColumnStats({
-    rows: deferredDisplayRows,
-    columns: finalColumns,
-    enabled: !isLargeDataset,
-  });
 
   // Combine hover handlers and track context menu target
   const handleItemHovered = useCallback(
     (args: Parameters<typeof handleCellHovered>[0]) => {
       handleCellHovered(args);
-      handleStatsHover(args);
 
       // Update context menu target based on what's being hovered
       if (args.kind === "header") {
@@ -1342,13 +1343,13 @@ export const TableDataGrid = memo(function TableDataGrid(
         contextMenuTargetRef.current = { type: "out-of-bounds" };
       }
     },
-    [handleCellHovered, handleStatsHover, finalColumns],
+    [handleCellHovered, finalColumns],
   );
 
   // Callback for when unified context menu opens
   const handleContextMenuOpen = useCallback(() => {
-    clearStats();
-  }, [clearStats]);
+    // Placeholder for any cleanup when context menu opens
+  }, []);
 
   // Memoize clipboard callbacks to prevent recreation on every render
   const toTextCallback = useCallback(
@@ -1979,7 +1980,9 @@ export const TableDataGrid = memo(function TableDataGrid(
 
       return finalCell;
     },
-    [isQueryMode],
+    // Include deferredDisplayRows in deps to invalidate Glide's cell cache when data changes
+    // (e.g., after sorting). The actual data access uses refs for performance.
+    [isQueryMode, deferredDisplayRows],
   );
 
   // Fill operations hook for Ctrl+D (fill down) and Ctrl+R (fill right)
@@ -2325,6 +2328,7 @@ export const TableDataGrid = memo(function TableDataGrid(
               drawHeader={drawHeader}
               onItemHovered={handleItemHovered}
               drawCell={drawCellWithHoverIcons}
+              onHeaderClicked={handleHeaderClicked}
             />
           </UnifiedContextMenu>
         )}
@@ -2377,6 +2381,7 @@ export const TableDataGrid = memo(function TableDataGrid(
             }}
           />
         )}
+
       </div>
 
       <DataGridStatusBar
@@ -2425,22 +2430,6 @@ export const TableDataGrid = memo(function TableDataGrid(
             : undefined
         }
       />
-
-      {/* Column Stats Popover - shows statistics on header hover */}
-      {/* Rendered outside container to use fixed positioning with viewport coordinates */}
-      {statsState && (
-        <ColumnStatsPopover
-          open={true}
-          onOpenChange={(open) => {
-            if (!open) {
-              clearStats();
-            }
-          }}
-          columnName={statsState.columnName}
-          stats={statsState.stats}
-          bounds={statsState.bounds}
-        />
-      )}
     </div>
   );
 });
