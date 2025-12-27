@@ -111,7 +111,7 @@ export class PostgreSQLAdapter extends SqlAdapter {
     }
 
     // Handle Uint8Array/Buffer (binary data)
-    if (value instanceof Uint8Array || Buffer.isBuffer(value)) {
+    if (value instanceof Uint8Array || (typeof Buffer !== 'undefined' && Buffer.isBuffer(value))) {
       return this.formatBytea(value);
     }
 
@@ -192,9 +192,10 @@ export class PostgreSQLAdapter extends SqlAdapter {
   /**
    * Format binary data as PostgreSQL bytea hex format
    */
-  private formatBytea(value: Uint8Array | Buffer): string {
-    const bytes = value instanceof Buffer ? value : Buffer.from(value);
-    const hex = bytes.toString('hex');
+  private formatBytea(value: Uint8Array): string {
+    const hex = Array.from(value)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
     return `'\\x${hex}'::bytea`;
   }
 
@@ -259,8 +260,11 @@ export class PostgreSQLAdapter extends SqlAdapter {
         const hexPart = value.startsWith('0x') ? value.slice(2) : value.slice(2);
         return `'\\x${hexPart}'::bytea`;
       }
-      // Otherwise, encode the string to bytea
-      const hex = Buffer.from(value, 'utf-8').toString('hex');
+      // Otherwise, encode the string to bytea using TextEncoder (browser-compatible)
+      const bytes = new TextEncoder().encode(value);
+      const hex = Array.from(bytes)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
       return `'\\x${hex}'::bytea`;
     }
 

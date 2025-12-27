@@ -75,7 +75,7 @@ export class MySQLAdapter extends SqlAdapter {
     }
 
     // Buffer/Uint8Array as hex literal
-    if (value instanceof Uint8Array || Buffer.isBuffer(value)) {
+    if (value instanceof Uint8Array || (typeof Buffer !== 'undefined' && Buffer.isBuffer(value))) {
       const hex = Array.from(value)
         .map((b) => b.toString(16).padStart(2, '0'))
         .join('');
