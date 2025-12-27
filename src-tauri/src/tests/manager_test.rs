@@ -28,6 +28,7 @@ async fn test_connection_manager_empty_id_error() {
         ssh_tunnel: None,
         bastion: None,
         options: HashMap::new(),
+        group: None,
     };
 
     let result = manager.get_or_create_connection(&profile).await;
@@ -137,6 +138,7 @@ async fn test_connection_profile_types() {
         ssh_tunnel: None,
         bastion: None,
         options: HashMap::new(),
+        group: None,
     };
 
     let _result = manager.get_or_create_connection(&postgres_profile).await;
@@ -167,6 +169,7 @@ async fn test_connection_with_options() {
         ssh_tunnel: None,
         bastion: None,
         options,
+        group: None,
     };
 
     let _result = manager.get_or_create_connection(&profile).await;
@@ -190,6 +193,7 @@ async fn test_connection_with_no_password() {
         ssh_tunnel: None,
         bastion: None,
         options: HashMap::new(),
+        group: None,
     };
 
     let _result = manager.get_or_create_connection(&profile).await;
@@ -213,6 +217,7 @@ async fn test_connection_different_ports() {
         ssh_tunnel: None,
         bastion: None,
         options: HashMap::new(),
+        group: None,
     };
 
     let profile2 = ConnectionProfile {
@@ -229,6 +234,7 @@ async fn test_connection_different_ports() {
         ssh_tunnel: None,
         bastion: None,
         options: HashMap::new(),
+        group: None,
     };
 
     let _id1 = manager.get_or_create_connection(&profile1).await;
@@ -255,6 +261,7 @@ async fn test_connection_special_characters_in_name() {
         ssh_tunnel: None,
         bastion: None,
         options: HashMap::new(),
+        group: None,
     };
 
     let _result = manager.get_or_create_connection(&profile).await;
@@ -278,6 +285,7 @@ async fn test_connection_unicode_in_fields() {
         ssh_tunnel: None,
         bastion: None,
         options: HashMap::new(),
+        group: None,
     };
 
     let _result = manager.get_or_create_connection(&profile).await;
@@ -343,6 +351,7 @@ async fn test_connection_color_codes() {
             ssh_tunnel: None,
             bastion: None,
             options: HashMap::new(),
+            group: None,
         };
 
         let _result = manager.get_or_create_connection(&profile).await;
@@ -365,5 +374,6 @@ fn create_test_profile(id: &str) -> ConnectionProfile {
         ssh_tunnel: None,
         bastion: None,
         options: HashMap::new(),
+        group: None,
     }
 }

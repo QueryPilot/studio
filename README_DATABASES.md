@@ -36,7 +36,7 @@ make dev
 | PostgreSQL | localhost | 15432 | devuser  | devpass123  | todoapp                 |
 | MySQL      | localhost | 13306 | devuser  | devpass123  | todoapp                 |
 | SQLite     | -         | -     | -        | -           | seeds/sqlite/todoapp.db |
-| SQL Server | localhost | 11433 | sa       | DevPass123! | todoapp                 |
+| SQL Server | localhost | 11434 | sa       | DevPass123  | todoapp                 |
 | Oracle     | localhost | 11521 | todoapp  | DevPass123  | XE (service)            |
 
 ## Connection Strings
@@ -106,22 +106,22 @@ sqlite3 seeds/sqlite/todoapp.db
 
 ```
 # Standard connection string
-Server=localhost,11433;Database=todoapp;User Id=sa;Password=DevPass123;
+Server=localhost,11434;Database=todoapp;User Id=sa;Password=DevPass123;
 
 # With additional options
-Server=localhost,11433;Database=todoapp;User Id=sa;Password=DevPass123;TrustServerCertificate=true;
+Server=localhost,11434;Database=todoapp;User Id=sa;Password=DevPass123;TrustServerCertificate=true;
 
 # ADO.NET format
-Data Source=localhost,11433;Initial Catalog=todoapp;User ID=sa;Password=DevPass123;
+Data Source=localhost,11434;Initial Catalog=todoapp;User ID=sa;Password=DevPass123;
 
 # JDBC format
-jdbc:sqlserver://localhost:11433;databaseName=todoapp;user=sa;password=DevPass123;
+jdbc:sqlserver://localhost:11434;databaseName=todoapp;user=sa;password=DevPass123;
 
 # sqlcmd command line
-sqlcmd -S localhost,11433 -U sa -P "DevPass123!" -d todoapp
+sqlcmd -S localhost,11434 -U sa -P "DevPass123" -d todoapp
 
 # Node.js mssql format
-mssql://sa:DevPass123@localhost:11433/todoapp
+mssql://sa:DevPass123@localhost:11434/todoapp
 ```
 
 ### Oracle
@@ -180,7 +180,7 @@ When connecting from Query Pilot, use these settings:
 ### SQL Server Connection
 
 - Host: `localhost`
-- Port: `11433`
+- Port: `11434`
 - Database: `todoapp`
 - Username: `sa`
 - Password: `DevPass123`

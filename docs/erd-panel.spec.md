@@ -6,14 +6,14 @@ Implementation of an Entity-Relationship Diagram (ERD) panel for Query Pilot tha
 
 ## Alignment With Current Codebase
 
-- No ERD UI/store/service exists yet; this spec remains a plan.
-- `erd` is a known tab type and keyboard view, but there is no `ERDPanel` renderer.
-- Reuse existing building blocks:
+- ERD UI is implemented in `src/components/Erd/` (ERDPanel.tsx, ERDVisualizer.tsx, ERDToolbar.tsx)
+- State management via `erdStore` (Zustand)
+- `erd` is a known tab type with full panel renderer support
+- Building blocks used:
   - Code editor: `src/components/CodeEditor` (SQL mode as placeholder)
   - Resizable layout: `src/components/ui/resizable`
   - Table structure/types: `src/types/tableStructure.ts` + `src/services/databaseService.ts`
 - Dependencies for ERD are present in `package.json` (`reactflow`, `elkjs`, `@dbml/core`).
-- Phase 1 focuses on adding an ERD tab route and skeleton UI, then iterates.
 
 ## Core Architecture
 

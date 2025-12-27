@@ -256,7 +256,6 @@ mod column_meta_tests {
     fn test_column_meta_creation() {
         let col = ColumnMeta {
             name: "id".to_string(),
-            table_name: Some("users".to_string()),
             data_type: CellValueType::Integer,
             nullable: false,
             primary_key: true,
@@ -271,7 +270,6 @@ mod column_meta_tests {
         };
 
         assert_eq!(col.name, "id");
-        assert_eq!(col.table_name, Some("users".to_string()));
         assert!(!col.nullable);
         assert!(col.primary_key);
         assert_eq!(col.comment, Some("Primary key".to_string()));
@@ -281,7 +279,6 @@ mod column_meta_tests {
     fn test_column_meta_serialization() {
         let col = ColumnMeta {
             name: "email".to_string(),
-            table_name: None,
             data_type: CellValueType::Text,
             nullable: false,
             primary_key: false,
@@ -305,7 +302,6 @@ mod column_meta_tests {
     fn test_column_with_precision_and_scale() {
         let col = ColumnMeta {
             name: "price".to_string(),
-            table_name: None,
             data_type: CellValueType::Decimal,
             nullable: false,
             primary_key: false,
@@ -328,7 +324,6 @@ mod column_meta_tests {
     fn test_column_with_enum_values() {
         let col = ColumnMeta {
             name: "status".to_string(),
-            table_name: None,
             data_type: CellValueType::Enum("status_enum".to_string()),
             nullable: false,
             primary_key: false,
@@ -493,6 +488,7 @@ mod connection_types_tests {
             ssh_tunnel: None,
             bastion: None,
             options: std::collections::HashMap::new(),
+            group: None,
         };
 
         assert_eq!(profile.id, "test-123");
