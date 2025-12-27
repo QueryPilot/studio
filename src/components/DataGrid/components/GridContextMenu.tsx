@@ -31,8 +31,8 @@ export interface GridContextMenuProps {
   onPaste?: () => void;
   showDetailsSheet?: boolean;
   onShowDetailsSheetChange?: (show: boolean) => void;
-  /** When true, prevents the context menu from opening (e.g., when header menu is active) */
-  disabled?: boolean;
+  /** When true or returns true, prevents the context menu from opening (e.g., when header menu is active) */
+  disabled?: boolean | (() => boolean);
   /** Called when the context menu opens */
   onOpen?: () => void;
 }
@@ -63,7 +63,6 @@ export function GridContextMenu({
 }: GridContextMenuProps) {
   const [internalShowDetailsSheet, setInternalShowDetailsSheet] =
     useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
 
   // Use controlled state if provided, otherwise use internal state
   const showDetailsSheet =
@@ -87,22 +86,26 @@ export function GridContextMenu({
 
   const canPinMore = pinnedRowKeys.length < maxPinnedRows;
 
-  // Handle controlled open state - prevent opening when disabled
+  // Handle open state changes - call onOpen when menu opens
   const handleOpenChange = (open: boolean) => {
-    if (disabled && open) {
-      // Don't open if disabled (e.g., header context menu is active)
-      return;
-    }
     if (open && onOpen) {
       onOpen();
     }
-    setMenuOpen(open);
+  };
+
+  // Prevent context menu from opening when disabled (e.g., header context menu is active)
+  const handleContextMenu = (e: React.MouseEvent) => {
+    const isDisabled = typeof disabled === "function" ? disabled() : disabled;
+    if (isDisabled) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
   };
 
   return (
     <>
-      <ContextMenu open={menuOpen} onOpenChange={handleOpenChange}>
-        <ContextMenuTrigger className="h-full w-full block">
+      <ContextMenu onOpenChange={handleOpenChange}>
+        <ContextMenuTrigger className="h-full w-full block" onContextMenu={handleContextMenu}>
           {children}
         </ContextMenuTrigger>
         <ContextMenuContent className="w-56 text-xs p-1">

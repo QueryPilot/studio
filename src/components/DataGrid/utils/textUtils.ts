@@ -35,14 +35,19 @@ const ellipsisWidthCache = new Map<string, number>();
 
 /**
  * Get cached ellipsis width for a font
+ * Uses save/restore to prevent font contamination
  */
 function getEllipsisWidth(ctx: CanvasRenderingContext2D, font: string): number {
   let cached = ellipsisWidthCache.get(font);
   if (cached === undefined) {
+    // Save context state to prevent contamination
+    ctx.save();
     ctx.font = font;
     cached = ctx.measureText(ELLIPSIS).width;
+    ctx.restore();
+
     ellipsisWidthCache.set(font, cached);
-    
+
     // Limit cache size
     if (ellipsisWidthCache.size > 50) {
       const firstKey = ellipsisWidthCache.keys().next().value;
@@ -54,6 +59,7 @@ function getEllipsisWidth(ctx: CanvasRenderingContext2D, font: string): number {
 
 /**
  * Measure text width with caching
+ * Always sets font before measuring to avoid contamination from other code paths
  */
 function measureTextWidth(ctx: CanvasRenderingContext2D, text: string, font: string): number {
   // Check cache first
@@ -62,9 +68,16 @@ function measureTextWidth(ctx: CanvasRenderingContext2D, text: string, font: str
     return cached;
   }
 
-  // Measure and cache
+  // Save context state to prevent contamination
+  ctx.save();
+
+  // Always set font explicitly before measuring
   ctx.font = font;
   const width = ctx.measureText(text).width;
+
+  // Restore context state
+  ctx.restore();
+
   setCachedTextWidth(text, font, width);
   return width;
 }

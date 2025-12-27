@@ -710,9 +710,29 @@ impl DirectMsgPackEncoder {
                 self.encode_money(buf, raw)?;
             }
 
+            // Geometric types
+            Type::BOX => {
+                self.encode_box(buf, raw)?;
+            }
+            Type::CIRCLE => {
+                self.encode_circle(buf, raw)?;
+            }
+            Type::LINE => {
+                self.encode_line(buf, raw)?;
+            }
+            Type::LSEG => {
+                self.encode_lseg(buf, raw)?;
+            }
+            Type::PATH => {
+                self.encode_path(buf, raw)?;
+            }
+            Type::POLYGON => {
+                self.encode_polygon(buf, raw)?;
+            }
+
             // Fallback for unknown types
             _ => {
-                self.encode_fallback(buf, raw)?;
+                self.encode_fallback_with_type(buf, raw, pg_type)?;
             }
         }
 
@@ -1062,6 +1082,403 @@ impl DirectMsgPackEncoder {
         let s = unsafe { std::str::from_utf8_unchecked(&money_buf[..len]) };
         encode::write_str(buf, s).map_err(Self::map_encode_err)?;
         Ok(())
+    }
+
+    // ========== Geometric type encoders ==========
+
+    /// box: ((x1,y1),(x2,y2))
+    #[inline(always)]
+    fn encode_box<W: Write>(&self, buf: &mut W, raw: &[u8]) -> Result<()> {
+        if raw.len() != 32 {
+            return self.encode_fallback(buf, raw);
+        }
+
+        let x1 = f64::from_be_bytes(raw[0..8].try_into().unwrap());
+        let y1 = f64::from_be_bytes(raw[8..16].try_into().unwrap());
+        let x2 = f64::from_be_bytes(raw[16..24].try_into().unwrap());
+        let y2 = f64::from_be_bytes(raw[24..32].try_into().unwrap());
+
+        let mut out = [0u8; 128];
+        let mut pos = 0;
+        out[pos] = b'(';
+        pos += 1;
+
+        let (p1_buf, p1_len) = format_point_fast(x1, y1);
+        out[pos..pos + p1_len].copy_from_slice(&p1_buf[..p1_len]);
+        pos += p1_len;
+
+        out[pos] = b',';
+        pos += 1;
+
+        let (p2_buf, p2_len) = format_point_fast(x2, y2);
+        out[pos..pos + p2_len].copy_from_slice(&p2_buf[..p2_len]);
+        pos += p2_len;
+
+        out[pos] = b')';
+        pos += 1;
+
+        let s = unsafe { std::str::from_utf8_unchecked(&out[..pos]) };
+        encode::write_str(buf, s).map_err(Self::map_encode_err)
+    }
+
+    /// circle: <(x,y),r>
+    #[inline(always)]
+    fn encode_circle<W: Write>(&self, buf: &mut W, raw: &[u8]) -> Result<()> {
+        if raw.len() != 24 {
+            return self.encode_fallback(buf, raw);
+        }
+
+        let x = f64::from_be_bytes(raw[0..8].try_into().unwrap());
+        let y = f64::from_be_bytes(raw[8..16].try_into().unwrap());
+        let r = f64::from_be_bytes(raw[16..24].try_into().unwrap());
+
+        let mut out = [0u8; 96];
+        let mut pos = 0;
+        out[pos] = b'<';
+        pos += 1;
+
+        let (p_buf, p_len) = format_point_fast(x, y);
+        out[pos..pos + p_len].copy_from_slice(&p_buf[..p_len]);
+        pos += p_len;
+
+        out[pos] = b',';
+        pos += 1;
+
+        let mut ryu_buf = ryu::Buffer::new();
+        let r_str = ryu_buf.format(r);
+        out[pos..pos + r_str.len()].copy_from_slice(r_str.as_bytes());
+        pos += r_str.len();
+
+        out[pos] = b'>';
+        pos += 1;
+
+        let s = unsafe { std::str::from_utf8_unchecked(&out[..pos]) };
+        encode::write_str(buf, s).map_err(Self::map_encode_err)
+    }
+
+    /// line: {A,B,C}
+    #[inline(always)]
+    fn encode_line<W: Write>(&self, buf: &mut W, raw: &[u8]) -> Result<()> {
+        if raw.len() != 24 {
+            return self.encode_fallback(buf, raw);
+        }
+
+        let a = f64::from_be_bytes(raw[0..8].try_into().unwrap());
+        let b = f64::from_be_bytes(raw[8..16].try_into().unwrap());
+        let c = f64::from_be_bytes(raw[16..24].try_into().unwrap());
+
+        let mut out = [0u8; 96];
+        let mut pos = 0;
+        out[pos] = b'{';
+        pos += 1;
+
+        let mut ryu_buf = ryu::Buffer::new();
+        let a_str = ryu_buf.format(a);
+        out[pos..pos + a_str.len()].copy_from_slice(a_str.as_bytes());
+        pos += a_str.len();
+
+        out[pos] = b',';
+        pos += 1;
+
+        let mut ryu_buf = ryu::Buffer::new();
+        let b_str = ryu_buf.format(b);
+        out[pos..pos + b_str.len()].copy_from_slice(b_str.as_bytes());
+        pos += b_str.len();
+
+        out[pos] = b',';
+        pos += 1;
+
+        let mut ryu_buf = ryu::Buffer::new();
+        let c_str = ryu_buf.format(c);
+        out[pos..pos + c_str.len()].copy_from_slice(c_str.as_bytes());
+        pos += c_str.len();
+
+        out[pos] = b'}';
+        pos += 1;
+
+        let s = unsafe { std::str::from_utf8_unchecked(&out[..pos]) };
+        encode::write_str(buf, s).map_err(Self::map_encode_err)
+    }
+
+    /// lseg: [(x1,y1),(x2,y2)]
+    #[inline(always)]
+    fn encode_lseg<W: Write>(&self, buf: &mut W, raw: &[u8]) -> Result<()> {
+        if raw.len() != 32 {
+            return self.encode_fallback(buf, raw);
+        }
+
+        let x1 = f64::from_be_bytes(raw[0..8].try_into().unwrap());
+        let y1 = f64::from_be_bytes(raw[8..16].try_into().unwrap());
+        let x2 = f64::from_be_bytes(raw[16..24].try_into().unwrap());
+        let y2 = f64::from_be_bytes(raw[24..32].try_into().unwrap());
+
+        let mut out = [0u8; 128];
+        let mut pos = 0;
+        out[pos] = b'[';
+        pos += 1;
+
+        let (p1_buf, p1_len) = format_point_fast(x1, y1);
+        out[pos..pos + p1_len].copy_from_slice(&p1_buf[..p1_len]);
+        pos += p1_len;
+
+        out[pos] = b',';
+        pos += 1;
+
+        let (p2_buf, p2_len) = format_point_fast(x2, y2);
+        out[pos..pos + p2_len].copy_from_slice(&p2_buf[..p2_len]);
+        pos += p2_len;
+
+        out[pos] = b']';
+        pos += 1;
+
+        let s = unsafe { std::str::from_utf8_unchecked(&out[..pos]) };
+        encode::write_str(buf, s).map_err(Self::map_encode_err)
+    }
+
+    /// path: [(x1,y1),(x2,y2)] (open) or ((x1,y1),(x2,y2)) (closed)
+    fn encode_path<W: Write>(&self, buf: &mut W, raw: &[u8]) -> Result<()> {
+        if raw.len() < 5 {
+            return self.encode_fallback(buf, raw);
+        }
+
+        let closed = raw[0] != 0;
+        let n_points = i32::from_be_bytes(raw[1..5].try_into().unwrap()) as usize;
+
+        if raw.len() < 5 + n_points * 16 {
+            return self.encode_fallback(buf, raw);
+        }
+
+        let mut result = String::with_capacity(n_points * 30);
+        result.push(if closed { '(' } else { '[' });
+
+        for i in 0..n_points {
+            let offset = 5 + i * 16;
+            let x = f64::from_be_bytes(raw[offset..offset + 8].try_into().unwrap());
+            let y = f64::from_be_bytes(raw[offset + 8..offset + 16].try_into().unwrap());
+
+            if i > 0 {
+                result.push(',');
+            }
+
+            let (p_buf, p_len) = format_point_fast(x, y);
+            let s = unsafe { std::str::from_utf8_unchecked(&p_buf[..p_len]) };
+            result.push_str(s);
+        }
+
+        result.push(if closed { ')' } else { ']' });
+        encode::write_str(buf, &result).map_err(Self::map_encode_err)
+    }
+
+    /// polygon: ((x1,y1),(x2,y2),(x3,y3))
+    fn encode_polygon<W: Write>(&self, buf: &mut W, raw: &[u8]) -> Result<()> {
+        if raw.len() < 4 {
+            return self.encode_fallback(buf, raw);
+        }
+
+        let n_points = i32::from_be_bytes(raw[0..4].try_into().unwrap()) as usize;
+
+        if raw.len() < 4 + n_points * 16 {
+            return self.encode_fallback(buf, raw);
+        }
+
+        let mut result = String::with_capacity(n_points * 30);
+        result.push('(');
+
+        for i in 0..n_points {
+            let offset = 4 + i * 16;
+            let x = f64::from_be_bytes(raw[offset..offset + 8].try_into().unwrap());
+            let y = f64::from_be_bytes(raw[offset + 8..offset + 16].try_into().unwrap());
+
+            if i > 0 {
+                result.push(',');
+            }
+
+            let (p_buf, p_len) = format_point_fast(x, y);
+            let s = unsafe { std::str::from_utf8_unchecked(&p_buf[..p_len]) };
+            result.push_str(s);
+        }
+
+        result.push(')');
+        encode::write_str(buf, &result).map_err(Self::map_encode_err)
+    }
+
+    // ========== Extension type encoders ==========
+
+    /// tsvector: 'word1':1,2 'word2':3
+    fn encode_tsvector<W: Write>(&self, buf: &mut W, raw: &[u8]) -> Result<()> {
+        if raw.len() < 4 {
+            return self.encode_fallback(buf, raw);
+        }
+
+        let n_lexemes = i32::from_be_bytes(raw[0..4].try_into().unwrap()) as usize;
+        let mut offset = 4;
+        let mut result = String::with_capacity(raw.len() * 2);
+
+        for i in 0..n_lexemes {
+            // Read null-terminated lexeme
+            let lexeme_start = offset;
+            while offset < raw.len() && raw[offset] != 0 {
+                offset += 1;
+            }
+            if offset >= raw.len() {
+                return self.encode_fallback(buf, raw);
+            }
+
+            let lexeme = match std::str::from_utf8(&raw[lexeme_start..offset]) {
+                Ok(s) => s,
+                Err(_) => return self.encode_fallback(buf, raw),
+            };
+            offset += 1; // skip null terminator
+
+            // Read position count (2 bytes)
+            if offset + 2 > raw.len() {
+                return self.encode_fallback(buf, raw);
+            }
+            let n_pos = u16::from_be_bytes(raw[offset..offset + 2].try_into().unwrap()) as usize;
+            offset += 2;
+
+            // Format: 'lexeme':pos1,pos2
+            if i > 0 {
+                result.push(' ');
+            }
+            result.push('\'');
+            // Escape single quotes in lexeme
+            for c in lexeme.chars() {
+                if c == '\'' {
+                    result.push_str("''");
+                } else {
+                    result.push(c);
+                }
+            }
+            result.push('\'');
+
+            // Read positions
+            if n_pos > 0 {
+                result.push(':');
+                for j in 0..n_pos {
+                    if offset + 2 > raw.len() {
+                        return self.encode_fallback(buf, raw);
+                    }
+                    let pos_data = u16::from_be_bytes(raw[offset..offset + 2].try_into().unwrap());
+                    offset += 2;
+
+                    // Position is in lower 14 bits, weight in upper 2 bits
+                    let position = pos_data & 0x3FFF;
+                    let weight = (pos_data >> 14) & 0x03;
+
+                    if j > 0 {
+                        result.push(',');
+                    }
+
+                    let mut itoa_buf = itoa::Buffer::new();
+                    result.push_str(itoa_buf.format(position));
+
+                    // Add weight suffix (A, B, C, D) if not default (D = 0)
+                    match weight {
+                        3 => result.push('A'),
+                        2 => result.push('B'),
+                        1 => result.push('C'),
+                        _ => {} // D (0) is default, not shown
+                    }
+                }
+            }
+        }
+
+        encode::write_str(buf, &result).map_err(Self::map_encode_err)
+    }
+
+    /// hstore: "key1"=>"val1", "key2"=>"val2"
+    fn encode_hstore<W: Write>(&self, buf: &mut W, raw: &[u8]) -> Result<()> {
+        if raw.len() < 4 {
+            return self.encode_fallback(buf, raw);
+        }
+
+        let n_pairs = i32::from_be_bytes(raw[0..4].try_into().unwrap()) as usize;
+        let mut offset = 4;
+        let mut result = String::with_capacity(raw.len() * 2);
+
+        for i in 0..n_pairs {
+            // Read key length
+            if offset + 4 > raw.len() {
+                return self.encode_fallback(buf, raw);
+            }
+            let key_len = i32::from_be_bytes(raw[offset..offset + 4].try_into().unwrap()) as usize;
+            offset += 4;
+
+            // Read key
+            if offset + key_len > raw.len() {
+                return self.encode_fallback(buf, raw);
+            }
+            let key = match std::str::from_utf8(&raw[offset..offset + key_len]) {
+                Ok(s) => s,
+                Err(_) => return self.encode_fallback(buf, raw),
+            };
+            offset += key_len;
+
+            // Read value length (-1 means NULL)
+            if offset + 4 > raw.len() {
+                return self.encode_fallback(buf, raw);
+            }
+            let val_len = i32::from_be_bytes(raw[offset..offset + 4].try_into().unwrap());
+            offset += 4;
+
+            // Format: "key"=>"value" or "key"=>NULL
+            if i > 0 {
+                result.push_str(", ");
+            }
+            result.push('"');
+            Self::escape_hstore_string(&mut result, key);
+            result.push_str("\"=>");
+
+            if val_len == -1 {
+                result.push_str("NULL");
+            } else {
+                let val_len = val_len as usize;
+                if offset + val_len > raw.len() {
+                    return self.encode_fallback(buf, raw);
+                }
+                let value = match std::str::from_utf8(&raw[offset..offset + val_len]) {
+                    Ok(s) => s,
+                    Err(_) => return self.encode_fallback(buf, raw),
+                };
+                offset += val_len;
+
+                result.push('"');
+                Self::escape_hstore_string(&mut result, value);
+                result.push('"');
+            }
+        }
+
+        encode::write_str(buf, &result).map_err(Self::map_encode_err)
+    }
+
+    /// Escape quotes and backslashes in hstore strings
+    fn escape_hstore_string(out: &mut String, s: &str) {
+        for c in s.chars() {
+            match c {
+                '"' => out.push_str("\\\""),
+                '\\' => out.push_str("\\\\"),
+                _ => out.push(c),
+            }
+        }
+    }
+
+    /// Fallback with type-aware handling for extension types
+    fn encode_fallback_with_type<W: Write>(
+        &self,
+        buf: &mut W,
+        raw: &[u8],
+        pg_type: &Type,
+    ) -> Result<()> {
+        // Check for extension types by name
+        match pg_type.name() {
+            "tsvector" => return self.encode_tsvector(buf, raw),
+            "hstore" => return self.encode_hstore(buf, raw),
+            _ => {}
+        }
+
+        // Default fallback
+        self.encode_fallback(buf, raw)
     }
 
     fn encode_enum<W: Write>(&self, buf: &mut W, raw: &[u8]) -> Result<()> {
