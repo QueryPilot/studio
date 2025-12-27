@@ -124,7 +124,7 @@ function extractColumnBeforeCursor(text: string): string | null {
   // Work with the tail of the string (last clause after any logical operator or paren)
   // Split on AND, OR, (, to isolate current expression context
   const clauseSplit = text.split(/(?:AND|OR|\()\s*/i);
-  const currentClause = clauseSplit[clauseSplit.length - 1] || '';
+  const currentClause = clauseSplit[clauseSplit.length - 1] || "";
 
   for (const pattern of patterns) {
     const match = currentClause.match(pattern);
@@ -988,7 +988,10 @@ export const QuickFilter = memo(
 
     // Memoized onUpdate handler - uses refs to avoid stale closure issues
     const handleEditorUpdate = useCallback(
-      (update: { selectionSet: boolean; state: { selection: { main: { head: number } } } }) => {
+      (update: {
+        selectionSet: boolean;
+        state: { selection: { main: { head: number } } };
+      }) => {
         if (update.selectionSet) {
           const pos = update.state.selection.main.head;
           const s = stateRefs.current;
@@ -1012,7 +1015,7 @@ export const QuickFilter = memo(
               <div
                 ref={containerRef}
                 className={cn(
-                  "relative w-full rounded-md border border-input bg-background pl-8 pr-7 text-xs",
+                  "relative w-full rounded-md border border-input bg-input/20 dark:bg-input/30 pl-8 pr-7 text-xs",
                   "focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]",
                   error &&
                     "border-destructive focus-within:ring-destructive/50",
@@ -1074,121 +1077,121 @@ export const QuickFilter = memo(
                 </div>
               </div>
               {!searchModeOnly && (
-              <DropdownMenuContent align="start" className="w-48">
-                {(Object.keys(modeConfig) as FilterMode[]).map((m) => {
-                  const cfg = modeConfig[m];
-                  const Icon = cfg.icon;
-                  return (
-                    <DropdownMenuItem
-                      key={m}
-                      onClick={(e) => {
-                        // Keep dropdown open for AI mode to let user select model
-                        if (m === "ai") {
-                          e.preventDefault();
-                        }
-                        onModeChange(m);
-                        // Auto-add/replace prefix based on mode
-                        const currentValue = value.replace(/^[?#]\s*/, "");
-                        if (m === "where") {
-                          onValueChange(
-                            currentValue ? `?${currentValue}` : "?",
-                          );
-                        } else if (m === "ai") {
-                          onValueChange(
-                            currentValue ? `#${currentValue}` : "#",
-                          );
-                        } else {
-                          onValueChange(currentValue);
-                        }
-                        // Focus editor after mode change (not for AI mode - user selects model first)
-                        if (m !== "ai") {
-                          setTimeout(() => editorViewRef.current?.focus(), 0);
-                        }
-                      }}
-                      className={cn("text-xs", mode === m && "bg-accent")}
-                    >
-                      <Icon className="h-3.5 w-3.5 mr-2" />
-                      <div className="flex flex-col">
-                        <span className="text-xs">{cfg.label}</span>
-                        <span className="text-[10px] text-muted-foreground">
-                          {cfg.description}
-                        </span>
-                      </div>
-                    </DropdownMenuItem>
-                  );
-                })}
-
-                {/* AI Model selector - nested in mode dropdown */}
-                {mode === "ai" && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuGroup>
-                      <DropdownMenuLabel className="text-xs text-muted-foreground">
-                        AI Model
-                      </DropdownMenuLabel>
-                      {isLoadingProviders ? (
-                        <DropdownMenuItem disabled className="text-xs pl-4">
-                          <IconLoader2 className="h-3 w-3 animate-spin mr-2" />
-                          Loading...
-                        </DropdownMenuItem>
-                      ) : (
-                        (() => {
-                          const configured = availableProviders.filter((p) =>
-                            configuredProviders.includes(p.name),
-                          );
-                          if (configured.length === 0) {
-                            return (
-                              <DropdownMenuItem
-                                disabled
-                                className="text-xs pl-4"
-                              >
-                                No providers configured
-                              </DropdownMenuItem>
-                            );
+                <DropdownMenuContent align="start" className="w-48">
+                  {(Object.keys(modeConfig) as FilterMode[]).map((m) => {
+                    const cfg = modeConfig[m];
+                    const Icon = cfg.icon;
+                    return (
+                      <DropdownMenuItem
+                        key={m}
+                        onClick={(e) => {
+                          // Keep dropdown open for AI mode to let user select model
+                          if (m === "ai") {
+                            e.preventDefault();
                           }
-                          return configured.map((provider) => {
-                            const enabledModels = getProviderEnabledModels(
-                              provider.name,
+                          onModeChange(m);
+                          // Auto-add/replace prefix based on mode
+                          const currentValue = value.replace(/^[?#]\s*/, "");
+                          if (m === "where") {
+                            onValueChange(
+                              currentValue ? `?${currentValue}` : "?",
                             );
-                            const filteredModels = provider.models.filter((m) =>
-                              enabledModels.includes(m.id),
+                          } else if (m === "ai") {
+                            onValueChange(
+                              currentValue ? `#${currentValue}` : "#",
                             );
+                          } else {
+                            onValueChange(currentValue);
+                          }
+                          // Focus editor after mode change (not for AI mode - user selects model first)
+                          if (m !== "ai") {
+                            setTimeout(() => editorViewRef.current?.focus(), 0);
+                          }
+                        }}
+                        className={cn("text-xs", mode === m && "bg-accent")}
+                      >
+                        <Icon className="h-3.5 w-3.5 mr-2" />
+                        <div className="flex flex-col">
+                          <span className="text-xs">{cfg.label}</span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {cfg.description}
+                          </span>
+                        </div>
+                      </DropdownMenuItem>
+                    );
+                  })}
 
-                            // Skip provider if no enabled models
-                            if (filteredModels.length === 0) return null;
-
-                            return (
-                              <DropdownMenuGroup key={provider.name}>
-                                <DropdownMenuLabel className="text-[10px] text-muted-foreground pl-4">
-                                  {provider.name}
-                                </DropdownMenuLabel>
-                                {filteredModels.map((model) => (
-                                  <DropdownMenuItem
-                                    key={`${provider.name}-${model.id}`}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setProvider(provider.name);
-                                      setModel(model.id);
-                                    }}
-                                    className={cn(
-                                      "text-xs pl-6",
-                                      selectedProvider === provider.name &&
-                                        selectedModel === model.id &&
-                                        "bg-accent",
-                                    )}
-                                  >
-                                    {model.name}
-                                  </DropdownMenuItem>
-                                ))}
-                              </DropdownMenuGroup>
+                  {/* AI Model selector - nested in mode dropdown */}
+                  {mode === "ai" && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuGroup>
+                        <DropdownMenuLabel className="text-xs text-muted-foreground">
+                          AI Model
+                        </DropdownMenuLabel>
+                        {isLoadingProviders ? (
+                          <DropdownMenuItem disabled className="text-xs pl-4">
+                            <IconLoader2 className="h-3 w-3 animate-spin mr-2" />
+                            Loading...
+                          </DropdownMenuItem>
+                        ) : (
+                          (() => {
+                            const configured = availableProviders.filter((p) =>
+                              configuredProviders.includes(p.name),
                             );
-                          });
-                        })()
-                      )}
-                    </DropdownMenuGroup>
-                  </>
-                )}
-              </DropdownMenuContent>
+                            if (configured.length === 0) {
+                              return (
+                                <DropdownMenuItem
+                                  disabled
+                                  className="text-xs pl-4"
+                                >
+                                  No providers configured
+                                </DropdownMenuItem>
+                              );
+                            }
+                            return configured.map((provider) => {
+                              const enabledModels = getProviderEnabledModels(
+                                provider.name,
+                              );
+                              const filteredModels = provider.models.filter(
+                                (m) => enabledModels.includes(m.id),
+                              );
+
+                              // Skip provider if no enabled models
+                              if (filteredModels.length === 0) return null;
+
+                              return (
+                                <DropdownMenuGroup key={provider.name}>
+                                  <DropdownMenuLabel className="text-[10px] text-muted-foreground pl-4">
+                                    {provider.name}
+                                  </DropdownMenuLabel>
+                                  {filteredModels.map((model) => (
+                                    <DropdownMenuItem
+                                      key={`${provider.name}-${model.id}`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setProvider(provider.name);
+                                        setModel(model.id);
+                                      }}
+                                      className={cn(
+                                        "text-xs pl-6",
+                                        selectedProvider === provider.name &&
+                                          selectedModel === model.id &&
+                                          "bg-accent",
+                                      )}
+                                    >
+                                      {model.name}
+                                    </DropdownMenuItem>
+                                  ))}
+                                </DropdownMenuGroup>
+                              );
+                            });
+                          })()
+                        )}
+                      </DropdownMenuGroup>
+                    </>
+                  )}
+                </DropdownMenuContent>
               )}
             </DropdownMenu>
             {/* Suggestions dropdown - lightweight positioned div (no Portal/Popover overhead) */}
