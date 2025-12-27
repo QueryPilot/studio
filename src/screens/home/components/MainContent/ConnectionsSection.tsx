@@ -68,10 +68,6 @@ export function ConnectionsSection() {
     return sortedGroups;
   }, [filteredConnections]);
 
-  if (filteredConnections.length === 0) {
-    return null;
-  }
-
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
@@ -95,8 +91,13 @@ export function ConnectionsSection() {
         </Button>
       </div>
 
-      <div className="space-y-3">
-        {groupedConnections.map(([groupName, groupConnections]) => {
+      {filteredConnections.length === 0 ? (
+        <div className="text-center py-8 text-muted-foreground text-sm">
+          No connections match the selected filter
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {groupedConnections.map(([groupName, groupConnections]) => {
           const isCollapsed = collapsedGroups.includes(groupName);
 
           return (
@@ -131,8 +132,9 @@ export function ConnectionsSection() {
               )}
             </div>
           );
-        })}
-      </div>
+          })}
+        </div>
+      )}
     </div>
   );
 }
