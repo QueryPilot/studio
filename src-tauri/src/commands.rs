@@ -737,7 +737,7 @@ pub async fn get_type_info(
 }
 
 /// Execute a SQL query and return results (for introspection queries)
-/// This is a simpler alternative to stream_query for small result sets
+/// This is a simpler alternative to execute_query for small result sets
 #[tauri::command]
 pub async fn query(
     conn_id: String,
@@ -887,16 +887,13 @@ async fn execute_single_fetch_stream(
 ) -> std::result::Result<(), String> {
     use futures::StreamExt;
 
-    // Try to get FastPostgresQueryExecutor
-    let executor = conn
+    // Get pool from PostgresAdapter
+    let pool = conn
         .adapter
         .as_any()
         .downcast_ref::<crate::adapters::postgres::PostgresAdapter>()
-        .and_then(|adapter| adapter.get_query_executor())
-        .ok_or_else(|| "Fast query executor not available".to_string())?;
-
-    // Get pool for raw streaming
-    let pool = executor.get_pool();
+        .and_then(|adapter| adapter.get_pool())
+        .ok_or_else(|| "PostgreSQL pool not available".to_string())?;
 
     // Check if this is a SELECT query (needs streaming) or mutation (needs execute)
     // Queries with RETURNING clause also return rows, so treat them like SELECT
@@ -1293,10 +1290,10 @@ async fn execute_single_fetch_stream(
     Ok(())
 }
 
-/// Stream query results with smart limit detection
+/// Execute query with smart limit detection
 /// Automatically applies LIMIT if query doesn't have one (unless user disabled it)
 #[tauri::command]
-pub async fn stream_query(
+pub async fn execute_query(
     conn_id: String,
     tab_id: String,
     sql: String,
@@ -1416,61 +1413,6 @@ pub async fn reset_vault_vault(app_handle: AppHandle) -> std::result::Result<(),
     }
 
     Ok(())
-}
-
-// ============================================================================
-// CRUD TRANSACTION COMMAND
-// ============================================================================
-
-/// Execute a batch of CRUD commands in a single transaction
-///
-/// All commands are executed sequentially within a BEGIN...COMMIT transaction.
-/// On error, the entire transaction is rolled back.
-///
-/// Security: Uses parameterized queries to prevent SQL injection
-/// Performance: Executes all commands in a single database transaction
-#[tauri::command]
-pub async fn execute_crud_transaction(
-    conn_id: String,
-    transaction: CrudTransaction,
-    manager: State<'_, Arc<ConnectionManager>>,
-) -> std::result::Result<TransactionResult, String> {
-    tracing::info!("🔵 execute_crud_transaction called");
-    tracing::info!("  conn_id: {}", conn_id);
-    tracing::info!("  transaction.id: {}", transaction.id);
-    tracing::info!(
-        "  transaction.commands.len(): {}",
-        transaction.commands.len()
-    );
-    tracing::info!(
-        "  transaction.rollback_on_error: {}",
-        transaction.rollback_on_error
-    );
-
-    if !transaction.commands.is_empty() {
-        let first_cmd = &transaction.commands[0];
-        tracing::info!("  First command:");
-        tracing::info!("    id: {}", first_cmd.id);
-        tracing::info!("    operation_type: {}", first_cmd.operation_type);
-        tracing::info!("    target: {:?}", first_cmd.target);
-        tracing::info!("    payload: {}", first_cmd.payload);
-    }
-
-    // Get connection and adapter
-    let conn = manager.get_connection(&conn_id).ok_or_else(|| {
-        tracing::error!("❌ Connection {} not found", conn_id);
-        format!("Connection {} not found", conn_id)
-    })?;
-
-    tracing::info!("✅ Connection found, executing transaction...");
-
-    // Execute transaction via CRUD executor
-    crate::crud::executor::execute_crud_transaction(&*conn.adapter, transaction)
-        .await
-        .map_err(|e| {
-            tracing::error!("❌ CRUD transaction failed: {}", e);
-            e.to_string()
-        })
 }
 
 // ========================================

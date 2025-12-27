@@ -3,7 +3,6 @@ pub mod ai;
 pub mod aws;
 pub mod commands;
 pub mod core;
-pub mod crud;
 pub mod error;
 pub mod keychain;
 pub mod sentry_integration;
