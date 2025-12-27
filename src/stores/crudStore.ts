@@ -1,15 +1,69 @@
-import { logger } from "@/lib/logger";
+import { nanoid } from "nanoid";
 import { create } from "zustand";
 
-import { BackendAPI } from "@/services/backend";
+import { getAdapter } from "@/adapters";
+import type { TableRef, RowData, WhereClause } from "@/adapters/types";
+import { logger } from "@/lib/logger";
 import type {
   CommitResult,
   CrudCommand,
   CrudCommandTarget,
+  DataDeletePayload,
+  DataInsertPayload,
+  DataUpdatePayload,
   StageCommandResult,
 } from "@/types/crud";
+import { useConnectionStore } from "./connectionStoreNew";
+import type { DatabaseAdapter } from "@/adapters/types";
 
 const HISTORY_LIMIT = 100;
+
+/**
+ * Convert a CrudCommand to SQL using the adapter
+ */
+function commandToSql(adapter: DatabaseAdapter, command: CrudCommand): string | null {
+  const target: TableRef = {
+    schema: command.target.schema,
+    table: command.target.table ?? "",
+  };
+
+  switch (command.type) {
+    case "data.insert": {
+      const payload = command.payload as DataInsertPayload;
+      const values = payload.values ?? {};
+      if (Object.keys(values).length === 0) {
+        return null; // Skip empty inserts
+      }
+      const result = adapter.insert(target, values as RowData);
+      return typeof result === "string" ? result : null;
+    }
+
+    case "data.update": {
+      const payload = command.payload as DataUpdatePayload;
+      if (!payload.column || !payload.primaryKeys) {
+        return null;
+      }
+      const data: RowData = { [payload.column]: payload.newValue };
+      const where: WhereClause = payload.primaryKeys as WhereClause;
+      const result = adapter.update(target, data, where);
+      return typeof result === "string" ? result : null;
+    }
+
+    case "data.delete": {
+      const payload = command.payload as DataDeletePayload;
+      if (!payload.primaryKeys) {
+        return null;
+      }
+      const where: WhereClause = payload.primaryKeys as WhereClause;
+      const result = adapter.delete(target, where);
+      return typeof result === "string" ? result : null;
+    }
+
+    default:
+      logger.warn(`[CrudStore] Unsupported command type: ${command.type}`);
+      return null;
+  }
+}
 
 type CrudHistorySnapshot = Map<string, CrudCommand[]>;
 
@@ -504,9 +558,12 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
 
     commitChanges: async (tableKey) => {
       const commands = get().stagedCommands.get(tableKey) ?? [];
+      const transactionId = nanoid();
+      const startTime = performance.now();
+
       if (commands.length === 0) {
         return {
-          transactionId: "",
+          transactionId,
           success: true,
           durationMs: 0,
           committed: [],
@@ -520,43 +577,64 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
         throw new Error("CrudStore: Missing connectionId for staged commands");
       }
 
+      // Get dbType from connection store
+      const connection = useConnectionStore.getState().getConnection(connectionId);
+      if (!connection) {
+        throw new Error(`CrudStore: Connection not found: ${connectionId}`);
+      }
+      const dbType = connection.profile.db_type;
+
+      // Get adapter for this connection
+      const adapter = await getAdapter(connectionId, dbType);
+
       // Mark table as committing (for optimistic updates)
       set((state) => ({
         committingTableKeys: new Set(state.committingTableKeys).add(tableKey),
       }));
 
-      logger.info("[CrudStore] Calling executeCrudTransaction with connectionId:", connectionId);
-      logger.info("[CrudStore] Commands count:", commands.length);
-      logger.info("[CrudStore] Commands to commit:", commands);
+      // Convert commands to SQL statements using adapter
+      const sqlStatements: string[] = [];
+      for (const cmd of commands) {
+        const sql = commandToSql(adapter, cmd);
+        if (sql) {
+          sqlStatements.push(sql);
+        }
+      }
+
+      // Wrap in transaction
+      const transactionSql = adapter.transaction(sqlStatements);
+
+      logger.info("[CrudStore] Executing SQL transaction:", {
+        connectionId,
+        commandCount: commands.length,
+        sql: transactionSql,
+      });
 
       try {
-        const result = await BackendAPI.executeCrudTransaction(
-          connectionId,
-          commands,
-        );
+        // Execute via adapter
+        await adapter.execute(transactionSql);
 
-        logger.info("[CrudStore] Backend execution result:", result);
+        const durationMs = Math.round(performance.now() - startTime);
 
-        // Check if transaction was successful
-        if (!result.success) {
-          // Unmark as committing on failure
-          set((state) => {
-            const committingTableKeys = new Set(state.committingTableKeys);
-            committingTableKeys.delete(tableKey);
-            return { committingTableKeys };
-          });
+        // Build success result
+        const result: CommitResult = {
+          transactionId,
+          success: true,
+          durationMs,
+          committed: commands.map((cmd) => ({
+            id: cmd.id,
+            type: cmd.type,
+            target: cmd.target,
+            description: cmd.metadata.description,
+            affectedRows: cmd.metadata.affectedRows,
+          })),
+          failures: [],
+        };
 
-          // Format error message from failures
-          const errorMessages = result.failures
-            .map((f) => f.error.message)
-            .join(", ");
-          throw new Error(errorMessages || "Transaction failed");
-        }
+        logger.info("[CrudStore] Commit succeeded:", result);
 
         // SUCCESS: Keep staged commands for optimistic display
         // They will be cleared after refetch completes via clearCommittedChanges()
-        logger.info("[CrudStore] Commit succeeded, keeping staged commands for optimistic display");
-
         return result;
       } catch (error) {
         // Unmark as committing on error
@@ -565,7 +643,12 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
           committingTableKeys.delete(tableKey);
           return { committingTableKeys };
         });
-        throw error;
+
+        // Log failure and rethrow
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error("[CrudStore] Commit failed:", errorMessage);
+
+        throw new Error(errorMessage);
       }
     },
 

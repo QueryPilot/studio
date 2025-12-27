@@ -1,10 +1,19 @@
 import { logger } from "@/lib/logger";
-import type { DatabaseType } from "@/types";
+import {
+  getDialectQuoting,
+  quoteIdentifier,
+  formatTableName,
+  formatValue,
+} from "@/adapters/formatting";
+import type { DbType } from "@/types/connection";
+
+// Support both DbType enum and legacy string type
+type DatabaseTypeInput = DbType | string;
 
 export interface InsertExportOptions {
   tableName?: string;
   schema?: string;
-  databaseType?: DatabaseType;
+  databaseType?: DatabaseTypeInput;
   batchMode?: boolean;
 }
 
@@ -12,82 +21,6 @@ export interface InsertExportResult {
   success: boolean;
   rowCount: number;
   error?: string;
-}
-
-function getDialectQuoting(dbType: DatabaseType) {
-  switch (dbType) {
-    case "postgresql":
-    case "sqlite":
-      return {
-        quoteIdentifier: (id: string) => `"${id.replace(/"/g, '""')}"`,
-        formatTableName: (schema: string, table: string) => `"${schema.replace(/"/g, '""')}"."${table.replace(/"/g, '""')}"`,
-      };
-    case "mysql":
-    case "mariadb":
-      return {
-        quoteIdentifier: (id: string) => `\`${id.replace(/`/g, '``')}\``,
-        formatTableName: (schema: string, table: string) => `\`${schema.replace(/`/g, '``')}\`.\`${table.replace(/`/g, '``')}\``,
-      };
-    case "mssql":
-      return {
-        quoteIdentifier: (id: string) => `[${id.replace(/]/g, "]]")}]`,
-        formatTableName: (schema: string, table: string) => `[${schema.replace(/]/g, "]]")}].[${table.replace(/]/g, "]]")}]`,
-      };
-    default:
-      return {
-        quoteIdentifier: (id: string) => `"${id.replace(/"/g, '""')}"`,
-        formatTableName: (schema: string, table: string) => `"${schema.replace(/"/g, '""')}"."${table.replace(/"/g, '""')}"`,
-      };
-  }
-}
-
-function formatSQLValue(value: unknown, dbType: DatabaseType): string {
-  if (value === null || value === undefined) {
-    return "NULL";
-  }
-
-  if (typeof value === "string") {
-    let escaped = value;
-    if (dbType === "mysql" || dbType === "mariadb") {
-      escaped = escaped.replace(/\\/g, '\\\\');
-    }
-    escaped = escaped.replace(/'/g, "''");
-    return `'${escaped}'`;
-  }
-
-  if (typeof value === "number") {
-    return String(value);
-  }
-
-  if (typeof value === "boolean") {
-    switch (dbType) {
-      case "postgresql":
-        return value ? "TRUE" : "FALSE";
-      case "mysql":
-      case "mariadb":
-      case "sqlite":
-      case "mssql":
-        return value ? "1" : "0";
-      default:
-        return value ? "TRUE" : "FALSE";
-    }
-  }
-
-  if (value instanceof Date) {
-    return `'${value.toISOString()}'`;
-  }
-
-  if (typeof value === "object") {
-    try {
-      const json = JSON.stringify(value);
-      const escaped = json.replace(/'/g, "''");
-      return `'${escaped}'`;
-    } catch {
-      return "NULL";
-    }
-  }
-
-  return "NULL";
 }
 
 export function generateInsertStatements(
@@ -109,16 +42,12 @@ export function generateInsertStatements(
 
   if (rows.length === 0) return "";
 
-  const { quoteIdentifier, formatTableName } = getDialectQuoting(dbType);
-  const fullTableName = schema
-    ? formatTableName(schema, tableName)
-    : quoteIdentifier(tableName);
-
-  const columnNames = columns.map(quoteIdentifier).join(", ");
+  const fullTableName = formatTableName(schema, tableName, dbType);
+  const columnNames = columns.map((col) => quoteIdentifier(col, dbType)).join(", ");
 
   if (batchMode) {
     const valueSets = rows.map((row) => {
-      const values = row.map((val) => formatSQLValue(val, dbType));
+      const values = row.map((val) => formatValue(val, dbType));
       return `  (${values.join(", ")})`;
     });
 
@@ -126,7 +55,7 @@ export function generateInsertStatements(
   }
 
   const statements = rows.map((row) => {
-    const values = row.map((val) => formatSQLValue(val, dbType));
+    const values = row.map((val) => formatValue(val, dbType));
     return `INSERT INTO ${fullTableName} (${columnNames}) VALUES (${values.join(", ")});`;
   });
 
@@ -168,3 +97,6 @@ export function copyInsertToClipboard(
     }
   });
 }
+
+// Re-export getDialectQuoting for any code that might still need it
+export { getDialectQuoting };

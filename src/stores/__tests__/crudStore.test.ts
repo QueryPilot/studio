@@ -1,16 +1,43 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useCrudStore, crudSelectors, buildCrudTableKey } from "../crudStore";
-import { BackendAPI } from "@/services/backend";
 import type {
   CrudCommand,
   CrudCommandTarget,
-  CommitResult,
 } from "@/types/crud";
+import { DbType } from "@/types/connection";
 
-// Mock BackendAPI
-vi.mock("@/services/backend", () => ({
-  BackendAPI: {
-    executeCrudTransaction: vi.fn(),
+// Mock adapter
+const mockExecute = vi.fn();
+const mockAdapter = {
+  dbType: DbType.PostgreSQL,
+  paradigm: "sql" as const,
+  connectionId: "conn-1",
+  execute: mockExecute,
+  insert: vi.fn((target) => `INSERT INTO "${target.schema}"."${target.table}" ...`),
+  update: vi.fn((target) => `UPDATE "${target.schema}"."${target.table}" SET ...`),
+  delete: vi.fn((target) => `DELETE FROM "${target.schema}"."${target.table}" ...`),
+  select: vi.fn(() => "SELECT ..."),
+  transaction: vi.fn((stmts: string[]) => `BEGIN;\n${stmts.join(";\n")};\nCOMMIT;`),
+  formatValue: vi.fn((v) => String(v)),
+  quoteIdentifier: vi.fn((n) => `"${n}"`),
+  quoteString: vi.fn((s) => `'${s}'`),
+};
+
+vi.mock("@/adapters", () => ({
+  getAdapter: vi.fn(() => Promise.resolve(mockAdapter)),
+}));
+
+// Mock connection store
+vi.mock("../connectionStoreNew", () => ({
+  useConnectionStore: {
+    getState: () => ({
+      getConnection: (id: string) => ({
+        profile: {
+          id,
+          db_type: DbType.PostgreSQL,
+        },
+      }),
+    }),
   },
 }));
 
@@ -56,8 +83,11 @@ describe("crudStore", () => {
       historyIndex: 0,
       previewMode: "split",
       isDirty: false,
+      committingTableKeys: new Set(),
     });
     vi.clearAllMocks();
+    // Default: successful execution
+    mockExecute.mockResolvedValue({ columns: [], rows: [] });
   });
 
   describe("Command Staging", () => {
@@ -400,28 +430,17 @@ describe("crudStore", () => {
     it("should commit changes successfully", async () => {
       const store = useCrudStore.getState();
 
-      const mockResult: CommitResult = {
-        transactionId: "tx-1",
-        success: true,
-        durationMs: 50,
-        committed: [mockCommand],
-        failures: [],
-      };
-
-      vi.mocked(BackendAPI.executeCrudTransaction).mockResolvedValue(
-        mockResult,
-      );
-
       store.stageCommand(mockCommand);
       const tableKey = store.getTableKey(mockTarget);
 
       const result = await store.commitChanges(tableKey);
 
       expect(result.success).toBe(true);
-      expect(BackendAPI.executeCrudTransaction).toHaveBeenCalledWith(
-        "conn-1",
-        [mockCommand],
+      expect(mockExecute).toHaveBeenCalledWith(
+        expect.stringContaining("BEGIN"),
       );
+      expect(mockAdapter.insert).toHaveBeenCalled();
+      expect(mockAdapter.transaction).toHaveBeenCalled();
 
       // Commands are kept for optimistic display until clearCommittedChanges is called
       store.clearCommittedChanges(tableKey);
@@ -435,25 +454,8 @@ describe("crudStore", () => {
     it("should handle commit failure", async () => {
       const store = useCrudStore.getState();
 
-      const mockResult: CommitResult = {
-        transactionId: "tx-1",
-        success: false,
-        durationMs: 50,
-        committed: [],
-        failures: [
-          {
-            id: mockCommand.id,
-            type: mockCommand.type,
-            target: mockCommand.target,
-            error: { message: "Constraint violation", code: "23505", severity: "error", recoverable: false },
-            rolledBack: true,
-          },
-        ],
-      };
-
-      vi.mocked(BackendAPI.executeCrudTransaction).mockResolvedValue(
-        mockResult,
-      );
+      // Mock SQL execution failure
+      mockExecute.mockRejectedValue(new Error("Constraint violation"));
 
       store.stageCommand(mockCommand);
       const tableKey = store.getTableKey(mockTarget);
@@ -474,31 +476,12 @@ describe("crudStore", () => {
 
       expect(result.success).toBe(true);
       expect(result.committed).toEqual([]);
-      expect(BackendAPI.executeCrudTransaction).not.toHaveBeenCalled();
+      // execute should not be called for empty table
+      expect(mockExecute).not.toHaveBeenCalled();
     });
 
     it("should commit all tables", async () => {
       const store = useCrudStore.getState();
-
-      const mockResult1: CommitResult = {
-        transactionId: "tx-1",
-        success: true,
-        durationMs: 50,
-        committed: [mockCommand],
-        failures: [],
-      };
-
-      const mockResult2: CommitResult = {
-        transactionId: "tx-2",
-        success: true,
-        durationMs: 60,
-        committed: [mockCommand2],
-        failures: [],
-      };
-
-      vi.mocked(BackendAPI.executeCrudTransaction)
-        .mockResolvedValueOnce(mockResult1)
-        .mockResolvedValueOnce(mockResult2);
 
       store.stageCommand(mockCommand);
       store.stageCommand(mockCommand2);
@@ -509,7 +492,7 @@ describe("crudStore", () => {
       const results = await store.commitAll();
 
       expect(Object.keys(results)).toHaveLength(2);
-      expect(BackendAPI.executeCrudTransaction).toHaveBeenCalledTimes(2);
+      expect(mockExecute).toHaveBeenCalledTimes(2);
 
       // Commands are kept for optimistic display until clearCommittedChanges is called
       store.clearCommittedChanges(tableKey1);
@@ -522,18 +505,6 @@ describe("crudStore", () => {
 
     it("should create history snapshot after clearCommittedChanges", async () => {
       const store = useCrudStore.getState();
-
-      const mockResult: CommitResult = {
-        transactionId: "tx-1",
-        success: true,
-        durationMs: 50,
-        committed: [mockCommand],
-        failures: [],
-      };
-
-      vi.mocked(BackendAPI.executeCrudTransaction).mockResolvedValue(
-        mockResult,
-      );
 
       store.stageCommand(mockCommand);
       const tableKey = store.getTableKey(mockTarget);
