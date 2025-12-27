@@ -7,6 +7,7 @@ import { DbType } from "@/types/connection";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { useValidationStore } from "@/stores/validationStore";
 import { generateSqlPreview } from "@/adapters";
+import { CodeEditor, type SqlDialect } from "@/components/CodeEditor";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +39,14 @@ import {
 import { toast } from "sonner";
 import ReactDiffViewer from "react-diff-viewer-continued";
 import { useTheme } from "next-themes";
+
+// Map DbType to SqlDialect for CodeEditor
+const dbTypeToDialect: Record<DbType, SqlDialect> = {
+  [DbType.PostgreSQL]: "postgresql",
+  [DbType.MySQL]: "mysql",
+  [DbType.SQLite]: "sqlite",
+  [DbType.SQLServer]: "mssql",
+};
 
 interface GlobalChangesDialogProps {
   connectionId: string;
@@ -714,38 +723,18 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
 
         {/* SQL Preview */}
         {viewMode === "sql" && (
-          <ScrollArea className="flex-1 h-0 min-h-[200px] max-h-[50vh]">
-            <div className="rounded-lg border bg-muted/30 mx-1">
-              <pre className="p-4 text-xs font-mono whitespace-pre-wrap break-words text-foreground leading-relaxed">
-                {generatedSQL ? (
-                  generatedSQL.split("\n").map((line, i) => (
-                    <div key={i} className="flex">
-                      <span className="select-none text-muted-foreground w-8 shrink-0 text-right pr-3">
-                        {i + 1}
-                      </span>
-                      <span className={
-                        line.startsWith("--")
-                          ? "text-muted-foreground italic"
-                          : line.includes("INSERT")
-                          ? "text-green-600 dark:text-green-400"
-                          : line.includes("UPDATE")
-                          ? "text-blue-600 dark:text-blue-400"
-                          : line.includes("DELETE")
-                          ? "text-red-600 dark:text-red-400"
-                          : line.includes("ALTER")
-                          ? "text-purple-600 dark:text-purple-400"
-                          : ""
-                      }>
-                        {line || " "}
-                      </span>
-                    </div>
-                  ))
-                ) : (
-                  <span className="text-muted-foreground">-- No SQL generated</span>
-                )}
-              </pre>
-            </div>
-          </ScrollArea>
+          <div className="flex-1 min-h-[200px] max-h-[50vh] rounded-lg border overflow-hidden mx-1">
+            <CodeEditor
+              value={generatedSQL || "-- No SQL generated"}
+              readOnly={true}
+              language="sql"
+              dialect={dbTypeToDialect[dbType]}
+              lineNumbers={true}
+              height="100%"
+              minHeight="200px"
+              maxHeight="50vh"
+            />
+          </div>
         )}
 
         <Separator />
