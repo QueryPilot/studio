@@ -3,12 +3,12 @@ use deadpool_postgres::Pool;
 use native_tls::{Certificate, TlsConnector};
 use postgres_native_tls::MakeTlsConnector;
 use std::fs;
-use std::sync::Arc;
 use tokio_postgres::config::{ChannelBinding as PgChannelBinding, SslMode as PgSslMode};
 use tokio_postgres::{Config, NoTls};
 
 use super::pool::PostgresPoolBuilder;
-use super::query_fast::FastPostgresQueryExecutor;
+use super::simple_converter::SimpleConverter;
+use super::types::PostgresTypeConverter;
 use crate::core::adapter::DbAdapter;
 use crate::error::{AppError, Result};
 use crate::types::*;
@@ -16,7 +16,6 @@ use crate::types::*;
 pub struct PostgresAdapter {
     pool: Option<Pool>,
     connection_handle: Option<tokio::task::JoinHandle<()>>,
-    query_executor: Option<Arc<FastPostgresQueryExecutor>>,
 }
 
 impl PostgresAdapter {
@@ -24,13 +23,12 @@ impl PostgresAdapter {
         Self {
             pool: None,
             connection_handle: None,
-            query_executor: None,
         }
     }
 
-    /// Get query executor (for fast path optimization)
-    pub fn get_query_executor(&self) -> Option<Arc<FastPostgresQueryExecutor>> {
-        self.query_executor.clone()
+    /// Get the connection pool for streaming queries
+    pub fn get_pool(&self) -> Option<Pool> {
+        self.pool.clone()
     }
 
     /// Execute multiple SQL statements within a transaction
@@ -226,19 +224,14 @@ impl DbAdapter for PostgresAdapter {
             AppError::Internal(format!("Failed to get connection from pool: {}", e))
         })?;
 
-        // Initialize components with pool
-        let executor = Arc::new(FastPostgresQueryExecutor::new_with_pool(pool.clone()));
-
         self.pool = Some(pool);
-        self.query_executor = Some(executor);
 
         Ok(())
     }
 
     async fn disconnect(&mut self) -> Result<()> {
-        // Drop pool and components
+        // Drop pool
         self.pool = None;
-        self.query_executor = None;
 
         // Cancel connection task
         if let Some(handle) = self.connection_handle.take() {
@@ -288,14 +281,46 @@ impl DbAdapter for PostgresAdapter {
     }
 
     async fn query(&self, sql: &str) -> Result<QueryResult> {
-        let executor = self
-            .query_executor
+        let pool = self
+            .pool
             .as_ref()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
 
-        let (rows, columns, _execution_time) = executor.execute_single_fetch(sql).await?;
+        let conn = pool
+            .get()
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
-        Ok(QueryResult { columns, rows })
+        let rows = conn.query(sql, &[]).await?;
+
+        // Build column metadata
+        let columns = if rows.is_empty() {
+            vec![]
+        } else {
+            rows[0]
+                .columns()
+                .iter()
+                .map(|col| ColumnMeta {
+                    name: col.name().to_string(),
+                    data_type: PostgresTypeConverter::type_to_cell_type(col.type_()),
+                    nullable: true,
+                    primary_key: false,
+                    db_type: col.type_().name().to_string(),
+                    type_oid: Some(col.type_().oid()),
+                    default_value: None,
+                    comment: None,
+                    enum_values: None,
+                    type_category: None,
+                    precision: None,
+                    scale: None,
+                })
+                .collect()
+        };
+
+        // Use simple converter (no JSON parsing overhead!)
+        let json_rows = SimpleConverter::rows_to_json(&rows);
+
+        Ok(QueryResult { columns, rows: json_rows })
     }
 
     async fn execute(&self, sql: &str) -> Result<u64> {
