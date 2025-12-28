@@ -147,7 +147,7 @@ export function PromptInputProvider({
 }: PromptInputProviderProps) {
   // ----- textInput state
   const [textInput, setTextInput] = useState(initialTextInput);
-  const clearInput = useCallback(() => setTextInput(""), []);
+  const clearInput = useCallback(() => { setTextInput(""); }, []);
 
   // ----- attachments state (global when wrapped)
   const [attachmentFiles, setAttachmentFiles] = useState<
@@ -553,26 +553,26 @@ export const PromptInput = ({
 
   const removeLocal = useCallback(
     (id: string) =>
-      setItems((prev) => {
+      { setItems((prev) => {
         const found = prev.find((file) => file.id === id);
         if (found?.url) {
           URL.revokeObjectURL(found.url);
         }
         return prev.filter((file) => file.id !== id);
-      }),
+      }); },
     []
   );
 
   const clearLocal = useCallback(
     () =>
-      setItems((prev) => {
+      { setItems((prev) => {
         for (const file of prev) {
           if (file.url) {
             URL.revokeObjectURL(file.url);
           }
         }
         return [];
-      }),
+      }); },
     []
   );
 
@@ -656,7 +656,7 @@ export const PromptInput = ({
         }
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- cleanup only on unmount; filesRef always current
+     
     [usingProvider]
   );
 
@@ -676,8 +676,8 @@ export const PromptInput = ({
       const blob = await response.blob();
       return new Promise((resolve) => {
         const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.onerror = () => resolve(null);
+        reader.onloadend = () => { resolve(reader.result as string); };
+        reader.onerror = () => { resolve(null); };
         reader.readAsDataURL(blob);
       });
     } catch {
@@ -892,8 +892,8 @@ export const PromptInputTextarea = ({
     <InputGroupTextarea
       className={cn("field-sizing-content max-h-48 min-h-16", className)}
       name="message"
-      onCompositionEnd={() => setIsComposing(false)}
-      onCompositionStart={() => setIsComposing(true)}
+      onCompositionEnd={() => { setIsComposing(false); }}
+      onCompositionStart={() => { setIsComposing(true); }}
       onKeyDown={handleKeyDown}
       onPaste={handlePaste}
       placeholder={placeholder}

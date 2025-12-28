@@ -419,4 +419,29 @@ export abstract class SqlAdapter implements DatabaseAdapter {
   abstract quoteIdentifier(name: string): string;
   abstract quoteString(value: string): string;
   abstract formatValue(value: unknown, column: ColumnInfo): string;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Introspection Queries - must be implemented by each dialect
+  // ─────────────────────────────────────────────────────────────────
+
+  abstract getDatabasesQuery(): string;
+  abstract getSchemasQuery(): string;
+  abstract getTablesQuery(schema: string): string;
+  abstract getViewsQuery(schema: string): string;
+  abstract getFunctionsQuery(schema: string): string;
+  abstract getIndexesQuery(schema: string, table: string): string;
+  abstract getIndexUsageStatsQuery(schema: string, table: string): string;
+  abstract getConstraintsQuery(schema: string, table: string): string;
+  abstract getColumnsQuery(schema: string, table: string): string;
+  abstract getTriggersQuery(schema: string, table: string): string;
+  abstract getSupportedIndexTypesQuery(): string;
+  abstract getSupportedColumnTypesQuery(): string;
+  abstract getTableCountQuery(schema: string, table: string, exact?: boolean): string;
+  abstract getTableStatsQuery(schema: string, table: string): string;
+  abstract getForeignKeyTargetsQuery(schema: string): string;
+  abstract getObjectDefinitionQuery(
+    objectType: 'table' | 'view' | 'materialized_view' | 'function' | 'procedure',
+    schema: string,
+    name: string
+  ): string;
 }

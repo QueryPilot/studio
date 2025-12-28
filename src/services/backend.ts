@@ -373,22 +373,22 @@ export class BackendAPI {
   // See: src/services/introspectionService.ts
 
   // ============================================================================
-  // Generic SQL Execution (Frontend-Driven Dialect Support)
+  // Generic SQL Execution (Frontend-Driven Adapter Support)
   // ============================================================================
   // These methods allow the frontend to execute SQL directly.
-  // SQL generation is handled by frontend dialects (src/dialects/).
+  // SQL generation is handled by frontend adapters (src/adapters/).
 
   /**
    * Execute a single SQL statement and return the number of affected rows.
    * This is the primary method for DDL operations (CREATE, ALTER, DROP).
-   * Use the dialect system to generate the SQL before calling this method.
+   * Use the adapter system to generate the SQL before calling this method.
    *
    * @example
    * ```typescript
-   * import { getDialect } from '@/dialects';
+   * import { getAdapter } from '@/adapters';
    *
-   * const dialect = getDialect(DbType.PostgreSQL);
-   * const sql = dialect.createIndex({ schema: 'public', table: 'users', ... });
+   * const adapter = getAdapter(connectionId, DbType.PostgreSQL);
+   * const sql = adapter.createIndex({ schema: 'public', table: 'users' }, { name: 'idx', columns: ['id'] });
    * const affectedRows = await BackendAPI.executeSql(connectionId, sql);
    * ```
    */
@@ -427,9 +427,10 @@ export class BackendAPI {
    *
    * @example
    * ```typescript
-   * import { DialectService } from './dialectService';
+   * import { getAdapterForConnection } from '@/adapters';
    *
-   * const sql = DialectService.getIndexesQuery(connectionId, schema, table);
+   * const adapter = await getAdapterForConnection(connectionId);
+   * const sql = adapter.getIndexesQuery(schema, table);
    * const result = await BackendAPI.query(connectionId, sql);
    * // result.columns: ColumnMeta[], result.rows: CellValue[][]
    * ```

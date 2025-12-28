@@ -2400,7 +2400,7 @@ export const ExplainViewer = memo(function ExplainViewer({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setShowSaveDialog(true)}
+                onClick={() => { setShowSaveDialog(true); }}
                 className="h-7 text-xs"
               >
                 <IconBookmark className="h-3.5 w-3.5 mr-1.5" />
@@ -2410,7 +2410,7 @@ export const ExplainViewer = memo(function ExplainViewer({
               <div className="flex items-center gap-2">
                 <Input
                   value={saveLabel}
-                  onChange={(e) => setSaveLabel(e.target.value)}
+                  onChange={(e) => { setSaveLabel(e.target.value); }}
                   placeholder="Label (optional)"
                   className="h-7 text-xs w-40"
                   onKeyDown={(e) => {
@@ -2449,7 +2449,7 @@ export const ExplainViewer = memo(function ExplainViewer({
               <>
                 <div className="h-4 w-px bg-border" />
                 <div className="flex items-center gap-2">
-                  <Select value={selectedPlan1 || null} onValueChange={(val) => setSelectedPlan1(val || "")}>
+                  <Select value={selectedPlan1 || null} onValueChange={(val) => { setSelectedPlan1(val || ""); }}>
                     <SelectTrigger className="h-7 w-32 text-xs">
                       <SelectValue />
                     </SelectTrigger>
@@ -2462,7 +2462,7 @@ export const ExplainViewer = memo(function ExplainViewer({
                     </SelectContent>
                   </Select>
                   <span className="text-xs text-muted-foreground">vs</span>
-                  <Select value={selectedPlan2 || null} onValueChange={(val) => setSelectedPlan2(val || "")}>
+                  <Select value={selectedPlan2 || null} onValueChange={(val) => { setSelectedPlan2(val || ""); }}>
                     <SelectTrigger className="h-7 w-32 text-xs">
                       <SelectValue />
                     </SelectTrigger>

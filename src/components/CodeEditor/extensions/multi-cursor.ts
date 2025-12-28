@@ -10,9 +10,9 @@
 
 import { EditorView, keymap, type KeyBinding } from "@codemirror/view";
 import {
-  EditorState,
+  type EditorState,
   EditorSelection,
-  SelectionRange,
+  type SelectionRange,
   type Extension,
 } from "@codemirror/state";
 

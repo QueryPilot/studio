@@ -118,7 +118,7 @@ export class PanelFocusManager {
       return false;
     }
 
-    const activeElement = document.activeElement as Element | null;
+    const activeElement = document.activeElement;
     return this.isElementWithinPanel(activeElement, panelId);
   }
 

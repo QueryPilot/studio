@@ -5,7 +5,7 @@
  * Shows play button at the FIRST LINE of each statement.
  */
 
-import { EditorView, ViewPlugin, ViewUpdate } from "@codemirror/view";
+import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { StateField, type Extension } from "@codemirror/state";
 import { lintGutter } from "@codemirror/lint";
 import { getAllStatements, type StatementBoundary } from "../core/query-utils";

@@ -200,7 +200,7 @@ export function usePreloadEditorOnHover(
       preloadEditor(editorKey);
     }, 100);
 
-    return () => clearTimeout(timer);
+    return () => { clearTimeout(timer); };
   }, [editorKey, enabled]);
 }
 

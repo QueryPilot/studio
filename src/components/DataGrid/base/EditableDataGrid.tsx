@@ -353,7 +353,7 @@ export const EditableDataGrid = forwardRef<
     };
 
     document.addEventListener('keydown', handleCmdDelete);
-    return () => document.removeEventListener('keydown', handleCmdDelete);
+    return () => { document.removeEventListener('keydown', handleCmdDelete); };
   }, [gridSelection, onRowDelete, rows, processResult]);
 
   const handleCellActivated = useCallback(

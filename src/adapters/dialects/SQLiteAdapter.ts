@@ -276,4 +276,162 @@ export class SQLiteAdapter extends SqlAdapter {
   toggleTrigger(_target: TableRef, _triggerName: string, _enable: boolean): string {
     return '-- SQLite does not support ENABLE/DISABLE TRIGGER';
   }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Introspection Queries - SQLite
+  // ─────────────────────────────────────────────────────────────────
+
+  getDatabasesQuery(): string {
+    // SQLite uses attached databases, show main and attached
+    return `SELECT 'main' as name UNION SELECT name FROM pragma_database_list WHERE name != 'main'`;
+  }
+
+  getSchemasQuery(): string {
+    // SQLite doesn't have schemas - return single 'main'
+    return `SELECT 'main' as name`;
+  }
+
+  getTablesQuery(_schema: string): string {
+    return `
+SELECT
+    'main' as schema_name,
+    name as table_name,
+    'regular' as kind,
+    NULL as owner,
+    NULL as size,
+    NULL as row_count
+FROM sqlite_master
+WHERE type = 'table'
+    AND name NOT LIKE 'sqlite_%'
+ORDER BY name`;
+  }
+
+  getViewsQuery(_schema: string): string {
+    return `
+SELECT
+    'main' as schema_name,
+    name as view_name,
+    sql as definition
+FROM sqlite_master
+WHERE type = 'view'
+ORDER BY name`;
+  }
+
+  getFunctionsQuery(_schema: string): string {
+    // SQLite doesn't have stored functions in the same way
+    return `SELECT 'Not supported' as message WHERE 0`;
+  }
+
+  getIndexesQuery(_schema: string, table: string): string {
+    return `
+SELECT
+    name as index_name,
+    '${this.escapeString(table)}' as table_name,
+    \`unique\` as is_unique,
+    origin = 'pk' as is_primary,
+    sql as definition
+FROM pragma_index_list('${this.escapeString(table)}')
+ORDER BY name`;
+  }
+
+  getIndexUsageStatsQuery(_schema: string, _table: string): string {
+    // SQLite doesn't track index usage stats
+    return `SELECT 'Not supported' as message WHERE 0`;
+  }
+
+  getConstraintsQuery(_schema: string, table: string): string {
+    return `
+SELECT
+    name as constraint_name,
+    '${this.escapeString(table)}' as table_name,
+    CASE
+        WHEN pk THEN 'PRIMARY KEY'
+        ELSE 'FOREIGN KEY'
+    END as constraint_type
+FROM pragma_table_info('${this.escapeString(table)}')
+WHERE pk > 0
+UNION ALL
+SELECT
+    'fk_' || id as constraint_name,
+    '${this.escapeString(table)}' as table_name,
+    'FOREIGN KEY' as constraint_type
+FROM pragma_foreign_key_list('${this.escapeString(table)}')`;
+  }
+
+  getColumnsQuery(_schema: string, table: string): string {
+    return `
+SELECT
+    name as column_name,
+    type as formatted_type,
+    type as data_type,
+    NOT \`notnull\` as nullable,
+    pk > 0 as is_primary_key,
+    dflt_value as default_value,
+    NULL as comment
+FROM pragma_table_info('${this.escapeString(table)}')
+ORDER BY cid`;
+  }
+
+  getTriggersQuery(_schema: string, table: string): string {
+    return `
+SELECT
+    name as trigger_name,
+    'main' as schema_name,
+    '${this.escapeString(table)}' as table_name,
+    sql as definition
+FROM sqlite_master
+WHERE type = 'trigger'
+    AND tbl_name = '${this.escapeString(table)}'
+ORDER BY name`;
+  }
+
+  getSupportedIndexTypesQuery(): string {
+    return `SELECT 'BTREE' as name`;
+  }
+
+  getSupportedColumnTypesQuery(): string {
+    return `
+SELECT 'INTEGER' as type_name, 'numeric' as category
+UNION SELECT 'TEXT', 'string'
+UNION SELECT 'REAL', 'numeric'
+UNION SELECT 'BLOB', 'binary'
+UNION SELECT 'NULL', 'other'`;
+  }
+
+  getTableCountQuery(_schema: string, table: string, _exact?: boolean): string {
+    // SQLite always does exact counts
+    return `SELECT COUNT(*) as count FROM ${this.quoteIdentifier(table)}`;
+  }
+
+  getTableStatsQuery(_schema: string, table: string): string {
+    return `
+SELECT
+    NULL as owner,
+    NULL as size,
+    (SELECT COUNT(*) FROM ${this.quoteIdentifier(table)}) as row_count,
+    NULL as comment`;
+  }
+
+  getForeignKeyTargetsQuery(_schema: string): string {
+    // Get all tables with primary keys
+    return `
+SELECT DISTINCT
+    m.name as table_name,
+    ti.name as column_name,
+    ti.type as data_type
+FROM sqlite_master m
+CROSS JOIN pragma_table_info(m.name) ti
+WHERE m.type = 'table'
+    AND ti.pk > 0
+    AND m.name NOT LIKE 'sqlite_%'
+ORDER BY table_name, column_name`;
+  }
+
+  getObjectDefinitionQuery(
+    _objectType: 'table' | 'view' | 'materialized_view' | 'function' | 'procedure',
+    _schema: string,
+    name: string
+  ): string {
+    return `SELECT sql as definition FROM sqlite_master WHERE name = '${this.escapeString(name)}'`;
+  }
 }

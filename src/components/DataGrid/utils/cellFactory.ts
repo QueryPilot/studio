@@ -81,7 +81,7 @@ interface ParsedColumnMeta {
 const columnMetaCache = new WeakMap<GridColumnV2, ParsedColumnMeta>();
 
 function getOrParseColumnMeta(column: GridColumnV2): ParsedColumnMeta {
-  let cached = columnMetaCache.get(column);
+  const cached = columnMetaCache.get(column);
   if (cached) {
     return cached;
   }

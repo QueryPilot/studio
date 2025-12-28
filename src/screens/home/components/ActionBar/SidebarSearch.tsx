@@ -22,7 +22,7 @@ export function SidebarSearch() {
     };
 
     window.addEventListener('keydown', handleGlobalKeyDown);
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+    return () => { window.removeEventListener('keydown', handleGlobalKeyDown); };
   }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -61,7 +61,7 @@ export function SidebarSearch() {
           ref={inputRef}
           type="text"
           value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+          onChange={(e) => { setSearchQuery(e.target.value); }}
           onKeyDown={handleKeyDown}
           placeholder="Search..."
           className={cn(

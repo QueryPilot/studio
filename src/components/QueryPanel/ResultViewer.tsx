@@ -155,22 +155,22 @@ const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseTyp
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuGroup>
           <DropdownMenuLabel>Export Format</DropdownMenuLabel>
-          <DropdownMenuItem onClick={() => setExportFormat("csv")}>
+          <DropdownMenuItem onClick={() => { setExportFormat("csv"); }}>
             {exportFormat === "csv" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
             {exportFormat !== "csv" && <span className="w-3.5 mr-2" />}
             CSV (Comma Separated)
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setExportFormat("json")}>
+          <DropdownMenuItem onClick={() => { setExportFormat("json"); }}>
             {exportFormat === "json" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
             {exportFormat !== "json" && <span className="w-3.5 mr-2" />}
             JSON (JavaScript Object)
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setExportFormat("insert")}>
+          <DropdownMenuItem onClick={() => { setExportFormat("insert"); }}>
             {exportFormat === "insert" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
             {exportFormat !== "insert" && <span className="w-3.5 mr-2" />}
             SQL INSERT Statements
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setExportFormat("markdown")}>
+          <DropdownMenuItem onClick={() => { setExportFormat("markdown"); }}>
             {exportFormat === "markdown" && <IconCheck className="h-3.5 w-3.5 mr-2" />}
             {exportFormat !== "markdown" && <span className="w-3.5 mr-2" />}
             Markdown Table
@@ -183,15 +183,15 @@ const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseTyp
           <>
             <DropdownMenuGroup>
               <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">CSV Options</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => setDelimiter(",")}>
+              <DropdownMenuItem onClick={() => { setDelimiter(","); }}>
                 {delimiter === "," ? <IconCheck className="h-3.5 w-3.5 mr-2" /> : <span className="w-3.5 mr-2" />}
                 Comma (,)
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setDelimiter(";")}>
+              <DropdownMenuItem onClick={() => { setDelimiter(";"); }}>
                 {delimiter === ";" ? <IconCheck className="h-3.5 w-3.5 mr-2" /> : <span className="w-3.5 mr-2" />}
                 Semicolon (;)
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setDelimiter("\t")}>
+              <DropdownMenuItem onClick={() => { setDelimiter("\t"); }}>
                 {delimiter === "\t" ? <IconCheck className="h-3.5 w-3.5 mr-2" /> : <span className="w-3.5 mr-2" />}
                 Tab
               </DropdownMenuItem>
@@ -212,11 +212,11 @@ const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseTyp
           <>
             <DropdownMenuGroup>
               <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">JSON Options</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => setJsonFormat("pretty")}>
+              <DropdownMenuItem onClick={() => { setJsonFormat("pretty"); }}>
                 {jsonFormat === "pretty" ? <IconCheck className="h-3.5 w-3.5 mr-2" /> : <span className="w-3.5 mr-2" />}
                 Pretty (Indented)
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setJsonFormat("compact")}>
+              <DropdownMenuItem onClick={() => { setJsonFormat("compact"); }}>
                 {jsonFormat === "compact" ? <IconCheck className="h-3.5 w-3.5 mr-2" /> : <span className="w-3.5 mr-2" />}
                 Compact (Minified)
               </DropdownMenuItem>
@@ -239,7 +239,7 @@ const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseTyp
               <input
                 type="text"
                 value={tableName}
-                onChange={(e) => setTableName(e.target.value)}
+                onChange={(e) => { setTableName(e.target.value); }}
                 className="w-full px-2 py-1 text-xs border rounded focus:outline-none focus:ring-1 focus:ring-primary"
                 placeholder="table_name"
               />
@@ -260,15 +260,15 @@ const ExportMenu = memo(function ExportMenu({ columns, rows, schema, databaseTyp
           <>
             <DropdownMenuGroup>
               <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">Markdown Options</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => setAlignNumeric("right")}>
+              <DropdownMenuItem onClick={() => { setAlignNumeric("right"); }}>
                 {alignNumeric === "right" ? <IconCheck className="h-3.5 w-3.5 mr-2" /> : <span className="w-3.5 mr-2" />}
                 Align Numbers Right
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setAlignNumeric("left")}>
+              <DropdownMenuItem onClick={() => { setAlignNumeric("left"); }}>
                 {alignNumeric === "left" ? <IconCheck className="h-3.5 w-3.5 mr-2" /> : <span className="w-3.5 mr-2" />}
                 Align Numbers Left
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setAlignNumeric("center")}>
+              <DropdownMenuItem onClick={() => { setAlignNumeric("center"); }}>
                 {alignNumeric === "center" ? <IconCheck className="h-3.5 w-3.5 mr-2" /> : <span className="w-3.5 mr-2" />}
                 Align Numbers Center
               </DropdownMenuItem>

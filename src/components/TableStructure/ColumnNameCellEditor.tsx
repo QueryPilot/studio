@@ -10,7 +10,7 @@ interface ColumnNameCellEditorProps {
   ) => void;
 }
 
-export const ColumnNameCellEditor: React.FC<ColumnNameCellEditorProps> = ({
+const ColumnNameCellEditor: React.FC<ColumnNameCellEditorProps> = ({
   value,
   onFinishedEditing,
 }) => {
@@ -120,7 +120,7 @@ export const ColumnNameCellEditor: React.FC<ColumnNameCellEditorProps> = ({
   const { isPrimaryKey, isForeignKey } = value.data;
 
   return (
-    <div className="flex flex-col click-outside-ignore z-50 bg-popover border shadow-lg min-w-[200px] max-w-[400px] w-max">
+    <div className="w-full h-full flex flex-col relative click-outside-ignore z-50">
       {/* Header with column info */}
       <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
         {isPrimaryKey && (
@@ -135,7 +135,7 @@ export const ColumnNameCellEditor: React.FC<ColumnNameCellEditorProps> = ({
       </div>
 
       {/* Input field */}
-      <div className="flex items-center relative">
+      <div className="flex items-center flex-1">
         <input
           ref={inputRef}
           type="text"
@@ -145,7 +145,7 @@ export const ColumnNameCellEditor: React.FC<ColumnNameCellEditorProps> = ({
           onChange={(e) => {
             originalValueRef.current = e.target.value;
           }}
-          className="w-full bg-transparent py-1.5 px-2 text-xs outline-none font-mono"
+          className="w-full h-full bg-transparent py-1.5 px-2 text-xs outline-none font-mono"
           placeholder="column_name"
         />
       </div>
@@ -153,4 +153,9 @@ export const ColumnNameCellEditor: React.FC<ColumnNameCellEditorProps> = ({
   );
 };
 
-export default ColumnNameCellEditor;
+export const ColumnNameCellEditorWithProps = Object.assign(ColumnNameCellEditor, {
+  disablePadding: true,
+  disableStyling: false,
+});
+
+export default ColumnNameCellEditorWithProps;

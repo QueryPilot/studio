@@ -7,7 +7,7 @@
 
 import {
   EditorView,
-  Tooltip,
+  type Tooltip,
   showTooltip,
   keymap,
   type TooltipView,

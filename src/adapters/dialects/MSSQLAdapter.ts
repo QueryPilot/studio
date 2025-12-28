@@ -390,4 +390,249 @@ export class MSSQLAdapter extends SqlAdapter {
     const action = enable ? 'ENABLE' : 'DISABLE';
     return `${action} TRIGGER ${this.quoteIdentifier(triggerName)} ON ${table}`;
   }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Introspection Queries - T-SQL
+  // ─────────────────────────────────────────────────────────────────
+
+  getDatabasesQuery(): string {
+    return `SELECT name FROM sys.databases WHERE state = 0 ORDER BY name`;
+  }
+
+  getSchemasQuery(): string {
+    return `SELECT name FROM sys.schemas WHERE principal_id = 1 ORDER BY name`;
+  }
+
+  getTablesQuery(schema: string): string {
+    return `
+SELECT
+    s.name as schema_name,
+    t.name as table_name,
+    'regular' as kind,
+    NULL as owner,
+    NULL as size,
+    p.rows as row_count
+FROM sys.tables t
+JOIN sys.schemas s ON t.schema_id = s.schema_id
+LEFT JOIN sys.partitions p ON t.object_id = p.object_id AND p.index_id < 2
+WHERE s.name = '${this.escapeString(schema)}'
+ORDER BY t.name`;
+  }
+
+  getViewsQuery(schema: string): string {
+    return `
+SELECT
+    s.name as schema_name,
+    v.name as view_name,
+    m.definition as definition
+FROM sys.views v
+JOIN sys.schemas s ON v.schema_id = s.schema_id
+LEFT JOIN sys.sql_modules m ON v.object_id = m.object_id
+WHERE s.name = '${this.escapeString(schema)}'
+ORDER BY v.name`;
+  }
+
+  getFunctionsQuery(schema: string): string {
+    return `
+SELECT
+    s.name as schema_name,
+    o.name as function_name,
+    o.type_desc as type,
+    m.definition as source
+FROM sys.objects o
+JOIN sys.schemas s ON o.schema_id = s.schema_id
+LEFT JOIN sys.sql_modules m ON o.object_id = m.object_id
+WHERE s.name = '${this.escapeString(schema)}'
+    AND o.type IN ('FN', 'IF', 'TF', 'P')
+ORDER BY o.name`;
+  }
+
+  getIndexesQuery(schema: string, table: string): string {
+    return `
+SELECT
+    i.name as index_name,
+    t.name as table_name,
+    STRING_AGG(c.name, ',') WITHIN GROUP (ORDER BY ic.key_ordinal) as columns,
+    i.is_unique as is_unique,
+    i.is_primary_key as is_primary,
+    i.type_desc as index_type
+FROM sys.indexes i
+JOIN sys.tables t ON i.object_id = t.object_id
+JOIN sys.schemas s ON t.schema_id = s.schema_id
+JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+WHERE s.name = '${this.escapeString(schema)}'
+    AND t.name = '${this.escapeString(table)}'
+    AND i.name IS NOT NULL
+GROUP BY i.name, t.name, i.is_unique, i.is_primary_key, i.type_desc
+ORDER BY i.name`;
+  }
+
+  getIndexUsageStatsQuery(schema: string, table: string): string {
+    return `
+SELECT
+    i.name as index_name,
+    us.user_seeks as seek_count,
+    us.user_scans as scan_count,
+    us.user_lookups as lookup_count,
+    us.user_updates as update_count,
+    us.last_user_seek as last_seek,
+    us.last_user_scan as last_scan
+FROM sys.dm_db_index_usage_stats us
+JOIN sys.indexes i ON us.object_id = i.object_id AND us.index_id = i.index_id
+JOIN sys.tables t ON i.object_id = t.object_id
+JOIN sys.schemas s ON t.schema_id = s.schema_id
+WHERE s.name = '${this.escapeString(schema)}'
+    AND t.name = '${this.escapeString(table)}'
+    AND us.database_id = DB_ID()
+ORDER BY i.name`;
+  }
+
+  getConstraintsQuery(schema: string, table: string): string {
+    return `
+SELECT
+    c.name as constraint_name,
+    t.name as table_name,
+    c.type_desc as constraint_type,
+    OBJECT_NAME(fk.referenced_object_id) as foreign_table
+FROM sys.objects c
+JOIN sys.tables t ON c.parent_object_id = t.object_id
+JOIN sys.schemas s ON t.schema_id = s.schema_id
+LEFT JOIN sys.foreign_keys fk ON c.object_id = fk.object_id
+WHERE s.name = '${this.escapeString(schema)}'
+    AND t.name = '${this.escapeString(table)}'
+    AND c.type IN ('PK', 'UQ', 'F', 'C')
+ORDER BY c.name`;
+  }
+
+  getColumnsQuery(schema: string, table: string): string {
+    return `
+SELECT
+    c.name as column_name,
+    TYPE_NAME(c.user_type_id) + CASE
+        WHEN TYPE_NAME(c.user_type_id) IN ('varchar', 'nvarchar', 'char', 'nchar')
+            THEN '(' + CASE WHEN c.max_length = -1 THEN 'MAX' ELSE CAST(c.max_length AS VARCHAR) END + ')'
+        WHEN TYPE_NAME(c.user_type_id) IN ('decimal', 'numeric')
+            THEN '(' + CAST(c.precision AS VARCHAR) + ',' + CAST(c.scale AS VARCHAR) + ')'
+        ELSE ''
+    END as formatted_type,
+    TYPE_NAME(c.user_type_id) as data_type,
+    c.is_nullable as nullable,
+    CASE WHEN pk.column_id IS NOT NULL THEN 1 ELSE 0 END as is_primary_key,
+    dc.definition as default_value,
+    ep.value as comment
+FROM sys.columns c
+JOIN sys.tables t ON c.object_id = t.object_id
+JOIN sys.schemas s ON t.schema_id = s.schema_id
+LEFT JOIN sys.default_constraints dc ON c.default_object_id = dc.object_id
+LEFT JOIN sys.extended_properties ep ON ep.major_id = c.object_id AND ep.minor_id = c.column_id AND ep.name = 'MS_Description'
+LEFT JOIN (
+    SELECT ic.object_id, ic.column_id
+    FROM sys.index_columns ic
+    JOIN sys.indexes i ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+    WHERE i.is_primary_key = 1
+) pk ON pk.object_id = c.object_id AND pk.column_id = c.column_id
+WHERE s.name = '${this.escapeString(schema)}'
+    AND t.name = '${this.escapeString(table)}'
+ORDER BY c.column_id`;
+  }
+
+  getTriggersQuery(schema: string, table: string): string {
+    return `
+SELECT
+    tr.name as trigger_name,
+    s.name as schema_name,
+    t.name as table_name,
+    tr.is_disabled,
+    m.definition as definition
+FROM sys.triggers tr
+JOIN sys.tables t ON tr.parent_id = t.object_id
+JOIN sys.schemas s ON t.schema_id = s.schema_id
+LEFT JOIN sys.sql_modules m ON tr.object_id = m.object_id
+WHERE s.name = '${this.escapeString(schema)}'
+    AND t.name = '${this.escapeString(table)}'
+ORDER BY tr.name`;
+  }
+
+  getSupportedIndexTypesQuery(): string {
+    return `SELECT 'CLUSTERED' as name UNION SELECT 'NONCLUSTERED' UNION SELECT 'UNIQUE' UNION SELECT 'COLUMNSTORE'`;
+  }
+
+  getSupportedColumnTypesQuery(): string {
+    return `
+SELECT name as type_name, 'mssql' as category
+FROM sys.types
+WHERE is_user_defined = 0
+ORDER BY name`;
+  }
+
+  getTableCountQuery(schema: string, table: string, exact?: boolean): string {
+    if (exact) {
+      return `SELECT COUNT(*) as count FROM ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(table)}`;
+    }
+    return `
+SELECT SUM(p.rows) as count
+FROM sys.partitions p
+JOIN sys.tables t ON p.object_id = t.object_id
+JOIN sys.schemas s ON t.schema_id = s.schema_id
+WHERE s.name = '${this.escapeString(schema)}'
+    AND t.name = '${this.escapeString(table)}'
+    AND p.index_id < 2`;
+  }
+
+  getTableStatsQuery(schema: string, table: string): string {
+    return `
+SELECT
+    NULL as owner,
+    NULL as size,
+    SUM(p.rows) as row_count,
+    ep.value as comment
+FROM sys.tables t
+JOIN sys.schemas s ON t.schema_id = s.schema_id
+LEFT JOIN sys.partitions p ON t.object_id = p.object_id AND p.index_id < 2
+LEFT JOIN sys.extended_properties ep ON ep.major_id = t.object_id AND ep.minor_id = 0 AND ep.name = 'MS_Description'
+WHERE s.name = '${this.escapeString(schema)}'
+    AND t.name = '${this.escapeString(table)}'
+GROUP BY ep.value`;
+  }
+
+  getForeignKeyTargetsQuery(schema: string): string {
+    return `
+SELECT DISTINCT
+    t.name as table_name,
+    c.name as column_name,
+    TYPE_NAME(c.user_type_id) as data_type
+FROM sys.index_columns ic
+JOIN sys.indexes i ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+JOIN sys.tables t ON i.object_id = t.object_id
+JOIN sys.schemas s ON t.schema_id = s.schema_id
+JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+WHERE s.name = '${this.escapeString(schema)}'
+    AND (i.is_primary_key = 1 OR i.is_unique = 1)
+ORDER BY table_name, column_name`;
+  }
+
+  getObjectDefinitionQuery(
+    objectType: 'table' | 'view' | 'materialized_view' | 'function' | 'procedure',
+    schema: string,
+    name: string
+  ): string {
+    if (objectType === 'table') {
+      // MSSQL doesn't have a simple way to get CREATE TABLE - need to construct it
+      return `
+SELECT 'CREATE TABLE ' + QUOTENAME(s.name) + '.' + QUOTENAME(t.name) as definition
+FROM sys.tables t
+JOIN sys.schemas s ON t.schema_id = s.schema_id
+WHERE s.name = '${this.escapeString(schema)}'
+    AND t.name = '${this.escapeString(name)}'`;
+    }
+    // For views, functions, procedures - use sp_helptext or sys.sql_modules
+    return `
+SELECT m.definition
+FROM sys.sql_modules m
+JOIN sys.objects o ON m.object_id = o.object_id
+JOIN sys.schemas s ON o.schema_id = s.schema_id
+WHERE s.name = '${this.escapeString(schema)}'
+    AND o.name = '${this.escapeString(name)}'`;
+  }
 }

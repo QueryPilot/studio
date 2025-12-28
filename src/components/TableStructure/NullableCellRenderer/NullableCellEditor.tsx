@@ -29,7 +29,7 @@ export const NullableCellEditor: React.FC<NullableCellEditorProps> = ({
     const timer = setTimeout(() => {
       commandRef.current?.focus();
     }, 50);
-    return () => clearTimeout(timer);
+    return () => { clearTimeout(timer); };
   }, []);
 
   const handleSelect = async (newValue: "YES" | "NO") => {

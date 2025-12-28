@@ -138,18 +138,18 @@ export function UnifiedContextMenu({
               isPinned={isColumnPinned}
               allColumns={allColumnsForVisibility ?? columns}
               columnVisibility={columnVisibility}
-              onSortAsc={() => onSort(headerColumnId, "asc")}
-              onSortDesc={() => onSort(headerColumnId, "desc")}
-              onClearSort={() => onClearSort(headerColumnId)}
-              onHide={() => onHideColumn(headerColumnId)}
-              onPin={() => onPinColumn(headerColumnId)}
-              onUnpin={() => onUnpinColumn(headerColumnId)}
+              onSortAsc={() => { onSort(headerColumnId, "asc"); }}
+              onSortDesc={() => { onSort(headerColumnId, "desc"); }}
+              onClearSort={() => { onClearSort(headerColumnId); }}
+              onHide={() => { onHideColumn(headerColumnId); }}
+              onPin={() => { onPinColumn(headerColumnId); }}
+              onUnpin={() => { onUnpinColumn(headerColumnId); }}
               onCopyColumnName={() => {
                 navigator.clipboard.writeText(currentHeaderColumn.name ?? currentHeaderColumn.field ?? headerColumnId);
               }}
               onToggleColumnVisibility={onToggleColumnVisibility}
               onShowAllColumns={onShowAllColumns}
-              onFilterByColumn={onFilterByColumn ? () => onFilterByColumn(headerColumnId) : undefined}
+              onFilterByColumn={onFilterByColumn ? () => { onFilterByColumn(headerColumnId); } : undefined}
             />
           ) : (
             <GridContextMenuItems

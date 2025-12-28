@@ -128,7 +128,7 @@ self.onmessage = (event: MessageEvent<StreamWorkerRequest>) => {
     });
   } catch (error) {
     // Use type assertion to get id from caught context
-    const errorMessage = message as StreamWorkerRequest;
+    const errorMessage = message;
     respond({
       id: errorMessage.id,
       type: "error",

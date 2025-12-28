@@ -183,13 +183,13 @@ export function StructureContextMenu({
           </ContextMenuSubTrigger>
           <ContextMenuSubContent className="text-xs p-1 w-32">
             <ContextMenuItem
-              onClick={() => handleSetNullable("YES")}
+              onClick={() => { handleSetNullable("YES"); }}
               className="text-xs py-1.5 px-3 outline-none"
             >
               <span className="flex-1">YES</span>
             </ContextMenuItem>
             <ContextMenuItem
-              onClick={() => handleSetNullable("NO")}
+              onClick={() => { handleSetNullable("NO"); }}
               className="text-xs py-1.5 px-3 outline-none"
             >
               <span className="flex-1">NO</span>
@@ -209,7 +209,7 @@ export function StructureContextMenu({
             {COMMON_DATA_TYPES.map((type) => (
               <ContextMenuItem
                 key={type.value}
-                onClick={() => handleSetType(type.value)}
+                onClick={() => { handleSetType(type.value); }}
                 className="text-xs py-1.5 px-3 outline-none font-mono"
               >
                 <span className="flex-1">{type.label}</span>

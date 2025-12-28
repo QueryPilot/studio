@@ -86,7 +86,7 @@ export function ConnectionsSection() {
               variant="ghost"
               size="sm"
               className={`h-7 px-2 rounded-r-none ${viewMode === 'grid' ? 'bg-muted' : ''}`}
-              onClick={() => setViewMode('grid')}
+              onClick={() => { setViewMode('grid'); }}
               title="Grid view"
             >
               <IconLayoutGrid className="h-3.5 w-3.5" />
@@ -95,7 +95,7 @@ export function ConnectionsSection() {
               variant="ghost"
               size="sm"
               className={`h-7 px-2 rounded-l-none ${viewMode === 'list' ? 'bg-muted' : ''}`}
-              onClick={() => setViewMode('list')}
+              onClick={() => { setViewMode('list'); }}
               title="List view"
             >
               <IconList className="h-3.5 w-3.5" />

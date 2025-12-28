@@ -81,13 +81,13 @@ function emit(
 
 export const logger = {
   debug: (namespaceOrMessage: unknown, ...args: unknown[]) =>
-    emit("debug", namespaceOrMessage, ...args),
+    { emit("debug", namespaceOrMessage, ...args); },
   info: (namespaceOrMessage: unknown, ...args: unknown[]) =>
-    emit("info", namespaceOrMessage, ...args),
+    { emit("info", namespaceOrMessage, ...args); },
   warn: (namespaceOrMessage: unknown, ...args: unknown[]) =>
-    emit("warn", namespaceOrMessage, ...args),
+    { emit("warn", namespaceOrMessage, ...args); },
   error: (namespaceOrMessage: unknown, ...args: unknown[]) =>
-    emit("error", namespaceOrMessage, ...args),
+    { emit("error", namespaceOrMessage, ...args); },
   group: (namespaceOrMessage: unknown, ...args: unknown[]) => {
     if (isProd) return;
     const { namespace, payload } = normalize(namespaceOrMessage, args);
