@@ -328,7 +328,7 @@ export class QueryStreamClient {
               .catch(() => {
                 // swallow
               })
-              .finally(() => settleReject(error));
+              .finally(() => { settleReject(error); });
             break;
           }
 

@@ -74,12 +74,12 @@ export const BatchActionsToolbar = memo(function BatchActionsToolbar({
           <IconChevronDown className="h-3 w-3" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
-          <DropdownMenuItem onClick={() => onSetNullable("YES")}>
+          <DropdownMenuItem onClick={() => { onSetNullable("YES"); }}>
             <span className="text-green-600 dark:text-green-400 font-medium">
               YES
             </span>
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => onSetNullable("NO")}>
+          <DropdownMenuItem onClick={() => { onSetNullable("NO"); }}>
             <span className="text-red-600 dark:text-red-400 font-medium">
               NO
             </span>
@@ -99,7 +99,7 @@ export const BatchActionsToolbar = memo(function BatchActionsToolbar({
           {COMMON_DATA_TYPES.map((type) => (
             <DropdownMenuItem
               key={type}
-              onClick={() => onSetType(type)}
+              onClick={() => { onSetType(type); }}
               className="font-mono text-xs"
             >
               {type}

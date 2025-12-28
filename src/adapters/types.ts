@@ -13,6 +13,90 @@ import type {
   TriggerDefinitionInput,
 } from '@/types/crud';
 
+// ============================================================================
+// DDL Parameter Types
+// ============================================================================
+
+export interface CreateIndexParams {
+  schema?: string;
+  table: string;
+  indexName: string;
+  columns: Array<{
+    name: string;
+    order?: 'ASC' | 'DESC';
+    nullsPosition?: 'FIRST' | 'LAST';
+    opclass?: string;
+  }>;
+  unique?: boolean;
+  using?: string;
+  where?: string;
+  includeColumns?: string[];
+  tablespace?: string;
+  concurrent?: boolean;
+}
+
+export interface AddColumnParams {
+  schema?: string;
+  table: string;
+  column: {
+    name: string;
+    dataType: string;
+    length?: number;
+    precision?: number;
+    scale?: number;
+    nullable?: boolean;
+    defaultValue?: unknown;
+    isUnique?: boolean;
+    isPrimaryKey?: boolean;
+    checkExpression?: string;
+    comment?: string;
+  };
+  position?: 'FIRST' | { after: string };
+}
+
+export interface ModifyColumnParams {
+  schema?: string;
+  table: string;
+  columnName: string;
+  changes: {
+    dataType?: string;
+    length?: number;
+    precision?: number;
+    scale?: number;
+    nullable?: boolean;
+    defaultValue?: unknown;
+    dropDefault?: boolean;
+    comment?: string;
+  };
+}
+
+export interface AddForeignKeyParams {
+  schema?: string;
+  table: string;
+  constraintName: string;
+  columns: string[];
+  referenceSchema?: string;
+  referenceTable: string;
+  referenceColumns: string[];
+  onUpdate?: 'CASCADE' | 'SET NULL' | 'SET DEFAULT' | 'RESTRICT' | 'NO ACTION';
+  onDelete?: 'CASCADE' | 'SET NULL' | 'SET DEFAULT' | 'RESTRICT' | 'NO ACTION';
+  deferrable?: boolean;
+  initiallyDeferred?: boolean;
+}
+
+export interface CreateTriggerParams {
+  schema?: string;
+  table: string;
+  triggerName: string;
+  timing: 'BEFORE' | 'AFTER' | 'INSTEAD OF';
+  events: Array<'INSERT' | 'UPDATE' | 'DELETE' | 'TRUNCATE'>;
+  level: 'ROW' | 'STATEMENT';
+  functionName: string;
+  functionSchema?: string;
+  condition?: string;
+  updateColumns?: string[];
+}
+
 /**
  * Query payload - SQL string for relational DBs, object for document/graph DBs
  */
@@ -249,4 +333,60 @@ export interface DatabaseAdapter {
    * @param enable - true to enable, false to disable
    */
   toggleTrigger(target: TableRef, triggerName: string, enable: boolean): QueryPayload;
+
+  // ─────────────────────────────────────────────────────────────────
+  // Introspection Queries
+  // ─────────────────────────────────────────────────────────────────
+
+  /** Query to list all databases */
+  getDatabasesQuery(): string;
+
+  /** Query to list schemas in the current database */
+  getSchemasQuery(): string;
+
+  /** Query to list tables in a schema */
+  getTablesQuery(schema: string): string;
+
+  /** Query to list views in a schema */
+  getViewsQuery(schema: string): string;
+
+  /** Query to list functions/procedures in a schema */
+  getFunctionsQuery(schema: string): string;
+
+  /** Query to list indexes on a table */
+  getIndexesQuery(schema: string, table: string): string;
+
+  /** Query to get index usage statistics */
+  getIndexUsageStatsQuery(schema: string, table: string): string;
+
+  /** Query to list constraints on a table */
+  getConstraintsQuery(schema: string, table: string): string;
+
+  /** Query to list columns of a table */
+  getColumnsQuery(schema: string, table: string): string;
+
+  /** Query to list triggers on a table */
+  getTriggersQuery(schema: string, table: string): string;
+
+  /** Query to get supported index types */
+  getSupportedIndexTypesQuery(): string;
+
+  /** Query to get supported column types */
+  getSupportedColumnTypesQuery(): string;
+
+  /** Query to count rows in a table (estimated or exact) */
+  getTableCountQuery(schema: string, table: string, exact?: boolean): string;
+
+  /** Query to get stats for a single table (owner, size, row_count, comment) */
+  getTableStatsQuery(schema: string, table: string): string;
+
+  /** Query to get all referenceable columns (PK + unique) for foreign key targets */
+  getForeignKeyTargetsQuery(schema: string): string;
+
+  /** Query to get object definition (view, function, etc.) */
+  getObjectDefinitionQuery(
+    objectType: 'table' | 'view' | 'materialized_view' | 'function' | 'procedure',
+    schema: string,
+    name: string
+  ): string;
 }

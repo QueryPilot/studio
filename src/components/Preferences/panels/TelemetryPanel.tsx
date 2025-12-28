@@ -154,7 +154,7 @@ export default function TelemetryPanel() {
             id="performance-monitoring"
             checked={telemetry.performanceMonitoring}
             onCheckedChange={(checked) =>
-              setTelemetry({ performanceMonitoring: checked })
+              { setTelemetry({ performanceMonitoring: checked }); }
             }
             disabled={!telemetry.sentryEnabled}
           />
@@ -178,7 +178,7 @@ export default function TelemetryPanel() {
             id="session-replay"
             checked={telemetry.sessionReplay}
             onCheckedChange={(checked) =>
-              setTelemetry({ sessionReplay: checked })
+              { setTelemetry({ sessionReplay: checked }); }
             }
             disabled={!telemetry.sentryEnabled}
           />

@@ -184,7 +184,7 @@ export const MacAddrCellEditor: React.FC<MacAddrCellEditorProps> = ({
           spellCheck={false}
           defaultValue={initialValue}
           autoFocus
-          onFocus={(e) => e.target.select()}
+          onFocus={(e) => { e.target.select(); }}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           placeholder={isMacAddr8 ? "00:00:00:00:00:00:00:00" : "00:00:00:00:00:00"}

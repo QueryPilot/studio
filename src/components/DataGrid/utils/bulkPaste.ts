@@ -154,7 +154,7 @@ function coerceBatch(
 function yieldToMain(): Promise<void> {
   return new Promise((resolve) => {
     if (typeof requestIdleCallback !== "undefined") {
-      requestIdleCallback(() => resolve(), { timeout: 50 });
+      requestIdleCallback(() => { resolve(); }, { timeout: 50 });
     } else {
       setTimeout(resolve, 0);
     }

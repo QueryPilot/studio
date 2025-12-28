@@ -58,7 +58,7 @@ export function MainContent() {
     };
 
     window.addEventListener('keydown', handleGlobalKeyDown);
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+    return () => { window.removeEventListener('keydown', handleGlobalKeyDown); };
   }, [connections]);
 
   // Filter connections based on search query

@@ -42,7 +42,7 @@ export function calculateColumnStats(
   const isNumeric = nonNull.every((v) => typeof v === "number");
 
   if (isNumeric) {
-    const nums = nonNull as number[];
+    const nums = nonNull;
     if (nums.length > 0) {
       stats.min = nums.reduce((a, b) => Math.min(a, b), nums[0]!);
       stats.max = nums.reduce((a, b) => Math.max(a, b), nums[0]!);
@@ -50,7 +50,7 @@ export function calculateColumnStats(
     }
   } else {
     // For strings, calculate min/max length
-    const strings = nonNull.filter((v) => typeof v === "string") as string[];
+    const strings = nonNull.filter((v) => typeof v === "string");
     if (strings.length > 0) {
       const lengths = strings.map((s) => s.length);
       if (lengths.length > 0) {

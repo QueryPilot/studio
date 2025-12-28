@@ -72,7 +72,7 @@ export function UpdateChecker({ checkOnMount = false }: UpdateCheckerProps) {
     if (checkOnMount) {
       // Delay check to not block app startup
       const timer = setTimeout(checkForUpdates, 3000);
-      return () => clearTimeout(timer);
+      return () => { clearTimeout(timer); };
     }
     return undefined;
   }, [checkOnMount, checkForUpdates]);

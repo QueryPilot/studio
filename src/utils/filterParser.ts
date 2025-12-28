@@ -903,7 +903,7 @@ function termToFilterGroup(
 function markGroupNegated(group: FilterGroup): void {
   for (const condition of group.conditions) {
     if ("type" in condition && condition.type === "group") {
-      markGroupNegated(condition as FilterGroup);
+      markGroupNegated(condition);
     } else {
       (condition as FilterCondition).negated = true;
     }

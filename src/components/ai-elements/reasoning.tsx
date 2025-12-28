@@ -86,7 +86,7 @@ export const Reasoning = memo(
           setHasAutoClosed(true);
         }, AUTO_CLOSE_DELAY);
 
-        return () => clearTimeout(timer);
+        return () => { clearTimeout(timer); };
       }
       return undefined;
     }, [isStreaming, isOpen, defaultOpen, setIsOpen, hasAutoClosed]);

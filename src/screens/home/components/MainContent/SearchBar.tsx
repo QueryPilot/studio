@@ -108,7 +108,7 @@ export function SearchBar({
     };
 
     window.addEventListener('keydown', handleGlobalKeyDown);
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+    return () => { window.removeEventListener('keydown', handleGlobalKeyDown); };
   }, []);
 
   return (
@@ -119,7 +119,7 @@ export function SearchBar({
         type="text"
         placeholder="Search connections... (/)"
         value={query}
-        onChange={(e) => setQuery(e.target.value)}
+        onChange={(e) => { setQuery(e.target.value); }}
         onKeyDown={handleKeyDown}
         className="pl-9 h-8 text-xs"
       />

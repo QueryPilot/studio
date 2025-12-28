@@ -7,7 +7,7 @@ import type { FilterConfig, SortConfig } from "@/types/filter";
 import { mapBackendColumnsToColumnMeta } from "./tableDataTransform";
 import { type CellValue } from "./backend";
 import { getStreamDecodeWorker } from "./streamDecodeWorkerClient";
-import { DialectService } from "./dialectService";
+import { getAdapterForConnection } from "@/adapters";
 import { IntrospectionService } from "./introspectionService";
 
 export interface StreamProgress {
@@ -95,15 +95,12 @@ export async function streamEntityPage(
   }
 
   // Use dialect-aware SQL generation for proper quoting per database type
-  const sql = DialectService.buildSelectQuery(connectionId, {
-    schema,
-    table: entityName,
-    columns: params.select,
-    filters: params.filters,
-    sorts: params.sorts,
-    limit: fetchLimit,
-    offset,
-  });
+  // Note: filters and sorts are handled separately by the query execution
+  const adapter = await getAdapterForConnection(connectionId);
+  const sql = adapter.select(
+    { schema, table: entityName },
+    { columns: params.select, limit: fetchLimit, offset }
+  ) as string;
 
   // CRITICAL FIX: Wrap in promise to ensure we only resolve after ALL callbacks complete
   return new Promise<StreamEntityPageResult>((resolve, reject) => {

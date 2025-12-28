@@ -1,7 +1,7 @@
 import {
-  Completion,
-  CompletionContext,
-  CompletionSource,
+  type Completion,
+  type CompletionContext,
+  type CompletionSource,
 } from "@codemirror/autocomplete";
 import { createSqlMetadataProvider, SqlMetadataProvider } from "./metadataProvider";
 import { analyzeSqlContext } from "./context";

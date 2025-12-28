@@ -94,7 +94,7 @@ function analyzeContext(
   let identifier = "";
   let qualifier: string | undefined;
   let rangeFrom = pos;
-  let rangeTo = pos;
+  const rangeTo = pos;
 
   // Look backwards for identifier
   const beforeCursor = content.slice(0, pos);
