@@ -7,7 +7,7 @@
 
 import { EditorView, keymap, Decoration, type DecorationSet } from "@codemirror/view";
 import {
-  EditorState,
+  type EditorState,
   StateField,
   StateEffect,
   type Extension,

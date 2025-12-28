@@ -6,7 +6,7 @@ import {
 import { type ColumnNameCustomCell } from "./types";
 import { getCachedThemeValues } from "@/components/DataGrid/utils/renderCache";
 import { truncateTextToWidth } from "@/components/DataGrid/utils/textUtils";
-import { ColumnNameCellEditor } from "./ColumnNameCellEditor";
+import { ColumnNameCellEditorWithProps } from "./ColumnNameCellEditor";
 
 // Icon size for PK/FK indicators
 const ICON_SIZE = 12;
@@ -155,7 +155,7 @@ const ColumnNameCellRenderer: CustomRenderer<ColumnNameCustomCell> = {
   },
 
   provideEditor: () => ({
-    editor: ColumnNameCellEditor,
+    editor: ColumnNameCellEditorWithProps,
     disablePadding: true,
     disableStyling: false,
   }),

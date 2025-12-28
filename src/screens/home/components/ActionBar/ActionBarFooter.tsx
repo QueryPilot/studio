@@ -20,7 +20,7 @@ export function ActionBarFooter() {
 
   return (
     <div className="flex flex-col gap-0.5 p-2 border-t border-sidebar-border">
-      <button type="button" className={buttonClass} onClick={() => openPreferences()}>
+      <button type="button" className={buttonClass} onClick={() => { openPreferences(); }}>
         <IconSettings className="h-4 w-4" />
         <span>Settings</span>
       </button>

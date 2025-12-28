@@ -159,7 +159,7 @@ export function readFileAsBase64(file: File): Promise<string> {
       const base64 = result.split(",")[1] || "";
       resolve(base64);
     };
-    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.onerror = () => { reject(new Error("Failed to read file")); };
     reader.readAsDataURL(file);
   });
 }

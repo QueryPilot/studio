@@ -204,4 +204,196 @@ export class MySQLAdapter extends SqlAdapter {
     // MySQL doesn't have enable/disable trigger - must drop and recreate
     return '-- MySQL does not support ENABLE/DISABLE TRIGGER';
   }
+
+  // ─────────────────────────────────────────────────────────────────
+  // Introspection Queries - MySQL
+  // ─────────────────────────────────────────────────────────────────
+
+  getDatabasesQuery(): string {
+    return `SHOW DATABASES`;
+  }
+
+  getSchemasQuery(): string {
+    // MySQL uses databases instead of schemas
+    return `SHOW DATABASES`;
+  }
+
+  getTablesQuery(schema: string): string {
+    return `
+SELECT
+    TABLE_SCHEMA as schema_name,
+    TABLE_NAME as table_name,
+    TABLE_TYPE as kind,
+    ENGINE as engine,
+    TABLE_ROWS as row_count,
+    TABLE_COMMENT as comment
+FROM information_schema.TABLES
+WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
+    AND TABLE_TYPE = 'BASE TABLE'
+ORDER BY TABLE_NAME`;
+  }
+
+  getViewsQuery(schema: string): string {
+    return `
+SELECT
+    TABLE_SCHEMA as schema_name,
+    TABLE_NAME as view_name,
+    VIEW_DEFINITION as definition,
+    IS_UPDATABLE as is_updatable
+FROM information_schema.VIEWS
+WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
+ORDER BY TABLE_NAME`;
+  }
+
+  getFunctionsQuery(schema: string): string {
+    return `
+SELECT
+    ROUTINE_SCHEMA as schema_name,
+    ROUTINE_NAME as function_name,
+    ROUTINE_TYPE as type,
+    DATA_TYPE as return_type,
+    ROUTINE_DEFINITION as source
+FROM information_schema.ROUTINES
+WHERE ROUTINE_SCHEMA = '${this.escapeString(schema)}'
+ORDER BY ROUTINE_NAME`;
+  }
+
+  getIndexesQuery(schema: string, table: string): string {
+    return `
+SELECT
+    INDEX_NAME as index_name,
+    TABLE_NAME as table_name,
+    GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) as columns,
+    NOT NON_UNIQUE as is_unique,
+    INDEX_NAME = 'PRIMARY' as is_primary,
+    INDEX_TYPE as index_type
+FROM information_schema.STATISTICS
+WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
+    AND TABLE_NAME = '${this.escapeString(table)}'
+GROUP BY INDEX_NAME, TABLE_NAME, NON_UNIQUE, INDEX_TYPE
+ORDER BY INDEX_NAME`;
+  }
+
+  getIndexUsageStatsQuery(_schema: string, _table: string): string {
+    // MySQL doesn't have built-in index usage stats in the same way as PostgreSQL
+    return `SELECT 'Not supported' as message`;
+  }
+
+  getConstraintsQuery(schema: string, table: string): string {
+    return `
+SELECT
+    CONSTRAINT_NAME as constraint_name,
+    TABLE_NAME as table_name,
+    CONSTRAINT_TYPE as constraint_type,
+    REFERENCED_TABLE_SCHEMA as foreign_schema,
+    REFERENCED_TABLE_NAME as foreign_table
+FROM information_schema.TABLE_CONSTRAINTS
+WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
+    AND TABLE_NAME = '${this.escapeString(table)}'
+ORDER BY CONSTRAINT_NAME`;
+  }
+
+  getColumnsQuery(schema: string, table: string): string {
+    return `
+SELECT
+    COLUMN_NAME as column_name,
+    COLUMN_TYPE as formatted_type,
+    DATA_TYPE as data_type,
+    IS_NULLABLE = 'YES' as nullable,
+    COLUMN_KEY = 'PRI' as is_primary_key,
+    COLUMN_DEFAULT as default_value,
+    COLUMN_COMMENT as comment,
+    CHARACTER_MAXIMUM_LENGTH as char_length,
+    NUMERIC_PRECISION as numeric_precision,
+    NUMERIC_SCALE as numeric_scale
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
+    AND TABLE_NAME = '${this.escapeString(table)}'
+ORDER BY ORDINAL_POSITION`;
+  }
+
+  getTriggersQuery(schema: string, table: string): string {
+    return `
+SELECT
+    TRIGGER_NAME as trigger_name,
+    TRIGGER_SCHEMA as schema_name,
+    EVENT_OBJECT_TABLE as table_name,
+    ACTION_TIMING as timing,
+    EVENT_MANIPULATION as event,
+    ACTION_STATEMENT as definition
+FROM information_schema.TRIGGERS
+WHERE TRIGGER_SCHEMA = '${this.escapeString(schema)}'
+    AND EVENT_OBJECT_TABLE = '${this.escapeString(table)}'
+ORDER BY TRIGGER_NAME`;
+  }
+
+  getSupportedIndexTypesQuery(): string {
+    return `SELECT 'BTREE' as name UNION SELECT 'HASH' UNION SELECT 'FULLTEXT' UNION SELECT 'SPATIAL'`;
+  }
+
+  getSupportedColumnTypesQuery(): string {
+    return `
+SELECT DISTINCT DATA_TYPE as type_name, 'mysql' as category
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+ORDER BY DATA_TYPE`;
+  }
+
+  getTableCountQuery(schema: string, table: string, exact?: boolean): string {
+    if (exact) {
+      return `SELECT COUNT(*) as count FROM ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(table)}`;
+    }
+    return `
+SELECT TABLE_ROWS as count
+FROM information_schema.TABLES
+WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
+    AND TABLE_NAME = '${this.escapeString(table)}'`;
+  }
+
+  getTableStatsQuery(schema: string, table: string): string {
+    return `
+SELECT
+    NULL as owner,
+    CONCAT(ROUND(DATA_LENGTH / 1024 / 1024, 2), ' MB') as size,
+    TABLE_ROWS as row_count,
+    TABLE_COMMENT as comment
+FROM information_schema.TABLES
+WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
+    AND TABLE_NAME = '${this.escapeString(table)}'`;
+  }
+
+  getForeignKeyTargetsQuery(schema: string): string {
+    return `
+SELECT DISTINCT
+    TABLE_NAME as table_name,
+    COLUMN_NAME as column_name,
+    DATA_TYPE as data_type
+FROM information_schema.KEY_COLUMN_USAGE
+WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
+    AND CONSTRAINT_NAME IN (
+        SELECT CONSTRAINT_NAME
+        FROM information_schema.TABLE_CONSTRAINTS
+        WHERE TABLE_SCHEMA = '${this.escapeString(schema)}'
+            AND CONSTRAINT_TYPE IN ('PRIMARY KEY', 'UNIQUE')
+    )
+ORDER BY TABLE_NAME, COLUMN_NAME`;
+  }
+
+  getObjectDefinitionQuery(
+    objectType: 'table' | 'view' | 'materialized_view' | 'function' | 'procedure',
+    schema: string,
+    name: string
+  ): string {
+    switch (objectType) {
+      case 'view':
+        return `SHOW CREATE VIEW ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(name)}`;
+      case 'function':
+        return `SHOW CREATE FUNCTION ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(name)}`;
+      case 'procedure':
+        return `SHOW CREATE PROCEDURE ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(name)}`;
+      case 'table':
+      default:
+        return `SHOW CREATE TABLE ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(name)}`;
+    }
+  }
 }

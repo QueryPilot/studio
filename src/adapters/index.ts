@@ -23,6 +23,7 @@ import type {
   TriggerTogglePayload,
 } from '@/types/crud';
 import type { DatabaseAdapter, TableRef, RowData, WhereClause } from './types';
+import { useConnectionStore } from '@/stores/connectionStoreNew';
 
 // Lazy imports to avoid circular dependencies
 const adapterModules = {
@@ -68,6 +69,28 @@ export async function getAdapter(
   // Cache and return
   adapterCache.set(connectionId, adapter);
   return adapter;
+}
+
+/**
+ * Get the database type for a connection from the store
+ */
+export function getConnectionDbType(connectionId: string): DbType {
+  const store = useConnectionStore.getState();
+  const connection = store.connections.find(
+    (c) => c.profile.id === connectionId,
+  );
+  if (!connection) {
+    return DbType.PostgreSQL; // Default fallback
+  }
+  return connection.profile.db_type || DbType.PostgreSQL;
+}
+
+/**
+ * Get adapter for a connection (looks up db type automatically)
+ */
+export async function getAdapterForConnection(connectionId: string): Promise<DatabaseAdapter> {
+  const dbType = getConnectionDbType(connectionId);
+  return getAdapter(connectionId, dbType);
 }
 
 /**

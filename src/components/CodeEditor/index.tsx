@@ -311,7 +311,7 @@ export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(
         editorRef.current?.focus();
       }, FOCUS_DELAY_MS);
 
-      return () => clearTimeout(timeoutId);
+      return () => { clearTimeout(timeoutId); };
     }, [autoFocus, value]);
 
     return (

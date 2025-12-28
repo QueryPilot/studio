@@ -289,7 +289,7 @@ export function CommandPalette(): React.ReactElement {
   };
 
   const handleSelect = useCallback(
-    async (value: string, openInSplit = false) => {
+    async (value: string, openInSplit) => {
       if (mode === "command") {
         if (!services) return;
         try {

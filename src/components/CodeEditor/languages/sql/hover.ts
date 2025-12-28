@@ -1,5 +1,5 @@
 import { logger } from "@/lib/logger";
-import { hoverTooltip, Tooltip } from "@codemirror/view";
+import { hoverTooltip, type Tooltip } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
 import type { MetadataProvider, FieldMeta, EntityDetails } from "../../types";

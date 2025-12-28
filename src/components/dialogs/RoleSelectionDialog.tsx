@@ -64,14 +64,14 @@ export function RoleSelectionDialog({
   };
 
   // Group roles by AWS account
-  const rolesByAccount = roles.reduce((acc, role) => {
+  const rolesByAccount = roles.reduce<Record<string, SamlRole[]>>((acc, role) => {
     const { accountId } = parseRoleArn(role.role_arn);
     if (!acc[accountId]) {
       acc[accountId] = [];
     }
     acc[accountId].push(role);
     return acc;
-  }, {} as Record<string, SamlRole[]>);
+  }, {});
 
   const accountIds = Object.keys(rolesByAccount).sort();
 
@@ -109,7 +109,7 @@ export function RoleSelectionDialog({
                       <button
                         key={role.role_arn}
                         type="button"
-                        onClick={() => setSelectedRole(role)}
+                        onClick={() => { setSelectedRole(role); }}
                         className={cn(
                           "w-full flex items-center justify-between px-3 py-2 rounded-md text-left transition-colors",
                           "hover:bg-accent",

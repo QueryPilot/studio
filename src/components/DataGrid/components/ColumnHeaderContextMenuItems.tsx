@@ -130,8 +130,8 @@ export function ColumnHeaderContextMenuItems({
                 <ContextMenuCheckboxItem
                   key={col.id}
                   checked={isVisible}
-                  onCheckedChange={() => onToggleColumnVisibility(col.id)}
-                  onSelect={(e) => e.preventDefault()}
+                  onCheckedChange={() => { onToggleColumnVisibility(col.id); }}
+                  onSelect={(e) => { e.preventDefault(); }}
                   className="py-1.5"
                 >
                   <span className="truncate">{col.name ?? col.field}</span>

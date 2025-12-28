@@ -12,7 +12,7 @@ type RadioGroupProps = Omit<RadioGroupPrimitive.Props, "onValueChange"> & {
 function RadioGroup({ className, onValueChange, ...props }: RadioGroupProps) {
   // Normalize Base-UI's onValueChange (unknown) to string for backwards compatibility
   const handleValueChange = onValueChange
-    ? (value: unknown) => onValueChange(String(value))
+    ? (value: unknown) => { onValueChange(String(value)); }
     : undefined
 
   return (

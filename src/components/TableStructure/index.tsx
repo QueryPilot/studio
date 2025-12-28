@@ -235,7 +235,7 @@ export const TableStructure = memo(function TableStructure({
       };
 
       // Generate unique copy name
-      let baseName = row.column_name;
+      const baseName = row.column_name;
       let copyName = `${baseName}_copy`;
       let counter = 2;
       while (existingColumnNames.includes(copyName)) {
@@ -394,6 +394,10 @@ export const TableStructure = memo(function TableStructure({
       if ("data" in newValue) {
         const data = newValue.data;
         if (typeof data === "object" && data !== null) {
+          // Handle column-name-cell with name field
+          if ("name" in data && (data as { kind?: string }).kind === "column-name-cell") {
+            return (data as { name: string }).name;
+          }
           // Handle cell types with value field
           if ("value" in data) {
             return (data as { value: string | boolean | null }).value;
@@ -612,18 +616,18 @@ export const TableStructure = memo(function TableStructure({
         } as const;
       }
 
-      // Column name - editable for all rows (pending and existing)
+      // Column name - editable custom cell with PK/FK indicators
       if (column.field === "column_name") {
         return {
           kind: GridCellKind.Custom,
           data: {
-            kind: "text-single-cell",
-            value: row.column_name || null,
-            isPrimaryKey: row.column_meta.is_pk,
-            isForeignKey: row.column_meta.is_fk,
+            kind: "column-name-cell",
+            name: row.column_name || "",
+            isPrimaryKey: row.column_meta?.is_pk ?? row._original?.is_pk ?? false,
+            isForeignKey: row.column_meta?.is_fk ?? Boolean(row.foreign_key),
           },
-          copyData: row.column_name,
-          readonly: false, // Allow editing for all rows
+          copyData: row.column_name || "",
+          readonly: false,
           allowOverlay: true,
           themeOverride: rowTheme,
         } as const;
@@ -793,7 +797,7 @@ export const TableStructure = memo(function TableStructure({
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => { window.removeEventListener("keydown", handleKeyDown); };
   }, [selectedRowIndices, handleDuplicateColumn]);
 
   if (isLoading) {

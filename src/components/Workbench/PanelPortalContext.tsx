@@ -45,7 +45,7 @@ export function PanelPortalProvider({
   const notifySubscribers = useCallback((panelId: string) => {
     const subs = subscribersRef.current.get(panelId);
     if (subs) {
-      subs.forEach((cb) => cb());
+      subs.forEach((cb) => { cb(); });
     }
   }, []);
 
@@ -157,7 +157,7 @@ export function PanelPortalProvider({
         cancelAnimationFrame(rafRef.current);
       }
       // Clean up all container observers
-      observersRef.current.forEach((observer) => observer.disconnect());
+      observersRef.current.forEach((observer) => { observer.disconnect(); });
       observersRef.current.clear();
     };
   }, [updateRect]);

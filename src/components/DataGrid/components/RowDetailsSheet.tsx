@@ -75,7 +75,7 @@ export function RowDetailsSheet({
         return cellValue &&
           typeof cellValue === "object" &&
           "value" in cellValue
-          ? (cellValue.value as unknown)
+          ? (cellValue.value)
           : null;
       });
 

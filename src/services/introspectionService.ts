@@ -1,11 +1,8 @@
 /**
  * Introspection Service
  *
- * Provides database introspection using the frontend dialect system.
- * Uses DialectService for SQL generation and BackendAPI.query() for execution.
- *
- * This replaces the database-specific Rust adapter introspection with a
- * unified frontend-driven approach that supports multiple database types.
+ * Provides database introspection using the adapter system.
+ * Uses adapters for SQL generation and BackendAPI.query() for execution.
  */
 
 import {
@@ -19,17 +16,17 @@ import {
   type IndexUsageStats,
   type Constraint,
   type Trigger,
-  type ColumnMeta,
-  type CellValue,
+  type QueryColumnMeta,
   TableKind,
   ConstraintType,
+  type RawCellValue,
 } from "./backend";
-import { DialectService } from "./dialectService";
+import { getAdapterForConnection } from "@/adapters";
 
 /**
  * Helper to safely get a string value from a cell
  */
-function getString(value: CellValue | undefined): string {
+function getString(value: RawCellValue | undefined): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
@@ -38,17 +35,18 @@ function getString(value: CellValue | undefined): string {
 /**
  * Helper to safely get a boolean value from a cell
  */
-function getBool(value: CellValue | undefined): boolean {
+function getBool(value: RawCellValue | undefined): boolean {
   if (value === null || value === undefined) return false;
   if (typeof value === "boolean") return value;
-  if (typeof value === "string") return value.toLowerCase() === "true" || value === "t";
+  if (typeof value === "string")
+    return value.toLowerCase() === "true" || value === "t";
   return Boolean(value);
 }
 
 /**
  * Helper to safely get a number value from a cell
  */
-function getNumber(value: CellValue | undefined): number | undefined {
+function getNumber(value: RawCellValue | undefined): number | undefined {
   if (value === null || value === undefined) return undefined;
   if (typeof value === "number") return value;
   const parsed = Number(value);
@@ -58,7 +56,7 @@ function getNumber(value: CellValue | undefined): number | undefined {
 /**
  * Helper to safely get a string array from a cell
  */
-function getStringArray(value: CellValue | undefined): string[] {
+function getStringArray(value: RawCellValue | undefined): string[] {
   if (value === null || value === undefined) return [];
   if (Array.isArray(value)) return value.map(String);
   if (typeof value === "string") {
@@ -109,14 +107,15 @@ function mapConstraintType(type: string | null | undefined): ConstraintType {
 }
 
 /**
- * Introspection Service - dialect-aware database metadata retrieval
+ * Introspection Service - adapter-driven database metadata retrieval
  */
 export const IntrospectionService = {
   /**
    * Get all databases
    */
   async getDatabases(connectionId: string): Promise<Database[]> {
-    const sql = DialectService.getDatabasesQuery(connectionId);
+    const adapter = await getAdapterForConnection(connectionId);
+    const sql = adapter.getDatabasesQuery();
     const result = await BackendAPI.query(connectionId, sql);
 
     return result.rows.map((row) => ({
@@ -132,7 +131,8 @@ export const IntrospectionService = {
    * Get schemas in the current database
    */
   async getSchemas(connectionId: string): Promise<Schema[]> {
-    const sql = DialectService.getSchemasQuery(connectionId);
+    const adapter = await getAdapterForConnection(connectionId);
+    const sql = adapter.getSchemasQuery();
     const result = await BackendAPI.query(connectionId, sql);
 
     return result.rows.map((row) => ({
@@ -145,7 +145,8 @@ export const IntrospectionService = {
    * Get tables in a schema
    */
   async getTables(connectionId: string, schema: string): Promise<Table[]> {
-    const sql = DialectService.getTablesQuery(connectionId, schema);
+    const adapter = await getAdapterForConnection(connectionId);
+    const sql = adapter.getTablesQuery(schema);
     const result = await BackendAPI.query(connectionId, sql);
 
     return result.rows.map((row) => ({
@@ -163,7 +164,8 @@ export const IntrospectionService = {
    * Get views in a schema
    */
   async getViews(connectionId: string, schema: string): Promise<View[]> {
-    const sql = DialectService.getViewsQuery(connectionId, schema);
+    const adapter = await getAdapterForConnection(connectionId);
+    const sql = adapter.getViewsQuery(schema);
     const result = await BackendAPI.query(connectionId, sql);
 
     return result.rows.map((row) => ({
@@ -179,8 +181,12 @@ export const IntrospectionService = {
   /**
    * Get functions in a schema
    */
-  async getFunctions(connectionId: string, schema: string): Promise<Function[]> {
-    const sql = DialectService.getFunctionsQuery(connectionId, schema);
+  async getFunctions(
+    connectionId: string,
+    schema: string,
+  ): Promise<Function[]> {
+    const adapter = await getAdapterForConnection(connectionId);
+    const sql = adapter.getFunctionsQuery(schema);
     const result = await BackendAPI.query(connectionId, sql);
 
     return result.rows.map((row) => ({
@@ -199,8 +205,13 @@ export const IntrospectionService = {
   /**
    * Get indexes on a table
    */
-  async getIndexes(connectionId: string, schema: string, table: string): Promise<Index[]> {
-    const sql = DialectService.getIndexesQuery(connectionId, schema, table);
+  async getIndexes(
+    connectionId: string,
+    schema: string,
+    table: string,
+  ): Promise<Index[]> {
+    const adapter = await getAdapterForConnection(connectionId);
+    const sql = adapter.getIndexesQuery(schema, table);
     const result = await BackendAPI.query(connectionId, sql);
 
     return result.rows.map((row) => ({
@@ -221,9 +232,10 @@ export const IntrospectionService = {
   async getIndexUsageStats(
     connectionId: string,
     schema: string,
-    table: string
+    table: string,
   ): Promise<IndexUsageStats[]> {
-    const sql = DialectService.getIndexUsageStatsQuery(connectionId, schema, table);
+    const adapter = await getAdapterForConnection(connectionId);
+    const sql = adapter.getIndexUsageStatsQuery(schema, table);
     const result = await BackendAPI.query(connectionId, sql);
 
     return result.rows.map((row) => ({
@@ -242,8 +254,13 @@ export const IntrospectionService = {
   /**
    * Get constraints on a table
    */
-  async getConstraints(connectionId: string, schema: string, table: string): Promise<Constraint[]> {
-    const sql = DialectService.getConstraintsQuery(connectionId, schema, table);
+  async getConstraints(
+    connectionId: string,
+    schema: string,
+    table: string,
+  ): Promise<Constraint[]> {
+    const adapter = await getAdapterForConnection(connectionId);
+    const sql = adapter.getConstraintsQuery(schema, table);
     const result = await BackendAPI.query(connectionId, sql);
 
     return result.rows.map((row) => ({
@@ -258,15 +275,20 @@ export const IntrospectionService = {
   /**
    * Get columns of a table
    */
-  async getColumns(connectionId: string, schema: string, table: string): Promise<ColumnMeta[]> {
-    const sql = DialectService.getColumnsQuery(connectionId, schema, table);
+  async getColumns(
+    connectionId: string,
+    schema: string,
+    table: string,
+  ): Promise<QueryColumnMeta[]> {
+    const adapter = await getAdapterForConnection(connectionId);
+    const sql = adapter.getColumnsQuery(schema, table);
     const result = await BackendAPI.query(connectionId, sql);
 
     return result.rows.map((row) => {
       const rawType = getString(row[1]);
       return {
         name: getString(row[0]),
-        data_type: "Text" as const, // Will be mapped properly based on type
+        data_type: "Text" as const,
         db_type: rawType,
         type_oid: getNumber(row[2]),
         nullable: getBool(row[3]),
@@ -282,8 +304,13 @@ export const IntrospectionService = {
   /**
    * Get triggers on a table
    */
-  async getTriggers(connectionId: string, schema: string, table: string): Promise<Trigger[]> {
-    const sql = DialectService.getTriggersQuery(connectionId, schema, table);
+  async getTriggers(
+    connectionId: string,
+    schema: string,
+    table: string,
+  ): Promise<Trigger[]> {
+    const adapter = await getAdapterForConnection(connectionId);
+    const sql = adapter.getTriggersQuery(schema, table);
     const result = await BackendAPI.query(connectionId, sql);
 
     return result.rows.map((row) => ({
@@ -303,7 +330,8 @@ export const IntrospectionService = {
    * Get supported index types
    */
   async getSupportedIndexTypes(connectionId: string): Promise<string[]> {
-    const sql = DialectService.getSupportedIndexTypesQuery(connectionId);
+    const adapter = await getAdapterForConnection(connectionId);
+    const sql = adapter.getSupportedIndexTypesQuery();
     const result = await BackendAPI.query(connectionId, sql);
 
     return result.rows.map((row) => getString(row[0]));
@@ -313,22 +341,28 @@ export const IntrospectionService = {
    * Get supported column types
    */
   async getSupportedColumnTypes(connectionId: string): Promise<string[]> {
-    const sql = DialectService.getSupportedColumnTypesQuery(connectionId);
+    const adapter = await getAdapterForConnection(connectionId);
+    const sql = adapter.getSupportedColumnTypesQuery();
     const result = await BackendAPI.query(connectionId, sql);
 
     return result.rows.map((row) => getString(row[0]));
   },
 
   /**
-   * Get statistics for a single table (owner, size, row_count, comment)
-   * This is more efficient than getTables() when you only need one table's stats
+   * Get statistics for a single table
    */
   async getTableStats(
     connectionId: string,
     schema: string,
-    table: string
-  ): Promise<{ owner?: string; size?: string; rowCount?: number; comment?: string } | null> {
-    const sql = DialectService.getTableStatsQuery(connectionId, schema, table);
+    table: string,
+  ): Promise<{
+    owner?: string;
+    size?: string;
+    rowCount?: number;
+    comment?: string;
+  } | null> {
+    const adapter = await getAdapterForConnection(connectionId);
+    const sql = adapter.getTableStatsQuery(schema, table);
     const result = await BackendAPI.query(connectionId, sql);
 
     const row = result.rows[0];
@@ -345,14 +379,14 @@ export const IntrospectionService = {
   },
 
   /**
-   * Get all referenceable columns (primary keys, unique constraints, unique indexes)
-   * for foreign key target selection. Uses single SQL query instead of N+1 pattern.
+   * Get all referenceable columns for foreign key targets
    */
   async getForeignKeyTargets(
     connectionId: string,
-    schema: string
+    schema: string,
   ): Promise<Array<{ table: string; column: string; type: string }>> {
-    const sql = DialectService.getForeignKeyTargetsQuery(connectionId, schema);
+    const adapter = await getAdapterForConnection(connectionId);
+    const sql = adapter.getForeignKeyTargetsQuery(schema);
     const result = await BackendAPI.query(connectionId, sql);
 
     return result.rows.map((row) => ({
@@ -364,23 +398,27 @@ export const IntrospectionService = {
 
   /**
    * Get table row count
-   * First tries estimated count (faster), falls back to exact count if estimation returns -1
    */
-  async getTableCount(connectionId: string, schema: string, table: string): Promise<number> {
-    // Try estimated count first (uses pg_class statistics)
-    const estimatedSql = DialectService.getTableCountQuery(connectionId, schema, table, false);
+  async getTableCount(
+    connectionId: string,
+    schema: string,
+    table: string,
+  ): Promise<number> {
+    const adapter = await getAdapterForConnection(connectionId);
+
+    // Try estimated count first
+    const estimatedSql = adapter.getTableCountQuery(schema, table, false);
     const estimatedResult = await BackendAPI.query(connectionId, estimatedSql);
 
     if (estimatedResult.rows.length > 0) {
       const count = getNumber(estimatedResult.rows[0]?.[0]) ?? -1;
-      // If estimated count is valid (>= 0), return it
       if (count >= 0) {
         return count;
       }
     }
 
-    // Fall back to exact count if estimation returned -1 or failed
-    const exactSql = DialectService.getTableCountQuery(connectionId, schema, table, true);
+    // Fall back to exact count
+    const exactSql = adapter.getTableCountQuery(schema, table, true);
     const exactResult = await BackendAPI.query(connectionId, exactSql);
 
     if (exactResult.rows.length > 0) {
@@ -394,11 +432,17 @@ export const IntrospectionService = {
    */
   async getObjectDefinition(
     connectionId: string,
-    objectType: "table" | "view" | "materialized_view" | "function" | "procedure",
+    objectType:
+      | "table"
+      | "view"
+      | "materialized_view"
+      | "function"
+      | "procedure",
     schema: string,
-    name: string
+    name: string,
   ): Promise<string> {
-    const sql = DialectService.getObjectDefinitionQuery(connectionId, objectType, schema, name);
+    const adapter = await getAdapterForConnection(connectionId);
+    const sql = adapter.getObjectDefinitionQuery(objectType, schema, name);
     const result = await BackendAPI.query(connectionId, sql);
 
     if (result.rows.length > 0) {

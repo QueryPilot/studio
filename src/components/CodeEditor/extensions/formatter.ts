@@ -4,7 +4,7 @@
  * Format SQL on Cmd+Shift+F (Mac) or Ctrl+Shift+F (Windows/Linux)
  */
 
-import { EditorView, keymap } from "@codemirror/view";
+import { type EditorView, keymap } from "@codemirror/view";
 import { Prec, type Extension } from "@codemirror/state";
 import { formatSql } from "@/utils/codeFormatter";
 import type { SqlDialect } from "../types";

@@ -784,7 +784,7 @@ export function WorkspaceTitleBar({
       data-tauri-drag-region
     >
       {/* Left Section - Add padding for macOS traffic lights */}
-      <div className="flex items-center gap-2 pl-20">
+      <div className="flex items-center gap-2.5 pl-20">
         <Button
           variant="ghost"
           size="icon-sm"
@@ -1128,7 +1128,7 @@ export function WorkspaceTitleBar({
       </div>
 
       {/* Right Section */}
-      <div className="flex items-center gap-2 pr-3">
+      <div className="flex items-center gap-2.5 pr-3">
         <Button
           variant="ghost"
           size="icon-sm"
