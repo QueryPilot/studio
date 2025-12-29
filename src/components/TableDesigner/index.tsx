@@ -19,13 +19,13 @@ import {
 import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
 import { useColumnSizing } from "@/components/DataGrid/hooks/useColumnSizing";
 import type { GridColumnV2 } from "@/components/DataGrid/types";
-import { ColumnNameCellRenderer } from "@/components/TableStructure/ColumnNameCellRenderer";
+import ColumnNameCellRenderer from "@/components/TableStructure/ColumnNameCellRenderer";
 import { NullableCellRenderer } from "@/components/TableStructure/NullableCellRenderer";
 import { DataTypeCellRenderer } from "@/components/TableStructure/DataTypeCellRenderer";
-import { DefaultValueCellRenderer } from "@/components/TableStructure/DefaultValueCellRenderer";
-import { ForeignKeyCellRenderer } from "@/components/TableStructure/ForeignKeyCellRenderer";
-import { CheckConstraintCellRenderer } from "@/components/TableStructure/CheckConstraintCellRenderer";
-import { CommentCellRenderer } from "@/components/TableStructure/CommentCellRenderer";
+import DefaultValueCellRenderer from "@/components/TableStructure/DefaultValueCellRenderer";
+import ForeignKeyCellRenderer from "@/components/TableStructure/ForeignKeyCellRenderer";
+import CheckConstraintCellRenderer from "@/components/TableStructure/CheckConstraintCellRenderer";
+import CommentCellRenderer from "@/components/TableStructure/CommentCellRenderer";
 import { useCrudStore, buildCrudTableKey } from "@/stores/crudStore";
 import { createTableCreateCommand } from "./commandFactory";
 import type { CrudCommandTarget } from "@/types/crud";
@@ -256,7 +256,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
       column_name: col.name || "",
       column_meta: {
         is_pk: col.isPrimaryKey || col.dataType.toUpperCase().includes("SERIAL"),
-        is_fk: Boolean(col.foreignKey),
+        is_fk: Boolean(col.foreignKey?.trim()),
       },
       db_type: col.dataType || "VARCHAR(255)",
       nullable: col.nullable ? "YES" : "NO",
@@ -335,6 +335,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
             data: {
               kind: "datatype-cell",
               value: rowData.db_type,
+              columnName: rowData.column_name,
             },
             copyData: rowData.db_type,
             allowOverlay: true,
@@ -346,6 +347,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
             data: {
               kind: "nullable-cell",
               value: rowData.nullable,
+              columnName: rowData.column_name,
             },
             copyData: rowData.nullable,
             allowOverlay: true,
@@ -414,7 +416,7 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
           };
       }
     },
-    [gridRows, sizedColumns],
+    [gridRows, sizedColumns, foreignKeyTargets],
   );
 
   // Handle cell edit
@@ -606,7 +608,9 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
       nullable: col.nullable,
       defaultValue: col.defaultValue || undefined,
       isPrimaryKey: col.isPrimaryKey,
-      checkExpression: col.checkConstraint?.trim() || undefined,
+      checkExpression: col.checkConstraint?.trim()
+        ? normalizeCheckConstraint(col.checkConstraint)
+        : undefined,
       comment: col.comment?.trim() || undefined,
     }));
 
