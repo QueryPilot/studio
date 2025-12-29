@@ -148,6 +148,12 @@ function commandToSql(adapter: DatabaseAdapter, command: CrudCommand): string | 
       return typeof result === "string" ? result : null;
     }
 
+    case "table.create": {
+      const generator = new SqlDiffGenerator();
+      const { statements } = generator.generateSql([command], adapter.dbType);
+      return statements[0]?.statement ?? null;
+    }
+
     case "fk.add": {
       const payload = command.payload as ForeignKeyAddPayload;
       if (!payload.definition?.name) return null;
