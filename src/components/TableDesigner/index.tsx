@@ -19,15 +19,21 @@ import {
 import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
 import { useColumnSizing } from "@/components/DataGrid/hooks/useColumnSizing";
 import type { GridColumnV2 } from "@/components/DataGrid/types";
+import { ColumnNameCellRenderer } from "@/components/TableStructure/ColumnNameCellRenderer";
 import { NullableCellRenderer } from "@/components/TableStructure/NullableCellRenderer";
 import { DataTypeCellRenderer } from "@/components/TableStructure/DataTypeCellRenderer";
-import { TextSingleLineCellRenderer } from "@/components/DataGrid/renderers/TextCell";
+import { DefaultValueCellRenderer } from "@/components/TableStructure/DefaultValueCellRenderer";
+import { ForeignKeyCellRenderer } from "@/components/TableStructure/ForeignKeyCellRenderer";
+import { CheckConstraintCellRenderer } from "@/components/TableStructure/CheckConstraintCellRenderer";
+import { CommentCellRenderer } from "@/components/TableStructure/CommentCellRenderer";
 import { useCrudStore, buildCrudTableKey } from "@/stores/crudStore";
 import { createTableCreateCommand } from "./commandFactory";
 import type { CrudCommandTarget } from "@/types/crud";
 import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
 import { toast } from "sonner";
 import { nanoid } from "nanoid";
+import { useForeignKeyTargets } from "@/hooks/useForeignKeyTargets";
+import { CrudCommandFactory } from "@/services/crudCommandFactory";
 
 export interface TableDesignerProps {
   connectionId: string;
@@ -46,6 +52,9 @@ interface DesignerColumn {
   nullable: boolean;
   defaultValue: string;
   isPrimaryKey: boolean;
+  foreignKey: string;
+  checkConstraint: string;
+  comment: string;
 }
 
 // Grid row for designer
@@ -59,6 +68,9 @@ interface DesignerGridRow {
   db_type: string;
   nullable: string;
   default: string;
+  foreign_key: string;
+  check_constraint: string;
+  comment: string;
   _tempId: string;
 }
 
@@ -70,8 +82,47 @@ function createDefaultColumn(): DesignerColumn {
     nullable: true,
     defaultValue: "",
     isPrimaryKey: false,
+    foreignKey: "",
+    checkConstraint: "",
+    comment: "",
   };
 }
+
+const normalizeCheckConstraint = (value: string | null): string => {
+  if (!value) return "";
+  const trimmed = value.trim();
+  const match = trimmed.match(/^CHECK\s*\((.*)\)$/is);
+  if (match && match[1]) {
+    return match[1].trim();
+  }
+  return trimmed;
+};
+
+const sanitizeIdentifier = (value: string): string =>
+  value.replace(/[^a-zA-Z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+
+const buildForeignKeyConstraintName = (
+  tableName: string,
+  columnName: string,
+  refTable: string,
+  refColumn: string,
+): string =>
+  sanitizeIdentifier(`fk_${tableName}_${columnName}_${refTable}_${refColumn}`);
+
+const parseForeignKeyValue = (
+  rawValue: string,
+): { schema?: string; table: string; column: string } | null => {
+  const parts = rawValue.split(".").map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 2) return null;
+  const column = parts.pop();
+  const table = parts.pop();
+  if (!column || !table) return null;
+  const schema = parts.length ? parts.join(".") : undefined;
+  return { schema, table, column };
+};
+
+const quoteIdentifier = (value: string): string =>
+  `"${value.replace(/"/g, '""')}"`;
 
 // Designer columns
 const designerColumns: GridColumnV2[] = [
@@ -120,6 +171,31 @@ const designerColumns: GridColumnV2[] = [
     minWidth: 100,
     maxWidth: 300,
   },
+  {
+    id: "foreign_key",
+    field: "foreign_key",
+    title: "Foreign Key",
+    name: "Foreign Key",
+    width: 200,
+    minWidth: 140,
+    maxWidth: 400,
+  },
+  {
+    id: "check_constraint",
+    field: "check_constraint",
+    title: "Check",
+    name: "Check",
+    width: 200,
+    minWidth: 140,
+  },
+  {
+    id: "comment",
+    field: "comment",
+    title: "Comment",
+    name: "Comment",
+    width: 240,
+    minWidth: 140,
+  },
 ];
 
 export const TableDesigner: React.FC<TableDesignerProps> = ({
@@ -143,10 +219,18 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
       nullable: false,
       defaultValue: "",
       isPrimaryKey: true,
+      foreignKey: "",
+      checkConstraint: "",
+      comment: "",
     },
   ]);
 
   const { stageCommand, discardChanges } = useCrudStore();
+  const { targets: foreignKeyTargets } = useForeignKeyTargets({
+    connectionId,
+    database,
+    schema,
+  });
 
   // Table key for crudStore - uses actual table name when available
   const tableKey = useMemo(
@@ -172,11 +256,14 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
       column_name: col.name || "",
       column_meta: {
         is_pk: col.isPrimaryKey || col.dataType.toUpperCase().includes("SERIAL"),
-        is_fk: false,
+        is_fk: Boolean(col.foreignKey),
       },
       db_type: col.dataType || "VARCHAR(255)",
       nullable: col.nullable ? "YES" : "NO",
       default: col.defaultValue || "",
+      foreign_key: col.foreignKey || "",
+      check_constraint: col.checkConstraint || "",
+      comment: col.comment || "",
       _tempId: col.id,
     }));
   }, [columns]);
@@ -192,9 +279,13 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
   // Custom renderers
   const customRenderers = useMemo(
     () => [
+      ColumnNameCellRenderer as unknown as CustomRenderer,
+      DefaultValueCellRenderer as unknown as CustomRenderer,
+      ForeignKeyCellRenderer as unknown as CustomRenderer,
+      CheckConstraintCellRenderer as unknown as CustomRenderer,
+      CommentCellRenderer as unknown as CustomRenderer,
       NullableCellRenderer as unknown as CustomRenderer,
       DataTypeCellRenderer as unknown as CustomRenderer,
-      TextSingleLineCellRenderer as unknown as CustomRenderer,
     ],
     [],
   );
@@ -227,9 +318,14 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
 
         case "column_name":
           return {
-            kind: GridCellKind.Text,
-            data: rowData.column_name,
-            displayData: rowData.column_name,
+            kind: GridCellKind.Custom,
+            data: {
+              kind: "column-name-cell",
+              name: rowData.column_name || "",
+              isPrimaryKey: rowData.column_meta.is_pk,
+              isForeignKey: rowData.column_meta.is_fk,
+            },
+            copyData: rowData.column_name || "",
             allowOverlay: true,
           };
 
@@ -257,9 +353,55 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
 
         case "default":
           return {
-            kind: GridCellKind.Text,
-            data: rowData.default,
-            displayData: rowData.default,
+            kind: GridCellKind.Custom,
+            data: {
+              kind: "default-value-cell",
+              value: rowData.default?.trim() ? rowData.default : null,
+              columnName: rowData.column_name,
+              dbType: rowData.db_type,
+            },
+            copyData: rowData.default?.trim() ? rowData.default : "NULL",
+            allowOverlay: true,
+          };
+
+        case "foreign_key":
+          return {
+            kind: GridCellKind.Custom,
+            data: {
+              kind: "foreign-key-cell",
+              value: rowData.foreign_key || "",
+              suggestions: foreignKeyTargets,
+              columnName: rowData.column_name,
+            },
+            copyData: rowData.foreign_key || "",
+            allowOverlay: true,
+          };
+
+        case "check_constraint": {
+          const normalizedValue = normalizeCheckConstraint(
+            rowData.check_constraint,
+          );
+          return {
+            kind: GridCellKind.Custom,
+            data: {
+              kind: "check-constraint-cell",
+              value: normalizedValue || null,
+              columnName: rowData.column_name,
+            },
+            copyData: normalizedValue,
+            allowOverlay: true,
+          };
+        }
+
+        case "comment":
+          return {
+            kind: GridCellKind.Custom,
+            data: {
+              kind: "comment-cell",
+              value: rowData.comment || null,
+              columnName: rowData.column_name,
+            },
+            copyData: rowData.comment || "",
             allowOverlay: true,
           };
 
@@ -294,8 +436,8 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
           switch (field) {
             case "column_name":
               if (newValue.kind === GridCellKind.Custom) {
-                const data = newValue.data as { value?: string };
-                updated.name = data.value || "";
+                const data = newValue.data as { name?: string; value?: string };
+                updated.name = data.name || data.value || "";
               } else if (newValue.kind === GridCellKind.Text) {
                 updated.name = newValue.data || "";
               }
@@ -320,8 +462,38 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
               break;
 
             case "default":
-              if (newValue.kind === GridCellKind.Text) {
+              if (newValue.kind === GridCellKind.Custom) {
+                const data = newValue.data as { value?: string | null };
+                updated.defaultValue = data.value ?? "";
+              } else if (newValue.kind === GridCellKind.Text) {
                 updated.defaultValue = newValue.data || "";
+              }
+              break;
+
+            case "foreign_key":
+              if (newValue.kind === GridCellKind.Custom) {
+                const data = newValue.data as { value?: string };
+                updated.foreignKey = data.value || "";
+              } else if (newValue.kind === GridCellKind.Text) {
+                updated.foreignKey = newValue.data || "";
+              }
+              break;
+
+            case "check_constraint":
+              if (newValue.kind === GridCellKind.Custom) {
+                const data = newValue.data as { value?: string | null };
+                updated.checkConstraint = data.value ?? "";
+              } else if (newValue.kind === GridCellKind.Text) {
+                updated.checkConstraint = newValue.data || "";
+              }
+              break;
+
+            case "comment":
+              if (newValue.kind === GridCellKind.Custom) {
+                const data = newValue.data as { value?: string | null };
+                updated.comment = data.value ?? "";
+              } else if (newValue.kind === GridCellKind.Text) {
+                updated.comment = newValue.data || "";
               }
               break;
           }
@@ -348,19 +520,57 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
 
     const columnDefs = gridRows
       .map((col) => {
-        let def = `  "${col.column_name}" ${col.db_type}`;
+        let def = `  ${quoteIdentifier(col.column_name)} ${col.db_type}`;
         if (col.nullable === "NO") def += " NOT NULL";
-        if (col.default) def += ` DEFAULT ${col.default}`;
+        if (col.default?.trim()) def += ` DEFAULT ${col.default.trim()}`;
+        if (col.check_constraint?.trim()) {
+          def += ` CHECK (${normalizeCheckConstraint(col.check_constraint)})`;
+        }
         return def;
       })
       .join(",\n");
 
     const pkConstraint =
       pkColumns.length > 0
-        ? `,\n  PRIMARY KEY (${pkColumns.map((c) => `"${c}"`).join(", ")})`
+        ? `,\n  PRIMARY KEY (${pkColumns.map((c) => quoteIdentifier(c)).join(", ")})`
         : "";
 
-    return `CREATE TABLE "${schema}"."${tableName}" (\n${columnDefs}${pkConstraint}\n);`;
+    const foreignKeyConstraints = gridRows
+      .map((col) => {
+        if (!col.foreign_key) return null;
+        const parsed = parseForeignKeyValue(col.foreign_key);
+        if (!parsed) return null;
+        const tableRef = parsed.schema
+          ? `${quoteIdentifier(parsed.schema)}.${quoteIdentifier(parsed.table)}`
+          : quoteIdentifier(parsed.table);
+        return `  FOREIGN KEY (${quoteIdentifier(
+          col.column_name,
+        )}) REFERENCES ${tableRef} (${quoteIdentifier(parsed.column)})`;
+      })
+      .filter((constraint): constraint is string => Boolean(constraint))
+      .join(",\n");
+
+    const allConstraints = [pkConstraint.trim(), foreignKeyConstraints]
+      .filter(Boolean)
+      .map((constraint) => (constraint.startsWith(",") ? constraint : `,\n${constraint}`))
+      .join("");
+
+    const createTable = `CREATE TABLE ${quoteIdentifier(schema)}.${quoteIdentifier(
+      tableName,
+    )} (\n${columnDefs}${allConstraints}\n);`;
+
+    const commentStatements = gridRows
+      .map((col) => {
+        if (!col.comment || !col.comment.trim()) return null;
+        const columnRef = `${quoteIdentifier(schema)}.${quoteIdentifier(
+          tableName,
+        )}.${quoteIdentifier(col.column_name)}`;
+        const escaped = col.comment.replace(/'/g, "''");
+        return `COMMENT ON COLUMN ${columnRef} IS '${escaped}';`;
+      })
+      .filter((statement): statement is string => Boolean(statement));
+
+    return [createTable, ...commentStatements].join("\n");
   }, [tableName, gridRows, schema]);
 
   const handleSave = useCallback(() => {
@@ -396,6 +606,8 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
       nullable: col.nullable,
       defaultValue: col.defaultValue || undefined,
       isPrimaryKey: col.isPrimaryKey,
+      checkExpression: col.checkConstraint?.trim() || undefined,
+      comment: col.comment?.trim() || undefined,
     }));
 
     // Extract primary key columns
@@ -410,7 +622,54 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
       primaryKey: primaryKey.length > 0 ? primaryKey : undefined,
     });
 
+    const invalidForeignKeys = new Set<string>();
+    const foreignKeyDefinitions: Array<{
+      name: string;
+      columns: string[];
+      referenceTable: string;
+      referenceSchema?: string;
+      referenceColumns: string[];
+    }> = [];
+
+    columns.forEach((col) => {
+      const rawValue = col.foreignKey?.trim();
+      if (!rawValue) return;
+      const parsed = parseForeignKeyValue(rawValue);
+      if (!parsed) {
+        invalidForeignKeys.add(rawValue);
+        return;
+      }
+      const constraintName = buildForeignKeyConstraintName(
+        tableName,
+        col.name,
+        parsed.table,
+        parsed.column,
+      );
+      foreignKeyDefinitions.push({
+        name: constraintName,
+        columns: [col.name],
+        referenceTable: parsed.table,
+        referenceSchema: parsed.schema,
+        referenceColumns: [parsed.column],
+      });
+    });
+
+    if (invalidForeignKeys.size > 0) {
+      toast.error("Invalid foreign key format", {
+        description: "Use table.column or schema.table.column",
+      });
+      return;
+    }
+
     stageCommand(command);
+    foreignKeyDefinitions.forEach((definition) => {
+      stageCommand(
+        CrudCommandFactory.createForeignKeyAddCommand({
+          target,
+          definition,
+        }),
+      );
+    });
     setGlobalChangesDialogOpen(true);
   }, [tableName, columns, connectionId, database, schema, stageCommand]);
 
