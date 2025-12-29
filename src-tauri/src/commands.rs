@@ -923,6 +923,12 @@ async fn execute_single_fetch_stream(
     if is_multi_statement_query(sql) {
         tracing::info!("  🔀 Detected multi-statement query, using simple_query protocol");
 
+        // Reset any pending failed transaction state before executing
+        // This handles cases where a previous operation failed and left the connection dirty
+        if let Err(e) = pool_conn.batch_execute("ROLLBACK").await {
+            tracing::debug!("  ℹ️ ROLLBACK before batch (expected if no active transaction): {}", e);
+        }
+
         // Use simple_query for multi-statement support (no prepared statements)
         let simple_start = std::time::Instant::now();
         pool_conn.batch_execute(sql).await.map_err(|e| {
@@ -957,6 +963,11 @@ async fn execute_single_fetch_stream(
     // use execute to get affected rows count. Queries with RETURNING need streaming.
     if !is_select && !has_returning {
         tracing::info!("  🔀 Non-SELECT query, using execute() for affected rows count");
+
+        // Reset any pending failed transaction state before executing
+        if let Err(e) = pool_conn.batch_execute("ROLLBACK").await {
+            tracing::debug!("  ℹ️ ROLLBACK before execute (expected if no active transaction): {}", e);
+        }
 
         let exec_start = std::time::Instant::now();
         let rows_affected = pool_conn.execute(sql, &[]).await.map_err(|e| {

@@ -173,8 +173,25 @@ export class SqlDiffGenerator {
     const dialect = ensureDialect(dbType);
     const statements: SqlDiffStatement[] = [];
 
+    // Build rename map: track column renames so subsequent commands use new names
+    // Map is: tableKey -> (oldName -> newName)
+    const columnRenames = new Map<string, Map<string, string>>();
+
     for (const command of commands) {
-      const statement = this.generateStatement(command, dialect);
+      // Apply any pending renames to this command before generating SQL
+      const adjustedCommand = this.applyColumnRenames(command, columnRenames);
+
+      // Track renames for subsequent commands
+      if (command.type === 'column.rename') {
+        const renameCmd = command as CrudCommandFor<'column.rename'>;
+        const tableKey = `${renameCmd.target.schema ?? ''}.${renameCmd.target.table}`;
+        if (!columnRenames.has(tableKey)) {
+          columnRenames.set(tableKey, new Map());
+        }
+        columnRenames.get(tableKey)!.set(renameCmd.payload.columnName, renameCmd.payload.newName);
+      }
+
+      const statement = this.generateStatement(adjustedCommand, dialect);
       if (statement) {
         statements.push(statement);
       }
@@ -184,6 +201,70 @@ export class SqlDiffGenerator {
       statements,
       dependencies: { before: [], after: [] },
     };
+  }
+
+  /**
+   * Apply column renames from previous commands to this command.
+   * This ensures that if a column was renamed earlier, subsequent
+   * modifications use the new column name.
+   */
+  private applyColumnRenames(
+    command: CrudCommand,
+    columnRenames: Map<string, Map<string, string>>,
+  ): CrudCommand {
+    const tableKey = `${command.target.schema ?? ''}.${command.target.table}`;
+    const renames = columnRenames.get(tableKey);
+
+    if (!renames || renames.size === 0) {
+      return command;
+    }
+
+    // Apply rename to column.modify commands
+    if (command.type === 'column.modify') {
+      const modifyCmd = command as CrudCommandFor<'column.modify'>;
+      const newName = renames.get(modifyCmd.payload.columnName);
+      if (newName) {
+        return {
+          ...modifyCmd,
+          payload: {
+            ...modifyCmd.payload,
+            columnName: newName,
+          },
+        } as CrudCommand;
+      }
+    }
+
+    // Apply rename to column.drop commands
+    if (command.type === 'column.drop') {
+      const dropCmd = command as CrudCommandFor<'column.drop'>;
+      const newName = renames.get(dropCmd.payload.columnName);
+      if (newName) {
+        return {
+          ...dropCmd,
+          payload: {
+            ...dropCmd.payload,
+            columnName: newName,
+          },
+        } as CrudCommand;
+      }
+    }
+
+    // Apply rename to column.rename commands (chained renames)
+    if (command.type === 'column.rename') {
+      const renameCmd = command as CrudCommandFor<'column.rename'>;
+      const newName = renames.get(renameCmd.payload.columnName);
+      if (newName) {
+        return {
+          ...renameCmd,
+          payload: {
+            ...renameCmd.payload,
+            columnName: newName,
+          },
+        } as CrudCommand;
+      }
+    }
+
+    return command;
   }
 
   private generateStatement(

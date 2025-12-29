@@ -275,6 +275,58 @@ function commandToSql(adapter: DatabaseAdapter, command: CrudCommand): string | 
 }
 
 /**
+ * Apply column renames from previous commands to the current command.
+ * This ensures subsequent modifications use the new column name after a rename.
+ * Exported for use in crudStore commit flow.
+ */
+export function applyColumnRenames(
+  command: CrudCommand,
+  columnRenames: Map<string, string>,
+): CrudCommand {
+  if (columnRenames.size === 0) {
+    return command;
+  }
+
+  // Apply rename to column.modify commands
+  if (command.type === 'column.modify') {
+    const payload = command.payload as ColumnModifyPayload;
+    const newName = columnRenames.get(payload.columnName);
+    if (newName) {
+      return {
+        ...command,
+        payload: { ...payload, columnName: newName },
+      } as CrudCommand;
+    }
+  }
+
+  // Apply rename to column.drop commands
+  if (command.type === 'column.drop') {
+    const payload = command.payload as ColumnDropPayload;
+    const newName = columnRenames.get(payload.columnName);
+    if (newName) {
+      return {
+        ...command,
+        payload: { ...payload, columnName: newName },
+      } as CrudCommand;
+    }
+  }
+
+  // Apply rename to chained column.rename commands
+  if (command.type === 'column.rename') {
+    const payload = command.payload as ColumnRenamePayload;
+    const newName = columnRenames.get(payload.columnName);
+    if (newName) {
+      return {
+        ...command,
+        payload: { ...payload, columnName: newName },
+      } as CrudCommand;
+    }
+  }
+
+  return command;
+}
+
+/**
  * Generate SQL preview for staged commands
  * Used by GlobalChangesDialog for SQL preview display
  */
@@ -297,9 +349,21 @@ export async function generateSqlPreview(
 
     sections.push(`-- Table: ${displayName}`);
 
+    // Track column renames so subsequent commands use new names
+    const columnRenames = new Map<string, string>();
     const statements: string[] = [];
+
     for (const cmd of commands) {
-      const sql = commandToSql(adapter, cmd);
+      // Apply any pending renames to this command
+      const adjustedCmd = applyColumnRenames(cmd, columnRenames);
+
+      // Track renames for subsequent commands
+      if (cmd.type === 'column.rename') {
+        const payload = cmd.payload as ColumnRenamePayload;
+        columnRenames.set(payload.columnName, payload.newName);
+      }
+
+      const sql = commandToSql(adapter, adjustedCmd);
       if (sql) {
         statements.push(sql);
       }
