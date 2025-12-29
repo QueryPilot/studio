@@ -476,6 +476,8 @@ export class SqlDiffGenerator {
       case 'trigger.enable':
       case 'trigger.disable':
         return this.generateTriggerToggle(command as CrudCommandFor<'trigger.enable'>, dbType);
+      case 'table.create':
+        return this.generateTableCreate(command as CrudCommandFor<'table.create'>, dbType);
       case 'fk.add':
         return this.generateForeignKeyAdd(command as CrudCommandFor<'fk.add'>, dbType);
       case 'fk.drop':
@@ -632,6 +634,63 @@ export class SqlDiffGenerator {
           .join(", ")})`
       : '';
     const sql = `CREATE ${unique}INDEX ${indexName} ON ${tableName}${using} (${columns})${include}${whereClause};`;
+    return this.createStatement(command, dbType, sql);
+  }
+
+  private generateTableCreate(
+    command: CrudCommandFor<'table.create'>,
+    dbType: SupportedDbType,
+  ): SqlDiffStatement {
+    const tableNameValue =
+      command.target.table ?? command.payload.tableName ?? "";
+    const tableName = getTableName(
+      { ...command.target, table: tableNameValue },
+      dbType,
+    );
+    const includePrimaryKey =
+      Array.isArray(command.payload.primaryKey) &&
+      command.payload.primaryKey.length > 0;
+    const columns = command.payload.columns ?? [];
+    const columnDefinitions = columns
+      .map((column) =>
+        buildColumnDefinition(
+          includePrimaryKey ? { ...column, isPrimaryKey: false } : column,
+          dbType,
+        ),
+      )
+      .join(",\n  ");
+
+    const constraints: string[] = [];
+    if (includePrimaryKey) {
+      const pkColumns = command.payload.primaryKey.map((col) =>
+        quoteIdentifier(col, dbType),
+      );
+      constraints.push(`PRIMARY KEY (${pkColumns.join(", ")})`);
+    }
+
+    const allDefinitions = [columnDefinitions, ...constraints]
+      .filter(Boolean)
+      .join(",\n  ");
+
+    const createBody = `CREATE TABLE ${tableName} (\n  ${allDefinitions}\n);`;
+    const useIfNotExists = Boolean(command.payload.ifNotExists);
+
+    let sql: string;
+    if (useIfNotExists && dbType === DbType.SQLServer) {
+      const objectName = [
+        command.target.database,
+        command.target.schema ?? "dbo",
+        tableNameValue,
+      ]
+        .filter(Boolean)
+        .join(".");
+      const escapedObject = escapeStringLiteral(objectName);
+      sql = `IF OBJECT_ID('${escapedObject}', 'U') IS NULL\nBEGIN\n${createBody}\nEND;`;
+    } else {
+      const prefix = useIfNotExists ? "CREATE TABLE IF NOT EXISTS " : "CREATE TABLE ";
+      sql = `${prefix}${tableName} (\n  ${allDefinitions}\n);`;
+    }
+
     return this.createStatement(command, dbType, sql);
   }
 
@@ -818,4 +877,3 @@ export class SqlDiffGenerator {
 }
 
 export const sqlDiffGenerator = new SqlDiffGenerator();
-
