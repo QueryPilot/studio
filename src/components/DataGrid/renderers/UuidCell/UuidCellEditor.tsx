@@ -15,7 +15,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { IconX, IconRefresh, IconKey } from '@tabler/icons-react';
+import { IconX, IconRefresh, IconKey } from "@tabler/icons-react";
 import { cn } from "@/lib/cn";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
@@ -140,7 +140,13 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
     } else if (isValid) {
       commit(trimmed);
     }
-  }, [commit, isValid, value.data.nullable, value.data.value, onFinishedEditing]);
+  }, [
+    commit,
+    isValid,
+    value.data.nullable,
+    value.data.value,
+    onFinishedEditing,
+  ]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (finishedRef.current) return;
@@ -211,20 +217,23 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
 
       {/* UUID input and controls */}
       <div
-        className={cn(
-          "flex-1 flex items-center gap-1 px-2",
-          {
-            "min-w-[330px]": value.data.nullable,
-            "min-w-[310px]": !value.data.nullable,
-          },
-        )}
+        className={cn("flex-1 flex items-center gap-1 px-2", {
+          "min-w-[330px]": value.data.nullable,
+          "min-w-[310px]": !value.data.nullable,
+        })}
       >
         <input
+          autoCapitalize="off"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           ref={inputRef}
           type="text"
           defaultValue={initialValue}
           autoFocus
-          onFocus={(e) => { e.target.select(); }}
+          onFocus={(e) => {
+            e.target.select();
+          }}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           className={cn(
@@ -233,7 +242,9 @@ export const UuidCellEditor: React.FC<UuidCellEditorProps> = ({
             !value.data.value ? "italic text-muted-foreground" : "",
           )}
           placeholder={
-            value.data.nullable ? "NULL" : "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+            value.data.nullable
+              ? "NULL"
+              : "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
           }
         />
         <div className="flex items-center gap-0">

@@ -21,7 +21,10 @@ import type {
   TriggerCreatePayload,
   TriggerDropPayload,
   TriggerTogglePayload,
+  ForeignKeyAddPayload,
+  ForeignKeyDropPayload,
 } from '@/types/crud';
+import { sqlDiffGenerator } from '@/services/sqlDiffGenerator';
 import type { DatabaseAdapter, TableRef, RowData, WhereClause } from './types';
 import { useConnectionStore } from '@/stores/connectionStoreNew';
 
@@ -247,6 +250,23 @@ function commandToSql(adapter: DatabaseAdapter, command: CrudCommand): string | 
       const enable = command.type === 'trigger.enable';
       const result = adapter.toggleTrigger(target, payload.triggerName, enable);
       return typeof result === 'string' ? result : null;
+    }
+
+    // Foreign key DDL operations - use SqlDiffGenerator
+    case 'fk.add': {
+      const payload = command.payload as ForeignKeyAddPayload;
+      if (!payload.definition?.name || !payload.definition?.columns?.length) return null;
+      const result = sqlDiffGenerator.generateSql([command], adapter.dbType);
+      const stmt = result.statements[0];
+      return stmt?.statement ?? null;
+    }
+
+    case 'fk.drop': {
+      const payload = command.payload as ForeignKeyDropPayload;
+      if (!payload.constraintName) return null;
+      const result = sqlDiffGenerator.generateSql([command], adapter.dbType);
+      const stmt = result.statements[0];
+      return stmt?.statement ?? null;
     }
 
     default:

@@ -5,7 +5,7 @@
  * Dialect-specific adapters extend this class and override formatting methods.
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { queryStreamClient } from '@/services/queryStreamClient';
 import type { DbType } from '@/types/connection';
 import type {
   ColumnDefinitionInput,
@@ -45,12 +45,20 @@ export abstract class SqlAdapter implements DatabaseAdapter {
       throw new Error('SQL adapter expects string query');
     }
 
-    const result = await invoke<QueryResult>('execute_query', {
-      connId: this.connectionId,
-      sql,
-    });
+    const result = await queryStreamClient.streamWithCallbacks(
+      {
+        connId: this.connectionId,
+        tabId: "system",
+        sql,
+      },
+      {},
+    );
 
-    return result;
+    return {
+      columns: result.columns,
+      rows: [],
+      rowCount: result.totalRows,
+    };
   }
 
   /**

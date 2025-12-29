@@ -12,9 +12,22 @@ import type {
   DataInsertPayload,
   DataUpdatePayload,
   StageCommandResult,
+  ColumnAddPayload,
+  ColumnModifyPayload,
+  ColumnDropPayload,
+  ColumnRenamePayload,
+  IndexCreatePayload,
+  IndexDropPayload,
+  IndexRenamePayload,
+  TriggerCreatePayload,
+  TriggerDropPayload,
+  TriggerTogglePayload,
+  ForeignKeyAddPayload,
+  ForeignKeyDropPayload,
 } from "@/types/crud";
 import { useConnectionStore } from "./connectionStoreNew";
 import type { DatabaseAdapter } from "@/adapters/types";
+import { SqlDiffGenerator } from "@/services/sqlDiffGenerator";
 
 const HISTORY_LIMIT = 100;
 
@@ -57,6 +70,98 @@ function commandToSql(adapter: DatabaseAdapter, command: CrudCommand): string | 
       const where: WhereClause = payload.primaryKeys as WhereClause;
       const result = adapter.delete(target, where);
       return typeof result === "string" ? result : null;
+    }
+
+    case "column.add": {
+      const payload = command.payload as ColumnAddPayload;
+      if (!payload.column?.name) return null;
+      const result = adapter.addColumn(target, payload.column);
+      return typeof result === "string" ? result : null;
+    }
+
+    case "column.modify": {
+      const payload = command.payload as ColumnModifyPayload;
+      if (!payload.columnName || !payload.newDefinition) return null;
+      const result = adapter.modifyColumn(
+        target,
+        payload.columnName,
+        payload.newDefinition,
+      );
+      return typeof result === "string" && result ? result : null;
+    }
+
+    case "column.drop": {
+      const payload = command.payload as ColumnDropPayload;
+      if (!payload.columnName) return null;
+      const result = adapter.dropColumn(target, payload.columnName, payload.cascade);
+      return typeof result === "string" ? result : null;
+    }
+
+    case "column.rename": {
+      const payload = command.payload as ColumnRenamePayload;
+      if (!payload.columnName || !payload.newName) return null;
+      const result = adapter.renameColumn(target, payload.columnName, payload.newName);
+      return typeof result === "string" ? result : null;
+    }
+
+    case "index.create": {
+      const payload = command.payload as IndexCreatePayload;
+      if (!payload.definition?.name || !payload.definition?.columns?.length) return null;
+      const result = adapter.createIndex(target, payload.definition);
+      return typeof result === "string" ? result : null;
+    }
+
+    case "index.drop": {
+      const payload = command.payload as IndexDropPayload;
+      if (!payload.indexName) return null;
+      const result = adapter.dropIndex(target, payload.indexName, payload.ifExists);
+      return typeof result === "string" ? result : null;
+    }
+
+    case "index.rename": {
+      const payload = command.payload as IndexRenamePayload;
+      if (!payload.indexName || !payload.newName) return null;
+      const result = adapter.renameIndex(target, payload.indexName, payload.newName);
+      return typeof result === "string" ? result : null;
+    }
+
+    case "trigger.create": {
+      const payload = command.payload as TriggerCreatePayload;
+      if (!payload.definition?.name || !payload.definition?.functionName) return null;
+      const result = adapter.createTrigger(target, payload.definition);
+      return typeof result === "string" ? result : null;
+    }
+
+    case "trigger.drop": {
+      const payload = command.payload as TriggerDropPayload;
+      if (!payload.triggerName) return null;
+      const result = adapter.dropTrigger(target, payload.triggerName, payload.ifExists);
+      return typeof result === "string" ? result : null;
+    }
+
+    case "trigger.enable":
+    case "trigger.disable": {
+      const payload = command.payload as TriggerTogglePayload;
+      if (!payload.triggerName) return null;
+      const enable = command.type === "trigger.enable";
+      const result = adapter.toggleTrigger(target, payload.triggerName, enable);
+      return typeof result === "string" ? result : null;
+    }
+
+    case "fk.add": {
+      const payload = command.payload as ForeignKeyAddPayload;
+      if (!payload.definition?.name) return null;
+      const generator = new SqlDiffGenerator();
+      const { statements } = generator.generateSql([command], adapter.dbType);
+      return statements[0]?.statement ?? null;
+    }
+
+    case "fk.drop": {
+      const payload = command.payload as ForeignKeyDropPayload;
+      if (!payload.constraintName) return null;
+      const generator = new SqlDiffGenerator();
+      const { statements } = generator.generateSql([command], adapter.dbType);
+      return statements[0]?.statement ?? null;
     }
 
     default:
@@ -757,4 +862,3 @@ export const crudSelectors = {
 };
 
 export const buildCrudTableKey = createTableKey;
-

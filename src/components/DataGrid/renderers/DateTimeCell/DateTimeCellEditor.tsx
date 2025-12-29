@@ -374,6 +374,10 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
       {/* DateTime input and picker */}
       <div className="flex-1 flex items-center gap-1 px-2 justify-between click-outside-ignore">
         <input
+          autoCapitalize="off"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           ref={inputRef}
           className={cn(
             "h-full w-[200px] bg-transparent z-50 text-xs leading-6 outline-none flex-1 min-w-0",

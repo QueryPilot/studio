@@ -222,6 +222,10 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
 
         {/* Lower input */}
         <input
+          autoCapitalize="off"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           className="h-[31px] w-[200px] bg-transparent text-xs leading-6 outline-none"
           placeholder="lower ISO"
           autoFocus
@@ -236,6 +240,10 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
 
         {/* Upper input */}
         <input
+          autoCapitalize="off"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           className="h-[31px] w-[200px] bg-transparent text-xs leading-6 outline-none"
           placeholder="upper ISO"
           value={upperText}

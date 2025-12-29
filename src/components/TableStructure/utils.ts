@@ -18,6 +18,14 @@ export function transformStructureToRows(
     (cmd) => cmd.type === "column.modify",
   );
 
+  const pendingFkAdds = pendingCommands.filter(
+    (cmd) => cmd.type === "fk.add",
+  );
+
+  const pendingFkDrops = pendingCommands.filter(
+    (cmd) => cmd.type === "fk.drop",
+  );
+
   const pendingDeletes = pendingCommands.filter(
     (cmd) => cmd.type === "column.drop",
   );
@@ -61,6 +69,16 @@ export function transformStructureToRows(
     let nullable = column.nullable ? "YES" : "NO";
     let defaultValue = column.default; // Keep null/undefined as-is
     let comment = column.comment ?? "";
+    let checkConstraintValue = checkConstraint?.definition ?? "";
+    const baseForeignTable = fkInfo
+      ? fkInfo.foreignSchema
+        ? `${fkInfo.foreignSchema}.${fkInfo.foreignTable}`
+        : fkInfo.foreignTable
+      : "";
+    let foreignKey = fkInfo
+      ? `${baseForeignTable}.${fkInfo.foreignColumns[0]}`
+      : "";
+    let hasFkChange = false;
 
     // Apply pending rename
     if (renameCmd) {
@@ -82,6 +100,45 @@ export function transformStructureToRows(
       if (newDef.comment !== undefined) {
         comment = String(newDef.comment ?? "");
       }
+      if (newDef.checkExpression !== undefined) {
+        checkConstraintValue = String(newDef.checkExpression ?? "");
+      }
+    }
+
+    const fkDrop = fkInfo
+      ? pendingFkDrops.find(
+          (cmd) => (cmd.payload as any).constraintName === fkInfo.name,
+        )
+      : undefined;
+    if (fkDrop) {
+      foreignKey = "";
+      hasFkChange = true;
+    }
+
+    const fkAdd = pendingFkAdds.find((cmd) => {
+      const definition = (cmd.payload as any).definition as {
+        columns?: string[];
+      };
+      if (!definition?.columns) return false;
+      return (
+        definition.columns.includes(column.name) ||
+        definition.columns.includes(displayName)
+      );
+    });
+    if (fkAdd) {
+      const def = (fkAdd.payload as any).definition as {
+        referenceTable: string;
+        referenceColumns: string[];
+        referenceSchema?: string;
+      };
+      const refTable = def.referenceSchema
+        ? `${def.referenceSchema}.${def.referenceTable}`
+        : def.referenceTable;
+      foreignKey = `${refTable}.${def.referenceColumns[0] ?? ""}`.replace(
+        /\.$/,
+        "",
+      );
+      hasFkChange = true;
     }
 
     return {
@@ -94,13 +151,11 @@ export function transformStructureToRows(
       db_type: dbType,
       nullable: nullable,
       default: defaultValue,
-      foreign_key: fkInfo
-        ? `${fkInfo.foreignTable}.${fkInfo.foreignColumns[0]}`
-        : "",
-      check_constraint: checkConstraint?.definition ?? "",
+      foreign_key: foreignKey,
+      check_constraint: checkConstraintValue,
       comment: comment,
       _original: column,
-      _isModified: !!(modifyCmd || renameCmd), // Mark row as modified
+      _isModified: !!(modifyCmd || renameCmd || hasFkChange), // Mark row as modified
       _isPendingDelete: isPendingDelete, // Mark row for deletion
     };
   });
@@ -108,6 +163,29 @@ export function transformStructureToRows(
   // Create virtual rows for pending additions (at bottom)
   const virtualRows: StructureGridRow[] = pendingAdds.map((cmd, idx) => {
     const col = cmd.payload.column;
+    const fkAdd = pendingFkAdds.find((fkCmd) => {
+      const definition = (fkCmd.payload as any).definition as {
+        columns?: string[];
+      };
+      if (!definition?.columns) return false;
+      return definition.columns.includes(col.name ?? "");
+    });
+    const fkDefinition = fkAdd
+      ? ((fkAdd.payload as any).definition as {
+          referenceTable: string;
+          referenceColumns: string[];
+          referenceSchema?: string;
+        })
+      : null;
+    const refTable = fkDefinition?.referenceSchema
+      ? `${fkDefinition.referenceSchema}.${fkDefinition.referenceTable}`
+      : fkDefinition?.referenceTable;
+    const foreignKey = fkDefinition
+      ? `${refTable}.${fkDefinition.referenceColumns[0] ?? ""}`.replace(
+          /\.$/,
+          "",
+        )
+      : "";
     return {
       row_number: actualRows.length + idx + 1,
       column_name: col.name || "(new column)",
@@ -118,11 +196,12 @@ export function transformStructureToRows(
       db_type: col.dataType || "text",
       nullable: col.nullable ? "YES" : "NO",
       default: col.defaultValue != null ? String(col.defaultValue) : null,
-      foreign_key: "",
+      foreign_key: foreignKey,
       check_constraint: col.checkExpression ?? "",
       comment: col.comment ?? "",
       _tempId: cmd.payload.tempId,
       _isPending: true,
+      _isModified: Boolean(fkAdd),
     };
   });
 

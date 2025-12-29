@@ -174,6 +174,10 @@ export const MacAddrCellEditor: React.FC<MacAddrCellEditorProps> = ({
       {/* Input field */}
       <div className="flex items-center gap-2 flex-1 relative px-2 py-1.5">
         <input
+          autoCapitalize="off"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           ref={inputRef}
           className={cn(
             "h-full flex-1 bg-transparent text-xs font-mono outline-none uppercase",
@@ -181,13 +185,16 @@ export const MacAddrCellEditor: React.FC<MacAddrCellEditorProps> = ({
               ? "border-b border-destructive focus:border-destructive"
               : "",
           )}
-          spellCheck={false}
           defaultValue={initialValue}
           autoFocus
-          onFocus={(e) => { e.target.select(); }}
+          onFocus={(e) => {
+            e.target.select();
+          }}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          placeholder={isMacAddr8 ? "00:00:00:00:00:00:00:00" : "00:00:00:00:00:00"}
+          placeholder={
+            isMacAddr8 ? "00:00:00:00:00:00:00:00" : "00:00:00:00:00:00"
+          }
           maxLength={expectedLength}
           aria-invalid={!deferredIsValid}
         />
@@ -225,4 +232,3 @@ export const MacAddrCellEditorWithProps = Object.assign(MacAddrCellEditor, {
   disablePadding: true,
   disableStyling: false,
 });
-

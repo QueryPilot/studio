@@ -87,7 +87,7 @@ export function SidebarFavorites() {
                 alt=""
                 className="h-4 w-4 shrink-0"
               />
-              <span className="truncate">{conn.profile.name}</span>
+              <span className="text-xs truncate">{conn.profile.name}</span>
             </button>
           ))}
         </div>

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback } from "react";
 import type { ReferenceCustomCell } from "./types";
 import { Button } from "@/components/ui/button";
-import { IconX, IconSearch, IconLoader2, IconKey } from '@tabler/icons-react';
+import { IconX, IconSearch, IconLoader2, IconKey } from "@tabler/icons-react";
 import { cn } from "@/lib/cn";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
@@ -278,68 +278,74 @@ export const ReferenceCellEditor: React.FC<ReferenceCellEditorProps> = ({
             )}
           </div>
 
-        <div className="relative">
-          <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-          <input
-            ref={inputRef}
-            type="text"
-            value={searchText}
-            autoFocus
-            onFocus={(e) => { e.target.select(); }}
-            onChange={handleSearchChange}
-            onKeyDown={handleKeyDown}
-            className="w-full h-8 pl-7 pr-2 text-xs bg-background border border-border rounded outline-none"
-            placeholder="Search any column..."
-          />
-          {isSearching && (
-            <IconLoader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 animate-spin text-muted-foreground" />
+          <div className="relative">
+            <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+            <input
+              autoCapitalize="off"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
+              ref={inputRef}
+              type="text"
+              value={searchText}
+              autoFocus
+              onFocus={(e) => {
+                e.target.select();
+              }}
+              onChange={handleSearchChange}
+              onKeyDown={handleKeyDown}
+              className="w-full h-8 pl-7 pr-2 text-xs bg-background border border-border rounded outline-none"
+              placeholder="Search any column..."
+            />
+            {isSearching && (
+              <IconLoader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 animate-spin text-muted-foreground" />
+            )}
+          </div>
+
+          {results.length > 0 && (
+            <div className="flex flex-col gap-1 max-h-[300px] overflow-y-auto">
+              {results.map((result, index) => {
+                const pkColumn = value.data.fkReference?.column || "id";
+                const pkValue = result[pkColumn];
+                const displayColumns = Object.keys(result).slice(0, 3);
+
+                return (
+                  <button
+                    key={index}
+                    onClick={() => {
+                      handleSelectResult(result);
+                    }}
+                    className={cn(
+                      "flex flex-col gap-0.5 p-2 text-left text-xs rounded hover:bg-accent",
+                      selectedIndex === index && "bg-accent",
+                    )}
+                  >
+                    <div className="font-mono text-[10px] text-muted-foreground">
+                      {pkColumn}: {String(pkValue)}
+                    </div>
+                    <div className="flex gap-2">
+                      {displayColumns.map((col) => (
+                        <span key={col} className="truncate">
+                          <span className="text-muted-foreground">{col}:</span>{" "}
+                          {String(result[col])}
+                        </span>
+                      ))}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           )}
-        </div>
 
-        {results.length > 0 && (
-          <div className="flex flex-col gap-1 max-h-[300px] overflow-y-auto">
-            {results.map((result, index) => {
-              const pkColumn = value.data.fkReference?.column || "id";
-              const pkValue = result[pkColumn];
-              const displayColumns = Object.keys(result).slice(0, 3);
+          {!isSearching && searchText && results.length === 0 && (
+            <div className="text-xs text-muted-foreground text-center py-4">
+              No results found
+            </div>
+          )}
 
-              return (
-                <button
-                  key={index}
-                  onClick={() => {
-                    handleSelectResult(result);
-                  }}
-                  className={cn(
-                    "flex flex-col gap-0.5 p-2 text-left text-xs rounded hover:bg-accent",
-                    selectedIndex === index && "bg-accent",
-                  )}
-                >
-                  <div className="font-mono text-[10px] text-muted-foreground">
-                    {pkColumn}: {String(pkValue)}
-                  </div>
-                  <div className="flex gap-2">
-                    {displayColumns.map((col) => (
-                      <span key={col} className="truncate">
-                        <span className="text-muted-foreground">{col}:</span>{" "}
-                        {String(result[col])}
-                      </span>
-                    ))}
-                  </div>
-                </button>
-              );
-            })}
+          <div className="text-[10px] text-muted-foreground">
+            Type to search • Enter to select • Esc to cancel
           </div>
-        )}
-
-        {!isSearching && searchText && results.length === 0 && (
-          <div className="text-xs text-muted-foreground text-center py-4">
-            No results found
-          </div>
-        )}
-
-        <div className="text-[10px] text-muted-foreground">
-          Type to search • Enter to select • Esc to cancel
-        </div>
         </div>
       </div>
     </div>

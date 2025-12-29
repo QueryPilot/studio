@@ -1,6 +1,8 @@
 import React, { useRef, useCallback, useEffect } from "react";
+import { logger } from "@/lib/logger";
 import { type ColumnNameCustomCell } from "./types";
 import { IconKey, IconLink } from "@tabler/icons-react";
+import { useCommitOnUnmount } from "@/components/DataGrid/renderers/hooks/useCommitOnUnmount";
 
 interface ColumnNameCellEditorProps {
   value: ColumnNameCustomCell;
@@ -18,11 +20,23 @@ const ColumnNameCellEditor: React.FC<ColumnNameCellEditorProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
   const originalValueRef = useRef(value.data.name);
 
+  // Log when editor mounts
+  useEffect(() => {
+    logger.info(
+      "[ColumnNameCellEditor] Editor mounted with value:",
+      value.data,
+    );
+    return () => {
+      logger.info("[ColumnNameCellEditor] Editor unmounting");
+    };
+  }, [value.data]);
+
   // Focus and select text when editor opens
   useEffect(() => {
     const timer = setTimeout(() => {
       const input = inputRef.current;
       if (input) {
+        logger.info("[ColumnNameCellEditor] Focusing input");
         input.focus();
         input.setSelectionRange(0, input.value.length);
       }
@@ -106,23 +120,19 @@ const ColumnNameCellEditor: React.FC<ColumnNameCellEditorProps> = ({
     }
   };
 
-  // Commit on blur/unmount
-  useEffect(() => {
-    const input = inputRef.current;
-    return () => {
-      if (!finishedRef.current && input) {
-        const text = input.value;
-        commit(text);
-      }
-    };
+  const commitCurrentText = useCallback(() => {
+    const text = originalValueRef.current;
+    commit(text);
   }, [commit]);
+
+  useCommitOnUnmount(finishedRef, commitCurrentText);
 
   const { isPrimaryKey, isForeignKey } = value.data;
 
   return (
-    <div className="w-full h-full flex flex-col relative click-outside-ignore z-50">
+    <div className="flex flex-col click-outside-ignore z-50 bg-popover border shadow-lg min-w-[200px] max-w-[400px] w-max">
       {/* Header with column info */}
-      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-muted/50 border-b border-border/50">
+      <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50">
         {isPrimaryKey && (
           <IconKey className="h-3 w-3 text-yellow-600 dark:text-yellow-500" />
         )}
@@ -137,6 +147,10 @@ const ColumnNameCellEditor: React.FC<ColumnNameCellEditorProps> = ({
       {/* Input field */}
       <div className="flex items-center flex-1">
         <input
+          autoCapitalize="off"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           ref={inputRef}
           type="text"
           defaultValue={value.data.name}
@@ -153,9 +167,12 @@ const ColumnNameCellEditor: React.FC<ColumnNameCellEditorProps> = ({
   );
 };
 
-export const ColumnNameCellEditorWithProps = Object.assign(ColumnNameCellEditor, {
-  disablePadding: true,
-  disableStyling: false,
-});
+export const ColumnNameCellEditorWithProps = Object.assign(
+  ColumnNameCellEditor,
+  {
+    disablePadding: true,
+    disableStyling: false,
+  },
+);
 
 export default ColumnNameCellEditorWithProps;

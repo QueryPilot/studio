@@ -1,12 +1,10 @@
-import {
-  type CustomCell,
-  type CustomRenderer,
-  GridCellKind,
-} from "@glideapps/glide-data-grid";
+import { type CustomCell } from "@glideapps/glide-data-grid";
+import { logger } from "@/lib/logger";
 import { type ColumnNameCustomCell } from "./types";
 import { getCachedThemeValues } from "@/components/DataGrid/utils/renderCache";
 import { truncateTextToWidth } from "@/components/DataGrid/utils/textUtils";
 import { ColumnNameCellEditorWithProps } from "./ColumnNameCellEditor";
+import { type CustomCellRenderer } from "@/components/DataGrid/types";
 
 // Icon size for PK/FK indicators
 const ICON_SIZE = 12;
@@ -88,9 +86,7 @@ function drawIcon(
   ctx.restore();
 }
 
-const ColumnNameCellRenderer: CustomRenderer<ColumnNameCustomCell> = {
-  kind: GridCellKind.Custom,
-
+const ColumnNameCellRenderer: CustomCellRenderer<ColumnNameCustomCell> = {
   isMatch: (cell: CustomCell): cell is ColumnNameCustomCell => {
     const data = cell.data as Record<string, unknown> | null;
     return Boolean(
@@ -154,11 +150,25 @@ const ColumnNameCellRenderer: CustomRenderer<ColumnNameCustomCell> = {
     return true;
   },
 
-  provideEditor: () => ({
-    editor: ColumnNameCellEditorWithProps,
-    disablePadding: true,
-    disableStyling: false,
-  }),
+  provideEditor: (cell) => {
+    logger.info("[ColumnNameCellRenderer] provideEditor called:", {
+      readonly: cell.readonly,
+      allowOverlay: cell.allowOverlay,
+      data: cell.data,
+    });
+
+    if (cell.readonly) {
+      logger.info("[ColumnNameCellRenderer] Cell is readonly, not providing editor");
+      return undefined;
+    }
+
+    logger.info("[ColumnNameCellRenderer] Returning editor:", ColumnNameCellEditorWithProps);
+    return {
+      editor: ColumnNameCellEditorWithProps,
+      disablePadding: true,
+      disableStyling: false,
+    };
+  },
 };
 
 export default ColumnNameCellRenderer;

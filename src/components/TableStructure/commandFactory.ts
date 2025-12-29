@@ -60,6 +60,7 @@ export function createColumnModifyCommand(
     ...(newDefinition.nullable !== undefined && { nullable: newDefinition.nullable }),
     ...(newDefinition.defaultValue !== undefined && { defaultValue: newDefinition.defaultValue }),
     ...(newDefinition.comment !== undefined && { comment: newDefinition.comment }),
+    ...(newDefinition.checkExpression !== undefined && { checkExpression: newDefinition.checkExpression }),
     ...(newDefinition.length !== undefined && { length: newDefinition.length }),
     ...(newDefinition.precision !== undefined && { precision: newDefinition.precision }),
     ...(newDefinition.scale !== undefined && { scale: newDefinition.scale }),
