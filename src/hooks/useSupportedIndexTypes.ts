@@ -58,7 +58,7 @@ export function useSupportedIndexTypes({
   dbType,
   enabled = true,
 }: UseSupportedIndexTypesParams): UseSupportedIndexTypesReturn {
-  const defaults = DEFAULT_INDEX_TYPES[dbType] ?? DEFAULT_INDEX_TYPES[DbType.PostgreSQL];
+  const defaults = DEFAULT_INDEX_TYPES[dbType];
 
   const { data, isPending, error } = useQuery({
     queryKey: ["indexTypes", connectionId, dbType],
