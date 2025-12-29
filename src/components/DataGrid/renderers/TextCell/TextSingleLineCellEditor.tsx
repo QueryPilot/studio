@@ -22,13 +22,15 @@ export const TextSingleLineCellEditor: React.FC<
   const initialChar = useNavigationStore((s) => s.initialChar);
 
   // Determine initial value based on edit trigger
-  const isTypeReplace = editTrigger === 'type-replace' && initialChar;
-  const initialValue = isTypeReplace ? initialChar : (value.data.value ?? "");
+  const isTypeReplace = editTrigger === "type-replace" && initialChar;
+  const initialValue = isTypeReplace ? initialChar : value.data.value ?? "";
 
   const finishedRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
   // Store the original value to properly detect changes including null
-  const originalValueRef = useRef(isTypeReplace ? initialChar : value.data.value);
+  const originalValueRef = useRef(
+    isTypeReplace ? initialChar : value.data.value,
+  );
 
   // Extract column metadata for header
   const { columnName, isPrimaryKey, isForeignKey, dbType } = value.data;
@@ -160,6 +162,10 @@ export const TextSingleLineCellEditor: React.FC<
       {/* Input field */}
       <div className="flex items-center relative">
         <input
+          autoCapitalize="off"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           ref={inputRef}
           type="text"
           defaultValue={initialValue}

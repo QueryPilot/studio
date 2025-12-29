@@ -252,6 +252,10 @@ export const RangeCellEditor: React.FC<RangeCellEditorProps> = ({
           </div>
         </div>
         <input
+          autoCapitalize="off"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           ref={lowerInputRef}
           className={cn(
             "w-full bg-transparent text-xs font-mono outline-none px-1 py-0.5 border rounded",
@@ -307,6 +311,10 @@ export const RangeCellEditor: React.FC<RangeCellEditorProps> = ({
           </div>
         </div>
         <input
+          autoCapitalize="off"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           className={cn(
             "w-full bg-transparent text-xs font-mono outline-none px-1 py-0.5 border rounded",
             !upperValid ? "border-destructive" : "border-border/50",

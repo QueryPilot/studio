@@ -8,17 +8,21 @@ import {
   type EditableGridCell,
 } from "@glideapps/glide-data-grid";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
+import { useForeignKeyTargets } from "@/hooks/useForeignKeyTargets";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconAlertCircle } from "@tabler/icons-react";
 import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
 import { useColumnSizing } from "@/components/DataGrid/hooks/useColumnSizing";
-import { TextSingleLineCellRenderer } from "@/components/DataGrid/renderers/TextCell";
 import { NullableCellRenderer } from "./NullableCellRenderer";
 import { DataTypeCellRenderer } from "./DataTypeCellRenderer";
 import { ActionsCellRenderer } from "./ActionsCellRenderer";
 import { structureColumns } from "./columns";
 import { transformStructureToRows } from "./utils";
 import ColumnNameCellRenderer from "./ColumnNameCellRenderer";
+import DefaultValueCellRenderer from "./DefaultValueCellRenderer";
+import ForeignKeyCellRenderer from "./ForeignKeyCellRenderer";
+import CheckConstraintCellRenderer from "./CheckConstraintCellRenderer";
+import CommentCellRenderer from "./CommentCellRenderer";
 import type { StructureGridRow } from "./types";
 import { validateColumnName } from "./types";
 import { useCrudStore, buildCrudTableKey } from "@/stores/crudStore";
@@ -29,15 +33,58 @@ import {
   createColumnRenameCommand,
   generateCommandId,
 } from "./commandFactory";
+import { CrudCommandFactory } from "@/services/crudCommandFactory";
 import { TableActionsToolbar } from "@/components/shared/TableActionsToolbar";
 import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
 import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
 import { BatchActionsToolbar } from "./BatchActionsToolbar";
 import { toast } from "sonner";
-import type { CrudCommandTarget, ColumnAddPayload, ColumnDropPayload } from "@/types/crud";
-import { CompactSelection, type GridSelection } from "@glideapps/glide-data-grid";
+import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
+import type {
+  CrudCommandTarget,
+  ColumnAddPayload,
+  ColumnDropPayload,
+  ForeignKeyDefinitionInput,
+} from "@/types/crud";
+import {
+  CompactSelection,
+  type GridSelection,
+} from "@glideapps/glide-data-grid";
 
 type AnyCell = CustomCell<Record<string, unknown>>;
+
+const normalizeCheckConstraint = (value: string | null): string => {
+  if (!value) return "";
+  const trimmed = value.trim();
+  const match = trimmed.match(/^CHECK\s*\((.*)\)$/is);
+  if (match && match[1]) {
+    return match[1].trim();
+  }
+  return trimmed;
+};
+
+const sanitizeIdentifier = (value: string): string =>
+  value.replace(/[^a-zA-Z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+
+const buildForeignKeyConstraintName = (
+  tableName: string,
+  columnName: string,
+  refTable: string,
+  refColumn: string,
+): string =>
+  sanitizeIdentifier(`fk_${tableName}_${columnName}_${refTable}_${refColumn}`);
+
+const parseForeignKeyValue = (
+  rawValue: string,
+): { schema?: string; table: string; column: string } | null => {
+  const parts = rawValue.split(".").map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 2) return null;
+  const column = parts.pop();
+  const table = parts.pop();
+  if (!column || !table) return null;
+  const schema = parts.length ? parts.join(".") : undefined;
+  return { schema, table, column };
+};
 
 interface TableStructureProps {
   connectionId: string;
@@ -69,6 +116,12 @@ export const TableStructure = memo(function TableStructure({
     },
   });
 
+  const { targets: foreignKeyTargets } = useForeignKeyTargets({
+    connectionId,
+    database,
+    schema,
+  });
+
   const { stagedCommands, stageCommand, unstageCommand } = useCrudStore();
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -80,6 +133,7 @@ export const TableStructure = memo(function TableStructure({
     columns: CompactSelection.empty(),
     rows: CompactSelection.empty(),
   });
+
 
   const columns = useMemo(() => structure?.columns ?? [], [structure?.columns]);
   const foreignKeys = useMemo(
@@ -100,6 +154,28 @@ export const TableStructure = memo(function TableStructure({
   const pendingCommands = useMemo(() => {
     return stagedCommands.get(tableKey) ?? [];
   }, [stagedCommands, tableKey]);
+
+  useEffect(() => {
+    const unsubscribe = useDataInvalidationStore.getState().subscribe(
+      connectionId,
+      database,
+      schema ?? "public",
+      table,
+      async () => {
+        await refresh();
+        const { clearCommittedChanges, getTableKey } = useCrudStore.getState();
+        const commitTableKey = getTableKey({
+          connectionId,
+          database,
+          schema: schema ?? "public",
+          table,
+        });
+        clearCommittedChanges(commitTableKey);
+      },
+    );
+
+    return unsubscribe;
+  }, [connectionId, database, schema, table, refresh]);
 
   // Collect custom/enum types from existing columns
   const customTypes = useMemo(() => {
@@ -139,7 +215,7 @@ export const TableStructure = memo(function TableStructure({
 
   // Get selected row indices from GridSelection
   const selectedRowIndices = useMemo(() => {
-    if (selection.rows && typeof selection.rows.toArray === 'function') {
+    if (selection.rows && typeof selection.rows.toArray === "function") {
       return selection.rows.toArray();
     }
     return [];
@@ -261,7 +337,15 @@ export const TableStructure = memo(function TableStructure({
         description: `Created ${copyName} as a copy of ${row.column_name}`,
       });
     },
-    [connectionId, database, schema, table, gridRows, existingColumnNames, stageCommand],
+    [
+      connectionId,
+      database,
+      schema,
+      table,
+      gridRows,
+      existingColumnNames,
+      stageCommand,
+    ],
   );
 
   // Handler: Delete selected rows (batch)
@@ -296,9 +380,23 @@ export const TableStructure = memo(function TableStructure({
     }
 
     if (deletedCount > 0) {
-      toast.success(`${deletedCount} column${deletedCount > 1 ? "s" : ""} staged for deletion`);
+      toast.success(
+        `${deletedCount} column${
+          deletedCount > 1 ? "s" : ""
+        } staged for deletion`,
+      );
     }
-  }, [connectionId, database, schema, table, selectedRowIndices, gridRows, pendingCommands, stageCommand, unstageCommand]);
+  }, [
+    connectionId,
+    database,
+    schema,
+    table,
+    selectedRowIndices,
+    gridRows,
+    pendingCommands,
+    stageCommand,
+    unstageCommand,
+  ]);
 
   // Handler: Set nullable for selected rows (batch)
   const handleBatchSetNullable = useCallback(
@@ -339,9 +437,22 @@ export const TableStructure = memo(function TableStructure({
         }
       }
 
-      toast.success(`Set nullable to ${value} for ${selectedRowIndices.length} column${selectedRowIndices.length > 1 ? "s" : ""}`);
+      toast.success(
+        `Set nullable to ${value} for ${selectedRowIndices.length} column${
+          selectedRowIndices.length > 1 ? "s" : ""
+        }`,
+      );
     },
-    [connectionId, database, schema, table, selectedRowIndices, gridRows, pendingCommands, stageCommand],
+    [
+      connectionId,
+      database,
+      schema,
+      table,
+      selectedRowIndices,
+      gridRows,
+      pendingCommands,
+      stageCommand,
+    ],
   );
 
   // Handler: Set type for selected rows (batch)
@@ -383,9 +494,22 @@ export const TableStructure = memo(function TableStructure({
         }
       }
 
-      toast.success(`Set type to ${dataType} for ${selectedRowIndices.length} column${selectedRowIndices.length > 1 ? "s" : ""}`);
+      toast.success(
+        `Set type to ${dataType} for ${selectedRowIndices.length} column${
+          selectedRowIndices.length > 1 ? "s" : ""
+        }`,
+      );
     },
-    [connectionId, database, schema, table, selectedRowIndices, gridRows, pendingCommands, stageCommand],
+    [
+      connectionId,
+      database,
+      schema,
+      table,
+      selectedRowIndices,
+      gridRows,
+      pendingCommands,
+      stageCommand,
+    ],
   );
 
   // Helper to extract value from cell data
@@ -395,7 +519,10 @@ export const TableStructure = memo(function TableStructure({
         const data = newValue.data;
         if (typeof data === "object" && data !== null) {
           // Handle column-name-cell with name field
-          if ("name" in data && (data as { kind?: string }).kind === "column-name-cell") {
+          if (
+            "name" in data &&
+            (data as { kind?: string }).kind === "column-name-cell"
+          ) {
             return (data as { name: string }).name;
           }
           // Handle cell types with value field
@@ -430,7 +557,10 @@ export const TableStructure = memo(function TableStructure({
       const extractedValue = extractCellValue(newValue);
 
       // Validate column name changes
-      if (column.field === "column_name" && typeof extractedValue === "string") {
+      if (
+        column.field === "column_name" &&
+        typeof extractedValue === "string"
+      ) {
         const currentColumnName = row._isPending
           ? undefined // New columns don't have an existing name to exclude
           : row._original?.name;
@@ -445,6 +575,117 @@ export const TableStructure = memo(function TableStructure({
           });
           return;
         }
+      }
+
+      if (column.field === "foreign_key") {
+        const columnName = row._original?.name ?? row.column_name;
+        if (!columnName || columnName === "(new column)") {
+          toast.error("Set column name before adding a foreign key");
+          return;
+        }
+
+        const newForeignKeyValue =
+          typeof extractedValue === "string" ? extractedValue.trim() : "";
+        const existingFk = foreignKeys.find((fk) =>
+          fk.columns.includes(columnName),
+        );
+        const currentRefTable = existingFk
+          ? existingFk.foreignSchema
+            ? `${existingFk.foreignSchema}.${existingFk.foreignTable}`
+            : existingFk.foreignTable
+          : "";
+        const currentFkValue = existingFk
+          ? `${currentRefTable}.${existingFk.foreignColumns[0] ?? ""}`.replace(
+              /\.$/,
+              "",
+            )
+          : "";
+
+        const pendingFkAdds = pendingCommands.filter((cmd) => {
+          if (cmd.type !== "fk.add") return false;
+          const definition = (cmd.payload as { definition?: ForeignKeyDefinitionInput }).definition;
+          if (!definition?.columns) return false;
+          return (
+            definition.columns.includes(columnName) ||
+            definition.columns.includes(row.column_name)
+          );
+        });
+
+        const pendingFkDrops = pendingCommands.filter((cmd) => {
+          if (cmd.type !== "fk.drop") return false;
+          return existingFk
+            ? (cmd.payload as { constraintName?: string }).constraintName ===
+                existingFk.name
+            : false;
+        });
+
+        const clearPendingFkAdds = () => {
+          pendingFkAdds.forEach((cmd) => unstageCommand(cmd.id));
+        };
+
+        const clearPendingFkDrops = () => {
+          pendingFkDrops.forEach((cmd) => unstageCommand(cmd.id));
+        };
+
+        if (!newForeignKeyValue) {
+          clearPendingFkAdds();
+          if (existingFk && pendingFkDrops.length === 0) {
+            const dropCommand = CrudCommandFactory.createForeignKeyDropCommand({
+              target,
+              constraintName: existingFk.name,
+            });
+            stageCommand(dropCommand);
+          }
+          return;
+        }
+
+        const parsed = parseForeignKeyValue(newForeignKeyValue);
+        if (!parsed) {
+          toast.error("Invalid foreign key format", {
+            description: "Use table.column or schema.table.column",
+          });
+          return;
+        }
+
+        const normalizedNewValue = parsed.schema
+          ? `${parsed.schema}.${parsed.table}.${parsed.column}`
+          : `${parsed.table}.${parsed.column}`;
+
+        if (currentFkValue && normalizedNewValue.toLowerCase() === currentFkValue.toLowerCase()) {
+          clearPendingFkAdds();
+          clearPendingFkDrops();
+          return;
+        }
+
+        clearPendingFkAdds();
+
+        if (existingFk && pendingFkDrops.length === 0) {
+          const dropCommand = CrudCommandFactory.createForeignKeyDropCommand({
+            target,
+            constraintName: existingFk.name,
+          });
+          stageCommand(dropCommand);
+        }
+
+        const constraintName = buildForeignKeyConstraintName(
+          table,
+          columnName,
+          parsed.table,
+          parsed.column,
+        );
+        const fkDefinition: ForeignKeyDefinitionInput = {
+          name: constraintName,
+          columns: [columnName],
+          referenceTable: parsed.table,
+          referenceSchema: parsed.schema,
+          referenceColumns: [parsed.column],
+        };
+        const addCommand = CrudCommandFactory.createForeignKeyAddCommand({
+          target,
+          definition: fkDefinition,
+        });
+        stageCommand(addCommand);
+        return;
       }
 
       if (row._isPending) {
@@ -467,6 +708,8 @@ export const TableStructure = memo(function TableStructure({
             updatedColumn.nullable = extractedValue === "YES";
           } else if (column.field === "default") {
             updatedColumn.defaultValue = extractedValue;
+          } else if (column.field === "check_constraint") {
+            updatedColumn.checkExpression = String(extractedValue ?? "");
           } else if (column.field === "comment") {
             updatedColumn.comment = String(extractedValue ?? "");
           }
@@ -483,47 +726,122 @@ export const TableStructure = memo(function TableStructure({
         }
       } else {
         // Modify existing column
+        const baseColumnName = row._original?.name ?? row.column_name;
+
         if (column.field === "column_name") {
-          // Column rename - use rename command
           const newName = String(extractedValue ?? "");
-          if (newName && newName !== row.column_name) {
+          if (!newName || newName === row.column_name) {
+            return;
+          }
+
+          const renameCommands = pendingCommands.filter((cmd) => {
+            if (cmd.type !== "column.rename") return false;
+            const payload = cmd.payload as { columnName?: string };
+            return payload.columnName === baseColumnName;
+          });
+
+          const existingRename = renameCommands[0];
+          if (existingRename) {
+            renameCommands.slice(1).forEach((cmd) => unstageCommand(cmd.id));
+            const payload = existingRename.payload as {
+              columnName: string;
+              newName: string;
+            };
+            if (newName === payload.columnName) {
+              unstageCommand(existingRename.id);
+              return;
+            }
+            if (newName === payload.newName) {
+              return;
+            }
+            const updatedCmd = {
+              ...existingRename,
+              payload: {
+                ...payload,
+                newName,
+              },
+              metadata: {
+                ...existingRename.metadata,
+                description: `Rename column ${payload.columnName} to ${newName}`,
+              },
+            };
+            stageCommand(updatedCmd);
+            return;
+          }
+
+          if (newName && newName !== baseColumnName) {
             const renameCmd = createColumnRenameCommand(
               target,
-              row.column_name,
+              baseColumnName,
               newName,
             );
             stageCommand(renameCmd);
           }
-        } else {
-          // Other field changes - use modify command
-          const newDefinition: Record<string, unknown> = {};
-
-          if (column.field === "nullable") {
-            newDefinition.nullable = extractedValue === "YES";
-            logger.info("[TableStructure] Nullable change:", {
-              extractedValue,
-              nullable: newDefinition.nullable,
-            });
-          } else if (column.field === "default") {
-            newDefinition.defaultValue = extractedValue;
-          } else if (column.field === "comment") {
-            newDefinition.comment = extractedValue;
-          } else if (column.field === "db_type") {
-            newDefinition.dataType = extractedValue;
-          }
-
-          logger.info("[TableStructure] Creating modify command:", {
-            columnName: row.column_name,
-            newDefinition,
-          });
-          const modifyCmd = createColumnModifyCommand(
-            target,
-            row.column_name,
-            newDefinition,
-          );
-          logger.info("[TableStructure] Modify command created:", modifyCmd);
-          stageCommand(modifyCmd);
+          return;
         }
+
+        // Other field changes - use/merge modify command
+        const newDefinition: Record<string, unknown> = {};
+
+        if (column.field === "nullable") {
+          newDefinition.nullable = extractedValue === "YES";
+          logger.info("[TableStructure] Nullable change:", {
+            extractedValue,
+            nullable: newDefinition.nullable,
+          });
+        } else if (column.field === "default") {
+          newDefinition.defaultValue = extractedValue;
+        } else if (column.field === "check_constraint") {
+          newDefinition.checkExpression = String(extractedValue ?? "");
+        } else if (column.field === "comment") {
+          newDefinition.comment = extractedValue;
+        } else if (column.field === "db_type") {
+          newDefinition.dataType = extractedValue;
+        }
+
+        const modifyCommands = pendingCommands.filter((cmd) => {
+          if (cmd.type !== "column.modify") return false;
+          const payload = cmd.payload as { columnName?: string };
+          return payload.columnName === baseColumnName;
+        });
+
+        const existingModify = modifyCommands[0];
+        if (existingModify) {
+          modifyCommands.slice(1).forEach((cmd) => unstageCommand(cmd.id));
+          const payload = existingModify.payload as {
+            columnName: string;
+            newDefinition: Record<string, unknown>;
+          };
+          const mergedDefinition = {
+            ...payload.newDefinition,
+            ...newDefinition,
+          };
+          const updatedCmd = {
+            ...existingModify,
+            payload: {
+              ...payload,
+              newDefinition: mergedDefinition,
+            },
+            metadata: {
+              ...existingModify.metadata,
+              description: existingModify.metadata.description,
+            },
+          };
+          stageCommand(updatedCmd);
+          return;
+        }
+
+        logger.info("[TableStructure] Creating modify command:", {
+          columnName: baseColumnName,
+          newDefinition,
+        });
+        const modifyCmd = createColumnModifyCommand(
+          target,
+          baseColumnName,
+          newDefinition,
+        );
+        logger.info("[TableStructure] Modify command created:", modifyCmd);
+        stageCommand(modifyCmd);
       }
     },
     [
@@ -535,6 +853,8 @@ export const TableStructure = memo(function TableStructure({
       table,
       pendingCommands,
       stageCommand,
+      unstageCommand,
+      foreignKeys,
       extractCellValue,
       existingColumnNames,
     ],
@@ -605,7 +925,9 @@ export const TableStructure = memo(function TableStructure({
       // Make all cells readonly when row is pending delete
       if (isPendingDelete) {
         const displayValue =
-          typeof fieldValue === "object" ? JSON.stringify(fieldValue) : String(fieldValue ?? "");
+          typeof fieldValue === "object"
+            ? JSON.stringify(fieldValue)
+            : String(fieldValue ?? "");
         return {
           kind: GridCellKind.Text,
           data: displayValue,
@@ -623,7 +945,8 @@ export const TableStructure = memo(function TableStructure({
           data: {
             kind: "column-name-cell",
             name: row.column_name || "",
-            isPrimaryKey: row.column_meta?.is_pk ?? row._original?.is_pk ?? false,
+            isPrimaryKey:
+              row.column_meta?.is_pk ?? row._original?.is_pk ?? false,
             isForeignKey: row.column_meta?.is_fk ?? Boolean(row.foreign_key),
           },
           copyData: row.column_name || "",
@@ -652,7 +975,9 @@ export const TableStructure = memo(function TableStructure({
 
       // Nullable - YES/NO dropdown
       if (column.field === "nullable") {
-        const nullableValue = (typeof fieldValue === "string" ? fieldValue : "NO") as "YES" | "NO";
+        const nullableValue = (
+          typeof fieldValue === "string" ? fieldValue : "NO"
+        ) as "YES" | "NO";
         return {
           kind: GridCellKind.Custom,
           data: {
@@ -686,17 +1011,17 @@ export const TableStructure = memo(function TableStructure({
         } as const;
       }
 
-      // Default, Comment - editable
-      if (column.field === "default" || column.field === "comment") {
-        // Keep null/undefined as-is - don't convert to empty string
+      if (column.field === "default") {
         const value = typeof fieldValue === "string" ? fieldValue : null;
         return {
           kind: GridCellKind.Custom,
           data: {
-            kind: "text-single-cell",
-            value: value,
+            kind: "default-value-cell",
+            value,
+            columnName: row.column_name,
+            dbType: row.db_type,
           },
-          copyData: value ?? "",
+          copyData: value ?? "NULL",
           readonly: false,
           allowOverlay: true,
           themeOverride: {
@@ -706,17 +1031,54 @@ export const TableStructure = memo(function TableStructure({
         } as const;
       }
 
-      // Foreign IconKey, IconCheck - read-only
-      if (
-        column.field === "foreign_key" ||
-        column.field === "check_constraint"
-      ) {
+      if (column.field === "comment") {
+        const value = typeof fieldValue === "string" ? fieldValue : null;
+        return {
+          kind: GridCellKind.Custom,
+          data: {
+            kind: "comment-cell",
+            value,
+            columnName: row.column_name,
+          },
+          copyData: value ?? "",
+          readonly: false,
+          allowOverlay: true,
+          themeOverride: rowTheme,
+        } as const;
+      }
+
+      if (column.field === "foreign_key") {
         const value = typeof fieldValue === "string" ? fieldValue : "";
         return {
-          kind: GridCellKind.Text,
-          data: value,
-          displayData: value,
-          readonly: true,
+          kind: GridCellKind.Custom,
+          data: {
+            kind: "foreign-key-cell",
+            value,
+            suggestions: foreignKeyTargets,
+            columnName: row.column_name,
+          },
+          copyData: value,
+          readonly: false,
+          allowOverlay: true,
+          themeOverride: {
+            ...rowTheme,
+            baseFontStyle: "400 11px monospace",
+          },
+        } as const;
+      }
+
+      if (column.field === "check_constraint") {
+        const value = typeof fieldValue === "string" ? fieldValue : "";
+        const normalizedValue = normalizeCheckConstraint(value);
+        return {
+          kind: GridCellKind.Custom,
+          data: {
+            kind: "check-constraint-cell",
+            value: normalizedValue,
+            columnName: row.column_name,
+          },
+          copyData: normalizedValue,
+          readonly: false,
           allowOverlay: true,
           themeOverride: {
             ...rowTheme,
@@ -736,13 +1098,16 @@ export const TableStructure = memo(function TableStructure({
         themeOverride: rowTheme,
       } as const;
     },
-    [gridRows, sizedColumns, customTypes],
+    [gridRows, sizedColumns, customTypes, foreignKeyTargets],
   );
 
   const customRenderers = useMemo<CustomRenderer<AnyCell>[]>(
     () => [
-      TextSingleLineCellRenderer as unknown as CustomRenderer<AnyCell>,
       ColumnNameCellRenderer as unknown as CustomRenderer<AnyCell>,
+      DefaultValueCellRenderer as unknown as CustomRenderer<AnyCell>,
+      ForeignKeyCellRenderer as unknown as CustomRenderer<AnyCell>,
+      CheckConstraintCellRenderer as unknown as CustomRenderer<AnyCell>,
+      CommentCellRenderer as unknown as CustomRenderer<AnyCell>,
       NullableCellRenderer as unknown as CustomRenderer<AnyCell>,
       DataTypeCellRenderer as unknown as CustomRenderer<AnyCell>,
       ActionsCellRenderer as unknown as CustomRenderer<AnyCell>,
@@ -765,7 +1130,8 @@ export const TableStructure = memo(function TableStructure({
           const dropCommand = pendingCommands.find(
             (cmd) =>
               cmd.type === "column.drop" &&
-              (cmd.payload as ColumnDropPayload).columnName === row._original?.name,
+              (cmd.payload as ColumnDropPayload).columnName ===
+                row._original?.name,
           );
           if (dropCommand) {
             unstageCommand(dropCommand.id);
@@ -783,6 +1149,27 @@ export const TableStructure = memo(function TableStructure({
     [sizedColumns, gridRows, pendingCommands, unstageCommand],
   );
 
+  // Handler: Cell activated (double-click to enter edit mode)
+  const handleCellActivated = useCallback(
+    (cell: Item) => {
+      const [colIndex, rowIndex] = cell;
+      const column = sizedColumns[colIndex];
+      const row = gridRows[rowIndex];
+
+      if (!column || !row) return;
+
+      // Don't activate for readonly cells
+      if (row._isPendingDelete) return;
+
+      logger.info("[TableStructure] Cell activated for editing:", {
+        cell,
+        column: column.field,
+        row: row.column_name,
+      });
+    },
+    [sizedColumns, gridRows],
+  );
+
   // Keyboard shortcut handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -797,7 +1184,9 @@ export const TableStructure = memo(function TableStructure({
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => { window.removeEventListener("keydown", handleKeyDown); };
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
   }, [selectedRowIndices, handleDuplicateColumn]);
 
   if (isLoading) {
@@ -830,7 +1219,9 @@ export const TableStructure = memo(function TableStructure({
         <TableActionsToolbar
           addButtonLabel="Add Column"
           onAdd={handleAddColumn}
-          onReviewChanges={() => { setGlobalChangesDialogOpen(true); }}
+          onReviewChanges={() => {
+            setGlobalChangesDialogOpen(true);
+          }}
           pendingChangesCount={pendingCommands.length}
           batchActions={
             <BatchActionsToolbar
@@ -853,10 +1244,11 @@ export const TableStructure = memo(function TableStructure({
             onGridSelectionChange={setSelection}
             onColumnResize={handleColumnResize}
             onColumnResizeEnd={handleColumnResizeEnd}
+            onCellActivated={handleCellActivated}
             onCellEdited={handleCellEdited}
             onCellClicked={handleCellClick}
             overscrollX={0}
-            overscrollY={100}
+            overscrollY={300}
           />
         </div>
         <div className="px-4 py-2 text-xs text-muted-foreground border-t">

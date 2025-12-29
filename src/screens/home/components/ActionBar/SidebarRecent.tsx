@@ -84,7 +84,7 @@ export function SidebarRecent() {
                 alt=""
                 className="h-4 w-4 shrink-0"
               />
-              <span className="truncate flex-1 text-left">
+              <span className="text-xs truncate flex-1 text-left">
                 {conn.profile.name}
               </span>
             </button>

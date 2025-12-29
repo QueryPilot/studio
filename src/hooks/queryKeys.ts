@@ -40,3 +40,15 @@ export const tableDataQueryKey = (params: {
     params.limit ?? null,
     params.pageSize ?? null,
   ] as const;
+
+export const foreignKeyTargetsQueryKey = (params: {
+  connectionId: string;
+  database: string;
+  schema: string;
+}) =>
+  [
+    "foreign-key-targets",
+    params.connectionId,
+    params.database,
+    params.schema,
+  ] as const;

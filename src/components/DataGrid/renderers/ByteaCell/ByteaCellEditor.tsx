@@ -274,6 +274,10 @@ export const ByteaCellEditor: React.FC<ByteaCellEditorProps> = ({
         <div className="flex-1" />
 
         <input
+          autoCapitalize="off"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           ref={fileInputRef}
           type="file"
           className="hidden"

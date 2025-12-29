@@ -31,8 +31,8 @@ export function EnvFilter() {
               "group flex items-center gap-2.5 h-8 px-2.5 w-full rounded-lg text-left",
               "transition-all duration-150 ease-out",
               "text-muted-foreground hover:text-foreground",
-              "hover:bg-foreground/[0.06]",
-              isActive && "bg-foreground/[0.08] text-foreground",
+              "hover:bg-foreground/6",
+              isActive && "bg-foreground/8 text-foreground",
             )}
             onClick={() => {
               toggleEnvFilter(env.key);
@@ -49,6 +49,7 @@ export function EnvFilter() {
             <span
               className={cn(
                 "transition-all duration-150",
+                "text-xs",
                 isActive && "font-medium",
               )}
             >

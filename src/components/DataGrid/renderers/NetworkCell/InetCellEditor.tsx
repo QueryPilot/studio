@@ -206,6 +206,10 @@ export const InetCellEditor: React.FC<InetCellEditorProps> = ({
       {/* Input field */}
       <div className="flex items-center gap-2 flex-1 relative px-2 py-1.5">
         <input
+          autoCapitalize="off"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           ref={inputRef}
           className={cn(
             "h-full flex-1 bg-transparent text-xs font-mono outline-none",
@@ -213,7 +217,6 @@ export const InetCellEditor: React.FC<InetCellEditorProps> = ({
               ? "border-b border-destructive focus:border-destructive"
               : "",
           )}
-          spellCheck={false}
           defaultValue={ipValue}
           autoFocus
           onFocus={(e) => {
