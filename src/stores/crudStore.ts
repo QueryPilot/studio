@@ -1,7 +1,7 @@
 import { nanoid } from "nanoid";
 import { create } from "zustand";
 
-import { getAdapter } from "@/adapters";
+import { getAdapter, applyColumnRenames } from "@/adapters";
 import type { TableRef, RowData, WhereClause } from "@/adapters/types";
 import { logger } from "@/lib/logger";
 import type {
@@ -698,9 +698,20 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
       }));
 
       // Convert commands to SQL statements using adapter
+      // Track column renames so subsequent commands use new names
+      const columnRenames = new Map<string, string>();
       const sqlStatements: string[] = [];
       for (const cmd of commands) {
-        const sql = commandToSql(adapter, cmd);
+        // Apply any pending renames to this command
+        const adjustedCmd = applyColumnRenames(cmd, columnRenames);
+
+        // Track renames for subsequent commands
+        if (cmd.type === "column.rename") {
+          const payload = cmd.payload as ColumnRenamePayload;
+          columnRenames.set(payload.columnName, payload.newName);
+        }
+
+        const sql = commandToSql(adapter, adjustedCmd);
         if (sql) {
           sqlStatements.push(sql);
         }
