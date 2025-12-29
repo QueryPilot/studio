@@ -88,6 +88,8 @@ export const QueryPanel = memo(function QueryPanel({
   const [viewMode, setViewModeInternal] = useState<"table" | "json" | "explain" | "raw" | "stats">(
     globalState?.viewMode || "table",
   );
+  // Track if the current result is from an EXPLAIN query
+  const [isExplainResult, setIsExplainResult] = useState(false);
 
   // Dialect selection: "auto" means auto-detect, otherwise use selected dialect
   const [selectedDialect, setSelectedDialect] = useState<SqlDialect | "auto">(
@@ -286,6 +288,16 @@ export const QueryPanel = memo(function QueryPanel({
         logger.info("[handleExecute] EMPTY QUERY - Showing error toast");
         toast.error("Please enter a query to execute");
         return;
+      }
+
+      // Detect if this is an EXPLAIN query
+      const sqlUpper = sql.trim().toUpperCase();
+      const isExplain = sqlUpper.startsWith("EXPLAIN");
+      setIsExplainResult(isExplain);
+
+      // Auto-switch to explain view mode for EXPLAIN queries
+      if (isExplain) {
+        setViewMode("explain");
       }
 
       setIsExecuting(true);
@@ -747,7 +759,7 @@ export const QueryPanel = memo(function QueryPanel({
       dbType: dbTypeLower,
     });
 
-    // Execute the explain query
+    // Execute the explain query (handleExecute auto-switches to explain view mode)
     handleExecute(explainSql);
   }, [query, dbType, handleExecute]);
 
@@ -906,6 +918,7 @@ export const QueryPanel = memo(function QueryPanel({
                     focused={isPanelFocused}
                     dialect={selectedDialect}
                     detectedDialect={detectedDialect}
+                    isExplainResult={isExplainResult}
                     onExecute={() => handleExecute()}
                     onCancel={handleCancel}
                     onBeautify={handleBeautify}

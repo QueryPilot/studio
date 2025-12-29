@@ -772,7 +772,8 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
     (cmd) =>
       cmd.type.startsWith("column.") ||
       cmd.type.startsWith("index.") ||
-      cmd.type.startsWith("trigger."),
+      cmd.type.startsWith("trigger.") ||
+      cmd.type.startsWith("fk."),
   );
 
   // Get primary key info
@@ -842,12 +843,16 @@ function RowChangesCard({ row, index, onUndo }: RowChangesCardProps) {
         } else if (
           payload.columnName ||
           payload.indexName ||
-          payload.triggerName
+          payload.triggerName ||
+          payload.constraintName
         ) {
           // Other DDL operations (drop, etc.)
           const name =
-            payload.columnName || payload.indexName || payload.triggerName;
+            payload.columnName || payload.indexName || payload.triggerName || payload.constraintName;
           ddlLines.push(`  Name: ${name}`);
+          if (payload.cascade) {
+            ddlLines.push(`  Cascade: true`);
+          }
         }
       });
 

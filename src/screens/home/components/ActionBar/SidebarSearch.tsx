@@ -1,8 +1,9 @@
-import { useRef, useEffect } from 'react';
-import { IconSearch } from '@tabler/icons-react';
-import { cn } from '@/lib/utils';
-import { Kbd } from '@/components/ui/kbd';
-import { useHomeScreenStore } from '../../store/homeScreenStore';
+import { useRef, useEffect } from "react";
+import { IconSearch } from "@tabler/icons-react";
+import { cn } from "@/lib/utils";
+import { Kbd } from "@/components/ui/kbd";
+import { useHomeScreenStore } from "../../store/homeScreenStore";
+import { Input } from "@/components/ui/input";
 
 export function SidebarSearch() {
   const searchQuery = useHomeScreenStore((s) => s.searchQuery);
@@ -13,32 +14,40 @@ export function SidebarSearch() {
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       const activeElement = document.activeElement;
-      const isInInput = activeElement?.tagName === 'INPUT' || activeElement?.tagName === 'TEXTAREA';
+      const isInInput =
+        activeElement?.tagName === "INPUT" ||
+        activeElement?.tagName === "TEXTAREA";
 
-      if (e.key === '/' && !e.metaKey && !e.ctrlKey && !isInInput) {
+      if (e.key === "/" && !e.metaKey && !e.ctrlKey && !isInInput) {
         e.preventDefault();
         inputRef.current?.focus();
       }
     };
 
-    window.addEventListener('keydown', handleGlobalKeyDown);
-    return () => { window.removeEventListener('keydown', handleGlobalKeyDown); };
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleGlobalKeyDown);
+    };
   }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      setSearchQuery('');
+    if (e.key === "Escape") {
+      setSearchQuery("");
       inputRef.current?.blur();
-    } else if (e.key === 'Tab' && !e.shiftKey) {
+    } else if (e.key === "Tab" && !e.shiftKey) {
       // Tab from search jumps to first connection item
-      const firstItem = document.querySelector('[data-connection-item]') as HTMLElement;
+      const firstItem = document.querySelector(
+        "[data-connection-item]",
+      ) as HTMLElement;
       if (firstItem) {
         e.preventDefault();
         firstItem.focus();
       }
-    } else if (e.key === 'ArrowDown') {
+    } else if (e.key === "ArrowDown") {
       // Arrow down also focuses first item
-      const firstItem = document.querySelector('[data-connection-item]') as HTMLElement;
+      const firstItem = document.querySelector(
+        "[data-connection-item]",
+      ) as HTMLElement;
       if (firstItem) {
         e.preventDefault();
         firstItem.focus();
@@ -50,26 +59,33 @@ export function SidebarSearch() {
     <div className="px-3 py-2">
       <div
         className={cn(
-          'flex items-center gap-2 px-3 py-2 rounded-lg',
-          'bg-sidebar-accent/50 border border-transparent',
-          'transition-all duration-150',
-          'focus-within:border-primary/50 focus-within:bg-background'
+          "relative",
+          // "flex items-center gap-2 px-3 py-2 rounded-lg",
+          // "bg-sidebar-accent/50 border border-transparent",
+          // "transition-all duration-150",
+          // "focus-within:border-primary/50 focus-within:bg-background/50",
+          // "focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-2",
         )}
       >
-        <IconSearch className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-        <input
+        <IconSearch className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground shrink-0" />
+        {!searchQuery && (
+          <Kbd className="absolute right-2 top-1/2 -translate-y-1/2">/</Kbd>
+        )}
+        <Input
           ref={inputRef}
           type="text"
           value={searchQuery}
-          onChange={(e) => { setSearchQuery(e.target.value); }}
+          onChange={(e) => {
+            setSearchQuery(e.target.value);
+          }}
           onKeyDown={handleKeyDown}
           placeholder="Search..."
           className={cn(
-            'flex-1 bg-transparent text-sm outline-none',
-            'placeholder:text-muted-foreground'
+            "px-8 h-8 text-xs",
+            "flex-1 bg-transparent text-sm outline-none",
+            "placeholder:text-muted-foreground",
           )}
         />
-        {!searchQuery && <Kbd>/</Kbd>}
       </div>
     </div>
   );

@@ -61,6 +61,8 @@ interface QueryToolbarProps {
   focused?: boolean;
   dialect?: SqlDialect | "auto";
   detectedDialect?: SqlDialect;
+  /** Whether the current result is from an EXPLAIN query */
+  isExplainResult?: boolean;
   onExecute: () => void;
   onCancel: () => void;
   onExplain?: () => void;
@@ -82,6 +84,7 @@ export const QueryToolbar = memo(function QueryToolbar({
   focused = false,
   dialect = "auto",
   detectedDialect,
+  isExplainResult = false,
   onExecute,
   onCancel,
   onExplain,
@@ -133,19 +136,46 @@ export const QueryToolbar = memo(function QueryToolbar({
               enableGlobalShortcuts={false}
             >
               <TabsList className="!h-6 !p-0.5">
+                {/* Show Table/JSON only for non-EXPLAIN results */}
+                {!isExplainResult && (
+                  <>
+                    <TabsTrigger
+                      value="table"
+                      className="text-xs !h-5 !px-2"
+                      tabIndex={0}
+                    >
+                      Table
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="json"
+                      className="text-xs !h-5 !px-2"
+                      tabIndex={1}
+                    >
+                      JSON
+                    </TabsTrigger>
+                  </>
+                )}
+                {/* Show Plan/Raw/Stats for EXPLAIN results (or always available) */}
                 <TabsTrigger
-                  value="table"
+                  value="explain"
                   className="text-xs !h-5 !px-2"
-                  tabIndex={0}
+                  tabIndex={isExplainResult ? 0 : 2}
                 >
-                  Table
+                  Plan
                 </TabsTrigger>
                 <TabsTrigger
-                  value="json"
+                  value="raw"
                   className="text-xs !h-5 !px-2"
-                  tabIndex={1}
+                  tabIndex={isExplainResult ? 1 : 3}
                 >
-                  JSON
+                  Raw
+                </TabsTrigger>
+                <TabsTrigger
+                  value="stats"
+                  className="text-xs !h-5 !px-2"
+                  tabIndex={isExplainResult ? 2 : 4}
+                >
+                  Stats
                 </TabsTrigger>
               </TabsList>
             </Tabs>

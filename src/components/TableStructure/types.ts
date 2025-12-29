@@ -90,6 +90,66 @@ export interface ColumnNameCustomCell extends CustomCell {
   readonly?: boolean;
 }
 
+interface DefaultValueCellData {
+  kind: "default-value-cell";
+  value: string | null;
+  columnName?: string;
+  dbType?: string;
+}
+
+export interface DefaultValueCustomCell extends CustomCell {
+  kind: GridCellKind.Custom;
+  data: DefaultValueCellData;
+  copyData: string;
+  readonly?: boolean;
+}
+
+export interface ForeignKeyTargetSuggestion {
+  table: string;
+  column: string;
+  type: string;
+}
+
+interface ForeignKeyCellData {
+  kind: "foreign-key-cell";
+  value: string;
+  columnName?: string;
+  suggestions: ForeignKeyTargetSuggestion[];
+}
+
+export interface ForeignKeyCustomCell extends CustomCell {
+  kind: GridCellKind.Custom;
+  data: ForeignKeyCellData;
+  copyData: string;
+  readonly?: boolean;
+}
+
+interface CheckConstraintCellData {
+  kind: "check-constraint-cell";
+  value: string | null;
+  columnName?: string;
+}
+
+export interface CheckConstraintCustomCell extends CustomCell {
+  kind: GridCellKind.Custom;
+  data: CheckConstraintCellData;
+  copyData: string;
+  readonly?: boolean;
+}
+
+interface CommentCellData {
+  kind: "comment-cell";
+  value: string | null;
+  columnName?: string;
+}
+
+export interface CommentCustomCell extends CustomCell {
+  kind: GridCellKind.Custom;
+  data: CommentCellData;
+  copyData: string;
+  readonly?: boolean;
+}
+
 export interface StructureData {
   columns: ColumnMeta[];
   foreignKeys: ForeignKeyInfo[];

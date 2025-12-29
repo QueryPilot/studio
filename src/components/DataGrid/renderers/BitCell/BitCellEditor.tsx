@@ -229,6 +229,10 @@ export const BitCellEditor: React.FC<BitCellEditorProps> = ({
           </Select>
         </div>
         <input
+          autoCapitalize="off"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           ref={inputRef}
           className={cn(
             "w-full bg-transparent text-xs font-mono outline-none px-1 py-0.5 border rounded",

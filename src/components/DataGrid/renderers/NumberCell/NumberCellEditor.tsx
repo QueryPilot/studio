@@ -6,7 +6,7 @@ import React, {
   useState,
 } from "react";
 import { Button } from "@/components/ui/button";
-import { IconTrash, IconKey } from '@tabler/icons-react';
+import { IconTrash, IconKey } from "@tabler/icons-react";
 import { cn } from "@/lib/cn";
 import type { NumberCustomCell } from "./types";
 import { isValidNumberText, normalizeValue } from "./utils";
@@ -185,6 +185,10 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
       {/* Input field */}
       <div className="flex items-center flex-1 relative">
         <input
+          autoCapitalize="off"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           ref={inputRef}
           className={cn(
             "h-full w-full bg-transparent text-xs font-mono outline-none py-1.5 px-2",
@@ -192,10 +196,11 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
               ? "border-b border-destructive focus:border-destructive"
               : "",
           )}
-          spellCheck={false}
           defaultValue={initialText}
           autoFocus
-          onFocus={(e) => { e.target.select(); }}
+          onFocus={(e) => {
+            e.target.select();
+          }}
           onChange={(e) => {
             initialValueRef.current = e.target.value;
             setIsValid(

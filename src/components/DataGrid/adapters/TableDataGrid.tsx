@@ -510,11 +510,16 @@ export const TableDataGrid = memo(function TableDataGrid(
   // Transform raw CellValue[][] to TableDataRow[] for query mode
   // The streaming worker returns raw arrays; we need to convert to objects keyed by column names
   const transformedQueryRows = useMemo((): GridRowModel[] => {
-    if (!queryData?.rows || !queryData?.columnMeta) {
+    if (!queryData?.rows) {
+      return [];
+    }
+    // Use columnMeta if available, otherwise fall back to columns (string array)
+    const columnMeta = queryData.columnMeta;
+    const columnNames = queryData.columns;
+    if (!columnMeta && !columnNames) {
       return [];
     }
     const rows = queryData.rows;
-    const columns = queryData.columnMeta;
     // Check if already transformed (first row is an object with column keys)
     const firstRow = rows[0];
     if (firstRow && typeof firstRow === "object" && !Array.isArray(firstRow)) {
@@ -522,25 +527,27 @@ export const TableDataGrid = memo(function TableDataGrid(
       return rows as unknown as GridRowModel[];
     }
     // Transform raw arrays to objects keyed by index (handles duplicate column names in JOINs)
+    const numColumns = columnMeta?.length ?? columnNames?.length ?? 0;
     return (rows as unknown as BackendCellValue[][]).map((row) => {
       const tableRow: GridRowModel = {};
-      columns.forEach((col, index) => {
+      for (let index = 0; index < numColumns; index++) {
+        const col = columnMeta?.[index];
         const rawValue = row[index];
         const normalizedValue = normalizeBackendValue(rawValue);
         tableRow[`col_${index}`] = {
           value: normalizedValue ?? null,
-          db_type: col.db_type,
-          value_type: deriveValueType(rawValue, col.db_type),
+          db_type: col?.db_type ?? "text",
+          value_type: deriveValueType(rawValue, col?.db_type ?? "text"),
           is_truncated: false,
           metadata:
             typeof rawValue === "bigint"
               ? { attributes: { originalBigInt: rawValue.toString() } }
               : undefined,
         };
-      });
+      }
       return tableRow;
     });
-  }, [queryData?.rows, queryData?.columnMeta]);
+  }, [queryData?.rows, queryData?.columnMeta, queryData?.columns]);
 
   const {
     isLoading,
@@ -595,7 +602,16 @@ export const TableDataGrid = memo(function TableDataGrid(
         isLoading: props.isLoading ?? false,
         isLoadingMore: props.isStreaming ?? false,
         error: props.error ?? null,
-        columns: queryData?.columnMeta ?? [],
+        // Use columnMeta if available, otherwise generate basic column info from column names
+        columns: queryData?.columnMeta ?? (queryData?.columns?.map((name, idx): ColumnMeta => ({
+          name,
+          db_type: "text",
+          nullable: true,
+          default: null,
+          ordinal: idx,
+          is_pk: false,
+          is_fk: false,
+        })) ?? []),
         rows: transformedQueryRows,
         estimatedTotal: undefined,
         executionTime: props.executionTime,

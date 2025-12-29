@@ -90,20 +90,30 @@ interface ExplainNode {
   sortSpaceUsed?: number;
   sortSpaceType?: string;
   // Incremental Sort
-  fullSortGroups?: { count: number; memoryUsed: number; memoryType: string };
-  preSortedGroups?: { count: number; memoryUsed: number; memoryType: string };
+  fullSortGroups?: { count: number; memoryUsed: number; memoryType: string; peakMemory?: number };
+  preSortedGroups?: { count: number; memoryUsed: number; memoryType: string; peakMemory?: number };
   // Hash details
   hashBuckets?: number;
   hashBatches?: number;
   originalHashBatches?: number;
   peakMemoryUsage?: number;
+  memoryUsage?: number; // Memory Usage for HashAggregate/Hash (distinct from peak)
   diskUsage?: number;
   // Memoize cache stats
+  cacheKey?: string;
+  cacheMode?: string;
   cacheHits?: number;
   cacheMisses?: number;
   cacheEvictions?: number;
   cacheOverflows?: number;
   cacheMemoryUsage?: number;
+  // Function Scan
+  functionName?: string;
+  functionCall?: string;
+  // Foreign Scan
+  remoteSql?: string;
+  // Parallel
+  singleCopy?: boolean;
   // Buffers
   buffers?: {
     shared?: {
@@ -175,6 +185,10 @@ interface ParsedExplain {
   settings?: string[];
   queryIdentifier?: string;
   jit?: JitInfo;
+  // Planning phase buffers (separate from execution buffers)
+  planningBuffers?: {
+    shared?: { hit?: number; read?: number; dirtied?: number; written?: number };
+  };
 }
 
 interface ExplainViewerProps {
@@ -284,8 +298,9 @@ const ATTRIBUTE_PREFIXES = [
   // Stats
   "Rows Removed by",
   "Heap Fetches:",
-  "Exact Heap Blocks:",
-  "Lossy Heap Blocks:",
+  "Heap Blocks:", // Combined format: exact=X lossy=Y
+  "Exact Heap Blocks:", // Legacy format
+  "Lossy Heap Blocks:", // Legacy format
   // Sort
   "Sort Method:",
   "Sort Space Used:",
@@ -468,22 +483,41 @@ function parseNodeAttributes(node: ExplainNode, content: string): void {
     node.heapFetches = parseInt(trimmed.slice(13).trim(), 10);
     return;
   }
-  // Exact Heap Blocks
+  // Heap Blocks: exact=X lossy=Y (combined format in PostgreSQL)
+  if (trimmed.startsWith("Heap Blocks:")) {
+    const exactMatch = trimmed.match(/exact=(\d+)/);
+    const lossyMatch = trimmed.match(/lossy=(\d+)/);
+    if (exactMatch) node.exactHeapBlocks = parseInt(exactMatch[1] || "0", 10);
+    if (lossyMatch) node.lossyHeapBlocks = parseInt(lossyMatch[1] || "0", 10);
+    return;
+  }
+  // Legacy format: Exact Heap Blocks: (for compatibility)
   if (trimmed.startsWith("Exact Heap Blocks:")) {
     node.exactHeapBlocks = parseInt(trimmed.slice(18).trim(), 10);
     return;
   }
-  // Lossy Heap Blocks
+  // Legacy format: Lossy Heap Blocks: (for compatibility)
   if (trimmed.startsWith("Lossy Heap Blocks:")) {
     node.lossyHeapBlocks = parseInt(trimmed.slice(18).trim(), 10);
     return;
   }
-  // Sort Method
+  // Sort Method: quicksort  Memory: 33kB
   if (trimmed.startsWith("Sort Method:")) {
-    node.sortMethod = trimmed.slice(12).trim();
+    const sortValue = trimmed.slice(12).trim();
+    // Check if Memory is on the same line
+    const memoryMatch = sortValue.match(/Memory:\s*(\d+)\s*kB/i);
+    if (memoryMatch) {
+      // Extract method name (everything before "Memory:")
+      const methodPart = sortValue.replace(/\s*Memory:\s*\d+\s*kB/i, "").trim();
+      node.sortMethod = methodPart;
+      node.sortSpaceUsed = parseInt(memoryMatch[1] || "0", 10);
+      node.sortSpaceType = "Memory";
+    } else {
+      node.sortMethod = sortValue;
+    }
     return;
   }
-  // Sort Space Used
+  // Sort Space Used (standalone line)
   const sortSpaceMatch = trimmed.match(/Sort Space Used:\s*(\d+)kB/i);
   if (sortSpaceMatch) {
     node.sortSpaceUsed = parseInt(sortSpaceMatch[1] || "0", 10);
@@ -515,38 +549,56 @@ function parseNodeAttributes(node: ExplainNode, content: string): void {
     return;
   }
   // Full-sort Groups (Incremental Sort)
-  const fullSortMatch = trimmed.match(
-    /Full-sort Groups:\s*(\d+)\s+Sort Methods?:\s*(\w+)\s+(?:Average )?Memory:\s*(\d+)kB/i,
-  );
-  if (fullSortMatch) {
+  // Format: Full-sort Groups:  12  Sort Method: quicksort  Average Memory: 26kB  Peak Memory: 26kB
+  if (trimmed.startsWith("Full-sort Groups:")) {
+    const countMatch = trimmed.match(/Full-sort Groups:\s*(\d+)/i);
+    const methodMatch = trimmed.match(/Sort Methods?:\s*(\w+)/i);
+    const avgMemMatch = trimmed.match(/(?:Average )?Memory:\s*(\d+)\s*kB/i);
+    const peakMemMatch = trimmed.match(/Peak Memory:\s*(\d+)\s*kB/i);
     node.fullSortGroups = {
-      count: parseInt(fullSortMatch[1] || "0", 10),
-      memoryUsed: parseInt(fullSortMatch[3] || "0", 10),
-      memoryType: fullSortMatch[2] || "unknown",
+      count: countMatch ? parseInt(countMatch[1] || "0", 10) : 0,
+      memoryUsed: avgMemMatch ? parseInt(avgMemMatch[1] || "0", 10) : 0,
+      memoryType: methodMatch ? methodMatch[1] || "unknown" : "unknown",
+      peakMemory: peakMemMatch ? parseInt(peakMemMatch[1] || "0", 10) : undefined,
     };
     return;
   }
   // Pre-sorted Groups (Incremental Sort)
-  const preSortedMatch = trimmed.match(
-    /Pre-sorted Groups:\s*(\d+)\s+Sort Methods?:\s*(\w+)\s+(?:Average )?Memory:\s*(\d+)kB/i,
-  );
-  if (preSortedMatch) {
+  // Format: Pre-sorted Groups:  44  Sort Method: quicksort  Average Memory: 29kB  Peak Memory: 29kB
+  if (trimmed.startsWith("Pre-sorted Groups:")) {
+    const countMatch = trimmed.match(/Pre-sorted Groups:\s*(\d+)/i);
+    const methodMatch = trimmed.match(/Sort Methods?:\s*(\w+)/i);
+    const avgMemMatch = trimmed.match(/(?:Average )?Memory:\s*(\d+)\s*kB/i);
+    const peakMemMatch = trimmed.match(/Peak Memory:\s*(\d+)\s*kB/i);
     node.preSortedGroups = {
-      count: parseInt(preSortedMatch[1] || "0", 10),
-      memoryUsed: parseInt(preSortedMatch[3] || "0", 10),
-      memoryType: preSortedMatch[2] || "unknown",
+      count: countMatch ? parseInt(countMatch[1] || "0", 10) : 0,
+      memoryUsed: avgMemMatch ? parseInt(avgMemMatch[1] || "0", 10) : 0,
+      memoryType: methodMatch ? methodMatch[1] || "unknown" : "unknown",
+      peakMemory: peakMemMatch ? parseInt(peakMemMatch[1] || "0", 10) : undefined,
     };
     return;
   }
-  // Hash Buckets
+  // Hash Buckets (may include Batches and Memory Usage on same line)
+  // Format: "Buckets: 1024  Batches: 1  Memory Usage: 16kB"
   if (trimmed.startsWith("Hash Buckets:") || trimmed.startsWith("Buckets:")) {
-    const match = trimmed.match(/(?:Hash )?Buckets:\s*(\d+)/i);
-    if (match) node.hashBuckets = parseInt(match[1] || "0", 10);
+    const bucketsMatch = trimmed.match(/(?:Hash )?Buckets:\s*(\d+)/i);
+    if (bucketsMatch) node.hashBuckets = parseInt(bucketsMatch[1] || "0", 10);
+    // Also extract Batches if on same line
+    const batchesMatch = trimmed.match(/Batches:\s*(\d+)/i);
+    if (batchesMatch) node.hashBatches = parseInt(batchesMatch[1] || "0", 10);
+    // Also extract Memory Usage if on same line
+    const memUsageMatch = trimmed.match(/Memory Usage:\s*(\d+)\s*kB/i);
+    if (memUsageMatch) node.memoryUsage = parseInt(memUsageMatch[1] || "0", 10);
     return;
   }
-  // Hash Batches
+  // Hash Batches (standalone, may include Memory Usage)
+  // Format: "Batches: 1  Memory Usage: 40kB"
   if (trimmed.startsWith("Batches:")) {
-    node.hashBatches = parseInt(trimmed.slice(8).trim(), 10);
+    const batchesMatch = trimmed.match(/Batches:\s*(\d+)/i);
+    if (batchesMatch) node.hashBatches = parseInt(batchesMatch[1] || "0", 10);
+    // Also extract Memory Usage if on same line
+    const memUsageMatch = trimmed.match(/Memory Usage:\s*(\d+)\s*kB/i);
+    if (memUsageMatch) node.memoryUsage = parseInt(memUsageMatch[1] || "0", 10);
     return;
   }
   // Original Hash Batches
@@ -564,6 +616,36 @@ function parseNodeAttributes(node: ExplainNode, content: string): void {
   const diskUsageMatch = trimmed.match(/Disk Usage:\s*(\d+)\s*kB/i);
   if (diskUsageMatch) {
     node.diskUsage = parseInt(diskUsageMatch[1] || "0", 10);
+    return;
+  }
+  // Cache Key (Memoize)
+  if (trimmed.startsWith("Cache Key:")) {
+    node.cacheKey = trimmed.slice(10).trim();
+    return;
+  }
+  // Cache Mode (Memoize)
+  if (trimmed.startsWith("Cache Mode:")) {
+    node.cacheMode = trimmed.slice(11).trim();
+    return;
+  }
+  // Function Name (Function Scan)
+  if (trimmed.startsWith("Function Name:")) {
+    node.functionName = trimmed.slice(14).trim();
+    return;
+  }
+  // Function Call (Function Scan)
+  if (trimmed.startsWith("Function Call:")) {
+    node.functionCall = trimmed.slice(14).trim();
+    return;
+  }
+  // Remote SQL (Foreign Scan)
+  if (trimmed.startsWith("Remote SQL:")) {
+    node.remoteSql = trimmed.slice(11).trim();
+    return;
+  }
+  // Single Copy (Parallel)
+  if (trimmed.startsWith("Single Copy:")) {
+    node.singleCopy = trimmed.slice(12).trim().toLowerCase() === "true";
     return;
   }
   // Memoize - Hits
@@ -800,9 +882,12 @@ function parseNodeLine(content: string): ExplainNode {
   if (cteMatch) {
     node.cteName = cteMatch[1];
   }
-  const subplanMatch = content.match(/^(SubPlan|InitPlan)\s+(\d+)/i);
+  // Match SubPlan 1 or SubPlan 1 (returns $0) or InitPlan 1
+  const subplanMatch = content.match(/^(SubPlan|InitPlan)\s+(\d+)(?:\s*\(returns\s+(\$\d+)\))?/i);
   if (subplanMatch) {
-    node.subplanName = `${subplanMatch[1]} ${subplanMatch[2]}`;
+    node.subplanName = subplanMatch[3]
+      ? `${subplanMatch[1]} ${subplanMatch[2]} (returns ${subplanMatch[3]})`
+      : `${subplanMatch[1]} ${subplanMatch[2]}`;
   }
 
   // Join type (for joins)
@@ -880,6 +965,8 @@ function parsePostgresExplain(rows: unknown[][]): ParsedExplain {
   const settings: string[] = [];
   let queryIdentifier: string | undefined;
   let jit: JitInfo | undefined;
+  let planningBuffers: ParsedExplain["planningBuffers"];
+  let inPlanningSection = false;
 
   for (const line of lines) {
     const planningMatch = line.match(/Planning Time:\s*([\d.]+)\s*ms/i);
@@ -943,6 +1030,30 @@ function parsePostgresExplain(rows: unknown[][]): ParsedExplain {
         total: parseFloat(jitTimingMatch[5] || "0"),
       };
     }
+    // Planning section marker
+    if (line.trim() === "Planning:") {
+      inPlanningSection = true;
+      continue;
+    }
+    // Planning Buffers (appears after "Planning:" marker)
+    if (inPlanningSection && line.trim().startsWith("Buffers:")) {
+      const buffersStr = line.trim().slice(8).trim();
+      const sharedHit = buffersStr.match(/shared hit=(\d+)/);
+      const sharedRead = buffersStr.match(/shared read=(\d+)/);
+      const sharedDirtied = buffersStr.match(/shared dirtied=(\d+)/);
+      const sharedWritten = buffersStr.match(/shared written=(\d+)/);
+      if (sharedHit || sharedRead || sharedDirtied || sharedWritten) {
+        planningBuffers = {
+          shared: {
+            hit: sharedHit ? parseInt(sharedHit[1] || "0", 10) : undefined,
+            read: sharedRead ? parseInt(sharedRead[1] || "0", 10) : undefined,
+            dirtied: sharedDirtied ? parseInt(sharedDirtied[1] || "0", 10) : undefined,
+            written: sharedWritten ? parseInt(sharedWritten[1] || "0", 10) : undefined,
+          },
+        };
+      }
+      inPlanningSection = false;
+    }
   }
 
   const nodes: ExplainNode[] = [];
@@ -957,6 +1068,7 @@ function parsePostgresExplain(rows: unknown[][]): ParsedExplain {
       line.startsWith("Settings:") ||
       line.match(/^Query Identifier:/) ||
       trimmedLine === "JIT:" ||
+      trimmedLine === "Planning:" ||
       trimmedLine.startsWith("Functions:") ||
       trimmedLine.startsWith("Options:") ||
       trimmedLine.startsWith("Timing:")
@@ -1038,6 +1150,7 @@ function parsePostgresExplain(rows: unknown[][]): ParsedExplain {
     settings: settings.length > 0 ? settings : undefined,
     queryIdentifier,
     jit,
+    planningBuffers,
   };
 }
 
@@ -1115,6 +1228,13 @@ interface JsonPlanNode {
   "Cache Misses"?: number;
   "Cache Evictions"?: number;
   "Cache Overflows"?: number;
+  // Function Scan
+  "Function Name"?: string;
+  "Function Call"?: string;
+  // Foreign Scan
+  "Remote SQL"?: string;
+  // Parallel
+  "Single Copy"?: boolean;
   // Incremental Sort
   "Full-sort Groups"?: {
     "Group Count": number;
@@ -1272,10 +1392,19 @@ function parseJsonExplain(
       originalHashBatches: jsonNode["Original Hash Batches"],
       peakMemoryUsage: jsonNode["Peak Memory Usage"],
       // Memoize
+      cacheKey: jsonNode["Cache Key"],
+      cacheMode: jsonNode["Cache Mode"],
       cacheHits: jsonNode["Cache Hits"],
       cacheMisses: jsonNode["Cache Misses"],
       cacheEvictions: jsonNode["Cache Evictions"],
       cacheOverflows: jsonNode["Cache Overflows"],
+      // Function Scan
+      functionName: jsonNode["Function Name"],
+      functionCall: jsonNode["Function Call"],
+      // Foreign Scan
+      remoteSql: jsonNode["Remote SQL"],
+      // Parallel
+      singleCopy: jsonNode["Single Copy"],
       // Conflict resolution
       conflictResolution: jsonNode["Conflict Resolution"],
       conflictArbiterIndexes: jsonNode["Conflict Arbiter Indexes"],
@@ -1595,7 +1724,7 @@ const TreeNode = memo(function TreeNode({
               {node.subplanName &&
                 (node.type === "SubPlan" || node.type === "InitPlan") && (
                   <span className="ml-1 font-mono text-amber-600 dark:text-amber-400">
-                    {node.subplanName.split(" ")[1]}
+                    {node.subplanName.replace(/^(SubPlan|InitPlan)\s+/, "")}
                   </span>
                 )}
             </span>
@@ -1673,6 +1802,14 @@ const TreeNode = memo(function TreeNode({
                 <span className="font-mono">
                   {node.actualTime.total.toFixed(3)}ms
                 </span>
+                {node.loops !== undefined && node.loops > 1 && (
+                  <span className="text-muted-foreground">
+                    {" "}× {node.loops} ={" "}
+                    <span className="font-mono text-foreground">
+                      {(node.actualTime.total * node.loops).toFixed(3)}ms
+                    </span>
+                  </span>
+                )}
               </span>
             )}
             {node.actualRows !== undefined && (
@@ -1681,9 +1818,49 @@ const TreeNode = memo(function TreeNode({
                 <span className="font-mono">
                   {node.actualRows.toLocaleString()}
                 </span>
+                {node.loops !== undefined && node.loops > 1 && (
+                  <span className="text-muted-foreground">
+                    {" "}× {node.loops} ={" "}
+                    <span className="font-mono text-foreground">
+                      {(node.actualRows * node.loops).toLocaleString()}
+                    </span>
+                  </span>
+                )}
+                {/* Row estimate mismatch indicator */}
+                {node.rows !== undefined && node.rows > 0 && (() => {
+                  const ratio = node.actualRows / node.rows;
+                  if (ratio >= 10) {
+                    return (
+                      <span className="ml-1 text-red-500 dark:text-red-400" title={`Actual ${ratio.toFixed(1)}× higher than estimated`}>
+                        ↑{ratio >= 100 ? "100+" : ratio.toFixed(0)}×
+                      </span>
+                    );
+                  } else if (ratio <= 0.1 && node.actualRows > 0) {
+                    const invRatio = node.rows / node.actualRows;
+                    return (
+                      <span className="ml-1 text-amber-500 dark:text-amber-400" title={`Actual ${invRatio.toFixed(1)}× lower than estimated`}>
+                        ↓{invRatio >= 100 ? "100+" : invRatio.toFixed(0)}×
+                      </span>
+                    );
+                  } else if (ratio >= 2) {
+                    return (
+                      <span className="ml-1 text-orange-500 dark:text-orange-400" title={`Actual ${ratio.toFixed(1)}× higher than estimated`}>
+                        ↑{ratio.toFixed(1)}×
+                      </span>
+                    );
+                  } else if (ratio <= 0.5 && node.actualRows > 0) {
+                    const invRatio = node.rows / node.actualRows;
+                    return (
+                      <span className="ml-1 text-yellow-600 dark:text-yellow-400" title={`Actual ${invRatio.toFixed(1)}× lower than estimated`}>
+                        ↓{invRatio.toFixed(1)}×
+                      </span>
+                    );
+                  }
+                  return null;
+                })()}
               </span>
             )}
-            {node.loops !== undefined && (
+            {node.loops !== undefined && node.loops > 1 && (
               <span>
                 Loops: <span className="font-mono">{node.loops}</span>
               </span>
@@ -1821,19 +1998,68 @@ const TreeNode = memo(function TreeNode({
               {node.rowsRemoved.count.toLocaleString()}
             </div>
           )}
-          {node.buffers?.shared && (
+          {/* Heap Fetches (Index Only Scan) */}
+          {node.heapFetches !== undefined && (
+            <div className="text-xs mt-1 text-amber-600 dark:text-amber-400">
+              Heap Fetches: {node.heapFetches}
+            </div>
+          )}
+          {/* Heap Blocks (Bitmap Heap Scan) */}
+          {(node.exactHeapBlocks !== undefined ||
+            node.lossyHeapBlocks !== undefined) && (
+            <div className="text-xs mt-1 text-amber-600 dark:text-amber-400">
+              Heap Blocks:
+              {node.exactHeapBlocks !== undefined && ` exact=${node.exactHeapBlocks}`}
+              {node.lossyHeapBlocks !== undefined && (
+                <span className="text-orange-500"> lossy={node.lossyHeapBlocks}</span>
+              )}
+            </div>
+          )}
+          {(node.buffers?.shared || node.buffers?.local || node.buffers?.temp) && (
             <div className="text-xs mt-1 text-slate-600 dark:text-slate-400">
               Buffers:
-              {node.buffers.shared.hit !== undefined &&
-                ` hit=${node.buffers.shared.hit}`}
-              {node.buffers.shared.read !== undefined &&
-                ` read=${node.buffers.shared.read}`}
+              {node.buffers?.shared && (
+                <>
+                  {" shared"}
+                  {node.buffers.shared.hit !== undefined &&
+                    ` hit=${node.buffers.shared.hit}`}
+                  {node.buffers.shared.read !== undefined &&
+                    ` read=${node.buffers.shared.read}`}
+                  {node.buffers.shared.dirtied !== undefined &&
+                    ` dirtied=${node.buffers.shared.dirtied}`}
+                  {node.buffers.shared.written !== undefined &&
+                    ` written=${node.buffers.shared.written}`}
+                </>
+              )}
+              {node.buffers?.local && (
+                <>
+                  {" local"}
+                  {node.buffers.local.hit !== undefined &&
+                    ` hit=${node.buffers.local.hit}`}
+                  {node.buffers.local.read !== undefined &&
+                    ` read=${node.buffers.local.read}`}
+                  {node.buffers.local.dirtied !== undefined &&
+                    ` dirtied=${node.buffers.local.dirtied}`}
+                  {node.buffers.local.written !== undefined &&
+                    ` written=${node.buffers.local.written}`}
+                </>
+              )}
+              {node.buffers?.temp && (
+                <>
+                  {" temp"}
+                  {node.buffers.temp.read !== undefined &&
+                    ` read=${node.buffers.temp.read}`}
+                  {node.buffers.temp.written !== undefined &&
+                    ` written=${node.buffers.temp.written}`}
+                </>
+              )}
             </div>
           )}
           {node.sortMethod && (
             <div className="text-xs mt-1 text-blue-600 dark:text-blue-400">
               Sort Method: {node.sortMethod}
-              {node.sortSpaceUsed && ` (${node.sortSpaceUsed}kB)`}
+              {node.sortSpaceUsed !== undefined &&
+                `  ${node.sortSpaceType || "Memory"}: ${node.sortSpaceUsed}kB`}
             </div>
           )}
           {node.workersPlanned !== undefined && (
@@ -1844,19 +2070,29 @@ const TreeNode = memo(function TreeNode({
 
           {/* Hash stats */}
           {(node.hashBuckets !== undefined ||
-            node.hashBatches !== undefined) && (
+            node.hashBatches !== undefined ||
+            node.memoryUsage !== undefined) && (
             <div className="text-xs mt-1 text-purple-600 dark:text-purple-400">
-              Hash:
-              {node.hashBuckets !== undefined && ` Buckets=${node.hashBuckets}`}
-              {node.hashBatches !== undefined && ` Batches=${node.hashBatches}`}
+              {node.hashBuckets !== undefined && `Buckets: ${node.hashBuckets}`}
+              {node.hashBatches !== undefined && `  Batches: ${node.hashBatches}`}
               {node.originalHashBatches !== undefined &&
                 node.originalHashBatches !== node.hashBatches &&
-                ` (orig=${node.originalHashBatches})`}
+                ` (originally ${node.originalHashBatches})`}
+              {node.memoryUsage !== undefined &&
+                `  Memory Usage: ${node.memoryUsage}kB`}
               {node.peakMemoryUsage !== undefined &&
-                ` Peak=${node.peakMemoryUsage}kB`}
+                `  Peak Memory Usage: ${node.peakMemoryUsage}kB`}
               {node.diskUsage !== undefined && (
-                <span className="text-red-500"> Disk={node.diskUsage}kB</span>
+                <span className="text-red-500">  Disk Usage: {node.diskUsage}kB</span>
               )}
+            </div>
+          )}
+
+          {/* Memoize cache key/mode */}
+          {(node.cacheKey || node.cacheMode) && (
+            <div className="text-xs mt-1 text-violet-600 dark:text-violet-400">
+              {node.cacheKey && <>Cache Key: <code className="font-mono">{node.cacheKey}</code></>}
+              {node.cacheMode && <> Mode: {node.cacheMode}</>}
             </div>
           )}
 
@@ -1878,19 +2114,41 @@ const TreeNode = memo(function TreeNode({
             </div>
           )}
 
+          {/* Function Scan details */}
+          {(node.functionName || node.functionCall) && (
+            <div className="text-xs mt-1 text-emerald-600 dark:text-emerald-400">
+              {node.functionName && <>Function: <code className="font-mono">{node.functionName}</code></>}
+              {node.functionCall && <> Call: <code className="font-mono">{node.functionCall}</code></>}
+            </div>
+          )}
+
+          {/* Foreign Scan remote SQL */}
+          {node.remoteSql && (
+            <div className="text-xs mt-1 text-sky-600 dark:text-sky-400">
+              Remote SQL: <code className="font-mono text-[10px]">{node.remoteSql}</code>
+            </div>
+          )}
+
+          {/* Single Copy (parallel) */}
+          {node.singleCopy && (
+            <div className="text-xs mt-1 text-teal-600 dark:text-teal-400">
+              Single Copy: true
+            </div>
+          )}
+
           {/* Incremental Sort groups */}
           {node.fullSortGroups && (
             <div className="text-xs mt-1 text-blue-600 dark:text-blue-400">
-              Full-sort: {node.fullSortGroups.count} groups (
-              {node.fullSortGroups.memoryType}, {node.fullSortGroups.memoryUsed}
-              kB avg)
+              Full-sort Groups: {node.fullSortGroups.count}  Sort Method: {node.fullSortGroups.memoryType}  Average Memory: {node.fullSortGroups.memoryUsed}kB
+              {node.fullSortGroups.peakMemory !== undefined &&
+                `  Peak Memory: ${node.fullSortGroups.peakMemory}kB`}
             </div>
           )}
           {node.preSortedGroups && (
             <div className="text-xs mt-1 text-blue-600 dark:text-blue-400">
-              Pre-sorted: {node.preSortedGroups.count} groups (
-              {node.preSortedGroups.memoryType},{" "}
-              {node.preSortedGroups.memoryUsed}kB avg)
+              Pre-sorted Groups: {node.preSortedGroups.count}  Sort Method: {node.preSortedGroups.memoryType}  Average Memory: {node.preSortedGroups.memoryUsed}kB
+              {node.preSortedGroups.peakMemory !== undefined &&
+                `  Peak Memory: ${node.preSortedGroups.peakMemory}kB`}
             </div>
           )}
 
@@ -1907,6 +2165,66 @@ const TreeNode = memo(function TreeNode({
             <div className="text-xs mt-1 text-emerald-600 dark:text-emerald-400">
               Memory: used={node.memory.used}kB allocated=
               {node.memory.allocated}kB
+            </div>
+          )}
+
+          {/* I/O Timings */}
+          {node.ioTiming && (
+            <div className="text-xs mt-1 text-slate-600 dark:text-slate-400">
+              I/O Timings:
+              {node.ioTiming.read !== undefined && ` read=${node.ioTiming.read.toFixed(3)}`}
+              {node.ioTiming.write !== undefined && ` write=${node.ioTiming.write.toFixed(3)}`}
+            </div>
+          )}
+
+          {/* Never executed indicator */}
+          {node.neverExecuted && (
+            <div className="text-xs mt-1 text-gray-500 dark:text-gray-400 italic">
+              (never executed)
+            </div>
+          )}
+
+          {/* Run Condition (PG15+ WindowAgg optimization) */}
+          {node.runCondition && (
+            <div className="text-xs mt-1 text-cyan-600 dark:text-cyan-400">
+              Run Condition: <code className="font-mono">{node.runCondition}</code>
+            </div>
+          )}
+
+          {/* Partition pruning info */}
+          {(node.partitionsRemoved !== undefined || node.plannedPartitions !== undefined) && (
+            <div className="text-xs mt-1 text-indigo-600 dark:text-indigo-400">
+              Partitions:
+              {node.plannedPartitions !== undefined && ` ${node.plannedPartitions} planned`}
+              {node.partitionsRemoved !== undefined && ` (${node.partitionsRemoved} removed)`}
+            </div>
+          )}
+
+          {/* Subplans removed */}
+          {node.subplansRemoved !== undefined && node.subplansRemoved > 0 && (
+            <div className="text-xs mt-1 text-indigo-600 dark:text-indigo-400">
+              Subplans Removed: {node.subplansRemoved}
+            </div>
+          )}
+
+          {/* Sampling method */}
+          {node.samplingMethod && (
+            <div className="text-xs mt-1 text-pink-600 dark:text-pink-400">
+              Sampling: {node.samplingMethod}
+            </div>
+          )}
+
+          {/* Grouping Sets */}
+          {node.groupingSets && node.groupingSets.length > 0 && (
+            <div className="text-xs mt-1 text-fuchsia-600 dark:text-fuchsia-400">
+              Grouping Sets: <code className="font-mono">{node.groupingSets.join(", ")}</code>
+            </div>
+          )}
+
+          {/* Partial Mode (parallel aggregate) */}
+          {node.partialMode && (
+            <div className="text-xs mt-1 text-teal-600 dark:text-teal-400">
+              Partial Mode: {node.partialMode}
             </div>
           )}
 
@@ -2506,7 +2824,9 @@ export const ExplainViewer = memo(function ExplainViewer({
         (parsed.planningTime !== undefined ||
           parsed.executionTime !== undefined ||
           parsed.triggers?.length ||
-          parsed.jit) && (
+          parsed.jit ||
+          parsed.settings?.length ||
+          parsed.queryIdentifier) && (
           <div className="border-b bg-gradient-to-r from-muted/30 to-muted/10">
             <div className="px-4 py-3 space-y-2">
               {/* Timing Section */}
@@ -2552,6 +2872,21 @@ export const ExplainViewer = memo(function ExplainViewer({
                           </span>
                         </div>
                       )}
+                    {/* Planning Buffers */}
+                    {parsed.planningBuffers?.shared && (
+                      <div className="flex items-center gap-1.5 pl-2 border-l">
+                        <span className="text-xs text-muted-foreground">
+                          Plan Buffers:
+                        </span>
+                        <span className="text-xs font-mono text-slate-600 dark:text-slate-400">
+                          shared
+                          {parsed.planningBuffers.shared.hit !== undefined && ` hit=${parsed.planningBuffers.shared.hit}`}
+                          {parsed.planningBuffers.shared.read !== undefined && ` read=${parsed.planningBuffers.shared.read}`}
+                          {parsed.planningBuffers.shared.dirtied !== undefined && ` dirtied=${parsed.planningBuffers.shared.dirtied}`}
+                          {parsed.planningBuffers.shared.written !== undefined && ` written=${parsed.planningBuffers.shared.written}`}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -2670,6 +3005,36 @@ export const ExplainViewer = memo(function ExplainViewer({
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Settings Section */}
+              {parsed.settings && parsed.settings.length > 0 && (
+                <div className="flex items-start gap-4">
+                  <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                    <div className="h-4 w-4 flex items-center justify-center">
+                      <div className="h-2 w-2 rounded-full bg-slate-600 dark:bg-slate-400" />
+                    </div>
+                    <span className="text-xs font-medium">Settings</span>
+                  </div>
+                  <div className="flex-1 text-xs font-mono text-muted-foreground">
+                    {parsed.settings.join(", ")}
+                  </div>
+                </div>
+              )}
+
+              {/* Query Identifier */}
+              {parsed.queryIdentifier && (
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                    <div className="h-4 w-4 flex items-center justify-center">
+                      <div className="h-2 w-2 rounded-full bg-slate-600 dark:bg-slate-400" />
+                    </div>
+                    <span className="text-xs font-medium">Query ID</span>
+                  </div>
+                  <span className="text-xs font-mono text-muted-foreground">
+                    {parsed.queryIdentifier}
+                  </span>
                 </div>
               )}
             </div>

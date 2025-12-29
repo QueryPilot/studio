@@ -1364,6 +1364,10 @@ export function ConnectionForm() {
                   <div className="flex gap-4">
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
+                        autoCapitalize="off"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        spellCheck={false}
                         type="radio"
                         name="ssm-auth"
                         value="profile"
@@ -1377,6 +1381,10 @@ export function ConnectionForm() {
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
+                        autoCapitalize="off"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        spellCheck={false}
                         type="radio"
                         name="ssm-auth"
                         value="oauth"

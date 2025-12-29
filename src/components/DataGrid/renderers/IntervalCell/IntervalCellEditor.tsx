@@ -147,6 +147,10 @@ export const IntervalCellEditor: React.FC<IntervalCellEditorProps> = ({
           <div>
             <Label className="text-[9px] text-muted-foreground">Years</Label>
             <input
+              autoCapitalize="off"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
               type="number"
               min="0"
               className={cn(
@@ -162,6 +166,10 @@ export const IntervalCellEditor: React.FC<IntervalCellEditorProps> = ({
           <div>
             <Label className="text-[9px] text-muted-foreground">Months</Label>
             <input
+              autoCapitalize="off"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
               type="number"
               min="0"
               max="11"
@@ -181,6 +189,10 @@ export const IntervalCellEditor: React.FC<IntervalCellEditorProps> = ({
           <div>
             <Label className="text-[9px] text-muted-foreground">Days</Label>
             <input
+              autoCapitalize="off"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
               type="number"
               min="0"
               className={cn(
@@ -225,6 +237,10 @@ export const IntervalCellEditor: React.FC<IntervalCellEditorProps> = ({
           <div>
             <Label className="text-[9px] text-muted-foreground">Minutes</Label>
             <input
+              autoCapitalize="off"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
               type="number"
               min="0"
               max="59"
@@ -244,6 +260,10 @@ export const IntervalCellEditor: React.FC<IntervalCellEditorProps> = ({
           <div>
             <Label className="text-[9px] text-muted-foreground">Seconds</Label>
             <input
+              autoCapitalize="off"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
               type="number"
               min="0"
               max="59.999999"
