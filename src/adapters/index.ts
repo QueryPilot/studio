@@ -275,9 +275,52 @@ function commandToSql(adapter: DatabaseAdapter, command: CrudCommand): string | 
 }
 
 /**
+ * Helper to rename columns in an array of column names
+ */
+function renameColumnsInArray(
+  columns: string[],
+  renames: Map<string, string>,
+): { columns: string[]; changed: boolean } {
+  let changed = false;
+  const newColumns = columns.map((col) => {
+    const newName = renames.get(col);
+    if (newName) {
+      changed = true;
+      return newName;
+    }
+    return col;
+  });
+  return { columns: newColumns, changed };
+}
+
+/**
+ * Helper to rename column keys in a record
+ */
+function renameColumnsInRecord(
+  record: Record<string, unknown>,
+  renames: Map<string, string>,
+): { record: Record<string, unknown>; changed: boolean } {
+  let changed = false;
+  const newRecord: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    const newKey = renames.get(key);
+    if (newKey) {
+      changed = true;
+      newRecord[newKey] = value;
+    } else {
+      newRecord[key] = value;
+    }
+  }
+  return { record: newRecord, changed };
+}
+
+/**
  * Apply column renames from previous commands to the current command.
  * This ensures subsequent modifications use the new column name after a rename.
  * Exported for use in crudStore commit flow.
+ *
+ * Handles: column.modify, column.drop, column.rename, fk.add, index.create,
+ *          data.insert, data.update, trigger.create
  */
 export function applyColumnRenames(
   command: CrudCommand,
@@ -323,7 +366,145 @@ export function applyColumnRenames(
     }
   }
 
+  // Apply rename to fk.add commands (columns[] and referenceColumns[])
+  if (command.type === 'fk.add') {
+    const payload = command.payload as ForeignKeyAddPayload;
+    if (payload.definition) {
+      let changed = false;
+      let newColumns = payload.definition.columns;
+      let newRefColumns = payload.definition.referenceColumns;
+
+      if (payload.definition.columns?.length) {
+        const result = renameColumnsInArray(payload.definition.columns, columnRenames);
+        if (result.changed) {
+          changed = true;
+          newColumns = result.columns;
+        }
+      }
+
+      // Note: referenceColumns usually reference a different table, but if same table FK,
+      // we should still rename them
+      if (payload.definition.referenceColumns?.length) {
+        const result = renameColumnsInArray(payload.definition.referenceColumns, columnRenames);
+        if (result.changed) {
+          changed = true;
+          newRefColumns = result.columns;
+        }
+      }
+
+      if (changed) {
+        return {
+          ...command,
+          payload: {
+            ...payload,
+            definition: {
+              ...payload.definition,
+              columns: newColumns,
+              referenceColumns: newRefColumns,
+            },
+          },
+        } as CrudCommand;
+      }
+    }
+  }
+
+  // Apply rename to index.create commands (columns[] and includeColumns[])
+  if (command.type === 'index.create') {
+    const payload = command.payload as IndexCreatePayload;
+    if (payload.definition) {
+      let changed = false;
+      let newColumns = payload.definition.columns;
+      let newIncludeColumns = payload.definition.includeColumns;
+
+      if (payload.definition.columns?.length) {
+        const result = renameColumnsInArray(payload.definition.columns, columnRenames);
+        if (result.changed) {
+          changed = true;
+          newColumns = result.columns;
+        }
+      }
+
+      if (payload.definition.includeColumns?.length) {
+        const result = renameColumnsInArray(payload.definition.includeColumns, columnRenames);
+        if (result.changed) {
+          changed = true;
+          newIncludeColumns = result.columns;
+        }
+      }
+
+      if (changed) {
+        return {
+          ...command,
+          payload: {
+            ...payload,
+            definition: {
+              ...payload.definition,
+              columns: newColumns,
+              includeColumns: newIncludeColumns,
+            },
+          },
+        } as CrudCommand;
+      }
+    }
+  }
+
+  // Apply rename to data.insert commands (values{} keys)
+  if (command.type === 'data.insert') {
+    const payload = command.payload as DataInsertPayload;
+    if (payload.values) {
+      const result = renameColumnsInRecord(payload.values, columnRenames);
+      if (result.changed) {
+        return {
+          ...command,
+          payload: { ...payload, values: result.record },
+        } as CrudCommand;
+      }
+    }
+  }
+
+  // Apply rename to data.update commands (column field)
+  if (command.type === 'data.update') {
+    const payload = command.payload as DataUpdatePayload;
+    const newName = columnRenames.get(payload.column);
+    if (newName) {
+      return {
+        ...command,
+        payload: { ...payload, column: newName },
+      } as CrudCommand;
+    }
+  }
+
+  // Note: trigger.create doesn't have column references that need renaming
+  // (TriggerDefinitionInput has condition which is SQL text, too complex to parse)
+
   return command;
+}
+
+/**
+ * Update column rename tracking for chained renames.
+ * When a column is renamed, we need to update any existing mappings
+ * that point to the old name to now point to the new name.
+ */
+export function trackColumnRename(
+  columnRenames: Map<string, string>,
+  originalCmd: CrudCommand,
+  adjustedCmd: CrudCommand,
+): void {
+  if (originalCmd.type !== 'column.rename') return;
+
+  const origPayload = originalCmd.payload as ColumnRenamePayload;
+  const adjPayload = adjustedCmd.payload as ColumnRenamePayload;
+
+  // Update existing chains: if anything points to the adjusted old name,
+  // update it to point to the new name
+  for (const [key, value] of columnRenames.entries()) {
+    if (value === adjPayload.columnName) {
+      columnRenames.set(key, origPayload.newName);
+    }
+  }
+
+  // Track this rename (from adjusted column name to new name)
+  columnRenames.set(adjPayload.columnName, origPayload.newName);
 }
 
 /**
@@ -357,11 +538,8 @@ export async function generateSqlPreview(
       // Apply any pending renames to this command
       const adjustedCmd = applyColumnRenames(cmd, columnRenames);
 
-      // Track renames for subsequent commands
-      if (cmd.type === 'column.rename') {
-        const payload = cmd.payload as ColumnRenamePayload;
-        columnRenames.set(payload.columnName, payload.newName);
-      }
+      // Track renames for subsequent commands (handles chained renames)
+      trackColumnRename(columnRenames, cmd, adjustedCmd);
 
       const sql = commandToSql(adapter, adjustedCmd);
       if (sql) {

@@ -27,6 +27,7 @@ vi.mock("@/adapters", () => ({
   getAdapter: vi.fn(() => Promise.resolve(mockAdapter)),
   // Simple pass-through for column rename tracking (not tested in this file)
   applyColumnRenames: vi.fn((cmd) => cmd),
+  trackColumnRename: vi.fn(),
 }));
 
 // Mock connection store
