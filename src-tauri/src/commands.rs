@@ -931,10 +931,16 @@ async fn execute_single_fetch_stream(
 
         // Use simple_query for multi-statement support (no prepared statements)
         let simple_start = std::time::Instant::now();
-        pool_conn.batch_execute(sql).await.map_err(|e| {
+        let batch_result = pool_conn.batch_execute(sql).await;
+
+        if let Err(e) = &batch_result {
             tracing::error!("❌ batch_execute failed: {:?}", e);
-            extract_db_error_message(&e)
-        })?;
+            // ROLLBACK to clean up the failed transaction and reset connection state
+            if let Err(rollback_err) = pool_conn.batch_execute("ROLLBACK").await {
+                tracing::debug!("  ℹ️ ROLLBACK after failure (may already be rolled back): {}", rollback_err);
+            }
+            return Err(extract_db_error_message(e));
+        }
         let exec_elapsed = simple_start.elapsed().as_millis();
         tracing::info!("  ⏱ Executed multi-statement batch: {}ms", exec_elapsed);
 
